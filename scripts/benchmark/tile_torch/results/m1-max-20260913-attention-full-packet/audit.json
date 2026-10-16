@@ -1,0 +1,437 @@
+{
+  "status": "passed",
+  "independent_numpy_oracles": 20,
+  "capture_output_checks": 40,
+  "replay_output_checks": 120,
+  "timer_samples": 840,
+  "distinct_files_hashed": 862,
+  "run_sha256": "3836445b790729de057f8d8630096b0653a29f3de4641406557b9868653cadeb",
+  "controls_checked": [
+    "operation",
+    "dimensions",
+    "attention_block",
+    "attention_qk",
+    "attention_pv",
+    "precision",
+    "fast_math",
+    "relaxed_precision",
+    "requested_group_threads",
+    "requested_input_views",
+    "reduction_tree",
+    "source_reduction_policy",
+    "input_shapes",
+    "output_shape",
+    "dispatch"
+  ],
+  "all_declared_cases_retained": true,
+  "limitations": [
+    "Native-entry host-wall timing includes launch resets, block traversal and compiler-emitted helper/libc work; not hardware-only execution time.",
+    "Buffer/workspace/input guards are C++ execution receipts, not independently saved guard allocations.",
+    "Generic LLVM body/math/ABI and wrapper retargeting are checked; this audit is not a proof of the optimizer's transformation legality.",
+    "Capture commands record selected LUISA flags and executable paths, not historical executable/dylib bytes or the complete inherited process environment.",
+    "Original external source identities are verified against frozen prepared snapshots; tool identities require the recorded LLVM executables to remain available.",
+    "Screen and held-out cohorts retain separate labels; ranges describe six matched pairs, not confidence intervals or Torch/MPS parity."
+  ],
+  "experiments": [
+    {
+      "group": "screen",
+      "case": "decode",
+      "dimensions": [
+        1,
+        8,
+        2,
+        1,
+        2053,
+        80,
+        96
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 1,
+          "full_packet_cloned_instructions": 3343
+        }
+      },
+      "object_identical": false,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 3157.989625,
+        "on": 2021.5260625
+      },
+      "paired_on_over_off": 0.6404978331739071,
+      "pair_range": [
+        0.632191294352412,
+        0.6458259131742451
+      ],
+      "paired_wins": 6,
+      "replay_max_abs_error_vs_independent_fp64": 1.9929339575104274e-08
+    },
+    {
+      "group": "screen",
+      "case": "prefill",
+      "dimensions": [
+        1,
+        4,
+        2,
+        32,
+        65,
+        32,
+        32
+      ],
+      "attention_block": [
+        4,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        }
+      },
+      "object_identical": true,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 140.77164453125,
+        "on": 140.868
+      },
+      "paired_on_over_off": 1.0004269176863354,
+      "pair_range": [
+        0.9912690459624455,
+        1.0159077075916123
+      ],
+      "paired_wins": 2,
+      "replay_max_abs_error_vs_independent_fp64": 1.3888577706649974e-07
+    },
+    {
+      "group": "screen",
+      "case": "decode-tail",
+      "dimensions": [
+        1,
+        6,
+        2,
+        1,
+        2053,
+        80,
+        96
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 1,
+          "full_packet_cloned_instructions": 3343
+        }
+      },
+      "object_identical": false,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 3034.3931875,
+        "on": 3015.703125
+      },
+      "paired_on_over_off": 0.9936521073363679,
+      "pair_range": [
+        0.9885809517930992,
+        0.998422747947137
+      ],
+      "paired_wins": 6,
+      "replay_max_abs_error_vs_independent_fp64": 1.9929339575104274e-08
+    },
+    {
+      "group": "screen",
+      "case": "small-triangular",
+      "dimensions": [
+        1,
+        2,
+        2,
+        5,
+        5,
+        5,
+        3
+      ],
+      "attention_block": [
+        2,
+        3
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        }
+      },
+      "object_identical": true,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 1.3922805786132812,
+        "on": 1.3943506774902343
+      },
+      "paired_on_over_off": 1.0016227252886838,
+      "pair_range": [
+        0.9900736292088546,
+        1.0125855677673552
+      ],
+      "paired_wins": 2,
+      "replay_max_abs_error_vs_independent_fp64": 1.1968017454844215e-07
+    },
+    {
+      "group": "heldout",
+      "case": "heldout-mha",
+      "dimensions": [
+        1,
+        8,
+        8,
+        1,
+        2048,
+        64,
+        64
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        }
+      },
+      "object_identical": true,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 1138.5455625,
+        "on": 1134.95053125
+      },
+      "paired_on_over_off": 0.9971286564681328,
+      "pair_range": [
+        0.9762903287520927,
+        1.0231865474312833
+      ],
+      "paired_wins": 3,
+      "replay_max_abs_error_vs_independent_fp64": 1.833378765968806e-08
+    },
+    {
+      "group": "heldout",
+      "case": "heldout-mqa-batch",
+      "dimensions": [
+        2,
+        8,
+        1,
+        1,
+        2053,
+        80,
+        96
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 1,
+          "full_packet_cloned_instructions": 3356
+        }
+      },
+      "object_identical": false,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 4656.098875,
+        "on": 1286.59115625
+      },
+      "paired_on_over_off": 0.2764451359082544,
+      "pair_range": [
+        0.2722156245528309,
+        0.2812866102241888
+      ],
+      "paired_wins": 6,
+      "replay_max_abs_error_vs_independent_fp64": 2.9487624802538616e-08
+    },
+    {
+      "group": "heldout",
+      "case": "heldout-mixed-tail",
+      "dimensions": [
+        1,
+        10,
+        2,
+        1,
+        2053,
+        80,
+        96
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 1,
+          "full_packet_cloned_instructions": 3343
+        }
+      },
+      "object_identical": false,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 5722.416625,
+        "on": 4372.869875
+      },
+      "paired_on_over_off": 0.7643071069479161,
+      "pair_range": [
+        0.7550507225167215,
+        0.7744474751328171
+      ],
+      "paired_wins": 6,
+      "replay_max_abs_error_vs_independent_fp64": 2.9487624802538616e-08
+    },
+    {
+      "group": "heldout",
+      "case": "heldout-long-kv",
+      "dimensions": [
+        1,
+        16,
+        4,
+        1,
+        8193,
+        128,
+        128
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 1,
+          "full_packet_cloned_instructions": 3343
+        }
+      },
+      "object_identical": false,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 28451.958,
+        "on": 16861.583
+      },
+      "paired_on_over_off": 0.5879618857175091,
+      "pair_range": [
+        0.5816055559331351,
+        0.6649863706375926
+      ],
+      "paired_wins": 6,
+      "replay_max_abs_error_vs_independent_fp64": 1.7918961366702514e-08
+    },
+    {
+      "group": "heldout",
+      "case": "heldout-small-q",
+      "dimensions": [
+        1,
+        8,
+        2,
+        3,
+        67,
+        80,
+        96
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 1,
+          "full_packet_cloned_instructions": 3345
+        }
+      },
+      "object_identical": false,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 364.3688203125,
+        "on": 209.810546875
+      },
+      "paired_on_over_off": 0.5766082538867967,
+      "pair_range": [
+        0.5685692921898422,
+        0.5785184937511019
+      ],
+      "paired_wins": 6,
+      "replay_max_abs_error_vs_independent_fp64": 2.86816193871553e-07
+    },
+    {
+      "group": "heldout",
+      "case": "heldout-triangular",
+      "dimensions": [
+        1,
+        4,
+        2,
+        65,
+        65,
+        64,
+        64
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "specialization": {
+        "off": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        },
+        "on": {
+          "full_packet_specializations": 0,
+          "full_packet_cloned_instructions": 0
+        }
+      },
+      "object_identical": true,
+      "outputs_bitwise_identical": true,
+      "medians_us": {
+        "off": 1534.73046875,
+        "on": 1527.08465625
+      },
+      "paired_on_over_off": 0.9938455158134338,
+      "pair_range": [
+        0.987872727201818,
+        0.9988180237058004
+      ],
+      "paired_wins": 6,
+      "replay_max_abs_error_vs_independent_fp64": 4.354671947065514e-07
+    }
+  ]
+}

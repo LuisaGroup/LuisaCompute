@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/archive.py", line 82, in <module>
+    main()
+    ~~~~^^
+  File "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/archive.py", line 45, in main
+    assert row['measurement']['source_hash'] == original['measurement']['source_hash']
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+KeyError: 'source_hash'

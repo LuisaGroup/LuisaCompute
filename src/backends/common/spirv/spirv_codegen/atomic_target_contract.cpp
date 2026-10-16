@@ -16,6 +16,7 @@ using namespace luisa::compute;
 
 namespace {
 
+namespace atomic_target_contract_detail {
 [[nodiscard]] const xir::Value *root_address(
     const xir::Value *value) noexcept {
     while (value != nullptr && value->isa<xir::GEPInst>()) {
@@ -24,6 +25,7 @@ namespace {
     return value;
 }
 
+}  // namespace atomic_target_contract_detail
 [[nodiscard]] luisa::string_view shared_float_atomic_feature(
     xir::AtomicOp op) noexcept {
     switch (op) {
@@ -57,7 +59,7 @@ validate_spirv_atomic_target_contract(
                 auto *atomic =
                     static_cast<const xir::AtomicInst *>(instruction);
                 auto *leaf_type = atomic->type();
-                auto *root = root_address(atomic->base());
+                auto *root = atomic_target_contract_detail::root_address(atomic->base());
                 auto *alloca =
                     root != nullptr && root->isa<xir::AllocaInst>() ?
                         static_cast<const xir::AllocaInst *>(root) :

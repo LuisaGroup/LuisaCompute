@@ -2,6 +2,12 @@
 
 This document describes the internal architecture of LuisaCompute, including the compilation pipeline, runtime system, and backend implementations.
 
+The [implementation index](internals/index.md) links subsystem references,
+including the [Tile compiler](internals/tile/index.md) and
+[coroutine suspend extensions](coro_suspend_extensions.md). The following
+overview introduces the established SIMT/AST path; Tile adds a separate
+execution-first frontend while reusing the Runtime and backend boundaries.
+
 ## Overview
 
 LuisaCompute is structured in three main layers:
@@ -18,9 +24,19 @@ LuisaCompute is structured in three main layers:
 │   (Resource wrappers, command encoding, device interface)   │
 ├─────────────────────────────────────────────────────────────┤
 │              Backend (Platform-specific)                    │
-│   (CUDA, DirectX, Metal, CPU code generation & execution)   │
+│ (CUDA, DirectX, Metal, Vulkan, HIP, fallback execution)     │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Tile within the compiler architecture
+
+The Tile frontend captures typed, mutable TileIR rather than constructing a
+SIMT AST. Its backend factory selects a C++ TIRx bridge, native Metal MPP
+lowering, or the XIR bridge for the SIMD CPU backend. Resulting kernels use
+ordinary Runtime shader handles and Stream launches. Execution mapping and
+memory planning are target realizations, not changes to the public Runtime
+resource model. See [Tile compiler and Runtime](internals/tile/index.md) for
+the route diagram, implementation boundaries and planning references.
 
 ## Frontend: The Embedded DSL
 
@@ -242,23 +258,23 @@ The Metal backend:
 2. Uses Metal compiler framework
 3. Manages `MTLLibrary`, `MTLFunction`, `MTLBuffer`
 
-### CPU Backend
+### Fallback Backend
 
-**File**: `src/rust/`
+**File**: `src/backends/fallback/`
 
-The CPU backend is implemented in Rust using:
+The native C++ fallback backend uses:
 - LLVM for code generation
 - Embree for ray tracing
 - Custom threading for parallel execution
 
 ## IR (Intermediate Representation)
 
-LuisaCompute v2 introduces a new IR for more advanced optimizations.
+XIR is LuisaCompute's native C++ intermediate representation for analysis and optimization.
 
 ### AST to IR Conversion
 
 ```
-AST (FunctionBuilder) -> IR (luisa::ir) -> Backend Code
+AST (FunctionBuilder) -> XIR (luisa::compute::xir) -> Backend Code
 ```
 
 The IR provides:
@@ -337,7 +353,7 @@ Backends use different allocation strategies:
 | CUDA | cuMemAlloc/cuMemPool | Memory pools for efficiency |
 | DirectX | D3D12MA | TLSF-based custom allocator |
 | Metal | MTLHeap | Heap-based sub-allocation |
-| CPU | mimalloc | Per-thread heap allocation |
+| Fallback | mimalloc | Host-side allocation |
 
 ### Host Memory
 
@@ -405,12 +421,12 @@ LuisaCompute uses modern CMake (3.23+) with the following configuration options:
 | `LUISA_COMPUTE_ENABLE_CUDA` | ON | Enable CUDA backend |
 | `LUISA_COMPUTE_ENABLE_DX` | ON | Enable DirectX backend |
 | `LUISA_COMPUTE_ENABLE_METAL` | ON | Enable Metal backend |
-| `LUISA_COMPUTE_ENABLE_CPU` | ON | Enable CPU backend |
+| `LUISA_COMPUTE_ENABLE_FALLBACK` | Developer builds | Enable native C++ LLVM/Embree fallback backend |
 | `LUISA_COMPUTE_ENABLE_VULKAN` | ON | Enable Vulkan backend |
+| `LUISA_COMPUTE_ENABLE_VK_CUDA_INTEROP` | Developer builds | Enable Vulkan-CUDA interop (external memory/timeline sync, and CUDA kernel dispatch in Vulkan command buffers via VK_NV_cuda_kernel_launch) when CUDAToolkit is available |
 | `LUISA_COMPUTE_ENABLE_HIP` | OFF | Enable HIP backend (WIP) |
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | Enable C++ DSL |
 | `LUISA_COMPUTE_ENABLE_GUI` | ON | Enable GUI support |
-| `LUISA_COMPUTE_ENABLE_TENSOR` | OFF | Enable tensor extension |
 | `LUISA_COMPUTE_BUILD_TESTS` | ON | Build test suite |
 
 #### Build Commands
@@ -485,11 +501,10 @@ LuisaCompute uses XMake (3.0.6+) as an alternative build system with a more stre
 | `lc_vk_backend` | true | Enable Vulkan backend |
 | `lc_metal_backend` | true | Enable Metal backend |
 | `lc_fallback_backend` | false | Enable fallback backend |
-| `lc_toy_c_backend` | false | Enable toy C backend (experimental) |
 | **Backend Extensions** |||
 | `lc_cuda_ext_lcub` | false | Enable NVIDIA CUB extension (long compile time) |
 | `lc_dx_cuda_interop` | false | Enable DirectX-CUDA interop |
-| `lc_vk_cuda_interop` | false | Enable Vulkan-CUDA interop |
+| `lc_vk_cuda_interop` | false | Enable Vulkan-CUDA interop (external memory/timeline sync, and CUDA kernel dispatch in Vulkan command buffers via VK_NV_cuda_kernel_launch) |
 | **Module Options** |||
 | `lc_enable_dsl` | true | Enable C++ DSL module |
 | `lc_enable_gui` | true | Enable GUI module |
@@ -497,7 +512,7 @@ LuisaCompute uses XMake (3.0.6+) as an alternative build system with a more stre
 | `lc_enable_osl` | true | Enable OSL (Open Shading Language) support |
 | `lc_enable_py` | true | Enable Python bindings |
 | `lc_enable_clangcxx` | false | Enable Clang C++ module |
-| `lc_enable_xir` | false | Enable XIR (experimental IR) |
+| `lc_enable_xir` | true | Enable XIR |
 | **Build Configuration** |||
 | `lc_enable_mimalloc` | true | Use mimalloc as default allocator |
 | `lc_enable_custom_malloc` | false | Enable custom malloc |
@@ -517,8 +532,8 @@ LuisaCompute uses XMake (3.0.6+) as an alternative build system with a more stre
 | **Path Configuration** |||
 | `lc_bin_dir` | bin | Custom binary output directory |
 | `lc_sdk_dir` | false | Custom SDK directory |
-| `lc_llvm_path` | false | LLVM installation path (for CPU backend) |
-| `lc_embree_path` | false | Embree path (for CPU ray tracing) |
+| `lc_llvm_path` | false | LLVM installation path (for fallback backend) |
+| `lc_embree_path` | false | Embree path (for fallback ray tracing) |
 | `lc_toolchain` | false | Custom toolchain |
 | `lc_win_runtime` | false | Windows runtime library |
 | `lc_optimize` | false | Additional optimization flags |

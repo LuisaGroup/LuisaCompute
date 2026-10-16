@@ -1,0 +1,669 @@
+{
+  "version": 1,
+  "mode": {
+    "type": "offline",
+    "frames": 1
+  },
+  "config": {
+    "default_language": "hlsl",
+    "include_dirs": [
+      "shaders"
+    ],
+    "output_dir": "native_shader_output",
+    "dstorage": {
+      "enabled": true,
+      "staging_buffer_size": 67108864,
+      "compression": "none"
+    }
+  },
+  "shaders": [
+    {
+      "name": "scale",
+      "language": "glsl",
+      "path": "shaders/scale.glsl",
+      "entry_point": "main",
+      "push_constant_size": 8,
+      "block_size": [
+        64,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "scale",
+      "language": "hlsl",
+      "path": "shaders/scale.hlsl",
+      "entry_point": "CSMain",
+      "push_constant_size": 8,
+      "block_size": [
+        64,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "scale",
+      "language": "cuda_nvrtc",
+      "path": "shaders/scale.cuda",
+      "entry_point": "scale",
+      "push_constant_size": 8,
+      "block_size": [
+        64,
+        1,
+        1
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "name": "src",
+      "type": "buffer",
+      "element": "float",
+      "count": 64,
+      "input": {
+        "inline": {
+          "hex": "000000000000803f0000004000004040000080400000a0400000c0400000e0400000004100001041000020410000304100004041000050410000604100007041000080410000884100009041000098410000a0410000a8410000b0410000b8410000c0410000c8410000d0410000d8410000e0410000e8410000f0410000f84100000042000004420000084200000c4200001042000014420000184200001c4200002042000024420000284200002c4200003042000034420000384200003c4200004042000044420000484200004c4200005042000054420000584200005c4200006042000064420000684200006c4200007042000074420000784200007c42"
+        }
+      }
+    },
+    {
+      "name": "dst",
+      "type": "buffer",
+      "element": "float",
+      "count": 64
+    },
+    {
+      "name": "stage",
+      "type": "buffer",
+      "element": "float",
+      "count": 64
+    },
+    {
+      "name": "check",
+      "type": "buffer",
+      "element": "float",
+      "count": 64
+    },
+    {
+      "name": "check2",
+      "type": "buffer",
+      "element": "float",
+      "count": 64
+    },
+    {
+      "name": "check3",
+      "type": "buffer",
+      "element": "float",
+      "count": 64
+    },
+    {
+      "name": "bytes",
+      "type": "buffer",
+      "element": "byte",
+      "count": 1024,
+      "input": {
+        "inline": {
+          "hex": "00000000000000000000003f0000803f8988883d000000000000003f0000803f8988083e000000000000003f0000803fcdcc4c3e000000000000003f0000803f8988883e000000000000003f0000803fabaaaa3e000000000000003f0000803fcdcccc3e000000000000003f0000803fefeeee3e000000000000003f0000803f8988083f000000000000003f0000803f9a99193f000000000000003f0000803fabaa2a3f000000000000003f0000803fbcbb3b3f000000000000003f0000803fcdcc4c3f000000000000003f0000803fdedd5d3f000000000000003f0000803fefee6e3f000000000000003f0000803f0000803f000000000000003f0000803f00000000abaaaa3e0000003f0000803f8988883dabaaaa3e0000003f0000803f8988083eabaaaa3e0000003f0000803fcdcc4c3eabaaaa3e0000003f0000803f8988883eabaaaa3e0000003f0000803fabaaaa3eabaaaa3e0000003f0000803fcdcccc3eabaaaa3e0000003f0000803fefeeee3eabaaaa3e0000003f0000803f8988083fabaaaa3e0000003f0000803f9a99193fabaaaa3e0000003f0000803fabaa2a3fabaaaa3e0000003f0000803fbcbb3b3fabaaaa3e0000003f0000803fcdcc4c3fabaaaa3e0000003f0000803fdedd5d3fabaaaa3e0000003f0000803fefee6e3fabaaaa3e0000003f0000803f0000803fabaaaa3e0000003f0000803f00000000abaa2a3f0000003f0000803f8988883dabaa2a3f0000003f0000803f8988083eabaa2a3f0000003f0000803fcdcc4c3eabaa2a3f0000003f0000803f8988883eabaa2a3f0000003f0000803fabaaaa3eabaa2a3f0000003f0000803fcdcccc3eabaa2a3f0000003f0000803fefeeee3eabaa2a3f0000003f0000803f8988083fabaa2a3f0000003f0000803f9a99193fabaa2a3f0000003f0000803fabaa2a3fabaa2a3f0000003f0000803fbcbb3b3fabaa2a3f0000003f0000803fcdcc4c3fabaa2a3f0000003f0000803fdedd5d3fabaa2a3f0000003f0000803fefee6e3fabaa2a3f0000003f0000803f0000803fabaa2a3f0000003f0000803f000000000000803f0000003f0000803f8988883d0000803f0000003f0000803f8988083e0000803f0000003f0000803fcdcc4c3e0000803f0000003f0000803f8988883e0000803f0000003f0000803fabaaaa3e0000803f0000003f0000803fcdcccc3e0000803f0000003f0000803fefeeee3e0000803f0000003f0000803f8988083f0000803f0000003f0000803f9a99193f0000803f0000003f0000803fabaa2a3f0000803f0000003f0000803fbcbb3b3f0000803f0000003f0000803fcdcc4c3f0000803f0000003f0000803fdedd5d3f0000803f0000003f0000803fefee6e3f0000803f0000003f0000803f0000803f0000803f0000003f0000803f"
+        }
+      }
+    },
+    {
+      "name": "img_bytes",
+      "type": "buffer",
+      "element": "byte",
+      "count": 1024
+    },
+    {
+      "name": "img_bytes2",
+      "type": "buffer",
+      "element": "byte",
+      "count": 1024
+    },
+    {
+      "name": "img_a",
+      "type": "texture",
+      "storage": "float4",
+      "element": "float",
+      "size": [
+        16,
+        4
+      ],
+      "levels": 1,
+      "input": {
+        "inline": {
+          "hex": "00000000000000000000003f0000803f8988883d000000000000003f0000803f8988083e000000000000003f0000803fcdcc4c3e000000000000003f0000803f8988883e000000000000003f0000803fabaaaa3e000000000000003f0000803fcdcccc3e000000000000003f0000803fefeeee3e000000000000003f0000803f8988083f000000000000003f0000803f9a99193f000000000000003f0000803fabaa2a3f000000000000003f0000803fbcbb3b3f000000000000003f0000803fcdcc4c3f000000000000003f0000803fdedd5d3f000000000000003f0000803fefee6e3f000000000000003f0000803f0000803f000000000000003f0000803f00000000abaaaa3e0000003f0000803f8988883dabaaaa3e0000003f0000803f8988083eabaaaa3e0000003f0000803fcdcc4c3eabaaaa3e0000003f0000803f8988883eabaaaa3e0000003f0000803fabaaaa3eabaaaa3e0000003f0000803fcdcccc3eabaaaa3e0000003f0000803fefeeee3eabaaaa3e0000003f0000803f8988083fabaaaa3e0000003f0000803f9a99193fabaaaa3e0000003f0000803fabaa2a3fabaaaa3e0000003f0000803fbcbb3b3fabaaaa3e0000003f0000803fcdcc4c3fabaaaa3e0000003f0000803fdedd5d3fabaaaa3e0000003f0000803fefee6e3fabaaaa3e0000003f0000803f0000803fabaaaa3e0000003f0000803f00000000abaa2a3f0000003f0000803f8988883dabaa2a3f0000003f0000803f8988083eabaa2a3f0000003f0000803fcdcc4c3eabaa2a3f0000003f0000803f8988883eabaa2a3f0000003f0000803fabaaaa3eabaa2a3f0000003f0000803fcdcccc3eabaa2a3f0000003f0000803fefeeee3eabaa2a3f0000003f0000803f8988083fabaa2a3f0000003f0000803f9a99193fabaa2a3f0000003f0000803fabaa2a3fabaa2a3f0000003f0000803fbcbb3b3fabaa2a3f0000003f0000803fcdcc4c3fabaa2a3f0000003f0000803fdedd5d3fabaa2a3f0000003f0000803fefee6e3fabaa2a3f0000003f0000803f0000803fabaa2a3f0000003f0000803f000000000000803f0000003f0000803f8988883d0000803f0000003f0000803f8988083e0000803f0000003f0000803fcdcc4c3e0000803f0000003f0000803f8988883e0000803f0000003f0000803fabaaaa3e0000803f0000003f0000803fcdcccc3e0000803f0000003f0000803fefeeee3e0000803f0000003f0000803f8988083f0000803f0000003f0000803f9a99193f0000803f0000003f0000803fabaa2a3f0000803f0000003f0000803fbcbb3b3f0000803f0000003f0000803fcdcc4c3f0000803f0000003f0000803fdedd5d3f0000803f0000003f0000803fefee6e3f0000803f0000003f0000803f0000803f0000803f0000003f0000803f"
+        }
+      }
+    },
+    {
+      "name": "img_b",
+      "type": "texture",
+      "storage": "float4",
+      "element": "float",
+      "size": [
+        16,
+        4
+      ],
+      "levels": 1
+    },
+    {
+      "name": "vol_a",
+      "type": "volume",
+      "storage": "float4",
+      "element": "float",
+      "size": [
+        2,
+        2,
+        2
+      ],
+      "levels": 1,
+      "input": {
+        "inline": {
+          "hex": "0000000000000000000000000000803f0000803f00000000000000000000803f000000000000803f000000000000803f0000803f0000803f000000000000803f00000000000000000000803f0000803f0000803f000000000000803f0000803f000000000000803f0000803f0000803f0000803f0000803f0000803f0000803f"
+        }
+      }
+    },
+    {
+      "name": "vert",
+      "type": "buffer",
+      "element": "float4",
+      "count": 3,
+      "input": {
+        "inline": {
+          "hex": "0000000000000000000000000000803f0000803f00000000000000000000803f000000000000803f000000000000803f"
+        }
+      }
+    },
+    {
+      "name": "tri",
+      "type": "buffer",
+      "element": "triangle",
+      "count": 1,
+      "input": {
+        "inline": {
+          "hex": "000000000100000002000000"
+        }
+      }
+    },
+    {
+      "name": "aabbs",
+      "type": "buffer",
+      "element": "aabb",
+      "count": 1,
+      "input": {
+        "inline": {
+          "hex": "0000000000000000000000000000803f0000803f0000803f"
+        }
+      }
+    },
+    {
+      "name": "mesh0",
+      "type": "mesh",
+      "vertex_buffer": "vert",
+      "triangle_buffer": "tri"
+    },
+    {
+      "name": "prim0",
+      "type": "procedural_primitive",
+      "aabb_buffer": "aabbs"
+    },
+    {
+      "name": "as",
+      "type": "accel"
+    },
+    {
+      "name": "heap",
+      "type": "bindless_array",
+      "slot_count": 8,
+      "slot_type": "multiple"
+    }
+  ],
+  "workflow": [
+    {
+      "cmd": "log",
+      "message": "all-commands corpus: buffers"
+    },
+    {
+      "cmd": "buffer_upload",
+      "resource": "dst",
+      "offset": 0,
+      "size": 64,
+      "input": {
+        "inline": {
+          "hex": "0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f0000803f"
+        }
+      }
+    },
+    {
+      "cmd": "buffer_upload",
+      "resource": "stage",
+      "offset": 0,
+      "size": 256,
+      "input": {
+        "resource": "src",
+        "offset": 0,
+        "size": 256
+      }
+    },
+    {
+      "cmd": "buffer_copy",
+      "src": "src",
+      "dst": "dst",
+      "src_offset": 0,
+      "dst_offset": 0,
+      "size": 256
+    },
+    {
+      "cmd": "log",
+      "message": "all-commands corpus: textures"
+    },
+    {
+      "cmd": "texture_upload",
+      "resource": "img_a",
+      "level": 0,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        16,
+        4,
+        1
+      ],
+      "storage": "float4",
+      "input": {
+        "inline": {
+          "hex": "00000000000000000000003f0000803f8988883d000000000000003f0000803f8988083e000000000000003f0000803fcdcc4c3e000000000000003f0000803f8988883e000000000000003f0000803fabaaaa3e000000000000003f0000803fcdcccc3e000000000000003f0000803fefeeee3e000000000000003f0000803f8988083f000000000000003f0000803f9a99193f000000000000003f0000803fabaa2a3f000000000000003f0000803fbcbb3b3f000000000000003f0000803fcdcc4c3f000000000000003f0000803fdedd5d3f000000000000003f0000803fefee6e3f000000000000003f0000803f0000803f000000000000003f0000803f00000000abaaaa3e0000003f0000803f8988883dabaaaa3e0000003f0000803f8988083eabaaaa3e0000003f0000803fcdcc4c3eabaaaa3e0000003f0000803f8988883eabaaaa3e0000003f0000803fabaaaa3eabaaaa3e0000003f0000803fcdcccc3eabaaaa3e0000003f0000803fefeeee3eabaaaa3e0000003f0000803f8988083fabaaaa3e0000003f0000803f9a99193fabaaaa3e0000003f0000803fabaa2a3fabaaaa3e0000003f0000803fbcbb3b3fabaaaa3e0000003f0000803fcdcc4c3fabaaaa3e0000003f0000803fdedd5d3fabaaaa3e0000003f0000803fefee6e3fabaaaa3e0000003f0000803f0000803fabaaaa3e0000003f0000803f00000000abaa2a3f0000003f0000803f8988883dabaa2a3f0000003f0000803f8988083eabaa2a3f0000003f0000803fcdcc4c3eabaa2a3f0000003f0000803f8988883eabaa2a3f0000003f0000803fabaaaa3eabaa2a3f0000003f0000803fcdcccc3eabaa2a3f0000003f0000803fefeeee3eabaa2a3f0000003f0000803f8988083fabaa2a3f0000003f0000803f9a99193fabaa2a3f0000003f0000803fabaa2a3fabaa2a3f0000003f0000803fbcbb3b3fabaa2a3f0000003f0000803fcdcc4c3fabaa2a3f0000003f0000803fdedd5d3fabaa2a3f0000003f0000803fefee6e3fabaa2a3f0000003f0000803f0000803fabaa2a3f0000003f0000803f000000000000803f0000003f0000803f8988883d0000803f0000003f0000803f8988083e0000803f0000003f0000803fcdcc4c3e0000803f0000003f0000803f8988883e0000803f0000003f0000803fabaaaa3e0000803f0000003f0000803fcdcccc3e0000803f0000003f0000803fefeeee3e0000803f0000003f0000803f8988083f0000803f0000003f0000803f9a99193f0000803f0000003f0000803fabaa2a3f0000803f0000003f0000803fbcbb3b3f0000803f0000003f0000803fcdcc4c3f0000803f0000003f0000803fdedd5d3f0000803f0000003f0000803fefee6e3f0000803f0000003f0000803f0000803f0000803f0000003f0000803f"
+        }
+      }
+    },
+    {
+      "cmd": "texture_copy",
+      "storage": "float4",
+      "src": "img_a",
+      "dst": "img_b",
+      "src_level": 0,
+      "dst_level": 0,
+      "size": [
+        16,
+        4,
+        1
+      ],
+      "src_offset": [
+        0,
+        0,
+        0
+      ],
+      "dst_offset": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "cmd": "texture_download",
+      "resource": "img_b",
+      "level": 0,
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "size": [
+        16,
+        4,
+        1
+      ],
+      "storage": "float4",
+      "output": {
+        "discard": true
+      }
+    },
+    {
+      "cmd": "buffer_to_texture_copy",
+      "buffer": "bytes",
+      "buffer_offset": 0,
+      "texture": "img_b",
+      "storage": "float4",
+      "level": 0,
+      "size": [
+        16,
+        4,
+        1
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "cmd": "texture_to_buffer_copy",
+      "buffer": "img_bytes",
+      "buffer_offset": 0,
+      "texture": "img_b",
+      "storage": "float4",
+      "level": 0,
+      "size": [
+        16,
+        4,
+        1
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "cmd": "buffer_download",
+      "resource": "img_bytes",
+      "offset": 0,
+      "size": 1024,
+      "output": {
+        "discard": true
+      },
+      "verify": {
+        "kind": "copy",
+        "source": "bytes"
+      }
+    },
+    {
+      "cmd": "texture_to_buffer_copy",
+      "buffer": "img_bytes2",
+      "buffer_offset": 0,
+      "texture": "img_a",
+      "storage": "float4",
+      "level": 0,
+      "size": [
+        16,
+        4,
+        1
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "cmd": "buffer_download",
+      "resource": "img_bytes2",
+      "offset": 0,
+      "size": 1024,
+      "output": {
+        "discard": true
+      },
+      "verify": {
+        "kind": "copy",
+        "source": "bytes"
+      }
+    },
+    {
+      "cmd": "log",
+      "message": "all-commands corpus: bindless array"
+    },
+    {
+      "cmd": "bindless_array_update",
+      "resource": "heap",
+      "mode": "multiple",
+      "modifications": [
+        {
+          "slot": 0,
+          "kind": "buffer",
+          "op": "emplace",
+          "resource": "src",
+          "offset": 0,
+          "size": 256
+        },
+        {
+          "slot": 1,
+          "kind": "texture2d",
+          "op": "emplace",
+          "resource": "img_a",
+          "sampler": {
+            "filter": "linear_linear",
+            "address": "repeat"
+          }
+        },
+        {
+          "slot": 2,
+          "kind": "buffer",
+          "op": "emplace",
+          "resource": "dst",
+          "offset": 0,
+          "size": 256
+        }
+      ]
+    },
+    {
+      "cmd": "bindless_array_update",
+      "resource": "heap",
+      "mode": "multiple",
+      "modifications": [
+        {
+          "slot": 1,
+          "op": "remove"
+        }
+      ]
+    },
+    {
+      "cmd": "log",
+      "message": "all-commands corpus: dispatches"
+    },
+    {
+      "cmd": "native_dispatch",
+      "shader": "scale",
+      "grid": [
+        1,
+        1,
+        1
+      ],
+      "bindings": [
+        {
+          "index": 0,
+          "resource": "src",
+          "usage": "read"
+        },
+        {
+          "index": 1,
+          "resource": "check",
+          "usage": "write"
+        }
+      ],
+      "uniforms": [
+        {
+          "type": "float32",
+          "value": 2.0
+        },
+        {
+          "type": "float32",
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "cmd": "custom_command",
+      "uuid": "native_shader_dispatch",
+      "shader": "scale",
+      "dispatch": [
+        64,
+        1,
+        1
+      ],
+      "bindings": [
+        {
+          "register": 0,
+          "space": 0,
+          "resource": "src",
+          "usage": "read"
+        },
+        {
+          "index": 1,
+          "resource": "check2",
+          "usage": "write"
+        }
+      ],
+      "uniforms": [
+        {
+          "type": "float32",
+          "value": 3.0
+        },
+        {
+          "type": "float32",
+          "value": 0.0
+        }
+      ]
+    },
+    {
+      "cmd": "shader_dispatch",
+      "shader": "scale_buffer",
+      "arguments": [
+        {
+          "kind": "buffer",
+          "resource": "src"
+        },
+        {
+          "kind": "buffer",
+          "resource": "check3"
+        },
+        {
+          "kind": "uniform",
+          "type": "float32",
+          "value": 4.0
+        },
+        {
+          "kind": "uniform",
+          "type": "float32",
+          "value": 0.0
+        }
+      ],
+      "batched": [
+        [
+          64,
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "cmd": "log",
+      "message": "all-commands corpus: acceleration structures"
+    },
+    {
+      "cmd": "mesh_build",
+      "resource": "mesh0",
+      "request": "prefer_update",
+      "vertex_buffer": "vert",
+      "vertex_buffer_offset": 0,
+      "vertex_buffer_size": 48,
+      "vertex_stride": 16,
+      "triangle_buffer": "tri",
+      "triangle_buffer_offset": 0,
+      "triangle_buffer_size": 12
+    },
+    {
+      "cmd": "procedural_primitive_build",
+      "resource": "prim0",
+      "request": "prefer_update",
+      "aabb_buffer": "aabbs",
+      "aabb_buffer_offset": 0,
+      "aabb_buffer_size": 24
+    },
+    {
+      "cmd": "accel_build",
+      "resource": "as",
+      "instance_count": 1,
+      "request": "force_build",
+      "update_instance_buffer_only": false,
+      "modifications": [
+        {
+          "index": 0,
+          "user_id": 7,
+          "visibility": 255,
+          "opaque": true,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "primitive": "mesh0"
+        }
+      ]
+    },
+    {
+      "cmd": "synchronize",
+      "label": "builds"
+    },
+    {
+      "cmd": "log",
+      "message": "all-commands corpus: verification"
+    },
+    {
+      "cmd": "buffer_download",
+      "resource": "check",
+      "output": {
+        "discard": true
+      },
+      "verify": {
+        "kind": "linear",
+        "source": "src",
+        "k": 2.0,
+        "c": 1.0
+      }
+    },
+    {
+      "cmd": "buffer_download",
+      "resource": "check2",
+      "output": {
+        "discard": true
+      },
+      "verify": {
+        "kind": "linear",
+        "source": "src",
+        "k": 3.0,
+        "c": 0.0
+      }
+    },
+    {
+      "cmd": "buffer_download",
+      "resource": "check3",
+      "output": {
+        "discard": true
+      },
+      "verify": {
+        "kind": "linear",
+        "source": "src",
+        "k": 4.0,
+        "c": 0.0
+      }
+    },
+    {
+      "cmd": "buffer_download",
+      "resource": "dst",
+      "output": {
+        "discard": true
+      },
+      "verify": {
+        "kind": "linear",
+        "source": "src",
+        "k": 1.0,
+        "c": 0.0
+      }
+    }
+  ]
+}

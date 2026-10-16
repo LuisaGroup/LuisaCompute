@@ -1,0 +1,84 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "bounded-xir-traversal-improves-compilation-not-yet-torch-parity",
+      "width": 1280,
+      "pageWidth": 1280,
+      "screenshot": "/tmp/luisa-xir-bounded.kADecq/docs-qa-publish/bounded-xir-traversal-improves-compilation-not-yet-torch-parity-1280.png",
+      "scrollers": [
+        {
+          "tag": "DIV",
+          "width": 696,
+          "scrollWidth": 696,
+          "overflowX": "auto",
+          "reached": 0
+        }
+      ]
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "bounded-traversal-partial-reductions-and-private-resources",
+      "width": 1280,
+      "pageWidth": 1280,
+      "screenshot": "/tmp/luisa-xir-bounded.kADecq/docs-qa-publish/bounded-traversal-partial-reductions-and-private-resources-1280.png",
+      "scrollers": [
+        {
+          "tag": "DIV",
+          "width": 696,
+          "scrollWidth": 696,
+          "overflowX": "auto",
+          "reached": 0
+        },
+        {
+          "tag": "PRE",
+          "width": 694,
+          "scrollWidth": 694,
+          "overflowX": "auto",
+          "reached": 0
+        }
+      ]
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "bounded-xir-traversal-improves-compilation-not-yet-torch-parity",
+      "width": 390,
+      "pageWidth": 390,
+      "screenshot": "/tmp/luisa-xir-bounded.kADecq/docs-qa-publish/bounded-xir-traversal-improves-compilation-not-yet-torch-parity-390.png",
+      "scrollers": [
+        {
+          "tag": "DIV",
+          "width": 338,
+          "scrollWidth": 338,
+          "overflowX": "auto",
+          "reached": 0
+        }
+      ]
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "bounded-traversal-partial-reductions-and-private-resources",
+      "width": 390,
+      "pageWidth": 390,
+      "screenshot": "/tmp/luisa-xir-bounded.kADecq/docs-qa-publish/bounded-traversal-partial-reductions-and-private-resources-390.png",
+      "scrollers": [
+        {
+          "tag": "DIV",
+          "width": 338,
+          "scrollWidth": 498,
+          "overflowX": "auto",
+          "reached": 160
+        },
+        {
+          "tag": "PRE",
+          "width": 336,
+          "scrollWidth": 407,
+          "overflowX": "auto",
+          "reached": 71
+        }
+      ]
+    }
+  ]
+}

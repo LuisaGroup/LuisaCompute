@@ -1,0 +1,406 @@
+{
+  "started_unix": 1788927966.017343,
+  "source_commit": "360d9791e344da06bcbde4dc871526aa336900b9",
+  "source_overlays": {
+    "src/tests/unit/runtime/test_metal_codegen_regressions.cpp": "89b5b7eb29544645bcb8956748ea74e6aea8ee33dfe2f9f5c52fb39220febadb"
+  },
+  "overlay_scope": "One test-only argv guard; no compiler/library/Tile source changes.",
+  "prior_receipts": {
+    "verification.json": "ffbf0d425f17602be9fb304fd89318a46b2db9e32af2e28e3264b64805bbff7a",
+    "verification-final.json": "487dc5da0cefb52a4b4d9881e0a09cd4faeb531824475b1764ce3db7d7cc9b91"
+  },
+  "full_build_log": "full-build-fixed.log",
+  "full_build_log_sha256": "e6721f05c49fc001612d8273060e28a5ad60a0ffd43153fbb738038b10b1e252",
+  "full_build_exit_code": 0,
+  "retained_failed_checks": [
+    {
+      "name": "ctest-metal",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--output-on-failure",
+        "--timeout",
+        "180",
+        "-j",
+        "1",
+        "-R",
+        "^test_metal_(local_codegen|shared_ptr)$",
+        "--output-junit",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/metal.xml"
+      ],
+      "log": "ctest-metal.log",
+      "started_unix": 1788927001.059249,
+      "exit_code": 8,
+      "finished_unix": 1788927002.602453,
+      "log_sha256": "ecccb5e9414780988d1e97f284226b7b356518a3e606d5afd46065e448d9ce72",
+      "junit": "metal.xml",
+      "tests": 2,
+      "failures": 1,
+      "skipped": 0
+    },
+    {
+      "name": "ctest-pointwise",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--output-on-failure",
+        "--timeout",
+        "180",
+        "-j",
+        "1",
+        "-R",
+        "^test_tile_xir_(runtime|llm)$",
+        "--output-junit",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/pointwise.xml"
+      ],
+      "log": "ctest-pointwise.log",
+      "started_unix": 1788927002.602963,
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_ENABLE_POINTWISE_FUSION": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1",
+        "LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION": "1"
+      },
+      "exit_code": 8,
+      "finished_unix": 1788927037.301044,
+      "log_sha256": "927e4e2c4eae6ed301dc25b0754831a583032c9193a34098c6e4e6080e3d00dc",
+      "junit": "pointwise.xml",
+      "tests": 2,
+      "failures": 1,
+      "skipped": 0
+    },
+    {
+      "name": "ctest-runtime-ab",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--output-on-failure",
+        "--timeout",
+        "180",
+        "-j",
+        "1",
+        "-R",
+        "^test_tile_xir_runtime$",
+        "--output-junit",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/runtime-ab.xml"
+      ],
+      "log": "ctest-runtime-ab.log",
+      "started_unix": 1788927595.843898,
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1",
+        "LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION": "1"
+      },
+      "environment_reset": "Inherited LUISA_SIMD_* removed before applying the recorded test configuration.",
+      "exit_code": 8,
+      "finished_unix": 1788927618.001462,
+      "log_sha256": "d5c87084fb3a7de3b43cb5110269a463d7f7a002c4199648ca6fe4f24bd797a1",
+      "junit": "runtime-ab.xml",
+      "tests": 1,
+      "failures": 1,
+      "skipped": 0
+    },
+    {
+      "name": "format-final",
+      "command": [
+        "/opt/homebrew/opt/llvm/bin/clang-format",
+        "--dry-run",
+        "--Werror",
+        "/Users/mike/CLionProjects/luisa/src/tests/unit/runtime/test_metal_codegen_regressions.cpp"
+      ],
+      "log": "format-final.log",
+      "started_unix": 1788927630.645532,
+      "environment": {},
+      "environment_reset": "Inherited LUISA_SIMD_* removed before applying the recorded test configuration.",
+      "exit_code": 1,
+      "finished_unix": 1788927630.679821,
+      "log_sha256": "81adcc5b505510344b13206d0a1c1b075833564011cf1edfc6b2adad72481d1a"
+    }
+  ],
+  "runs": [
+    {
+      "name": "ctest-tile",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--output-on-failure",
+        "--timeout",
+        "180",
+        "-j",
+        "1",
+        "-R",
+        "^test_tile_",
+        "--output-junit",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/tile.xml"
+      ],
+      "log": "ctest-tile.log",
+      "started_unix": 1788926619.449915,
+      "exit_code": 0,
+      "finished_unix": 1788926917.412663,
+      "log_sha256": "7820f2794e5ded05d6a92ad32b15d69692db99b7760f8dfb99199eaad98d2a69",
+      "junit": "tile.xml",
+      "tests": 35,
+      "failures": 0,
+      "skipped": 0,
+      "source_phase": "before test-only Metal argv correction; tested source unchanged"
+    },
+    {
+      "name": "ctest-xir-simd",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--output-on-failure",
+        "--timeout",
+        "180",
+        "-j",
+        "1",
+        "-L",
+        "unit_xir|unit_simd",
+        "--output-junit",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/xir-simd.xml"
+      ],
+      "log": "ctest-xir-simd.log",
+      "started_unix": 1788926917.4146519,
+      "exit_code": 0,
+      "finished_unix": 1788927001.058113,
+      "log_sha256": "75ef36b38e435515e7f0bc81fea5234a954395c18f9aaecb4c80576457442d46",
+      "junit": "xir-simd.xml",
+      "tests": 79,
+      "failures": 0,
+      "skipped": 0,
+      "source_phase": "before test-only Metal argv correction; tested source unchanged"
+    },
+    {
+      "name": "full-build-final-gate",
+      "command": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--parallel",
+        "8"
+      ],
+      "log": "full-build-final-gate.log",
+      "started_unix": 1788927592.729963,
+      "environment": {},
+      "environment_reset": "Inherited LUISA_SIMD_* removed before applying the recorded test configuration.",
+      "exit_code": 0,
+      "finished_unix": 1788927592.837806,
+      "log_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91"
+    },
+    {
+      "name": "ctest-metal-fixed",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--output-on-failure",
+        "--timeout",
+        "180",
+        "-j",
+        "1",
+        "-R",
+        "^test_metal_(local_codegen|shared_ptr)$",
+        "--output-junit",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/metal-fixed.xml"
+      ],
+      "log": "ctest-metal-fixed.log",
+      "started_unix": 1788927592.8383749,
+      "environment": {},
+      "environment_reset": "Inherited LUISA_SIMD_* removed before applying the recorded test configuration.",
+      "exit_code": 0,
+      "finished_unix": 1788927595.369526,
+      "log_sha256": "947b6ecb23acb97ce9b953cc27856668ecbf4e0afeb08fd331fe434e2351cbf2",
+      "junit": "metal-fixed.xml",
+      "tests": 2,
+      "failures": 0,
+      "skipped": 0
+    },
+    {
+      "name": "metal-local-only",
+      "command": [
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/test_metal_codegen_regressions",
+        "metal",
+        "--local-only"
+      ],
+      "log": "metal-local-only.log",
+      "started_unix": 1788927595.370091,
+      "environment": {},
+      "environment_reset": "Inherited LUISA_SIMD_* removed before applying the recorded test configuration.",
+      "exit_code": 0,
+      "finished_unix": 1788927595.84334,
+      "log_sha256": "97cd1145bc7b6fb42e01b2bdb11872c28fa6d59689dfb171378591d1446165bf"
+    },
+    {
+      "name": "ctest-llm-fused",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--output-on-failure",
+        "--timeout",
+        "180",
+        "-j",
+        "1",
+        "-R",
+        "^test_tile_xir_llm$",
+        "--output-junit",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/llm-fused.xml"
+      ],
+      "log": "ctest-llm-fused.log",
+      "started_unix": 1788927618.002121,
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1",
+        "LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION": "1",
+        "LUISA_SIMD_ENABLE_POINTWISE_FUSION": "1"
+      },
+      "environment_reset": "Inherited LUISA_SIMD_* removed before applying the recorded test configuration.",
+      "exit_code": 0,
+      "finished_unix": 1788927630.6449869,
+      "log_sha256": "98fc2d7fe13b08b26575e4c57d3c91b32b4cbe2113d5113064bb7be035fa951a",
+      "junit": "llm-fused.xml",
+      "tests": 1,
+      "failures": 0,
+      "skipped": 0
+    },
+    {
+      "name": "syntax-final",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "orjson",
+        "python",
+        "/Users/mike/CLionProjects/luisa/scripts/check_cpp_syntax.py",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/source/src/tests/unit/runtime/test_metal_codegen_regressions.cpp",
+        "--project-root",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/source",
+        "--compile-commands-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--clangd",
+        "/opt/homebrew/opt/llvm@21/bin/clangd",
+        "--clang-tidy"
+      ],
+      "log": "syntax-final.log",
+      "started_unix": 1788927630.6802409,
+      "environment": {},
+      "environment_reset": "Inherited LUISA_SIMD_* removed before applying the recorded test configuration.",
+      "exit_code": 0,
+      "finished_unix": 1788927636.055682,
+      "log_sha256": "813de762e578582f7c4d9ba4e3e4b060b7908b7824458c6a2799f24f079f88a1"
+    },
+    {
+      "name": "ctest-runtime-clean",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/build",
+        "--output-on-failure",
+        "--timeout",
+        "180",
+        "-j",
+        "1",
+        "-R",
+        "^test_tile_xir_runtime$",
+        "--output-junit",
+        "/private/tmp/luisa-next-checkpoint.J7yODi/runtime-clean.xml"
+      ],
+      "log": "ctest-runtime-clean.log",
+      "started_unix": 1788927966.017426,
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "environment_reset": "Inherited LUISA_SIMD_* removed; no forced Tile fusion override for Runtime A/B fixtures.",
+      "exit_code": 0,
+      "finished_unix": 1788927988.7105799,
+      "log_sha256": "35ae410f7e6a114e26b427dc110a1b1d733f20d21ce8378e24d155ce5046d7fe",
+      "junit": "runtime-clean.xml",
+      "tests": 1,
+      "failures": 0,
+      "skipped": 0
+    },
+    {
+      "name": "format-changed",
+      "command": [
+        "/opt/homebrew/opt/llvm/bin/clang-format",
+        "--dry-run",
+        "--Werror",
+        "--lines=369:380",
+        "/Users/mike/CLionProjects/luisa/src/tests/unit/runtime/test_metal_codegen_regressions.cpp"
+      ],
+      "log": "format-changed.log",
+      "started_unix": 1788927988.7113001,
+      "environment": {},
+      "environment_reset": "Inherited LUISA_SIMD_* removed; no forced Tile fusion override for Runtime A/B fixtures.",
+      "exit_code": 0,
+      "finished_unix": 1788927988.7460248,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "inherited_formatting": {
+    "command": [
+      "/opt/homebrew/opt/llvm/bin/clang-format",
+      "--dry-run",
+      "--Werror",
+      "--assume-filename=/Users/mike/CLionProjects/luisa/src/tests/unit/runtime/test_metal_codegen_regressions.cpp"
+    ],
+    "input_commit": "360d9791e344da06bcbde4dc871526aa336900b9",
+    "input_path": "src/tests/unit/runtime/test_metal_codegen_regressions.cpp",
+    "input_sha256": "989ab4d58dc8511690ea45fdcf220038a4782fda81f24c597043ced360f6bcb4",
+    "exit_code": 1,
+    "log": "format-pristine.log",
+    "log_sha256": "81adcc5b505510344b13206d0a1c1b075833564011cf1edfc6b2adad72481d1a",
+    "diagnostic_positions": [
+      [
+        "290",
+        "64"
+      ],
+      [
+        "291",
+        "57"
+      ],
+      [
+        "315",
+        "54"
+      ],
+      [
+        "315",
+        "66"
+      ],
+      [
+        "319",
+        "66"
+      ],
+      [
+        "319",
+        "78"
+      ],
+      [
+        "329",
+        "32"
+      ]
+    ],
+    "diagnostics_identical_to_changed_file": true,
+    "scoped_gate": "Only changed lines are required to pass; full-file failures are retained, not called passing."
+  },
+  "finished_unix": 1788927988.795527,
+  "passed": true
+}

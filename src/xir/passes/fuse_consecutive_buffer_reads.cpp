@@ -31,6 +31,7 @@ struct ByteIndex {
     int64_t offset{0};   // the constant byte offset from the base
 };
 
+namespace decode_constant_int_fuse_detail {
 [[nodiscard]] bool decode_constant_int(const Constant *constant, int64_t &value) noexcept {
     if (constant == nullptr || constant->type() == nullptr) { return false; }
     auto type = constant->type();
@@ -58,13 +59,14 @@ struct ByteIndex {
     return true;
 }
 
+}  // namespace decode_constant_int_fuse_detail
 // Decompose an index value into (base, constant byte offset). Returns false
 // when the index shape is not understood.
 [[nodiscard]] bool decompose_byte_index(Value *index, ByteIndex &out) noexcept {
     if (index == nullptr) { return false; }
     if (index->isa<Constant>()) {
         int64_t value = 0;
-        if (!decode_constant_int(static_cast<Constant *>(index), value)) { return false; }
+        if (!decode_constant_int_fuse_detail::decode_constant_int(static_cast<Constant *>(index), value)) { return false; }
         out.base = nullptr;
         out.offset = value;
         return true;
@@ -75,7 +77,7 @@ struct ByteIndex {
             for (auto i = 0u; i < 2u; ++i) {
                 if (arith->operand(i)->isa<Constant>()) {
                     int64_t value = 0;
-                    if (!decode_constant_int(static_cast<Constant *>(arith->operand(i)), value)) { return false; }
+                    if (!decode_constant_int_fuse_detail::decode_constant_int(static_cast<Constant *>(arith->operand(i)), value)) { return false; }
                     out.base = arith->operand(1u - i);
                     out.offset = value;
                     return true;
@@ -354,6 +356,7 @@ void collect_and_fuse(Module *module, BasicBlock *block, FuseConsecutiveBufferRe
     flush_writes();
 }
 
+namespace decode_constant_int_fuse_detail {
 void run_on_function(FunctionDefinition *def, FuseConsecutiveBufferReadsInfo &info) noexcept {
     auto *module = def->parent_module();
     luisa::vector<BasicBlock *> blocks;
@@ -361,6 +364,7 @@ void run_on_function(FunctionDefinition *def, FuseConsecutiveBufferReadsInfo &in
     for (auto *block : blocks) { collect_and_fuse(module, block, info); }
 }
 
+}  // namespace decode_constant_int_fuse_detail
 }// namespace
 
 }// namespace detail
@@ -369,7 +373,7 @@ FuseConsecutiveBufferReadsInfo fuse_consecutive_buffer_reads_pass_run_on_functio
     Function *function) noexcept {
     FuseConsecutiveBufferReadsInfo info;
     if (auto def = function == nullptr ? nullptr : function->definition()) {
-        detail::run_on_function(def, info);
+        detail::decode_constant_int_fuse_detail::run_on_function(def, info);
     }
     return info;
 }
@@ -380,7 +384,7 @@ FuseConsecutiveBufferReadsInfo fuse_consecutive_buffer_reads_pass_run_on_module(
     if (module != nullptr) {
         for (auto f : module->function_list()) {
             if (auto def = f->definition()) {
-                detail::run_on_function(def, info);
+                detail::decode_constant_int_fuse_detail::run_on_function(def, info);
             }
         }
     }

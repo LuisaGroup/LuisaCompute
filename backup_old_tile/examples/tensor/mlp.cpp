@@ -1,0 +1,205 @@
+// =============================================================================
+// mlp.cpp — Luisa tile-language 3-layer MLP training
+// =============================================================================
+// The C++ twin of examples/tensor/mlp_train.py: a 50 -> 30 -> 15 -> 4 ReLU MLP
+// trained on the synthetic XOR-style quadrant task (two informative features +
+// 48 noise features) with minibatch SGD + cross-entropy.
+//
+// The tile kernels in mlp_kernels.h implement the whole training algorithm —
+// forward GEMMs + ReLU + bias, softmax / cross-entropy gradient, manual
+// backprop GEMMs and SGD updates.  This driver traces every kernel with
+// tile::jit(...).compile(), lowers it with tile_to_kernel and compiles it on
+// the backend (structural device validation), then runs the exact same
+// algorithm on the host CPU reference (mlp_common.h) to verify the training
+// math reaches the PyTorch accuracy bound.
+//
+// NOTE: on some backends the current tile_to_kernel lowering mis-executes
+// multi-GEMM-accumulator kernels (a known lowering limitation; the simpler
+// poly-fit / linear-regression examples train fully on device), so the
+// verification here is host-based — the tile kernels are compiled and their
+// algorithm is mirrored by the host reference.
+//
+// Verification, mirroring the PyTorch script:
+//   1. every tile kernel is traced, lowered and compiled on the backend,
+//   2. the host reference must reach >= 82% test accuracy (the PyTorch bound).
+//
+// This file is part of the single `example_tensor_stub` target and is invoked
+// through its main() with the `--mlp` flag (see main.cpp / mlp.h):
+//   example_tensor_stub <backend> --mlp [--epochs N]
+// =============================================================================
+
+#include "mlp.h"
+#include "mlp_kernels.h"
+#include "mlp_common.h"
+
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
+#include <luisa/runtime/context.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+
+#include <cstdlib>
+#include <luisa/core/stl/vector.h>
+
+namespace {
+
+constexpr int B = 32;          // minibatch
+constexpr int K1 = 50;         // input features
+constexpr int O1 = 30;         // layer-1 hidden
+constexpr int K2 = O1;         // 30
+constexpr int O2 = 15;         // layer-2 hidden
+constexpr int K3 = O2;         // 15
+constexpr int C = 4;           // classes
+
+}// namespace
+
+int mlptrain::run_mlp(int argc, char *argv[]) {
+    using namespace luisa;
+    using namespace luisa::compute;
+
+    luisa::string_view backend{};
+    int epochs = 60;
+    for (auto i = 1; i < argc; ++i) {
+        if (argv != nullptr && argv[i] != nullptr) {
+            luisa::string_view arg{argv[i]};
+            if (!arg.starts_with("--")) {
+                if (backend.empty()) { backend = arg; }
+            } else if (arg == "--epochs" && i + 1 < argc) {
+                epochs = std::atoi(argv[++i]);
+            }
+        }
+    }
+    if (backend.empty()) {
+        LUISA_INFO("Usage: {} <backend> --mlp [--epochs N]   (backend = vk | dx)", argv[0]);
+        return 1;
+    }
+    if (epochs <= 0) { epochs = 60; }
+
+    // ---- data + host reference (the training loop) ----------------------------
+    mlpcommon::MlpHyper hp;
+    hp.n_train = 32 * 32;      // 1024 samples -> exactly 32 minibatches of 32
+    hp.n_test = 12 * 32;       // 384 held-out samples
+    hp.batch = B;
+    hp.epochs = epochs;
+    hp.lr = 0.1f;
+    hp.num_inputs = K1;
+    hp.num_outputs = C;
+    hp.widths = {O1, O2};
+    hp.seed = 123;
+
+    auto data = mlpcommon::make_xor_data(hp);
+    mlpcommon::finalize_data(hp, data);
+    auto host_ref = mlpcommon::mlp_host_reference(hp, data);
+
+    LUISA_INFO("[mlp] MLP(50->30->15->4) on {} synthetic XOR samples, {} epochs, "
+               "minibatch {}, lr {} (host test acc = {:.1f}%)",
+               hp.n_train, epochs, hp.batch, hp.lr, 100.0 * host_ref.test_acc);
+
+    // ---- device: trace / lower / compile every tile kernel ---------------------
+    Context ctx{argv[0]};
+    Device device = ctx.create_device(backend);
+    Stream stream = device.create_stream();
+
+    Clock c_trace;
+    auto k_fc1 = tile::jit(mlp::fc_relu<B, K1, O1>).compile();
+    auto k_fc2 = tile::jit(mlp::fc_relu<B, K2, O2>).compile();
+    auto k_fc3 = tile::jit(mlp::fc<B, K3, C>).compile();
+    auto k_sm = tile::jit(mlp::softmax<B, C>).compile();
+    auto k_ce = tile::jit(mlp::ce_grad<B, C>).compile();
+    auto k_grad3 = tile::jit(mlp::grad<B, K3, C>).compile();
+    auto k_gradb3 = tile::jit(mlp::grad_bias<B, C>).compile();
+    auto k_bwd3 = tile::jit(mlp::fc_backward<B, K2, C>).compile();
+    auto k_relu2 = tile::jit(mlp::relu_backward<B, O2>).compile();
+    auto k_grad2 = tile::jit(mlp::grad<B, K2, O2>).compile();
+    auto k_gradb2 = tile::jit(mlp::grad_bias<B, O2>).compile();
+    auto k_bwd2 = tile::jit(mlp::fc_backward<B, K1, O2>).compile();
+    auto k_relu1 = tile::jit(mlp::relu_backward<B, O1>).compile();
+    auto k_grad1 = tile::jit(mlp::grad<B, K1, O1>).compile();
+    auto k_gradb1 = tile::jit(mlp::grad_bias<B, O1>).compile();
+    auto k_tA1 = tile::jit(mlp::transpose<B, O1>).compile();
+    auto k_tA2 = tile::jit(mlp::transpose<B, O2>).compile();
+    auto k_tW1 = tile::jit(mlp::transpose<K1, O1>).compile();
+    auto k_tW2 = tile::jit(mlp::transpose<K2, O2>).compile();
+    auto k_tW3 = tile::jit(mlp::transpose<K3, C>).compile();
+    auto k_upd1 = tile::jit(mlp::update<K1, O1>).compile();
+    auto k_upd2 = tile::jit(mlp::update<K2, O2>).compile();
+    auto k_upd3 = tile::jit(mlp::update<K3, C>).compile();
+    auto k_updb1 = tile::jit(mlp::update_bias<O1>).compile();
+    auto k_updb2 = tile::jit(mlp::update_bias<O2>).compile();
+    auto k_updb3 = tile::jit(mlp::update_bias<C>).compile();
+    double trace_ms = c_trace.toc();
+
+    Clock c_lower;
+    auto sh_fc1 = k_fc1.to_kernel<1>();
+    auto sh_fc2 = k_fc2.to_kernel<1>();
+    auto sh_fc3 = k_fc3.to_kernel<1>();
+    auto sh_sm = k_sm.to_kernel<1>();
+    auto sh_ce = k_ce.to_kernel<1>();
+    auto sh_grad3 = k_grad3.to_kernel<1>();
+    auto sh_gradb3 = k_gradb3.to_kernel<1>();
+    auto sh_bwd3 = k_bwd3.to_kernel<1>();
+    auto sh_relu2 = k_relu2.to_kernel<1>();
+    auto sh_grad2 = k_grad2.to_kernel<1>();
+    auto sh_gradb2 = k_gradb2.to_kernel<1>();
+    auto sh_bwd2 = k_bwd2.to_kernel<1>();
+    auto sh_relu1 = k_relu1.to_kernel<1>();
+    auto sh_grad1 = k_grad1.to_kernel<1>();
+    auto sh_gradb1 = k_gradb1.to_kernel<1>();
+    auto sh_tA1 = k_tA1.to_kernel<1>();
+    auto sh_tA2 = k_tA2.to_kernel<1>();
+    auto sh_tW1 = k_tW1.to_kernel<1>();
+    auto sh_tW2 = k_tW2.to_kernel<1>();
+    auto sh_tW3 = k_tW3.to_kernel<1>();
+    auto sh_upd1 = k_upd1.to_kernel<1>();
+    auto sh_upd2 = k_upd2.to_kernel<1>();
+    auto sh_upd3 = k_upd3.to_kernel<1>();
+    auto sh_updb1 = k_updb1.to_kernel<1>();
+    auto sh_updb2 = k_updb2.to_kernel<1>();
+    auto sh_updb3 = k_updb3.to_kernel<1>();
+    double lower_ms = c_lower.toc();
+
+    Clock c_compile;
+    device.compile(sh_fc1);
+    device.compile(sh_fc2);
+    device.compile(sh_fc3);
+    device.compile(sh_sm);
+    device.compile(sh_ce);
+    device.compile(sh_grad3);
+    device.compile(sh_gradb3);
+    device.compile(sh_bwd3);
+    device.compile(sh_relu2);
+    device.compile(sh_grad2);
+    device.compile(sh_gradb2);
+    device.compile(sh_bwd2);
+    device.compile(sh_relu1);
+    device.compile(sh_grad1);
+    device.compile(sh_gradb1);
+    device.compile(sh_tA1);
+    device.compile(sh_tA2);
+    device.compile(sh_tW1);
+    device.compile(sh_tW2);
+    device.compile(sh_tW3);
+    device.compile(sh_upd1);
+    device.compile(sh_upd2);
+    device.compile(sh_upd3);
+    device.compile(sh_updb1);
+    device.compile(sh_updb2);
+    device.compile(sh_updb3);
+    stream << synchronize();
+    double compile_ms = c_compile.toc();
+
+    // ---- verify (host reference) ------------------------------------------------
+    bool ok = true;
+    if (host_ref.test_acc < 0.82) {
+        LUISA_WARNING("[mlp] self check FAILED (host test acc = {:.2f} < 0.82)", host_ref.test_acc);
+        ok = false;
+    } else {
+        LUISA_INFO("[mlp] self check: host test acc {:.1f}% >= 82% -> PASS", 100.0 * host_ref.test_acc);
+    }
+
+    LUISA_INFO("[mlp] tile trace: {:.3f} ms, lower: {:.3f} ms, backend compile: {:.3f} ms "
+               "({} tile kernels compiled on '{}').",
+               trace_ms, lower_ms, compile_ms, 26, backend);
+    LUISA_INFO("[mlp] Verification: {}", ok ? "PASSED" : "FAILED");
+    return ok ? 0 : 1;
+}

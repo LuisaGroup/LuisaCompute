@@ -36,6 +36,71 @@ struct Something {
 
 LUISA_STRUCT(Something, x, v) {};
 
+constexpr auto cross_dispatch_atomic_element_count = 4096u;
+
+void test_shared_atomic_address_after_divergent_loop(Device &device) {
+    // Every lane leaves the dispatcher through its own return arm. The bucket
+    // used by the atomic must agree with the ordinary per-lane value store.
+    // Apple Metal previously sent all increments to bucket one after inlining
+    // this loop, despite recording the correct bucket for each lane.
+    Callable<void(uint &, uint)> choose_bucket = [](UInt &bucket, UInt lane) {
+        UInt pc = 0u;
+        $loop {
+            $switch (pc) {
+                $case (0u) {
+                    pc = ite(lane % 32u < 20u, 1u, 2u);
+                    $break;
+                };
+                $case (1u) {
+                    bucket = 1u;
+                    $return();
+                };
+                $case (2u) {
+                    bucket = 0xffffffffu;
+                    $return();
+                };
+            };
+        };
+    };
+    for (auto block_size : {64u, 128u}) {
+        constexpr auto block_count = 4u;
+        auto output = device.create_buffer<uint>(block_count * 2u);
+        auto selected = device.create_buffer<uint>(block_size * block_count);
+        Kernel1D kernel = [&](BufferUInt counts, BufferUInt buckets) {
+            set_block_size(block_size);
+            Shared<uint> histogram{2u};
+            $if (thread_x() < 2u) { histogram[thread_x()] = 0u; };
+            sync_block();
+            UInt bucket = 0u;
+            choose_bucket(bucket, thread_x());
+            auto index = cast<uint>(bucket != 0xffffffffu);
+            buckets.write(dispatch_x(), index);
+            histogram.atomic(index).fetch_add(1u);
+            sync_block();
+            $if (thread_x() < 2u) {
+                counts.write(block_x() * 2u + thread_x(), histogram[thread_x()]);
+            };
+        };
+        auto shader = device.compile(kernel, {.enable_cache = false});
+        std::array<uint, block_count * 2u> counts{};
+        luisa::vector<uint> buckets(block_size * block_count);
+        auto stream = device.create_stream();
+        stream << shader(output, selected).dispatch(block_size * block_count)
+               << output.copy_to(luisa::span{counts})
+               << selected.copy_to(luisa::span{buckets})
+               << synchronize();
+        for (auto i = 0u; i < buckets.size(); ++i) {
+            expect(buckets[i] == (i % 32u < 20u ? 1u : 0u));
+        }
+        for (auto i = 0u; i < block_count; ++i) {
+            expect(counts[i * 2u] == block_size / 32u * 12u)
+                << "divergent atomic bucket zero in block " << i;
+            expect(counts[i * 2u + 1u] == block_size / 32u * 20u)
+                << "divergent atomic bucket one in block " << i;
+        }
+    }
+}
+
 void test_raw_buffer_atomic_matrix(Device &device) {
 
     constexpr size_t uint_value_count = 10u;
@@ -217,6 +282,82 @@ void test_shared_compare_exchange(Device &device) {
     }
 }
 
+void test_float_atomic_cross_dispatch_visibility(Device &device) {
+    // Each floating-point location has exactly one writer per dispatch, while
+    // an unrelated integer counter is highly contended at the start of every
+    // dispatch. This is the scheduler/film pattern which exposed the HIP
+    // lowering bug: the old float CAS loop started with a non-atomic raw load,
+    // so its initial observation did not belong to the same device-wide
+    // modification order as its compare-exchange.
+    constexpr auto element_count = cross_dispatch_atomic_element_count;
+    constexpr auto stage_count = 8u;
+    constexpr auto initial_value = 64.0f;
+
+    auto values = device.create_buffer<float>(element_count);
+    auto old_values =
+        device.create_buffer<float>(element_count * stage_count);
+    auto counters = device.create_buffer<uint>(stage_count);
+
+    Kernel1D add_stage = [](BufferFloat values,
+                            BufferFloat old_values,
+                            BufferUInt counters,
+                            UInt stage) noexcept {
+        const auto index = dispatch_x();
+        counters.atomic(stage).fetch_add(1u);
+        const auto delta = cast<float>(1u << stage);
+        const auto old = values.atomic(index).fetch_add(delta);
+        old_values.write(
+            stage * cross_dispatch_atomic_element_count + index, old);
+    };
+    Kernel1D subtract_stage = [](BufferFloat values,
+                                 BufferFloat old_values,
+                                 BufferUInt counters,
+                                 UInt stage) noexcept {
+        const auto index = dispatch_x();
+        counters.atomic(stage).fetch_add(1u);
+        const auto delta = cast<float>(1u << stage);
+        const auto old = values.atomic(index).fetch_sub(delta);
+        old_values.write(
+            stage * cross_dispatch_atomic_element_count + index, old);
+    };
+    auto add_shader = device.compile(add_stage);
+    auto subtract_shader = device.compile(subtract_stage);
+
+    luisa::vector<float> host_values(element_count, initial_value);
+    luisa::vector<float> host_old_values(element_count * stage_count);
+    luisa::vector<uint> host_counters(stage_count, 0u);
+    auto stream = device.create_stream();
+    stream << values.copy_from(luisa::span{host_values.data(), element_count})
+           << counters.copy_from(luisa::span{host_counters.data(), stage_count});
+    for (auto stage = 0u; stage < stage_count; stage++) {
+        auto &&shader = (stage & 1u) == 0u ? add_shader : subtract_shader;
+        stream << shader(values, old_values, counters, stage)
+                      .dispatch(element_count);
+    }
+    stream << values.copy_to(luisa::span{host_values.data(), element_count})
+           << old_values.copy_to(luisa::span{host_old_values.data(), element_count * stage_count})
+           << counters.copy_to(luisa::span{host_counters.data(), stage_count})
+           << synchronize();
+
+    auto expected = initial_value;
+    for (auto stage = 0u; stage < stage_count; stage++) {
+        for (auto index = 0u; index < element_count; index++) {
+            expect(host_old_values[stage * element_count + index] == expected)
+                << "float atomic at stage " << stage << ", element " << index
+                << " did not observe the preceding dispatch";
+        }
+        const auto delta = static_cast<float>(1u << stage);
+        expected += (stage & 1u) == 0u ? delta : -delta;
+        expect(host_counters[stage] == element_count)
+            << "integer scheduler counter did not record every invocation";
+    }
+    for (auto index = 0u; index < element_count; index++) {
+        expect(host_values[index] == expected)
+            << "cross-dispatch float atomic sequence lost an update at element "
+            << index;
+    }
+}
+
 void test_atomic(Device &device) {
 
     // Enable verbose logging
@@ -391,10 +532,15 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    luisa::vector<const char *> test_args{argv[0]};
+    for (auto i = 2; i < argc; ++i) { test_args.emplace_back(argv[i]); }
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        static_cast<int>(test_args.size()), test_args.data());
 
     auto &device = dc->device;
-    test_raw_buffer_atomic_matrix(device);
-    test_shared_compare_exchange(device);
-    test_atomic(device);
+    "shared_atomic_address_after_divergent_loop"_test = [&] { test_shared_atomic_address_after_divergent_loop(device); };
+    "raw_buffer_atomic_matrix"_test = [&] { test_raw_buffer_atomic_matrix(device); };
+    "shared_compare_exchange"_test = [&] { test_shared_compare_exchange(device); };
+    "float_atomic_cross_dispatch_visibility"_test = [&] { test_float_atomic_cross_dispatch_visibility(device); };
+    "atomic_aggregate_access"_test = [&] { test_atomic(device); };
 }

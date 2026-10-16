@@ -9,6 +9,7 @@
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/switch.h>
+#include <luisa/core/stl/memory.h>
 
 namespace lc::spirv {
 
@@ -23,13 +24,13 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
                  "SPIR-V If region contains an unbound physical block.");
 
     if (region.emit_selection_merge) {
-        auto merge = std::make_unique<spv::Instruction>(
+        auto merge = luisa::make_unique<spv::Instruction>(
             spv::Op::OpSelectionMerge);
         merge->reserveOperands(2u);
         merge->addIdOperand(merge_target->getId());
         merge->addImmediateOperand(
             spv::SelectionControlMask::MaskNone);
-        _builder.getBuildPoint()->addInstruction(std::move(merge));
+        _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(merge)));
     }
     _builder.createConditionalBranch(condition, true_target, false_target);
 }
@@ -108,13 +109,13 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     auto *default_target = _physical_block(region.default_target);
     LUISA_ASSERT(merge_target != nullptr && default_target != nullptr,
                  "SPIR-V Switch has an unbound merge or default target.");
-    auto selection_merge = std::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+    auto selection_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
     selection_merge->reserveOperands(2u);
     selection_merge->addIdOperand(merge_target->getId());
     selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
-    _builder.getBuildPoint()->addInstruction(std::move(selection_merge));
+    _builder.getBuildPoint()->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
 
-    auto switch_instruction = std::make_unique<spv::Instruction>(spv::Op::OpSwitch);
+    auto switch_instruction = luisa::make_unique<spv::Instruction>(spv::Op::OpSwitch);
     switch_instruction->reserveOperands(layout.operand_word_count);
     switch_instruction->addIdOperand(selector);
     switch_instruction->addIdOperand(default_target->getId());
@@ -129,7 +130,15 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
             literal == xir::SwitchInst::canonicalize_case_value(
                            inst->value()->type(), literal),
             "SPIR-V Switch case literal exceeds its selector bit width.");
-        switch_instruction->addImmediateOperand(static_cast<uint32_t>(literal));
+        auto low_word = static_cast<uint32_t>(literal);
+        if (selector_type->is_int() && selector_bit_width < 32u) {
+            // XIR keeps only the selector-width bits. SPIR-V stores at least
+            // one full word and requires signed narrow literals to extend
+            // through its unused high bits (OpSwitch literal encoding).
+            auto sign_bit = uint32_t{1u} << (selector_bit_width - 1u);
+            low_word = (low_word ^ sign_bit) - sign_bit;
+        }
+        switch_instruction->addImmediateOperand(low_word);
         if (selector_bit_width == 64u) {
             switch_instruction->addImmediateOperand(static_cast<uint32_t>(literal >> 32u));
         }
@@ -142,7 +151,7 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
             predecessor_targets.emplace_back(case_target);
         }
     }
-    physical_switch_header->addInstruction(std::move(switch_instruction));
+    physical_switch_header->addInstruction(to_std_unique_ptr(std::move(switch_instruction)));
     for (auto *target : predecessor_targets) {
         target->addPredecessor(physical_switch_header);
     }
@@ -188,21 +197,31 @@ void SpirvCodegenEntry::_emit_branch_inst(const xir::BranchInst *inst) noexcept 
 void SpirvCodegenEntry::_emit_conditional_branch_inst(const xir::ConditionalBranchInst *inst) noexcept {
     LUISA_ASSERT(_control_flow_plan != nullptr, "SPIR-V ConditionalBranch emission requires a control-flow plan.");
     auto *loop = _control_flow_plan->loop_with_prepare(inst->parent_block());
-    LUISA_ASSERT(loop != nullptr &&
-                     loop->prepare_kind ==
-                         SpirvLoopPrepareKind::CONDITIONAL &&
-                     loop->prepare == inst->parent_block() &&
-                     inst->true_block() == loop->body && inst->false_block() == loop->merge,
-                 "SPIR-V codegen received a raw ConditionalBranch outside canonical Loop.prepare.");
     auto condition = _emit_value(inst->condition());
-    auto *body_target = _physical_block(loop->body_target);
-    auto *merge_target = _physical_block(loop->merge_target);
-    LUISA_ASSERT(body_target != nullptr && merge_target != nullptr,
-                 "SPIR-V Loop prepare has an unbound body or merge target.");
-    _emit_loop_merge(*loop);
-    _builder.createConditionalBranch(condition,
-                                     body_target,
-                                     merge_target);
+    auto &targets =
+        _control_flow_plan->conditional_branch_targets(inst);
+    auto *true_target = _physical_block(targets[0u]);
+    auto *false_target = _physical_block(targets[1u]);
+    LUISA_ASSERT(true_target != nullptr && false_target != nullptr,
+                 "SPIR-V ConditionalBranch has an unbound target.");
+    if (loop != nullptr) {
+        LUISA_ASSERT(
+            loop->prepare_kind ==
+                    SpirvLoopPrepareKind::CONDITIONAL &&
+                loop->prepare == inst->parent_block() &&
+                inst->true_block() == loop->body &&
+                inst->false_block() == loop->merge &&
+                targets[0u] == loop->body_target &&
+                targets[1u] == loop->merge_target,
+            "SPIR-V codegen received a noncanonical conditional "
+            "Loop.prepare.");
+        _emit_loop_merge(*loop);
+    }
+    // A non-prepare raw conditional is a planner-proved direct boundary guard.
+    // It deliberately carries no OpSelectionMerge: its convergence belongs to
+    // an already enclosing construct.
+    _builder.createConditionalBranch(
+        condition, true_target, false_target);
 }
 
 spv::Block *SpirvCodegenEntry::_resolve_branch_target(const xir::BasicBlock *bb) const noexcept {

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -22,15 +23,10 @@ private:
     size_t _argument_buffer_size{};
     optix::Module _module{};
     optix::ProgramGroup _program_group_rg{};
-    optix::ProgramGroup _program_group_curve_piecewise_linear{};
-    optix::ProgramGroup _program_group_curve_cubic_bspline{};
-    optix::ProgramGroup _program_group_curve_catmull_rom{};
-    optix::ProgramGroup _program_group_curve_bezier{};
+    // Four bases for static vertices, followed by four for vertex motion.
+    std::array<optix::ProgramGroup, 8u> _program_groups_curve{};
     optix::ProgramGroup _program_group_ray_query{};
-    optix::ProgramGroup _program_group_ray_query_curve_piecewise_linear{};
-    optix::ProgramGroup _program_group_ray_query_curve_cubic_bspline{};
-    optix::ProgramGroup _program_group_ray_query_curve_catmull_rom{};
-    optix::ProgramGroup _program_group_ray_query_curve_bezier{};
+    std::array<optix::ProgramGroup, 8u> _program_groups_ray_query_curve{};
     optix::Pipeline _pipeline{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     CUdeviceptr _sbt_buffer{};
@@ -50,6 +46,12 @@ public:
                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;
     [[nodiscard]] void *handle() const noexcept override { return _pipeline; }
+    // OptiX shaders launch through an OptiX pipeline with __constant__ params
+    // and own no importable module image; cross-backend import rejects them.
+    [[nodiscard]] luisa::span<const std::byte> module_image() const noexcept override { return {}; }
+    [[nodiscard]] luisa::string_view entry() const noexcept override { return {}; }
+    [[nodiscard]] uint3 block_size() const noexcept override { return uint3{}; }
+    [[nodiscard]] size_t bound_argument_count() const noexcept override { return _bound_arguments.size(); }
 };
 
 }// namespace luisa::compute::cuda

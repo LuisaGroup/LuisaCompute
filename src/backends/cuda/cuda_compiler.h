@@ -31,6 +31,11 @@ private:
     luisa::string _nvrtc_path;
     uint32_t _nvrtc_version;
     luisa::string _device_library;
+    // The device-side software ray-tracing traversal (cuda_builtin/
+    // cuda_device_fallback_rtx.h).  It is kept out of `_device_library` on
+    // purpose: a shader only gets it when the fallback is in use, so the source
+    // of every hardware-path shader - and therefore its hash - is unchanged.
+    luisa::string _fallback_rtx_device_library;
 
 public:
     explicit CUDACompiler(const CUDADevice *device) noexcept;
@@ -40,9 +45,16 @@ public:
     CUDACompiler &operator=(const CUDACompiler &) noexcept = delete;
     [[nodiscard]] auto nvrtc_version() const noexcept { return _nvrtc_version; }
     [[nodiscard]] auto device_library() const noexcept { return luisa::string_view{_device_library}; }
+    [[nodiscard]] auto fallback_rtx_device_library() const noexcept {
+        return luisa::string_view{_fallback_rtx_device_library};
+    }
+    // On failure returns an empty vector; when `error` is non-null it receives
+    // a message with the NVRTC diagnostics (the compiler log and exit code)
+    // instead of the failure only being logged.
     [[nodiscard]] luisa::vector<std::byte> compile(const luisa::string &src, const luisa::string &src_filename,
                                                    luisa::span<const char *const> options,
-                                                   const CUDAShaderMetadata *metadata = nullptr) const noexcept;
+                                                   const CUDAShaderMetadata *metadata = nullptr,
+                                                   luisa::string *error = nullptr) const noexcept;
     [[nodiscard]] static uint64_t compute_hash(const luisa::string &src, luisa::span<const char *const> options) noexcept;
     [[nodiscard]] static size_t type_size(const Type *type) noexcept;
     [[nodiscard]] auto device() const noexcept { return _device; }

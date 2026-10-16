@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <luisa/core/stl/optional.h>
 
 namespace luisa::photon_mapping {
 
@@ -28,12 +29,12 @@ struct PhotonStoragePlan {
     return plan;
 }
 
-[[nodiscard]] constexpr std::optional<uint32_t> photon_slot_index(
+[[nodiscard]] constexpr luisa::optional<uint32_t> photon_slot_index(
     const PhotonStoragePlan &plan, uint32_t path_index,
     uint32_t depth) noexcept {
     if (!plan.valid || path_index >= plan.path_count ||
         depth >= plan.max_depth) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return path_index * plan.max_depth + depth;
 }
@@ -105,16 +106,16 @@ struct FixedPointWords {
     return (static_cast<uint64_t>(value.high) << 32u) | value.low;
 }
 
-[[nodiscard]] inline std::optional<uint32_t> quantize_fixed_point_term(
+[[nodiscard]] inline luisa::optional<uint32_t> quantize_fixed_point_term(
     float value, const FixedPointAccumulatorPlan &plan) noexcept {
     if (!plan.valid || !std::isfinite(value) || value < 0.0f ||
         value > static_cast<float>(plan.max_term_ceiling)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     auto scaled = value * static_cast<float>(plan.scale) + 0.5f;
     if (!std::isfinite(scaled) ||
         scaled > static_cast<float>(plan.max_quantized_term)) {
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return static_cast<uint32_t>(scaled);
 }

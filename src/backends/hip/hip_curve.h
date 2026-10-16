@@ -34,6 +34,7 @@ private:
     AccelOption _option;
     hiprtContext _hiprt_ctx{nullptr};
     hiprtGeometry _geometry{nullptr};
+    hiprtBuildFlags _build_flags{};
     hipDeviceptr_t _aabb_buffer{};
     size_t _aabb_buffer_size{};
     hipDeviceptr_t _device_data{};

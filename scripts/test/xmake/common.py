@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-SUPPORTED_BACKENDS = ("cpu", "cuda", "dx", "fallback", "hip", "metal", "vk")
+SUPPORTED_BACKENDS = ("cuda", "dx", "fallback", "hip", "metal", "vk")
 
 
 def run_cmd(cmd: list[str], cwd: Path = PROJECT_ROOT) -> int:

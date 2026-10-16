@@ -3,6 +3,7 @@
 #include "resource_barrier.h"
 #include "resource_barrier_contract.h"
 #include "bindless_array.h"
+#include "command_buffer_sync.h"
 
 namespace lc::vk {
 namespace detail {
@@ -696,6 +697,12 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
     }
     _current_texture_update_states.clear();
     _current_texture_descriptor_views.clear();
+    // A dependency with zero barriers orders nothing, so skip the driver call
+    // entirely; the DirectX enhanced-barrier tracker already skips this case.
+    // Layers that record no state changes no longer cost a pipeline barrier.
+    if (_buffer_barriers.empty() && _tex_barriers.empty()) {
+        return;
+    }
     VkDependencyInfo info{
         VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     if (!_tex_barriers.empty()) {
@@ -709,7 +716,7 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
         info.bufferMemoryBarrierCount = _buffer_barriers.size();
         info.pBufferMemoryBarriers = _buffer_barriers.data();
     }
-    vkCmdPipelineBarrier2(cmd_buffer, &info);
+    detail::cmd_pipeline_barrier(cmd_buffer, device, &info);
 }
 
 void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
@@ -784,7 +791,7 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
         info.bufferMemoryBarrierCount = _buffer_barriers.size();
         info.pBufferMemoryBarriers = _buffer_barriers.data();
     }
-    vkCmdPipelineBarrier2(cmd_buffer, &info);
+    detail::cmd_pipeline_barrier(cmd_buffer, device, &info);
     _buffer_frame_states.clear();
     _texture_frame_states.clear();
     clear_restore_states();

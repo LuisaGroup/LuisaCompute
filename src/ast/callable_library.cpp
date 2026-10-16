@@ -7,8 +7,8 @@ namespace luisa::compute {
 namespace detail {
 
 [[nodiscard]] inline auto &callable_library_function_builder_deserialize_stack() noexcept {
-    static thread_local luisa::vector<FunctionBuilder *> stack;
-    return stack;
+    static thread_local luisa::vector<FunctionBuilder *> callable_library_stack;
+    return callable_library_stack;
 }
 
 [[nodiscard]] inline auto callable_library_function_builder_deserialize_stack_top() noexcept {
@@ -386,15 +386,22 @@ Expression const *CallableLibrary::deser_value(std::byte const *&ptr, DeserPacka
     auto hash = deser_value<uint64_t>(ptr, pack);
     auto tag = deser_value<Expression::Tag>(ptr, pack);
     auto create_expr = [&]<typename T>() {
-        auto expr = reinterpret_cast<T *>(luisa::detail::allocator_allocate(sizeof(T), alignof(T)));
-        new (expr) T{};
+          // Match the default deleter used by the builder's owning pointers.
+          // The node ctors are protected (CallableLibrary is a friend), so
+          // allocator-based placement new is used instead of make_unique.
+#ifdef LUISA_USE_SYSTEM_STL
+          auto expression = luisa::unique_ptr<T>{new T{}};
+#else
+          auto expression = luisa::unique_ptr<T>{new (luisa::allocate_with_allocator<T>()) T{}};
+#endif
+        auto expr = expression.get();
         deser_ptr<T *>(expr, ptr, pack);
         expr->_type = type;
         expr->_hash = hash;
         expr->_builder = detail::callable_library_function_builder_deserialize_stack_top();
         expr->_hash_computed = true;
         expr->_tag = tag;
-        pack.builder->_all_expressions.emplace_back(luisa::unique_ptr<Expression>(expr));
+        pack.builder->_all_expressions.emplace_back(std::move(expression));
         return expr;
     };
     switch (tag) {
@@ -511,12 +518,27 @@ void CallableLibrary::deser_ptr(SwitchStmt *obj, std::byte const *&ptr, DeserPac
 }
 template<>
 void CallableLibrary::ser_value(SwitchCaseStmt const &t, luisa::vector<std::byte> &vec) noexcept {
-    ser_value(*t._expr, vec);
+    if (t.tag() == Statement::Tag::SWITCH_CASE_GROUP) {
+        ser_value(t._expressions.size(), vec);
+        for (auto expression : t._expressions) { ser_value(*expression, vec); }
+    } else {
+        ser_value(*t._expr, vec);
+    }
     ser_value<Statement>(t._body, vec);
 }
 template<>
 void CallableLibrary::deser_ptr(SwitchCaseStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
-    obj->_expr = deser_value<Expression const *>(ptr, pack);
+    if (obj->tag() == Statement::Tag::SWITCH_CASE_GROUP) {
+        auto count = deser_value<size_t>(ptr, pack);
+        LUISA_ASSERT(count > 1u, "A serialized switch case group needs at least two labels.");
+        obj->_expressions.reserve(count);
+        for (auto i = 0u; i < count; i++) {
+            obj->_expressions.emplace_back(deser_value<Expression const *>(ptr, pack));
+        }
+        obj->_expr = obj->_expressions.front();
+    } else {
+        obj->_expr = deser_value<Expression const *>(ptr, pack);
+    }
     deser_ptr<Statement *>(&obj->_body, ptr, pack);
 }
 template<>
@@ -554,12 +576,121 @@ template<>
 void CallableLibrary::ser_value(SuspendStmt const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value(t._token, vec);
     ser_value(t._name, vec);
+    ser_value(t._frame_exports.size(), vec);
+    for (auto &&frame_export : t._frame_exports) {
+        ser_value(frame_export.name, vec);
+        ser_value(*frame_export.value, vec);
+    }
+    ser_value(t._extensions.size(), vec);
+    for (auto &&extension : t._extensions) {
+        ser_value(luisa::string{extension->schema()}, vec);
+        ser_value(extension->version(), vec);
+        ser_value(extension->is_annotation(), vec);
+        ser_value(extension->fallback(), vec);
+        ser_value(extension->bindings().size(), vec);
+        for (auto &&binding : extension->bindings()) {
+            ser_value(binding.name, vec);
+            ser_value(binding.access, vec);
+            ser_value(binding.lifetime, vec);
+            ser_value(binding.index, vec);
+        }
+        ser_value(extension->attributes().size(), vec);
+        for (auto &&attribute : extension->attributes()) {
+            ser_value(attribute.name, vec);
+            ser_value(static_cast<uint8_t>(attribute.value.index()), vec);
+            luisa::visit(
+                [&](auto &&value) noexcept { ser_value(value, vec); },
+                attribute.value);
+        }
+    }
+    ser_value(t._extension_binding_values.size(), vec);
+    for (auto *value : t._extension_binding_values) {
+        ser_value(*value, vec);
+    }
 }
 template<>
 void CallableLibrary::deser_ptr(SuspendStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
-    (void)pack;
     obj->_token = deser_value<uint32_t>(ptr, pack);
     obj->_name = deser_value<luisa::string>(ptr, pack);
+    auto count = deser_value<size_t>(ptr, pack);
+    obj->_frame_exports.reserve(count);
+    for (size_t i = 0u; i < count; ++i) {
+        auto name = deser_value<luisa::string>(ptr, pack);
+        auto *value = deser_value<Expression const *>(ptr, pack);
+        obj->_frame_exports.emplace_back(CoroFrameExport{
+            .value = value, .name = std::move(name)});
+        if (value != nullptr) { value->mark(Usage::READ); }
+    }
+    auto extension_count = deser_value<size_t>(ptr, pack);
+    obj->_extensions.reserve(extension_count);
+    for (size_t i = 0u; i < extension_count; ++i) {
+        auto schema = deser_value<luisa::string>(ptr, pack);
+        auto version = deser_value<uint32_t>(ptr, pack);
+        auto is_annotation = deser_value<bool>(ptr, pack);
+        auto fallback = deser_value<CoroSuspendFallback>(ptr, pack);
+        auto binding_count = deser_value<size_t>(ptr, pack);
+        luisa::vector<CoroSuspendBinding> bindings;
+        bindings.reserve(binding_count);
+        for (size_t j = 0u; j < binding_count; ++j) {
+            auto name = deser_value<luisa::string>(ptr, pack);
+            auto access =
+                deser_value<CoroSuspendBindingAccess>(ptr, pack);
+            auto lifetime =
+                deser_value<CoroSuspendBindingLifetime>(ptr, pack);
+            auto index = deser_value<uint32_t>(ptr, pack);
+            bindings.emplace_back(CoroSuspendBinding{
+                .name = std::move(name),
+                .access = access,
+                .lifetime = lifetime,
+                .index = index});
+        }
+        auto attribute_count = deser_value<size_t>(ptr, pack);
+        luisa::vector<CoroSuspendAttribute> attributes;
+        attributes.reserve(attribute_count);
+        for (size_t j = 0u; j < attribute_count; ++j) {
+            auto name = deser_value<luisa::string>(ptr, pack);
+            auto tag = deser_value<uint8_t>(ptr, pack);
+            CoroSuspendAttributeValue value;
+            switch (tag) {
+                case 0u: value = deser_value<bool>(ptr, pack); break;
+                case 1u: value = deser_value<int64_t>(ptr, pack); break;
+                case 2u: value = deser_value<uint64_t>(ptr, pack); break;
+                case 3u: value = deser_value<double>(ptr, pack); break;
+                case 4u:
+                    value = deser_value<luisa::string>(ptr, pack);
+                    break;
+                default:
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Invalid coroutine suspend attribute tag {}.",
+                        tag);
+            }
+            attributes.emplace_back(CoroSuspendAttribute{
+                .name = std::move(name), .value = std::move(value)});
+        }
+        auto extension = is_annotation ?
+                             make_coro_suspend_annotation_data(
+                                 std::move(schema), version, fallback,
+                                 std::move(bindings),
+                                 std::move(attributes)) :
+                             make_coro_suspend_extension_data(
+                                 std::move(schema), version, fallback,
+                                 std::move(bindings),
+                                 std::move(attributes));
+        obj->_extensions.emplace_back(std::move(extension));
+    }
+    auto binding_value_count = deser_value<size_t>(ptr, pack);
+    obj->_extension_binding_values.reserve(binding_value_count);
+    for (size_t i = 0u; i < binding_value_count; ++i) {
+        obj->_extension_binding_values.emplace_back(
+            deser_value<Expression const *>(ptr, pack));
+    }
+    // Function-level variable usages are serialized separately and were
+    // restored before the statement tree. Validate the extension payload here
+    // without calling Expression::mark: the ordinary FunctionBuilder stack is
+    // intentionally not active during CallableLibrary deserialization, and a
+    // temporary FunctionStackGuard would finalize/hash a partially populated
+    // builder when it leaves this nested statement routine.
+    obj->_validate_extension_bindings();
 }
 template<>
 void CallableLibrary::ser_value(AutoDiffStmt const &t, luisa::vector<std::byte> &vec) noexcept {
@@ -639,6 +770,7 @@ void CallableLibrary::ser_value(Statement const &t, luisa::vector<std::byte> &ve
             ser_value(*static_cast<SwitchStmt const *>(&t), vec);
             break;
         case Statement::Tag::SWITCH_CASE:
+        case Statement::Tag::SWITCH_CASE_GROUP:
             ser_value(*static_cast<SwitchCaseStmt const *>(&t), vec);
             break;
         case Statement::Tag::SWITCH_DEFAULT:
@@ -677,13 +809,17 @@ Statement *CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pac
     auto hash = deser_value<uint64_t>(ptr, pack);
     auto tag = deser_value<Statement::Tag>(ptr, pack);
     auto create_stmt = [&]<typename T, bool construct = true>() {
-        auto stmt = reinterpret_cast<T *>(luisa::detail::allocator_allocate(sizeof(T), alignof(T)));
-        new (stmt) T{};
+                  // See the expression site above for the allocator pairing.
+#ifdef LUISA_USE_SYSTEM_STL
+          auto statement = luisa::unique_ptr<T>{new T{}};
+#else
+          auto statement = luisa::unique_ptr<T>{new (luisa::allocate_with_allocator<T>()) T{}};
+#endif
+        auto stmt = statement.get();
         stmt->_hash = hash;
         stmt->_hash_computed = true;
         stmt->_tag = tag;
-        auto smt_ptr = luisa::unique_ptr<T>{stmt};
-        pack.builder->_all_statements.emplace_back(std::move(smt_ptr));
+        pack.builder->_all_statements.emplace_back(std::move(statement));
         if constexpr (construct) {
             deser_ptr<T *>(stmt, ptr, pack);
         }
@@ -707,6 +843,7 @@ Statement *CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pac
         case Statement::Tag::SWITCH:
             return create_stmt.template operator()<SwitchStmt>();
         case Statement::Tag::SWITCH_CASE:
+        case Statement::Tag::SWITCH_CASE_GROUP:
             return create_stmt.template operator()<SwitchCaseStmt>();
         case Statement::Tag::SWITCH_DEFAULT:
             return create_stmt.template operator()<SwitchDefaultStmt>();
@@ -767,6 +904,7 @@ void CallableLibrary::deser_ptr(Statement *obj, std::byte const *&ptr, DeserPack
             create_stmt.template operator()<SwitchStmt>();
             break;
         case Statement::Tag::SWITCH_CASE:
+        case Statement::Tag::SWITCH_CASE_GROUP:
             create_stmt.template operator()<SwitchCaseStmt>();
             break;
         case Statement::Tag::SWITCH_DEFAULT:
@@ -846,6 +984,7 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
     builder._tag = deser_value<Function::Tag>(ptr, pack);
     builder._requires_atomic_float = deser_value<bool>(ptr, pack);
     builder._requires_printing = deser_value<bool>(ptr, pack);
+    builder._requires_noinline = deser_value<bool>(ptr, pack);
     builder._block_size = deser_value<uint3>(ptr, pack);
     deser_ptr<Statement *>(&builder._body, ptr, pack);
     auto popped = callable_library_function_builder_deserialize_stack_pop();
@@ -908,6 +1047,8 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     ser_value(builder._requires_atomic_float, vec);
     // requires printing
     ser_value(builder._requires_printing, vec);
+    // requires a retained call boundary
+    ser_value(builder._requires_noinline, vec);
     ser_value(builder._block_size, vec);
     // body
     ser_value(static_cast<Statement const &>(builder._body), vec);

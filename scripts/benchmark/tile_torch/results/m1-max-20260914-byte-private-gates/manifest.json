@@ -1,0 +1,637 @@
+{
+  "schema_version": 1,
+  "archive_sha256": "1f47c62a68bcd962d21654a941482994247c10f9cc0e1fcd5a69f793719f50e3",
+  "scope": "Full12 frozen overlay and correctness receipts; no performance or binaries.",
+  "files": {
+    "full12/baseline-source/src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp": {
+      "sha256": "9d38df74b93dbc2441f49317f5cf457b5c79cee2db7c0d185432363554922b7a",
+      "size": 76836,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/baseline-source/src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp"
+    },
+    "full12/baseline-source/src/tests/unit/simd/test_llvm_schedule_codegen.cpp": {
+      "sha256": "9699b54c259a48284b901268d4aaa9842412742b5f24da1aeb276c93b178a00b",
+      "size": 790754,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/baseline-source/src/tests/unit/simd/test_llvm_schedule_codegen.cpp"
+    },
+    "full12/build-full-12/command.json": {
+      "sha256": "637fbf2673fe14e960b2ad34d2342eb6b6b225ba68d71fbfe545c577b53e5de7",
+      "size": 5418,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/build-full-12/command.json"
+    },
+    "full12/build-full-12/result.json": {
+      "sha256": "3775280fcd9a709d320431df4b153f0a0342bc75d20ba3d6749e856c4e250b2a",
+      "size": 5717,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/build-full-12/result.json"
+    },
+    "full12/build-full-12/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/build-full-12/stderr.txt"
+    },
+    "full12/build-full-12/stdout.txt": {
+      "sha256": "7504b51b695c9871be807a281d54f298d6d84a0280db0ba249050a7ed1d1097c",
+      "size": 3030,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/build-full-12/stdout.txt"
+    },
+    "full12/candidate-source/src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp": {
+      "sha256": "34fea4a7f1947205a6eda8f9b27536e42764f5e2b7132bf7f6e8e3c721849a36",
+      "size": 77724,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/candidate-source/src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp"
+    },
+    "full12/candidate-source/src/tests/unit/simd/test_llvm_schedule_codegen.cpp": {
+      "sha256": "a11c4c87083c262d3a372df4edb5a5a41daab66a6cba34c5bd671193ab2462a4",
+      "size": 805233,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/candidate-source/src/tests/unit/simd/test_llvm_schedule_codegen.cpp"
+    },
+    "full12/frozen-source/include/luisa/tile/bridge/xir/lower.h": {
+      "sha256": "edae24486f7717ca42e474c06652d6f75ae500c1ca836c406d93111de9a029d4",
+      "size": 8233,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/include/luisa/tile/bridge/xir/lower.h"
+    },
+    "full12/frozen-source/include/luisa/tile/bridge/xir/planner.h": {
+      "sha256": "b9f6783fd2771adfb6943599dc3c2f4d25ba3d41327250d4beada9aa96d00ebb",
+      "size": 14416,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/include/luisa/tile/bridge/xir/planner.h"
+    },
+    "full12/frozen-source/src/backends/simd/llvm/llvm_jit.cpp": {
+      "sha256": "8cf75e6fed72dc0d34a4ba5f97cb3e5110804cdd6eb80ffc964b3f95157dfdcc",
+      "size": 20207,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/llvm/llvm_jit.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/llvm/llvm_schedule_emitter_collectives.cpp": {
+      "sha256": "79e4fecbc90021383c0f6c719a16690151c58e96780c3fb5a77ce0f653ed59d7",
+      "size": 10133,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/llvm/llvm_schedule_emitter_collectives.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/llvm/llvm_schedule_emitter_direct.cpp": {
+      "sha256": "76c91719de9e2bb92ac32ea4cdaac951b28ada0779f497c4627661fb25482360",
+      "size": 44336,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/llvm/llvm_schedule_emitter_direct.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp": {
+      "sha256": "34fea4a7f1947205a6eda8f9b27536e42764f5e2b7132bf7f6e8e3c721849a36",
+      "size": 77724,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/llvm/llvm_schedule_emitter_memory.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/llvm/llvm_schedule_emitter_predication.cpp": {
+      "sha256": "e8432b6a90b914c6895c6ca1a80deac0a64508fe28e0b5946ba8d142749bd6bd",
+      "size": 84763,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/llvm/llvm_schedule_emitter_predication.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/llvm/llvm_warp_collectives.cpp": {
+      "sha256": "0989612629c7e64e3cc65601d32904f7c3ae76289f7abe5bc65b0557546c5d44",
+      "size": 23012,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/llvm/llvm_warp_collectives.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/schedule/schedule_ir.cpp": {
+      "sha256": "2ae1646bb94bfa5c9b455b8ccc81e84553d1056b7b5cca08b31d7536bb60092b",
+      "size": 40692,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/schedule/schedule_ir.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/schedule/warp_uniformity.cpp": {
+      "sha256": "d2b17cb590f3e70a03a0c35a994d97e1ae0b8672fbdbecf4c712271f51c0c977",
+      "size": 27142,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/schedule/warp_uniformity.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/schedule/warp_uniformity.h": {
+      "sha256": "544e631128a72fde59f74e488c029c51af586201daec0413490958bf49f9c2ca",
+      "size": 2281,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/schedule/warp_uniformity.h"
+    },
+    "full12/frozen-source/src/backends/simd/schedule/xir_to_schedule.cpp": {
+      "sha256": "e9eca43bae21c11e2a92831ba1ca76079516985e41a3d18c37083898b5a1fadd",
+      "size": 92307,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/schedule/xir_to_schedule.cpp"
+    },
+    "full12/frozen-source/src/backends/simd/simd_compiler.cpp": {
+      "sha256": "3f3aad743bc48df29b7a6f40219f4d4bd14e03e9c2222143aa18d9cb65af3ce7",
+      "size": 61140,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/backends/simd/simd_compiler.cpp"
+    },
+    "full12/frozen-source/src/tests/common/tile_xir_attention_test_utils.h": {
+      "sha256": "7417f86d414992b8e5b1d0afe1fc912ea3ebe31176d157889823a5db41903f2f",
+      "size": 22077,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/common/tile_xir_attention_test_utils.h"
+    },
+    "full12/frozen-source/src/tests/unit/simd/test_llvm_schedule_codegen.cpp": {
+      "sha256": "a11c4c87083c262d3a372df4edb5a5a41daab66a6cba34c5bd671193ab2462a4",
+      "size": 805233,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/unit/simd/test_llvm_schedule_codegen.cpp"
+    },
+    "full12/frozen-source/src/tests/unit/simd/test_llvm_warp_collectives.cpp": {
+      "sha256": "43ab3164885bff526f9ca8715fe6d4fbe27f2e378d886a7c6dafd747161413af",
+      "size": 17456,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/unit/simd/test_llvm_warp_collectives.cpp"
+    },
+    "full12/frozen-source/src/tests/unit/simd/test_warp_uniformity.cpp": {
+      "sha256": "a6363e2a99864ace46b451edca86280fe5b46c119798c681ba863c7ee4032836",
+      "size": 17824,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/unit/simd/test_warp_uniformity.cpp"
+    },
+    "full12/frozen-source/src/tests/unit/simd/test_xir_to_schedule.cpp": {
+      "sha256": "9d926bfbc6f1271bf73e45f127a959704ede0353d3881a7504b146404e06b458",
+      "size": 75881,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/unit/simd/test_xir_to_schedule.cpp"
+    },
+    "full12/frozen-source/src/tests/unit/tile/bridge/test_xir.cpp": {
+      "sha256": "8b41807697384e14476371c7a195eba86bec6b0cd524481018ecab8b014aa24d",
+      "size": 55527,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/unit/tile/bridge/test_xir.cpp"
+    },
+    "full12/frozen-source/src/tests/unit/tile/bridge/test_xir_metal.cpp": {
+      "sha256": "5bda69d1054f4e497f13125306ae1afd503f9c661145bfd087c73bb3e221a3a6",
+      "size": 7795,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/unit/tile/bridge/test_xir_metal.cpp"
+    },
+    "full12/frozen-source/src/tests/unit/tile/bridge/test_xir_program_team.cpp": {
+      "sha256": "65e241775ca9c5e0d1b8e8db155211931bb948651b2c3494427473b6a93adbc2",
+      "size": 33170,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/unit/tile/bridge/test_xir_program_team.cpp"
+    },
+    "full12/frozen-source/src/tests/unit/tile/bridge/test_xir_runtime.cpp": {
+      "sha256": "6d383b101c3187cc5a805a956bb7b65a16a31ee0a910886a98428a477175c4cc",
+      "size": 101586,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tests/unit/tile/bridge/test_xir_runtime.cpp"
+    },
+    "full12/frozen-source/src/tile/bridge/xir/lower.cpp": {
+      "sha256": "3f1547b509bbee8368d58956478d57ba3b082e3e2cee5f9194e1fc5b4a1ed77b",
+      "size": 108168,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tile/bridge/xir/lower.cpp"
+    },
+    "full12/frozen-source/src/tile/bridge/xir/planner.cpp": {
+      "sha256": "59e15d3da6b1f0ecbef72d61534ca17d22f81b911d395ff59dd3b13a3845cd91",
+      "size": 53230,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tile/bridge/xir/planner.cpp"
+    },
+    "full12/frozen-source/src/tile/bridge/xir/program_plan.h": {
+      "sha256": "7495b3fc9bf093b7159af9867e7382eb810cb790acd3a22594bb8ddb0e5a1c05",
+      "size": 25405,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tile/bridge/xir/program_plan.h"
+    },
+    "full12/frozen-source/src/tile/bridge/xir/resources.h": {
+      "sha256": "44665f7ffa1a1e2db4371956bc606347fb04ac3dd816e6f52aae369fb2928d01",
+      "size": 20810,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tile/bridge/xir/resources.h"
+    },
+    "full12/frozen-source/src/tile/verifier.cpp": {
+      "sha256": "8babafde3b55f2c6c91969c1a45b28478cd525de54af970cfa36cfb4b090f88e",
+      "size": 50649,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/frozen-source/src/tile/verifier.cpp"
+    },
+    "full12/owned.json": {
+      "sha256": "87afaa5ad8eca0e1c1ff9cbb07e42b54393e84ae524a09b9a68181f8628cb1e6",
+      "size": 1332,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/owned.json"
+    },
+    "full12/plan.json": {
+      "sha256": "589f9170a86b4c9dd5984380ad56e65fba263713bc2f877c5a8191c29c1ba8f3",
+      "size": 1990,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/plan.json"
+    },
+    "full12/run.py": {
+      "sha256": "5e278ef14292ba3c7cbe3872d3452e529f77da1b8b54c9159dc5487470553071",
+      "size": 13960,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/run.py"
+    },
+    "full12/self-check.json": {
+      "sha256": "a39b3808902216b8c4b570e06b2c19934dec22c82ca71c00f56562431c056a96",
+      "size": 5377,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/self-check.json"
+    },
+    "full12/source-freeze-byte-private.json": {
+      "sha256": "71573837811263abe91d86a4c0b33bb425479e2bd5c2638e92d899a1afb56720",
+      "size": 9787,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/source-freeze-byte-private.json"
+    },
+    "full12/test-full12-host-plan/command.json": {
+      "sha256": "0b1f2d6fe8f140e5d09b7edf47a146639d8374e892d37d2e3fa1b9832bd5a74a",
+      "size": 5510,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-host-plan/command.json"
+    },
+    "full12/test-full12-host-plan/result.json": {
+      "sha256": "0308d7ba97ab83488ef13f4f3c018823e9f3b118d893ec7483c05af3932332c2",
+      "size": 5809,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-host-plan/result.json"
+    },
+    "full12/test-full12-host-plan/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-host-plan/stderr.txt"
+    },
+    "full12/test-full12-host-plan/stdout.txt": {
+      "sha256": "6b5c7bd032fa15863128be0066b85210874b740421fe46d7531a1b1dc3f38136",
+      "size": 1586,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-host-plan/stdout.txt"
+    },
+    "full12/test-full12-tile-simd/command.json": {
+      "sha256": "9b543b10f1efe1c200db00b9904c9686cd67a3b5debf7635de7ff4b6e88c1c66",
+      "size": 5477,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-tile-simd/command.json"
+    },
+    "full12/test-full12-tile-simd/result.json": {
+      "sha256": "1d1c4214de85002c229f5fe91e0a8ebdc124fcc94633e7b1b34ea23436f82e93",
+      "size": 5777,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-tile-simd/result.json"
+    },
+    "full12/test-full12-tile-simd/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-tile-simd/stderr.txt"
+    },
+    "full12/test-full12-tile-simd/stdout.txt": {
+      "sha256": "27f782516c04361bc5621c3c844e01a5c1d4915069c28e105c30b27aa14bf847",
+      "size": 2484,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-tile-simd/stdout.txt"
+    },
+    "full12/test-full12-unit-simd/command.json": {
+      "sha256": "8d60050939a89946c6e5602f36246c166e78fe2a50eb81637675b51d5797f9e2",
+      "size": 5474,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-unit-simd/command.json"
+    },
+    "full12/test-full12-unit-simd/result.json": {
+      "sha256": "83b5345846b0e1c3c1c28f23b2dec8f7993f8fb562504beddd3104cdbfa6b351",
+      "size": 5773,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-unit-simd/result.json"
+    },
+    "full12/test-full12-unit-simd/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-unit-simd/stderr.txt"
+    },
+    "full12/test-full12-unit-simd/stdout.txt": {
+      "sha256": "6b4cf3e373fa7fb060c11a0085eaa8cefed32cd567c2b62624614f386a55b449",
+      "size": 16146,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/test-full12-unit-simd/stdout.txt"
+    },
+    "full12/tidy-byte-private-codegen-test/command.json": {
+      "sha256": "f5d08a7c9bdf2824dbc93e20470db0bd1801af162e759c406e7b0dd9cac5a851",
+      "size": 5882,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/tidy-byte-private-codegen-test/command.json"
+    },
+    "full12/tidy-byte-private-codegen-test/result.json": {
+      "sha256": "fe07f13e1c00e442f140c95a2a5716378f00b62f5e63b14c985b9b57520af686",
+      "size": 6180,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/tidy-byte-private-codegen-test/result.json"
+    },
+    "full12/tidy-byte-private-codegen-test/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/tidy-byte-private-codegen-test/stderr.txt"
+    },
+    "full12/tidy-byte-private-codegen-test/stdout.txt": {
+      "sha256": "e5d192ef91065e7306e843c96b81f611c88995410a007649e2eede3a5c4d9bfb",
+      "size": 3974,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/tidy-byte-private-codegen-test/stdout.txt"
+    },
+    "full12/tidy-byte-private-memory/command.json": {
+      "sha256": "457ed154a037cbbfc2fd37914eef706696638dce0e421f1c210784e23de4b2c0",
+      "size": 5888,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/tidy-byte-private-memory/command.json"
+    },
+    "full12/tidy-byte-private-memory/result.json": {
+      "sha256": "f9bbc597f3e66ae8321cad7ff761a51b9c1315f11e4f080b4f4b5cee740206fd",
+      "size": 6188,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/tidy-byte-private-memory/result.json"
+    },
+    "full12/tidy-byte-private-memory/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/tidy-byte-private-memory/stderr.txt"
+    },
+    "full12/tidy-byte-private-memory/stdout.txt": {
+      "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+      "size": 22,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/byte-private-candidate.Oe9AVl/tidy-byte-private-memory/stdout.txt"
+    },
+    "parent/build-full-11/command.json": {
+      "sha256": "894d8cb5d94cf1050a8c69fabb5dc6d9b57f25da17e603ee9cacd13818b5666e",
+      "size": 4025,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/build-full-11/command.json"
+    },
+    "parent/build-full-11/result.json": {
+      "sha256": "fb761dfdf7323b318a90b366fd460170c8ad0044bb711fe74462823284f73a4a",
+      "size": 4273,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/build-full-11/result.json"
+    },
+    "parent/build-full-11/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/build-full-11/stderr.txt"
+    },
+    "parent/build-full-11/stdout.txt": {
+      "sha256": "046fb29fb9739410a40ec56dc7061096ccc63fe02ae2b0508e6307588ee1ca77",
+      "size": 6294,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/build-full-11/stdout.txt"
+    },
+    "parent/owned.json": {
+      "sha256": "f32dc1817ac3447986bcf324925747f1e9f731730fb287a736a3811bdde0a9e5",
+      "size": 1271,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/owned.json"
+    },
+    "parent/previous-source-receipt.json": {
+      "sha256": "2046ccdb07124eff92fa24160bd70a1389d0b9ecb8305f2fefcbd6bd827176e8",
+      "size": 6512,
+      "original_path": "/tmp/luisa-metal-short-reduce.JdDz9f/source-namespace-fix.json"
+    },
+    "parent/run.py": {
+      "sha256": "cf117729fa704f03080787d8a4849f22d37200b021284150e7dc6177a3e590fe",
+      "size": 12423,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/run.py"
+    },
+    "parent/source-clone.json": {
+      "sha256": "f91e0baf9dc9a8d01b111bfbba6d74af0e1704094924ee4cab6b0e27a3fef4e5",
+      "size": 8793,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/source-clone.json"
+    },
+    "parent/source-freeze-collective-epoch-storage.json": {
+      "sha256": "29ef908f51beadddedaac6cc85735f2c260cf86978c075bd0fb875707230099c",
+      "size": 3727,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/source-freeze-collective-epoch-storage.json"
+    },
+    "parent/test-full11-host-plan/command.json": {
+      "sha256": "a5a4f28649d25274d877e7ec4c14b6fab77e82927b7edd0ab5f775e091217dd1",
+      "size": 4119,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-host-plan/command.json"
+    },
+    "parent/test-full11-host-plan/result.json": {
+      "sha256": "283b4449b4c986a294df200d22dca9b3071cdd9390462cc60a3392a2a081c2f3",
+      "size": 4366,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-host-plan/result.json"
+    },
+    "parent/test-full11-host-plan/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-host-plan/stderr.txt"
+    },
+    "parent/test-full11-host-plan/stdout.txt": {
+      "sha256": "1284c61e35e1d992446b056df631eac150e081cfff53760374d0aabcfb8f3ed0",
+      "size": 1586,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-host-plan/stdout.txt"
+    },
+    "parent/test-full11-tile-simd/command.json": {
+      "sha256": "898ae8f9185df1404a5ec4bf07dbcb2ef8fa94793023086f6d8b276444811753",
+      "size": 4085,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-tile-simd/command.json"
+    },
+    "parent/test-full11-tile-simd/result.json": {
+      "sha256": "4a1a98e884de718209cdfc91185f88c0e7ce4a6d0fe5fe6b194cb7a999779184",
+      "size": 4333,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-tile-simd/result.json"
+    },
+    "parent/test-full11-tile-simd/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-tile-simd/stderr.txt"
+    },
+    "parent/test-full11-tile-simd/stdout.txt": {
+      "sha256": "6b02e31e1e67a1a1713b3ecf97b37a95fa0d8aa774b10fe74170fef226f7c41a",
+      "size": 2484,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-tile-simd/stdout.txt"
+    },
+    "parent/test-full11-unit-simd/command.json": {
+      "sha256": "5769c58bd3d5bd00115a059564b6150959f36e909f1405e068fe18bc5da8c660",
+      "size": 4083,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-unit-simd/command.json"
+    },
+    "parent/test-full11-unit-simd/result.json": {
+      "sha256": "7d63baa33161fb57cbb5cec1e3298a1c41eaac88400ad376531e11cf36f9fd68",
+      "size": 4330,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-unit-simd/result.json"
+    },
+    "parent/test-full11-unit-simd/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-unit-simd/stderr.txt"
+    },
+    "parent/test-full11-unit-simd/stdout.txt": {
+      "sha256": "704b320e4804849575e0ab9279c4673f6d171be0dbea1ead366ced72b90d193e",
+      "size": 15756,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-unit-simd/stdout.txt"
+    },
+    "parent/tool-cc/command.json": {
+      "sha256": "78290550ddad548166317cc9b4a7bd1d6f82c1b8e26d8b84fda10ffd49601abf",
+      "size": 627,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cc/command.json"
+    },
+    "parent/tool-cc/result.json": {
+      "sha256": "239cdda78c1e9eda78fd78718212accebc965b895ea7763499bee793a1418335",
+      "size": 874,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cc/result.json"
+    },
+    "parent/tool-cc/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cc/stderr.txt"
+    },
+    "parent/tool-cc/stdout.txt": {
+      "sha256": "042af9433fb0dd5784acb36e7f4de32c0c64bb8a17741dc90013c2895d32855a",
+      "size": 202,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cc/stdout.txt"
+    },
+    "parent/tool-clang_path/command.json": {
+      "sha256": "4f86f8c84a67e8eeb677bf9a41f0c09500a829537f5d593b32f1abecf727653d",
+      "size": 668,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-clang_path/command.json"
+    },
+    "parent/tool-clang_path/result.json": {
+      "sha256": "b0dbea8c7fdf113ff7aec3471fcf84e7c2e4af2a36c69843cbaff39807a89f7c",
+      "size": 915,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-clang_path/result.json"
+    },
+    "parent/tool-clang_path/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-clang_path/stderr.txt"
+    },
+    "parent/tool-clang_path/stdout.txt": {
+      "sha256": "083060ae79a9cc17bc69cb6166b1e16396c638b533de036324d8c6d49b77af24",
+      "size": 93,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-clang_path/stdout.txt"
+    },
+    "parent/tool-cmake/command.json": {
+      "sha256": "303cd119a12278b58f9cceae1fbddf0bfe9351c324de906e668a1c34c7d59172",
+      "size": 639,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cmake/command.json"
+    },
+    "parent/tool-cmake/result.json": {
+      "sha256": "3b0e7b8177b383683ece5dbad699eb40a61bae2b2370e3454bd0cda5c8d99197",
+      "size": 886,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cmake/result.json"
+    },
+    "parent/tool-cmake/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cmake/stderr.txt"
+    },
+    "parent/tool-cmake/stdout.txt": {
+      "sha256": "9e2032657b821ca15fdf749298148b08afc4d86fe8a6f709a8459318fa1c018f",
+      "size": 90,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cmake/stdout.txt"
+    },
+    "parent/tool-cxx/command.json": {
+      "sha256": "052835a587e65dcec74fafdb230ab02f0e8395840f34a32173dd74387d830eea",
+      "size": 628,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cxx/command.json"
+    },
+    "parent/tool-cxx/result.json": {
+      "sha256": "ef79ffc6c4d279361f3054d2a267dd8530865dfa474fecdc6a5951efdda04cc4",
+      "size": 875,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cxx/result.json"
+    },
+    "parent/tool-cxx/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cxx/stderr.txt"
+    },
+    "parent/tool-cxx/stdout.txt": {
+      "sha256": "042af9433fb0dd5784acb36e7f4de32c0c64bb8a17741dc90013c2895d32855a",
+      "size": 202,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-cxx/stdout.txt"
+    },
+    "parent/tool-llvm_version/command.json": {
+      "sha256": "881b0d90be03b8302ad0cb9d80bfba9578154cbfd94aa606f73281a084d17fbe",
+      "size": 657,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-llvm_version/command.json"
+    },
+    "parent/tool-llvm_version/result.json": {
+      "sha256": "83a84ee20445d652bf11b591c352d6a7e9e967a0921a75a5e19c4a9c0345944b",
+      "size": 904,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-llvm_version/result.json"
+    },
+    "parent/tool-llvm_version/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-llvm_version/stderr.txt"
+    },
+    "parent/tool-llvm_version/stdout.txt": {
+      "sha256": "b142d5574981f749fa36d1c345f626c01fcebc09cf188a34c33306c5b1119f76",
+      "size": 7,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-llvm_version/stdout.txt"
+    },
+    "parent/tool-metal_path/command.json": {
+      "sha256": "96777738f48b99519789229615479ba85ae96f65864e99455b70baff7a3b21aa",
+      "size": 666,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-metal_path/command.json"
+    },
+    "parent/tool-metal_path/result.json": {
+      "sha256": "fe1f49e5b3301aad6d2073451a574a0b34a497f0660c7f39ee53db40b689a682",
+      "size": 913,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-metal_path/result.json"
+    },
+    "parent/tool-metal_path/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-metal_path/stderr.txt"
+    },
+    "parent/tool-metal_path/stdout.txt": {
+      "sha256": "72a8696b47bc61399807309d64203e5efed36c03abb7833e3b8db4844d89b218",
+      "size": 129,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-metal_path/stdout.txt"
+    },
+    "parent/tool-metallib_path/command.json": {
+      "sha256": "983e57b9af06bb9fb74d255ed15d9cef00210e8b401f46ff00abd200373ee1f0",
+      "size": 670,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-metallib_path/command.json"
+    },
+    "parent/tool-metallib_path/result.json": {
+      "sha256": "930dc3cd1e1500543600fe0907fcb09efe7eeadb29ce0a8c8372ae3fbd289372",
+      "size": 917,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-metallib_path/result.json"
+    },
+    "parent/tool-metallib_path/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-metallib_path/stderr.txt"
+    },
+    "parent/tool-metallib_path/stdout.txt": {
+      "sha256": "28bfafca6486a4f29fb6fed83f7e12de41957fbd7c2d3f9b1417e6cec6e902c4",
+      "size": 132,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-metallib_path/stdout.txt"
+    },
+    "parent/tool-ninja/command.json": {
+      "sha256": "fba6d17ef4c1a1312fa7bff5f42ba638d6bc593d09ad4d37bf756d2c5b112eb4",
+      "size": 639,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-ninja/command.json"
+    },
+    "parent/tool-ninja/result.json": {
+      "sha256": "e1c11925a86795979abd95246cb9f6d9fb8cce3e98d4acec99f5a2dc558ebbd9",
+      "size": 886,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-ninja/result.json"
+    },
+    "parent/tool-ninja/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-ninja/stderr.txt"
+    },
+    "parent/tool-ninja/stdout.txt": {
+      "sha256": "810ab97f4b3fccb9adf1db7959945b479635931ccc4a0243c34a41b739eae25a",
+      "size": 7,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-ninja/stdout.txt"
+    },
+    "parent/tool-sdk_path/command.json": {
+      "sha256": "9bd179bca950829d6a1714c379775fd4186e851a04c5ba8206922ee874b08325",
+      "size": 664,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-sdk_path/command.json"
+    },
+    "parent/tool-sdk_path/result.json": {
+      "sha256": "bf3ec97efee5610ae03bc6ff601ac4cf050f78ae48d05da300fe6c8b641c6c0e",
+      "size": 912,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-sdk_path/result.json"
+    },
+    "parent/tool-sdk_path/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-sdk_path/stderr.txt"
+    },
+    "parent/tool-sdk_path/stdout.txt": {
+      "sha256": "c2206d451c0f37ff92c73e016a829888392894a99b15cddd3f365a6195412818",
+      "size": 99,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-sdk_path/stdout.txt"
+    },
+    "parent/tool-sdk_version/command.json": {
+      "sha256": "3ae9f0772131183df6f7398a908adb957a7539a000845852bdbc57268914038d",
+      "size": 666,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-sdk_version/command.json"
+    },
+    "parent/tool-sdk_version/result.json": {
+      "sha256": "eaa834898ff67135c7ca8ce461b7f65aea6180927b47921ecf392dbc183703ff",
+      "size": 913,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-sdk_version/result.json"
+    },
+    "parent/tool-sdk_version/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-sdk_version/stderr.txt"
+    },
+    "parent/tool-sdk_version/stdout.txt": {
+      "sha256": "25205f2e2f02dc71036ee827e19c49b893b231a3d1af240e35a3ac55aa8cdcb6",
+      "size": 5,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-sdk_version/stdout.txt"
+    },
+    "parent/tool-xcode/command.json": {
+      "sha256": "76d4efd44492e26ec809caa7156e9042e7a998861da875dae5ea8d6856baca73",
+      "size": 630,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-xcode/command.json"
+    },
+    "parent/tool-xcode/result.json": {
+      "sha256": "626c514f87dd0374ec2931523fe9ebcfdfc84b3e925b33059959615aa4eebfee",
+      "size": 877,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-xcode/result.json"
+    },
+    "parent/tool-xcode/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-xcode/stderr.txt"
+    },
+    "parent/tool-xcode/stdout.txt": {
+      "sha256": "024e83842db917ed79a567b48b5f70bf468a2a914d5dc6df59f9d19c25ad3a0e",
+      "size": 43,
+      "original_path": "/private/tmp/luisa-metal-program-team.TGZv8f/tool-xcode/stdout.txt"
+    },
+    "parent/toolchain.json": {
+      "sha256": "fe232e6257652120c2090b6a1bee5060365479bb5ac1894323c482f0fd123156",
+      "size": 4603,
+      "original_path": "/tmp/luisa-metal-program-team.TGZv8f/toolchain.json"
+    }
+  }
+}

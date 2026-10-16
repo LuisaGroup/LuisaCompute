@@ -9,6 +9,7 @@
 #include "../common/backend_print_code.h"
 namespace lc::vk {
 ResourceCreationInfo VkRasterExt::create_raster_shader(
+    [[maybe_unused]] const MeshFormat &mesh_format,
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {
@@ -61,7 +62,7 @@ ResourceCreationInfo VkRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, true, false, option.enable_debug_info);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, true, false, option.enable_debug_info, option.enable_fast_math);
     if (luisa::compute::backend_print_code_enabled()) {
         auto dump_name = option.name;
         auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);

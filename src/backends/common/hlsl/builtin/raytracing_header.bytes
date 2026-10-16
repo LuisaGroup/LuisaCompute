@@ -50,6 +50,21 @@ ray.v2.v[2]=d.z;
 ray.v3=q.CommittedRayT();
 return ray;
 }
+template<typename T, typename Q>
+T _RayQueryGetObjectRay(Q q) {
+float3 o=q.CandidateObjectRayOrigin();
+float3 d=q.CandidateObjectRayDirection();
+T ray;
+ray.v0.v[0]=o.x;
+ray.v0.v[1]=o.y;
+ray.v0.v[2]=o.z;
+ray.v1=q.RayTMin();
+ray.v2.v[0]=d.x;
+ray.v2.v[1]=d.y;
+ray.v2.v[2]=d.z;
+ray.v3=q.CommittedRayT();
+return ray;
+}
 template<typename Q>
 _Hit0 _GetCommitedHit(Q q){
 _Hit0 pl=(_Hit0)0;

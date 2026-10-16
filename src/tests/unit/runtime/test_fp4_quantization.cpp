@@ -153,7 +153,7 @@ void mlp_cpu_fp4_simulated(luisa::span<const float> input,
 int main(int argc, char *argv[]) {
     Context ctx(argv[0]);
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
     Device device = ctx.create_device(argv[1]);

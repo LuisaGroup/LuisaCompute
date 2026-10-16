@@ -1,0 +1,463 @@
+{
+  "purpose": "dispatch and code inspection; profiler times are not benchmark results",
+  "version": "2.14.0",
+  "commit": "08187d9e0fba026dc8217405802ab5381dc88d90",
+  "library": "/Users/mike/.cache/uv/archive-v0/sC3F2za3_-HoN0aE/lib/python3.13/site-packages/torch/lib/libtorch_cpu.dylib",
+  "library_sha256": "ca979f3619acb92240c2ef46d7581b1a388761e0fccfa7dc491a7eaa153d584a",
+  "threads": 8,
+  "rows": 64,
+  "width": 256,
+  "cpu_capability": "DEFAULT",
+  "build_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+  "parallel_info": "ATen/Parallel:\n\tat::get_num_threads() : 8\n\tat::get_num_interop_threads() : 1\nOpenMP 202011\n\tomp_get_max_threads() : 8\nMKLDNN not found\nstd::thread::hardware_concurrency() : 10\nEnvironment variables:\n\tOMP_NUM_THREADS : [not set]\nATen parallel backend: OpenMP\n",
+  "cases": [
+    {
+      "name": "softmax",
+      "shape": [
+        64,
+        256
+      ],
+      "output_finite": true,
+      "operators": [
+        {
+          "name": "aten::softmax",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::_softmax",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            []
+          ]
+        }
+      ],
+      "sample_exit_code": 0,
+      "sampled_invocations": 35544
+    },
+    {
+      "name": "layernorm",
+      "shape": [
+        64,
+        256
+      ],
+      "output_finite": true,
+      "operators": [
+        {
+          "name": "aten::layer_norm",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            [
+              256
+            ],
+            [
+              256
+            ],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::native_layer_norm",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            [
+              256
+            ],
+            [
+              256
+            ],
+            []
+          ]
+        },
+        {
+          "name": "aten::empty",
+          "calls": 3,
+          "shapes": [
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::view",
+          "calls": 2,
+          "shapes": [
+            [
+              64
+            ],
+            []
+          ]
+        }
+      ],
+      "sample_exit_code": 0,
+      "sampled_invocations": 39350
+    },
+    {
+      "name": "rmsnorm",
+      "shape": [
+        64,
+        256
+      ],
+      "output_finite": true,
+      "operators": [
+        {
+          "name": "aten::rms_norm",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            [
+              256
+            ],
+            []
+          ]
+        },
+        {
+          "name": "aten::_fused_rms_norm",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            [
+              256
+            ],
+            []
+          ]
+        },
+        {
+          "name": "aten::to",
+          "calls": 2,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::pow",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            []
+          ]
+        },
+        {
+          "name": "aten::result_type",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            []
+          ]
+        },
+        {
+          "name": "aten::mean",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::sum",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            [],
+            [],
+            [
+              64,
+              1
+            ]
+          ]
+        },
+        {
+          "name": "aten::fill_",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              1
+            ],
+            []
+          ]
+        },
+        {
+          "name": "aten::div_",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              1
+            ],
+            []
+          ]
+        },
+        {
+          "name": "aten::to",
+          "calls": 2,
+          "shapes": [
+            [],
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::_to_copy",
+          "calls": 2,
+          "shapes": [
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::empty_strided",
+          "calls": 2,
+          "shapes": [
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::copy_",
+          "calls": 2,
+          "shapes": [
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::add_",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              1
+            ],
+            [],
+            []
+          ]
+        },
+        {
+          "name": "aten::rsqrt",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              1
+            ]
+          ]
+        },
+        {
+          "name": "aten::mul",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [
+              64,
+              1
+            ]
+          ]
+        },
+        {
+          "name": "aten::mul",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [
+              256
+            ]
+          ]
+        },
+        {
+          "name": "aten::type_as",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [
+              64,
+              256
+            ]
+          ]
+        },
+        {
+          "name": "aten::to",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []
+          ]
+        }
+      ],
+      "sample_exit_code": 0,
+      "sampled_invocations": 152511
+    },
+    {
+      "name": "swiglu",
+      "shape": [
+        64,
+        256
+      ],
+      "output_finite": true,
+      "operators": [
+        {
+          "name": "aten::silu",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ]
+          ]
+        },
+        {
+          "name": "aten::mul",
+          "calls": 1,
+          "shapes": [
+            [
+              64,
+              256
+            ],
+            [
+              64,
+              256
+            ]
+          ]
+        }
+      ],
+      "sample_exit_code": 0,
+      "sampled_invocations": 91084
+    },
+    {
+      "name": "gemm",
+      "shape": [
+        1024,
+        1024
+      ],
+      "output_finite": true,
+      "operators": [
+        {
+          "name": "aten::mm",
+          "calls": 1,
+          "shapes": [
+            [
+              1024,
+              1024
+            ],
+            [
+              1024,
+              1024
+            ]
+          ]
+        },
+        {
+          "name": "aten::resolve_conj",
+          "calls": 3,
+          "shapes": [
+            [
+              1024,
+              1024
+            ]
+          ]
+        }
+      ],
+      "sample_exit_code": 0,
+      "sampled_invocations": 2094
+    }
+  ],
+  "compiled": [
+    {
+      "name": "softmax",
+      "correctness": "complete eager comparison passed"
+    },
+    {
+      "name": "rmsnorm",
+      "correctness": "complete eager comparison passed"
+    },
+    {
+      "name": "swiglu",
+      "correctness": "complete eager comparison passed"
+    }
+  ]
+}

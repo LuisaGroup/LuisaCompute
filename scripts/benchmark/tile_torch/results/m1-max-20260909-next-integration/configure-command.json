@@ -1,0 +1,29 @@
+{
+  "argv": [
+    "cmake", "-S", "/tmp/luisa-next-checkpoint.J7yODi/source",
+    "-B", "/tmp/luisa-next-checkpoint.J7yODi/build", "-G", "Ninja",
+    "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+    "-DCMAKE_C_COMPILER=/usr/bin/cc",
+    "-DCMAKE_CXX_COMPILER=/usr/bin/c++",
+    "-DLLVM_DIR=/opt/homebrew/opt/llvm@21/lib/cmake/llvm",
+    "-DLUISA_COMPUTE_BUILD_TESTS=ON",
+    "-DLUISA_COMPUTE_ENABLE_DSL=ON",
+    "-DLUISA_COMPUTE_ENABLE_SIMD=ON",
+    "-DLUISA_COMPUTE_ENABLE_METAL=ON",
+    "-DLUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE=ON",
+    "-DLUISA_COMPUTE_ENABLE_METAL4=OFF",
+    "-DLUISA_COMPUTE_ENABLE_GUI=OFF",
+    "-DLUISA_COMPUTE_ENABLE_CUDA=OFF",
+    "-DLUISA_COMPUTE_ENABLE_HIP=OFF",
+    "-DLUISA_COMPUTE_ENABLE_DX=OFF",
+    "-DLUISA_COMPUTE_ENABLE_VULKAN=OFF",
+    "-DLUISA_COMPUTE_ENABLE_FALLBACK=OFF",
+    "-DLUISA_COMPUTE_ENABLE_REMOTE=OFF",
+    "-DLUISA_COMPUTE_DOWNLOAD_OIDN=OFF",
+    "-DLUISA_COMPUTE_TVM_INCLUDE_DIR=/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/include",
+    "-DLUISA_COMPUTE_TVM_FFI_INCLUDE_DIR=/Users/mike/.cache/luisa-tile/tvm-pinned.9TMqn1/3rdparty/tvm-ffi/include",
+    "-DLUISA_COMPUTE_TVM_LIBRARY_DIR=/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib",
+    "-DLUISA_COMPUTE_TVM_FFI_LIBRARY_DIR=/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib"
+  ],
+  "full_build_argv": ["caffeinate", "-i", "cmake", "--build", "/tmp/luisa-next-checkpoint.J7yODi/build", "--parallel", "8"]
+}

@@ -18,8 +18,16 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/return.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
 #include "indirect_dispatch_layout.h"
 #include "spirv_codegen/entry.h"
+#include "spirv_codegen/utils.h"
 
 #include <algorithm>
 #include <array>
@@ -159,7 +167,7 @@ public:
 [[nodiscard]] luisa::test::DeviceContext create_native_command_device(
     int argc, char *argv[]) {
     LUISA_ASSERT(argc > 1 && argv != nullptr && argv[0] != nullptr &&
-                     argv[1] != nullptr && std::string_view{argv[1]} == "vk",
+                     argv[1] != nullptr && luisa::string_view{argv[1]} == "vk",
                  "Vulkan custom-command tests require the vk backend.");
     Context context{argv[0]};
     DeviceConfig config{};
@@ -181,7 +189,7 @@ public:
         BindlessArray const &array,
         Buffer<uint32_t> const &target,
         uint32_t value) noexcept
-        : _target{std::bit_cast<VkBuffer>(target.native_handle())},
+        : _target{luisa::bit_cast<VkBuffer>(target.native_handle())},
           _size{target.size_bytes()}, _value{value} {
         _usages.emplace_back(
             Argument::BindlessArray{array.handle()},
@@ -226,8 +234,8 @@ public:
         BindlessArray const &array,
         Image<float> const &source,
         Buffer<float4> const &target) noexcept
-        : _source{std::bit_cast<VkImage>(source.native_handle())},
-          _target{std::bit_cast<VkBuffer>(target.native_handle())},
+        : _source{luisa::bit_cast<VkImage>(source.native_handle())},
+          _target{luisa::bit_cast<VkBuffer>(target.native_handle())},
           _extent{source.size().x, source.size().y, 1u} {
         _usages.emplace_back(
             Argument::BindlessArray{array.handle()},
@@ -331,8 +339,8 @@ public:
         Image<float> const &source,
         Buffer<float4> const &target,
         uint32_t mip_level) noexcept
-        : _source{std::bit_cast<VkImage>(source.native_handle())},
-          _target{std::bit_cast<VkBuffer>(target.native_handle())},
+        : _source{luisa::bit_cast<VkImage>(source.native_handle())},
+          _target{luisa::bit_cast<VkBuffer>(target.native_handle())},
           _mip_level{mip_level},
           _extent{
               std::max(source.size().x >> mip_level, 1u),
@@ -398,8 +406,8 @@ public:
         Buffer<float4> const &source,
         Image<float> const &target,
         uint32_t target_mip) noexcept
-        : _source{std::bit_cast<VkBuffer>(source.native_handle())},
-          _target{std::bit_cast<VkImage>(target.native_handle())},
+        : _source{luisa::bit_cast<VkBuffer>(source.native_handle())},
+          _target{luisa::bit_cast<VkImage>(target.native_handle())},
           _mip_levels{target.mip_levels()},
           _target_mip{target_mip},
           _target_extent{
@@ -477,44 +485,44 @@ public:
     }
 };
 
-[[nodiscard]] auto dump_exists(std::string_view name) noexcept {
+[[nodiscard]] auto dump_exists(luisa::string_view name) noexcept {
     std::error_code ec;
-    return std::filesystem::exists(std::filesystem::path{name}, ec);
+    return luisa::filesystem::exists(luisa::filesystem::path{name}, ec);
 }
 
-[[nodiscard]] auto read_text_file(const std::filesystem::path &path) {
+[[nodiscard]] auto read_text_file(const luisa::filesystem::path &path) {
     std::ifstream stream{path};
     return std::string{std::istreambuf_iterator<char>{stream},
                        std::istreambuf_iterator<char>{}};
 }
 
-[[nodiscard]] size_t count_substring(std::string_view text,
-                                     std::string_view needle) noexcept {
+[[nodiscard]] size_t count_substring(luisa::string_view text,
+                                     luisa::string_view needle) noexcept {
     if (needle.empty()) { return 0u; }
     auto count = size_t{0u};
     for (auto offset = size_t{0u};;) {
         auto position = text.find(needle, offset);
-        if (position == std::string_view::npos) { break; }
+        if (position == luisa::string_view::npos) { break; }
         count++;
         offset = position + needle.size();
     }
     return count;
 }
 
-[[nodiscard]] bool is_spirv_opcode_token(std::string_view token,
-                                         std::string_view opcode) noexcept {
+[[nodiscard]] bool is_spirv_opcode_token(luisa::string_view token,
+                                         luisa::string_view opcode) noexcept {
     if (token.compare(opcode) == 0) { return true; }
     if (token.size() != opcode.size() + 2u) { return false; }
     if (!token.starts_with("Op")) { return false; }
     return token.substr(2u).compare(opcode) == 0;
 }
 
-[[nodiscard]] size_t count_spirv_opcode(std::string_view disassembly,
-                                        std::string_view opcode) noexcept {
+[[nodiscard]] size_t count_spirv_opcode(luisa::string_view disassembly,
+                                        luisa::string_view opcode) noexcept {
     auto count = size_t{0u};
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
@@ -561,12 +569,12 @@ public:
 }
 
 [[nodiscard]] size_t count_spirv_extended_instruction(
-    std::string_view disassembly,
-    std::string_view instruction) noexcept {
+    luisa::string_view disassembly,
+    luisa::string_view instruction) noexcept {
     auto count = size_t{0u};
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
@@ -590,7 +598,7 @@ public:
                     break;
                 }
                 auto open = token.find('(');
-                if (open != std::string_view::npos && token.ends_with(")") &&
+                if (open != luisa::string_view::npos && token.ends_with(")") &&
                     token.substr(open + 1u,
                                  token.size() - open - 2u) == instruction) {
                     count++;
@@ -605,11 +613,11 @@ public:
 }
 
 [[nodiscard]] bool spirv_opcode_has_operand(
-    std::string_view disassembly, std::string_view opcode,
-    std::string_view operand) noexcept {
+    luisa::string_view disassembly, luisa::string_view opcode,
+    luisa::string_view operand) noexcept {
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
@@ -636,15 +644,15 @@ public:
 }
 
 [[nodiscard]] bool spirv_opcode_has_adjacent_operands(
-    std::string_view disassembly, std::string_view opcode,
-    std::string_view first, std::string_view second) noexcept {
+    luisa::string_view disassembly, luisa::string_view opcode,
+    luisa::string_view first, luisa::string_view second) noexcept {
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -676,15 +684,15 @@ public:
     return false;
 }
 
-[[nodiscard]] std::optional<std::string>
-spirv_unsigned_64_type_token(std::string_view disassembly) {
+[[nodiscard]] luisa::optional<std::string>
+spirv_unsigned_64_type_token(luisa::string_view disassembly) {
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -720,29 +728,29 @@ spirv_unsigned_64_type_token(std::string_view disassembly) {
         }
         line_begin = line_end + (line_end < disassembly.size() ? 1u : 0u);
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
-[[nodiscard]] std::string_view normalize_spirv_id_token(
-    std::string_view token) noexcept {
+[[nodiscard]] luisa::string_view normalize_spirv_id_token(
+    luisa::string_view token) noexcept {
     if (token.starts_with('%')) { token.remove_prefix(1u); }
     if (auto parenthesis = token.find('(');
-        parenthesis != std::string_view::npos) {
+        parenthesis != luisa::string_view::npos) {
         token = token.substr(0u, parenthesis);
     }
     return token;
 }
 
-[[nodiscard]] std::optional<std::string> spirv_id_named(
-    std::string_view disassembly, std::string_view name) {
+[[nodiscard]] luisa::optional<std::string> spirv_id_named(
+    luisa::string_view disassembly, luisa::string_view name) {
     auto quoted_name = luisa::format("\"{}\"", name);
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -769,19 +777,19 @@ spirv_unsigned_64_type_token(std::string_view disassembly) {
         line_begin = line_end +
                      (line_end < disassembly.size() ? 1u : 0u);
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 [[nodiscard]] bool spirv_id_has_decoration(
-    std::string_view disassembly, std::string_view id,
-    std::string_view decoration) noexcept {
+    luisa::string_view disassembly, luisa::string_view id,
+    luisa::string_view decoration) noexcept {
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -818,7 +826,7 @@ struct SpirvTextInstruction {
 };
 
 [[nodiscard]] std::string normalize_spirv_text_token(
-    std::string_view token) {
+    luisa::string_view token) {
     while (!token.empty() &&
            (token.back() == ',' || token.back() == ':')) {
         token.remove_suffix(1u);
@@ -828,15 +836,15 @@ struct SpirvTextInstruction {
 
 [[nodiscard]] std::vector<SpirvTextInstruction>
 parse_spirv_text_instructions(
-    std::string_view disassembly, std::string_view opcode) {
+    luisa::string_view disassembly, luisa::string_view opcode) {
     std::vector<SpirvTextInstruction> instructions;
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto line = disassembly.substr(line_begin, line_end - line_begin);
-        std::vector<std::string_view> tokens;
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -887,8 +895,8 @@ parse_spirv_text_instructions(
 }
 
 [[nodiscard]] bool spirv_u64_scaled_index_reaches_buffer_load(
-    std::string_view disassembly,
-    std::string_view uint64_type_token) {
+    luisa::string_view disassembly,
+    luisa::string_view uint64_type_token) {
     auto uint64_type = normalize_spirv_text_token(uint64_type_token);
     auto imuls = parse_spirv_text_instructions(disassembly, "IMul");
     auto iadds = parse_spirv_text_instructions(disassembly, "IAdd");
@@ -897,7 +905,7 @@ parse_spirv_text_instructions(
         disassembly, "AccessChain");
     auto loads = parse_spirv_text_instructions(disassembly, "Load");
     auto has_operand = [](const SpirvTextInstruction &instruction,
-                          std::string_view id) noexcept {
+                          luisa::string_view id) noexcept {
         return std::ranges::any_of(
             instruction.operands,
             [&](auto &&operand) noexcept { return operand == id; });
@@ -938,9 +946,9 @@ parse_spirv_text_instructions(
 }
 
 [[nodiscard]] bool spirv_entry_point_lists_callable_builtins(
-    std::string_view disassembly) {
-    auto tokenize = [](std::string_view line) {
-        std::vector<std::string_view> tokens;
+    luisa::string_view disassembly) {
+    auto tokenize = [](luisa::string_view line) {
+        std::vector<luisa::string_view> tokens;
         for (auto token_begin = size_t{0u}; token_begin < line.size();) {
             while (token_begin < line.size() &&
                    (line[token_begin] == ' ' || line[token_begin] == '\t')) {
@@ -959,11 +967,11 @@ parse_spirv_text_instructions(
         }
         return tokens;
     };
-    std::optional<std::string_view> local_invocation_id;
-    std::optional<std::string_view> workgroup_id;
+    luisa::optional<luisa::string_view> local_invocation_id;
+    luisa::optional<luisa::string_view> workgroup_id;
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto tokens = tokenize(
@@ -985,7 +993,7 @@ parse_spirv_text_instructions(
     if (!local_invocation_id || !workgroup_id) { return false; }
     for (auto line_begin = size_t{0u}; line_begin < disassembly.size();) {
         auto line_end = disassembly.find('\n', line_begin);
-        if (line_end == std::string_view::npos) {
+        if (line_end == luisa::string_view::npos) {
             line_end = disassembly.size();
         }
         auto tokens = tokenize(
@@ -1090,6 +1098,22 @@ inspect_spirv_u64_switches(
         offset += word_count;
     }
     return switches;
+}
+
+[[nodiscard]] size_t count_spirv_binary_opcode(
+    luisa::span<const uint32_t> words, spv::Op expected) noexcept {
+    if (words.size() < 5u) { return 0u; }
+    auto count = size_t{0u};
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        auto word_count = static_cast<size_t>(words[offset] >> 16u);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            return 0u;
+        }
+        auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
+        count += opcode == expected;
+        offset += word_count;
+    }
+    return count;
 }
 
 struct SpirvIndirectRecordGuardFacts {
@@ -1299,10 +1323,10 @@ inspect_spirv_indirect_record_guard(
 }
 
 [[nodiscard]] auto find_spirv_dumps() {
-    std::vector<std::filesystem::path> dumps;
+    std::vector<luisa::filesystem::path> dumps;
     std::error_code ec;
-    for (auto iter = std::filesystem::directory_iterator{".", ec};
-         !ec && iter != std::filesystem::directory_iterator{}; iter.increment(ec)) {
+    for (auto iter = luisa::filesystem::directory_iterator{".", ec};
+         !ec && iter != luisa::filesystem::directory_iterator{}; iter.increment(ec)) {
         if (!iter->is_regular_file(ec)) { continue; }
         auto filename = iter->path().filename().string();
         if (filename.starts_with("spv_code_") &&
@@ -1312,14 +1336,14 @@ inspect_spirv_indirect_record_guard(
             dumps.emplace_back(iter->path());
         }
     }
-    std::sort(dumps.begin(), dumps.end());
+    luisa::sort(dumps.begin(), dumps.end());
     return dumps;
 }
 
 [[nodiscard]] auto any_hlsl_dump_exists() {
     std::error_code ec;
-    for (auto iter = std::filesystem::directory_iterator{".", ec};
-         !ec && iter != std::filesystem::directory_iterator{}; iter.increment(ec)) {
+    for (auto iter = luisa::filesystem::directory_iterator{".", ec};
+         !ec && iter != luisa::filesystem::directory_iterator{}; iter.increment(ec)) {
         if (!iter->is_regular_file(ec)) { continue; }
         auto filename = iter->path().filename().string();
         if (filename.rfind("hlsl_output_", 0u) == 0u ||
@@ -1332,61 +1356,61 @@ inspect_spirv_indirect_record_guard(
 
 void remove_hlsl_dumps() noexcept {
     std::error_code ec;
-    for (auto iter = std::filesystem::directory_iterator{".", ec};
-         !ec && iter != std::filesystem::directory_iterator{}; iter.increment(ec)) {
+    for (auto iter = luisa::filesystem::directory_iterator{".", ec};
+         !ec && iter != luisa::filesystem::directory_iterator{}; iter.increment(ec)) {
         if (!iter->is_regular_file(ec)) { continue; }
         auto filename = iter->path().filename().string();
         if (filename.rfind("hlsl_output_", 0u) == 0u ||
             filename.rfind("spv_code_hlsl_", 0u) == 0u) {
-            std::filesystem::remove(iter->path(), ec);
+            luisa::filesystem::remove(iter->path(), ec);
         }
     }
 }
 
-void remove_dump(std::string_view name) noexcept {
+void remove_dump(luisa::string_view name) noexcept {
     std::error_code ec;
-    std::filesystem::remove(std::filesystem::path{name}, ec);
+    luisa::filesystem::remove(luisa::filesystem::path{name}, ec);
 }
 
 struct ScopedCurrentPath {
-    std::filesystem::path previous;
-    explicit ScopedCurrentPath(const std::filesystem::path &path)
-        : previous{std::filesystem::current_path()} {
-        std::filesystem::current_path(path);
+    luisa::filesystem::path previous;
+    explicit ScopedCurrentPath(const luisa::filesystem::path &path)
+        : previous{luisa::filesystem::current_path()} {
+        luisa::filesystem::current_path(path);
     }
     ~ScopedCurrentPath() noexcept {
         std::error_code ec;
-        std::filesystem::current_path(previous, ec);
+        luisa::filesystem::current_path(previous, ec);
     }
 };
 
 struct ScopedDirectoryCleanup {
-    std::filesystem::path path;
+    luisa::filesystem::path path;
     ~ScopedDirectoryCleanup() noexcept {
         std::error_code ec;
-        std::filesystem::remove_all(path, ec);
+        luisa::filesystem::remove_all(path, ec);
     }
 };
 
 struct ScopedTemporaryCurrentPath {
-    std::filesystem::path path;
-    std::filesystem::path previous;
+    luisa::filesystem::path path;
+    luisa::filesystem::path previous;
 
-    explicit ScopedTemporaryCurrentPath(std::string_view prefix)
-        : previous{std::filesystem::current_path()} {
+    explicit ScopedTemporaryCurrentPath(luisa::string_view prefix)
+        : previous{luisa::filesystem::current_path()} {
         auto nonce = static_cast<uint64_t>(
             std::chrono::steady_clock::now().time_since_epoch().count());
         nonce ^= static_cast<uint64_t>(reinterpret_cast<uintptr_t>(this));
-        path = std::filesystem::temp_directory_path() /
+        path = luisa::filesystem::temp_directory_path() /
                luisa::format("{}_{}", prefix, nonce);
-        std::filesystem::create_directories(path);
-        std::filesystem::current_path(path);
+        luisa::filesystem::create_directories(path);
+        luisa::filesystem::current_path(path);
     }
 
     ~ScopedTemporaryCurrentPath() noexcept {
         std::error_code ec;
-        std::filesystem::current_path(previous, ec);
-        std::filesystem::remove_all(path, ec);
+        luisa::filesystem::current_path(previous, ec);
+        luisa::filesystem::remove_all(path, ec);
     }
 
     ScopedTemporaryCurrentPath(const ScopedTemporaryCurrentPath &) = delete;
@@ -1395,7 +1419,7 @@ struct ScopedTemporaryCurrentPath {
 
 struct ScopedEnvironmentVariable {
     std::string name;
-    std::optional<std::string> previous;
+    luisa::optional<std::string> previous;
     explicit ScopedEnvironmentVariable(const char *env_name,
                                        const char *value)
         : name{env_name} {
@@ -1418,7 +1442,7 @@ struct ScopedSourceDump {
         : environment{"LUISA_DUMP_SOURCE", value} {}
 };
 
-[[nodiscard]] int probe_failure(std::string_view message) noexcept {
+[[nodiscard]] int probe_failure(luisa::string_view message) noexcept {
     LUISA_WARNING("Vulkan SPIR-V child probe failed: {}", message);
     return 1;
 }
@@ -1475,24 +1499,24 @@ struct ScopedSourceDump {
         return probe_failure("mandatory autodiff legalization changed results");
     }
 
-    auto raw_path = std::filesystem::path{
+    auto raw_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.xir", kernel_hash)};
-    auto structured_opt_path = std::filesystem::path{
+    auto structured_opt_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.structured_opt.xir", kernel_hash)};
-    auto pre_ad_path = std::filesystem::path{
+    auto pre_ad_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.pre_ad.xir", kernel_hash)};
-    auto ad_path = std::filesystem::path{
+    auto ad_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.ad.xir", kernel_hash)};
-    auto norm_path = std::filesystem::path{
+    auto norm_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.norm.xir", kernel_hash)};
-    if (!std::filesystem::exists(raw_path) ||
-        !std::filesystem::exists(pre_ad_path) ||
-        !std::filesystem::exists(ad_path) ||
-        !std::filesystem::exists(norm_path)) {
+    if (!luisa::filesystem::exists(raw_path) ||
+        !luisa::filesystem::exists(pre_ad_path) ||
+        !luisa::filesystem::exists(ad_path) ||
+        !luisa::filesystem::exists(norm_path)) {
         return probe_failure(
             "mandatory raw/pre-AD/AD/final XIR dump stages were not all emitted");
     }
-    if (std::filesystem::exists(structured_opt_path)) {
+    if (luisa::filesystem::exists(structured_opt_path)) {
         return probe_failure(
             "optional structured optimization ran while explicitly disabled");
     }
@@ -1551,7 +1575,7 @@ struct ScopedSourceDump {
         auto lane = callable_global_lane();
         out.write(lane, lane * 9u + 2u);
     };
-    auto normalized_xir_path = std::filesystem::path{luisa::format(
+    auto normalized_xir_path = luisa::filesystem::path{luisa::format(
         "kernel.{:016x}.norm.xir",
         kernel.function()->function().hash())};
     auto shader = dc.device.compile(
@@ -1568,7 +1592,7 @@ struct ScopedSourceDump {
                 "callable-only builtin mismatch at lane {}", i));
         }
     }
-    if (!std::filesystem::exists(normalized_xir_path)) {
+    if (!luisa::filesystem::exists(normalized_xir_path)) {
         return probe_failure(
             "callable-only builtin probe did not emit normalized XIR");
     }
@@ -1650,11 +1674,11 @@ struct ScopedSourceDump {
         out.write(3u, result.w);
     };
     auto kernel_hash = kernel.function()->function().hash();
-    auto raw_xir_path = std::filesystem::path{
+    auto raw_xir_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.xir", kernel_hash)};
-    auto structured_opt_xir_path = std::filesystem::path{
+    auto structured_opt_xir_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.structured_opt.xir", kernel_hash)};
-    auto normalized_xir_path = std::filesystem::path{
+    auto normalized_xir_path = luisa::filesystem::path{
         luisa::format("kernel.{:016x}.norm.xir", kernel_hash)};
     auto shader = dc.device.compile(
         kernel, ShaderOption{.enable_cache = false,
@@ -1687,12 +1711,12 @@ struct ScopedSourceDump {
         return probe_failure(
             "nested callable write escaped the nonzero typed subview");
     }
-    if (!std::filesystem::exists(raw_xir_path) ||
-        !std::filesystem::exists(normalized_xir_path)) {
+    if (!luisa::filesystem::exists(raw_xir_path) ||
+        !luisa::filesystem::exists(normalized_xir_path)) {
         return probe_failure(
             "nested callable subview probe did not emit raw and normalized XIR");
     }
-    if (std::filesystem::exists(structured_opt_xir_path)) {
+    if (luisa::filesystem::exists(structured_opt_xir_path)) {
         return probe_failure(
             "optional structured optimization ran in the disabled probe");
     }
@@ -1702,9 +1726,9 @@ struct ScopedSourceDump {
         return probe_failure(
             "nested callable subview fixture did not start with two callables");
     }
-    if (normalized_xir.find("callable ") != std::string::npos) {
+    if (count_substring(normalized_xir, "callable ") != 2u) {
         return probe_failure(
-            "mandatory legalization retained a resource callable");
+            "mandatory legalization did not retain the two uniquely rooted resource callables");
     }
     if (any_hlsl_dump_exists()) {
         return probe_failure(
@@ -1717,9 +1741,18 @@ struct ScopedSourceDump {
             dumps.size()));
     }
     auto disassembly = read_text_file(dumps.front());
-    if (count_spirv_opcode(disassembly, "FunctionCall") != 0u) {
+    // Each resource formal resolves to the same kernel buffer root at
+    // every call site. Outlined functions must use the descriptor globals,
+    // without passing a StorageBuffer pointer through their function ABI.
+    if (count_spirv_opcode(disassembly, "FunctionCall") != 2u ||
+        count_spirv_opcode(disassembly, "FunctionParameter") != 0u) {
         return probe_failure(
-            "resource callable specialization left an OpFunctionCall");
+            "uniquely rooted resource callables have an unexpected SPIR-V function ABI");
+    }
+    if (disassembly.find("VariablePointers") != std::string::npos ||
+        disassembly.find("SPV_KHR_variable_pointers") != std::string::npos) {
+        return probe_failure(
+            "outlined resource callables must not require variable pointers");
     }
     return 0;
 }
@@ -1868,12 +1901,12 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} vk", argc > 0 ? argv[0] : "test_vk_spirv_codegen_path");
         return 2;
     }
-    if (std::string_view{argv[1]} != "vk") {
+    if (luisa::string_view{argv[1]} != "vk") {
         LUISA_INFO("Usage: {} vk", argc > 0 ? argv[0] : "test_vk_spirv_codegen_path");
         return 2;
     }
     if (argc >= 3) {
-        auto probe = std::string_view{argv[2]};
+        auto probe = luisa::string_view{argv[2]};
         if (probe == "--xir-disable-optimization-probe") {
             return run_xir_disable_optimization_probe(argc, argv);
         }
@@ -1923,27 +1956,27 @@ OpName %8 "Fma"
             << "extended instructions must be counted only on OpExtInst lines";
     };
 
-    auto executable_path = std::filesystem::absolute(argv[0]).string();
+    auto executable_path = luisa::filesystem::absolute(argv[0]).string();
     argv[0] = executable_path.data();
-    auto process_work_dir = std::filesystem::temp_directory_path() /
+    auto process_work_dir = luisa::filesystem::temp_directory_path() /
                             luisa::format("luisa_vk_spirv_codegen_path_process_{}",
-                                          std::filesystem::path{argv[0]}.filename().string());
+                                          luisa::filesystem::path{argv[0]}.filename().string());
     std::error_code process_work_dir_ec;
-    std::filesystem::remove_all(process_work_dir, process_work_dir_ec);
-    std::filesystem::create_directories(process_work_dir);
+    luisa::filesystem::remove_all(process_work_dir, process_work_dir_ec);
+    luisa::filesystem::create_directories(process_work_dir);
     ScopedDirectoryCleanup process_work_dir_cleanup{process_work_dir};
     ScopedCurrentPath process_work_path{process_work_dir};
 
     "vk_user_compute_dumps_spirv_not_hlsl"_test = [&] {
-        constexpr std::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path.hlsl";
-        constexpr std::string_view spv_dump = "spv_code_vk_spirv_codegen_path.spvasm";
+        constexpr luisa::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path.hlsl";
+        constexpr luisa::string_view spv_dump = "spv_code_vk_spirv_codegen_path.spvasm";
 
         auto dc = luisa::test::create_device(argc, argv);
-        auto dump_dir = std::filesystem::temp_directory_path() /
-                        luisa::format("luisa_vk_spirv_codegen_path_{}", std::filesystem::path{argv[0]}.filename().string());
+        auto dump_dir = luisa::filesystem::temp_directory_path() /
+                        luisa::format("luisa_vk_spirv_codegen_path_{}", luisa::filesystem::path{argv[0]}.filename().string());
         std::error_code ec;
-        std::filesystem::remove_all(dump_dir, ec);
-        std::filesystem::create_directories(dump_dir);
+        luisa::filesystem::remove_all(dump_dir, ec);
+        luisa::filesystem::create_directories(dump_dir);
         ScopedCurrentPath scoped_path{dump_dir};
         ScopedEnvironmentVariable require_native{
             "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
@@ -2002,12 +2035,12 @@ OpName %8 "Fma"
             "LUISA_SPIRV_OPT_PASSES", nullptr};
 
         auto dc = luisa::test::create_device(argc, argv);
-        auto dump_dir = std::filesystem::temp_directory_path() /
+        auto dump_dir = luisa::filesystem::temp_directory_path() /
                         luisa::format("luisa_vk_spirv_structured_callable_{}",
-                                      std::filesystem::path{argv[0]}.filename().string());
+                                      luisa::filesystem::path{argv[0]}.filename().string());
         std::error_code ec;
-        std::filesystem::remove_all(dump_dir, ec);
-        std::filesystem::create_directories(dump_dir);
+        luisa::filesystem::remove_all(dump_dir, ec);
+        luisa::filesystem::create_directories(dump_dir);
         ScopedCurrentPath scoped_path{dump_dir};
         ScopedSourceDump scoped_source_dump;
         remove_hlsl_dumps();
@@ -2157,12 +2190,12 @@ OpName %8 "Fma"
 
     "vk_user_compute_autodiff_inlines_multiblock_callable_after_cfg_destructure"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
-        auto dump_dir = std::filesystem::temp_directory_path() /
+        auto dump_dir = luisa::filesystem::temp_directory_path() /
                         luisa::format("luisa_vk_spirv_autodiff_callable_{}",
-                                      std::filesystem::path{argv[0]}.filename().string());
+                                      luisa::filesystem::path{argv[0]}.filename().string());
         std::error_code ec;
-        std::filesystem::remove_all(dump_dir, ec);
-        std::filesystem::create_directories(dump_dir);
+        luisa::filesystem::remove_all(dump_dir, ec);
+        luisa::filesystem::create_directories(dump_dir);
         ScopedCurrentPath scoped_path{dump_dir};
         ScopedSourceDump scoped_source_dump;
 
@@ -2236,27 +2269,64 @@ OpName %8 "Fma"
             << "autodiff scope should be lowered before SPIR-V emission";
     };
 
+    "vk_user_compute_autodiff_array_store_uses_logical_type"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        auto dc = luisa::test::create_device(argc, argv);
+        auto input = dc.device.create_buffer<std::array<float, 1u>>(1u);
+        auto output = dc.device.create_buffer<float>(1u);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [](BufferVar<std::array<float, 1u>> in,
+                             BufferFloat out) noexcept {
+            auto i = dispatch_x();
+            auto p = in.read(i);
+            $autodiff {
+                requires_grad(p);
+                ArrayFloat<1> scratch;
+                scratch = p;
+                auto used = scratch[0];
+                auto loss = used * used;
+                scratch[0] = p[0] * 7.0f;
+                backward(loss);
+                out.write(i, grad(p)[0]);
+            };
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+        constexpr std::array source{std::array<float, 1u>{3.0f}};
+        std::array<float, 1u> result{};
+        stream << input.copy_from(luisa::span{source})
+               << shader(input, output).dispatch(1u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        expect(result[0] == 6.0f)
+            << "aggregate autodiff stores should preserve the logical array type";
+    };
+
     "vk_user_compute_aot_uses_spirv_not_hlsl"_test = [&] {
-        constexpr std::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path_aot.hlsl";
-        constexpr std::string_view spv_dump = "spv_code_vk_spirv_codegen_path_aot.spvasm";
+        constexpr luisa::string_view hlsl_dump = "hlsl_output_vk_spirv_codegen_path_aot.hlsl";
+        constexpr luisa::string_view spv_dump = "spv_code_vk_spirv_codegen_path_aot.spvasm";
 
         auto dc = luisa::test::create_device(argc, argv);
-        auto dump_dir = std::filesystem::temp_directory_path() /
-                        luisa::format("luisa_vk_spirv_codegen_path_aot_{}", std::filesystem::path{argv[0]}.filename().string());
+        auto dump_dir = luisa::filesystem::temp_directory_path() /
+                        luisa::format("luisa_vk_spirv_codegen_path_aot_{}", luisa::filesystem::path{argv[0]}.filename().string());
         std::error_code ec;
-        std::filesystem::remove_all(dump_dir, ec);
-        std::filesystem::create_directories(dump_dir);
+        luisa::filesystem::remove_all(dump_dir, ec);
+        luisa::filesystem::create_directories(dump_dir);
         ScopedCurrentPath scoped_path{dump_dir};
         ScopedSourceDump scoped_source_dump;
         remove_hlsl_dumps();
         remove_dump(hlsl_dump);
         remove_dump(spv_dump);
 
-        constexpr std::string_view shader_path = "vk_spirv_codegen_path_aot";
+        constexpr luisa::string_view shader_path = "vk_spirv_codegen_path_aot";
         Kernel1D kernel = [](BufferUInt output) noexcept {
             output.write(0u, 7u);
         };
-        dc.device.compile_to(kernel, shader_path);
+        [[maybe_unused]] auto compile_ok = dc.device.compile_to(kernel, shader_path);
 
         auto buffer = dc.device.create_buffer<uint32_t>(1u);
         auto stream = dc.device.create_stream();
@@ -2387,7 +2457,14 @@ OpName %8 "Fma"
             auto i = dispatch_x();
             UInt step = 0u;
             UInt value = in.read(i);
-            $while (step < count.read(i)) {
+            // This fixture tests complete SSA recovery. Build a comment-free
+            // guard: $while attaches source metadata to its guard temporary,
+            // whose storage mem2reg deliberately retains when optimization is
+            // disabled. Annotated storage has separate preservation tests.
+            luisa::compute::detail::LoopStmtBuilder{} % [&] {
+                luisa::compute::detail::IfStmtBuilder{!(step < count.read(i))} % [] {
+                    luisa::compute::detail::FunctionBuilder::current()->break_();
+                };
                 value = value * 3u + step + i;
                 step += 1u;
             };
@@ -2407,7 +2484,7 @@ OpName %8 "Fma"
             auto trip_count = dc.device.create_buffer<uint32_t>(4u);
             auto output = dc.device.create_buffer<uint32_t>(4u);
             auto stream = dc.device.create_stream();
-            auto normalized_xir_path = std::filesystem::path{luisa::format(
+            auto normalized_xir_path = luisa::filesystem::path{luisa::format(
                 "kernel.{:016x}.norm.xir",
                 kernel.function()->function().hash())};
             auto shader = dc.device.compile(
@@ -2434,13 +2511,13 @@ OpName %8 "Fma"
                        "level-zero Phi regression should emit exactly one "
                        "native SPIR-V dump with XIR optimization {}",
                        label);
-            expect(std::filesystem::exists(normalized_xir_path))
+            expect(luisa::filesystem::exists(normalized_xir_path))
                 << luisa::format(
                        "level-zero Phi regression should emit final "
                        "normalized XIR with optimization {}",
                        label);
             if (dumps.size() == 1u &&
-                std::filesystem::exists(normalized_xir_path)) {
+                luisa::filesystem::exists(normalized_xir_path)) {
                 auto disassembly = read_text_file(dumps.front());
                 auto normalized_xir = read_text_file(normalized_xir_path);
                 auto spirv_phi_count =
@@ -2519,7 +2596,7 @@ OpName %8 "Fma"
                 << "enabling source dumping must take effect on the next uncached compilation";
             for (auto &&dump : dumps) {
                 std::error_code ec;
-                std::filesystem::remove(dump, ec);
+                luisa::filesystem::remove(dump, ec);
             }
         }
         compile_run_and_check();
@@ -3219,7 +3296,7 @@ OpName %8 "Fma"
             auto value = source[i];
             value.prefix += float4{
                 static_cast<float>(i), 1.0f, 2.0f, 3.0f};
-            std::swap(value.transforms[0], value.transforms[1]);
+            luisa::swap(value.transforms[0], value.transforms[1]);
             value.suffix ^= 0x01020304u + i;
             expected[1u - i] = value;
         }
@@ -3264,6 +3341,14 @@ OpName %8 "Fma"
     };
 
     "vk_user_compute_unaligned_byte_buffer_cross_word_io"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_unaligned_byte_buffer"};
+        ScopedSourceDump source_dump;
+
         constexpr auto byte_count = 24u;
         auto dc = luisa::test::create_device(argc, argv);
         auto bytes = dc.device.create_byte_buffer(byte_count);
@@ -3320,6 +3405,73 @@ OpName %8 "Fma"
             << "unaligned scalar/vector reads must reconstruct every crossed word exactly";
         expect(result_bytes == expected_bytes)
             << "unaligned scalar/vector writes must preserve every surrounding canary byte";
+
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "the unaligned byte-buffer fixture should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly, "AtomicCompareExchange") >= 1u)
+                << "an unbound byte-buffer argument with unaligned accesses must "
+                   "retain masked CAS writes";
+        }
+    };
+
+    "vk_user_compute_captured_aligned_byte_buffer_uses_direct_words"_test = [&] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        ScopedTemporaryCurrentPath work_dir{
+            "luisa_vk_spirv_captured_aligned_byte_buffer"};
+        ScopedSourceDump source_dump;
+
+        constexpr auto frame_capacity = 7u;
+        constexpr auto field_capacity_stride = 12u;
+        constexpr auto frame_stride = 4u;
+        constexpr auto dispatch_size = 8u;
+        constexpr auto byte_count =
+            frame_capacity * field_capacity_stride +
+            dispatch_size * frame_stride;
+        auto dc = luisa::test::create_device(argc, argv);
+        auto bytes = dc.device.create_byte_buffer(byte_count);
+        auto stream = dc.device.create_stream();
+        Kernel1D kernel = [&bytes](UInt capacity) noexcept {
+            auto byte_offset =
+                capacity * 12u + dispatch_x() * 4u;
+            bytes->write(byte_offset, 0x10203040u + dispatch_x());
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint8_t, byte_count> source{};
+        std::array<uint8_t, byte_count> result{};
+        auto expected = source;
+        for (auto i = 0u; i < dispatch_size; ++i) {
+            auto value = 0x10203040u + i;
+            auto offset = frame_capacity * field_capacity_stride +
+                          i * frame_stride;
+            std::memcpy(expected.data() + offset, &value, sizeof(value));
+        }
+        stream << bytes.copy_from(source.data())
+               << shader(frame_capacity).dispatch(dispatch_size)
+               << bytes.copy_to(result.data())
+               << synchronize();
+
+        expect(result == expected)
+            << "captured aligned byte-buffer writes must preserve the SoA address contract";
+        auto dumps = find_spirv_dumps();
+        expect(dumps.size() == 1u)
+            << "the captured aligned byte-buffer fixture should emit one native SPIR-V module";
+        if (dumps.size() == 1u) {
+            auto disassembly = read_text_file(dumps.front());
+            expect(count_spirv_opcode(
+                       disassembly, "AtomicCompareExchange") == 0u)
+                << "a zero-bias captured byte buffer plus a four-byte-aligned "
+                   "XIR offset must lower to direct word stores";
+        }
     };
 
     "vk_user_compute_volatile_buffer_is_coherent"_test = [&] {
@@ -3717,9 +3869,11 @@ OpName %8 "Fma"
         constexpr auto second_offset = 2u;
         constexpr auto second_count = 2u;
         auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
         auto first = dc.device.create_buffer<uint32_t>(6u);
         auto second = dc.device.create_buffer<uint32_t>(6u);
-        auto output = dc.device.create_buffer<uint32_t>(6u);
+        auto output = dc.device.create_buffer<uint32_t>(8u);
         auto heap = dc.device.create_bindless_array(
             1u, BindlessSlotType::BUFFER_ONLY);
         auto stream = dc.device.create_stream();
@@ -3731,6 +3885,11 @@ OpName %8 "Fma"
             out.write(0u, view.read(0u));
             out.write(1u, view.read(count - 1u));
             out.write(2u, count);
+            out.write(
+                3u,
+                bindless.byte_buffer(0u, true, true)
+                    .read<uint32_t>((count - 1u) * 4u));
+            view.write(count - 1u, view.read(0u) + 100u);
         };
         auto shader = dc.device.compile(
             kernel, ShaderOption{.enable_cache = false,
@@ -3747,27 +3906,262 @@ OpName %8 "Fma"
             0xdead0000u, 11u, 12u, 13u, 0xdead0004u, 0xdead0005u};
         constexpr std::array second_source{
             0xbeef0000u, 0xbeef0001u, 21u, 22u, 0xbeef0004u, 0xbeef0005u};
-        std::array<uint32_t, 6u> result{};
+        std::array<uint32_t, 8u> result{};
+        std::array<uint32_t, 6u> first_after{};
+        std::array<uint32_t, 6u> second_after{};
         stream << first.copy_from(luisa::span{first_source})
                << second.copy_from(luisa::span{second_source})
                << std::move(bind_first)
-               << shader(heap, output.view(0u, 3u)).dispatch(1u)
+               << shader(heap, output.view(0u, 4u)).dispatch(1u)
                << std::move(bind_second)
-               << shader(heap, output.view(3u, 3u)).dispatch(1u)
+               << shader(heap, output.view(4u, 4u)).dispatch(1u)
                << output.copy_to(luisa::span{result})
+               << first.copy_to(luisa::span{first_after})
+               << second.copy_to(luisa::span{second_after})
                << synchronize();
 
         constexpr std::array expected{
             first_source[first_offset],
             first_source[first_offset + first_count - 1u],
             first_count,
+            first_source[first_offset + first_count - 1u],
             second_source[second_offset],
             second_source[second_offset + second_count - 1u],
-            second_count};
+            second_count,
+            second_source[second_offset + second_count - 1u]};
         expect(result == expected)
             << "typed BUFFER_ONLY records must be versioned in command order "
                "and retain each sliced view's bias and exact logical size";
+        auto expected_first_after = first_source;
+        expected_first_after[first_offset + first_count - 1u] =
+            first_source[first_offset] + 100u;
+        auto expected_second_after = second_source;
+        expected_second_after[second_offset + second_count - 1u] =
+            second_source[second_offset] + 100u;
+        expect(first_after == expected_first_after);
+        expect(second_after == expected_second_after);
     };
+
+    "vk_typed_texture_only_uses_native_slot_layout_and_sampler"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
+        constexpr auto extent = make_uint2(2u, 1u);
+        auto first = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, extent);
+        auto second = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, extent);
+        auto heap = dc.device.create_bindless_array(
+            2u, BindlessSlotType::TEXTURE2D_ONLY);
+        auto sizes = dc.device.create_buffer<uint2>(2u);
+        auto colors = dc.device.create_buffer<float4>(7u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar bindless,
+                             BufferUInt2 size_output,
+                             BufferFloat4 color_output) noexcept {
+            auto lane = dispatch_x();
+            auto texture = bindless.tex2d(lane, true, false);
+            Float default_u = 0.5f;
+            $if (lane == 0u) { default_u = 0.75f; };
+            size_output.write(lane, texture.size());
+            color_output.write(
+                lane * 3u,
+                texture.read(make_uint2(1u, 0u)));
+            color_output.write(
+                lane * 3u + 1u,
+                texture.sample(make_float2(default_u, 0.5f)));
+            color_output.write(
+                lane * 3u + 2u,
+                texture.sample(
+                    make_float2(0.75f, 0.5f),
+                    SamplerFilter::POINT, SamplerAddress::EDGE));
+            $if (lane == 0u) {
+                color_output.write(
+                    6u,
+                    bindless.tex2d(0u, true, true)
+                        .read(make_uint2(0u)));
+            };
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array first_source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 1.0f, 0.0f, 1.0f}};
+        constexpr std::array second_source{
+            float4{0.0f, 0.0f, 1.0f, 1.0f},
+            float4{1.0f, 1.0f, 0.0f, 1.0f}};
+        heap.emplace_on_update(
+            0u, first, Sampler::point_edge());
+        heap.emplace_on_update(
+            1u, second, Sampler::linear_linear_edge());
+        std::array<uint2, 2u> size_result{};
+        std::array<float4, 7u> color_result{};
+        stream << first.copy_from(luisa::span{first_source})
+               << second.copy_from(luisa::span{second_source})
+               << heap.update()
+               << shader(heap, sizes, colors).dispatch(2u)
+               << sizes.copy_to(luisa::span{size_result})
+               << colors.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        expect(size_result[0].x == extent.x &&
+               size_result[0].y == extent.y &&
+               size_result[1].x == extent.x &&
+               size_result[1].y == extent.y);
+        expect_vector_equal(color_result[0], first_source[1]);
+        expect_vector_equal(color_result[1], first_source[1]);
+        expect_vector_equal(color_result[2], first_source[1]);
+        expect_vector_equal(color_result[3], second_source[1]);
+        constexpr auto linear_midpoint =
+            (second_source[0] + second_source[1]) * 0.5f;
+        for (auto component = 0u; component < 4u; ++component) {
+            expect(std::abs(color_result[4][component] -
+                            linear_midpoint[component]) < 1e-6f)
+                << luisa::format(
+                       "typed default sampler component {} mismatch",
+                       component);
+        }
+        expect_vector_equal(color_result[5], second_source[1]);
+        expect_vector_equal(color_result[6], first_source[0]);
+    };
+
+    "vk_typed_volume_only_uses_native_slot_layout_and_sampler"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        ScopedEnvironmentVariable require_native{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", "1"};
+        constexpr auto extent = make_uint3(2u, 1u, 1u);
+        auto volume = dc.device.create_volume<float>(
+            PixelStorage::FLOAT4, extent);
+        auto heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::TEXTURE3D_ONLY);
+        auto size_output = dc.device.create_buffer<uint3>(1u);
+        auto color_output = dc.device.create_buffer<float4>(4u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar bindless,
+                             BufferUInt3 sizes,
+                             BufferFloat4 colors) noexcept {
+            auto texture = bindless.tex3d(
+                dispatch_x(), true, false);
+            sizes.write(0u, texture.size());
+            colors.write(
+                0u, texture.read(make_uint3(1u, 0u, 0u)));
+            colors.write(
+                1u, texture.sample(make_float3(0.5f)));
+            colors.write(
+                2u, texture.sample(
+                        make_float3(0.75f, 0.5f, 0.5f),
+                        SamplerFilter::POINT, SamplerAddress::EDGE));
+            colors.write(
+                3u, bindless.tex3d(0u, true, true)
+                        .read(make_uint3(0u)));
+        };
+        auto shader = dc.device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        constexpr std::array source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 0.0f, 1.0f, 1.0f}};
+        heap.emplace_on_update(
+            0u, volume, Sampler::linear_linear_edge());
+        std::array<uint3, 1u> size_result{};
+        std::array<float4, 4u> color_result{};
+        stream << volume.copy_from(luisa::span{source})
+               << heap.update()
+               << shader(heap, size_output, color_output).dispatch(1u)
+               << size_output.copy_to(luisa::span{size_result})
+               << color_output.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        expect(size_result[0].x == extent.x &&
+               size_result[0].y == extent.y &&
+               size_result[0].z == extent.z);
+        expect_vector_equal(color_result[0], source[1]);
+        constexpr auto midpoint = (source[0] + source[1]) * 0.5f;
+        for (auto component = 0u; component < 4u; ++component) {
+            expect(std::abs(color_result[1][component] -
+                            midpoint[component]) < 1e-6f);
+        }
+        expect_vector_equal(color_result[2], source[1]);
+        expect_vector_equal(color_result[3], source[0]);
+    };
+
+#if LUISA_TEST_VK_HAS_DXC_COMPATIBILITY
+    "vk_dxc_fallback_retains_typed_bindless_slot_abis"_test = [&] {
+        ScopedEnvironmentVariable allow_hlsl_fallback{
+            "LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV", nullptr};
+        auto dc = luisa::test::create_device(argc, argv);
+        auto source_buffer = dc.device.create_buffer<uint32_t>(4u);
+        auto source_image = dc.device.create_image<float>(
+            PixelStorage::FLOAT4, make_uint2(2u, 1u));
+        auto buffer_heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::BUFFER_ONLY);
+        auto texture_heap = dc.device.create_bindless_array(
+            1u, BindlessSlotType::TEXTURE2D_ONLY);
+        auto integers = dc.device.create_buffer<uint32_t>(5u);
+        auto colors = dc.device.create_buffer<float4>(2u);
+        auto stream = dc.device.create_stream();
+
+        Kernel1D kernel = [](BindlessVar buffers,
+                             BindlessVar textures,
+                             BufferUInt integer_output,
+                             BufferFloat4 color_output) noexcept {
+            auto buffer = buffers.buffer<uint32_t>(0u, true);
+            auto texture = textures.tex2d(0u, true, false);
+            auto extent = texture.size();
+            integer_output.write(0u, buffer.size());
+            integer_output.write(1u, buffer.read(0u));
+            integer_output.write(2u, buffer.read(buffer.size() - 1u));
+            integer_output.write(3u, extent.x);
+            integer_output.write(4u, extent.y);
+            color_output.write(
+                0u, texture.read(make_uint2(1u, 0u)));
+            color_output.write(
+                1u, texture.sample(
+                        make_float2(0.75f, 0.5f),
+                        SamplerFilter::POINT,
+                        SamplerAddress::EDGE));
+        };
+        ShaderOption fallback_option{.enable_cache = false,
+                                     .enable_fast_math = false};
+        fallback_option.native_include = R"(
+uint lc_typed_bindless_dxc_compatibility_marker(uint value) { return value; }
+)";
+        auto shader = dc.device.compile(kernel, fallback_option);
+
+        constexpr std::array buffer_source{
+            0xdead0000u, 41u, 42u, 0xdead0003u};
+        constexpr std::array image_source{
+            float4{1.0f, 0.0f, 0.0f, 1.0f},
+            float4{0.0f, 1.0f, 0.0f, 1.0f}};
+        buffer_heap.emplace_on_update(
+            0u, source_buffer.view(1u, 2u));
+        texture_heap.emplace_on_update(
+            0u, source_image, Sampler::linear_linear_edge());
+        std::array<uint32_t, 5u> integer_result{};
+        std::array<float4, 2u> color_result{};
+        stream << source_buffer.copy_from(luisa::span{buffer_source})
+               << source_image.copy_from(luisa::span{image_source})
+               << buffer_heap.update()
+               << texture_heap.update()
+               << shader(buffer_heap, texture_heap, integers, colors)
+                      .dispatch(1u)
+               << integers.copy_to(luisa::span{integer_result})
+               << colors.copy_to(luisa::span{color_result})
+               << synchronize();
+
+        constexpr std::array expected_integers{2u, 41u, 42u, 2u, 1u};
+        expect(integer_result == expected_integers)
+            << "DXC fallback must retain typed buffer bias/size and typed "
+               "texture descriptor layout";
+        expect_vector_equal(color_result[0], image_source[1]);
+        expect_vector_equal(color_result[1], image_source[1]);
+    };
+#endif
 
     "vk_bindless_texture_sampler_bits_do_not_escape_descriptor_recycling"_test = [&] {
         auto dc = luisa::test::create_device(argc, argv);
@@ -4932,8 +5326,8 @@ OpName %8 "Fma"
 
         constexpr auto multiplicand_bits = 0x3f800001u;
         constexpr auto addend_bits = 0xbf800002u;
-        std::array multiplicand{std::bit_cast<float>(multiplicand_bits)};
-        std::array addend_value{std::bit_cast<float>(addend_bits)};
+        std::array multiplicand{luisa::bit_cast<float>(multiplicand_bits)};
+        std::array addend_value{luisa::bit_cast<float>(addend_bits)};
         uint32_t result = 0xffffffffu;
         uint32_t reduction_result = 0xffffffffu;
         uint2 dot_result{~0u};
@@ -4985,19 +5379,19 @@ OpName %8 "Fma"
             << "non-contraction regression should emit exactly one native SPIR-V dump";
         if (dumps.size() == 1u) {
             auto disassembly = read_text_file(dumps.front());
-            expect(count_spirv_opcode(disassembly, "FMul") == 2u)
-                << "ordinary and reduction multiplications must remain OpFMul";
-            expect(count_spirv_opcode(disassembly, "FAdd") == 4u)
-                << "ordinary, reduction, and matrix additions must remain OpFAdd";
+            expect(count_spirv_opcode(disassembly, "FMul") == 6u)
+                << "ordinary, reduction, and dot-component multiplications must remain OpFMul";
+            expect(count_spirv_opcode(disassembly, "FAdd") == 6u)
+                << "ordinary, reduction, dot-component, and matrix additions must remain OpFAdd";
             expect(count_spirv_opcode(
                        disassembly, "MatrixTimesScalar") == 1u)
                 << "matrix scaling must remain one OpMatrixTimesScalar";
-            expect(count_spirv_opcode(disassembly, "Dot") == 2u)
-                << "dot and length_squared must remain two OpDot instructions";
+            expect(count_spirv_opcode(disassembly, "Dot") == 0u)
+                << "precise dot and length_squared must round explicit products before adding";
             expect(count_spirv_extended_instruction(disassembly, "Fma") == 0u)
                 << "non-fast-math SPIR-V must not contain a fused Fma instruction";
-            expect(count_substring(disassembly, "NoContraction") == 9u)
-                << "all ordinary, reduction, dot, and matrix multiply/add results must carry NoContraction";
+            expect(count_substring(disassembly, "NoContraction") == 13u)
+                << "all ordinary, reduction, dot-component, and matrix multiply/add results must carry NoContraction";
         }
     };
 
@@ -5031,8 +5425,8 @@ OpName %8 "Fma"
 
         constexpr auto multiplicand_bits = 0x3f800001u;
         constexpr auto addend_bits = 0xbf800002u;
-        std::array multiplicand{std::bit_cast<float>(multiplicand_bits)};
-        std::array addend_value{std::bit_cast<float>(addend_bits)};
+        std::array multiplicand{luisa::bit_cast<float>(multiplicand_bits)};
+        std::array addend_value{luisa::bit_cast<float>(addend_bits)};
         uint32_t result = 0xffffffffu;
         stream << lhs.copy_from(luisa::span{multiplicand})
                << rhs.copy_from(luisa::span{multiplicand})
@@ -5040,7 +5434,7 @@ OpName %8 "Fma"
                << shader(lhs, rhs, addend, output).dispatch(1u)
                << output.copy_to(luisa::span{&result, 1u})
                << synchronize();
-        auto expected = std::bit_cast<uint32_t>(std::fma(
+        auto expected = luisa::bit_cast<uint32_t>(std::fma(
             multiplicand[0], multiplicand[0], addend_value[0]));
         expect(result == expected)
             << luisa::format(
@@ -5323,7 +5717,7 @@ OpName %8 "Fma"
                << synchronize();
 
         for (auto i = 0u; i < 4u; i++) {
-            expect(std::bit_cast<uint32_t>(float_result[0][i]) == source[i])
+            expect(luisa::bit_cast<uint32_t>(float_result[0][i]) == source[i])
                 << "float bitcast changed lane " << i;
         }
         constexpr auto low =
@@ -5403,7 +5797,7 @@ OpName %8 "Fma"
                    << output.copy_to(luisa::span{result})
                    << synchronize();
             for (auto i = 0u; i < 4u; ++i) {
-                expect(std::bit_cast<uint32_t>(
+                expect(luisa::bit_cast<uint32_t>(
                            result[0][i]) == source[i])
                     << luisa::format(
                            "scalarizer configuration '{}' "
@@ -5601,7 +5995,7 @@ OpName %8 "Fma"
             assume(value < 1024u);
             out.write(i, value * 3u + 1u);
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             kernel.function()->function().hash())};
         auto shader = dc.device.compile(
@@ -5618,12 +6012,12 @@ OpName %8 "Fma"
                 << "ignoring a satisfied assumption changed result " << i;
         }
 
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "assumption regression must retain the normalized XIR handoff";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "assumption regression should emit one native SPIR-V module";
-        if (std::filesystem::exists(normalized_xir_path) &&
+        if (luisa::filesystem::exists(normalized_xir_path) &&
             dumps.size() == 1u) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             auto disassembly = read_text_file(dumps.front());
@@ -5658,7 +6052,7 @@ OpName %8 "Fma"
             device_assert(value < 1024u, "value must be in range");
             out.write(i, value * 5u + 3u);
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             kernel.function()->function().hash())};
         auto shader = dc.device.compile(
@@ -5677,12 +6071,12 @@ OpName %8 "Fma"
                 << i;
         }
 
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "release-assert regression must retain the normalized XIR handoff";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "release-assert regression should emit one native SPIR-V module";
-        if (std::filesystem::exists(normalized_xir_path) &&
+        if (luisa::filesystem::exists(normalized_xir_path) &&
             dumps.size() == 1u) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             auto disassembly = read_text_file(dumps.front());
@@ -5718,7 +6112,7 @@ OpName %8 "Fma"
                 out.write(identity.x, identity);
             };
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             kernel.function()->function().hash())};
         auto shader = dc.device.compile(
@@ -5735,12 +6129,12 @@ OpName %8 "Fma"
         for (auto i = 0u; i < dispatches.size(); ++i) {
             expect_vector_equal(result[i], uint2{i, dispatches[i].x});
         }
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "opt0 dispatch-metadata fixture should retain its normalized XIR";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "opt0 dispatch-metadata fixture should emit one SPIR-V module";
-        if (std::filesystem::exists(normalized_xir_path) &&
+        if (luisa::filesystem::exists(normalized_xir_path) &&
             dumps.size() == 1u) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             auto disassembly = read_text_file(dumps.front());
@@ -5867,7 +6261,7 @@ OpName %8 "Fma"
                 4u,
                 bindless.byte_buffer(0u, true, true).device_address());
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             kernel.function()->function().hash())};
         auto shader = dc.device.compile(
@@ -5898,9 +6292,9 @@ OpName %8 "Fma"
         expect(result[4] == result[1])
             << "typed uniform byte-buffer metadata disagreed on the same buffer view address";
 
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "device-address regression must retain the normalized XIR handoff";
-        if (std::filesystem::exists(normalized_xir_path)) {
+        if (luisa::filesystem::exists(normalized_xir_path)) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             expect(normalized_xir.find("buffer_device_address") !=
                    std::string::npos)
@@ -5956,6 +6350,134 @@ OpName %8 "Fma"
         constexpr std::array expected{5u, 29u, 55u, 103u, 3u};
         expect(result == expected)
             << "the outer merge must execute exactly once after early and normal loop exits";
+    };
+
+    "vk_user_compute_sibling_one_sided_loop_exits_preserve_continuation"_test = [&] {
+        auto dc = luisa::test::create_device(argc, argv);
+        auto &device = dc.device;
+        auto stream = device.create_stream();
+        auto output = device.create_buffer<uint32_t>(4u);
+
+        Kernel1D kernel = [](BufferUInt out) noexcept {
+            auto lane = dispatch_x();
+            UInt value = 0u;
+            UInt iteration = 0u;
+            $while (iteration < 1u) {
+                iteration += 1u;
+                $if ((lane & 1u) == 0u) {
+                    $if (lane < 2u) {
+                        value = 11u;
+                        $break;
+                    };
+                    value = 12u;
+                    $break;
+                }
+                $else {
+                    $if (lane < 3u) {
+                        value = 21u;
+                        $break;
+                    };
+                    value = 22u;
+                    $break;
+                };
+            };
+            out.write(lane, value + 1000u);
+        };
+        auto shader = device.compile(
+            kernel, ShaderOption{.enable_cache = false,
+                                 .enable_fast_math = false});
+
+        std::array<uint32_t, 4u> result{};
+        stream << shader(output).dispatch(4u)
+               << output.copy_to(luisa::span{result})
+               << synchronize();
+        constexpr std::array expected{
+            1011u, 1021u, 1012u, 1022u};
+        expect(result == expected)
+            << "sibling one-sided exits must preserve each path-local value "
+               "and execute the loop continuation exactly once";
+    };
+
+    "vk_native_xir_spirv_recovers_cyclic_indexed_branch_before_emission"_test = [] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+
+        // Build the exact raw-CFG category that caused the production volume
+        // kernel to clone its complete loop body: the IndexedBranch itself has
+        // a target that dominates it. A source-level switch/continue does not
+        // necessarily retain this shape after destructuring, so this is an
+        // explicit XIR-to-SPIR-V conformance test.
+        Kernel1D ast_kernel = [](Int) noexcept {};
+        auto ast_function = ast_kernel.function()->function();
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(ast_function.block_size());
+        auto *selector =
+            kernel->create_value_argument(Type::of<int32_t>());
+        auto *body = kernel->create_body_block();
+        auto *header = kernel->create_basic_block();
+        auto *payload = kernel->create_basic_block();
+        auto *latch = kernel->create_basic_block();
+        auto *case_exit = kernel->create_basic_block();
+        auto *default_exit = kernel->create_basic_block();
+
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.br(header);
+        builder.set_insertion_point(header);
+        builder.br(payload);
+        builder.set_insertion_point(payload);
+        builder.br(latch);
+        builder.set_insertion_point(latch);
+        auto *indexed = builder.indexed_branch(selector);
+        indexed->add_case(0u, header);
+        indexed->add_case(1u, case_exit);
+        indexed->set_default_block(default_exit);
+        builder.set_insertion_point(case_exit);
+        builder.return_void();
+        builder.set_insertion_point(default_exit);
+        builder.return_void();
+
+        expect(xir::xir_verify_module(&module).succeeded());
+        auto restructure =
+            xir::restructure_cfg_pass_run_on_function(kernel);
+        expect(restructure.succeeded());
+        expect(restructure.restructured_loop_count == 1u);
+        expect(restructure.canonicalized_cfg_count != 0u);
+        expect(xir::xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        // compile_spirv_xir accepts the production legalization boundary,
+        // not merely a structurally valid module. Preserve block identities
+        // while clearing disconnected raw-CFG payloads exactly as the Vulkan
+        // translation pipeline does before the direct handoff.
+        auto post_restructure = luisa::compute::spirv::
+            create_spirv_codegen_post_restructure_pipeline();
+        [[maybe_unused]] auto cleanup_stats =
+            post_restructure.run(&module);
+        expect(xir::xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true})
+                   .succeeded());
+
+        auto spirv = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_function, &module,
+            ShaderOption{.enable_cache = false,
+                         .enable_fast_math = false});
+        auto words = luisa::span<const uint32_t>{spirv.spv_bin};
+        expect(count_spirv_binary_opcode(
+                   words, spv::Op::OpLoopMerge) >= 1u)
+            << "cyclic indexed control flow must reach SPIR-V as a loop";
+        expect(count_spirv_binary_opcode(
+                   words, spv::Op::OpSwitch) == 0u)
+            << "the cyclic IndexedBranch must be lowered to conditional "
+               "control flow before native SPIR-V emission";
     };
 
     "vk_user_compute_native_switch_nested_in_loop"_test = [&] {
@@ -6514,15 +7036,15 @@ OpName %8 "Fma"
                << synchronize();
         for (auto i = 0u; i < scalar_lhs_source.size(); i++) {
             auto expected = std::copysign(scalar_lhs_source[i], scalar_rhs_source[i]);
-            expect(std::bit_cast<uint32_t>(scalar_copysign_result[i]) ==
-                   std::bit_cast<uint32_t>(expected));
+            expect(luisa::bit_cast<uint32_t>(scalar_copysign_result[i]) ==
+                   luisa::bit_cast<uint32_t>(expected));
             expect(scalar_not_equal_result[i] ==
                    static_cast<uint32_t>(scalar_lhs_source[i] != scalar_rhs_source[i]));
         }
         for (auto i = 0u; i < 4u; i++) {
             auto expected = std::copysign(vector_lhs_source[0][i], vector_rhs_source[0][i]);
-            expect(std::bit_cast<uint32_t>(vector_copysign_result[0][i]) ==
-                   std::bit_cast<uint32_t>(expected));
+            expect(luisa::bit_cast<uint32_t>(vector_copysign_result[0][i]) ==
+                   luisa::bit_cast<uint32_t>(expected));
             expect(vector_not_equal_result[0][i] ==
                    static_cast<uint32_t>(vector_lhs_source[0][i] != vector_rhs_source[0][i]));
         }
@@ -6702,8 +7224,12 @@ OpName %8 "Fma"
                 << "vector normalize must lower to native SPIR-V, not GLSL.std.450";
             expect(count_spirv_extended_instruction(disassembly, "Length") == 0u)
                 << "vector length must lower to native SPIR-V, not GLSL.std.450";
-            expect(count_spirv_opcode(disassembly, "Dot") == 2u)
-                << "normalize and length must each emit one OpDot";
+            expect(count_spirv_opcode(disassembly, "Dot") == 0u)
+                << "precise normalize and length must round explicit products before adding";
+            expect(count_spirv_opcode(disassembly, "FMul") == 8u)
+                << "the two precise float4 norms must each round four scalar products";
+            expect(count_spirv_opcode(disassembly, "FAdd") == 6u)
+                << "the two precise float4 norms must each sum with three ordered additions";
             expect(count_spirv_opcode(disassembly, "VectorTimesScalar") == 1u)
                 << "normalize must scale the vector by the reciprocal length";
             expect(count_spirv_opcode(disassembly, "FDiv") == 1u)
@@ -6724,7 +7250,7 @@ OpName %8 "Fma"
             "LUISA_SPIRV_OPT_PASSES", nullptr};
         ScopedSourceDump source_dump;
 
-        constexpr std::string_view dump_name =
+        constexpr luisa::string_view dump_name =
             "spv_code_vk_direct_surface_trace.spvasm";
         // Store the farther primitive first so the fixture contains more than
         // one valid candidate and verifies the final closest committed hit,
@@ -6769,7 +7295,7 @@ OpName %8 "Fma"
             << "direct surface tracing should emit a named native SPIR-V dump";
         if (dump_exists(dump_name)) {
             auto disassembly = read_text_file(
-                std::filesystem::path{dump_name});
+                luisa::filesystem::path{dump_name});
             expect(spirv_opcode_has_operand(
                 disassembly, "Capability",
                 "RayTraversalPrimitiveCullingKHR"))
@@ -7144,11 +7670,15 @@ OpName %8 "Fma"
     };
 
     "vk_indirect_rejects_imported_native_writable_source_alias"_test = [&] {
-        auto log_path = std::filesystem::absolute(
+        auto log_path = luisa::filesystem::absolute(
             "indirect_native_alias_rejection.log");
         auto command = luisa::format(
             "\"{}\" vk --indirect-native-alias-probe > \"{}\" 2>&1",
             executable_path, log_path.string());
+#ifdef _WIN32
+        // Preserve the executable and log path quotes when cmd /C strips the outer pair.
+        command = luisa::format("\"{}\"", command);
+#endif
         auto status = std::system(command.c_str());
         expect(status != 0)
             << "a distinct Luisa wrapper for the same VkBuffer must not bypass indirect-source alias validation";
@@ -7195,11 +7725,15 @@ OpName %8 "Fma"
     };
 
     "vk_indirect_rejects_bindless_source_alias"_test = [&] {
-        auto log_path = std::filesystem::absolute(
+        auto log_path = luisa::filesystem::absolute(
             "indirect_bindless_alias_rejection.log");
         auto command = luisa::format(
             "\"{}\" vk --indirect-bindless-alias-probe > \"{}\" 2>&1",
             executable_path, log_path.string());
+#ifdef _WIN32
+        // Preserve the executable and log path quotes when cmd /C strips the outer pair.
+        command = luisa::format("\"{}\"", command);
+#endif
         auto status = std::system(command.c_str());
         expect(status != 0)
             << "an indirect target must not reach its metadata source through a writable bindless descriptor";
@@ -7329,7 +7863,7 @@ OpName %8 "Fma"
             auto identity = forward_identity();
             output.atomic(identity.x).fetch_add(identity.y);
         };
-        auto normalized_xir_path = std::filesystem::path{luisa::format(
+        auto normalized_xir_path = luisa::filesystem::path{luisa::format(
             "kernel.{:016x}.norm.xir",
             consume.function()->function().hash())};
 
@@ -7366,12 +7900,12 @@ uint lc_indirect_writer_fallback_marker(uint value) { return value; }
         expect(result == expected)
             << "Vulkan indirect dispatch must preserve logical size/kernel "
                "ID and zero stale records beyond the relative GPU count";
-        expect(std::filesystem::exists(normalized_xir_path))
+        expect(luisa::filesystem::exists(normalized_xir_path))
             << "indirect callable metadata fixture should emit normalized XIR";
         auto dumps = find_spirv_dumps();
         expect(dumps.size() == 1u)
             << "the native indirect consumer should emit one XIR-derived SPIR-V module";
-        if (std::filesystem::exists(normalized_xir_path) &&
+        if (luisa::filesystem::exists(normalized_xir_path) &&
             dumps.size() == 1u) {
             auto normalized_xir = read_text_file(normalized_xir_path);
             auto disassembly = read_text_file(dumps.front());

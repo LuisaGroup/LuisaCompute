@@ -1,0 +1,4108 @@
+{
+  "metadata": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "date": "2026-09-08T04:31:00.734809+00:00",
+    "rounds": 2,
+    "samples": 7,
+    "timeout_seconds": 60,
+    "sample_ms": 30,
+    "warmup_ms": 100,
+    "packet_width": 8,
+    "workers": 8,
+    "timing": "synchronized_host_wall",
+    "kernel_only": false,
+    "cases": [
+      [
+        "rmsnorm",
+        [
+          17,
+          7
+        ]
+      ],
+      [
+        "rmsnorm",
+        [
+          17,
+          127
+        ]
+      ],
+      [
+        "rmsnorm",
+        [
+          64,
+          256
+        ]
+      ],
+      [
+        "rmsnorm",
+        [
+          1024,
+          256
+        ]
+      ],
+      [
+        "rmsnorm",
+        [
+          64,
+          513
+        ]
+      ],
+      [
+        "layernorm",
+        [
+          64,
+          256
+        ]
+      ],
+      [
+        "masked_softmax",
+        [
+          17,
+          65
+        ]
+      ],
+      [
+        "swiglu",
+        [
+          17,
+          65
+        ]
+      ]
+    ],
+    "artifacts_sha256": {
+      "baseline": {
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir": "006bd324cfcbd001184fe16a003c704724c62683f52954ec701f3f43534210b6",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libSPIRV.16.3.0.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libSPIRV.16.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libSPIRV.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libglslang-default-resource-limits.16.3.0.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libglslang-default-resource-limits.16.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libglslang-default-resource-limits.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libglslang.16.3.0.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libglslang.16.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libglslang.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-ast.dylib": "3593c30c2c40059772688aaa0512f51e8e7b9dd84a659dedabeeef4f5d447190",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-backend-metal.so": "292c088e42be06f6324bf733a43bfe00a47698d6789ef45461b6c2c6b3dfeb63",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-backend-simd.so": "2ef4f4d7cbbb50e41adbe2ccae42e8ecebf65f2c32098bf717f1a8809b1af477",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-benchmark-metal-timing.dylib": "989657bf3419937efd8de38e17681574ee73f28455cc2548184818f589cf7ae8",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-core.dylib": "55f31daf2e618e78bfa9e4686c47e6d7cb4a8f3727e54c97952d719e69f663b4",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-coro.dylib": "9b6b2ed9528c537b3236d3f2e1a9e0dcbe68e501a0ca5da7b9c47b19a88f65b3",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-dsl.dylib": "192fa9ea1ee2c49caf241ca79b93c776490c553ecc215046e8e245ec2158b7a5",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-osl.dylib": "d6f0121521dd0f25dc5fc1c37afdca6dff8f0280a1da85450da36449a0261fb1",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-runtime.dylib": "97165ca9efb0a1ee57eee076fd145bc0a95f373f578cd595dd1c0613cabcb4ac",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-tile-bridge-tirx.dylib": "de6a123adaf2a678e1e74bfd29f0c87789b71df94229c2728b00434b3704fd99",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-tile-bridge-xir.dylib": "5e8928b27aec89cd0f6c8dd2c4c64103018762cd69ed66b87597b2a7c8bed04e",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-tile.dylib": "634878d1d9d5d27ca5a3b585916f2f602718cb2d1b327abde37ea6c9a29283e2",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-validation-layer.so": "1b791d7f116d07b095ff13925bf7e475c1eebb7ba02424f3411aa9b02f37f7eb",
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/libluisa-xir.dylib": "91fbf5814302f48263f0618798e5ec8cd3d24fdecdd19b62f49a551bb5812925"
+      },
+      "candidate": {
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir": "60c36d90d3d6fbef10222772cebaf26b485dbaa907f07d7641dd589d75a857cc",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libSPIRV.16.3.0.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libSPIRV.16.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libSPIRV.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libglslang-default-resource-limits.16.3.0.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libglslang-default-resource-limits.16.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libglslang-default-resource-limits.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libglslang.16.3.0.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libglslang.16.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libglslang.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-ast.dylib": "3593c30c2c40059772688aaa0512f51e8e7b9dd84a659dedabeeef4f5d447190",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-backend-metal.so": "292c088e42be06f6324bf733a43bfe00a47698d6789ef45461b6c2c6b3dfeb63",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-backend-simd.so": "d2bbb3b82b4a8d98bebf3eafdac7b668762b1f341d3673e340c2b95a4035d9e0",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-benchmark-metal-timing.dylib": "989657bf3419937efd8de38e17681574ee73f28455cc2548184818f589cf7ae8",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-core.dylib": "55f31daf2e618e78bfa9e4686c47e6d7cb4a8f3727e54c97952d719e69f663b4",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-coro.dylib": "9b6b2ed9528c537b3236d3f2e1a9e0dcbe68e501a0ca5da7b9c47b19a88f65b3",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-dsl.dylib": "192fa9ea1ee2c49caf241ca79b93c776490c553ecc215046e8e245ec2158b7a5",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-osl.dylib": "d6f0121521dd0f25dc5fc1c37afdca6dff8f0280a1da85450da36449a0261fb1",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-runtime.dylib": "97165ca9efb0a1ee57eee076fd145bc0a95f373f578cd595dd1c0613cabcb4ac",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-tile-bridge-tirx.dylib": "de6a123adaf2a678e1e74bfd29f0c87789b71df94229c2728b00434b3704fd99",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-tile-bridge-xir.dylib": "1cd6bca6543593b72a4d6f98993574fdc113eed739af13691d18e8748f439bc7",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-tile.dylib": "634878d1d9d5d27ca5a3b585916f2f602718cb2d1b327abde37ea6c9a29283e2",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-validation-layer.so": "1b791d7f116d07b095ff13925bf7e475c1eebb7ba02424f3411aa9b02f37f7eb",
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/libluisa-xir.dylib": "91fbf5814302f48263f0618798e5ec8cd3d24fdecdd19b62f49a551bb5812925"
+      }
+    },
+    "artifacts_unchanged": true
+  },
+  "results": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        7
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,7",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/00-rmsnorm-17x7-0-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          7
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            7
+          ],
+          [
+            1,
+            7
+          ],
+          [
+            1,
+            7
+          ]
+        ],
+        "output_shape": [
+          17,
+          7
+        ],
+        "fixture_ms": 0.068459,
+        "runtime_init_ms": 11.420375,
+        "compile_ms": 125.837125,
+        "allocation_upload_ms": 0.004708,
+        "cold_call_ms": 0.0165,
+        "warmup_ms": 100.001417,
+        "repetitions": 79065,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=7; exact search 6 candidates, uncalibrated cost 3161.000 (arithmetic 303.000, memory 2730.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 119,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77402201373e-07
+        },
+        "throughput_us": [
+          0.354658078796,
+          0.34549474483,
+          0.34491715677,
+          0.340709643964,
+          0.340285941946,
+          0.342307493834,
+          0.340984746727
+        ],
+        "latency_us": [
+          13.667,
+          0.583,
+          0.458,
+          0.416,
+          0.417,
+          0.5,
+          0.375
+        ],
+        "throughput_us_p50": 0.342307493834,
+        "throughput_us_p90": 0.34916007841639995,
+        "latency_us_p50": 0.458,
+        "latency_us_p90": 5.816600000000005
+      },
+      "oracle": {
+        "elements": 119,
+        "max_abs_error": 1.7740220137341112e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "07bc71a8cf9163f1ac5de64dda27ee4d39011d011235e870cdee6b18360672f6",
+        "6e14f711133e45f6bf4c4767f18156da393b086c830f8dc93155f904e33cdcb5",
+        "d32b7b498cd711103df6f469538e2f0a239b854da52d096911b81073f1b46405"
+      ],
+      "output_sha256": "1e98af37d7437fd8326a8aee44ec714b80c7f2afa6fd63becc77bd05cd641919",
+      "process_and_validation_wall_seconds": 0.5467942919349298
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        7
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,7",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/00-rmsnorm-17x7-0-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          7
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            7
+          ],
+          [
+            1,
+            7
+          ],
+          [
+            1,
+            7
+          ]
+        ],
+        "output_shape": [
+          17,
+          7
+        ],
+        "fixture_ms": 0.072417,
+        "runtime_init_ms": 11.077375,
+        "compile_ms": 125.5965,
+        "allocation_upload_ms": 0.004625,
+        "cold_call_ms": 0.01625,
+        "warmup_ms": 100.00025,
+        "repetitions": 78336,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=7; exact search 6 candidates, uncalibrated cost 3161.000 (arithmetic 303.000, memory 2730.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 119,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77402201373e-07
+        },
+        "throughput_us": [
+          0.339575150633,
+          0.342927159926,
+          0.341404335172,
+          0.344493068321,
+          0.354402292688,
+          0.342358558007,
+          0.342956405739
+        ],
+        "latency_us": [
+          24.417,
+          0.625,
+          0.458,
+          0.458,
+          0.416,
+          0.417,
+          0.417
+        ],
+        "throughput_us_p50": 0.342927159926,
+        "throughput_us_p90": 0.3484567580678,
+        "latency_us_p50": 0.458,
+        "latency_us_p90": 10.141800000000009
+      },
+      "oracle": {
+        "elements": 119,
+        "max_abs_error": 1.7740220137341112e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "07bc71a8cf9163f1ac5de64dda27ee4d39011d011235e870cdee6b18360672f6",
+        "6e14f711133e45f6bf4c4767f18156da393b086c830f8dc93155f904e33cdcb5",
+        "d32b7b498cd711103df6f469538e2f0a239b854da52d096911b81073f1b46405"
+      ],
+      "output_sha256": "1e98af37d7437fd8326a8aee44ec714b80c7f2afa6fd63becc77bd05cd641919",
+      "process_and_validation_wall_seconds": 0.4908152089919895
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        7
+      ],
+      "round": 1,
+      "variant": "candidate",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,7",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/00-rmsnorm-17x7-1-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          7
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            7
+          ],
+          [
+            1,
+            7
+          ],
+          [
+            1,
+            7
+          ]
+        ],
+        "output_shape": [
+          17,
+          7
+        ],
+        "fixture_ms": 0.066333,
+        "runtime_init_ms": 12.595583,
+        "compile_ms": 124.640667,
+        "allocation_upload_ms": 0.004583,
+        "cold_call_ms": 0.016042,
+        "warmup_ms": 100.000292,
+        "repetitions": 75934,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=7; exact search 6 candidates, uncalibrated cost 3161.000 (arithmetic 303.000, memory 2730.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 119,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77402201373e-07
+        },
+        "throughput_us": [
+          0.344681460215,
+          0.342922261438,
+          0.343017185977,
+          0.339329220112,
+          0.343701438091,
+          0.343467129349,
+          0.349494850791
+        ],
+        "latency_us": [
+          14.209,
+          0.541,
+          0.459,
+          0.416,
+          0.417,
+          0.5,
+          0.375
+        ],
+        "throughput_us_p50": 0.343467129349,
+        "throughput_us_p90": 0.34660681644540003,
+        "latency_us_p50": 0.459,
+        "latency_us_p90": 6.008200000000005
+      },
+      "oracle": {
+        "elements": 119,
+        "max_abs_error": 1.7740220137341112e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "07bc71a8cf9163f1ac5de64dda27ee4d39011d011235e870cdee6b18360672f6",
+        "6e14f711133e45f6bf4c4767f18156da393b086c830f8dc93155f904e33cdcb5",
+        "d32b7b498cd711103df6f469538e2f0a239b854da52d096911b81073f1b46405"
+      ],
+      "output_sha256": "1e98af37d7437fd8326a8aee44ec714b80c7f2afa6fd63becc77bd05cd641919",
+      "process_and_validation_wall_seconds": 0.5386261669918895
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        7
+      ],
+      "round": 1,
+      "variant": "baseline",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,7",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/00-rmsnorm-17x7-1-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          7
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            7
+          ],
+          [
+            1,
+            7
+          ],
+          [
+            1,
+            7
+          ]
+        ],
+        "output_shape": [
+          17,
+          7
+        ],
+        "fixture_ms": 0.060458,
+        "runtime_init_ms": 10.981042,
+        "compile_ms": 124.872291,
+        "allocation_upload_ms": 0.00475,
+        "cold_call_ms": 0.016,
+        "warmup_ms": 100.000333,
+        "repetitions": 65359,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=7; exact search 6 candidates, uncalibrated cost 3161.000 (arithmetic 303.000, memory 2730.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 119,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77402201373e-07
+        },
+        "throughput_us": [
+          0.352147370676,
+          0.339404290151,
+          0.339709665081,
+          0.335389923346,
+          0.345080631589,
+          0.340085145122,
+          0.339431065347
+        ],
+        "latency_us": [
+          12.125,
+          0.667,
+          0.5,
+          0.416,
+          0.417,
+          0.5,
+          0.375
+        ],
+        "throughput_us_p50": 0.339709665081,
+        "throughput_us_p90": 0.34790732722379997,
+        "latency_us_p50": 0.5,
+        "latency_us_p90": 5.250200000000004
+      },
+      "oracle": {
+        "elements": 119,
+        "max_abs_error": 1.7740220137341112e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "07bc71a8cf9163f1ac5de64dda27ee4d39011d011235e870cdee6b18360672f6",
+        "6e14f711133e45f6bf4c4767f18156da393b086c830f8dc93155f904e33cdcb5",
+        "d32b7b498cd711103df6f469538e2f0a239b854da52d096911b81073f1b46405"
+      ],
+      "output_sha256": "1e98af37d7437fd8326a8aee44ec714b80c7f2afa6fd63becc77bd05cd641919",
+      "process_and_validation_wall_seconds": 0.4707887079566717
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        127
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,127",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/01-rmsnorm-17x127-0-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          127
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            127
+          ],
+          [
+            1,
+            127
+          ],
+          [
+            1,
+            127
+          ]
+        ],
+        "output_shape": [
+          17,
+          127
+        ],
+        "fixture_ms": 0.084875,
+        "runtime_init_ms": 10.837292,
+        "compile_ms": 1420.443917,
+        "allocation_upload_ms": 0.010417,
+        "cold_call_ms": 0.065708,
+        "warmup_ms": 100.050583,
+        "repetitions": 3711,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=127; exact search 6 candidates, uncalibrated cost 55001.000 (arithmetic 5343.000, memory 49530.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 2159,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.65690357107e-07
+        },
+        "throughput_us": [
+          8.32632713554,
+          8.21681029372,
+          8.63230935058,
+          8.3146052277,
+          8.23377580167,
+          8.4065728914,
+          8.21916841822
+        ],
+        "latency_us": [
+          13.542,
+          8.917,
+          9,
+          8.458,
+          8.5,
+          8.667,
+          8.458
+        ],
+        "throughput_us_p50": 8.3146052277,
+        "throughput_us_p90": 8.496867475072,
+        "latency_us_p50": 8.667,
+        "latency_us_p90": 10.8168
+      },
+      "oracle": {
+        "elements": 2159,
+        "max_abs_error": 3.656903571069847e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a9838844e1513fa997383f98f9f08213ddc852f89c78b866dbae0151362112b2",
+        "5806b289d94b7186437c69569f9265c500779b439e60473a5bb3c9a4a61468e9",
+        "473fd2074594aab5418727e7f3d8689b2e47124bb72709c0c1f5117000106e73"
+      ],
+      "output_sha256": "f49a82a712a0edd3981f412f24a59d322f50879d759b94d8c55594ef66f9c40d",
+      "process_and_validation_wall_seconds": 1.8109203750500455
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        127
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,127",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/01-rmsnorm-17x127-0-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          127
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            127
+          ],
+          [
+            1,
+            127
+          ],
+          [
+            1,
+            127
+          ]
+        ],
+        "output_shape": [
+          17,
+          127
+        ],
+        "fixture_ms": 0.085875,
+        "runtime_init_ms": 10.411625,
+        "compile_ms": 36.714958,
+        "allocation_upload_ms": 0.008666,
+        "cold_call_ms": 0.019167,
+        "warmup_ms": 100.002959,
+        "repetitions": 5373,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=35, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 104531.000 (arithmetic 6105.000, memory 98298.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 2159,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.03642116725e-07
+        },
+        "throughput_us": [
+          5.48518053229,
+          5.55811464731,
+          5.48996538247,
+          5.56958403127,
+          5.60077386935,
+          5.47620044668,
+          5.57690452261
+        ],
+        "latency_us": [
+          8.583,
+          5.583,
+          5.541,
+          5.5,
+          5.583,
+          5.541,
+          5.584
+        ],
+        "throughput_us_p50": 5.55811464731,
+        "throughput_us_p90": 5.5864522613059995,
+        "latency_us_p50": 5.583,
+        "latency_us_p90": 6.783600000000001
+      },
+      "oracle": {
+        "elements": 2159,
+        "max_abs_error": 2.0364211672507793e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a9838844e1513fa997383f98f9f08213ddc852f89c78b866dbae0151362112b2",
+        "5806b289d94b7186437c69569f9265c500779b439e60473a5bb3c9a4a61468e9",
+        "473fd2074594aab5418727e7f3d8689b2e47124bb72709c0c1f5117000106e73"
+      ],
+      "output_sha256": "8920ffc13e6de2a598990365640af348a77d96c2e1b400ea5f71b2fac8b32d65",
+      "process_and_validation_wall_seconds": 0.42465745797380805
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        127
+      ],
+      "round": 1,
+      "variant": "candidate",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,127",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/01-rmsnorm-17x127-1-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          127
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            127
+          ],
+          [
+            1,
+            127
+          ],
+          [
+            1,
+            127
+          ]
+        ],
+        "output_shape": [
+          17,
+          127
+        ],
+        "fixture_ms": 0.080125,
+        "runtime_init_ms": 11.108917,
+        "compile_ms": 38.210291,
+        "allocation_upload_ms": 0.008625,
+        "cold_call_ms": 0.017833,
+        "warmup_ms": 100.007459,
+        "repetitions": 5106,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=35, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 104531.000 (arithmetic 6105.000, memory 98298.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 2159,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.03642116725e-07
+        },
+        "throughput_us": [
+          5.55632275754,
+          5.5704155895,
+          5.50631609871,
+          5.5457222875,
+          5.61138856248,
+          5.50535311398,
+          5.60495828437
+        ],
+        "latency_us": [
+          7.292,
+          5.542,
+          5.459,
+          5.459,
+          5.459,
+          5.375,
+          5.333
+        ],
+        "throughput_us_p50": 5.55632275754,
+        "throughput_us_p90": 5.607530395614,
+        "latency_us_p50": 5.459,
+        "latency_us_p90": 6.242000000000001
+      },
+      "oracle": {
+        "elements": 2159,
+        "max_abs_error": 2.0364211672507793e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a9838844e1513fa997383f98f9f08213ddc852f89c78b866dbae0151362112b2",
+        "5806b289d94b7186437c69569f9265c500779b439e60473a5bb3c9a4a61468e9",
+        "473fd2074594aab5418727e7f3d8689b2e47124bb72709c0c1f5117000106e73"
+      ],
+      "output_sha256": "8920ffc13e6de2a598990365640af348a77d96c2e1b400ea5f71b2fac8b32d65",
+      "process_and_validation_wall_seconds": 0.42569379101041704
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        127
+      ],
+      "round": 1,
+      "variant": "baseline",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,127",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/01-rmsnorm-17x127-1-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          127
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            127
+          ],
+          [
+            1,
+            127
+          ],
+          [
+            1,
+            127
+          ]
+        ],
+        "output_shape": [
+          17,
+          127
+        ],
+        "fixture_ms": 0.081042,
+        "runtime_init_ms": 10.914833,
+        "compile_ms": 1425.684125,
+        "allocation_upload_ms": 0.011583,
+        "cold_call_ms": 0.058792,
+        "warmup_ms": 100.051416,
+        "repetitions": 3529,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=127; exact search 6 candidates, uncalibrated cost 55001.000 (arithmetic 5343.000, memory 49530.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 2159,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.65690357107e-07
+        },
+        "throughput_us": [
+          8.3247968263,
+          8.40135307453,
+          8.48590252196,
+          8.25185349957,
+          8.35620345707,
+          8.44003258714,
+          8.23750807594
+        ],
+        "latency_us": [
+          10.083,
+          8.333,
+          8.208,
+          8.416,
+          8.209,
+          8.167,
+          8.334
+        ],
+        "throughput_us_p50": 8.35620345707,
+        "throughput_us_p90": 8.458380561068,
+        "latency_us_p50": 8.333,
+        "latency_us_p90": 9.0828
+      },
+      "oracle": {
+        "elements": 2159,
+        "max_abs_error": 3.656903571069847e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a9838844e1513fa997383f98f9f08213ddc852f89c78b866dbae0151362112b2",
+        "5806b289d94b7186437c69569f9265c500779b439e60473a5bb3c9a4a61468e9",
+        "473fd2074594aab5418727e7f3d8689b2e47124bb72709c0c1f5117000106e73"
+      ],
+      "output_sha256": "f49a82a712a0edd3981f412f24a59d322f50879d759b94d8c55594ef66f9c40d",
+      "process_and_validation_wall_seconds": 1.8035682919435203
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/02-rmsnorm-64x256-0-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.194166,
+        "runtime_init_ms": 10.724833,
+        "compile_ms": 5987.020959,
+        "allocation_upload_ms": 0.010875,
+        "cold_call_ms": 0.209375,
+        "warmup_ms": 100.074625,
+        "repetitions": 267,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=256; exact search 6 candidates, uncalibrated cost 81036.000 (arithmetic 14348.000, memory 66560.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 5.44328237373e-07
+        },
+        "throughput_us": [
+          91.3078951311,
+          95.2255018727,
+          95.856741573,
+          100.651996255,
+          94.2602996255,
+          90.6340524345,
+          102.207707865
+        ],
+        "latency_us": [
+          150.583,
+          78.917,
+          87.375,
+          107.916,
+          96.375,
+          72.708,
+          88.333
+        ],
+        "throughput_us_p50": 95.2255018727,
+        "throughput_us_p90": 101.274280899,
+        "latency_us_p50": 88.333,
+        "latency_us_p90": 124.98280000000001
+      },
+      "oracle": {
+        "elements": 16384,
+        "max_abs_error": 5.443282355965806e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "f5df81115d4639e9fe1580dd8626442b010ed52ae10dad22b6fb890a4a9bb272",
+      "process_and_validation_wall_seconds": 6.345235791988671
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/02-rmsnorm-64x256-0-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.201667,
+        "runtime_init_ms": 11.08975,
+        "compile_ms": 81.258709,
+        "allocation_upload_ms": 0.019,
+        "cold_call_ms": 0.072083,
+        "warmup_ms": 100.050833,
+        "repetitions": 572,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=29, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 148620.000 (arithmetic 16396.000, memory 132096.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.97793955939e-07
+        },
+        "throughput_us": [
+          59.6512954545,
+          57.491548951,
+          57.2585227273,
+          58.57175,
+          56.6642622378,
+          55.1941293706,
+          59.8030314685
+        ],
+        "latency_us": [
+          57.916,
+          50.209,
+          41.417,
+          51.833,
+          50.75,
+          44.875,
+          74.542
+        ],
+        "throughput_us_p50": 57.491548951,
+        "throughput_us_p90": 59.711989860100005,
+        "latency_us_p50": 50.75,
+        "latency_us_p90": 64.5664
+      },
+      "oracle": {
+        "elements": 16384,
+        "max_abs_error": 2.9779395460671765e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "5ab46511a3467160fc945645d4f64223b0c59ab3e2d5118bcb5f9553b488a7b5",
+      "process_and_validation_wall_seconds": 0.49973591696470976
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 1,
+      "variant": "candidate",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/02-rmsnorm-64x256-1-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.188125,
+        "runtime_init_ms": 11.305375,
+        "compile_ms": 80.197208,
+        "allocation_upload_ms": 0.011334,
+        "cold_call_ms": 0.072583,
+        "warmup_ms": 100.136417,
+        "repetitions": 518,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=29, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 148620.000 (arithmetic 16396.000, memory 132096.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.97793955939e-07
+        },
+        "throughput_us": [
+          57.0579150579,
+          58.580519305,
+          48.5101351351,
+          51.519465251,
+          52.293515444,
+          50.6084305019,
+          55.9762702703
+        ],
+        "latency_us": [
+          91.75,
+          67,
+          52.125,
+          76.875,
+          43.375,
+          43.5,
+          64.083
+        ],
+        "throughput_us_p50": 52.293515444,
+        "throughput_us_p90": 57.66695675674,
+        "latency_us_p50": 64.083,
+        "latency_us_p90": 82.825
+      },
+      "oracle": {
+        "elements": 16384,
+        "max_abs_error": 2.9779395460671765e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "5ab46511a3467160fc945645d4f64223b0c59ab3e2d5118bcb5f9553b488a7b5",
+      "process_and_validation_wall_seconds": 0.4905095840804279
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 1,
+      "variant": "baseline",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/02-rmsnorm-64x256-1-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.194791,
+        "runtime_init_ms": 10.813375,
+        "compile_ms": 5625.734292,
+        "allocation_upload_ms": 0.011875,
+        "cold_call_ms": 0.191875,
+        "warmup_ms": 100.57525,
+        "repetitions": 310,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=256; exact search 6 candidates, uncalibrated cost 81036.000 (arithmetic 14348.000, memory 66560.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 5.44328237373e-07
+        },
+        "throughput_us": [
+          91.3973129032,
+          92.5883064516,
+          91.3495967742,
+          92.2,
+          95.5672064516,
+          94.3670709677,
+          91.0916677419
+        ],
+        "latency_us": [
+          86.959,
+          70.042,
+          78.833,
+          77.042,
+          100.625,
+          73.208,
+          101.041
+        ],
+        "throughput_us_p50": 92.2,
+        "throughput_us_p90": 94.84712516126,
+        "latency_us_p50": 78.833,
+        "latency_us_p90": 100.7914
+      },
+      "oracle": {
+        "elements": 16384,
+        "max_abs_error": 5.443282355965806e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "f5df81115d4639e9fe1580dd8626442b010ed52ae10dad22b6fb890a4a9bb272",
+      "process_and_validation_wall_seconds": 6.057179291034117
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        256
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/03-rmsnorm-1024x256-0-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          1024,
+          256
+        ],
+        "fixture_ms": 2.152541,
+        "runtime_init_ms": 11.05075,
+        "compile_ms": 5834.35225,
+        "allocation_upload_ms": 0.110542,
+        "cold_call_ms": 0.542583,
+        "warmup_ms": 101.422708,
+        "repetitions": 72,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=256; exact search 6 candidates, uncalibrated cost 323760.000 (arithmetic 57392.000, memory 266240.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 262144,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 8.18452875473e-07
+        },
+        "throughput_us": [
+          379.233791667,
+          385.563069444,
+          388.151041667,
+          377.603597222,
+          379.947333333,
+          381.342013889,
+          386.131944444
+        ],
+        "latency_us": [
+          396.458,
+          359.625,
+          343.75,
+          346.25,
+          331.125,
+          350.125,
+          426.958
+        ],
+        "throughput_us_p50": 381.342013889,
+        "throughput_us_p90": 386.9395833332,
+        "latency_us_p50": 350.125,
+        "latency_us_p90": 408.658
+      },
+      "oracle": {
+        "elements": 262144,
+        "max_abs_error": 8.184528770271982e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "141fa71af3aa30d7c7f13d106a800cb3421dcbf0dc38b3861b27c7b59a790ac0",
+      "process_and_validation_wall_seconds": 6.233923000050709
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        256
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/03-rmsnorm-1024x256-0-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          1024,
+          256
+        ],
+        "fixture_ms": 2.243417,
+        "runtime_init_ms": 11.068,
+        "compile_ms": 167.287292,
+        "allocation_upload_ms": 0.10675,
+        "cold_call_ms": 0.201791,
+        "warmup_ms": 100.226625,
+        "repetitions": 201,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=29, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 594096.000 (arithmetic 65584.000, memory 528384.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 262144,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.24922041051e-07
+        },
+        "throughput_us": [
+          156.643034826,
+          158.501865672,
+          160.922263682,
+          174.33478607,
+          169.749169154,
+          158.070895522,
+          152.013059701
+        ],
+        "latency_us": [
+          153.333,
+          160.958,
+          170.125,
+          148.834,
+          142.917,
+          144.708,
+          140.541
+        ],
+        "throughput_us_p50": 158.501865672,
+        "throughput_us_p90": 171.5834159204,
+        "latency_us_p50": 148.834,
+        "latency_us_p90": 164.6248
+      },
+      "oracle": {
+        "elements": 262144,
+        "max_abs_error": 3.2492204238288025e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "da44d2be39ef58a7e3a7c6547f6b7e236f672adf823b220e6edff19f0d955ad1",
+      "process_and_validation_wall_seconds": 0.6003762499894947
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        256
+      ],
+      "round": 1,
+      "variant": "candidate",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/03-rmsnorm-1024x256-1-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          1024,
+          256
+        ],
+        "fixture_ms": 2.175875,
+        "runtime_init_ms": 11.836833,
+        "compile_ms": 166.133958,
+        "allocation_upload_ms": 0.156208,
+        "cold_call_ms": 0.199167,
+        "warmup_ms": 101.160625,
+        "repetitions": 190,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=29, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 594096.000 (arithmetic 65584.000, memory 528384.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 262144,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.24922041051e-07
+        },
+        "throughput_us": [
+          158.842984211,
+          152.448905263,
+          155.867763158,
+          158.200221053,
+          157.837278947,
+          157.15,
+          155.485526316
+        ],
+        "latency_us": [
+          156.167,
+          164.917,
+          164,
+          155.416,
+          158.833,
+          158.208,
+          147.542
+        ],
+        "throughput_us_p50": 157.15,
+        "throughput_us_p90": 158.4573263162,
+        "latency_us_p50": 158.208,
+        "latency_us_p90": 164.3668
+      },
+      "oracle": {
+        "elements": 262144,
+        "max_abs_error": 3.2492204238288025e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "da44d2be39ef58a7e3a7c6547f6b7e236f672adf823b220e6edff19f0d955ad1",
+      "process_and_validation_wall_seconds": 0.6158835419919342
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        256
+      ],
+      "round": 1,
+      "variant": "baseline",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/03-rmsnorm-1024x256-1-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          1024,
+          256
+        ],
+        "fixture_ms": 2.168666,
+        "runtime_init_ms": 11.432125,
+        "compile_ms": 5835.177834,
+        "allocation_upload_ms": 0.090083,
+        "cold_call_ms": 0.586875,
+        "warmup_ms": 102.458125,
+        "repetitions": 70,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=256; exact search 6 candidates, uncalibrated cost 323760.000 (arithmetic 57392.000, memory 266240.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 262144,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 8.18452875473e-07
+        },
+        "throughput_us": [
+          385.533928571,
+          390.110114286,
+          385.823814286,
+          383.240485714,
+          670.830957143,
+          350.4488,
+          366.494642857
+        ],
+        "latency_us": [
+          422.334,
+          365.791,
+          405.792,
+          346,
+          465.5,
+          422.959,
+          398.333
+        ],
+        "throughput_us_p50": 385.533928571,
+        "throughput_us_p90": 502.39845142880006,
+        "latency_us_p50": 405.792,
+        "latency_us_p90": 439.97540000000004
+      },
+      "oracle": {
+        "elements": 262144,
+        "max_abs_error": 8.184528770271982e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "141fa71af3aa30d7c7f13d106a800cb3421dcbf0dc38b3861b27c7b59a790ac0",
+      "process_and_validation_wall_seconds": 6.266288875020109
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        513
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,513",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/04-rmsnorm-64x513-0-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          513
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            513
+          ],
+          [
+            1,
+            513
+          ],
+          [
+            1,
+            513
+          ]
+        ],
+        "output_shape": [
+          64,
+          513
+        ],
+        "fixture_ms": 0.309,
+        "runtime_init_ms": 11.370584,
+        "compile_ms": 25939.533375,
+        "allocation_upload_ms": 0.046417,
+        "cold_call_ms": 0.411917,
+        "warmup_ms": 101.093625,
+        "repetitions": 201,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=513; exact search 6 candidates, uncalibrated cost 162248.000 (arithmetic 28740.000, memory 133380.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 32832,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.05428874586e-06
+        },
+        "throughput_us": [
+          145.372303483,
+          144.890547264,
+          146.489218905,
+          149.209368159,
+          145.69879602,
+          146.081885572,
+          143.963517413
+        ],
+        "latency_us": [
+          143.5,
+          128.042,
+          137.291,
+          140.958,
+          161.333,
+          129.709,
+          133.5
+        ],
+        "throughput_us_p50": 145.69879602,
+        "throughput_us_p90": 147.5772786066,
+        "latency_us_p50": 137.291,
+        "latency_us_p90": 150.63320000000002
+      },
+      "oracle": {
+        "elements": 32832,
+        "max_abs_error": 1.0542887467490658e-06,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "08fa141135e2b280a82a4e07c578e6b87c374a1867ad4a3fb1487bd5ceffe46b",
+        "89c042ec7683b7994a5c571a487b552381cc1017ebdd832156ad08a797180a17",
+        "48f816376b7ce301ab9ab297af5cd74fb3e66ee84066e4fdb31aab9828da1cc4"
+      ],
+      "output_sha256": "7a2c80a911d8147b540b336763e9d1fca1ffe2c787d4b8604cabd9ff5a6c2434",
+      "process_and_validation_wall_seconds": 26.337845084024593
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        513
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,513",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/04-rmsnorm-64x513-0-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          513
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            513
+          ],
+          [
+            1,
+            513
+          ],
+          [
+            1,
+            513
+          ]
+        ],
+        "output_shape": [
+          64,
+          513
+        ],
+        "fixture_ms": 0.324667,
+        "runtime_init_ms": 11.57925,
+        "compile_ms": 33.680583,
+        "allocation_upload_ms": 0.018625,
+        "cold_call_ms": 0.107625,
+        "warmup_ms": 100.129042,
+        "repetitions": 355,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=31, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 297680.000 (arithmetic 32844.000, memory 264708.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 32832,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.32533036884e-07
+        },
+        "throughput_us": [
+          71.794484507,
+          74.9151408451,
+          67.6111492958,
+          71.4275830986,
+          72.9407267606,
+          71.2190140845,
+          72.4158450704
+        ],
+        "latency_us": [
+          68.833,
+          86.375,
+          87.584,
+          86.542,
+          88.792,
+          66.666,
+          76.417
+        ],
+        "throughput_us_p50": 71.794484507,
+        "throughput_us_p90": 73.7304923944,
+        "latency_us_p50": 86.375,
+        "latency_us_p90": 88.0672
+      },
+      "oracle": {
+        "elements": 32832,
+        "max_abs_error": 3.325330362180523e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "08fa141135e2b280a82a4e07c578e6b87c374a1867ad4a3fb1487bd5ceffe46b",
+        "89c042ec7683b7994a5c571a487b552381cc1017ebdd832156ad08a797180a17",
+        "48f816376b7ce301ab9ab297af5cd74fb3e66ee84066e4fdb31aab9828da1cc4"
+      ],
+      "output_sha256": "6688af43688282dcc1d746c6ab2594d55758e2730fc0010e9221f250d98f92d4",
+      "process_and_validation_wall_seconds": 0.37995408300776035
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        513
+      ],
+      "round": 1,
+      "variant": "candidate",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,513",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/04-rmsnorm-64x513-1-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          513
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            513
+          ],
+          [
+            1,
+            513
+          ],
+          [
+            1,
+            513
+          ]
+        ],
+        "output_shape": [
+          64,
+          513
+        ],
+        "fixture_ms": 0.311,
+        "runtime_init_ms": 11.233416,
+        "compile_ms": 32.889833,
+        "allocation_upload_ms": 0.050875,
+        "cold_call_ms": 0.089959,
+        "warmup_ms": 100.031125,
+        "repetitions": 382,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=31, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 297680.000 (arithmetic 32844.000, memory 264708.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 32832,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.32533036884e-07
+        },
+        "throughput_us": [
+          62.901395288,
+          63.4389162304,
+          64.9700052356,
+          68.1723376963,
+          73.2682146597,
+          76.7321099476,
+          80.1795366492
+        ],
+        "latency_us": [
+          52.291,
+          68.583,
+          73.958,
+          54.625,
+          53.666,
+          71.042,
+          64.375
+        ],
+        "throughput_us_p50": 68.1723376963,
+        "throughput_us_p90": 78.11108062824,
+        "latency_us_p50": 64.375,
+        "latency_us_p90": 72.2084
+      },
+      "oracle": {
+        "elements": 32832,
+        "max_abs_error": 3.325330362180523e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "08fa141135e2b280a82a4e07c578e6b87c374a1867ad4a3fb1487bd5ceffe46b",
+        "89c042ec7683b7994a5c571a487b552381cc1017ebdd832156ad08a797180a17",
+        "48f816376b7ce301ab9ab297af5cd74fb3e66ee84066e4fdb31aab9828da1cc4"
+      ],
+      "output_sha256": "6688af43688282dcc1d746c6ab2594d55758e2730fc0010e9221f250d98f92d4",
+      "process_and_validation_wall_seconds": 0.4222989580594003
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        513
+      ],
+      "round": 1,
+      "variant": "baseline",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,513",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/04-rmsnorm-64x513-1-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          64,
+          513
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            513
+          ],
+          [
+            1,
+            513
+          ],
+          [
+            1,
+            513
+          ]
+        ],
+        "output_shape": [
+          64,
+          513
+        ],
+        "fixture_ms": 0.320542,
+        "runtime_init_ms": 10.747292,
+        "compile_ms": 25504.663541,
+        "allocation_upload_ms": 0.018917,
+        "cold_call_ms": 0.39575,
+        "warmup_ms": 100.38125,
+        "repetitions": 241,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=6, direct CFG=true, contiguous reads=0, broadcasts=513; exact search 6 candidates, uncalibrated cost 162248.000 (arithmetic 28740.000, memory 133380.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 32832,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.05428874586e-06
+        },
+        "throughput_us": [
+          138.96386722,
+          143.504319502,
+          144.781639004,
+          152.041145228,
+          145.52126556,
+          144.285443983,
+          148.373443983
+        ],
+        "latency_us": [
+          127.666,
+          126.208,
+          133.125,
+          121.5,
+          166.958,
+          130.25,
+          152.625
+        ],
+        "throughput_us_p50": 144.781639004,
+        "throughput_us_p90": 149.840524481,
+        "latency_us_p50": 130.25,
+        "latency_us_p90": 158.3582
+      },
+      "oracle": {
+        "elements": 32832,
+        "max_abs_error": 1.0542887467490658e-06,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "08fa141135e2b280a82a4e07c578e6b87c374a1867ad4a3fb1487bd5ceffe46b",
+        "89c042ec7683b7994a5c571a487b552381cc1017ebdd832156ad08a797180a17",
+        "48f816376b7ce301ab9ab297af5cd74fb3e66ee84066e4fdb31aab9828da1cc4"
+      ],
+      "output_sha256": "7a2c80a911d8147b540b336763e9d1fca1ffe2c787d4b8604cabd9ff5a6c2434",
+      "process_and_validation_wall_seconds": 25.937185875023715
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "layernorm",
+        "64,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/05-layernorm-64x256-0-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.199791,
+        "runtime_init_ms": 11.372875,
+        "compile_ms": 8803.3795,
+        "allocation_upload_ms": 0.009709,
+        "cold_call_ms": 0.280708,
+        "warmup_ms": 100.724667,
+        "repetitions": 259,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=11, direct CFG=true, contiguous reads=0, broadcasts=512; exact search 6 candidates, uncalibrated cost 128144.000 (arithmetic 27664.000, memory 100352.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 7.72739510158e-07
+        },
+        "throughput_us": [
+          114.552123552,
+          112.471525097,
+          114.593146718,
+          113.228440154,
+          112.442247104,
+          107.576413127,
+          102.603602317
+        ],
+        "latency_us": [
+          98.666,
+          105.167,
+          101.292,
+          104.5,
+          93.833,
+          105.292,
+          94.917
+        ],
+        "throughput_us_p50": 112.471525097,
+        "throughput_us_p90": 114.5685328184,
+        "latency_us_p50": 101.292,
+        "latency_us_p90": 105.217
+      },
+      "oracle": {
+        "elements": 16384,
+        "max_abs_error": 7.727395097134604e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "e840b31e253898fc7ae7b37cca579f1b4e8f1ad8bb5bc5fdebd64bb25d183269",
+      "process_and_validation_wall_seconds": 9.226989249931648
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "layernorm",
+        "64,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/05-layernorm-64x256-0-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.20625,
+        "runtime_init_ms": 11.204875,
+        "compile_ms": 49.141042,
+        "allocation_upload_ms": 0.016125,
+        "cold_call_ms": 0.081333,
+        "warmup_ms": 100.209459,
+        "repetitions": 384,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=54, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 246928.000 (arithmetic 31760.000, memory 215040.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.87597666407e-07
+        },
+        "throughput_us": [
+          69.4835078125,
+          68.7664947917,
+          75.224609375,
+          72.6879322917,
+          71.4163411458,
+          73.6495234375,
+          73.0133463542
+        ],
+        "latency_us": [
+          88.667,
+          91.666,
+          103.708,
+          79.834,
+          63,
+          100.25,
+          57.209
+        ],
+        "throughput_us_p50": 72.6879322917,
+        "throughput_us_p90": 74.2795578125,
+        "latency_us_p50": 88.667,
+        "latency_us_p90": 101.6332
+      },
+      "oracle": {
+        "elements": 16384,
+        "max_abs_error": 3.875976659628577e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "17de3c770a7a008c066921a12ad5ca2cce504c07b695b435a869e98c8e7e3291",
+      "process_and_validation_wall_seconds": 0.44124891702085733
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 1,
+      "variant": "candidate",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "layernorm",
+        "64,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/05-layernorm-64x256-1-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.209916,
+        "runtime_init_ms": 11.395792,
+        "compile_ms": 51.554334,
+        "allocation_upload_ms": 0.010875,
+        "cold_call_ms": 0.087625,
+        "warmup_ms": 100.283875,
+        "repetitions": 659,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=54, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 246928.000 (arithmetic 31760.000, memory 215040.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.87597666407e-07
+        },
+        "throughput_us": [
+          60.2546145675,
+          68.996522003,
+          70.0807420334,
+          72.5424886191,
+          70.5503930197,
+          64.1577511381,
+          63.1863292868
+        ],
+        "latency_us": [
+          54.917,
+          55.542,
+          73.542,
+          51.542,
+          73.833,
+          58.208,
+          74.25
+        ],
+        "throughput_us_p50": 68.996522003,
+        "throughput_us_p90": 71.34723125946,
+        "latency_us_p50": 58.208,
+        "latency_us_p90": 73.9998
+      },
+      "oracle": {
+        "elements": 16384,
+        "max_abs_error": 3.875976659628577e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "17de3c770a7a008c066921a12ad5ca2cce504c07b695b435a869e98c8e7e3291",
+      "process_and_validation_wall_seconds": 0.5565292920218781
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "round": 1,
+      "variant": "baseline",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "layernorm",
+        "64,256",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/05-layernorm-64x256-1-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          256
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            256
+          ],
+          [
+            1,
+            256
+          ],
+          [
+            1,
+            256
+          ]
+        ],
+        "output_shape": [
+          64,
+          256
+        ],
+        "fixture_ms": 0.202084,
+        "runtime_init_ms": 11.140333,
+        "compile_ms": 9051.940167,
+        "allocation_upload_ms": 0.027167,
+        "cold_call_ms": 0.325916,
+        "warmup_ms": 100.134291,
+        "repetitions": 229,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=11, direct CFG=true, contiguous reads=0, broadcasts=512; exact search 6 candidates, uncalibrated cost 128144.000 (arithmetic 27664.000, memory 100352.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 16384,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 7.72739510158e-07
+        },
+        "throughput_us": [
+          122.251454148,
+          118.270558952,
+          112.649017467,
+          106.618995633,
+          117.449965066,
+          103.367358079,
+          111.695231441
+        ],
+        "latency_us": [
+          111.291,
+          108,
+          108.208,
+          105,
+          99.292,
+          102.375,
+          150.667
+        ],
+        "throughput_us_p50": 112.649017467,
+        "throughput_us_p90": 119.8629170304,
+        "latency_us_p50": 108.0,
+        "latency_us_p90": 127.04140000000001
+      },
+      "oracle": {
+        "elements": 16384,
+        "max_abs_error": 7.727395097134604e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "d7dc9eae83723e1637127522ec2528b82293849489494c146627ed555066d5e4",
+        "fc3c674c6fcf5b27b7d69080bd8674cc1d0f8a6a1f3e42973934c57a39f5a898",
+        "ebaf91fb4f1d9da279189c8ffa230f28082282dbb343cb15049c04656c731717"
+      ],
+      "output_sha256": "e840b31e253898fc7ae7b37cca579f1b4e8f1ad8bb5bc5fdebd64bb25d183269",
+      "process_and_validation_wall_seconds": 9.423493916983716
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "17,65",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/06-masked_softmax-17x65-0-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          65
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ]
+        ],
+        "output_shape": [
+          17,
+          65
+        ],
+        "fixture_ms": 0.094625,
+        "runtime_init_ms": 10.75625,
+        "compile_ms": 431.977875,
+        "allocation_upload_ms": 0.011208,
+        "cold_call_ms": 0.047583,
+        "warmup_ms": 100.013333,
+        "repetitions": 7422,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=11, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 43226.000 (arithmetic 5658.000, memory 37440.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 1105,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.98437049517e-08
+        },
+        "throughput_us": [
+          3.88177607114,
+          3.85351549448,
+          3.94283885745,
+          3.89665292374,
+          3.86636014551,
+          3.92242656966,
+          3.96779843708
+        ],
+        "latency_us": [
+          9.167,
+          4.167,
+          4.167,
+          4,
+          4.125,
+          3.916,
+          4
+        ],
+        "throughput_us_p50": 3.89665292374,
+        "throughput_us_p90": 3.9528226893019998,
+        "latency_us_p50": 4.125,
+        "latency_us_p90": 6.167000000000002
+      },
+      "oracle": {
+        "elements": 1105,
+        "max_abs_error": 2.984370495173749e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+        "06d75d893dd487843afb83c85f2c5f331f042823d27645db2c57bc4e300c04bc",
+        "02ee90ac3ffd8c46e914e926c89fb82551ffaa1e236b0eb354695ccab376dfd9"
+      ],
+      "output_sha256": "4f9470a40b2a46632cd472551c200badd4190265f2ad700135a8a0ce60c51939",
+      "process_and_validation_wall_seconds": 0.7985149999149144
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "17,65",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/06-masked_softmax-17x65-0-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          65
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ]
+        ],
+        "output_shape": [
+          17,
+          65
+        ],
+        "fixture_ms": 0.095375,
+        "runtime_init_ms": 10.670166,
+        "compile_ms": 62.729834,
+        "allocation_upload_ms": 0.007625,
+        "cold_call_ms": 0.023208,
+        "warmup_ms": 100.031667,
+        "repetitions": 3599,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=61, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 100166.000 (arithmetic 6438.000, memory 93600.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 1105,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.98437049517e-08
+        },
+        "throughput_us": [
+          8.48460238955,
+          8.39520255627,
+          8.44602667408,
+          8.28345846068,
+          8.32485884968,
+          8.295417616,
+          8.59077771603
+        ],
+        "latency_us": [
+          10.333,
+          8.708,
+          8.625,
+          8.583,
+          8.583,
+          8.625,
+          8.583
+        ],
+        "throughput_us_p50": 8.39520255627,
+        "throughput_us_p90": 8.527072520142001,
+        "latency_us_p50": 8.625,
+        "latency_us_p90": 9.358
+      },
+      "oracle": {
+        "elements": 1105,
+        "max_abs_error": 2.984370495173749e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+        "06d75d893dd487843afb83c85f2c5f331f042823d27645db2c57bc4e300c04bc",
+        "02ee90ac3ffd8c46e914e926c89fb82551ffaa1e236b0eb354695ccab376dfd9"
+      ],
+      "output_sha256": "e099d13150b0ffc45561670690421455949c0e836d89d563c7fe8361e718956f",
+      "process_and_validation_wall_seconds": 0.4307572910329327
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "round": 1,
+      "variant": "candidate",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "17,65",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/06-masked_softmax-17x65-1-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          65
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ]
+        ],
+        "output_shape": [
+          17,
+          65
+        ],
+        "fixture_ms": 0.090916,
+        "runtime_init_ms": 10.982375,
+        "compile_ms": 62.191625,
+        "allocation_upload_ms": 0.005708,
+        "cold_call_ms": 0.022083,
+        "warmup_ms": 100.051042,
+        "repetitions": 3654,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=61, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 100166.000 (arithmetic 6438.000, memory 93600.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 1105,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.98437049517e-08
+        },
+        "throughput_us": [
+          8.31353776683,
+          8.38362068966,
+          8.38563902573,
+          8.44479802956,
+          8.27476737822,
+          8.39034838533,
+          8.46117268747
+        ],
+        "latency_us": [
+          10.167,
+          8.667,
+          8.625,
+          8.584,
+          8.584,
+          8.667,
+          8.583
+        ],
+        "throughput_us_p50": 8.38563902573,
+        "throughput_us_p90": 8.451347892724,
+        "latency_us_p50": 8.625,
+        "latency_us_p90": 9.267
+      },
+      "oracle": {
+        "elements": 1105,
+        "max_abs_error": 2.984370495173749e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+        "06d75d893dd487843afb83c85f2c5f331f042823d27645db2c57bc4e300c04bc",
+        "02ee90ac3ffd8c46e914e926c89fb82551ffaa1e236b0eb354695ccab376dfd9"
+      ],
+      "output_sha256": "e099d13150b0ffc45561670690421455949c0e836d89d563c7fe8361e718956f",
+      "process_and_validation_wall_seconds": 0.4372874170076102
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "round": 1,
+      "variant": "baseline",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "17,65",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/06-masked_softmax-17x65-1-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "masked_softmax",
+        "dimensions": [
+          17,
+          65
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ]
+        ],
+        "output_shape": [
+          17,
+          65
+        ],
+        "fixture_ms": 0.091834,
+        "runtime_init_ms": 11.716416,
+        "compile_ms": 433.282125,
+        "allocation_upload_ms": 0.006125,
+        "cold_call_ms": 0.044791,
+        "warmup_ms": 100.004083,
+        "repetitions": 7660,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=11, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 43226.000 (arithmetic 5658.000, memory 37440.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 1105,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.98437049517e-08
+        },
+        "throughput_us": [
+          3.82013159269,
+          3.86027519582,
+          3.9022845953,
+          3.83187545692,
+          3.8456810705,
+          3.87795365535,
+          3.88504673629
+        ],
+        "latency_us": [
+          6.375,
+          3.958,
+          4,
+          3.875,
+          3.959,
+          3.875,
+          3.917
+        ],
+        "throughput_us_p50": 3.86027519582,
+        "throughput_us_p90": 3.891941879894,
+        "latency_us_p50": 3.958,
+        "latency_us_p90": 4.950000000000001
+      },
+      "oracle": {
+        "elements": 1105,
+        "max_abs_error": 2.984370495173749e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+        "06d75d893dd487843afb83c85f2c5f331f042823d27645db2c57bc4e300c04bc",
+        "02ee90ac3ffd8c46e914e926c89fb82551ffaa1e236b0eb354695ccab376dfd9"
+      ],
+      "output_sha256": "4f9470a40b2a46632cd472551c200badd4190265f2ad700135a8a0ce60c51939",
+      "process_and_validation_wall_seconds": 0.8221470420248806
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "17,65",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/07-swiglu-17x65-0-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "swiglu",
+        "dimensions": [
+          17,
+          65
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ]
+        ],
+        "output_shape": [
+          17,
+          65
+        ],
+        "fixture_ms": 0.067834,
+        "runtime_init_ms": 10.615625,
+        "compile_ms": 1438.017541,
+        "allocation_upload_ms": 0.011667,
+        "cold_call_ms": 0.047917,
+        "warmup_ms": 100.022917,
+        "repetitions": 6370,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=1, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 19823.000 (arithmetic 975.000, memory 18720.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 1105,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77788147537e-07
+        },
+        "throughput_us": [
+          4.43315023548,
+          4.37832291994,
+          4.29814238619,
+          4.43661036107,
+          4.3503400314,
+          4.38453689168,
+          4.35316593407
+        ],
+        "latency_us": [
+          8.292,
+          4.5,
+          4.375,
+          4.375,
+          4.417,
+          4.334,
+          4.333
+        ],
+        "throughput_us_p50": 4.37832291994,
+        "throughput_us_p90": 4.434534285716,
+        "latency_us_p50": 4.375,
+        "latency_us_p90": 6.016800000000002
+      },
+      "oracle": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+        "06d75d893dd487843afb83c85f2c5f331f042823d27645db2c57bc4e300c04bc",
+        "02ee90ac3ffd8c46e914e926c89fb82551ffaa1e236b0eb354695ccab376dfd9"
+      ],
+      "output_sha256": "628c3cc4c7a5005337f7f76cbd7bbc6d08034cad68229005c6e222a956f443d8",
+      "process_and_validation_wall_seconds": 1.8213481670245528
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "17,65",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/07-swiglu-17x65-0-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "swiglu",
+        "dimensions": [
+          17,
+          65
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ]
+        ],
+        "output_shape": [
+          17,
+          65
+        ],
+        "fixture_ms": 0.069083,
+        "runtime_init_ms": 11.1785,
+        "compile_ms": 25.212042,
+        "allocation_upload_ms": 0.006,
+        "cold_call_ms": 0.018125,
+        "warmup_ms": 100.010917,
+        "repetitions": 5217,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 51023.000 (arithmetic 975.000, memory 49920.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 1105,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77788147537e-07
+        },
+        "throughput_us": [
+          5.59699060763,
+          5.72130381445,
+          5.59158347709,
+          5.57390109258,
+          5.6249919494,
+          5.57283879624,
+          5.62693271995
+        ],
+        "latency_us": [
+          7.958,
+          5.708,
+          5.625,
+          5.625,
+          5.625,
+          5.584,
+          5.584
+        ],
+        "throughput_us_p50": 5.59699060763,
+        "throughput_us_p90": 5.66468115775,
+        "latency_us_p50": 5.625,
+        "latency_us_p90": 6.6080000000000005
+      },
+      "oracle": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+        "06d75d893dd487843afb83c85f2c5f331f042823d27645db2c57bc4e300c04bc",
+        "02ee90ac3ffd8c46e914e926c89fb82551ffaa1e236b0eb354695ccab376dfd9"
+      ],
+      "output_sha256": "628c3cc4c7a5005337f7f76cbd7bbc6d08034cad68229005c6e222a956f443d8",
+      "process_and_validation_wall_seconds": 0.4237100830068812
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "round": 1,
+      "variant": "candidate",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate-final/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "17,65",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/07-swiglu-17x65-1-candidate.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "swiglu",
+        "dimensions": [
+          17,
+          65
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ]
+        ],
+        "output_shape": [
+          17,
+          65
+        ],
+        "fixture_ms": 0.067084,
+        "runtime_init_ms": 10.8215,
+        "compile_ms": 25.413583,
+        "allocation_upload_ms": 0.005959,
+        "cold_call_ms": 0.018792,
+        "warmup_ms": 100.021625,
+        "repetitions": 5179,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 51023.000 (arithmetic 975.000, memory 49920.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 1105,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77788147537e-07
+        },
+        "throughput_us": [
+          5.68097122997,
+          5.91105908477,
+          5.66674705542,
+          5.5935346592,
+          5.71173643561,
+          5.69114056768,
+          5.724311257
+        ],
+        "latency_us": [
+          7.666,
+          5.667,
+          5.667,
+          5.625,
+          5.625,
+          5.584,
+          5.584
+        ],
+        "throughput_us_p50": 5.69114056768,
+        "throughput_us_p90": 5.799010388108,
+        "latency_us_p50": 5.625,
+        "latency_us_p90": 6.466600000000001
+      },
+      "oracle": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+        "06d75d893dd487843afb83c85f2c5f331f042823d27645db2c57bc4e300c04bc",
+        "02ee90ac3ffd8c46e914e926c89fb82551ffaa1e236b0eb354695ccab376dfd9"
+      ],
+      "output_sha256": "628c3cc4c7a5005337f7f76cbd7bbc6d08034cad68229005c6e222a956f443d8",
+      "process_and_validation_wall_seconds": 0.4407669589854777
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "round": 1,
+      "variant": "baseline",
+      "order": [
+        "candidate",
+        "baseline"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/baseline/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "17,65",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-bounded.kADecq/tensors-final/07-swiglu-17x65-1-baseline.f32"
+      ],
+      "returncode": 0,
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "swiglu",
+        "dimensions": [
+          17,
+          65
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ],
+          [
+            17,
+            65
+          ]
+        ],
+        "output_shape": [
+          17,
+          65
+        ],
+        "fixture_ms": 0.067167,
+        "runtime_init_ms": 11.512875,
+        "compile_ms": 1430.958125,
+        "allocation_upload_ms": 0.009208,
+        "cold_call_ms": 0.053042,
+        "warmup_ms": 100.019125,
+        "repetitions": 6666,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=1, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 19823.000 (arithmetic 975.000, memory 18720.000, dispatch 128.000, imbalance 0.000), root order [0]; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 1105,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 1.77788147537e-07
+        },
+        "throughput_us": [
+          4.3649489949,
+          4.39626462646,
+          4.36598664866,
+          4.31827557756,
+          4.41563531353,
+          4.36728037804,
+          4.60150390039
+        ],
+        "latency_us": [
+          9.458,
+          4.625,
+          4.625,
+          4.5,
+          4.5,
+          4.667,
+          4.458
+        ],
+        "throughput_us_p50": 4.36728037804,
+        "throughput_us_p90": 4.4899827482740005,
+        "latency_us_p50": 4.625,
+        "latency_us_p90": 6.583400000000002
+      },
+      "oracle": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "a6e048a8e0295a7c4252b3d419aaf58873fae4b20624e96bf190070d5db6a4c6",
+        "06d75d893dd487843afb83c85f2c5f331f042823d27645db2c57bc4e300c04bc",
+        "02ee90ac3ffd8c46e914e926c89fb82551ffaa1e236b0eb354695ccab376dfd9"
+      ],
+      "output_sha256": "628c3cc4c7a5005337f7f76cbd7bbc6d08034cad68229005c6e222a956f443d8",
+      "process_and_validation_wall_seconds": 1.8341986659215763
+    }
+  ],
+  "summaries": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        7
+      ],
+      "complete_pairs": 2,
+      "baseline_over_candidate_throughput_ratios": [
+        0.9981930095821698,
+        0.9890601925281123
+      ],
+      "median_ratio": 0.9936266010551411
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        127
+      ],
+      "complete_pairs": 2,
+      "baseline_over_candidate_throughput_ratios": [
+        1.4959398564626727,
+        1.5039089379267119
+      ],
+      "median_ratio": 1.4999243971946923
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "complete_pairs": 2,
+      "baseline_over_candidate_throughput_ratios": [
+        1.656339124796596,
+        1.7631249155305881
+      ],
+      "median_ratio": 1.709732020163592
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        256
+      ],
+      "complete_pairs": 2,
+      "baseline_over_candidate_throughput_ratios": [
+        2.405914985746225,
+        2.453286214260261
+      ],
+      "median_ratio": 2.4296006000032433
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        513
+      ],
+      "complete_pairs": 2,
+      "baseline_over_candidate_throughput_ratios": [
+        2.0293870346794436,
+        2.1237593413473026
+      ],
+      "median_ratio": 2.076573188013373
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        256
+      ],
+      "complete_pairs": 2,
+      "baseline_over_candidate_throughput_ratios": [
+        1.5473204636726579,
+        1.6326767523456034
+      ],
+      "median_ratio": 1.5899986080091306
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        65
+      ],
+      "complete_pairs": 2,
+      "baseline_over_candidate_throughput_ratios": [
+        0.46415234148576495,
+        0.4603435926558917
+      ],
+      "median_ratio": 0.4622479670708283
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "complete_pairs": 2,
+      "baseline_over_candidate_throughput_ratios": [
+        0.7822637604521486,
+        0.767382271814159
+      ],
+      "median_ratio": 0.7748230161331537
+    }
+  ]
+}

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <mutex>
+
 #include <luisa/core/stl/queue.h>
 #include <luisa/core/stl/string.h>
 
@@ -28,6 +31,9 @@ private:
     spin_mutex _download_pool_creation_mutex;
     spin_mutex _callback_mutex;
     spin_mutex _dispatch_mutex;
+    std::mutex _callback_execution_mutex;
+    std::atomic_uint64_t _submitted_callback_lists{0u};
+    std::atomic_uint64_t _completed_callback_lists{0u};
     luisa::unique_ptr<MetalStageBufferPool> _upload_pool{nullptr};
     luisa::unique_ptr<MetalStageBufferPool> _download_pool{nullptr};
     luisa::queue<CallbackContainer> _callback_lists{};
@@ -53,4 +59,3 @@ public:
 };
 
 }// namespace luisa::compute::metal
-

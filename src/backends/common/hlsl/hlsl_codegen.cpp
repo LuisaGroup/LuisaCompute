@@ -45,6 +45,20 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         expr->rhs()->accept(*this);//Reverse matrix
         str << ')';
 
+    } else if (op == BinaryOp::MOD &&
+               (expr->type()->is_float() ||
+                (expr->type()->is_vector() &&
+                 expr->type()->element()->is_float()))) {
+        auto element = expr->type()->is_vector() ?
+                           expr->type()->element() :
+                           expr->type();
+        str << (util->opt->isSpirv && element->is_float32() ?
+                    "_lc_fmod("sv :
+                    "fmod("sv);
+        expr->lhs()->accept(*this);
+        str << ',';
+        expr->rhs()->accept(*this);
+        str << ')';
     } else if (op == BinaryOp::AND) {
         str << "and(";
         expr->lhs()->accept(*this);
@@ -138,7 +152,9 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 
         if (t->is_vector() && t->dimension() == 3 && !t->element()->is_bool()) {
             auto self_type = expr->self()->type();
-            if (!(self_type->is_structure() && !self_type->member_attributes().empty())) [[likely]] {
+            // Internal raster structs (_mesh, v2p) emit raw vectors — no .v wrapper
+            bool is_internal = (util->opt->internalStruct.find(self_type) != util->opt->internalStruct.end());
+            if (!is_internal && !(self_type->is_structure() && !self_type->member_attributes().empty())) [[likely]] {
                 str << ".v"sv;
             }
         }
@@ -481,9 +497,11 @@ void StringStateVisitor::visit(const SwitchCaseStmt *state) {
         return;
     }
     switchCount.back()++;
-    str << "case ";
-    state->expression()->accept(*this);
-    str << ":";
+    for (auto expression : state->expressions()) {
+        str << "case ";
+        expression->accept(*this);
+        str << ":";
+    }
     {
         Scope scope{this};
         state->body()->accept(*this);
@@ -516,6 +534,7 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 }
 
 void StringStateVisitor::visit(const AssignStmt *state) {
+    if (is_local_undefined_lifetime_seed(state)) { return; }
     auto is_shared = [&](const Expression *x) noexcept {
         if (x->tag() == Expression::Tag::REF) {
             auto v = static_cast<RefExpr const *>(x)->variable();
@@ -566,9 +585,10 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     }
     // Detect assignment to cooperative vector element: v[i] = x → v.Set(x, i)
     auto lhs_access = state->lhs()->tag() == Expression::Tag::ACCESS ?
-                          static_cast<AccessExpr const *>(state->lhs()) : nullptr;
+                          static_cast<AccessExpr const *>(state->lhs()) :
+                          nullptr;
     bool lhs_is_coopvec_element = lhs_access &&
-        lhs_access->range()->type()->is_cooperative_vector();
+                                  lhs_access->range()->type()->is_cooperative_vector();
     if (lhs_is_coopvec_element) {
         // Generate: range.Set(rhs, index)
         lhs_access->range()->accept(*this);
@@ -577,6 +597,34 @@ void StringStateVisitor::visit(const AssignStmt *state) {
         str << ',';
         lhs_access->index()->accept(*this);
         str << ");\n";
+        return;
+    }
+    // DXC can miscompile `m[col] = floatN(...)` (and later mat-vec products) when
+    // columns share components. Store each element instead of a vector write.
+    bool lhs_is_matrix_column = lhs_access &&
+                                lhs_access->range()->type()->is_matrix() &&
+                                state->rhs()->type() &&
+                                state->rhs()->type()->is_vector();
+    if (lhs_is_matrix_column) {
+        auto dim = lhs_access->range()->type()->dimension();
+        auto tmp = util->GetNewTempVarName();
+        util->GetTypeName(*state->rhs()->type(), str, Usage::READ);
+        str << ' ' << tmp << ";\n"sv;
+        str << tmp << '=';
+        state->rhs()->accept(*this);
+        str << ";\n"sv;
+        static constexpr char xyzw[] = "xyzw";
+        for (auto i = 0u; i < dim; i++) {
+            accessCount++;
+            lhs_access->range()->accept(*this);
+            accessCount--;
+            str << '[';
+            lhs_access->index()->accept(*this);
+            str << "]["sv;
+            vstd::to_string(i, str);
+            str << "]="sv;
+            str << tmp << '.' << xyzw[i] << ";\n"sv;
+        }
         return;
     }
     auto rhs_is_shared = is_shared(state->rhs());
@@ -616,6 +664,18 @@ void StringStateVisitor::visit(const ForStmt *state) {
     }
 }
 void StringStateVisitor::visit(const RayQueryStmt *stmt) {
+    // Ray queries (inline or the RayQuery object form) are not implemented by
+    // the software ray-tracing fallback: it has no candidate/committed-hit
+    // machinery to drive this loop.  Report it instead of emitting a loop over
+    // a resource the fallback never declares.
+    if (util->opt->fallback_rtx) {
+        LUISA_ERROR("RayQuery (RAY_TRACING_QUERY_*) is not available on the "
+                    "software ray-tracing fallback "
+                    "(DeviceConfigExt::use_fallback_rtx()).  The fallback answers "
+                    "closest-hit and any-hit tracing only; run on a device with "
+                    "hardware ray tracing and leave use_fallback_rtx() false, or "
+                    "rewrite the shader with Accel::intersect()/intersect_any().");
+    }
     str << "{\n"sv;
     str << "while("sv;
     stmt->query()->accept(*this);
@@ -636,11 +696,7 @@ StringStateVisitor::StringStateVisitor(
     CodegenUtility *util)
     : f(f), util(util), str(str), switchCount{}, lazyDeclVars{} {
 }
-void StringStateVisitor::VisitFunction(
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> const &grad_vars,
-#endif
-    Function func) {
+void StringStateVisitor::VisitFunction(Function func) {
     lazyDeclVars.clear();
     for (auto &&v : func.local_variables()) {
         Usage usage = func.variable_usage(v.uid());
@@ -669,15 +725,6 @@ void StringStateVisitor::VisitFunction(
         }
         str << ";\n";
     }
-#ifdef LUISA_ENABLE_IR
-    for (auto v : grad_vars) {
-        vstd::StringBuilder typeName;
-        util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
-        vstd::StringBuilder varName;
-        util->GetVariableName(func, v, varName);
-        str << typeName << ' ' << varName << "_grad=("sv << typeName << ")0;\n"sv;
-    }
-#endif
     if (sharedVariables) {
         size_t shared_size{};
         for (auto &&v : func.shared_variables()) {
@@ -693,7 +740,6 @@ void StringStateVisitor::VisitFunction(
     }
     func.body()->accept(*this);
 }
-
 
 StringStateVisitor::Scope::Scope(StringStateVisitor *self)
     : self(self) {

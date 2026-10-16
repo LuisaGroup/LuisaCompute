@@ -1,14 +1,19 @@
 #pragma once
 #include <volk.h>
+#include "vk_shader_untyped_pointers.h"
 #include <luisa/runtime/device.h>
 #include "VulkanDevice.h"
 #include <luisa/vstl/common.h>
 #include <luisa/core/first_fit.h>
 #include "../common/default_binary_io.h"
+#include "../common/command_reorder_switch.h"
+#include <luisa/backends/ext/command_reorder_ext.h>
 #include "vk_allocator.h"
 #include "sparse_residency_registry.h"
 #include <luisa/backends/ext/vk_config_ext.h>
+#include "../common/rtx/fallback_rtx.h"
 #include <atomic>
+#include <limits>
 namespace lc::hlsl {
 class ShaderCompiler;
 }// namespace lc::hlsl
@@ -24,6 +29,31 @@ struct NativeImageState;
 using namespace luisa;
 using namespace luisa::compute;
 static constexpr size_t kSparseBufferSize = 65536ull;
+class Event;
+
+/// A stream-like object owned by a device *extension* rather than by the
+/// backend's built-in `Stream`.
+///
+/// `Device::create_stream` rejects anything that is not GRAPHICS/COMPUTE/COPY
+/// (see `stream.cpp`), so an extension that needs its own command stream (e.g.
+/// `DStorageExt`) allocates a `CustomStream`, registers it through
+/// `Device::add_custom_stream`, and lets the device route
+/// `dispatch` / `synchronize_stream` / `destroy_stream` / `signal_event` /
+/// `wait_event` / `set_stream_log_callback` to it.  Handles that are not in the
+/// registry keep the pre-existing `reinterpret_cast<Stream *>` behavior, so
+/// normal streams are completely unaffected.
+class CustomStream {
+public:
+    virtual ~CustomStream() = default;
+    virtual void dispatch(CommandList &&list) noexcept = 0;
+    virtual void synchronize() noexcept = 0;
+    virtual void signal(Event *event, uint64_t fence) noexcept = 0;
+    virtual void wait(Event *event, uint64_t fence) noexcept = 0;
+    virtual void set_log_callback(const DeviceInterface::StreamLogCallback &callback) noexcept {
+        static_cast<void>(callback);
+    }
+};
+
 class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     friend class Texture;
     // Volk uses process-global instance/device dispatch tables. Keep one live
@@ -71,12 +101,37 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
             luisa::make_shared<std::atomic_size_t>(0u)};
     size_t _native_image_state_acquisitions_since_sweep{};
     detail::SparseResidencyRegistry _sparse_residency_registry;
+    // Runtime command-reorder control. It lives as long as the device does, so
+    // `extension()` hands out its address without registering a factory.
+    class CommandReorderExtImpl final : public CommandReorderExt {
+        Device *_device;
+
+    public:
+        explicit CommandReorderExtImpl(Device *device) noexcept : _device{device} {}
+        [[nodiscard]] bool command_reorder_enabled() const noexcept override {
+            return _device->command_reorder_enabled();
+        }
+        void set_command_reorder_enabled(bool enabled) noexcept override {
+            _device->_command_reorder.set_enabled(enabled);
+        }
+    };
+    CommandReorderSwitch _command_reorder;
+    CommandReorderExtImpl _command_reorder_ext{this};
     std::mutex _ext_mtx;
-    vstd::unordered_map<vstd::string, Ext> _exts;
     vstd::unordered_set<Stream *> _streams;
+    // Extension-owned command streams (see `CustomStream`).  The registry never
+    // owns the objects: `destroy_stream` removes and deletes them, and ~Device
+    // deletes any leftover so a misbehaving extension cannot leak them.
+    std::mutex _custom_stream_mtx;
+    vstd::unordered_map<uint64_t, CustomStream *> _custom_streams;
     luisa::unique_ptr<VulkanDeviceConfigExt> _config_ext;
     VkInstance _instance{};
     vstd::optional<vks::VulkanDevice> _vk_device;
+    // Declared *after* `_vk_device` and therefore destroyed *before* it:
+    // extensions may own GPU objects (shader instances, pipelines, descriptor
+    // pools, ...) whose destructors need a live logical device. Destroying the
+    // extension map first keeps that ordering safe.
+    vstd::unordered_map<vstd::string, Ext> _exts;
     vstd::vector<vstd::string> _enable_device_exts;
     VkQueue _graphics_queue{};
     VkQueue _compute_queue{};
@@ -152,7 +207,8 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
         uint mip_levels, bool simultaneous_access);
     [[nodiscard]] ShaderCreationInfo _create_shader_hlsl(
         const ShaderOption &option, Function kernel,
-        bool requires_sampler_anisotropy) noexcept;
+        bool requires_sampler_anisotropy,
+        bool fallback_rtx) noexcept;
 public:
     struct HeapAlloc {
         uint count = 0;
@@ -195,6 +251,18 @@ public:
     LazyLoadShader prepare_indirect_kernel;
     bool external_instance : 1 {false};
     bool external_device : 1 {false};
+    // Capability-adaptive Vulkan API floor. The backend prefers core
+    // synchronization2/copy_commands2 (Vulkan 1.3) but falls back to the
+    // classic vkCmdPipelineBarrier/vkCmdCopyBuffer entry points on Vulkan 1.2
+    // devices (and on 1.3 devices when the minimum API version is forced to
+    // 1.2 for testing).
+    bool sync2_capable_bit : 1 {false};
+    bool copy2_capable_bit : 1 {false};
+    // Minimum API version to honor during capability negotiation. 0 means
+    // "auto" (use whatever the physical device exposes). A non-zero value
+    // (e.g. VK_API_VERSION_1_2) forces the legacy barrier/copy paths even on
+    // 1.3 devices, which is useful for CI validation of the 1.2 floor.
+    uint32_t _min_api_version{0u};
     uint32_t external_graphics_queue_family_index{VK_QUEUE_FAMILY_IGNORED};
     uint32_t external_compute_queue_family_index{VK_QUEUE_FAMILY_IGNORED};
     uint32_t external_copy_queue_family_index{VK_QUEUE_FAMILY_IGNORED};
@@ -203,11 +271,25 @@ public:
     bool surface_enabled : 1 {true};
     bool device_address_enabled : 1 {true};
     bool interop_enabled : 1 {true};
+    // VK_NV_cuda_kernel_launch (compiled only with LUISA_VULKAN_ENABLE_CUDA_INTEROP;
+    // owned logical devices only — imported devices cannot be queried).
+    bool cuda_kernel_launch_enabled : 1 {false};
     bool motion_blur_enabled : 1 {false};
+    // Software ray tracing (`lc::fallback_rtx::FallbackRtxDevice`). Decided
+    // once, in `_init_device`: the user may force it through
+    // `VulkanDeviceConfigExt::use_fallback_rtx()`, and a physical device without
+    // the extensions/feature bits the hardware ray-query path needs has no
+    // other one. When the bit is clear no fallback object is ever created, no
+    // buffer is allocated, no descriptor changes and no generated source
+    // changes, so the hardware path stays byte-for-byte what it was.
+    bool use_fallback_rtx_bit : 1 {false};
+    mutable std::mutex _fallback_rtx_mutex;
+    mutable luisa::unique_ptr<lc::fallback_rtx::FallbackRtxDevice> _fallback_rtx;
     bool subgroup_size_control_enabled : 1 {false};
     bool subgroup_extended_types_enabled : 1 {false};
     bool cooperative_vector_enabled : 1 {false};
     bool cooperative_vector_fp32_enabled : 1 {false};
+    bool shader_untyped_pointers_enabled : 1 {false};
     bool async_copy_enabled : 1 {false};
     bool sampler_anisotropy_enabled : 1 {false};
     auto &graphics_queue_mtx() { return *_graphics_queue_lock; }
@@ -215,6 +297,16 @@ public:
     auto &copy_queue_mtx() { return *_copy_queue_lock; }
     auto &sparse_queue_mtx() { return *_sparse_queue_lock; }
     VulkanDeviceConfigExt *config_ext() const { return _config_ext.get(); }
+    // Command-reorder switch sampled when a batch starts (see
+    // CommandReorderSwitch for the precedence of config extension, runtime
+    // override and LUISA_DISABLE_COMMAND_REORDER). Streams forward it to their
+    // CommandReorderVisitor once per batch.
+    [[nodiscard]] bool command_reorder_enabled() const noexcept {
+        return _command_reorder.enabled();
+    }
+    [[nodiscard]] CommandReorderSwitch &command_reorder_switch() noexcept {
+        return _command_reorder;
+    }
     auto binary_io() const { return _binary_io; }
     auto sampler_set() const { return _sampler_set; }
     auto bdls_buffer_set() const { return _bdls_buffer_set; }
@@ -230,8 +322,12 @@ public:
         return _descriptor_indexing_properties;
     }
     [[nodiscard]] uint64_t max_timeline_semaphore_value_difference() const noexcept {
-        return _timeline_semaphore_properties
-            .maxTimelineSemaphoreValueDifference;
+        // Per the Vulkan spec, maxTimelineSemaphoreValueDifference == 0 means
+        // "no limit". Normalize once at the Device boundary so every caller
+        // sees an unbounded window.
+        auto raw = _timeline_semaphore_properties
+                       .maxTimelineSemaphoreValueDifference;
+        return raw == 0u ? std::numeric_limits<uint64_t>::max() : raw;
     }
     [[nodiscard]] const auto &acceleration_structure_properties() const noexcept {
         return _acceleration_structure_properties;
@@ -239,10 +335,46 @@ public:
     bool enable_interop() const { return interop_enabled; }
     bool enable_motion_blur() const { return motion_blur_enabled; }
     bool enable_raytracing() const { return raytracing_enabled; }
+    // Whether this device answers ray tracing with the software fallback. It is
+    // `false` on the hardware path, where every fallback branch is inert.
+    [[nodiscard]] bool use_fallback_rtx() const noexcept {
+        return use_fallback_rtx_bit;
+    }
+    // The fallback device, or `nullptr` when the hardware path is in use. It is
+    // created on the first call and lives as long as this device does; the
+    // object is bound to this `DeviceInterface`, so it must not outlive it.
+    [[nodiscard]] lc::fallback_rtx::FallbackRtxDevice *fallback_rtx() noexcept;
+    // Whether an acceleration-structure handle has to be routed into the
+    // fallback instead of the backend's native BLAS/TLAS path. Both are
+    // `false` whenever the fallback is not in use.
+    [[nodiscard]] bool owns_fallback_blas(uint64_t handle) noexcept {
+        auto *fallback = use_fallback_rtx() ? fallback_rtx() : nullptr;
+        return fallback != nullptr && fallback->owns_blas(handle);
+    }
+    [[nodiscard]] bool owns_fallback_accel(uint64_t handle) noexcept {
+        auto *fallback = use_fallback_rtx() ? fallback_rtx() : nullptr;
+        return fallback != nullptr && fallback->owns_accel(handle);
+    }
     bool enable_device_address() const { return device_address_enabled; }
+    [[nodiscard]] bool enable_cuda_kernel_launch() const noexcept {
+        return cuda_kernel_launch_enabled;
+    }
     bool enable_async_copy() const { return async_copy_enabled; }
     [[nodiscard]] bool enable_sampler_anisotropy() const noexcept {
         return sampler_anisotropy_enabled;
+    }
+    [[nodiscard]] bool enable_shader_untyped_pointers() const noexcept {
+        return shader_untyped_pointers_enabled;
+    }
+    // True when the backend may use vkCmdPipelineBarrier2 (core 1.3 or
+    // VK_KHR_synchronization2), false when it must use vkCmdPipelineBarrier.
+    [[nodiscard]] bool sync2_capable() const noexcept {
+        return sync2_capable_bit;
+    }
+    // True when the backend may use vkCmdCopyBuffer2/vkCmdCopyImage2 (core 1.3
+    // or VK_KHR_copy_commands2), false when it must use the classic copies.
+    [[nodiscard]] bool copy2_capable() const noexcept {
+        return copy2_capable_bit;
     }
     // Exact optional Vulkan features enabled on this logical device that may
     // be consumed by persisted SPIR-V artifacts. Imported logical devices are
@@ -258,6 +390,7 @@ public:
     static VkAllocationCallbacks *alloc_callbacks();
     [[nodiscard]] VkInstance instance() const noexcept;
     uint compute_warp_size() const noexcept override;
+    size_t compute_max_shared_memory_size() const noexcept override;
     uint64_t memory_granularity() const noexcept override;
     auto &allocator() { return *_allocator; }
     [[nodiscard]] const UploadBuffer *indirect_dispatch_dummy() const noexcept {
@@ -289,7 +422,6 @@ public:
     ~Device();
     void *native_handle() const noexcept override;
     BufferCreationInfo create_buffer(const luisa::compute::Type *element, size_t elem_count, void *external_ptr) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_ptr) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     auto graphics_queue() const { return _graphics_queue; }
     auto compute_queue() const { return _compute_queue; }
@@ -315,6 +447,14 @@ public:
     void dispatch(
         uint64_t stream_handle, CommandList &&list) noexcept override;
 
+    /// Register an extension-owned stream handle (see `CustomStream`).
+    void add_custom_stream(uint64_t handle, CustomStream *stream) noexcept;
+    /// Look up a registered custom stream; `nullptr` when `handle` is a normal
+    /// `Stream`.
+    [[nodiscard]] CustomStream *find_custom_stream(uint64_t handle) noexcept;
+    /// Remove a registered custom stream from the registry without deleting it.
+    [[nodiscard]] CustomStream *remove_custom_stream(uint64_t handle) noexcept;
+
     // swap chain
     SwapchainCreationInfo create_swapchain(const SwapchainOption &option, uint64_t stream_handle) noexcept override;
     void destroy_swapchain(uint64_t handle) noexcept override;
@@ -322,7 +462,9 @@ public:
 
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
+    ShaderCreationInfo create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
+                                          const tile::CompileOptions &tile_options,
+                                          tile::KernelMetadata &metadata) noexcept override;
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

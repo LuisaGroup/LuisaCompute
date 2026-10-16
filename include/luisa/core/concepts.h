@@ -5,6 +5,7 @@
 
 #include <luisa/core/macro.h>
 #include <luisa/core/basic_types.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::concepts {
 
@@ -32,7 +33,7 @@ concept is_iterator = requires(Iter ite, size_t n) {
 
 template<typename T>
 concept string_viewable = requires(T v) {
-    std::string_view{v};
+    luisa::string_view{v};
 };
 
 // template<typename T>

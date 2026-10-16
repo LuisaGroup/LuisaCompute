@@ -1,4 +1,5 @@
 #include <luisa/vstl/string_utility.h>
+#include <luisa/core/stl/string.h>
 namespace vstd {
 
 char StringUtil::to_lower(char c) {
@@ -27,7 +28,7 @@ void StringUtil::to_upper(string &str) {
     }
 }
 
-string StringUtil::to_lower(std::string_view str) {
+string StringUtil::to_lower(luisa::string_view str) {
     string s;
     s.resize(str.size());
     for (size_t i = 0; i < str.size(); ++i) {
@@ -37,7 +38,7 @@ string StringUtil::to_lower(std::string_view str) {
     }
     return s;
 }
-string StringUtil::to_upper(std::string_view str) {
+string StringUtil::to_upper(luisa::string_view str) {
     string s;
     s.resize(str.size());
     for (size_t i = 0; i < str.size(); ++i) {
@@ -47,7 +48,7 @@ string StringUtil::to_upper(std::string_view str) {
     }
     return s;
 }
-std::string_view CharSplitIterator::operator*() const {
+luisa::string_view CharSplitIterator::operator*() const {
     return result;
 }
 void CharSplitIterator::operator++() {
@@ -59,30 +60,30 @@ void CharSplitIterator::operator++() {
                 start = curPtr;
                 continue;
             }
-            result = std::string_view(start, curPtr - start);
+            result = luisa::string_view(start, curPtr - start);
             ++curPtr;
             return;
         }
         ++curPtr;
     }
     if (endPtr == start) {
-        result = std::string_view(nullptr, 0);
+        result = luisa::string_view(nullptr, 0);
     } else {
-        result = std::string_view(start, endPtr - start);
+        result = luisa::string_view(start, endPtr - start);
     }
 }
 bool CharSplitIterator::operator==(IteEndTag) const {
     return result.size() == 0;
 }
 
-std::string_view StrVSplitIterator::operator*() const {
+luisa::string_view StrVSplitIterator::operator*() const {
     return result;
 }
 void StrVSplitIterator::operator++() {
     auto IsSame = [&](char const *ptr) {
         auto sz = endPtr - ptr;
         if (sz < sign.size()) return false;
-        std::string_view value(ptr, sign.size());
+        luisa::string_view value(ptr, sign.size());
         return value == sign;
     };
     char const *start = curPtr;
@@ -93,16 +94,16 @@ void StrVSplitIterator::operator++() {
                 start = curPtr;
                 continue;
             }
-            result = std::string_view(start, curPtr - start);
+            result = luisa::string_view(start, curPtr - start);
             curPtr += sign.size();
             return;
         }
         ++curPtr;
     }
     if (endPtr == start) {
-        result = std::string_view(nullptr, 0);
+        result = luisa::string_view(nullptr, 0);
     } else {
-        result = std::string_view(start, endPtr - start);
+        result = luisa::string_view(start, endPtr - start);
     }
 }
 bool StrVSplitIterator::operator==(IteEndTag) const {
@@ -240,7 +241,7 @@ void StringUtil::to_base64(span<uint8_t const> binary, char *result) {
     encode(result, binary.data(), binary.size());
 }
 
-void StringUtil::from_base64(std::string_view str, vector<uint8_t> &result) {
+void StringUtil::from_base64(luisa::string_view str, vector<uint8_t> &result) {
     using namespace strutil_detail;
     size_t oriSize = result.size();
     result.reserve(oriSize + decoded_size(str.size()));
@@ -248,7 +249,7 @@ void StringUtil::from_base64(std::string_view str, vector<uint8_t> &result) {
     result.resize(oriSize + destAndSrcSize.first);
 }
 
-void StringUtil::from_base64(std::string_view str, uint8_t *size) {
+void StringUtil::from_base64(luisa::string_view str, uint8_t *size) {
     using namespace strutil_detail;
     decode(size, str.data(), str.size());
 }

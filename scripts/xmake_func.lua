@@ -41,7 +41,9 @@ set_showmenu(false)
 add_deps("lc_dx_backend", "lc_vk_backend", "lc_cuda_backend", "lc_metal_backend", "lc_enable_tests", "lc_py_include",
     "lc_cuda_ext_lcub", "lc_enable_dsl", "lc_enable_gui", "lc_bin_dir", "lc_dx_cuda_interop", "lc_vk_cuda_interop",
     "_lc_enable_py", "lc_enable_py", "lc_enable_xir", 'lc_vk_backend_use_xir_spirv', 'lc_vk_backend_use_ast_llvm_spirv',
-    "lc_fallback_backend", "lc_llvm_path", "lc_embree_path")
+    "lc_vk_backend_enable_dxc_compatibility",
+    "lc_fallback_backend", "lc_llvm_path", "lc_embree_path",
+    "lc_ndk", "lc_vk_bindless_heap_capacity", "lc_vk_min_api_version")
 
 before_check(function(option)
     -- Load custom options from options.lua if in project root
@@ -143,6 +145,28 @@ before_check(function(option)
 
     -- Platform-specific backend validation
 
+    local is_android = is_plat("android")
+
+    -- Android NDK validation. NDK clang is mandatory for android targets.
+    if is_android then
+        local ndk = get_config("lc_ndk")
+        if type(ndk) ~= "string" or ndk:len() == 0 then
+            local find_ndk = import("detect.sdks.find_ndk", {try = true})
+            if find_ndk then
+                local result = find_ndk()
+                if result and result.ndk then
+                    ndk = result.ndk
+                    set_config("lc_ndk", ndk)
+                end
+            end
+        end
+        if type(ndk) ~= "string" or ndk:len() == 0 or not os.isdir(ndk) then
+            raise("Android build requires the NDK. Configure with: " ..
+                  "xmake f -p android -a arm64-v8a --ndk=$ANDROID_NDK_HOME")
+        end
+        print("[xmake] Using Android NDK: " .. ndk)
+    end
+
     -- DirectX backend is Windows-only
     local lc_dx_backend = option:dep("lc_dx_backend")
     if lc_dx_backend:enabled() and not is_win then
@@ -201,8 +225,14 @@ before_check(function(option)
     end
 
     -- Enable VK-CUDA interop when both backends are available
+    -- (desktop only; CUDA is unavailable on Android)
     local lc_vk_cuda_interop = option:dep("lc_vk_cuda_interop")
-    if lc_cuda_backend:enabled() and option:dep("lc_vk_backend"):enabled() then
+    if lc_vk_cuda_interop:enabled() and is_android then
+        lc_vk_cuda_interop:enable(false, {
+            force = true
+        })
+    end
+    if lc_cuda_backend:enabled() and option:dep("lc_vk_backend"):enabled() and not is_android then
         lc_vk_cuda_interop:enable(true)
     end
 end)
@@ -217,12 +247,20 @@ rule("lc_basic_settings")
 on_config(function(target)
     -- Linux-specific: Use libc++ with Clang
     -- See: https://github.com/LuisaGroup/LuisaCompute/issues/58
-    if target:is_plat("linux") then
+    -- NDK clang already defaults to libc++, so skip this on Android.
+    if target:is_plat("linux") and not target:is_plat("android") then
         if target:has_tool("cxx", "clang", "clangxx") then
             target:add("cxflags", "-stdlib=libc++", {
                 force = true
             })
             target:add("syslinks", "c++")
+        end
+    end
+    -- Android shared/static libraries must be position-independent.
+    if target:is_plat("android") then
+        local kind = target:kind()
+        if kind == "shared" or kind == "static" then
+            target:add("cxflags", "-fPIC", {force = true})
         end
     end
     -- Note: LTO is disabled by default
@@ -265,6 +303,13 @@ on_load(function(target)
     if target:is_plat("linux") then
         if project_kind == "static" or project_kind == "object" then
             target:add("cxflags", "-fPIC")
+        end
+        -- The runtime dlopen()s the backend modules, and a loaded module's own
+        -- dependencies are resolved from *its* rpath, not the executable's.
+        -- Without $ORIGIN a backend .so next to its siblings still fails to
+        -- load with "libluisa-tile.so: cannot open shared object file".
+        if project_kind == "shared" then
+            target:add("rpathdirs", "$ORIGIN", {force = true})
         end
     end
 
@@ -464,40 +509,39 @@ on_config(function(target)
 end)
 target_end()
 
--- ============================================================================
--- SECTION 4: Cargo/Rust Build Support
--- ============================================================================
-
--- Rule for building Rust projects using Cargo
-rule("build_cargo")
-set_extensions(".toml")
-on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
-    local lib = import("lib")
-    local sb = lib.StringBuilder("cargo build -q ")
-    sb:add("--no-default-features ")
-    sb:add("--manifest-path ")
-    sb:add(sourcefile):add(' ')
-
-    local features = target:get('features')
-    if features then
-        sb:add("--features ")
-        sb:add(features):add(' ')
+-- Unity (jumbo) build collision checker
+-- xmake merges `batch_size` translation units of a target into one, so two files
+-- that declare the same file-local helper (a `static` or an anonymous-namespace
+-- entity) collide as soon as they end up in the same batch. The check is a plain
+-- Python script so it can also run standalone or from CI:
+--
+--     python scripts/check_unity_build_conflicts.py
+--
+-- Enable it for every build with `--lc_check_unity_build=true` (see root xmake.lua).
+target("lc-check-unity-build")
+set_kind("phony")
+set_default(false)
+on_build(function(target)
+    local script = path.join(os.projectdir(), "scripts", "check_unity_build_conflicts.py")
+    if not os.isfile(script) then
+        raise("missing " .. script)
     end
-
-    -- Use release mode for non-debug builds
-    if not is_mode("debug") then
-        sb:add("--release ")
+    import("core.project.config")
+    local python = os.getenv("PYTHON") or "python"
+    local output = os.iorunv(python, {script,
+                                     "--gens", path.join(os.projectdir(), config.builddir()),
+                                     "--plat", target:plat()},
+                            {curdir = os.projectdir(), try = true})
+    if not output then
+        cprint("${yellow}unity-build check could not run (python + tree-sitter/tree-sitter-cpp required)${clear}")
+        return
     end
-
-    local cargo_cmd = sb:to_string()
-    batchcmds:show(cargo_cmd)
-    batchcmds:vrun(cargo_cmd)
-    sb:dispose()
+    print(output)
 end)
-rule_end()
+target_end()
 
 -- ============================================================================
--- SECTION 5: SDK Installation Rule
+-- SECTION 4: SDK Installation Rule
 -- ============================================================================
 
 --[[
@@ -534,7 +578,7 @@ end)
 rule_end()
 
 -- ============================================================================
--- SECTION 6: LLVM Integration Rule
+-- SECTION 5: LLVM Integration Rule
 -- ============================================================================
 
 -- Rule for linking against LLVM libraries
@@ -542,7 +586,9 @@ rule('lc_llvm')
 on_load(function(target, opt)
     local libs = {}
     local lc_llvm_path = get_config("lc_llvm_path")
-    if not lc_llvm_path then
+    -- `--lc_llvm_path=` stores an empty string, which is Lua-truthy, so test the
+    -- value: otherwise "/include" and "/lib" get added as if they were LLVM dirs.
+    if type(lc_llvm_path) ~= "string" or #lc_llvm_path == 0 then
         return nil
     end
 
@@ -600,7 +646,9 @@ after_build(function(target)
     end
 
     local lc_llvm_path = get_config("lc_llvm_path")
-    if not lc_llvm_path then
+    -- `--lc_llvm_path=` stores an empty string, which is Lua-truthy, so test the
+    -- value: otherwise "/include" and "/lib" get added as if they were LLVM dirs.
+    if type(lc_llvm_path) ~= "string" or #lc_llvm_path == 0 then
         return nil
     end
 

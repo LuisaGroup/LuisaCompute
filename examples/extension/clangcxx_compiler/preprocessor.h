@@ -92,7 +92,7 @@ public:
 	void remove_file(luisa::string_view name) {
 		std::lock_guard lck{_remove_mtx};
 		auto& v = _remove_list.emplace_back();
-		v.push_back_uninitialized(name.size());
+		luisa::enlarge_by(v, name.size());
 		memcpy(v.data(), name.data(), name.size());
 	}
 	void post_process() {
@@ -207,19 +207,19 @@ public:
 					}
 				}
 				luisa::vector<std::byte> vec;
-				auto push = [&]<typename T>(T const& a) {
-					auto last_size = vec.size();
-					if constexpr (std::is_trivial_v<T>) {
-						vec.push_back_uninitialized(sizeof(T));
-						memcpy(vec.data() + last_size, &a, sizeof(T));
-					} else if constexpr (std::is_same_v<T, luisa::string_view> || std::is_same_v<T, luisa::string>) {
-						vec.push_back_uninitialized(a.size());
-						memcpy(vec.data() + last_size, a.data(), a.size());
-					} else {
-						vec.push_back_uninitialized(a.size_bytes());
-						memcpy(vec.data() + last_size, a.data(), a.size_bytes());
-					}
-				};
+  				auto push = [&]<typename T>(T const& a) {
+  					auto last_size = vec.size();
+  					if constexpr (std::is_trivial_v<T>) {
+  						luisa::enlarge_by(vec, sizeof(T));
+  						memcpy(vec.data() + last_size, &a, sizeof(T));
+  					} else if constexpr (std::is_same_v<T, luisa::string_view> || std::is_same_v<T, luisa::string>) {
+  						luisa::enlarge_by(vec, a.size());
+  						memcpy(vec.data() + last_size, a.data(), a.size());
+  					} else {
+  						luisa::enlarge_by(vec, a.size_bytes());
+  						memcpy(vec.data() + last_size, a.data(), a.size_bytes());
+  					}
+  				};
 				push(md5.to_binary());
 				// nlohmann::json js_arr;
 				for (auto&& i : files) {

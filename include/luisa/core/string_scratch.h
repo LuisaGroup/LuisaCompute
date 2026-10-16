@@ -14,7 +14,7 @@ private:
 public:
     explicit StringScratch(size_t reserved_size) noexcept;
     StringScratch() noexcept;
-    StringScratch &operator<<(std::string_view s) noexcept;
+    StringScratch &operator<<(luisa::string_view s) noexcept;
     StringScratch &operator<<(const char *s) noexcept;
     StringScratch &operator<<(const std::string &s) noexcept;
     StringScratch &operator<<(bool x) noexcept;

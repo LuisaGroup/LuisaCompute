@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "description": "Existing six strict BR1 fixture identities; private TIRx subgroup schedule in separate observed sidecar. Math flag may be explicitly overridden for separate cohorts.",
+  "cases": [
+    {
+      "id": "regroup-rmsnorm-128x1024-bf16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "precision": "bf16",
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "regroup-rmsnorm-256x1536-fp16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        256,
+        1536
+      ],
+      "precision": "fp16",
+      "tile": [
+        1,
+        2048,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "regroup-rmsnorm-7x2051-bf16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        7,
+        2051
+      ],
+      "precision": "bf16",
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "regroup-softmax-1024x512-fp16",
+      "operation": "softmax",
+      "dimensions": [
+        1024,
+        512
+      ],
+      "precision": "fp16",
+      "tile": [
+        1,
+        512,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "regroup-softmax-32x512-fp16",
+      "operation": "softmax",
+      "dimensions": [
+        32,
+        512
+      ],
+      "precision": "fp16",
+      "tile": [
+        1,
+        512,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "regroup-softmax-9x769-fp16",
+      "operation": "softmax",
+      "dimensions": [
+        9,
+        769
+      ],
+      "precision": "fp16",
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ]
+}

@@ -1,0 +1,593 @@
+{
+  "dimensions": [
+    257,
+    1538
+  ],
+  "metric": "single_thread_native_entry_host_wall_us",
+  "runtime_excluded": true,
+  "hardware_cycles": false,
+  "cpu_threads": 1,
+  "packet_width": 8,
+  "warmup_ms": 100,
+  "sample_target_ms": 30,
+  "samples": 7,
+  "boundary": "C++ loop, native call including compiler-emitted libc memcpy; Luisa also resets mutable launch block/thread indices and, for packet-only entries, traverses blocks as in SIMDShader; no Runtime dispatch/Python/allocations in timed region",
+  "input_sha256": [
+    "06197d82bd1dbd6efa44be1c558e1a1c387692fda95def677a61a77cd98942d0",
+    "ff469d3ed51303945b5c2112f0d0c9e780cd3b9147ab71e6c542dac3e5ff0871",
+    "335f0b648463a998e00f99d927dcd8543dd5b37b5adaf8364f252949a4acc3ec"
+  ],
+  "artifacts": {
+    "baseline": {
+      "exported_symbol": "llm_rows.packet_batch",
+      "replay_abi": 2,
+      "object_sha256": "a23b46204ec72f20f2057a6ae9d51e61ef3d46060d9c80804703d3d8f94c59ad",
+      "library_sha256": "fc939ead08d4aeaf5bf50c36f75edff150e5d69bc8ac39ac4756a12e8a5d74eb",
+      "llvm_sha256": "7c35acfec37d8259fd7bdf08f3063bc81b7121d70e5eb5f9643bf1fb5bdf1eb5",
+      "source_capture": "/private/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-257x1538-r0-l8-p0",
+      "undefined_system_symbols": [],
+      "linked_libraries": "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/baseline.dylib:\n\t/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/baseline.dylib (compatibility version 0.0.0, current version 0.0.0)\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2100.43.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)\n"
+    },
+    "candidate": {
+      "exported_symbol": "llm_rows.packet_batch.blocks",
+      "replay_abi": 0,
+      "object_sha256": "7c31c788ac88dc46aacde0c27be4c79d67b2e29bd8933fcce0747475dbad2d64",
+      "library_sha256": "0c7b27f1154543b6f28e49ac6a226cf5bddb205025fc6b489eab0b25bc91ba01",
+      "llvm_sha256": "cc2c3ac84e2b085d2f5fd0ba3425ecac5de4fc23c22eda0287ec8e1e79663d7d",
+      "source_capture": "/private/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-257x1538-r0-l8-p1",
+      "undefined_system_symbols": [],
+      "linked_libraries": "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/candidate.dylib:\n\t/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/candidate.dylib (compatibility version 0.0.0, current version 0.0.0)\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 2100.43.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)\n"
+    },
+    "inductor": {
+      "source": "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/inductor/2u/c2utptxdervntjtedme5grohjlvbrntjb7kpxlavmamlhnem6idq.main.cpp",
+      "source_sha256": "195da029ff26f9d480133cafd87709a35d6cd9ad2ac82d066eec7204b55e6aed",
+      "library_sha256": "2b57728f68eae68156d05d71ab6aa4e5e6a8205fa68d7a01463466759b1396db",
+      "torch_version": "2.14.0",
+      "torch_git_version": "08187d9e0fba026dc8217405802ab5381dc88d90",
+      "config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n"
+    }
+  },
+  "commands": [
+    [
+      "clang++",
+      "-std=c++20",
+      "-O3",
+      "-dynamiclib",
+      "-I/Users/mike/CLionProjects/luisa/src",
+      "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-ragged-cfg/replay_native.cpp",
+      "-o",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/replay.dylib"
+    ],
+    [
+      "/opt/homebrew/opt/llvm@21/bin/llvm-nm",
+      "--undefined-only",
+      "--just-symbol-name",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-257x1538-r0-l8-p0/object/tile_xir_w8_72043_1788863217710517_0.o"
+    ],
+    [
+      "clang++",
+      "-dynamiclib",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-257x1538-r0-l8-p0/object/tile_xir_w8_72043_1788863217710517_0.o",
+      "-o",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/baseline.dylib"
+    ],
+    [
+      "otool",
+      "-L",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/baseline.dylib"
+    ],
+    [
+      "/opt/homebrew/opt/llvm@21/bin/llvm-nm",
+      "--undefined-only",
+      "--just-symbol-name",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-257x1538-r0-l8-p1/object/tile_xir_w8_72045_1788863218172703_0.o"
+    ],
+    [
+      "clang++",
+      "-dynamiclib",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/capture/rmsnorm-257x1538-r0-l8-p1/object/tile_xir_w8_72045_1788863218172703_0.o",
+      "-o",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/candidate.dylib"
+    ],
+    [
+      "otool",
+      "-L",
+      "/private/tmp/luisa-ragged-cfg.pbUI2k/native-257x1538/candidate.dylib"
+    ]
+  ],
+  "helper_source_sha256": "57225d2c1c188d8e3eeed0df48547012bef02bf5940a3cf5247b83dc7e3379a8",
+  "helper_sha256": "c3f7c73e73bb4bc7c8236285a716032580dd09f5320a0c4de4d50b88b41aee33",
+  "results": [
+    {
+      "variant": "baseline",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        1835.30078125,
+        1823.82684375,
+        1848.92315625,
+        1832.25653125,
+        1828.9609375,
+        1835.49609375,
+        1816.3385625
+      ],
+      "median_us": 1832.25653125,
+      "repetitions": 32,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        527.78646875,
+        532.501953125,
+        526.56771875,
+        527.19140625,
+        547.097015625,
+        541.852203125,
+        533.352875
+      ],
+      "median_us": 532.501953125,
+      "repetitions": 64,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 0,
+      "order": [
+        "baseline",
+        "candidate",
+        "inductor"
+      ],
+      "samples_us": [
+        236.2610625,
+        236.12890625,
+        236.3596953125,
+        236.1149140625,
+        236.139328125,
+        236.259765625,
+        242.172203125
+      ],
+      "median_us": 236.259765625,
+      "repetitions": 128,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.395120491995641e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        1816.80078125,
+        1818.263,
+        1818.971375,
+        1814.565125,
+        1817.03253125,
+        1817.1419375,
+        1860.3984375
+      ],
+      "median_us": 1817.1419375,
+      "repetitions": 32,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        236.2197265625,
+        236.5520859375,
+        236.067703125,
+        242.033203125,
+        245.9319609375,
+        244.3811875,
+        246.255859375
+      ],
+      "median_us": 242.033203125,
+      "repetitions": 128,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.395120491995641e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 1,
+      "order": [
+        "baseline",
+        "inductor",
+        "candidate"
+      ],
+      "samples_us": [
+        546.89453125,
+        547.3326875,
+        546.66015625,
+        546.47134375,
+        545.071609375,
+        530.290375,
+        524.5859375
+      ],
+      "median_us": 546.47134375,
+      "repetitions": 64,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        524.075515625,
+        525.578125,
+        528.966796875,
+        524.489578125,
+        524.63671875,
+        523.645828125,
+        524.449875
+      ],
+      "median_us": 524.489578125,
+      "repetitions": 64,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        1844.43490625,
+        1817.22003125,
+        1826.30209375,
+        1815.7435,
+        1815.83721875,
+        1825.65234375,
+        1816.61590625
+      ],
+      "median_us": 1817.22003125,
+      "repetitions": 32,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 2,
+      "order": [
+        "candidate",
+        "baseline",
+        "inductor"
+      ],
+      "samples_us": [
+        236.280921875,
+        236.84146875,
+        236.169921875,
+        241.94596875,
+        243.5638046875,
+        243.362953125,
+        237.6025390625
+      ],
+      "median_us": 237.6025390625,
+      "repetitions": 128,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.395120491995641e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        525.6640625,
+        526.76628125,
+        524.9609375,
+        527.278640625,
+        528.893875,
+        527.1516875,
+        525.475265625
+      ],
+      "median_us": 526.76628125,
+      "repetitions": 64,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        236.431640625,
+        236.191078125,
+        236.441734375,
+        236.5237578125,
+        236.1022109375,
+        236.4192734375,
+        236.4912109375
+      ],
+      "median_us": 236.431640625,
+      "repetitions": 128,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.395120491995641e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 3,
+      "order": [
+        "candidate",
+        "inductor",
+        "baseline"
+      ],
+      "samples_us": [
+        1850.35678125,
+        1815.102875,
+        1838.76821875,
+        1819.30990625,
+        1819.171875,
+        1816.61065625,
+        1822.377625
+      ],
+      "median_us": 1819.30990625,
+      "repetitions": 32,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        237.286453125,
+        235.7906953125,
+        236.2721328125,
+        236.7568359375,
+        236.267578125,
+        236.2604140625,
+        236.4010390625
+      ],
+      "median_us": 236.2721328125,
+      "repetitions": 128,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.395120491995641e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        1858.977875,
+        1862.66146875,
+        1848.54946875,
+        1819.8255,
+        1816.89584375,
+        1818.86590625,
+        1816.7578125
+      ],
+      "median_us": 1819.8255,
+      "repetitions": 32,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 4,
+      "order": [
+        "inductor",
+        "baseline",
+        "candidate"
+      ],
+      "samples_us": [
+        524.697265625,
+        524.587890625,
+        524.09440625,
+        532.1829375,
+        524.135421875,
+        544.48046875,
+        554.158203125
+      ],
+      "median_us": 524.697265625,
+      "repetitions": 64,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "inductor",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        237.23046875,
+        235.6611328125,
+        237.1588515625,
+        240.3411484375,
+        237.875,
+        237.6513671875,
+        236.113609375
+      ],
+      "median_us": 237.23046875,
+      "repetitions": 128,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 4.395120491995641e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "candidate",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        524.8984375,
+        526.295578125,
+        524.345703125,
+        567.365234375,
+        560.27734375,
+        523.680328125,
+        526.631515625
+      ],
+      "median_us": 526.295578125,
+      "repetitions": 64,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    },
+    {
+      "variant": "baseline",
+      "round": 5,
+      "order": [
+        "inductor",
+        "candidate",
+        "baseline"
+      ],
+      "samples_us": [
+        1895.8203125,
+        1819.859375,
+        1815.979125,
+        1817.7551875,
+        1812.69275,
+        1827.0390625,
+        1817.0625
+      ],
+      "median_us": 1817.7551875,
+      "repetitions": 16,
+      "correctness": {
+        "elements": 395266,
+        "max_abs_error": 3.3424404710657996e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "guard_elements": 68
+    }
+  ],
+  "summary_us": {
+    "baseline": 1818.532546875,
+    "candidate": 526.5309296875,
+    "inductor": 236.8310546875
+  }
+}

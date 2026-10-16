@@ -7,6 +7,7 @@
 #include <type_traits>
 
 #include <luisa/ast/type.h>
+#include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -15,16 +16,21 @@
 #include <luisa/xir/metadata/curve_basis.h>
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/metadata/name.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/metadata/reg2mem_spill.h>
 #include <luisa/xir/metadata/signature_constraint.h>
+#include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/translators/xir_interchange.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "../instruction_semantics.h"
 
 namespace luisa::compute::xir {
 
 namespace {
+namespace xir_interchange_detail {
 
 constexpr std::array<std::byte, 8u> bitcode_magic{
     std::byte{'L'}, std::byte{'X'}, std::byte{'I'}, std::byte{'R'},
@@ -55,6 +61,8 @@ constexpr size_t max_string_payload_size = 1u * 1024u * 1024u;
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             size = type->size();
             return size == 1u || size == 2u || size == 4u || size == 8u;
         case Type::Tag::VECTOR:
@@ -1225,6 +1233,7 @@ constexpr std::array cast_wire_ops{
 
 constexpr std::array ray_query_object_read_wire_ops{
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY, "ray_query_object_world_space_ray"sv),
+    wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY, "ray_query_object_candidate_object_space_ray"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT, "ray_query_object_procedural_candidate_hit"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT, "ray_query_object_triangle_candidate_hit"sv),
     wire_op(RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT, "ray_query_object_committed_hit"sv),
@@ -1241,6 +1250,7 @@ constexpr std::array ray_query_object_write_wire_ops{
 constexpr std::array resource_query_wire_ops{
     wire_op(ResourceQueryOp::BUFFER_SIZE, "buffer_size"sv),
     wire_op(ResourceQueryOp::BYTE_BUFFER_SIZE, "byte_buffer_size"sv),
+    wire_op(ResourceQueryOp::ACCEL_SIZE, "accel_size"sv),
     wire_op(ResourceQueryOp::TEXTURE2D_SIZE, "texture2d_size"sv),
     wire_op(ResourceQueryOp::TEXTURE3D_SIZE, "texture3d_size"sv),
     wire_op(ResourceQueryOp::BINDLESS_BUFFER_SIZE, "bindless_buffer_size"sv),
@@ -1302,7 +1312,59 @@ constexpr std::array resource_read_wire_ops{
     wire_op(ResourceReadOp::BINDLESS_TEXTURE3D_READ, "bindless_texture3d_read"sv),
     wire_op(ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL, "bindless_texture2d_read_level"sv),
     wire_op(ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL, "bindless_texture3d_read_level"sv),
-    wire_op(ResourceReadOp::DEVICE_ADDRESS_READ, "device_address_read"sv)};
+    wire_op(ResourceReadOp::DEVICE_ADDRESS_READ, "device_address_read"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_MUL_ADD, "cooperative_mul_add"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD, "bindless_cooperative_mul_add"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_MUL, "cooperative_mul"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_MUL, "bindless_cooperative_mul"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LOAD, "cooperative_vector_load"sv),
+ wire_op(ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD, "bindless_cooperative_vector_load"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SPLAT, "cooperative_vector_splat"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_CAST, "cooperative_vector_cast"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD, "cooperative_vector_workgroup_load"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_DOT, "cooperative_vector_dot"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ABS, "cooperative_vector_abs"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SIGN, "cooperative_vector_sign"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_FLOOR, "cooperative_vector_floor"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_CEIL, "cooperative_vector_ceil"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_FRACT, "cooperative_vector_fract"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_TRUNC, "cooperative_vector_trunc"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ROUND, "cooperative_vector_round"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_RINT, "cooperative_vector_rint"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SQRT, "cooperative_vector_sqrt"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_RSQRT, "cooperative_vector_rsqrt"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_EXP2, "cooperative_vector_exp2"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_EXP10, "cooperative_vector_exp10"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LOG2, "cooperative_vector_log2"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LOG10, "cooperative_vector_log10"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SATURATE, "cooperative_vector_saturate"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ISINF, "cooperative_vector_isinf"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ISNAN, "cooperative_vector_isnan"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SIN, "cooperative_vector_sin"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_COS, "cooperative_vector_cos"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_TAN, "cooperative_vector_tan"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ASIN, "cooperative_vector_asin"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ACOS, "cooperative_vector_acos"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SINH, "cooperative_vector_sinh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_COSH, "cooperative_vector_cosh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ASINH, "cooperative_vector_asinh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ACOSH, "cooperative_vector_acosh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ATANH, "cooperative_vector_atanh"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_MIX, "cooperative_vector_mix"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LERP, "cooperative_vector_lerp"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_POW, "cooperative_vector_pow"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_STEP, "cooperative_vector_step"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP, "cooperative_vector_smoothstep"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_ADD, "cooperative_vector_add"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_SUB, "cooperative_vector_sub"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_MUL, "cooperative_vector_mul"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_DIV, "cooperative_vector_div"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LESS, "cooperative_vector_less"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL, "cooperative_vector_less_equal"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_GREATER, "cooperative_vector_greater"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL, "cooperative_vector_greater_equal"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_EQUAL, "cooperative_vector_equal"sv),
+ wire_op(ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL, "cooperative_vector_not_equal"sv)};
 
 constexpr std::array resource_write_wire_ops{
     wire_op(ResourceWriteOp::BUFFER_WRITE, "buffer_write"sv),
@@ -1321,7 +1383,12 @@ constexpr std::array resource_write_wire_ops{
     wire_op(ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX, "ray_tracing_set_instance_motion_matrix"sv),
     wire_op(ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT, "ray_tracing_set_instance_motion_srt"sv),
     wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL, "indirect_dispatch_set_kernel"sv),
-    wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT, "indirect_dispatch_set_count"sv)};
+    wire_op(ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT, "indirect_dispatch_set_count"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE, "cooperative_outer_product_accumulate"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE, "cooperative_vector_accumulate"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_STORE, "cooperative_vector_store"sv),
+ wire_op(ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE, "bindless_cooperative_vector_store"sv),
+ wire_op(ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE, "cooperative_vector_workgroup_store"sv)};
 
 constexpr std::array thread_group_wire_ops{
     wire_op(ThreadGroupOp::SHADER_EXECUTION_REORDER, "shader_execution_reorder"sv),
@@ -1346,7 +1413,10 @@ constexpr std::array thread_group_wire_ops{
     wire_op(ThreadGroupOp::WARP_PREFIX_PRODUCT, "warp_prefix_product"sv),
     wire_op(ThreadGroupOp::WARP_READ_LANE, "warp_read_lane"sv),
     wire_op(ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE, "warp_read_first_active_lane"sv),
-    wire_op(ThreadGroupOp::SYNCHRONIZE_BLOCK, "synchronize_block"sv)};
+    wire_op(ThreadGroupOp::SYNCHRONIZE_BLOCK, "synchronize_block"sv),
+    wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH, "raster_set_z_depth"sv),
+    wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL, "raster_set_z_depth_greater_equal"sv),
+    wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL, "raster_set_z_depth_less_equal"sv)};
 
 template<typename Op, size_t N>
 [[nodiscard]] luisa::optional<int64_t>
@@ -1468,6 +1538,8 @@ parse_special_register_name(luisa::string_view name) noexcept {
     if (name == "block_size") { return DerivedSpecialRegisterTag::BLOCK_SIZE; }
     if (name == "warp_size") { return DerivedSpecialRegisterTag::WARP_SIZE; }
     if (name == "dispatch_size") { return DerivedSpecialRegisterTag::DISPATCH_SIZE; }
+    if (name == "front_facing") { return DerivedSpecialRegisterTag::RASTER_FRONT_FACING; }
+    if (name == "base_instance") { return DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE; }
     return luisa::nullopt;
 }
 
@@ -1477,9 +1549,14 @@ struct MetadataRecord {
                        COMMENT,
                        CURVE_BASIS,
                        SIGNATURE_CONSTRAINT,
-                       REG2MEM_SPILL } kind;
+                       REG2MEM_SPILL,
+                       NO_INLINE,
+                       STRIDED_MMA,
+                       CONTIGUOUS_COPY } kind;
     luisa::string text;
     int64_t number{0};
+    StridedMmaDescriptor strided_mma;
+    ContiguousCopyDescriptor contiguous_copy;
 };
 
 constexpr uint64_t reg2mem_spill_phi_wire_kind = 0u;
@@ -1505,6 +1582,25 @@ decode_reg2mem_spill_wire_kind(uint64_t kind) noexcept {
             return Reg2MemSpillKind::CROSS_BLOCK;
         default:
             return luisa::nullopt;
+    }
+}
+
+// Stable wire values are independent of the C++ enum representation.
+[[nodiscard]] constexpr luisa::optional<uint64_t>
+encode_strided_mma_vectorization(StridedMmaVectorization value) noexcept {
+    switch (value) {
+        case StridedMmaVectorization::OUTPUT: return 0u;
+        case StridedMmaVectorization::CONTRACTION: return 1u;
+    }
+    return luisa::nullopt;
+}
+
+[[nodiscard]] constexpr luisa::optional<StridedMmaVectorization>
+decode_strided_mma_vectorization(uint64_t value) noexcept {
+    switch (value) {
+        case 0u: return StridedMmaVectorization::OUTPUT;
+        case 1u: return StridedMmaVectorization::CONTRACTION;
+        default: return luisa::nullopt;
     }
 }
 
@@ -1568,6 +1664,60 @@ decode_reg2mem_spill_wire_kind(uint64_t kind) noexcept {
             } else {
                 return parser.fail("Unknown XIR reg2mem-spill metadata kind.");
             }
+        } else if (kind == "no_inline") {
+            record.kind = MetadataRecord::Kind::NO_INLINE;
+        } else if (kind == "contiguous_copy") {
+            record.kind = MetadataRecord::Kind::CONTIGUOUS_COPY;
+            auto &d = record.contiguous_copy;
+            uint64_t width = 0u;
+            if (!parser.unsigned_integer(d.element_count) || !parser.unsigned_integer(width)) { return false; }
+            if (width > std::numeric_limits<uint32_t>::max()) {
+                return parser.fail("Invalid XIR contiguous-copy vector width.");
+            }
+            d.vector_width = static_cast<uint32_t>(width);
+            if (!is_valid_contiguous_copy_descriptor(d)) {
+                return parser.fail("Invalid XIR contiguous-copy descriptor.");
+            }
+        } else if (kind == "strided_mma") {
+            record.kind = MetadataRecord::Kind::STRIDED_MMA;
+            auto &d = record.strided_mma;
+            luisa::string mode;
+            uint64_t width = 0u;
+            uint64_t reassociation = 0u;
+            size_t rank = 0u;
+            if (!parser.word(mode) || !parser.unsigned_integer(width) ||
+                !parser.unsigned_integer(reassociation) ||
+                !parser.unsigned_integer(d.contraction_extent) ||
+                !parser.unsigned_integer(d.lhs_contraction_stride) ||
+                !parser.unsigned_integer(d.rhs_contraction_stride) ||
+                !parser.count(rank) || !budget.consume(parser, rank)) {
+                return false;
+            }
+            if (mode == "output") {
+                d.vectorization = StridedMmaVectorization::OUTPUT;
+            } else if (mode == "contraction") {
+                d.vectorization = StridedMmaVectorization::CONTRACTION;
+            } else {
+                return parser.fail("Unknown XIR strided-MMA vectorization.");
+            }
+            if (width > std::numeric_limits<uint32_t>::max() || reassociation > 1u) {
+                return parser.fail("Invalid XIR strided-MMA scalar fields.");
+            }
+            d.vector_width = static_cast<uint32_t>(width);
+            d.allow_reassociation = reassociation != 0u;
+            d.output_extents.resize(rank);
+            d.lhs_output_strides.resize(rank);
+            d.rhs_output_strides.resize(rank);
+            for (auto j = size_t{0u}; j < rank; j++) {
+                if (!parser.unsigned_integer(d.output_extents[j]) ||
+                    !parser.unsigned_integer(d.lhs_output_strides[j]) ||
+                    !parser.unsigned_integer(d.rhs_output_strides[j])) {
+                    return false;
+                }
+            }
+            if (!is_valid_strided_mma_descriptor(d)) {
+                return parser.fail("Invalid XIR strided-MMA descriptor.");
+            }
         } else {
             return parser.fail("Unknown XIR metadata kind.");
         }
@@ -1585,9 +1735,18 @@ void apply_metadata_records(
             case MetadataRecord::Kind::NAME:
                 metadata = luisa::make_managed<NameMD>(iter->text);
                 break;
-            case MetadataRecord::Kind::LOCATION:
-                metadata = luisa::make_managed<LocationMD>(luisa::filesystem::path{iter->text}, static_cast<int>(iter->number));
+            case MetadataRecord::Kind::LOCATION: {
+                // The interchange text carries the file name exactly as
+                // luisa::to_string() wrote it (the ANSI code page on Windows), so
+                // it is decoded the same way: path_from_narrow() reports bytes the
+                // code page cannot represent through its return value instead of
+                // throwing inside path's narrow constructor. Undecodable text
+                // yields an empty location file.
+                luisa::filesystem::path file;
+                static_cast<void>(luisa::path_from_narrow(iter->text, file));
+                metadata = luisa::make_managed<LocationMD>(std::move(file), static_cast<int>(iter->number));
                 break;
+            }
             case MetadataRecord::Kind::COMMENT:
                 metadata = luisa::make_managed<CommentMD>(iter->text);
                 break;
@@ -1600,6 +1759,15 @@ void apply_metadata_records(
             case MetadataRecord::Kind::REG2MEM_SPILL:
                 metadata = luisa::make_managed<Reg2MemSpillMD>(
                     static_cast<Reg2MemSpillKind>(iter->number));
+                break;
+            case MetadataRecord::Kind::NO_INLINE:
+                metadata = luisa::make_managed<NoInlineMD>();
+                break;
+            case MetadataRecord::Kind::STRIDED_MMA:
+                metadata = luisa::make_managed<StridedMmaMD>(iter->strided_mma);
+                break;
+            case MetadataRecord::Kind::CONTIGUOUS_COPY:
+                metadata = luisa::make_managed<ContiguousCopyMD>(iter->contiguous_copy);
                 break;
         }
         owner.metadata_list().push_front(std::move(metadata));
@@ -1633,7 +1801,7 @@ void apply_metadata_records(
             case DerivedMetadataTag::LOCATION: {
                 auto value = static_cast<const LocationMD *>(metadata);
                 text.append("location ");
-                append_quoted(text, value->file().string());
+                                  append_quoted(text, luisa::to_string(value->file()));
                 luisa::format_to(std::back_inserter(text), " {}", value->line());
                 break;
             }
@@ -1665,6 +1833,37 @@ void apply_metadata_records(
                         error = "XIR reg2mem-spill metadata has an unknown kind.";
                         return false;
                 }
+                break;
+            }
+            case DerivedMetadataTag::NO_INLINE:
+                text.append("no_inline");
+                break;
+            case DerivedMetadataTag::STRIDED_MMA: {
+                auto &&d = static_cast<const StridedMmaMD *>(metadata)->descriptor;
+                if (!is_valid_strided_mma_descriptor(d) || d.output_extents.size() > max_record_count) {
+                    error = "XIR strided-MMA metadata has an invalid descriptor.";
+                    return false;
+                }
+                luisa::format_to(std::back_inserter(text),
+                                 "strided_mma {} {} {} {} {} {} {}",
+                                 to_string(d.vectorization), d.vector_width,
+                                 static_cast<uint32_t>(d.allow_reassociation),
+                                 d.contraction_extent, d.lhs_contraction_stride,
+                                 d.rhs_contraction_stride, d.output_extents.size());
+                for (auto i = size_t{0u}; i < d.output_extents.size(); i++) {
+                    luisa::format_to(std::back_inserter(text), " {} {} {}",
+                                     d.output_extents[i], d.lhs_output_strides[i],
+                                     d.rhs_output_strides[i]);
+                }
+                break;
+            }
+            case DerivedMetadataTag::CONTIGUOUS_COPY: {
+                auto &&d = static_cast<const ContiguousCopyMD *>(metadata)->descriptor;
+                if (!is_valid_contiguous_copy_descriptor(d)) {
+                    error = "XIR contiguous-copy metadata has an invalid descriptor.";
+                    return false;
+                }
+                luisa::format_to(std::back_inserter(text), "contiguous_copy {} {}", d.element_count, d.vector_width);
                 break;
             }
             default:
@@ -1711,6 +1910,420 @@ struct InstructionRecord {
     luisa::vector<luisa::string> payloads;
     luisa::vector<MetadataRecord> metadata;
 };
+
+struct CoroSuspendInterchangeData {
+    luisa::vector<luisa::string> frame_export_names;
+    size_t extension_binding_value_count{0u};
+    luisa::vector<CoroSuspendExtensionPtr> extensions;
+};
+
+[[nodiscard]] luisa::optional<uint64_t>
+parse_unsigned_decimal(luisa::string_view text) noexcept {
+    if (text.empty()) { return luisa::nullopt; }
+    auto value = uint64_t{0u};
+    for (auto c : text) {
+        if (c < '0' || c > '9') { return luisa::nullopt; }
+        auto digit = static_cast<uint64_t>(c - '0');
+        if (value > (std::numeric_limits<uint64_t>::max() - digit) /
+                        10u) {
+            return luisa::nullopt;
+        }
+        value = value * 10u + digit;
+    }
+    return value;
+}
+
+[[nodiscard]] luisa::optional<uint64_t>
+parse_u64_hex(luisa::string_view text) noexcept {
+    if (text.size() != 16u) { return luisa::nullopt; }
+    auto value = uint64_t{0u};
+    for (auto c : text) {
+        uint64_t digit = 0u;
+        if (c >= '0' && c <= '9') {
+            digit = static_cast<uint64_t>(c - '0');
+        } else if (c >= 'a' && c <= 'f') {
+            digit = static_cast<uint64_t>(c - 'a' + 10);
+        } else {
+            return luisa::nullopt;
+        }
+        value = (value << 4u) | digit;
+    }
+    return value;
+}
+
+[[nodiscard]] luisa::string encode_u64_hex(uint64_t value) noexcept {
+    constexpr auto digits = "0123456789abcdef";
+    auto text = luisa::string(16u, '0');
+    for (auto i = 0u; i < 16u; ++i) {
+        text[15u - i] = digits[value & 0xfu];
+        value >>= 4u;
+    }
+    return text;
+}
+
+[[nodiscard]] bool decode_coro_suspend_record(
+    const InstructionRecord &record,
+    CoroSuspendInterchangeData *decoded,
+    luisa::string *error = nullptr) noexcept {
+    auto fail = [&](luisa::string_view message) noexcept {
+        if (error != nullptr) { *error = message; }
+        return false;
+    };
+    if (record.auxiliary.empty() || record.payloads.empty() ||
+        record.operands.empty()) {
+        return fail("Coroutine suspend interchange record is incomplete.");
+    }
+    auto token = record.auxiliary.front();
+    if (token < 0 || static_cast<uint64_t>(token) >
+                         std::numeric_limits<uint32_t>::max()) {
+        return fail("Coroutine suspend token is out of range.");
+    }
+    // Legacy v1 shape without exports or extensions remains readable.
+    if (record.auxiliary.size() == 1u &&
+        record.payloads.size() == 1u &&
+        record.operands.size() == 1u) {
+        if (decoded != nullptr) { *decoded = {}; }
+        return true;
+    }
+    if (record.auxiliary.size() < 4u) {
+        return fail("Coroutine suspend extension header is truncated.");
+    }
+    auto read_count = [&](int64_t value,
+                          size_t &count) noexcept {
+        if (value < 0 || static_cast<uint64_t>(value) >
+                             max_record_count) {
+            return false;
+        }
+        count = static_cast<size_t>(value);
+        return true;
+    };
+    size_t frame_export_count = 0u;
+    size_t binding_value_count = 0u;
+    size_t extension_count = 0u;
+    if (!read_count(record.auxiliary[1u], frame_export_count) ||
+        !read_count(record.auxiliary[2u], binding_value_count) ||
+        !read_count(record.auxiliary[3u], extension_count) ||
+        frame_export_count > max_record_count - 1u ||
+        binding_value_count >
+            max_record_count - 1u - frame_export_count ||
+        record.operands.size() !=
+            1u + frame_export_count + binding_value_count ||
+        record.payloads.size() < 1u + frame_export_count) {
+        return fail("Coroutine suspend extension counts are inconsistent.");
+    }
+    CoroSuspendInterchangeData data;
+    data.extension_binding_value_count = binding_value_count;
+    data.frame_export_names.reserve(frame_export_count);
+    auto payload_index = size_t{1u};
+    for (size_t i = 0u; i < frame_export_count; ++i) {
+        auto name = record.payloads[payload_index++];
+        if (name.empty() ||
+            std::find(data.frame_export_names.begin(),
+                      data.frame_export_names.end(), name) !=
+                data.frame_export_names.end()) {
+            return fail("Coroutine suspend frame export name is invalid or duplicated.");
+        }
+        data.frame_export_names.emplace_back(std::move(name));
+    }
+    auto auxiliary_index = size_t{4u};
+    luisa::vector<bool> bound(binding_value_count, false);
+    data.extensions.reserve(extension_count);
+    for (size_t extension_index = 0u;
+         extension_index < extension_count; ++extension_index) {
+        if (auxiliary_index + 5u > record.auxiliary.size() ||
+            payload_index >= record.payloads.size()) {
+            return fail("Coroutine suspend extension record is truncated.");
+        }
+        auto schema = record.payloads[payload_index++];
+        auto version_value = record.auxiliary[auxiliary_index++];
+        auto annotation_value = record.auxiliary[auxiliary_index++];
+        auto fallback_value = record.auxiliary[auxiliary_index++];
+        size_t binding_count = 0u;
+        size_t attribute_count = 0u;
+        if (schema.empty() || version_value <= 0 ||
+            static_cast<uint64_t>(version_value) >
+                std::numeric_limits<uint32_t>::max() ||
+            (annotation_value != 0 && annotation_value != 1) ||
+            fallback_value < 0 || fallback_value > 2 ||
+            !read_count(record.auxiliary[auxiliary_index++],
+                        binding_count) ||
+            !read_count(record.auxiliary[auxiliary_index++],
+                        attribute_count)) {
+            return fail("Coroutine suspend extension header is invalid.");
+        }
+        luisa::vector<CoroSuspendBinding> bindings;
+        bindings.reserve(binding_count);
+        for (size_t binding_index = 0u;
+             binding_index < binding_count; ++binding_index) {
+            if (auxiliary_index + 3u > record.auxiliary.size() ||
+                payload_index >= record.payloads.size()) {
+                return fail("Coroutine suspend binding record is truncated.");
+            }
+            auto name = record.payloads[payload_index++];
+            auto access = record.auxiliary[auxiliary_index++];
+            auto lifetime = record.auxiliary[auxiliary_index++];
+            auto owner_index = record.auxiliary[auxiliary_index++];
+            if (name.empty() || access < 0 || access > 2 ||
+                lifetime < 0 || lifetime > 2 || owner_index < 0 ||
+                static_cast<uint64_t>(owner_index) >=
+                    binding_value_count ||
+                bound[static_cast<size_t>(owner_index)] ||
+                std::find_if(
+                    bindings.begin(), bindings.end(),
+                    [&](auto &&binding) noexcept {
+                        return binding.name == name;
+                    }) != bindings.end()) {
+                return fail("Coroutine suspend binding is invalid or duplicated.");
+            }
+            bound[static_cast<size_t>(owner_index)] = true;
+            bindings.emplace_back(CoroSuspendBinding{
+                .name = std::move(name),
+                .access = static_cast<CoroSuspendBindingAccess>(access),
+                .lifetime =
+                    static_cast<CoroSuspendBindingLifetime>(lifetime),
+                .index = static_cast<uint32_t>(owner_index)});
+        }
+        luisa::vector<CoroSuspendAttribute> attributes;
+        attributes.reserve(attribute_count);
+        for (size_t attribute_index = 0u;
+             attribute_index < attribute_count; ++attribute_index) {
+            if (auxiliary_index >= record.auxiliary.size() ||
+                payload_index + 2u > record.payloads.size()) {
+                return fail("Coroutine suspend attribute record is truncated.");
+            }
+            auto type_tag = record.auxiliary[auxiliary_index++];
+            auto name = record.payloads[payload_index++];
+            auto encoded_value = record.payloads[payload_index++];
+            if (type_tag < 0 || type_tag > 4 || name.empty() ||
+                std::find_if(
+                    attributes.begin(), attributes.end(),
+                    [&](auto &&attribute) noexcept {
+                        return attribute.name == name;
+                    }) != attributes.end()) {
+                return fail("Coroutine suspend attribute is invalid or duplicated.");
+            }
+            CoroSuspendAttributeValue value;
+            switch (type_tag) {
+                case 0:
+                    if (encoded_value == "0") {
+                        value = false;
+                    } else if (encoded_value == "1") {
+                        value = true;
+                    } else {
+                        return fail("Coroutine suspend Boolean attribute is invalid.");
+                    }
+                    break;
+                case 1: {
+                    auto parsed = parse_integer_token(encoded_value);
+                    if (!parsed) {
+                        return fail("Coroutine suspend signed attribute is invalid.");
+                    }
+                    value = *parsed;
+                    break;
+                }
+                case 2: {
+                    auto parsed = parse_unsigned_decimal(encoded_value);
+                    if (!parsed) {
+                        return fail("Coroutine suspend unsigned attribute is invalid.");
+                    }
+                    value = *parsed;
+                    break;
+                }
+                case 3: {
+                    auto parsed = parse_u64_hex(encoded_value);
+                    if (!parsed) {
+                        return fail("Coroutine suspend floating attribute is invalid.");
+                    }
+                    value = luisa::bit_cast<double>(*parsed);
+                    break;
+                }
+                case 4: value = std::move(encoded_value); break;
+                default: return fail("Coroutine suspend attribute type is invalid.");
+            }
+            attributes.emplace_back(CoroSuspendAttribute{
+                .name = std::move(name), .value = std::move(value)});
+        }
+        auto fallback = static_cast<CoroSuspendFallback>(fallback_value);
+        auto extension = annotation_value != 0 ?
+                             make_coro_suspend_annotation_data(
+                                 std::move(schema),
+                                 static_cast<uint32_t>(version_value),
+                                 fallback, std::move(bindings),
+                                 std::move(attributes)) :
+                             make_coro_suspend_extension_data(
+                                 std::move(schema),
+                                 static_cast<uint32_t>(version_value),
+                                 fallback, std::move(bindings),
+                                 std::move(attributes));
+        data.extensions.emplace_back(std::move(extension));
+    }
+    // Optional compiler-owned projection tail. Old records retain their exact
+    // encoding; unknown/truncated tails fail closed instead of losing aliases.
+    if (auxiliary_index < record.auxiliary.size() && record.auxiliary[auxiliary_index] == -1) {
+        ++auxiliary_index;
+        auto next = [&](size_t &value) {
+            return auxiliary_index < record.auxiliary.size() && read_count(record.auxiliary[auxiliary_index++], value);
+        };
+        for (auto &extension : data.extensions) {
+            size_t count = 0;
+            if (!next(count)) { return fail("Truncated coroutine projection count."); }
+            luisa::vector<CoroSuspendBindingProjection> projections;
+            luisa::vector<bool> support(binding_value_count, false);
+            for (size_t i = 0; i < count; ++i) {
+                size_t access, lifetime, index, alternatives;
+                if (!next(access) || access > 2 || !next(lifetime) || lifetime > 2 ||
+                    !next(index) || index >= binding_value_count || !next(alternatives) || alternatives == 0 ||
+                    payload_index >= record.payloads.size()) { return fail("Invalid coroutine projection header."); }
+                CoroSuspendBindingProjection projection;
+                projection.binding = {record.payloads[payload_index++], static_cast<CoroSuspendBindingAccess>(access),
+                                      static_cast<CoroSuspendBindingLifetime>(lifetime), static_cast<uint32_t>(index)};
+                if (projection.binding.name.empty()) { return fail("Unnamed coroutine projection."); }
+                for (size_t j = 0; j < alternatives; ++j) {
+                    size_t vi, ci;
+                    if (!next(vi) || !next(ci) || vi >= binding_value_count || ci >= binding_value_count ||
+                        vi == ci || support[vi] || support[ci] || (j == 0 && vi != index)) {
+                        return fail("Invalid coroutine projection alternative.");
+                    }
+                    auto has_binding = [&](size_t binding_index, CoroSuspendBindingAccess mode) {
+                        return std::any_of(extension->bindings().begin(), extension->bindings().end(), [&](auto &b) {
+                            return b.index == binding_index && b.access == mode && b.lifetime == projection.binding.lifetime;
+                        });
+                    };
+                    if (!has_binding(vi, CoroSuspendBindingAccess::read_write) || !has_binding(ci, CoroSuspendBindingAccess::read)) {
+                        return fail("Coroutine projection refers outside its normalized owner.");
+                    }
+                    support[vi] = support[ci] = true;
+                    projection.alternatives.push_back({static_cast<uint32_t>(vi), static_cast<uint32_t>(ci)});
+                }
+                projections.emplace_back(std::move(projection));
+            }
+            if (!projections.empty()) {
+                luisa::vector<CoroSuspendBinding> logical_bindings;
+                for (auto &binding : extension->bindings()) {
+                    auto p = std::find_if(projections.begin(), projections.end(), [&](auto &p) { return p.binding.index == binding.index; });
+                    if (p != projections.end()) {
+                        logical_bindings.emplace_back(p->binding);
+                    } else if (!support[binding.index]) {
+                        logical_bindings.emplace_back(binding);
+                    }
+                }
+                for (size_t i = 0; i < logical_bindings.size(); ++i) {
+                    for (size_t j = 0; j < i; ++j) {
+                        if (logical_bindings[i].name == logical_bindings[j].name) { return fail("Duplicate logical coroutine binding."); }
+                    }
+                }
+                auto make = extension->is_annotation() ? make_coro_suspend_annotation_data : make_coro_suspend_extension_data;
+                auto logical = make(luisa::string{extension->schema()}, extension->version(), extension->fallback(),
+                                    std::move(logical_bindings), {extension->attributes().begin(), extension->attributes().end()});
+                extension = make_coro_suspend_projected_extension(std::move(logical),
+                                                                  {extension->bindings().begin(), extension->bindings().end()}, std::move(projections));
+            }
+        }
+    }
+    if (auxiliary_index != record.auxiliary.size() ||
+        payload_index != record.payloads.size() ||
+        std::find(bound.begin(), bound.end(), false) != bound.end()) {
+        return fail("Coroutine suspend extension record has trailing or unbound data.");
+    }
+    if (decoded != nullptr) { *decoded = std::move(data); }
+    return true;
+}
+
+[[nodiscard]] luisa::string encode_coro_suspend_attribute_value(
+    const CoroSuspendAttributeValue &value) noexcept {
+    return luisa::visit(
+        []<typename T>(const T &v) noexcept -> luisa::string {
+            if constexpr (std::is_same_v<T, bool>) {
+                return v ? "1" : "0";
+            } else if constexpr (std::is_same_v<T, double>) {
+                return encode_u64_hex(luisa::bit_cast<uint64_t>(v));
+            } else if constexpr (std::is_same_v<T, luisa::string>) {
+                return v;
+            } else {
+                return luisa::format("{}", v);
+            }
+        },
+        value);
+}
+
+void encode_coro_suspend_record(
+    const CoroSuspendInst *suspend,
+    luisa::vector<int64_t> &auxiliary,
+    luisa::vector<luisa::string> &payloads) noexcept {
+    auxiliary.emplace_back(suspend->token());
+    payloads.emplace_back(suspend->name());
+    if (suspend->frame_export_count() == 0u &&
+        suspend->extensions().empty() &&
+        suspend->extension_binding_value_count() == 0u) {
+        return;
+    }
+    auxiliary.emplace_back(
+        static_cast<int64_t>(suspend->frame_export_count()));
+    auxiliary.emplace_back(static_cast<int64_t>(
+        suspend->extension_binding_value_count()));
+    auxiliary.emplace_back(
+        static_cast<int64_t>(suspend->extensions().size()));
+    for (auto &&name : suspend->frame_export_names()) {
+        payloads.emplace_back(name);
+    }
+    for (auto &&extension : suspend->extensions()) {
+        payloads.emplace_back(extension->schema());
+        auxiliary.emplace_back(extension->version());
+        auxiliary.emplace_back(extension->is_annotation() ? 1 : 0);
+        auxiliary.emplace_back(
+            static_cast<int64_t>(extension->fallback()));
+        auxiliary.emplace_back(
+            static_cast<int64_t>(extension->bindings().size()));
+        auxiliary.emplace_back(
+            static_cast<int64_t>(extension->attributes().size()));
+        for (auto &&binding : extension->bindings()) {
+            payloads.emplace_back(binding.name);
+            auxiliary.emplace_back(
+                static_cast<int64_t>(binding.access));
+            auxiliary.emplace_back(
+                static_cast<int64_t>(binding.lifetime));
+            auxiliary.emplace_back(binding.index);
+        }
+        for (auto &&attribute : extension->attributes()) {
+            auxiliary.emplace_back(
+                static_cast<int64_t>(attribute.value.index()));
+            payloads.emplace_back(attribute.name);
+            payloads.emplace_back(
+                encode_coro_suspend_attribute_value(attribute.value));
+        }
+    }
+    auto projected = std::any_of(suspend->extensions().begin(), suspend->extensions().end(),
+                                 [](auto &e) { return !e->binding_projections().empty(); });
+    if (projected) {
+        auxiliary.emplace_back(-1);
+        for (auto &extension : suspend->extensions()) {
+            auxiliary.emplace_back(extension->binding_projections().size());
+            for (auto &projection : extension->binding_projections()) {
+                auxiliary.emplace_back(static_cast<int64_t>(projection.binding.access));
+                auxiliary.emplace_back(static_cast<int64_t>(projection.binding.lifetime));
+                auxiliary.emplace_back(projection.binding.index);
+                auxiliary.emplace_back(projection.alternatives.size());
+                payloads.emplace_back(projection.binding.name);
+                for (auto alternative : projection.alternatives) {
+                    auxiliary.emplace_back(alternative.value_index);
+                    auxiliary.emplace_back(alternative.condition_index);
+                }
+            }
+        }
+    }
+}
+
+[[nodiscard]] BindlessResourceAccess instruction_bindless_access(
+    const InstructionRecord &record) noexcept {
+    if ((record.tag != DerivedInstructionTag::RESOURCE_QUERY &&
+         record.tag != DerivedInstructionTag::RESOURCE_READ &&
+         record.tag != DerivedInstructionTag::RESOURCE_WRITE) ||
+        record.auxiliary.empty()) {
+        return {};
+    }
+    return BindlessResourceAccess::decode(
+        static_cast<uint8_t>(record.auxiliary.front()));
+}
 
 struct FunctionRecord {
     uint64_t id{0u};
@@ -1811,6 +2424,9 @@ binary_instruction_tag(uint64_t id) noexcept {
                 case MetadataRecord::Kind::CURVE_BASIS:
                 case MetadataRecord::Kind::SIGNATURE_CONSTRAINT:
                 case MetadataRecord::Kind::REG2MEM_SPILL:
+                case MetadataRecord::Kind::NO_INLINE:
+                case MetadataRecord::Kind::STRIDED_MMA:
+                case MetadataRecord::Kind::CONTIGUOUS_COPY:
                     break;
             }
         }
@@ -1854,7 +2470,7 @@ binary_instruction_tag(uint64_t id) noexcept {
             }
         }
     }
-    std::sort(strings.begin(), strings.end());
+    luisa::sort(strings.begin(), strings.end());
     strings.erase(std::unique(strings.begin(), strings.end()), strings.end());
     auto total_size = size_t{0u};
     for (auto &&string : strings) {
@@ -1947,6 +2563,42 @@ public:
                         return false;
                     }
                     break;
+                case MetadataRecord::Kind::NO_INLINE:
+                    integer(6u);
+                    break;
+                case MetadataRecord::Kind::STRIDED_MMA: {
+                    auto &&d = record.strided_mma;
+                    auto mode = encode_strided_mma_vectorization(d.vectorization);
+                    if (!mode || !is_valid_strided_mma_descriptor(d)) {
+                        _error = "XIR binary strided-MMA metadata has an invalid descriptor.";
+                        return false;
+                    }
+                    integer(7u);
+                    integer(*mode);
+                    integer(d.vector_width);
+                    integer(static_cast<uint64_t>(d.allow_reassociation));
+                    integer(d.contraction_extent);
+                    integer(d.lhs_contraction_stride);
+                    integer(d.rhs_contraction_stride);
+                    if (!count(d.output_extents.size())) { return false; }
+                    for (auto i = size_t{0u}; i < d.output_extents.size(); i++) {
+                        integer(d.output_extents[i]);
+                        integer(d.lhs_output_strides[i]);
+                        integer(d.rhs_output_strides[i]);
+                    }
+                    break;
+                }
+                case MetadataRecord::Kind::CONTIGUOUS_COPY: {
+                    auto &&d = record.contiguous_copy;
+                    if (!is_valid_contiguous_copy_descriptor(d)) {
+                        _error = "XIR binary contiguous-copy metadata has an invalid descriptor.";
+                        return false;
+                    }
+                    integer(8u);
+                    integer(d.element_count);
+                    integer(d.vector_width);
+                    break;
+                }
             }
         }
         return true;
@@ -2188,6 +2840,57 @@ public:
                     }
                     record.kind = MetadataRecord::Kind::REG2MEM_SPILL;
                     record.number = static_cast<int64_t>(*kind);
+                    break;
+                }
+                case 6u:
+                    record.kind = MetadataRecord::Kind::NO_INLINE;
+                    break;
+                case 7u: {
+                    record.kind = MetadataRecord::Kind::STRIDED_MMA;
+                    auto &d = record.strided_mma;
+                    uint64_t mode = 0u;
+                    uint64_t width = 0u;
+                    uint64_t reassociation = 0u;
+                    size_t rank = 0u;
+                    if (!integer(mode) || !integer(width) || !integer(reassociation) ||
+                        !integer(d.contraction_extent) || !integer(d.lhs_contraction_stride) ||
+                        !integer(d.rhs_contraction_stride) ||
+                        !count<std::array<uint64_t, 3u>>(rank)) {
+                        return false;
+                    }
+                    auto vectorization = decode_strided_mma_vectorization(mode);
+                    if (!vectorization || width > std::numeric_limits<uint32_t>::max() || reassociation > 1u) {
+                        return _reader.fail("Invalid XIR binary strided-MMA scalar fields.");
+                    }
+                    d.vectorization = *vectorization;
+                    d.vector_width = static_cast<uint32_t>(width);
+                    d.allow_reassociation = reassociation != 0u;
+                    d.output_extents.resize(rank);
+                    d.lhs_output_strides.resize(rank);
+                    d.rhs_output_strides.resize(rank);
+                    for (auto j = size_t{0u}; j < rank; j++) {
+                        if (!integer(d.output_extents[j]) || !integer(d.lhs_output_strides[j]) ||
+                            !integer(d.rhs_output_strides[j])) {
+                            return false;
+                        }
+                    }
+                    if (!is_valid_strided_mma_descriptor(d)) {
+                        return _reader.fail("Invalid XIR binary strided-MMA descriptor.");
+                    }
+                    break;
+                }
+                case 8u: {
+                    record.kind = MetadataRecord::Kind::CONTIGUOUS_COPY;
+                    auto &d = record.contiguous_copy;
+                    uint64_t width = 0u;
+                    if (!integer(d.element_count) || !integer(width)) { return false; }
+                    if (width > std::numeric_limits<uint32_t>::max()) {
+                        return _reader.fail("Invalid XIR binary contiguous-copy vector width.");
+                    }
+                    d.vector_width = static_cast<uint32_t>(width);
+                    if (!is_valid_contiguous_copy_descriptor(d)) {
+                        return _reader.fail("Invalid XIR binary contiguous-copy descriptor.");
+                    }
                     break;
                 }
                 default: return _reader.fail("Unknown XIR binary metadata kind.");
@@ -2493,21 +3196,29 @@ public:
         case DerivedInstructionTag::CONDITIONAL_BRANCH: return operand_count == 3u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::UNREACHABLE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 1u;
         case DerivedInstructionTag::RASTER_DISCARD: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
-        case DerivedInstructionTag::CORO_SUSPEND: return operand_count == 1u && auxiliary_count == 1u && payload_count == 1u;
+        // The first operand/auxiliary/payload remain frame/token/name. An
+        // extended self-describing suffix carries frame exports and complete
+        // suspend extension objects while preserving the legacy v1 shape.
+        case DerivedInstructionTag::CORO_SUSPEND:
+            return operand_count >= 1u && auxiliary_count >= 1u &&
+                   payload_count >= 1u;
         case DerivedInstructionTag::CORO_RESUME: return operand_count == 1u && auxiliary_count == 1u && payload_count == 0u;
         case DerivedInstructionTag::CORO_TERMINATE: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::RETURN: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::PHI: return operand_count == auxiliary_count && payload_count == 0u;
-        case DerivedInstructionTag::ALLOCA: return operand_count == 0u && auxiliary_count == 0u && payload_count == 0u;
+        case DerivedInstructionTag::ALLOCA: return operand_count == 0u && payload_count == 0u &&
+                                                   auxiliary_count <= 1u;
         case DerivedInstructionTag::LOAD: return operand_count == 1u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::STORE: return operand_count == 2u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::GEP: return operand_count >= 2u && auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::ATOMIC:
         case DerivedInstructionTag::ARITHMETIC:
         case DerivedInstructionTag::THREAD_GROUP:
+            return auxiliary_count == 0u && payload_count == 0u;
         case DerivedInstructionTag::RESOURCE_QUERY:
         case DerivedInstructionTag::RESOURCE_READ:
         case DerivedInstructionTag::RESOURCE_WRITE:
+            return auxiliary_count <= 1u && payload_count == 0u;
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
         case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
         case DerivedInstructionTag::RAY_QUERY_PIPELINE:
@@ -2725,8 +3436,17 @@ public:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ: return count == 3u;
         case ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL:
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: return count == 4u;
-        case ResourceReadOp::DEVICE_ADDRESS_READ: return count == 1u;
-    }
+ case ResourceReadOp::DEVICE_ADDRESS_READ: return count == 1u;
+ case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+ case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return count == 1u;
+ case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+ case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return count == 2u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD: return count == 3u;
+ case ResourceReadOp::COOPERATIVE_MUL: return count == 4u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_MUL: return count == 5u;
+ case ResourceReadOp::COOPERATIVE_MUL_ADD: return count == 7u;
+ case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD: return count == 8u;
+ }
     return false;
 }
 
@@ -2748,8 +3468,13 @@ public:
         case ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: return count == 4u;
         case ResourceWriteOp::DEVICE_ADDRESS_WRITE:
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return count == 2u;
-        case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return count == 5u;
-    }
+ case ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: return count == 5u;
+ case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+ case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+ case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return count == 3u;
+ case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE: return count == 4u;
+ case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: return count == 5u;
+ }
     return false;
 }
 
@@ -2762,6 +3487,9 @@ public:
         case ThreadGroupOp::WARP_READ_LANE: return count == 2u;
         case ThreadGroupOp::RASTER_QUAD_DDX:
         case ThreadGroupOp::RASTER_QUAD_DDY:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:
         case ThreadGroupOp::WARP_ACTIVE_BIT_AND:
         case ThreadGroupOp::WARP_ACTIVE_BIT_OR:
@@ -2873,23 +3601,16 @@ template<typename IndexSpan>
         }
         switch (current->tag()) {
             case Type::Tag::ARRAY:
-            case Type::Tag::VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
+            case Type::Tag::VECTOR:
+            case Type::Tag::COOPERATIVE_VECTOR: {
+                // Homogeneous aggregate bounds constrain execution, not the
+                // statically selected element type. Requiring constants to be
+                // in range while accepting an equivalent dynamic index would
+                // make verification non-monotone under value propagation.
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
@@ -2916,6 +3637,15 @@ template<typename IndexSpan>
     return type->size();
 }
 
+[[nodiscard]] bool storage_aggregate_bitcast_compatible(
+    const Type *source, const Type *target) noexcept {
+    auto is_storage_aggregate = [](const Type *type) noexcept {
+        return type->is_structure() || type->is_array();
+    };
+    return is_storage_aggregate(source) && is_storage_aggregate(target) &&
+           source->size() == target->size();
+}
+
 [[nodiscard]] bool cast_types_valid(
     CastOp op, const Type *target, const Value *source) noexcept {
     if (target == nullptr || target->is_resource() || target->is_custom() ||
@@ -2929,12 +3659,13 @@ template<typename IndexSpan>
                    target->is_scalar_or_vector() &&
                    source_type->dimension() == target->dimension();
         case CastOp::BITWISE_CAST:
-            return source_type->is_scalar_or_vector() &&
-                   target->is_scalar_or_vector() &&
-                   !source_type->is_bool_or_bool_vector() &&
-                   !target->is_bool_or_bool_vector() &&
-                   logical_register_width(source_type) ==
-                       logical_register_width(target);
+            return (source_type->is_scalar_or_vector() &&
+                    target->is_scalar_or_vector() &&
+                    !source_type->is_bool_or_bool_vector() &&
+                    !target->is_bool_or_bool_vector() &&
+                    logical_register_width(source_type) ==
+                        logical_register_width(target)) ||
+                   storage_aggregate_bitcast_compatible(source_type, target);
     }
     return false;
 }
@@ -3200,12 +3931,6 @@ template<typename OperandSpan>
             }
             for (auto index : operands.subspan(1u)) {
                 if (!integer_scalar_type(index->type())) { return false; }
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= operands[0]->type()->dimension())) {
-                    return false;
-                }
             }
             return true;
         case ArithmeticOp::EXTRACT:
@@ -3314,22 +4039,10 @@ template<typename OperandSpan>
                 break;
             case Type::Tag::ARRAY:
             case Type::Tag::VECTOR: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = current->element();
                 break;
             }
             case Type::Tag::MATRIX: {
-                uint64_t constant_index = 0u;
-                if (index->template isa<Constant>() &&
-                    (!try_decode_constant_nonnegative_integer(index, constant_index) ||
-                     constant_index >= current->dimension())) {
-                    return nullptr;
-                }
                 current = Type::vector(current->element(), current->dimension());
                 break;
             }
@@ -3500,6 +4213,19 @@ template<typename OperandSpan>
             return resource_argument_valid(base_value) && base->is_bindless_array();
         case ResourceReadOp::DEVICE_ADDRESS_READ:
             return data_operand_valid(base_value) && base->is_uint64();
+        case ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case ResourceReadOp::COOPERATIVE_MUL:
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+            return resource_argument_valid(base_value) && base->is_buffer();
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            return resource_argument_valid(base_value) && base->is_bindless_array();
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+            return typed_value_operand_valid(base_value) && base_value->is_lvalue();
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+            return data_operand_valid(base_value);
     }
     return false;
 }
@@ -3657,6 +4383,20 @@ template<typename OperandSpan>
         case ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL:
             return index32_at(1u) && uint_vector_type(operands[2]->type(), 3u) && integer_at(3u);
         case ResourceReadOp::DEVICE_ADDRESS_READ: return true;
+        case ResourceReadOp::COOPERATIVE_MUL_ADD:
+            return integer_at(1u) && integer_at(3u) && integer_at(5u) && integer_at(6u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+            return index32_at(1u) && integer_at(2u) && index32_at(3u) && integer_at(4u) &&
+                   integer_at(6u) && integer_at(7u);
+        case ResourceReadOp::COOPERATIVE_MUL: return integer_at(1u) && integer_at(3u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+            return index32_at(1u) && integer_at(2u) && integer_at(4u);
+        case ResourceReadOp::COOPERATIVE_VECTOR_LOAD: return integer_at(1u);
+        case ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+            return index32_at(1u) && integer_at(2u);
+        case ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case ResourceReadOp::COOPERATIVE_VECTOR_CAST: return true;
+        case ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD: return integer_at(1u);
     }
     return false;
 }
@@ -3698,6 +4438,13 @@ template<typename OperandSpan>
             return uint_at(1u) && uint_vector_type(operands[2]->type(), 3u) &&
                    uint_vector_type(operands[3]->type(), 3u) && uint_at(4u);
         case ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: return uint_at(1u);
+        case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+            return integer_at(1u) && integer_at(4u);
+        case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case ResourceWriteOp::COOPERATIVE_VECTOR_STORE: return integer_at(1u);
+        case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+            return index32_at(1u) && integer_at(2u);
+        case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: return integer_at(1u);
     }
     return false;
 }
@@ -3705,7 +4452,8 @@ template<typename OperandSpan>
 template<typename OperandSpan>
 [[nodiscard]] bool instruction_semantics_valid(
     DerivedInstructionTag tag, int64_t op, const Type *type,
-    const OperandSpan &operands) noexcept {
+    const OperandSpan &operands,
+    BindlessResourceAccess bindless_access = {}) noexcept {
     auto data_operands_valid = [&](size_t begin = 0u) noexcept {
         for (auto i = begin; i < operands.size(); i++) {
             if (!data_operand_valid(operands[i])) { return false; }
@@ -3772,6 +4520,12 @@ template<typename OperandSpan>
             }
             return true;
         case DerivedInstructionTag::CORO_SUSPEND:
+            if (type != nullptr || operands.empty() ||
+                (operands[0] != nullptr &&
+                 !typed_value_operand_valid(operands[0]))) {
+                return false;
+            }
+            return data_operands_valid(1u);
         case DerivedInstructionTag::CORO_RESUME:
             return type == nullptr &&
                    (operands[0] == nullptr || typed_value_operand_valid(operands[0]));
@@ -3782,6 +4536,10 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RESOURCE_QUERY: {
             if (!data_operands_valid(1u)) { return false; }
             auto query = static_cast<ResourceQueryOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(query)) {
+                return false;
+            }
             return resource_query_base_type_valid(query, operands[0]) &&
                    resource_query_result_type_valid(query, type) &&
                    resource_query_operand_types_valid(query, operands);
@@ -3789,6 +4547,10 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RESOURCE_READ: {
             if (!data_operands_valid(1u)) { return false; }
             auto read = static_cast<ResourceReadOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(read)) {
+                return false;
+            }
             if (type == nullptr || !resource_read_base_type_valid(read, operands[0]) ||
                 !resource_read_operand_types_valid(read, operands)) {
                 return false;
@@ -3819,6 +4581,10 @@ template<typename OperandSpan>
             if (type != nullptr || !data_operands_valid(1u)) { return false; }
             if (operands[0] == nullptr || operands[0]->type() == nullptr) { return false; }
             auto write = static_cast<ResourceWriteOp>(op);
+            if (!bindless_access.is_default() &&
+                !is_bindless_resource_op(write)) {
+                return false;
+            }
             auto base = operands[0]->type();
             if (!resource_write_operand_types_valid(write, operands)) { return false; }
             switch (write) {
@@ -3853,6 +4619,14 @@ template<typename OperandSpan>
                     return (resource_argument_valid(operands[0]) && base->is_buffer()) ||
                            (typed_value_operand_valid(operands[0]) && operands[0]->is_lvalue() &&
                             base == indirect_dispatch_buffer_type());
+                case ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+                case ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+                    return resource_argument_valid(operands[0]) && base->is_buffer();
+                case ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+                    return resource_argument_valid(operands[0]) && base->is_bindless_array();
+                case ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE:
+                    return typed_value_operand_valid(operands[0]) && operands[0]->is_lvalue();
             }
             return false;
         }
@@ -3887,6 +4661,11 @@ template<typename OperandSpan>
                 case ThreadGroupOp::RASTER_QUAD_DDX:
                 case ThreadGroupOp::RASTER_QUAD_DDY:
                     return type == operands[0]->type() && type != nullptr && type->is_float_or_float_vector();
+                case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+                case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+                case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
+                    return type == nullptr && operands[0]->type() != nullptr &&
+                           operands[0]->type()->is_float32();
                 case ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE: return type != nullptr && type->is_bool();
                 case ThreadGroupOp::WARP_FIRST_ACTIVE_LANE: return type != nullptr && type->is_uint32();
                 case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:
@@ -3929,6 +4708,7 @@ template<typename OperandSpan>
             if (!ray_query_object_valid(operands[0]) || type == nullptr) { return false; }
             switch (static_cast<RayQueryObjectReadOp>(op)) {
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: return type == ray_type();
+                case RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: return type == ray_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: return type == procedural_hit_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: return type == surface_hit_type();
                 case RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: return type == committed_hit_type();
@@ -4055,6 +4835,10 @@ template<typename OperandSpan>
                            [](int64_t value) noexcept { return value >= 0; });
     };
     switch (record.tag) {
+        case DerivedInstructionTag::ALLOCA:
+            return record.auxiliary.empty() || (record.auxiliary.size() == 1u && record.auxiliary[0] > 0 &&
+                                                static_cast<uint64_t>(record.auxiliary[0]) <= std::numeric_limits<uint32_t>::max());
+
         case DerivedInstructionTag::IF:
             return !record.auxiliary.empty() && record.auxiliary.front() >= -1;
         case DerivedInstructionTag::LOOP:
@@ -4068,6 +4852,7 @@ template<typename OperandSpan>
         case DerivedInstructionTag::INDEXED_BRANCH:
             return all_nonnegative();
         case DerivedInstructionTag::CORO_SUSPEND:
+            return decode_coro_suspend_record(record, nullptr);
         case DerivedInstructionTag::CORO_RESUME:
             return record.auxiliary[0u] >= 0 &&
                    static_cast<uint64_t>(record.auxiliary[0u]) <= std::numeric_limits<uint32_t>::max();
@@ -4081,6 +4866,12 @@ template<typename OperandSpan>
             }
             return forward == 0 ? n_forward_grads == 0 : n_forward_grads > 0;
         }
+        case DerivedInstructionTag::RESOURCE_QUERY:
+        case DerivedInstructionTag::RESOURCE_READ:
+        case DerivedInstructionTag::RESOURCE_WRITE:
+            return record.auxiliary.empty() ||
+                   (record.auxiliary.front() >= 0 &&
+                    record.auxiliary.front() <= 3);
         default: return true;
     }
 }
@@ -4125,11 +4916,24 @@ template<typename OperandSpan>
         case DerivedInstructionTag::RASTER_DISCARD:
             instruction = luisa::make_managed<RasterDiscardInst>(block);
             break;
-        case DerivedInstructionTag::CORO_SUSPEND:
+        case DerivedInstructionTag::CORO_SUSPEND: {
+            CoroSuspendInterchangeData data;
+            if (!decode_coro_suspend_record(record, &data)) {
+                return nullptr;
+            }
+            auto frame_export_values = luisa::vector<Value *>(
+                data.frame_export_names.size(), nullptr);
+            auto extension_binding_values = luisa::vector<Value *>(
+                data.extension_binding_value_count, nullptr);
             instruction = luisa::make_managed<CoroSuspendInst>(
                 block, static_cast<uint32_t>(record.auxiliary[0u]),
-                record.payloads[0u], nullptr);
+                record.payloads[0u], nullptr,
+                luisa::span{data.frame_export_names},
+                luisa::span{frame_export_values},
+                std::move(data.extensions),
+                luisa::span{extension_binding_values});
             break;
+        }
         case DerivedInstructionTag::CORO_RESUME:
             instruction = luisa::make_managed<CoroResumeInst>(
                 block, static_cast<uint32_t>(record.auxiliary[0u]), nullptr);
@@ -4146,9 +4950,12 @@ template<typename OperandSpan>
             instruction = std::move(value);
             break;
         }
-        case DerivedInstructionTag::ALLOCA:
-            instruction = luisa::make_managed<AllocaInst>(block, type, static_cast<AllocaOp>(record.op));
+        case DerivedInstructionTag::ALLOCA: {
+            auto value = luisa::make_managed<AllocaInst>(block, type, static_cast<AllocaOp>(record.op));
+            if (!record.auxiliary.empty()) { value->set_coro_return_selector(static_cast<uint32_t>(record.auxiliary[0])); }
+            instruction = std::move(value);
             break;
+        }
         case DerivedInstructionTag::LOAD:
             instruction = luisa::make_managed<LoadInst>(block, type, nullptr);
             break;
@@ -4173,13 +4980,19 @@ template<typename OperandSpan>
             instruction = luisa::make_managed<ThreadGroupInst>(block, type, static_cast<ThreadGroupOp>(record.op), null_operands);
             break;
         case DerivedInstructionTag::RESOURCE_QUERY:
-            instruction = luisa::make_managed<ResourceQueryInst>(block, type, static_cast<ResourceQueryOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceQueryInst>(
+                block, type, static_cast<ResourceQueryOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RESOURCE_READ:
-            instruction = luisa::make_managed<ResourceReadInst>(block, type, static_cast<ResourceReadOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceReadInst>(
+                block, type, static_cast<ResourceReadOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RESOURCE_WRITE:
-            instruction = luisa::make_managed<ResourceWriteInst>(block, static_cast<ResourceWriteOp>(record.op), null_operands);
+            instruction = luisa::make_managed<ResourceWriteInst>(
+                block, static_cast<ResourceWriteOp>(record.op),
+                null_operands, instruction_bindless_access(record));
             break;
         case DerivedInstructionTag::RAY_QUERY_LOOP:
             instruction = luisa::make_managed<RayQueryLoopInst>(block);
@@ -4364,6 +5177,16 @@ template<typename OperandSpan>
                 return result;
             }
             function = module->create_callable(return_type);
+        } else if (function_record.kind == "raster_vertex" ||
+                   function_record.kind == "raster_fragment") {
+            if (function_record.block_size != std::array<uint32_t, 3u>{}) {
+                fail("Raster stage function has a nonzero block size.");
+                return result;
+            }
+            auto stage = function_record.kind == "raster_vertex" ?
+                             RasterStage::VERTEX :
+                             RasterStage::FRAGMENT;
+            function = module->create_raster_stage(return_type, stage);
         } else if (function_record.kind == "external") {
             if (function_record.block_size != std::array<uint32_t, 3u>{} ||
                 !function_record.blocks.empty() || function_record.body != -1 ||
@@ -4482,8 +5305,12 @@ template<typename OperandSpan>
                     return result;
                 }
             }
-            if (!instruction_semantics_valid(instruction_record.tag, instruction_record.op,
-                                             instruction->type(), luisa::span{resolved_operands})) {
+            if (instruction_record.tag !=
+                    DerivedInstructionTag::CORO_SUSPEND &&
+                !instruction_semantics_valid(
+                    instruction_record.tag, instruction_record.op,
+                    instruction->type(), luisa::span{resolved_operands},
+                    instruction_bindless_access(instruction_record))) {
                 fail("XIR instruction operands or result type do not match its operation.");
                 return result;
             }
@@ -4638,12 +5465,15 @@ template<typename OperandSpan>
     return result;
 }
 
+}  // namespace xir_interchange_detail
 }// namespace
 
 bool detail::interchange_instruction_semantics_valid(
     DerivedInstructionTag tag, int64_t op, const Type *type,
-    luisa::span<const Value *const> operands) noexcept {
-    return instruction_semantics_valid(tag, op, type, operands);
+    luisa::span<const Value *const> operands,
+    BindlessResourceAccess bindless_access) noexcept {
+    return xir_interchange_detail::instruction_semantics_valid(
+        tag, op, type, operands, bindless_access);
 }
 
 XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noexcept {
@@ -4665,7 +5495,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         }
         return result;
     }
-    auto writer_records_remaining = max_record_count;
+    auto writer_records_remaining = xir_interchange_detail::max_record_count;
     auto consume_writer_records = [&](size_t count) noexcept {
         if (count > writer_records_remaining) {
             return fail("Cumulative XIR record count exceeds the supported output budget.");
@@ -4677,7 +5507,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
     for (auto count : {module->constant_list().count_size(),
                        module->undefined_list().count_size(),
                        module->special_register_list().count_size()}) {
-        if (count > max_record_count - global_count || !consume_writer_records(count)) {
+        if (count > xir_interchange_detail::max_record_count - global_count || !consume_writer_records(count)) {
             if (result.diagnostics.empty()) { fail("XIR global count exceeds the supported limit."); }
             return result;
         }
@@ -4692,7 +5522,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         auto instruction_count = size_t{0u};
         for (auto block : function->basic_blocks()) {
             auto count = block->instructions().count_size();
-            if (count > max_record_count - instruction_count) {
+            if (count > xir_interchange_detail::max_record_count - instruction_count) {
                 fail("XIR instruction count exceeds the supported limit.");
                 return result;
             }
@@ -4722,12 +5552,18 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         return luisa::nullopt;
     };
     auto append_type = [&](const Type *type) noexcept {
-        append_quoted(result.text, type == nullptr ? luisa::string_view{"void"} : type->description());
+        xir_interchange_detail::append_quoted(result.text, type == nullptr ? luisa::string_view{"void"} : type->description());
     };
     auto append_metadata = [&](const MetadataListMixin &owner, luisa::string_view indentation) noexcept {
         if (!consume_writer_records(owner.metadata_list().count_size())) { return false; }
+        for (auto metadata : owner.metadata_list()) {
+            if (metadata->isa<StridedMmaMD>()) {
+                auto mma = static_cast<const StridedMmaMD *>(metadata);
+                if (!consume_writer_records(mma->descriptor.output_extents.size())) { return false; }
+            }
+        }
         luisa::string error;
-        if (append_metadata_records(result.text, owner, indentation, error)) { return true; }
+        if (xir_interchange_detail::append_metadata_records(result.text, owner, indentation, error)) { return true; }
         fail(std::move(error));
         return false;
     };
@@ -4741,15 +5577,15 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         if (value->type() == nullptr || value->type()->is_resource() ||
             value->type()->is_custom() || value->type()->is_cooperative_vector() ||
             value->type()->is_cooperative_vector_ref() ||
-            value->type()->is_cooperative_matrix_ref() || !round_trippable_type(value->type())) {
+            value->type()->is_cooperative_matrix_ref() || !xir_interchange_detail::round_trippable_type(value->type())) {
             fail("XIR interchange cannot serialize this constant.");
             return result;
         }
         size_t canonical_size = 0u;
         luisa::vector<std::byte> bytes;
-        if (!canonical_constant_size(value->type(), canonical_size) ||
-            canonical_size > max_payload_size ||
-            !encode_canonical_constant(value->type(), value->data(), bytes)) {
+        if (!xir_interchange_detail::canonical_constant_size(value->type(), canonical_size) ||
+            canonical_size > xir_interchange_detail::max_payload_size ||
+            !xir_interchange_detail::encode_canonical_constant(value->type(), value->data(), bytes)) {
             fail("XIR constant payload exceeds the supported size limit.");
             return result;
         }
@@ -4766,7 +5602,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
     }
     for (auto value : module->undefined_list()) {
         if (value->type() == nullptr || value->type()->is_resource() ||
-            !round_trippable_type(value->type())) {
+            !xir_interchange_detail::round_trippable_type(value->type())) {
             fail("XIR interchange cannot serialize this undefined value.");
             return result;
         }
@@ -4787,11 +5623,20 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
             fail("XIR external function contains a definition.");
             return result;
         }
-        if (!round_trippable_type(function->type())) {
+        if (!xir_interchange_detail::round_trippable_type(function->type())) {
             fail("XIR interchange cannot serialize this function return type.");
             return result;
         }
         auto kind = to_string(function->derived_function_tag());
+        if (function->isa<RasterStageFunction>()) {
+            auto stage = static_cast<const RasterStageFunction *>(function)->stage();
+            if (!RasterStageFunction::is_valid_stage(stage)) {
+                fail("XIR raster stage function has an invalid stage identity.");
+                return result;
+            }
+            kind = stage == RasterStage::VERTEX ? "raster_vertex" :
+                                                  "raster_fragment";
+        }
         auto block_size = function->isa<KernelFunction>() ? static_cast<const KernelFunction *>(function)->block_size() : luisa::make_uint3(0u);
         luisa::format_to(std::back_inserter(result.text), "  function {} {} ", *id(function), kind);
         append_type(function->type());
@@ -4800,7 +5645,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         luisa::format_to(std::back_inserter(result.text), "    arguments {}\n", function->arguments().count_size());
         for (auto argument : function->arguments()) {
             if (argument->type() == nullptr ||
-                !round_trippable_type(argument->type())) {
+                !xir_interchange_detail::round_trippable_type(argument->type())) {
                 fail("XIR interchange cannot serialize this argument.");
                 return result;
             }
@@ -4827,15 +5672,19 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         luisa::format_to(std::back_inserter(result.text), "    instructions {}\n", instruction_count);
         for (auto block : function->basic_blocks()) {
             for (auto instruction : block->instructions()) {
-                auto name = instruction_name(instruction->derived_instruction_tag());
+                auto name = xir_interchange_detail::instruction_name(instruction->derived_instruction_tag());
                 if (!name ||
-                    !round_trippable_type(instruction->type())) {
+                    !xir_interchange_detail::round_trippable_type(instruction->type())) {
                     fail("XIR interchange v1 encountered an unsupported instruction.");
                     return result;
                 }
                 auto op = int64_t{-1};
                 switch (instruction->derived_instruction_tag()) {
-                    case DerivedInstructionTag::ALLOCA: op = static_cast<int64_t>(static_cast<const AllocaInst *>(instruction)->op()); break;
+                    case DerivedInstructionTag::ALLOCA: {
+                        auto *alloca = static_cast<const AllocaInst *>(instruction);
+                        op = static_cast<int64_t>(alloca->op());
+                        break;
+                    }
                     case DerivedInstructionTag::ATOMIC: op = static_cast<int64_t>(static_cast<const AtomicInst *>(instruction)->op()); break;
                     case DerivedInstructionTag::ARITHMETIC: op = static_cast<int64_t>(static_cast<const ArithmeticInst *>(instruction)->op()); break;
                     case DerivedInstructionTag::THREAD_GROUP: op = static_cast<int64_t>(static_cast<const ThreadGroupInst *>(instruction)->op()); break;
@@ -4857,7 +5706,35 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     default: break;
                 }
                 luisa::vector<int64_t> auxiliary;
+                luisa::vector<luisa::string> payloads;
+                if (instruction->isa<AllocaInst>()) {
+                    if (auto selector = static_cast<const AllocaInst *>(instruction)->coro_return_selector()) { auxiliary.emplace_back(selector); }
+                }
                 switch (instruction->derived_instruction_tag()) {
+                    case DerivedInstructionTag::RESOURCE_QUERY: {
+                        auto access = static_cast<const ResourceQueryInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
+                    case DerivedInstructionTag::RESOURCE_READ: {
+                        auto access = static_cast<const ResourceReadInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
+                    case DerivedInstructionTag::RESOURCE_WRITE: {
+                        auto access = static_cast<const ResourceWriteInst *>(instruction)
+                                          ->bindless_access();
+                        if (!access.is_default()) {
+                            auxiliary.emplace_back(access.encoded());
+                        }
+                        break;
+                    }
                     case DerivedInstructionTag::IF: {
                         auto merge = static_cast<const IfInst *>(instruction)->merge_block();
                         if (merge != nullptr && !id(merge)) {
@@ -4880,7 +5757,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                                                    -1ll :
                                                    static_cast<int64_t>(*id(merge)));
                         for (auto case_value : switch_inst->case_values()) {
-                            auxiliary.emplace_back(encode_switch_case_value(
+                            auxiliary.emplace_back(xir_interchange_detail::encode_switch_case_value(
                                 switch_inst->value()->type(), case_value));
                         }
                         break;
@@ -4891,7 +5768,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                         for (auto case_value :
                              indexed_branch->case_values()) {
                             auxiliary.emplace_back(
-                                encode_switch_case_value(
+                                xir_interchange_detail::encode_switch_case_value(
                                     indexed_branch->value()->type(),
                                     case_value));
                         }
@@ -4930,7 +5807,9 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                         break;
                     }
                     case DerivedInstructionTag::CORO_SUSPEND:
-                        auxiliary.emplace_back(static_cast<const CoroSuspendInst *>(instruction)->token());
+                        xir_interchange_detail::encode_coro_suspend_record(
+                            static_cast<const CoroSuspendInst *>(instruction),
+                            auxiliary, payloads);
                         break;
                     case DerivedInstructionTag::CORO_RESUME:
                         auxiliary.emplace_back(static_cast<const CoroResumeInst *>(instruction)->token());
@@ -4968,14 +5847,11 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     }
                     default: break;
                 }
-                luisa::vector<luisa::string_view> payloads;
                 switch (instruction->derived_instruction_tag()) {
                     case DerivedInstructionTag::UNREACHABLE:
                         payloads.emplace_back(static_cast<const UnreachableInst *>(instruction)->message());
                         break;
-                    case DerivedInstructionTag::CORO_SUSPEND:
-                        payloads.emplace_back(static_cast<const CoroSuspendInst *>(instruction)->name());
-                        break;
+                    case DerivedInstructionTag::CORO_SUSPEND: break;
                     case DerivedInstructionTag::PRINT:
                         payloads.emplace_back(static_cast<const PrintInst *>(instruction)->format());
                         break;
@@ -4988,13 +5864,13 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     default: break;
                 }
                 for (auto payload : payloads) {
-                    if (payload.size() > max_string_payload_size) {
+                    if (payload.size() > xir_interchange_detail::max_string_payload_size) {
                         fail("XIR instruction string payload exceeds the supported limit.");
                         return result;
                     }
                 }
-                if (!valid_op(instruction->derived_instruction_tag(), op) ||
-                    !instruction_operand_count_valid(instruction->derived_instruction_tag(), op,
+                if (!xir_interchange_detail::valid_op(instruction->derived_instruction_tag(), op) ||
+                    !xir_interchange_detail::instruction_operand_count_valid(instruction->derived_instruction_tag(), op,
                                                      instruction->operand_count(), auxiliary.size(), payloads.size())) {
                     fail("XIR instruction has an unsupported operand or opcode layout.");
                     return result;
@@ -5004,7 +5880,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     !consume_writer_records(payloads.size())) {
                     return result;
                 }
-                auto op_name = instruction_op_name(instruction->derived_instruction_tag(), op);
+                auto op_name = xir_interchange_detail::instruction_op_name(instruction->derived_instruction_tag(), op);
                 if (!op_name) {
                     fail("XIR instruction has an unsupported operation.");
                     return result;
@@ -5014,8 +5890,26 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                 for (auto operand_use : instruction->operand_uses()) {
                     semantic_operands.emplace_back(operand_use->value());
                 }
-                if (!instruction_semantics_valid(instruction->derived_instruction_tag(), op,
-                                                 instruction->type(), luisa::span{semantic_operands})) {
+                auto bindless_access = [&]() noexcept {
+                    switch (instruction->derived_instruction_tag()) {
+                        case DerivedInstructionTag::RESOURCE_QUERY:
+                            return static_cast<const ResourceQueryInst *>(instruction)
+                                ->bindless_access();
+                        case DerivedInstructionTag::RESOURCE_READ:
+                            return static_cast<const ResourceReadInst *>(instruction)
+                                ->bindless_access();
+                        case DerivedInstructionTag::RESOURCE_WRITE:
+                            return static_cast<const ResourceWriteInst *>(instruction)
+                                ->bindless_access();
+                        default: return BindlessResourceAccess{};
+                    }
+                }();
+                if (instruction->derived_instruction_tag() !=
+                        DerivedInstructionTag::CORO_SUSPEND &&
+                    !xir_interchange_detail::instruction_semantics_valid(
+                        instruction->derived_instruction_tag(), op,
+                        instruction->type(), luisa::span{semantic_operands},
+                        bindless_access)) {
                     fail("XIR instruction operands or result type do not match its operation.");
                     return result;
                 }
@@ -5038,7 +5932,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
                     luisa::format_to(std::back_inserter(result.text), " payloads {}", payloads.size());
                     for (auto payload : payloads) {
                         result.text.push_back(' ');
-                        append_quoted(result.text, payload);
+                        xir_interchange_detail::append_quoted(result.text, payload);
                     }
                 }
                 result.text.push_back('\n');
@@ -5048,7 +5942,7 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
         result.text.append("  }\n");
     }
     result.text.append("}\n");
-    if (result.text.size() > max_payload_size) {
+    if (result.text.size() > xir_interchange_detail::max_payload_size) {
         fail("XIR text payload exceeds the supported size limit.");
     }
     return result;
@@ -5056,19 +5950,19 @@ XIRInterchangeTextWriteResult xir_to_interchange_text(const Module *module) noex
 
 XIRInterchangeParseResult xir_from_interchange_text(luisa::string_view text) noexcept {
     XIRInterchangeParseResult result;
-    if (text.size() > max_payload_size) {
-        result.diagnostics.emplace_back(diagnostic_at(text, 0u, "XIR text payload exceeds the supported size limit."));
+    if (text.size() > xir_interchange_detail::max_payload_size) {
+        result.diagnostics.emplace_back(xir_interchange_detail::diagnostic_at(text, 0u, "XIR text payload exceeds the supported size limit."));
         return result;
     }
-    TextParser parser{text, result.diagnostics};
-    ModuleRecord record;
-    if (!parse_module_record(parser, record)) {
+    xir_interchange_detail::TextParser parser{text, result.diagnostics};
+    xir_interchange_detail::ModuleRecord record;
+    if (!xir_interchange_detail::parse_module_record(parser, record)) {
         if (result.diagnostics.empty()) {
-            result.diagnostics.emplace_back(diagnostic_at(text, parser.offset(), "Malformed XIR interchange text."));
+            result.diagnostics.emplace_back(xir_interchange_detail::diagnostic_at(text, parser.offset(), "Malformed XIR interchange text."));
         }
         return result;
     }
-    return build_module(record);
+    return xir_interchange_detail::build_module(record);
 }
 
 XIRInterchangeBitcodeWriteResult xir_to_bitcode(const Module *module) noexcept {
@@ -5078,9 +5972,9 @@ XIRInterchangeBitcodeWriteResult xir_to_bitcode(const Module *module) noexcept {
         result.diagnostics = std::move(text_result.diagnostics);
         return result;
     }
-    ModuleRecord record;
-    TextParser parser{text_result.text, result.diagnostics};
-    if (!parse_module_record(parser, record)) {
+    xir_interchange_detail::ModuleRecord record;
+    xir_interchange_detail::TextParser parser{text_result.text, result.diagnostics};
+    if (!xir_interchange_detail::parse_module_record(parser, record)) {
         if (result.diagnostics.empty()) {
             result.diagnostics.emplace_back(XIRInterchangeDiagnostic{
                 .message = "Internal error while lowering XIR to its binary module record."});
@@ -5089,16 +5983,16 @@ XIRInterchangeBitcodeWriteResult xir_to_bitcode(const Module *module) noexcept {
     }
     luisa::vector<std::byte> payload;
     luisa::string error;
-    if (!encode_binary_module_record(record, payload, error)) {
+    if (!xir_interchange_detail::encode_binary_module_record(record, payload, error)) {
         result.diagnostics.emplace_back(XIRInterchangeDiagnostic{.message = std::move(error)});
         return result;
     }
-    result.bitcode.reserve(bitcode_header_size + payload.size());
-    result.bitcode.insert(result.bitcode.end(), bitcode_magic.begin(), bitcode_magic.end());
-    append_u32(result.bitcode, bitcode_version);
-    append_u32(result.bitcode, 0u);
-    append_u64(result.bitcode, payload.size());
-    append_u64(result.bitcode, checksum(payload));
+    result.bitcode.reserve(xir_interchange_detail::bitcode_header_size + payload.size());
+    result.bitcode.insert(result.bitcode.end(), xir_interchange_detail::bitcode_magic.begin(), xir_interchange_detail::bitcode_magic.end());
+    xir_interchange_detail::append_u32(result.bitcode, xir_interchange_detail::bitcode_version);
+    xir_interchange_detail::append_u32(result.bitcode, 0u);
+    xir_interchange_detail::append_u64(result.bitcode, payload.size());
+    xir_interchange_detail::append_u64(result.bitcode, xir_interchange_detail::checksum(payload));
     result.bitcode.insert(result.bitcode.end(), payload.begin(), payload.end());
     return result;
 }
@@ -5110,58 +6004,58 @@ XIRInterchangeParseResult xir_from_bitcode(luisa::span<const std::byte> bitcode)
             .offset = offset,
             .message = std::move(message)});
     };
-    if (bitcode.size() < bitcode_header_size) {
+    if (bitcode.size() < xir_interchange_detail::bitcode_header_size) {
         fail("Truncated XIR bitcode header.", bitcode.size());
         return result;
     }
-    for (auto i = 0u; i < bitcode_magic.size(); i++) {
-        if (bitcode[i] != bitcode_magic[i]) {
+    for (auto i = 0u; i < xir_interchange_detail::bitcode_magic.size(); i++) {
+        if (bitcode[i] != xir_interchange_detail::bitcode_magic[i]) {
             fail("Invalid XIR bitcode magic.", i);
             return result;
         }
     }
-    auto version = read_u32(bitcode, 8u);
-    if (version != interchange_version && version != bitcode_version) {
+    auto version = xir_interchange_detail::read_u32(bitcode, 8u);
+    if (version != xir_interchange_detail::interchange_version && version != xir_interchange_detail::bitcode_version) {
         fail("Unsupported XIR bitcode version.", 8u);
         return result;
     }
-    if (read_u32(bitcode, 12u) != 0u) {
+    if (xir_interchange_detail::read_u32(bitcode, 12u) != 0u) {
         fail("XIR bitcode reserved header bits are nonzero.", 12u);
         return result;
     }
-    auto payload_size_u64 = read_u64(bitcode, 16u);
-    if (payload_size_u64 > max_payload_size || payload_size_u64 > std::numeric_limits<size_t>::max()) {
+    auto payload_size_u64 = xir_interchange_detail::read_u64(bitcode, 16u);
+    if (payload_size_u64 > xir_interchange_detail::max_payload_size || payload_size_u64 > std::numeric_limits<size_t>::max()) {
         fail("XIR bitcode payload exceeds the supported size limit.", 16u);
         return result;
     }
     auto payload_size = static_cast<size_t>(payload_size_u64);
-    if (payload_size > bitcode.size() - bitcode_header_size) {
+    if (payload_size > bitcode.size() - xir_interchange_detail::bitcode_header_size) {
         fail("Truncated XIR bitcode payload.", bitcode.size());
         return result;
     }
-    if (payload_size != bitcode.size() - bitcode_header_size) {
-        fail("Unexpected trailing bytes after XIR bitcode payload.", bitcode_header_size + payload_size);
+    if (payload_size != bitcode.size() - xir_interchange_detail::bitcode_header_size) {
+        fail("Unexpected trailing bytes after XIR bitcode payload.", xir_interchange_detail::bitcode_header_size + payload_size);
         return result;
     }
-    auto payload = bitcode.subspan(bitcode_header_size, payload_size);
-    if (checksum(payload) != read_u64(bitcode, 24u)) {
+    auto payload = bitcode.subspan(xir_interchange_detail::bitcode_header_size, payload_size);
+    if (xir_interchange_detail::checksum(payload) != xir_interchange_detail::read_u64(bitcode, 24u)) {
         fail("XIR bitcode payload checksum mismatch.", 24u);
         return result;
     }
-    if (version == interchange_version) {
+    if (version == xir_interchange_detail::interchange_version) {
         auto text = luisa::string_view{
             reinterpret_cast<const char *>(payload.data()), payload.size()};
         return xir_from_interchange_text(text);
     }
-    ModuleRecord record;
-    BinaryReader reader{payload, bitcode_header_size, result.diagnostics};
-    if (!decode_binary_module_record(reader, record)) {
+    xir_interchange_detail::ModuleRecord record;
+    xir_interchange_detail::BinaryReader reader{payload, xir_interchange_detail::bitcode_header_size, result.diagnostics};
+    if (!xir_interchange_detail::decode_binary_module_record(reader, record)) {
         if (result.diagnostics.empty()) {
-            fail("Malformed XIR binary module record.", bitcode_header_size + reader.offset());
+            fail("Malformed XIR binary module record.", xir_interchange_detail::bitcode_header_size + reader.offset());
         }
         return result;
     }
-    return build_module(record);
+    return xir_interchange_detail::build_module(record);
 }
 
 }// namespace luisa::compute::xir

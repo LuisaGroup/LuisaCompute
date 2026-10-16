@@ -201,7 +201,7 @@ ComputeShader *ComputeShader::compile_compute(
         return compile_new_compute(false, {});
     }
 }
-void ComputeShader::save_compute(
+bool ComputeShader::save_compute(
     BinaryIO const *file_io,
     luisa::compute::Profiler *profiler,
     Function kernel,
@@ -229,10 +229,11 @@ void ComputeShader::save_compute(
         profiler->before_load_shader_bytecode(fileName);
     }
     if (ShaderSerializer::CheckMD5(fileName, md5, *file_io)) {
+        LUISA_VERBOSE("Shader '{}' bytecode cache hit (MD5 match), skipping DXC recompile.", fileName);
         if (profiler) [[unlikely]] {
             profiler->after_load_shader_bytecode(fileName, true);
         }
-        return;
+        return true;
     } else {
         if (profiler) [[unlikely]] {
             profiler->after_load_shader_bytecode(fileName, false);
@@ -252,33 +253,34 @@ void ComputeShader::save_compute(
         if (profiler) [[unlikely]] {
             profiler->after_compile_shader_bytecode(fileName);
         }
-        comp_result.multi_visit(
-            [&](hlsl::ComUniquePtr<IDxcBlob> &buffer) {
-                auto kernel_args = ShaderSerializer::SerializeKernel(kernel);
-                uint bdls_buffer_count = 0;
-                if (str.useBufferBindless) bdls_buffer_count++;
-                if (str.useTex2DBindless) bdls_buffer_count++;
-                if (str.useTex3DBindless) bdls_buffer_count++;
-                auto ser_data = ShaderSerializer::Serialize(
-                    str.properties,
-                    kernel_args,
-                    {reinterpret_cast<std::byte const *>(buffer->GetBufferPointer()),
-                     buffer->GetBufferSize()},
-                    md5,
-                    str.typeMD5,
-                    bdls_buffer_count,
-                    str.validation_count,
-                    blockSize,
-                    str.printers);
-                static_cast<void>(file_io->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(ser_data.data()), luisa::size_bytes(ser_data)}));
-            },
-            [](auto &&err) {
-                LUISA_ERROR("DXC compute-shader compile error: {}", err);
-            });
+        if (comp_result.is_type_of<vstd::string>()) {
+            LUISA_WARNING("DXC compute-shader compile error for '{}': {}",
+                           fileName, comp_result.get<1>());
+            return false;
+        }
+        auto &buffer = comp_result.get<0>();
+        auto kernel_args = ShaderSerializer::SerializeKernel(kernel);
+        uint bdls_buffer_count = 0;
+        if (str.useBufferBindless) bdls_buffer_count++;
+        if (str.useTex2DBindless) bdls_buffer_count++;
+        if (str.useTex3DBindless) bdls_buffer_count++;
+        auto ser_data = ShaderSerializer::Serialize(
+            str.properties,
+            kernel_args,
+            {reinterpret_cast<std::byte const *>(buffer->GetBufferPointer()),
+             buffer->GetBufferSize()},
+            md5,
+            str.typeMD5,
+            bdls_buffer_count,
+            str.validation_count,
+            blockSize,
+            str.printers);
+        static_cast<void>(file_io->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(ser_data.data()), luisa::size_bytes(ser_data)}));
     } else {
         // write HLSL code if compiler not initialized
         static_cast<void>(file_io->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(str.result.data()), str.result.size()}));
     }
+    return true;
 }
 ID3D12CommandSignature *ComputeShader::cmd_sig() const {
     std::lock_guard lck(_cmd_sig_mtx);

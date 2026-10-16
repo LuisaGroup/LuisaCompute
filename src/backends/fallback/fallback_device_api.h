@@ -191,7 +191,12 @@ static_assert(sizeof(AccelInstance) == 64u);
 
 struct alignas(16) AccelView {
     void *embree_scene;
-    AccelInstance *instances;
+    // The instance vector is populated and may be reallocated by an
+    // asynchronous accel-build command. Shader arguments are encoded when
+    // they are submitted, before that command necessarily runs, so retain a
+    // stable pointer to the backend-owned data pointer rather than snapshotting
+    // the current (possibly null or soon stale) vector address.
+    AccelInstance **instances;
 };
 
 void luisa_fallback_accel_trace_closest(void *handle, EmbreeRayHit *ray_hit) noexcept;
@@ -207,10 +212,19 @@ struct alignas(16) RayQueryCandidate {
     uint prim;
     float2 bary;
     float t;
-    float pad;
+    // A committed hit's kind is discrete traversal state, not a property that
+    // can be reconstructed from barycentric coordinates. In particular,
+    // watertight triangle intersection may produce a tiny negative coordinate
+    // on a shared edge, while curves and procedural hits also use sentinel
+    // barycentrics. Keep the kind explicit in the otherwise unused ABI slot.
+    HitType committed_hit_type;
     int committed;
     int terminated;
 };
+static_assert(sizeof(RayQueryCandidate) == 32u,
+              "RayQueryCandidate size mismatch");
+static_assert(alignof(RayQueryCandidate) == 16u,
+              "RayQueryCandidate align mismatch");
 
 static constexpr uint64_t luisa_fallback_embree_accel_user_data_flags_opaque = 1u << 0u;
 static constexpr uint64_t luisa_fallback_embree_accel_user_data_flags_curve = 1u << 1u;

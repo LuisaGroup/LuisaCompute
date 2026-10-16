@@ -2,19 +2,20 @@
 
 #include <luisa/ast/function.h>
 #include <luisa/dsl/raster/raster_func.h>
+#include <luisa/dsl/raster/raster_interpolation.h>
 #include <luisa/dsl/struct.h>
 #include <luisa/runtime/raster/app_data.h>
-LUISA_STRUCT(luisa::compute::AppData, position, normal, tangent, color, uv, vertex_id, instance_id){};
+LUISA_STRUCT(luisa::compute::AppData, position, normal, tangent, color, uv, vertex_id, instance_id) {};
 
 namespace luisa::compute {
 template<typename VertCallable, typename PixelCallable>
 class RasterKernel;
 LUISA_DSL_API void check_vert_ret_type(Type const *type);
-template<typename VertRet, typename... VertArgs, typename PixelRet, typename... PixelArgs>
-class RasterKernel<RasterStageKernel<VertRet(AppData, VertArgs...)>, RasterStageKernel<PixelRet(VertRet, PixelArgs...)>> {
+template<typename VertRet, typename MeshInput, typename... VertArgs, typename PixelRet, typename... PixelArgs>
+class RasterKernel<RasterStageKernel<VertRet(MeshInput, VertArgs...)>, RasterStageKernel<PixelRet(VertRet, PixelArgs...)>> {
 
 public:
-    using VertexKernel = RasterStageKernel<VertRet(AppData, VertArgs...)>;
+    using VertexKernel = RasterStageKernel<VertRet(MeshInput, VertArgs...)>;
     using PixelKernel = RasterStageKernel<PixelRet(VertRet, PixelArgs...)>;
     using RasterShaderType = RasterShader<VertArgs..., PixelArgs...>;
 

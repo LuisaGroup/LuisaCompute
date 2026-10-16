@@ -1,6 +1,7 @@
 #pragma once
 
-#include "metal-cpp/SingleHeader/Metal.hpp"
+#include <Metal/Metal.hpp>
+#include <QuartzCore/QuartzCore.hpp>
 
 namespace luisa::compute::metal {
 
@@ -30,4 +31,3 @@ decltype(auto) with_autorelease_pool(F &&f) noexcept {
 }
 
 }// namespace luisa::compute::metal
-

@@ -1106,6 +1106,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->raster_object_id();
                         else if (exprName == "barycentrics")
                             current = fb->raster_barycentrics();
+                        else if (exprName == "front_facing" || exprName == "is_front_face")
+                            current = fb->raster_is_front_face();
+                        else if (exprName == "base_instance")
+                            current = fb->raster_base_instance();
                         else if (exprName == "warp_lane_count")
                             current = fb->warp_lane_count();
                         else if (exprName == "warp_lane_id")
@@ -1134,8 +1138,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     } else if (!extCallName.empty()) {
                         luisa::vector<const Type *> arg_types;
                         luisa::vector<Usage> argument_usages;
-                        arg_types.resize_uninitialized(lcArgs.size());
-                        argument_usages.resize_uninitialized(lcArgs.size());
+                        // Elements are fully overwritten by the loops below; use the
+                        // portable vector_resize helper (resize_uninitialized on EASTL,
+                        // resize on the system STL) instead of the EASTL-only method.
+                        vector_resize(arg_types, lcArgs.size());
+                        vector_resize(argument_usages, lcArgs.size());
                         for (auto &i : argument_usages) {
                             i = Usage::READ;
                         }
@@ -1744,7 +1751,7 @@ ASTConsumer::~ASTConsumer() {
             if (device) {
                 auto raster_ext = device->extension<RasterExt>();
                 if (raster_ext)
-                    raster_ext->create_raster_shader(luisa::compute::Function{db.vertex_builder.get()}, luisa::compute::Function{db.pixel_builder.get()}, option);
+                    raster_ext->create_raster_shader(luisa::compute::MeshFormat{}, luisa::compute::Function{db.vertex_builder.get()}, luisa::compute::Function{db.pixel_builder.get()}, option);
             }
         } else {
             clangcxx_log_error("Kernel not defined.");

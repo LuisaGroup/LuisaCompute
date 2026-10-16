@@ -6,6 +6,9 @@
 #include <numbers>
 
 #include "hip_codegen_llvm_impl.h"
+#include "hip_floating_remainder.h"
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::hip {
 
@@ -98,8 +101,19 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
     };
     auto dot_product_fp = [&](llvm::Value *u, llvm::Value *v) noexcept {
         LUISA_DEBUG_ASSERT(u->getType()->isVectorTy() && v->getType()->isFPOrFPVectorTy() && u->getType() == v->getType());
-        auto zero = llvm::ConstantFP::getNegativeZero(u->getType()->getScalarType());
-        return b.CreateFAddReduce(zero, b.CreateFMul(u, v));
+        // Keep fixed-width vector reduction explicit. The AMDGPU backend can
+        // miscompile llvm.vector.reduce.fadd for a dynamically normalized
+        // float3 in complex divergent kernels, even though the intrinsic is
+        // correct in small isolated kernels. Component-wise LLVM arithmetic
+        // has the same ordered fast-math semantics without that target path.
+        auto vector_type = llvm::cast<llvm::FixedVectorType>(u->getType());
+        auto product = b.CreateFMul(u, v);
+        auto result = b.CreateExtractElement(product, uint64_t{0u});
+        for (auto i = 1u; i < vector_type->getNumElements(); i++) {
+            result = b.CreateFAdd(
+                result, b.CreateExtractElement(product, i));
+        }
+        return result;
     };
     auto inf_nan_mask_and_test = [&](llvm::Type *t) noexcept -> std::pair<llvm::Constant *, llvm::Constant *> {
         LUISA_DEBUG_ASSERT(t->isFPOrFPVectorTy());
@@ -198,7 +212,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
         case xir::ArithmeticOp::BINARY_MOD: return translate_binary([&](auto lhs, auto rhs) noexcept {
             return inst->type()->is_int_or_int_vector()   ? b.CreateSRem(lhs, rhs) :
                    inst->type()->is_uint_or_uint_vector() ? b.CreateURem(lhs, rhs) :
-                                                            b.CreateFRem(lhs, rhs);
+                                                            emit_hip_floating_remainder(b, *_llvm_module, lhs, rhs);
         });
         case xir::ArithmeticOp::BINARY_BIT_AND: return translate_binary([&](auto lhs, auto rhs) noexcept {
             LUISA_DEBUG_ASSERT(lhs->getType()->isIntOrIntVectorTy());
@@ -475,8 +489,6 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
                     helper = llvm::Function::Create(
                         helper_type, llvm::Function::PrivateLinkage,
                         name, *_llvm_module);
-                    helper->addFnAttr(llvm::Attribute::AlwaysInline);
-
                     auto entry = llvm::BasicBlock::Create(
                         _llvm_context, "entry", helper);
                     auto positive = llvm::BasicBlock::Create(
@@ -833,7 +845,6 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_matrix_determinant(IB &b, llvm::Valu
     if (func == nullptr) {
         auto func_type = llvm::FunctionType::get(scalar_t, {m->getType()}, false);
         func = llvm::Function::Create(func_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-        func->addFnAttr(llvm::Attribute::AlwaysInline);
         auto entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", func);
         IB func_b{entry_bb};
         auto matrix = func->getArg(0);
@@ -896,7 +907,6 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_matrix_inverse(IB &b, llvm::Value *m
     if (func == nullptr) {
         auto func_type = llvm::FunctionType::get(m->getType(), {m->getType()}, false);
         func = llvm::Function::Create(func_type, llvm::Function::PrivateLinkage, name, *_llvm_module);
-        func->addFnAttr(llvm::Attribute::AlwaysInline);
         auto entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", func);
         IB func_b{entry_bb};
         auto matrix = func->getArg(0);
@@ -1096,7 +1106,7 @@ namespace detail {
                                                   llvm::Type *t, bool enable_fast_math) noexcept {
     auto suffix = t->isDoubleTy() ? "_f64" : t->isHalfTy() ? "_f16" :
                                                              "_f32";
-    auto ocml_name = fmt::format("__ocml_{}{}", std::string_view{op_name}, suffix);
+    auto ocml_name = fmt::format("__ocml_{}{}", luisa::string_view{op_name}, suffix);
     auto op = m.getFunction(ocml_name);
     LUISA_ASSERT(op != nullptr, "OCML function {} not found.", ocml_name);
     return op;

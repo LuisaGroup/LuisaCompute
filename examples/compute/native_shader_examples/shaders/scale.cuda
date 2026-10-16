@@ -1,0 +1,17 @@
+// Sample native compute shader source (CUDA C++ for NVRTC).
+//
+// The kernel signature *is* the binding declaration: `const float *src` is a
+// read-only structured buffer, `float *dst` a read-write one (in declaration
+// order), and the non-pointer parameters `k`/`c` are scalar kernel parameters
+// fed by `add_uniform` in declaration order (`push_constant_size = 8`).
+// `extern "C"` keeps the name unmangled, and the launcher's block size must be
+// 64x1x1 (`__launch_bounds__` would also work).
+//
+// The file uses the `.cuda` extension so that neither the build system nor a
+// CUDA toolchain rule picks it up: it is data, read by the example at run time.
+#include "native_shader_math.h"
+
+extern "C" __global__ void scale(const float *src, float *dst, float k, float c) {
+    auto i = blockIdx.x * blockDim.x + threadIdx.x;
+    dst[i] = luisa_native_shader_transform(src[i], k, c);
+}

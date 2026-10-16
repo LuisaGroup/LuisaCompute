@@ -19,6 +19,11 @@ CallableFunction *Module::create_callable(const Type *ret_type) noexcept {
     return static_cast<CallableFunction *>(_function_list.push_back(std::move(f)));
 }
 
+RasterStageFunction *Module::create_raster_stage(
+    const Type *ret_type, RasterStage stage) noexcept {
+    auto f = luisa::make_managed<RasterStageFunction>(this, ret_type, stage);
+    return static_cast<RasterStageFunction *>(_function_list.push_back(std::move(f)));
+}
 ExternalFunction *Module::create_external_function(const Type *ret_type) noexcept {
     auto f = luisa::make_managed<ExternalFunction>(this, ret_type);
     return static_cast<ExternalFunction *>(_function_list.push_back(std::move(f)));
@@ -104,6 +109,8 @@ SpecialRegister *Module::create_special_register(DerivedSpecialRegisterTag tag) 
                 case DerivedSpecialRegisterTag::BLOCK_SIZE: return luisa::make_managed<SPR_BlockSize>(this);
                 case DerivedSpecialRegisterTag::WARP_SIZE: return luisa::make_managed<SPR_WarpSize>(this);
                 case DerivedSpecialRegisterTag::DISPATCH_SIZE: return luisa::make_managed<SPR_DispatchSize>(this);
+                case DerivedSpecialRegisterTag::RASTER_FRONT_FACING: return luisa::make_managed<SPR_FrontFacing>(this);
+                case DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE: return luisa::make_managed<SPR_BaseInstance>(this);
                 default: break;
             }
             LUISA_ERROR_WITH_LOCATION("Unsupported special register tag.");
@@ -153,6 +160,18 @@ SPR_Barycentrics *Module::create_bary_centrics() noexcept {
     auto sreg = create_special_register(DerivedSpecialRegisterTag::RASTER_BARYCENTRICS);
     LUISA_DEBUG_ASSERT(sreg->isa<SPR_Barycentrics>(), "Invalid special register type.");
     return static_cast<SPR_Barycentrics *>(sreg);
+}
+
+SPR_FrontFacing *Module::create_front_facing() noexcept {
+    auto sreg = create_special_register(DerivedSpecialRegisterTag::RASTER_FRONT_FACING);
+    LUISA_DEBUG_ASSERT(sreg->isa<SPR_FrontFacing>(), "Invalid special register type.");
+    return static_cast<SPR_FrontFacing *>(sreg);
+}
+
+SPR_BaseInstance *Module::create_base_instance() noexcept {
+    auto sreg = create_special_register(DerivedSpecialRegisterTag::RASTER_BASE_INSTANCE);
+    LUISA_DEBUG_ASSERT(sreg->isa<SPR_BaseInstance>(), "Invalid special register type.");
+    return static_cast<SPR_BaseInstance *>(sreg);
 }
 
 SPR_BlockSize *Module::create_block_size() noexcept {

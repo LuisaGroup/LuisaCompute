@@ -10,6 +10,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/pool.h>
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/core/stl/string.h>
 
 #include "hip_check.h"
 #include "hip_device.h"
@@ -78,6 +79,7 @@ void HIPStream::_spawn_callback_thread() noexcept {
             for (auto &&callback : package.callbacks) { callback->recycle(); }
             // signal the event that the callbacks have finished
             _finished_ticket.store(package.ticket, std::memory_order_release);
+            _finished_ticket.notify_all();
         }
     }};
 }
@@ -92,8 +94,15 @@ void HIPStream::_shutdown_callback_thread() noexcept {
     _callback_cv.notify_one();
     // wait for the stream to finish
     LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
+    _notify_hiprt_build_completed_after_synchronize();
     // wait for the callback thread to stop
     _callback_thread.join();
+}
+
+void HIPStream::_notify_hiprt_build_completed_after_synchronize() noexcept {
+    if (_hiprt_build_pending.exchange(false, std::memory_order_acq_rel)) {
+        _device->notify_hiprt_build_completed();
+    }
 }
 
 HIPStream::HIPStream(HIPDevice *device) noexcept
@@ -104,7 +113,7 @@ HIPStream::HIPStream(HIPDevice *device) noexcept
     _create_callback_semaphore();
     _spawn_callback_thread();
     if (auto env = std::getenv("LUISA_HIP_PROFILE"); env != nullptr) {
-        _profiling_enabled = (std::string_view{env} == "1" || std::string_view{env} == "true");
+        _profiling_enabled = (luisa::string_view{env} == "1" || luisa::string_view{env} == "true");
         if (_profiling_enabled) {
             LUISA_INFO("HIP stream profiling enabled (LUISA_HIP_PROFILE=1).");
         }
@@ -121,6 +130,9 @@ HIPStream::~HIPStream() noexcept {
     _shutdown_callback_thread();
     if (_rt_scratch_buffer != nullptr) {
         LUISA_CHECK_HIP(hipFree(_rt_scratch_buffer));
+    }
+    if (_rt_global_stack_buffer != nullptr) {
+        LUISA_CHECK_HIP(hipFree(_rt_global_stack_buffer));
     }
     _destroy_callback_semaphore();
     LUISA_CHECK_HIP(hipStreamDestroy(_stream));
@@ -144,6 +156,7 @@ hipDeviceptr_t HIPStream::rt_scratch_buffer(size_t required_size) noexcept {
             // totally ordered and may alias. Drain the old lifetime only on
             // this rare growth path before replacing its backing allocation.
             LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
+            _notify_hiprt_build_completed_after_synchronize();
             LUISA_CHECK_HIP(hipFree(_rt_scratch_buffer));
         }
         LUISA_CHECK_HIP(hipMalloc(
@@ -152,6 +165,68 @@ hipDeviceptr_t HIPStream::rt_scratch_buffer(size_t required_size) noexcept {
         _rt_scratch_capacity = new_capacity;
     }
     return _rt_scratch_buffer;
+}
+
+hiprtGlobalStackBuffer
+HIPStream::rt_global_stack_buffer(
+    size_t required_thread_count) noexcept {
+    static constexpr auto stack_size = uint32_t{64u};
+    if (required_thread_count == 0u) {
+        return hiprtGlobalStackBuffer{
+            stack_size, 0u, nullptr};
+    }
+    if (required_thread_count >
+        _rt_global_stack_thread_capacity) {
+        constexpr auto maximum_power_of_two =
+            size_t{1u}
+            << (std::numeric_limits<size_t>::digits - 1u);
+        LUISA_ASSERT(
+            required_thread_count <= maximum_power_of_two,
+            "HIPRT global-stack thread request {} cannot be rounded to a "
+            "representable power-of-two capacity.",
+            required_thread_count);
+        const auto new_capacity =
+            std::bit_ceil(required_thread_count);
+        LUISA_ASSERT(
+            new_capacity <=
+                std::numeric_limits<uint32_t>::max(),
+            "HIPRT global-stack launch requires {} physical threads; the "
+            "HIPRT stack ABI supports at most {}.",
+            required_thread_count,
+            std::numeric_limits<uint32_t>::max());
+        constexpr auto bytes_per_thread =
+            size_t{stack_size} * sizeof(uint32_t);
+        LUISA_ASSERT(
+            new_capacity <=
+                std::numeric_limits<size_t>::max() /
+                    bytes_per_thread,
+            "HIPRT global-stack allocation size overflow for {} threads.",
+            new_capacity);
+        // All users of this allocation are enqueued on this stream. Growth is
+        // rare and synchronizes only the old allocation's lifetime; ordinary
+        // launches remain fully asynchronous.
+        if (_rt_global_stack_buffer != nullptr) {
+            LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
+            _notify_hiprt_build_completed_after_synchronize();
+            LUISA_CHECK_HIP(hipFree(
+                _rt_global_stack_buffer));
+        }
+        LUISA_CHECK_HIP(hipMalloc(
+            reinterpret_cast<void **>(
+                &_rt_global_stack_buffer),
+            new_capacity * bytes_per_thread));
+        _rt_global_stack_thread_capacity =
+            static_cast<uint32_t>(new_capacity);
+        LUISA_VERBOSE(
+            "Allocated per-stream HIPRT global stack for {} threads "
+            "({} bytes).",
+            _rt_global_stack_thread_capacity,
+            new_capacity * bytes_per_thread);
+    }
+    return hiprtGlobalStackBuffer{
+        stack_size,
+        _rt_global_stack_thread_capacity,
+        _rt_global_stack_buffer};
 }
 
 void HIPStream::dispatch(CommandList &&command_list) noexcept {
@@ -190,6 +265,7 @@ void HIPStream::dispatch(CommandList &&command_list) noexcept {
             }
 
             LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
+            _notify_hiprt_build_completed_after_synchronize();
 
             _dispatch_count++;
             auto batch_total_ms = 0.0;
@@ -224,14 +300,16 @@ void HIPStream::dispatch(CommandList &&command_list) noexcept {
 void HIPStream::synchronize() noexcept {
     auto ticket = _current_ticket.load();
     LUISA_CHECK_HIP(hipStreamSynchronize(_stream));
-    auto wait_iterations = 0u;
-    constexpr auto max_wait_iterations_before_yield = 1024u;
-    for (;;) {// TODO: is spinning good enough?
-        if (_finished_ticket.load(std::memory_order_acquire) >= ticket) { break; }
-        if (++wait_iterations >= max_wait_iterations_before_yield) {
-            wait_iterations = 0u;
-            std::this_thread::yield();
-        }
+    _notify_hiprt_build_completed_after_synchronize();
+    // HIP has already drained the device stream. The remaining wait is only
+    // for the callback thread to recycle host-side command resources and
+    // publish the completion ticket. Waiting on that atomic avoids occupying
+    // a CPU core while a callback package is being retired; the callback
+    // thread calls notify_all() immediately after publishing the ticket.
+    for (;;) {
+        auto finished = _finished_ticket.load(std::memory_order_acquire);
+        if (finished >= ticket) { break; }
+        _finished_ticket.wait(finished, std::memory_order_acquire);
     }
 }
 

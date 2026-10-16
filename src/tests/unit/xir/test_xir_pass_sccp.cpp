@@ -4,10 +4,12 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/passes/sccp.h>
@@ -277,6 +279,85 @@ void reg_sccp() {
         for (auto *ret : returns) {
             expect(ret->return_value()->isa<ArithmeticInst>());
         }
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "sccp_reaches_token_matched_coroutine_continuation"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *entry = k->create_body_block();
+        auto *resume = k->create_basic_block();
+        int one_value = 1;
+        int two_value = 2;
+        auto *one = m.create_constant(Type::of<int>(), &one_value);
+        auto *two = m.create_constant(Type::of<int>(), &two_value);
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        b.coro_suspend(11u, "sccp-continuation", nullptr);
+
+        b.set_insertion_point(resume);
+        b.coro_resume(11u, nullptr);
+        auto *sink = b.alloca_local(Type::of<int>());
+        auto *sum = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {one, two});
+        auto sum_owner = sum->lock();
+        auto *store = b.store(sink, sum);
+        b.coro_terminate();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = sccp_pass_run_on_function(k);
+
+        expect(info.folded_inst_count == 1u);
+        expect(store->value()->isa<Constant>());
+        expect(static_cast<Constant *>(store->value())->as<int>() == 3);
+        expect(!static_cast<Instruction *>(sum_owner.get())->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "sccp_does_not_execute_dead_coroutine_continuation"_test = [] {
+        Module m;
+        auto *k = m.create_kernel();
+        auto *entry = k->create_body_block();
+        auto *dead_suspend = k->create_basic_block();
+        auto *live_suspend = k->create_basic_block();
+        auto *dead_resume = k->create_basic_block();
+        auto *live_resume = k->create_basic_block();
+        int one_value = 1;
+        int two_value = 2;
+        auto *one = m.create_constant(Type::of<int>(), &one_value);
+        auto *two = m.create_constant(Type::of<int>(), &two_value);
+        XIRBuilder b;
+
+        b.set_insertion_point(entry);
+        b.cond_br(m.create_constant_zero(Type::of<bool>()),
+                  dead_suspend, live_suspend);
+
+        b.set_insertion_point(dead_suspend);
+        b.coro_suspend(13u, "dead", nullptr);
+        b.set_insertion_point(live_suspend);
+        b.coro_suspend(17u, "live", nullptr);
+
+        b.set_insertion_point(dead_resume);
+        b.coro_resume(13u, nullptr);
+        auto *sink = b.alloca_local(Type::of<int>());
+        auto *dead_sum = b.call(
+            Type::of<int>(), ArithmeticOp::BINARY_ADD, {one, two});
+        auto dead_sum_owner = dead_sum->lock();
+        b.store(sink, dead_sum);
+        b.coro_terminate();
+
+        b.set_insertion_point(live_resume);
+        b.coro_resume(17u, nullptr);
+        b.coro_terminate();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = sccp_pass_run_on_function(k);
+
+        expect(info.removed_branch_count == 1u);
+        expect(info.folded_inst_count == 0u);
+        expect(static_cast<Instruction *>(dead_sum_owner.get())
+                   ->is_linked());
         expect(xir_verify_module(&m).succeeded());
     };
 }

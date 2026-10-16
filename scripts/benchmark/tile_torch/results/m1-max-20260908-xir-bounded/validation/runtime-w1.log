@@ -1,0 +1,5 @@
+[2026-09-08 12:35:01.794] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-08 12:35:01.795] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 12:35:01.799] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 3.352792 ms.
+[2026-09-08 12:35:01.799] [console] [info] Test device backend: simd.
+[32mSuite 'global': all tests passed[0m (1243 asserts in 9 tests)

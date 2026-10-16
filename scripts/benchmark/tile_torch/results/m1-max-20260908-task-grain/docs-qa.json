@@ -1,0 +1,68 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "cpu-task-grain-is-independent-of-the-native-packet-body",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-task-grain.3eLK7H/docs-qa-final/cpu-task-grain-is-independent-of-the-native-packet-body-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [
+        [
+          7,
+          4
+        ]
+      ],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "backend-cost-policy-without-changing-the-legal-candidate-space",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-task-grain.3eLK7H/docs-qa-final/backend-cost-policy-without-changing-the-legal-candidate-space-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "cpu-task-grain-is-independent-of-the-native-packet-body",
+      "width": 390,
+      "screenshot": "/tmp/luisa-task-grain.3eLK7H/docs-qa-final/cpu-task-grain-is-independent-of-the-native-packet-body-390.png",
+      "scrolledScreenshot": "/tmp/luisa-task-grain.3eLK7H/docs-qa-final/cpu-task-grain-is-independent-of-the-native-packet-body-390-right.png",
+      "scrolls": [
+        {
+          "element": "TABLE",
+          "maximum": 115,
+          "reached": 115
+        }
+      ],
+      "tables": [
+        [
+          7,
+          4
+        ]
+      ],
+      "pageWidth": 390
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "backend-cost-policy-without-changing-the-legal-candidate-space",
+      "width": 390,
+      "screenshot": "/tmp/luisa-task-grain.3eLK7H/docs-qa-final/backend-cost-policy-without-changing-the-legal-candidate-space-390.png",
+      "scrolledScreenshot": "/tmp/luisa-task-grain.3eLK7H/docs-qa-final/backend-cost-policy-without-changing-the-legal-candidate-space-390-right.png",
+      "scrolls": [
+        {
+          "element": "PRE",
+          "maximum": 143,
+          "reached": 143
+        }
+      ],
+      "tables": [],
+      "pageWidth": 390
+    }
+  ]
+}

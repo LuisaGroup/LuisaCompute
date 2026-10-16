@@ -1,0 +1,711 @@
+{
+  "schema": 1,
+  "description": "CUDA Tile extended coverage; use --ranking-contract standard. Every output is checked against the unchanged complete oracle; performance parity is not assumed.",
+  "cases": [
+    {
+      "id": "bmm-small-32x16x16x32-fp32",
+      "operation": "bmm",
+      "precision": "fp32",
+      "dimensions": [
+        32,
+        16,
+        16,
+        32
+      ],
+      "tile": [
+        16,
+        16,
+        16
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-medium-8x128x128x128-fp32",
+      "operation": "bmm",
+      "precision": "fp32",
+      "dimensions": [
+        8,
+        128,
+        128,
+        128
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-tail-3x31x37x19-fp32",
+      "operation": "bmm",
+      "precision": "fp32",
+      "dimensions": [
+        3,
+        31,
+        37,
+        19
+      ],
+      "tile": [
+        16,
+        16,
+        8
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-cancellation-3x31x37x19-fp32",
+      "operation": "bmm",
+      "precision": "fp32",
+      "dimensions": [
+        3,
+        31,
+        37,
+        19
+      ],
+      "tile": [
+        16,
+        16,
+        8
+      ],
+      "pattern": "cancellation",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-small-32x16x16x32-fp16",
+      "operation": "bmm",
+      "precision": "fp16",
+      "dimensions": [
+        32,
+        16,
+        16,
+        32
+      ],
+      "tile": [
+        16,
+        16,
+        16
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-medium-8x128x128x128-fp16",
+      "operation": "bmm",
+      "precision": "fp16",
+      "dimensions": [
+        8,
+        128,
+        128,
+        128
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-tail-3x31x37x19-fp16",
+      "operation": "bmm",
+      "precision": "fp16",
+      "dimensions": [
+        3,
+        31,
+        37,
+        19
+      ],
+      "tile": [
+        16,
+        16,
+        8
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-cancellation-3x31x37x19-fp16",
+      "operation": "bmm",
+      "precision": "fp16",
+      "dimensions": [
+        3,
+        31,
+        37,
+        19
+      ],
+      "tile": [
+        16,
+        16,
+        8
+      ],
+      "pattern": "cancellation",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-small-32x16x16x32-bf16",
+      "operation": "bmm",
+      "precision": "bf16",
+      "dimensions": [
+        32,
+        16,
+        16,
+        32
+      ],
+      "tile": [
+        16,
+        16,
+        16
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-medium-8x128x128x128-bf16",
+      "operation": "bmm",
+      "precision": "bf16",
+      "dimensions": [
+        8,
+        128,
+        128,
+        128
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-tail-3x31x37x19-bf16",
+      "operation": "bmm",
+      "precision": "bf16",
+      "dimensions": [
+        3,
+        31,
+        37,
+        19
+      ],
+      "tile": [
+        16,
+        16,
+        8
+      ],
+      "pattern": "random",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "bmm-cancellation-3x31x37x19-bf16",
+      "operation": "bmm",
+      "precision": "bf16",
+      "dimensions": [
+        3,
+        31,
+        37,
+        19
+      ],
+      "tile": [
+        16,
+        16,
+        8
+      ],
+      "pattern": "cancellation",
+      "seed": 19,
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-1024x1024x1024-fp32-tile32x32x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-1024x1024x1024-fp16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-1024x1024x1024-bf16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-2048x2048x2048-fp32-tile32x32x32",
+      "operation": "gemm",
+      "dimensions": [
+        2048,
+        2048,
+        2048
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-2048x2048x2048-fp16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        2048,
+        2048,
+        2048
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-2048x2048x2048-bf16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        2048,
+        2048,
+        2048
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-128x4096x4096-fp32-tile32x32x32",
+      "operation": "gemm",
+      "dimensions": [
+        128,
+        4096,
+        4096
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-128x4096x4096-fp16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        128,
+        4096,
+        4096
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemm-128x4096x4096-bf16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        128,
+        4096,
+        4096
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-bmm-2x1024x1024x1024-fp32-tile32x32x32",
+      "operation": "bmm",
+      "dimensions": [
+        2,
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-bmm-2x1024x1024x1024-fp16-tile64x64x32",
+      "operation": "bmm",
+      "dimensions": [
+        2,
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-bmm-2x1024x1024x1024-bf16-tile64x64x32",
+      "operation": "bmm",
+      "dimensions": [
+        2,
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemv-2048x1x8192-fp32-tile1x1x1024",
+      "operation": "gemv",
+      "dimensions": [
+        2048,
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        1,
+        1024
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemv-2048x1x8192-fp16-tile1x1x1024",
+      "operation": "gemv",
+      "dimensions": [
+        2048,
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        1,
+        1024
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "large-gemv-2048x1x8192-bf16-tile1x1x1024",
+      "operation": "gemv",
+      "dimensions": [
+        2048,
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        1,
+        1024
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v7-rmsnorm-1x8192-fp32-strict",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v7-rmsnorm-1x8192-fp32-fast",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "v7-rmsnorm-1x8192-fp16-strict",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v7-rmsnorm-1x8192-fp16-fast",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "v7-rmsnorm-1x8192-bf16-strict",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v7-rmsnorm-1x8192-bf16-fast",
+      "operation": "rmsnorm",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "v7-layernorm-128x1024-fp32-strict",
+      "operation": "layernorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v7-layernorm-128x1024-fp32-fast",
+      "operation": "layernorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "v7-layernorm-128x1024-fp16-strict",
+      "operation": "layernorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v7-layernorm-128x1024-fp16-fast",
+      "operation": "layernorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "v7-layernorm-128x1024-bf16-strict",
+      "operation": "layernorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "v7-layernorm-128x1024-bf16-fast",
+      "operation": "layernorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": true
+    }
+  ]
+}

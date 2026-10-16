@@ -1,0 +1,946 @@
+{
+  "schema": 1,
+  "scope": "One final production full22 build plus two explicitly recorded standalone executables; no commit equality assumed",
+  "marker": {
+    "log": ".deps/oct03-cuda-tirx-subgroup-full-build-v3.log",
+    "jobs": 8,
+    "llvm_version": "22.1.8",
+    "commit": "758670e0b41dfcdd98ba03242a5b3d333fee5e6f",
+    "command": "cmake --build build-msvc-llvm --parallel 8",
+    "completed": "2026-10-03T18:36:19.9020933+08:00",
+    "tirx": true,
+    "native_tile_ir": true,
+    "source_diff": ".deps/oct03-cuda-tirx-subgroup-build22-source-v2.diff",
+    "dirty": true,
+    "compiler": "MSVC",
+    "source_diff_sha256": "5d61178b6dd2e7bf0e316eecefcde5c2a1a6063e62cd1d99e5b481fd5cd56445"
+  },
+  "files": {
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\prepare.py": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\prepare.py",
+      "sha256": "6a59247ab8b0ab725e554c2db683019866739a6129d5bc8da5f1a411393bdadd",
+      "bytes": 5091
+    },
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\benchmark_row_regroup_fast.cpp": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\benchmark_row_regroup_fast.cpp",
+      "sha256": "1d1c2f289a5cfdc7e1551272c0a4cc233d7816e9dd4a65ce88a24167de56b776",
+      "bytes": 70412
+    },
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\tile_workload_test_utils.h": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\tile_workload_test_utils.h",
+      "sha256": "5b19d9db273c971b0450b5216cf7af4a652926c63fbfa310651682cd2e027edc",
+      "bytes": 44593
+    },
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\diagnostic_regroup.h": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\diagnostic_regroup.h",
+      "sha256": "a2ce1a6c272be53e5539f2d62eda5d84d6ee00c13ca3ae8213aebd7ab49e6a54",
+      "bytes": 5286
+    },
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\diagnostic_work.h": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\diagnostic_work.h",
+      "sha256": "9597c4e8448bce7a87cc1483ee6ea4a277a45386f497ca18d0b2fed57e4a3a86",
+      "bytes": 5844
+    },
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\CMakeLists.txt": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\CMakeLists.txt",
+      "sha256": "f71440f690c657046c2399ed70e370bed2e2d3e28c2a1850bdcd4a74f8167387",
+      "bytes": 3813
+    },
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\cases6.json": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\cases6.json",
+      "sha256": "24305fcff7ec9d58534195278d40c3506f8eb0fb70bc28dd4984ae7507ba1d18",
+      "bytes": 1991
+    },
+    "${REPO}\\.deps\\row-regroup-norm-prep-v1\\prepare.py": {
+      "path": "${REPO}\\.deps\\row-regroup-norm-prep-v1\\prepare.py",
+      "sha256": "dce33dad08d67c75680f6da4fe58001d8ea1e84e7a9e57eca7deeacbde5426fc",
+      "bytes": 10231
+    },
+    "${REPO}\\.deps\\row-regroup-norm-prep-v1\\CMakeLists.txt": {
+      "path": "${REPO}\\.deps\\row-regroup-norm-prep-v1\\CMakeLists.txt",
+      "sha256": "c8a01f799c4c80e1ca2ec4b8662e4022410641337278f2a1ca5fab919b0979f7",
+      "bytes": 3773
+    },
+    "${REPO}\\.deps\\row-regroup-norm-prep-v1\\diagnostic_regroup.h": {
+      "path": "${REPO}\\.deps\\row-regroup-norm-prep-v1\\diagnostic_regroup.h",
+      "sha256": "a2ce1a6c272be53e5539f2d62eda5d84d6ee00c13ca3ae8213aebd7ab49e6a54",
+      "bytes": 5286
+    },
+    "${REPO}\\.deps\\row-regroup-norm-prep-v1\\diagnostic_work.h": {
+      "path": "${REPO}\\.deps\\row-regroup-norm-prep-v1\\diagnostic_work.h",
+      "sha256": "9597c4e8448bce7a87cc1483ee6ea4a277a45386f497ca18d0b2fed57e4a3a86",
+      "bytes": 5844
+    },
+    "${REPO}\\.deps\\row-regroup-norm-prep-v1\\cases6.json": {
+      "path": "${REPO}\\.deps\\row-regroup-norm-prep-v1\\cases6.json",
+      "sha256": "3553cb564032520946034d893addbee4708afd0bfb73156fdd1bb9663020be62",
+      "bytes": 1999
+    },
+    "${REPO}\\.deps\\row-regroup-norm-prep-v1\\benchmark_row_regroup.cpp": {
+      "path": "${REPO}\\.deps\\row-regroup-norm-prep-v1\\benchmark_row_regroup.cpp",
+      "sha256": "686e75e51ba791b753358b57fb7c2c55c9693bf3746aa04cef1197596a8d9693",
+      "bytes": 69487
+    },
+    "${REPO}\\.deps\\row-regroup-norm-prep-v1\\tile_workload_test_utils.h": {
+      "path": "${REPO}\\.deps\\row-regroup-norm-prep-v1\\tile_workload_test_utils.h",
+      "sha256": "5b19d9db273c971b0450b5216cf7af4a652926c63fbfa310651682cd2e027edc",
+      "bytes": 44593
+    },
+    "${REPO}\\src\\tests\\benchmark\\benchmark_tile_workloads.cpp": {
+      "path": "${REPO}\\src\\tests\\benchmark\\benchmark_tile_workloads.cpp",
+      "sha256": "81660894800d23bfc497e54ec17731bd72a5142db4790d69ea7ba784673c27cd",
+      "bytes": 65524
+    },
+    "${REPO}\\src\\tests\\common\\tile_workload_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_workload_test_utils.h",
+      "sha256": "f790862a6fd6506e4e662bc8d82317ae4dfff1e2e561fb44d018060efa6c0a95",
+      "bytes": 44531
+    },
+    "${REPO}\\.deps\\norm-math-mode-prep-v1\\prepare.py": {
+      "path": "${REPO}\\.deps\\norm-math-mode-prep-v1\\prepare.py",
+      "sha256": "d459a1e361738f4a8159e2892907d0c9fa4ab98bf6b97f9a85c323065ca4f814",
+      "bytes": 5677
+    },
+    "${REPO}\\.deps\\norm-math-mode-prep-v1\\benchmark_norm_math.cpp": {
+      "path": "${REPO}\\.deps\\norm-math-mode-prep-v1\\benchmark_norm_math.cpp",
+      "sha256": "74e8c015fd304f0a01c4affa503e681098b61272cc13783be460a10b787d3ad1",
+      "bytes": 70159
+    },
+    "${REPO}\\.deps\\norm-math-mode-prep-v1\\tile_workload_test_utils.h": {
+      "path": "${REPO}\\.deps\\norm-math-mode-prep-v1\\tile_workload_test_utils.h",
+      "sha256": "5b19d9db273c971b0450b5216cf7af4a652926c63fbfa310651682cd2e027edc",
+      "bytes": 44593
+    },
+    "${REPO}\\.deps\\norm-math-mode-prep-v1\\diagnostic_regroup.h": {
+      "path": "${REPO}\\.deps\\norm-math-mode-prep-v1\\diagnostic_regroup.h",
+      "sha256": "a2ce1a6c272be53e5539f2d62eda5d84d6ee00c13ca3ae8213aebd7ab49e6a54",
+      "bytes": 5286
+    },
+    "${REPO}\\.deps\\norm-math-mode-prep-v1\\diagnostic_work.h": {
+      "path": "${REPO}\\.deps\\norm-math-mode-prep-v1\\diagnostic_work.h",
+      "sha256": "9597c4e8448bce7a87cc1483ee6ea4a277a45386f497ca18d0b2fed57e4a3a86",
+      "bytes": 5844
+    },
+    "${REPO}\\.deps\\norm-math-mode-prep-v1\\CMakeLists.txt": {
+      "path": "${REPO}\\.deps\\norm-math-mode-prep-v1\\CMakeLists.txt",
+      "sha256": "73a7f54cc6885e494d0ec750d24ce6c38e5d5c79f46b7fac658e40ed088e91af",
+      "bytes": 3757
+    },
+    "${REPO}\\.deps\\norm-math-mode-prep-v1\\cases6.json": {
+      "path": "${REPO}\\.deps\\norm-math-mode-prep-v1\\cases6.json",
+      "sha256": "3553cb564032520946034d893addbee4708afd0bfb73156fdd1bb9663020be62",
+      "bytes": 1999
+    },
+    "${REPO}\\.deps\\row-regroup-norm-prep-v1\\source-receipts.json": {
+      "path": "${REPO}\\.deps\\row-regroup-norm-prep-v1\\source-receipts.json",
+      "sha256": "77161c2aadd0ffcfd7cd574a171c26e5bb304bbf582089246e9476e1938ee232",
+      "bytes": 2435
+    },
+    "${REPO}\\.deps\\norm-math-mode-prep-v1\\source-receipts.json": {
+      "path": "${REPO}\\.deps\\norm-math-mode-prep-v1\\source-receipts.json",
+      "sha256": "479aadc2ffd4ff9d8ecc24aee8f08484d8ac59cb3dbcebfb7d9ecbfbdf848053",
+      "bytes": 3589
+    },
+    "${REPO}\\.deps\\row-regroup-fast-build-v1\\bin\\benchmark_row_regroup_fast.exe": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-build-v1\\bin\\benchmark_row_regroup_fast.exe",
+      "sha256": "9947894a3f6416d7d74f4e401ded127918bda7ebd709948ead8a560db6135909",
+      "bytes": 1292288
+    },
+    "${REPO}\\.deps\\oct03-row-regroup-fast-build-v1.log": {
+      "path": "${REPO}\\.deps\\oct03-row-regroup-fast-build-v1.log",
+      "sha256": "e08a184f7092a88f29e3ad3a6dfcf96584220bd8a179556a3bad35158549d312",
+      "bytes": 54147
+    },
+    "${REPO}\\build-msvc-llvm\\logs\\full-build-success.json": {
+      "path": "${REPO}\\build-msvc-llvm\\logs\\full-build-success.json",
+      "sha256": "3d0c2f853d56eb36b111027393dc8252b60385d80e2b0f5fef152a1ece869fce",
+      "bytes": 533
+    },
+    "${REPO}\\build-msvc-llvm\\CMakeCache.txt": {
+      "path": "${REPO}\\build-msvc-llvm\\CMakeCache.txt",
+      "sha256": "0ec2430d571f13eb61b727bef896da366e2b25b13423abb9e8c26a70c04580d7",
+      "bytes": 63039
+    },
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\source-receipts.json": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\source-receipts.json",
+      "sha256": "bf01dd379e9851efe6023ce52970938c386e99289ac978d7bdd6c1befd1bcb2c",
+      "bytes": 4915
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-matrix-prep-v1\\cases6.json": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-matrix-prep-v1\\cases6.json",
+      "sha256": "24305fcff7ec9d58534195278d40c3506f8eb0fb70bc28dd4984ae7507ba1d18",
+      "bytes": 1991
+    },
+    "${REPO}\\scripts\\benchmark\\tile_torch\\cuda_matrix.py": {
+      "path": "${REPO}\\scripts\\benchmark\\tile_torch\\cuda_matrix.py",
+      "sha256": "e3675edd96512ec4872f91aff94fb63fb1d7128c49c2d7f8bd10d2a482b600f6",
+      "bytes": 109583
+    },
+    "${REPO}\\scripts\\benchmark\\tile_torch\\windows_affinity.py": {
+      "path": "${REPO}\\scripts\\benchmark\\tile_torch\\windows_affinity.py",
+      "sha256": "1eeedb33b3d5666112e6cb732826dc80af99a3e1f46670a623f21176ab163722",
+      "bytes": 7603
+    },
+    "${REPO}\\.deps\\collective-worker-summary-prep\\summarize_worker_sweep.py": {
+      "path": "${REPO}\\.deps\\collective-worker-summary-prep\\summarize_worker_sweep.py",
+      "sha256": "32c9816aab3eae245b572f6d64bf966fd53b6e70ec8fd33f06ae621ffef40f72",
+      "bytes": 22109
+    },
+    "${REPO}\\.deps\\graph-v2-results-prep\\export_v2.py": {
+      "path": "${REPO}\\.deps\\graph-v2-results-prep\\export_v2.py",
+      "sha256": "927e61d01fa87b2cdeac2bd7ac504fd89e2ac639dec7a5d0cd66049fa0f5a22a",
+      "bytes": 18576
+    },
+    "${REPO}\\.deps\\row-regroup-fast-prep-v1\\run_queue.py": {
+      "path": "${REPO}\\.deps\\row-regroup-fast-prep-v1\\run_queue.py",
+      "sha256": "34f937d46b5c0e9028f814f0be1e8064ed37a4f85fe82e293646362191224ce2",
+      "bytes": 25533
+    },
+    "${REPO}\\scripts\\benchmark\\tile_torch\\cuda_torch_baseline.py": {
+      "path": "${REPO}\\scripts\\benchmark\\tile_torch\\cuda_torch_baseline.py",
+      "sha256": "45eefa4f467433277d57c2fd841982fb52981575ed60a88f57da3ffc7e604b6d",
+      "bytes": 44958
+    },
+    "${REPO}\\.deps\\torch-cuda-venv\\Scripts\\python.exe": {
+      "path": "${REPO}\\.deps\\torch-cuda-venv\\Scripts\\python.exe",
+      "sha256": "2204195cec25879507d958a8b6949add67091244b8b4da9cf3672f993548fa49",
+      "bytes": 277808
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-ast.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-ast.dll",
+      "sha256": "82a2b2109aef00546e43fc6d4a63c0f86c9b3a0d86f2b9ffa35ea40a1af2adce",
+      "bytes": 907776
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-cuda.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-cuda.dll",
+      "sha256": "406d20e83a1cc087c9dc1e3207fbda342d0d6b6c21dda627c4dab72ea35f0196",
+      "bytes": 33494528
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-fallback.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-fallback.dll",
+      "sha256": "9979d0f8f9b3745df9d17e536add487ef32c5003b009dd41b3825c22fa8893f8",
+      "bytes": 44274176
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-remote.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-remote.dll",
+      "sha256": "ae3294f847bc6846f6072a4ae73651252a309cb02e0c2bf619628c1998d30095",
+      "bytes": 506368
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-simd.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-simd.dll",
+      "sha256": "d6937af3c2446d15a30bfdc76dd33b630d60d99d0e5ab46fb433202c065d0390",
+      "bytes": 39019008
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-vk.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-backend-vk.dll",
+      "sha256": "d7c21b1598833dd325977295696042eef2aa51ae7452df621b747278edfc6f0d",
+      "bytes": 7193600
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-core.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-core.dll",
+      "sha256": "558c6ea37ea7f341fcf4309c8eb79167a91018198c1240419f964d2d93b92d82",
+      "bytes": 788480
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-coro.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-coro.dll",
+      "sha256": "b7dc4309cbcbdb7897e773a58f5979aa3a8fe9ffece38ba1702c18bd4eef7471",
+      "bytes": 458240
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-dsl.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-dsl.dll",
+      "sha256": "d0887c2f72fc0511c0e83b427fa63920f605a27d6f7518dde6b2f15db8f994c9",
+      "bytes": 561664
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-ext-glfw.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-ext-glfw.dll",
+      "sha256": "4400941e34b66a47d67978e30cc919739aca4657b0e41db876e96c0f3e45b301",
+      "bytes": 394240
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-gui.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-gui.dll",
+      "sha256": "e3543c504f5284703e2d9b2974f92ba8fee2a4c502874a05b935ff603d0ba8c8",
+      "bytes": 1729024
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-osl.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-osl.dll",
+      "sha256": "9172eae2e0730a854ff4f3f19bf72f474eafe5fce4410804ca652c062ee636d0",
+      "bytes": 419840
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-runtime.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-runtime.dll",
+      "sha256": "9faa80fc95cfb2618001171ca093f90da882d4f6de44d6b60462fd161ce2dfc2",
+      "bytes": 1044480
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-tile-bridge-tirx.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-tile-bridge-tirx.dll",
+      "sha256": "fb3a37d3fc6a367a10fdc5d1d83e19e276ba67b01014a36b43854db3c269d7c5",
+      "bytes": 1383936
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-tile-bridge-xir.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-tile-bridge-xir.dll",
+      "sha256": "1cfe219d996a0723cfd8948e3d24b6272c9f3b2478362b8145aa9c4af85c8260",
+      "bytes": 617984
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-tile.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-tile.dll",
+      "sha256": "64008808e4f30f70f690d0e4218feafe57df3bd04497d5f6cbfe5bbb91000039",
+      "bytes": 549888
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-validation-layer.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-validation-layer.dll",
+      "sha256": "a5094293e2635704ef795e498ab6d7cbfcd4a51c81fc03a1d6d10f59d8dd571c",
+      "bytes": 371200
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa-xir.dll": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa-xir.dll",
+      "sha256": "b0b14f8b09892e903286d871fc43814fbb56d1103684e02ca1b99971ae3c6291",
+      "bytes": 3475968
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\benchmark_tile_workloads.exe": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\benchmark_tile_workloads.exe",
+      "sha256": "16e9e8b5a9b89b60e65c25012a7a82118de3bd9d83ebaef5df4cbc42f3589049",
+      "bytes": 1254400
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa_cuda_tile_compiler.exe": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa_cuda_tile_compiler.exe",
+      "sha256": "5513a320fcd0b81652e5f6f71ccd3172908524bdccc3e59f8c4f0d2cbf0cdab9",
+      "bytes": 113382400
+    },
+    "${REPO}\\build-msvc-llvm\\bin\\luisa_nvrtc.exe": {
+      "path": "${REPO}\\build-msvc-llvm\\bin\\luisa_nvrtc.exe",
+      "sha256": "3f31e83b8ebde7c409f9f61174c5fa45c9ac16046b2ed97ae31833703d29e754",
+      "bytes": 113371648
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile.cpp",
+      "sha256": "933bb4d8cb84bcbc7a6b76d14b6d1ae65ec1136a233ceaf19e0b0139912cbe68",
+      "bytes": 86582
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile.h",
+      "sha256": "201d96d11b58d95b728b6e46f85fdecc64c277596281445af813d7957658cb1f",
+      "bytes": 442
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_codegen.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_codegen.cpp",
+      "sha256": "af4c9e06befaf6c6fa0e75af46d8d6243872a5c89171a756cd09f3e2bb16c1b6",
+      "bytes": 86393
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_codegen.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_codegen.h",
+      "sha256": "db84a21241543e60469ab6fceb18fa90db62b006f025342bb22df1f134cf7d56",
+      "bytes": 3607
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_collective_cost.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_collective_cost.h",
+      "sha256": "792ce60bc89f93f7fd400df9a4d1e31bbdf867e5316fa6f01737035332c88fde",
+      "bytes": 3566
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_cub_scan.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_cub_scan.cpp",
+      "sha256": "d1ba522435448d41e22cdd94ff666f4a8208d38573223339f6e7f67df6383102",
+      "bytes": 9613
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_cub_scan.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_cub_scan.h",
+      "sha256": "ac288aeaef45daa319f1a9f596a0a5242c67e21957b07978a276c2c5e4a3cc28",
+      "bytes": 1455
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_ir.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_ir.cpp",
+      "sha256": "0cbb081d4d0fd092a9a38eb7c5f5444aa8aae825a918dc3de3fd99cf1381b02f",
+      "bytes": 14099
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_ir.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_ir.h",
+      "sha256": "0ecfcdc2df379b92477be87c6abaa4c0a618c16cfa66e5e15b160136798db1c6",
+      "bytes": 855
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_partition_codegen.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_partition_codegen.cpp",
+      "sha256": "9456538dc0a3fe92f6091c34194a0a95d9a8bd178a4b0f4a1ac28fe22eee59d9",
+      "bytes": 9211
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_partition_codegen.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_partition_codegen.h",
+      "sha256": "76f18182b17f1d5e26a04081441c5ea8d1a0169850ceeaaf5f1a1b5dc9b3f6b5",
+      "bytes": 567
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_partition_cost.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_partition_cost.h",
+      "sha256": "d9c77fedee4b49626bf12456e80f7c72a9109dbed057f7b14e851e195d36743f",
+      "bytes": 6025
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_scan_cost.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_scan_cost.h",
+      "sha256": "a75643b79ce23b4c2237d28d7529fa9c1416a481c37442fcec1090faa6e2bbae",
+      "bytes": 17006
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_streaming_guard.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_streaming_guard.h",
+      "sha256": "ef47ff209644e5ac42a9384e62fbc9290f3b5faa81a16b5d784091f6dc195853",
+      "bytes": 1461
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_streaming_scan.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_streaming_scan.cpp",
+      "sha256": "153e61ce0e79756f8646faa104043d061b5a799d80c97016d6016cac8f706768",
+      "bytes": 3154
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_streaming_scan.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_streaming_scan.h",
+      "sha256": "8b359a9dab03632318361a4c8b3579e8d729be4e9896f3c38f795b931da72efb",
+      "bytes": 1600
+    },
+    "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_streaming_scan_codegen.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\tile\\cuda_tile_streaming_scan_codegen.cpp",
+      "sha256": "9dd93fb8b389a88a802122e21e7b3df436753e2fddbb4c5a2b31f8a4b61f0ad7",
+      "bytes": 5707
+    },
+    "${REPO}\\include\\luisa\\tile\\algorithms.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\algorithms.h",
+      "sha256": "8d9ab8d371142d62f61f22f6bcb6595fe993653d411fbdbc29fbc9088dfc5bd2",
+      "bytes": 16547
+    },
+    "${REPO}\\include\\luisa\\tile\\analysis.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\analysis.h",
+      "sha256": "f1a71b0222996b26fb33cb1cfb59b0ccdd90affb892e3564191a0e77d15a9b8b",
+      "bytes": 7857
+    },
+    "${REPO}\\include\\luisa\\tile\\collective_cost.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\collective_cost.h",
+      "sha256": "43c431044dba428a69105ab70da75ed4aa0753355779cb8e998128bdf6c1ffbf",
+      "bytes": 2505
+    },
+    "${REPO}\\include\\luisa\\tile\\collective_partition.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\collective_partition.h",
+      "sha256": "e9f4b0eb7b4dfe6b514a72fff4d47a755bbbb5a84b370f45a0fa47c440fabcca",
+      "bytes": 5539
+    },
+    "${REPO}\\include\\luisa\\tile\\collective_plan.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\collective_plan.h",
+      "sha256": "cdc9289d839855b25f245f27cb3b54e9e25dffe4f378facd3271fe19b3650c2a",
+      "bytes": 2111
+    },
+    "${REPO}\\include\\luisa\\tile\\collective_prefix.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\collective_prefix.h",
+      "sha256": "f64c9df8e3708a63397c73675098adb4377b9ddcfa9d89b056482590c6953687",
+      "bytes": 1809
+    },
+    "${REPO}\\include\\luisa\\tile\\dimension.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\dimension.h",
+      "sha256": "ffffdde14b7bd99f4e1b788a6fc165c67685aab2717aa6aa3ef384f36a0a066d",
+      "bytes": 5846
+    },
+    "${REPO}\\include\\luisa\\tile\\dsl.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\dsl.h",
+      "sha256": "c15c39fe8126c47212bd5c6274002b21cf5787f1609aad0960dd86148804070e",
+      "bytes": 39263
+    },
+    "${REPO}\\include\\luisa\\tile\\ir.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\ir.h",
+      "sha256": "10f536ea83d06fe28612a0ae2139827e352734487e05ce42655c3acd34e65a5b",
+      "bytes": 27361
+    },
+    "${REPO}\\include\\luisa\\tile\\layout.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\layout.h",
+      "sha256": "31556922bc37b9ed3e099b842f2b86be23fa0c3c875351a515e6b2dc8365c492",
+      "bytes": 8334
+    },
+    "${REPO}\\include\\luisa\\tile\\memory.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\memory.h",
+      "sha256": "92ca12da445f0a986c24c2a14a5cf3f846b1be38298d72aa2185a2e36abb0f70",
+      "bytes": 2725
+    },
+    "${REPO}\\include\\luisa\\tile\\runtime.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\runtime.h",
+      "sha256": "7d7f2d58c193a0f45405fad98c9a099805381a48ea63436cb9da6fa7c8657170",
+      "bytes": 7196
+    },
+    "${REPO}\\include\\luisa\\tile\\target.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\target.h",
+      "sha256": "3849426856f50023228c4c380d9d6352348a862ccaa17ab00e0f9427fd724241",
+      "bytes": 4142
+    },
+    "${REPO}\\include\\luisa\\tile\\types.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\types.h",
+      "sha256": "b96d37d2a7378196f9a823aee89718816940c3009700ad407536f8dccc48d8fb",
+      "bytes": 6911
+    },
+    "${REPO}\\include\\luisa\\tile\\value.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\value.h",
+      "sha256": "e324b60654a78702ed645bdb0a9f51646ade581c0d8281ea9a9eab5b8c295717",
+      "bytes": 23592
+    },
+    "${REPO}\\include\\luisa\\tile\\verifier.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\verifier.h",
+      "sha256": "dbc6b42f33e4fc8cf40150b6197b7cf04ce3e4db80a78d353d599abd7554c403",
+      "bytes": 1517
+    },
+    "${REPO}\\src\\tile\\collective_cost.cpp": {
+      "path": "${REPO}\\src\\tile\\collective_cost.cpp",
+      "sha256": "bb6ba6c0dcb613d411dd3650914055794b22192a8682339d5704737892f946be",
+      "bytes": 6602
+    },
+    "${REPO}\\src\\tile\\collective_partition.cpp": {
+      "path": "${REPO}\\src\\tile\\collective_partition.cpp",
+      "sha256": "04e400837bbc47c6d9b93a22421a80ef34a92642ec3490220a150b36f3ef7cec",
+      "bytes": 23999
+    },
+    "${REPO}\\src\\tile\\collective_plan.cpp": {
+      "path": "${REPO}\\src\\tile\\collective_plan.cpp",
+      "sha256": "60885039a3f7f7a3aae0d7ef39a7da6d87e67bea74fac9f7c79b8e6825708253",
+      "bytes": 18818
+    },
+    "${REPO}\\src\\tile\\collective_prefix.cpp": {
+      "path": "${REPO}\\src\\tile\\collective_prefix.cpp",
+      "sha256": "70c971fad099b3f645dd6899b8b54c3edeffa4c2a079cc3cd48148e3387ff45f",
+      "bytes": 12593
+    },
+    "${REPO}\\src\\tile\\dimension.cpp": {
+      "path": "${REPO}\\src\\tile\\dimension.cpp",
+      "sha256": "7878f27194c4fb0643ed4c02c0b06b9a650af5f99a3b1026df57d8474ecf923c",
+      "bytes": 3519
+    },
+    "${REPO}\\src\\tile\\dsl.cpp": {
+      "path": "${REPO}\\src\\tile\\dsl.cpp",
+      "sha256": "91c07eb642bcd2664a78be89c66b12626161c558aea582dc5ce43971f4e4120d",
+      "bytes": 35108
+    },
+    "${REPO}\\src\\tile\\ir.cpp": {
+      "path": "${REPO}\\src\\tile\\ir.cpp",
+      "sha256": "516687365eb01fb030723ec756bd66781974e5ea9d6556ecf48c5fc0eb737a99",
+      "bytes": 24773
+    },
+    "${REPO}\\src\\tile\\layout.cpp": {
+      "path": "${REPO}\\src\\tile\\layout.cpp",
+      "sha256": "d89f8222369c19d4d888777c4eadd3dfb39d216f2b6a0d6ffb8e91aa88baebb8",
+      "bytes": 49954
+    },
+    "${REPO}\\src\\tile\\target.cpp": {
+      "path": "${REPO}\\src\\tile\\target.cpp",
+      "sha256": "1f78ffd7dc5fcfa91f6b219120e6147b90c55561fbbb11aa198e377753efa29e",
+      "bytes": 6042
+    },
+    "${REPO}\\src\\tile\\verifier.cpp": {
+      "path": "${REPO}\\src\\tile\\verifier.cpp",
+      "sha256": "e2abfbbac4205513319a715e0f3ed809ec7e54e0cc5218b6ee3ed3456f5b2b14",
+      "bytes": 52295
+    },
+    "${REPO}\\src\\tests\\common\\tile_argmax_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_argmax_test_utils.h",
+      "sha256": "457224ca2894c4de8585ae27ad9f078da41e3cdb40308fc7670de2ad8ff149c1",
+      "bytes": 2353
+    },
+    "${REPO}\\src\\tests\\common\\tile_embedding_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_embedding_test_utils.h",
+      "sha256": "95ac20bbfe3cafd17839435ed67344948120def24d220b36fce52b69455de75a",
+      "bytes": 4093
+    },
+    "${REPO}\\src\\tests\\common\\tile_llm_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_llm_test_utils.h",
+      "sha256": "a1fa5ec12e8014ff7e88121a2da93c5af9076ede10d4cdd039b037423b55eb93",
+      "bytes": 12220
+    },
+    "${REPO}\\src\\tests\\common\\tile_migrated_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_migrated_test_utils.h",
+      "sha256": "192c3cbb61e61299111f1d506a353947c7252b129e93a4deb9f83306372066be",
+      "bytes": 7949
+    },
+    "${REPO}\\src\\tests\\common\\tile_native_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_native_test_utils.h",
+      "sha256": "7e07ec223898e14e87d52bd59eb265fbfbf973623492dcc910349f7c9b63a589",
+      "bytes": 2642
+    },
+    "${REPO}\\src\\tests\\common\\tile_packet_reduction_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_packet_reduction_test_utils.h",
+      "sha256": "8ea3b6061be0db3ea4dc108436868b2def8ec5d1ce0753d2281ca5258f5fea32",
+      "bytes": 7368
+    },
+    "${REPO}\\src\\tests\\common\\tile_rank_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_rank_test_utils.h",
+      "sha256": "d9ffb3d40973fb4ea3cd3e7faf31c38728a98557817c8962a8d17007594f9de6",
+      "bytes": 8120
+    },
+    "${REPO}\\src\\tests\\common\\tile_reduction_policy_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_reduction_policy_test_utils.h",
+      "sha256": "319224650d2957f77ad815203faddf511bb90ece998d39f85000a14bb6663aa0",
+      "bytes": 3476
+    },
+    "${REPO}\\src\\tests\\common\\tile_selection_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_selection_test_utils.h",
+      "sha256": "d04fa891fa5db4a4a7ccf2b15166aa908047fe907a6b9d58cf50529026d5271a",
+      "bytes": 4330
+    },
+    "${REPO}\\src\\tests\\common\\tile_sort_pipeline_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_sort_pipeline_test_utils.h",
+      "sha256": "cf0dc58f3201659b0bb33ee88eff248e237fcbecdced4ea1afaf870e80a92225",
+      "bytes": 7668
+    },
+    "${REPO}\\src\\tests\\common\\tile_tirx_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_tirx_test_utils.h",
+      "sha256": "c56db4bebc50db7ac04d7a56f3c316e8328cc3d3695ffd2a55c7173f67d9bd2a",
+      "bytes": 11091
+    },
+    "${REPO}\\src\\tests\\common\\tile_xir_attention_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_xir_attention_test_utils.h",
+      "sha256": "b63831d7ce33279ab40ea135ee8b54f7180d1f1841736b3d026c91d9ac576c68",
+      "bytes": 22453
+    },
+    "${REPO}\\src\\tests\\common\\tile_xir_test_utils.h": {
+      "path": "${REPO}\\src\\tests\\common\\tile_xir_test_utils.h",
+      "sha256": "c35bf5bd6e8eaff7ca8a56ba4eab9f1ce1c941b298bdd12544d893c32b452c72",
+      "bytes": 1988
+    },
+    "${REPO}\\src\\backends\\cuda\\cuda_shader_tile.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\cuda_shader_tile.cpp",
+      "sha256": "025864c53f4dd890fbd3cfbed0418e26cbf0e953a7b6bbefac18fc84936c41ef",
+      "bytes": 11591
+    },
+    "${REPO}\\src\\backends\\cuda\\cuda_shader_tile.h": {
+      "path": "${REPO}\\src\\backends\\cuda\\cuda_shader_tile.h",
+      "sha256": "be42e7edf2df4c758aa5d8279c6e0561d5b5b76d9c3f5d015bd321c2ba4524d6",
+      "bytes": 6414
+    },
+    "${REPO}\\src\\backends\\cuda\\extensions\\cuda_graph_ext.cpp": {
+      "path": "${REPO}\\src\\backends\\cuda\\extensions\\cuda_graph_ext.cpp",
+      "sha256": "3e33447601ed19cdee63638275fb542801dd3088f540b218a6e1392c21875bda",
+      "bytes": 45424
+    },
+    "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_compiler.dll": {
+      "path": "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_compiler.dll",
+      "sha256": "33f3f5093323f26939839397f4cd978b574e657cabc258a6376dd8991cfa77ad",
+      "bytes": 37079040
+    },
+    "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_ffi.dll": {
+      "path": "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_ffi.dll",
+      "sha256": "7b299b0e9a10a786cbe9bbbd580ba1f3db7c4781ea856be5581f30b54cc67f3a",
+      "bytes": 4374016
+    },
+    "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_ffi_testing.dll": {
+      "path": "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_ffi_testing.dll",
+      "sha256": "c9f265a79911f2df5d32261aeb00e2370ea2f04da49b48863a0caa611bdd415f",
+      "bytes": 1302016
+    },
+    "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_runtime.dll": {
+      "path": "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_runtime.dll",
+      "sha256": "f8b2bf3cb1569e08d83156bf280fa06943be224357aabea909b635ac9de0db99",
+      "bytes": 2533888
+    },
+    "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_runtime_cuda.dll": {
+      "path": "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_runtime_cuda.dll",
+      "sha256": "c5be0ccc8e816dfbf0a30fce644dc703456cafdf5829ea097485f190727e3eee",
+      "bytes": 641536
+    },
+    "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_runtime_extra.dll": {
+      "path": "${REPO}\\.deps\\tvm-msvc-cuda\\lib\\tvm_runtime_extra.dll",
+      "sha256": "bde13e67563bd13ebcba90f6a83d370bf01a8e089ada2bb3afdb11fbe558f26a",
+      "bytes": 1112064
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\prepare.py": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\prepare.py",
+      "sha256": "11e6b203005a3158665ace2dab814b67563faa43912d464bfb6c95b08b3dd735",
+      "bytes": 10434
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\benchmark_cuda_tirx_subgroup.cpp": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\benchmark_cuda_tirx_subgroup.cpp",
+      "sha256": "76a417cbe02df5c5d78af4a0e9e6dacffb89b2a642de46903c2b346becfa103a",
+      "bytes": 70170
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\diagnostic_subgroup.h": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\diagnostic_subgroup.h",
+      "sha256": "a0ef38c71bde18669c7126744fe70a04b6806ddb293574e0cc45ec0c4c5d02f4",
+      "bytes": 7902
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\diagnostic_work.h": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\diagnostic_work.h",
+      "sha256": "9597c4e8448bce7a87cc1483ee6ea4a277a45386f497ca18d0b2fed57e4a3a86",
+      "bytes": 5844
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\tile_workload_test_utils.h": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\tile_workload_test_utils.h",
+      "sha256": "f790862a6fd6506e4e662bc8d82317ae4dfff1e2e561fb44d018060efa6c0a95",
+      "bytes": 44531
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\CMakeLists.txt": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\CMakeLists.txt",
+      "sha256": "4293e4bde4f309d98bbf66ce5c33259e7a0fa6ebeec1f7f857061ffbda7259aa",
+      "bytes": 4317
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\cases6.json": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\cases6.json",
+      "sha256": "55bf021934d4031161869dfb47c55567af032468a3e9760b3339ab9eb912b6bc",
+      "bytes": 2053
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\source-receipts.json": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-prep-v1\\source-receipts.json",
+      "sha256": "185b51d378326060be733ec407703ed0738364aae12c424adcdef6d23ae63b63",
+      "bytes": 2492
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-build-v1\\bin\\benchmark_cuda_tirx_subgroup.exe": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-build-v1\\bin\\benchmark_cuda_tirx_subgroup.exe",
+      "sha256": "2b3c65a6c84d99c5224e2684d16f2dd6ae3b2f611b2c3e79785c2b2f5c7a108f",
+      "bytes": 1307648
+    },
+    "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-benchmark-build-v1.log": {
+      "path": "${REPO}\\.deps\\oct03-cuda-tirx-subgroup-benchmark-build-v1.log",
+      "sha256": "31a20b1497caf1768ada6493ab150ac1a00702fa7726960c1b8849971e0b0458",
+      "bytes": 61524
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-matrix-prep-v1\\run_queue.py": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-matrix-prep-v1\\run_queue.py",
+      "sha256": "59023df7449f5ef4c7e9db19b6ab6b67b898939bfeee3c4ca01950c85662992c",
+      "bytes": 18885
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\compiler.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\compiler.cpp",
+      "sha256": "2561bf1700a61d7568d5626f92165d01c3c12b6132c635a5bb5dfed29fd32327",
+      "bytes": 69025
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\cooperative.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\cooperative.cpp",
+      "sha256": "0270535f7fe350420d0d0335de2ee2ff5d92b95dcd4ae8ef02156e600edb0bd4",
+      "bytes": 62146
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\cpu.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\cpu.cpp",
+      "sha256": "b31dae7bf682c0e29e4075d1ddd49857f72ce33a7e8a1da56e34e28bc73cdda9",
+      "bytes": 25270
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\cuda_codegen.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\cuda_codegen.cpp",
+      "sha256": "a58ebe73f6acaea09b7093b1660a23fc6e431c2f1c9ce9fcea8e7e03ed0d256e",
+      "bytes": 35520
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\execution.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\execution.cpp",
+      "sha256": "6ee215afa5f67a4e446b90641c5046200412533c78c85086f20136ce4ee3c254",
+      "bytes": 45856
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\layout.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\layout.cpp",
+      "sha256": "3f87a25322f3ac2d296180a70bd371f65ed0d7e215bb501052ba4d91fbf33177",
+      "bytes": 15688
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\lower.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\lower.cpp",
+      "sha256": "8b93dd5c483562840146c4f994d6cfd0b9bd24d8487e3bf9cfa96fc5d48c3e0d",
+      "bytes": 69489
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\mapping.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\mapping.cpp",
+      "sha256": "33ab4d59c559031dbc3dc8c0419fadc2d09389ad7f8d5f55081a7cad8e91280f",
+      "bytes": 5900
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\matrix.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\matrix.cpp",
+      "sha256": "8435e51fd53b02adb66a5c4877bca9277319e55221b21f065e1be4556e0a1e51",
+      "bytes": 59622
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\pipeline.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\pipeline.cpp",
+      "sha256": "72f591261f3adbdce9d743d3721e99d97d83a93f545a9c45d33659eb3a84cefe",
+      "bytes": 33439
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\planner.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\planner.cpp",
+      "sha256": "4c1b74f3a43b116a38d5b34e614156bada4411328a40e81f684217a81c08a08f",
+      "bytes": 32552
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\reduction.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\reduction.cpp",
+      "sha256": "4f679cb2187480895721edd12e6312e747bcff0c9c5663df3acc7df5fe4a5cc2",
+      "bytes": 79520
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\synchronization.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\synchronization.cpp",
+      "sha256": "b4b0110597affc74ea742bfc5b5523b56eefa3a5cb38477af096af55cb13dddf",
+      "bytes": 11513
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\views.cpp": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\views.cpp",
+      "sha256": "e09ef9753bcf185282bf4c1ff6ba590b72ec380a63d98d9694fd04574e6ae6f5",
+      "bytes": 20171
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\cuda_codegen.h": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\cuda_codegen.h",
+      "sha256": "a3ccba0062f42babb0c2623fad1a5e7337c2a0432914feb39bc0339efb989dfa",
+      "bytes": 660
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\diagnostic.h": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\diagnostic.h",
+      "sha256": "c8218c228e966847962994a489ced39859cfe06dc59159a4e08af15bfc7c3f9a",
+      "bytes": 2099
+    },
+    "${REPO}\\src\\tile\\bridge\\tirx\\execution.h": {
+      "path": "${REPO}\\src\\tile\\bridge\\tirx\\execution.h",
+      "sha256": "719df09b0635d69d5310c9042598572265e6f9fb33a9f0b455d19c51dd2cf8ed",
+      "bytes": 15671
+    },
+    "${REPO}\\include\\luisa\\tile\\bridge\\tirx\\compiler.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\bridge\\tirx\\compiler.h",
+      "sha256": "427b48abf8f728c63083afa92a67cd48f5c653463e2873553803346690f88b97",
+      "bytes": 8825
+    },
+    "${REPO}\\include\\luisa\\tile\\bridge\\tirx\\layout.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\bridge\\tirx\\layout.h",
+      "sha256": "5c87997072a689482913bded855fce731b6ed030f7cab53ed8e077b079de0608",
+      "bytes": 4880
+    },
+    "${REPO}\\include\\luisa\\tile\\bridge\\tirx\\lower.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\bridge\\tirx\\lower.h",
+      "sha256": "e35031dfd630704d2c38d7bdcd49b9e15def4bc52cb674b49d9a3e02eb65f851",
+      "bytes": 1586
+    },
+    "${REPO}\\include\\luisa\\tile\\bridge\\tirx\\planner.h": {
+      "path": "${REPO}\\include\\luisa\\tile\\bridge\\tirx\\planner.h",
+      "sha256": "4f77c3aaaa5c8c6db34588f7ff630ce4ef712462ff5c6ace8c63bf701ebe9576",
+      "bytes": 22620
+    },
+    "${REPO}\\.deps\\cuda-tirx-subgroup-matrix-prep-v1\\test_queue.py": {
+      "path": "${REPO}\\.deps\\cuda-tirx-subgroup-matrix-prep-v1\\test_queue.py",
+      "sha256": "9a26d4736bd8e94ba44c0917364b65134ae44c64085efc59166714750d944bcc",
+      "bytes": 6243
+    }
+  },
+  "measurement_configuration": {
+    "samples": 7,
+    "sample_ms": 100,
+    "warmup_ms": 500,
+    "graph_batch": 100,
+    "threads": 4,
+    "affinity_mask": 87040,
+    "native_timeout": 180,
+    "telemetry_ms": 500
+  },
+  "torch_options": {
+    "samples": 7,
+    "sample_ms": 100,
+    "warmup_ms": 500,
+    "graph_batch": 100,
+    "threads": 4,
+    "affinity_mask": 87040,
+    "native_timeout": 180,
+    "telemetry_ms": 500,
+    "torch_mode": "max-autotune",
+    "ranking_contract": "standard"
+  },
+  "stages": [
+    "native_initial",
+    "subgroup",
+    "native_recheck"
+  ],
+  "cases": [
+    {
+      "id": "regroup-rmsnorm-128x1024-bf16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "precision": "bf16",
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "regroup-rmsnorm-256x1536-fp16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        256,
+        1536
+      ],
+      "precision": "fp16",
+      "tile": [
+        1,
+        2048,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "regroup-rmsnorm-7x2051-bf16",
+      "operation": "rmsnorm",
+      "dimensions": [
+        7,
+        2051
+      ],
+      "precision": "bf16",
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "regroup-softmax-1024x512-fp16",
+      "operation": "softmax",
+      "dimensions": [
+        1024,
+        512
+      ],
+      "precision": "fp16",
+      "tile": [
+        1,
+        512,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "regroup-softmax-32x512-fp16",
+      "operation": "softmax",
+      "dimensions": [
+        32,
+        512
+      ],
+      "precision": "fp16",
+      "tile": [
+        1,
+        512,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": true
+    },
+    {
+      "id": "regroup-softmax-9x769-fp16",
+      "operation": "softmax",
+      "dimensions": [
+        9,
+        769
+      ],
+      "precision": "fp16",
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "seed": 20261003,
+      "pattern": "random",
+      "fast_math": true
+    }
+  ],
+  "native_executable": {
+    "path": "${REPO}\\.deps\\row-regroup-fast-build-v1\\bin\\benchmark_row_regroup_fast.exe",
+    "sha256": "9947894a3f6416d7d74f4e401ded127918bda7ebd709948ead8a560db6135909",
+    "bytes": 1292288
+  },
+  "subgroup_executable": {
+    "path": "${REPO}\\.deps\\cuda-tirx-subgroup-benchmark-build-v1\\bin\\benchmark_cuda_tirx_subgroup.exe",
+    "sha256": "2b3c65a6c84d99c5224e2684d16f2dd6ae3b2f611b2c3e79785c2b2f5c7a108f",
+    "bytes": 1307648
+  }
+}

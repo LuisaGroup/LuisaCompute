@@ -204,7 +204,7 @@ luisa::vector<NaturalLoop> discover_natural_loops(
     }
 
     // Step 5: order inner loops before outer loops (ascending body size).
-    std::sort(loops.begin(), loops.end(), [](const NaturalLoop &a, const NaturalLoop &b) noexcept {
+    luisa::sort(loops.begin(), loops.end(), [](const NaturalLoop &a, const NaturalLoop &b) noexcept {
         return a.body_blocks.size() < b.body_blocks.size();
     });
     return loops;

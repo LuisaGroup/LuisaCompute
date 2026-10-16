@@ -2,18 +2,18 @@ includes("common")
 target("lc_backend_sdk")
 do
     set_kind("phony")
-    -- local libnames = {}
-    -- if os.host() == "windows" and (has_config("lc_dx_backend") or has_config("lc_vk_backend")) then
-    --     table.insert(libnames, 'dx_sdk')
-    -- end
-    -- if os.host() == "linux" and os.arch() == "x86_64" and has_config("lc_vk_backend") then
-    --     table.insert(libnames, 'vk_sdk')
-    -- end
-    -- if #libnames > 0 then
-    --     add_rules('lc_install_sdk', {
-    --         libnames = libnames
-    --     })
-    -- end
+    local libnames = {}
+    if os.host() == "windows" and (has_config("lc_dx_backend") or has_config("lc_vk_backend")) then
+        table.insert(libnames, 'dx_sdk')
+    end
+    if os.host() == "linux" and os.arch() == "x86_64" and has_config("lc_vk_backend") then
+        table.insert(libnames, 'vk_sdk')
+    end
+    if #libnames > 0 then
+        add_rules('lc_install_sdk', {
+            libnames = libnames
+        })
+    end
 end
 target_end()
 
@@ -33,8 +33,12 @@ if has_config("lc_vk_backend") then
     includes("vk")
 end
 includes("validation")
-if has_config("lc_toy_c_backend") then
-    includes("toy_c")
+
+-- Builtin shader compilation tool (AOT-compile raw HLSL builtins to the DX/VK
+-- bytecode artifacts). It links the shared HLSL codegen/dxc wrapper, so it is
+-- only available when one of those backends is configured.
+if has_config("lc_dx_backend") or has_config("lc_vk_backend") then
+    includes("tools")
 end
 
 rule("lc-backend-deps")
@@ -43,9 +47,6 @@ on_load(function(target)
         inherit = false,
         links = false
     })
-    -- target:add("deps", "lc-backend-toy-c", {
-    --     inherit = false
-    -- })
     target:add("deps", "lc_backend_sdk");
     if has_config("lc_dx_backend") then
         target:add("deps", "lc-backend-dx", {

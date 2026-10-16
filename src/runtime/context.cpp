@@ -8,6 +8,9 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/optional.h>
+
+#include <optional>
 
 // Hack to make LLVM happy. The following code is not used but *must* be included in the shared library!!!!
 
@@ -45,7 +48,7 @@ extern "C" CWrapperFunctionResult llvm_orc_deregisterEHFrameSectionWrapper(const
 namespace luisa::compute {
 
 struct BackendModule {
-    using BackendDeviceNames = void(luisa::vector<luisa::string> &);
+    using BackendDeviceNames = Context::StaticBackendDeviceNames;
     DynamicModule module;
     Device::Creator *creator;
     Device::Deleter *deleter;
@@ -62,6 +65,33 @@ struct ValidationLayer {
 // Make context global, so dynamic modules cannot be redundantly loaded
 namespace detail {
 
+struct StaticBackendRegistration {
+    Context::StaticBackendCreator *creator{};
+    Context::StaticBackendDeleter *deleter{};
+    Context::StaticBackendDeviceNames *device_names{};
+};
+
+struct StaticBackendRegistry {
+    std::mutex mutex;
+    luisa::unordered_map<luisa::string, StaticBackendRegistration> backends;
+};
+
+[[nodiscard]] StaticBackendRegistry &static_backend_registry() noexcept {
+    static StaticBackendRegistry registry;
+    return registry;
+}
+
+[[nodiscard]] luisa::optional<StaticBackendRegistration>
+find_static_backend(luisa::string_view backend_name) noexcept {
+    auto &registry = static_backend_registry();
+    std::scoped_lock lock{registry.mutex};
+    if (auto iter = registry.backends.find(luisa::string{backend_name});
+        iter != registry.backends.cend()) {
+        return iter->second;
+    }
+    return luisa::nullopt;
+}
+
 class ContextImpl {
 
 public:
@@ -71,7 +101,9 @@ public:
     luisa::vector<luisa::string> installed_backends;
     ValidationLayer validation_layer;
     luisa::unordered_map<luisa::string, luisa::unique_ptr<luisa::filesystem::path>> runtime_subdir_paths;
+    luisa::unordered_map<luisa::string, luisa::unique_ptr<luisa::filesystem::path>> data_subdir_paths;
     std::mutex runtime_subdir_mutex;
+    std::mutex data_subdir_mutex;
     std::mutex module_mutex;
 
     [[nodiscard]] const BackendModule &load_backend(const luisa::string &backend_name) noexcept {
@@ -89,19 +121,28 @@ public:
             iter != loaded_backends.cend()) {
             return *iter->second;
         }
-        BackendModule m{
-            .module = DynamicModule::load(
+        BackendModule m{};
+        if (auto static_backend = find_static_backend(backend_name)) {
+            m.creator = static_backend->creator;
+            m.deleter = static_backend->deleter;
+            m.backend_device_names = static_backend->device_names;
+        } else {
+            m.module = DynamicModule::load(
                 runtime_directory,
-                luisa::format("luisa-backend-{}", backend_name))};
-        LUISA_ASSERT(m.module, "Failed to load backend '{}'.", backend_name);
-        auto backend_version = m.module.function<int()>("backend_version");
-        LUISA_ASSERT(backend_version != nullptr, "Backend '{}' does not export version info.", backend_name);
-        LUISA_ASSERT(backend_version() == LUISA_COMPUTE_VERSION,
-                     "Backend '{}' version mismatch: compiled with {}, loaded {}.",
-                     backend_name, LUISA_COMPUTE_VERSION, backend_version());
-        m.creator = m.module.function<Device::Creator>("create");
-        m.deleter = m.module.function<Device::Deleter>("destroy");
-        m.backend_device_names = m.module.function<BackendModule::BackendDeviceNames>("backend_device_names");
+                luisa::format("luisa-backend-{}", backend_name));
+            LUISA_ASSERT(m.module, "Failed to load backend '{}'.", backend_name);
+            auto backend_version = m.module.function<int()>("backend_version");
+            LUISA_ASSERT(backend_version != nullptr, "Backend '{}' does not export version info.", backend_name);
+            LUISA_ASSERT(backend_version() == LUISA_COMPUTE_VERSION,
+                         "Backend '{}' version mismatch: compiled with {}, loaded {}.",
+                         backend_name, LUISA_COMPUTE_VERSION, backend_version());
+            m.creator = m.module.function<Device::Creator>("create");
+            m.deleter = m.module.function<Device::Deleter>("destroy");
+            m.backend_device_names = m.module.function<BackendModule::BackendDeviceNames>("backend_device_names");
+        }
+        LUISA_ASSERT(m.creator != nullptr && m.deleter != nullptr &&
+                         m.backend_device_names != nullptr,
+                     "Backend '{}' has an incomplete registration.", backend_name);
         auto pm = loaded_backends.emplace(
                                      backend_name,
                                      luisa::make_unique<BackendModule>(std::move(m)))
@@ -121,6 +162,16 @@ public:
     }
     void init_backends() noexcept {
         using namespace std::string_view_literals;
+
+        {
+            auto &registry = static_backend_registry();
+            std::scoped_lock lock{registry.mutex};
+            installed_backends.reserve(registry.backends.size());
+            for (auto &&[name, registration] : registry.backends) {
+                static_cast<void>(registration);
+                installed_backends.emplace_back(name);
+            }
+        }
 
         const auto extension_so = luisa::filesystem::path(".so");
         const auto extension_dll = luisa::filesystem::path(".dll");
@@ -164,7 +215,19 @@ public:
     explicit ContextImpl(luisa::string_view program_path, luisa::string_view data_dir) noexcept {
         using namespace std::string_view_literals;
 
-        luisa::filesystem::path program{program_path};
+        // program_path is application-supplied narrow text (usually argv[0]).
+        // path_from_narrow() decodes it exactly like path's narrow constructor,
+        // but reports an unrepresentable name through its return value instead of
+        // throwing (the library is built without C++ exceptions, where that throw
+        // would terminate the process). A failed decode leaves the path empty and
+        // the fallbacks below resolve it to the current executable.
+        luisa::filesystem::path program;
+        if (!path_from_narrow(program_path, program)) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Program path '{}' cannot be represented in the ANSI code page; "
+                "using the current executable path instead.",
+                program_path);
+        }
         LUISA_INFO(
             "Created context for program '{}'.",
             luisa::to_string(program.filename()));
@@ -184,10 +247,17 @@ public:
             } else {
                 runtime_directory = luisa::filesystem::canonical(program.parent_path());
             }
-            if (data_dir.empty()) {
+            luisa::filesystem::path data_dir_path;
+            if (data_dir.empty() || !path_from_narrow(data_dir, data_dir_path)) [[unlikely]] {
+                if (!data_dir.empty()) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Data directory '{}' cannot be represented in the ANSI code page; "
+                        "using the current working directory instead.",
+                        data_dir);
+                }
                 data_directory = luisa::filesystem::current_path();
             } else {
-                data_directory = luisa::filesystem::canonical(data_dir);
+                data_directory = luisa::filesystem::canonical(data_dir_path);
             }
 
             LUISA_INFO(
@@ -201,7 +271,15 @@ public:
     explicit ContextImpl(luisa::string_view program_path) noexcept {
         using namespace std::string_view_literals;
 
-        luisa::filesystem::path program{program_path};
+        // See the comment in the two-argument constructor: narrow decoding goes
+        // through path_from_narrow() so it can never throw.
+        luisa::filesystem::path program;
+        if (!path_from_narrow(program_path, program)) [[unlikely]] {
+            LUISA_WARNING_WITH_LOCATION(
+                "Program path '{}' cannot be represented in the ANSI code page; "
+                "using the current executable path instead.",
+                program_path);
+        }
         LUISA_INFO(
             "Created context for program '{}'.",
             luisa::to_string(program.filename()));
@@ -221,7 +299,12 @@ public:
             } else {
                 runtime_directory = luisa::filesystem::canonical(program.parent_path());
             }
-            data_directory = runtime_directory;
+            data_directory =
+#if defined(LUISA_PLATFORM_IOS)
+                luisa::filesystem::current_path();
+#else
+                runtime_directory;
+#endif
             LUISA_INFO(
                 "Runtime directory: {}.",
                 luisa::to_string(runtime_directory));
@@ -231,6 +314,32 @@ public:
     }
 
     ~ContextImpl() noexcept {
+        // Backend plugins are deliberately left mapped: release() hands the handle
+        // to the OS loader instead of freeing it.
+        //
+        // Loading a GPU backend does more than make create/destroy reachable - it
+        // lets the backend and the driver it pulls in (nvcuda.dll for the cuda
+        // backend) register process-detach and thread-notification state that points
+        // back into the module image. FreeLibrary leaves those references dangling,
+        // and the next time the loader walks them - LdrShutdownProcess during
+        // ExitProcess - it branches into an address that belongs to no mapped module
+        // any more. On Windows that showed up as an execute access violation
+        // (0xC0000005 with param[0] == 8 and the ip outside every loaded module)
+        // after the program had already finished all of its work, in every process
+        // that had created a cuda device; keeping the plugins loaded makes it go
+        // away (test_cuda_graph went from 0xC0000005 to a clean exit).
+        //
+        // Plugin images are process-lifetime resources anyway: the per-device state
+        // is torn down by the device destructors, and the mappings are reclaimed
+        // with the process. Repeated Context create/destroy cycles only bump the
+        // loader's module reference count.
+        for (auto &&[backend_name, backend_module] : loaded_backends) {
+            static_cast<void>(backend_name);
+            if (backend_module) {
+                static_cast<void>(backend_module->module.release());
+            }
+        }
+        static_cast<void>(validation_layer.module.release());
         DynamicModule::remove_search_path(runtime_directory);
     }
 };
@@ -242,6 +351,38 @@ Context::Context(string_view program_path, string_view data_dir) noexcept
 
 Context::Context(string_view program_path) noexcept
     : _impl{luisa::make_shared<detail::ContextImpl>(program_path)} {}
+
+void Context::register_static_backend(
+    luisa::string_view backend_name,
+    StaticBackendCreator *creator,
+    StaticBackendDeleter *deleter,
+    StaticBackendDeviceNames *device_names) noexcept {
+    LUISA_ASSERT(!backend_name.empty(),
+                 "A static backend must have a non-empty name.");
+    LUISA_ASSERT(creator != nullptr && deleter != nullptr &&
+                     device_names != nullptr,
+                 "Static backend '{}' has null entry points.", backend_name);
+    luisa::string normalized_name{backend_name};
+    for (auto &c : normalized_name) {
+        c = static_cast<char>(
+            std::tolower(static_cast<unsigned char>(c)));
+    }
+    auto registration = detail::StaticBackendRegistration{
+        .creator = creator,
+        .deleter = deleter,
+        .device_names = device_names};
+    auto &registry = detail::static_backend_registry();
+    std::scoped_lock lock{registry.mutex};
+    auto [iter, inserted] = registry.backends.try_emplace(
+        normalized_name, registration);
+    LUISA_ASSERT(
+        inserted ||
+            (iter->second.creator == creator &&
+             iter->second.deleter == deleter &&
+             iter->second.device_names == device_names),
+        "Static backend '{}' was registered with different entry points.",
+        normalized_name);
+}
 
 Device Context::create_device(
     luisa::string_view backend_name_in,
@@ -323,12 +464,49 @@ const luisa::filesystem::path &Context::create_runtime_subdir(luisa::string_view
         folder_name,
 #endif
         luisa::lazy_construct([&]() {
-            auto dir = runtime_directory() / folder_name;
+            // `path / narrow_string_view` converts the bytes through the ANSI code
+            // page and throws when they are not representable, so decode first.
+            luisa::filesystem::path subdir;
+            if (!path_from_narrow(folder_name, subdir)) [[unlikely]] {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Runtime sub-directory '{}' cannot be represented in the ANSI code page.",
+                    folder_name);
+            }
+            auto dir = runtime_directory() / subdir;
             std::error_code ec;
             luisa::filesystem::create_directories(dir, ec);
             if (ec) [[unlikely]] {
                 LUISA_WARNING_WITH_LOCATION(
                     "Failed to create runtime sub-directory '{}': {}.",
+                    to_string(dir), ec.message());
+            }
+            return luisa::make_unique<luisa::filesystem::path>(std::move(dir));
+        }));
+    return *iter.first->second;
+}
+
+const luisa::filesystem::path &Context::create_data_subdir(luisa::string_view folder_name) const noexcept {
+    std::lock_guard lock{_impl->data_subdir_mutex};
+    auto iter = _impl->data_subdir_paths.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{folder_name},
+#else
+        folder_name,
+#endif
+        luisa::lazy_construct([&]() {
+            // See create_runtime_subdir(): append a decoded path, never raw bytes.
+            luisa::filesystem::path subdir;
+            if (!path_from_narrow(folder_name, subdir)) [[unlikely]] {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Data sub-directory '{}' cannot be represented in the ANSI code page.",
+                    folder_name);
+            }
+            auto dir = data_directory() / subdir;
+            std::error_code ec;
+            luisa::filesystem::create_directories(dir, ec);
+            if (ec) [[unlikely]] {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Failed to create data sub-directory '{}': {}.",
                     to_string(dir), ec.message());
             }
             return luisa::make_unique<luisa::filesystem::path>(std::move(dir));

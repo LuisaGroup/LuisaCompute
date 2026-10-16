@@ -879,8 +879,8 @@ void test_control_flow_corners(Device &device) {
     luisa::vector<float> host(64);
     luisa::vector<float> host_result(1, 0.0f);
     stream << shader(buf, result).dispatch(64)
-           << buf.copy_to(luisa::span{host})
-           << result.copy_to(luisa::span{host_result})
+             << buf.copy_to(luisa::span{host})
+             << result.copy_to(luisa::span{host_result})
            << synchronize();
 
     LUISA_INFO("Control-flow corner result: {:f}", host_result[0]);
@@ -1509,8 +1509,8 @@ void test_cfg_tiny_diamond_if_conversion(Device &device) {
 
 // ---------------------------------------------------------------------------
 // New structured-lowering corner tests
-// Passes exercised: lower_break_continue, lower_ray_query_loop,
-//                   lower_ray_query_loop_to_loop, early_return_elimination, phi_cleanup
+// Passes exercised: lower_break_continue, lower_ray_query_to_pipeline,
+//                   lower_ray_query_to_loop, early_return_elimination, phi_cleanup
 // ---------------------------------------------------------------------------
 void test_structured_break_continue(Device &device) {
     auto stream = device.create_stream();
@@ -1620,11 +1620,6 @@ void test_structured_early_return(Device &device) {
 }
 
 void test_structured_ray_query_loop(Device &device) {
-    if (device.backend_name() == "cpu") {
-        LUISA_INFO("Skipping ray-query loop test on CPU backend.");
-        return;
-    }
-
     auto stream = device.create_stream();
     auto out = device.create_buffer<uint>(12);
 

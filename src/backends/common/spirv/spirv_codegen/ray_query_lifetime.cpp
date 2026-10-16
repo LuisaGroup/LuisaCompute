@@ -24,7 +24,7 @@ using namespace luisa::compute;
 
 namespace {
 
-[[nodiscard]] bool is_ray_query_type(const Type *type) noexcept {
+[[nodiscard]] bool is_ray_query_lifetime_type(const Type *type) noexcept {
     return type != nullptr && type->is_custom() &&
            (type->description() == "LC_RayQueryAll" ||
             type->description() == "LC_RayQueryAny");
@@ -85,14 +85,14 @@ validate_spirv_ray_query_lifetimes(
         active_blocks.emplace(closure.blocks[i]);
     }
 
-    if (is_ray_query_type(function->type())) {
+    if (is_ray_query_lifetime_type(function->type())) {
         error(nullptr, nullptr,
               luisa::format(
                   "Native XIR-to-SPIR-V callable '{}' cannot return opaque ray-query objects.",
                   function_name));
     }
     for (auto *argument : function->arguments()) {
-        if (is_ray_query_type(argument->type()) &&
+        if (is_ray_query_lifetime_type(argument->type()) &&
             !argument->is_reference()) {
             error(nullptr, nullptr,
                   luisa::format(
@@ -119,11 +119,11 @@ validate_spirv_ray_query_lifetimes(
                     static_cast<const xir::StoreInst *>(instruction);
                 auto *value = store->value();
                 if (value != nullptr &&
-                    is_ray_query_type(value->type())) {
+                    is_ray_query_lifetime_type(value->type())) {
                     auto *variable = store->variable();
                     if (variable == nullptr ||
                         !variable->isa<xir::AllocaInst>() ||
-                        !is_ray_query_type(variable->type()) ||
+                        !is_ray_query_lifetime_type(variable->type()) ||
                         !is_query_initializer(value)) {
                         error(
                             block, store,
@@ -141,7 +141,7 @@ validate_spirv_ray_query_lifetimes(
                     }
                 }
             }
-            if (!is_ray_query_type(instruction->type())) { continue; }
+            if (!is_ray_query_lifetime_type(instruction->type())) { continue; }
             if (instruction->isa<xir::AllocaInst>()) {
                 auto *alloca =
                     static_cast<const xir::AllocaInst *>(instruction);

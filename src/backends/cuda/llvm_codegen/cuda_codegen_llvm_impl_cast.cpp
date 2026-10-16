@@ -3,6 +3,7 @@
 //
 
 #include "cuda_codegen_llvm_impl.h"
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::cuda {
 
@@ -162,7 +163,7 @@ namespace detail {
                                               fmt::format("cvt.rn.{}.{} $0, $1;", dst_ptx_type, src_ptx_type);
         auto constraints = fmt::format("={},{}", dst_asm_reg, src_asm_reg);
         auto asm_type = llvm::FunctionType::get(dst_scalar_t, {src_scalar_t}, false);
-        return llvm::InlineAsm::get(asm_type, std::string_view{ptx}, std::string_view{constraints}, false);
+        return llvm::InlineAsm::get(asm_type, luisa::string_view{ptx}, luisa::string_view{constraints}, false);
     }();
     if (dst_type->isVectorTy()) {
         auto dim = llvm::cast<llvm::VectorType>(dst_type)->getElementCount().getFixedValue();
@@ -211,11 +212,15 @@ namespace detail {
             case Type::Tag::INT16: [[fallthrough]];
             case Type::Tag::INT32: [[fallthrough]];
             case Type::Tag::INT64:
+            case Type::Tag::INT4:// placeholder: treated as signed i8
                 return {.is_fp = false, .is_signed = true};
             case Type::Tag::UINT8: [[fallthrough]];
             case Type::Tag::UINT16: [[fallthrough]];
             case Type::Tag::UINT32: [[fallthrough]];
             case Type::Tag::UINT64:
+            case Type::Tag::FLOAT8_E4M3: [[fallthrough]];// placeholder: unsigned i8
+            case Type::Tag::FLOAT8_E5M2: [[fallthrough]];
+            case Type::Tag::FP4_E2M1:
                 return {.is_fp = false, .is_signed = false};
             default: break;
         }

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="3"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="0"
+	timestamp="2026-09-10T12:01:09"
+	>
+	<testcase name="test_stl_containers" classname="test_stl_containers" time="0.508147" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_core"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (118 asserts in 28 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_map_at_reject_mutable" classname="test_map_at_reject_mutable" time="0.0938723" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_core"/>
+		</properties>
+		<system-out>-- Verified map::at mutable rejection: Subprocess aborted
+</system-out>
+	</testcase>
+	<testcase name="test_map_at_reject_const" classname="test_map_at_reject_const" time="0.0944903" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_core"/>
+		</properties>
+		<system-out>-- Verified map::at const rejection: Subprocess aborted
+</system-out>
+	</testcase>
+</testsuite>

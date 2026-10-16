@@ -2,8 +2,13 @@
 // Created by swfly on 2024/11/21.
 //
 
+#include <charconv>
+#include <cmath>
 #include <fstream>
+#include <memory>
+#include <utility>
 
+#include <llvm/ADT/FloatingPointMode.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
@@ -12,6 +17,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Analysis/AliasAnalysis.h>
@@ -35,17 +41,23 @@
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
+#include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 
+#include "../common/cpu_fp_control.h"
 #include "../common/shader_print_formatter.h"
 
 #include "fallback_device.h"
+#include "fallback_coro_arena.h"
 #include "fallback_codegen.h"
 #include "fallback_texture.h"
 #include "fallback_accel.h"
@@ -55,45 +67,64 @@
 #include "fallback_command_queue.h"
 #include "fallback_device_api.h"
 #include "fallback_device_api_ir_module.h"
+#include "fallback_llvm_options.h"
 
 static const bool LUISA_SHOULD_DUMP_XIR = [] {
     if (auto env = getenv("LUISA_DUMP_XIR")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_SHOULD_DUMP_LLVM_IR = [] {
     if (auto env = getenv("LUISA_DUMP_LLVM_IR")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_SHOULD_DUMP_ASM = [] {
     if (auto env = getenv("LUISA_DUMP_ASM")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_XIR_NORMALIZE_CFG = [] {
     if (auto env = getenv("LUISA_XIR_NORMALIZE_CFG")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
 static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
     if (auto env = getenv("LUISA_XIR_RESTRUCTURE_CFG")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
 
+static const std::size_t LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT = [] {
+    constexpr std::size_t default_limit = 250'000u;
+    if (auto env = getenv("LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT")) {
+        auto text = luisa::string_view{env};
+        std::size_t value{};
+        auto [end, error] = std::from_chars(
+            text.data(), text.data() + text.size(), value);
+        if (error == std::errc{} && end == text.data() + text.size() &&
+            value != 0u) {
+            return value;
+        }
+        LUISA_WARNING_WITH_LOCATION(
+            "Ignoring invalid LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT='{}'.",
+            text);
+    }
+    return default_limit;
+}();
+
 static const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = [] {
     if (auto env = getenv("LUISA_XIR_ELIMINATE_EARLY_RETURN")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
@@ -104,7 +135,7 @@ namespace {
 
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 1u;
+static constexpr auto fallback_shader_cache_abi = 9u;
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
@@ -260,23 +291,18 @@ struct FallbackShaderCacheMetadata {
 [[nodiscard]] static float luisa_fallback_atan2_f32(float a, float b) noexcept { return std::atan2(a, b); }
 [[nodiscard]] static double luisa_fallback_atan2_f64(double a, double b) noexcept { return std::atan2(a, b); }
 
-[[nodiscard]] static size_t &luisa_coro_buffer_counter() noexcept {
-    thread_local size_t counter = 0u;
-    return counter;
+
+[[nodiscard]] static FallbackCoroutineArena &luisa_coro_arena() noexcept {
+    static thread_local FallbackCoroutineArena arena;
+    return arena;
 }
 
-static constexpr size_t luisa_coro_allocation_alignment = 2u * sizeof(intptr_t);
-
-static void luisa_coro_reset_counter() noexcept {
-    luisa_coro_buffer_counter() = 0u;
-}
+static void luisa_coro_reset_counter() noexcept { luisa_coro_arena().reset(); }
 
 [[nodiscard]] static void *luisa_coro_alloc(size_t size) noexcept {
-    alignas(luisa_coro_allocation_alignment) thread_local std::byte buffer[luisa::compute::fallback::max_thread_frame_size];
-    size = luisa::align(size, luisa_coro_allocation_alignment);
-    auto n = (luisa_coro_buffer_counter() += size);
-    LUISA_ASSERT(n <= sizeof(buffer), "Coroutine buffer overflow.");
-    return buffer + n - size;
+    // No allocations are freed here: codegen marks this helper NoFree.
+    // Cached overflow blocks remain pointer-stable until the worker exits.
+    return luisa_coro_arena().allocate(size);
 }
 
 static void luisa_coro_free(void *ptr) noexcept { /* do nothing */ }
@@ -291,8 +317,40 @@ static void luisa_fallback_assert(bool condition, const char *message) noexcept 
 }
 
 static thread_local const DeviceInterface::StreamLogCallback *current_device_log_callback{nullptr};
+static thread_local const cpu::CPUFloatingPointState *current_host_fp_state{nullptr};
+
+class FallbackShaderEnvironment {
+private:
+    cpu::ScopedCPUFloatingPointEnvironment _floating_point;
+    const DeviceInterface::StreamLogCallback *_previous_log_callback;
+    const cpu::CPUFloatingPointState *_previous_host_state;
+
+public:
+    FallbackShaderEnvironment(bool enable_fast_math,
+                              const DeviceInterface::StreamLogCallback *log_callback) noexcept
+        : _floating_point{enable_fast_math},
+          _previous_log_callback{std::exchange(current_device_log_callback, log_callback)},
+          _previous_host_state{std::exchange(current_host_fp_state, _floating_point.saved_state())} {}
+
+    ~FallbackShaderEnvironment() noexcept {
+        current_device_log_callback = _previous_log_callback;
+        current_host_fp_state = _previous_host_state;
+    }
+
+    FallbackShaderEnvironment(const FallbackShaderEnvironment &) = delete;
+    FallbackShaderEnvironment &operator=(const FallbackShaderEnvironment &) = delete;
+};
+
+static void luisa_fallback_debug_break(
+    xir::DebugBreakInst::Callback callback, void *data,
+    xir::DebugBreakInst::Evaluate evaluate) noexcept {
+    cpu::ScopedCPUFloatingPointEnvironment host_environment{current_host_fp_state};
+    callback(data, evaluate);
+}
 
 static void luisa_fallback_print(const FallbackShader *shader, size_t fmt_id, const std::byte *args) noexcept {
+    // Formatting and user callbacks are host work, not shader arithmetic.
+    cpu::ScopedCPUFloatingPointEnvironment host_environment{current_host_fp_state};
     static thread_local luisa::string scratch;
     scratch.clear();
     auto formatter = shader->print_formatter(fmt_id);
@@ -310,7 +368,8 @@ struct FallbackShaderLaunchConfig {
     uint3 block_size;
 };
 
-FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &option, Function kernel) noexcept {
+FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &option, Function kernel) noexcept
+    : _enable_fast_math{option.enable_fast_math} {
 
     _initialize_target_machine_jit(option);
 
@@ -371,7 +430,14 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
                 jit->mangleAndIntern(name), symbol);
         };
 
-#include "fallback_device_api_map_symbols.inl.h"
+#include "fallback_device_api_map_symbols.generated.inl.h"
+
+        // LLVM can lower scalar exp10 intrinsics to these nonstandard libm
+        // names, which are absent from the Windows CRT.
+        map_symbol("exp10f", +[](float x) noexcept {
+            return static_cast<float>(std::pow(10.0, static_cast<double>(x)));
+        });
+        map_symbol("exp10", +[](double x) noexcept { return std::pow(10.0, x); });
 
         map_symbol("luisa.asin.f16", &luisa_fallback_asin_f16);
         map_symbol("luisa.asin.f32", &luisa_fallback_asin_f32);
@@ -389,6 +455,7 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         map_symbol("luisa.coro.free", &luisa_coro_free);
         map_symbol("luisa.shared.memory", &luisa_shared_memory);
         map_symbol("luisa.assert", &luisa_fallback_assert);
+        map_symbol("luisa.debug.break.invoke", &luisa_fallback_debug_break);
 
         if (auto error = _jit->getMainJITDylib().define(
                 llvm::orc::absoluteSymbols(std::move(symbol_map)))) {
@@ -560,6 +627,28 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
+    auto inline_ray_query_info =
+        xir::reconstruct_ray_query_loop_pass_run_on_module(
+            xir_module.get());
+    if (!inline_ray_query_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Fallback XIR rejected {} malformed explicit ray-query loop(s).",
+            inline_ray_query_info.error_count);
+    }
+    verify_xir_or_error(xir_module.get(), "explicit ray-query reconstruction");
+
+    if (kernel.requires_autodiff()) {
+        auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
+        auto autodiff_info = xir::autodiff_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE(
+            "Fallback XIR AutoDiff lowering: inlined {} call(s), transformed {} "
+            "scope(s), removed {} instruction(s).",
+            inline_info.inlined_call_count,
+            autodiff_info.transformed_scope_count,
+            autodiff_info.removed_instruction_count);
+        verify_xir_or_error(xir_module.get(), "AutoDiff lowering");
+    }
+
     // dump for debugging
     if (LUISA_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.xir", kernel.hash());
@@ -602,6 +691,17 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         auto i = xir::dce_pass_run_on_module(m, &r);
         return i.changed();
     });
+    if (option.enable_fast_math) {
+        pre_cfg.add("fast-math-simplify", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::fast_math_simplify_pass_run_on_module(
+                m, {.enable_fast_math = true}, &r);
+            return i.changed();
+        });
+        pre_cfg.add("fast-math-dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.changed();
+        });
+    }
     auto pre_cfg_stats = pre_cfg.run(xir_module.get());
     pre_cfg_stats.log("Fallback backend pre-CFG optimization");
     if (LUISA_SHOULD_DUMP_XIR) {
@@ -610,8 +710,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
     xir::PassPipeline cfg;
-    cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
+    cfg.add("lower-ray-query-to-pipeline", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::lower_ray_query_to_pipeline_pass_run_on_module(
+            m, &r);
         if (!i.succeeded()) {
             LUISA_ERROR_WITH_LOCATION(
                 "Fallback XIR ray-query lowering rejected {} loop(s).",
@@ -672,7 +773,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     }
 
     Clock codegen_clk;
-    auto codegen_feedback = luisa_fallback_backend_codegen(*llvm_ctx, llvm_module.get(), xir_module.get());
+    auto codegen_feedback = luisa_fallback_backend_codegen(
+        *llvm_ctx, llvm_module.get(), xir_module.get(),
+        option.enable_fast_math);
     LUISA_VERBOSE("XIR to LLVM IR code generation done in {} ms.", codegen_clk.toc());
 
     if (llvm::verifyModule(*llvm_module, &llvm::errs())) {
@@ -695,8 +798,23 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     llvm_module->setTargetTriple(_target_machine->getTargetTriple().str());
 #endif
 
-    // add fast-math flags to instructions
+    // Dispatch establishes f32 FTZ/DAZ for the complete JIT call tree.
+    // Native-math helpers share that environment, but retain their own FMF.
     for (auto &&f : *llvm_module) {
+        if (option.enable_fast_math && !f.isDeclaration()) {
+#if LLVM_VERSION_MAJOR >= 23
+            auto environment = llvm::DenormalFPEnv{
+                llvm::DenormalMode::getDynamic(),
+                llvm::DenormalMode::getPreserveSign()};
+            llvm::AttrBuilder attributes{*llvm_ctx};
+            attributes.addDenormalFPEnvAttr(environment);
+            f.addFnAttrs(attributes);
+#else
+            f.addFnAttr("denormal-fp-math", "dynamic,dynamic");
+            f.addFnAttr("denormal-fp-math-f32", "preserve-sign,preserve-sign");
+#endif
+        }
+        if (f.hasFnAttribute("luisa.cpu.native_math")) { continue; }
         for (auto &&bb : f) {
             for (auto &&inst : bb) {
                 if (llvm::isa<llvm::FPMathOperator>(inst)) {
@@ -723,12 +841,43 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     ::llvm::CGSCCAnalysisManager CGAM;
     ::llvm::ModuleAnalysisManager MAM;
     ::llvm::PipelineTuningOptions PTO;
+    std::size_t largest_function_instruction_count = 0u;
+    for (const auto &function : *llvm_module) {
+        std::size_t instruction_count = 0u;
+        for (const auto &block : function) {
+            instruction_count += block.size();
+        }
+        largest_function_instruction_count = std::max(
+            largest_function_instruction_count,
+            instruction_count);
+    }
+    // LLVM's O3 pipeline has superlinear compile-time behavior on very large
+    // generated dispatch functions (notably in SROA and SLP vectorization).
+    // Keep it for normal kernels, but use the minimal O0 pipeline once a
+    // single function is large enough that optimization time and memory
+    // dominate execution-time savings. Keep the IR pipeline at O0, but retain
+    // the O1 machine-code pipeline: LLVM's x86 O0 code generator can fold
+    // four-byte-aligned scalar spill slots into aligned vector loads in very
+    // large functions. O1 uses SelectionDAG with the optimizing register
+    // allocator while avoiding the superlinear IR transforms above.
+    const auto use_minimal_optimization =
+        largest_function_instruction_count >
+        LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT;
+    if (use_minimal_optimization) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Fallback LLVM function has {} instructions; using the minimal "
+            "O0 IR pipeline and O1 machine-code generation above the "
+            "{}-instruction scalability limit.",
+            largest_function_instruction_count,
+            LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT);
+        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Less);
+    }
     PTO.LoopInterleaving = true;
 #if LLVM_VERSION_MAJOR >= 21
     PTO.LoopInterchange = true;
 #endif
     PTO.LoopVectorization = true;
-    PTO.SLPVectorization = true;
+    PTO.SLPVectorization = !use_minimal_optimization;
     PTO.LoopUnrolling = true;
     PTO.MergeFunctions = true;
     ::llvm::PassBuilder PB{_target_machine.get(), PTO};
@@ -744,7 +893,9 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
 #endif
     Clock clk;
     clk.tic();
-    auto MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
+    auto MPM = use_minimal_optimization
+                   ? PB.buildO0DefaultPipeline(::llvm::OptimizationLevel::O0)
+                   : PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
     MPM.run(*llvm_module, MAM);
 
     LUISA_VERBOSE("Optimized LLVM module in {} ms.", clk.toc());
@@ -941,7 +1092,7 @@ void FallbackShader::dispatch(FallbackCommandQueue *queue, luisa::unique_ptr<Sha
     auto grid_size = roundup_div(dispatch_size, block_size);
     auto grid_count = grid_size.x * grid_size.y * grid_size.z;
 
-    queue->enqueue_parallel(grid_count, [queue, dispatch_buffer = std::move(dispatch_buffer)](auto block) noexcept {
+    queue->enqueue_parallel(grid_count, [queue, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](auto block) noexcept {
         auto config = dispatch_buffer.config();
         auto dispatch_size = config->dispatch_size;
         auto block_size = config->block_size;
@@ -957,9 +1108,10 @@ void FallbackShader::dispatch(FallbackCommandQueue *queue, luisa::unique_ptr<Sha
         };
         auto launch_params = dispatch_buffer.argument_buffer();
         luisa_coro_reset_counter();
-        current_device_log_callback = queue->log_callback() ? &queue->log_callback() : nullptr;
+        FallbackShaderEnvironment environment{
+            enable_fast_math,
+            queue->log_callback() ? &queue->log_callback() : nullptr};
         config->kernel(launch_params, &launch_config);
-        current_device_log_callback = nullptr;
     });
 }
 
@@ -971,17 +1123,8 @@ void FallbackShader::_initialize_target_machine_jit(const ShaderOption &option) 
     ::llvm::orc::LLJITBuilder jit_builder;
     if (auto host = ::llvm::orc::JITTargetMachineBuilder::detectHost()) {
         ::llvm::TargetOptions options;
-        if (option.enable_fast_math) {
-#if LLVM_VERSION_MAJOR <= 21
-            options.UnsafeFPMath = true;
-            options.ApproxFuncFPMath = true;
-#endif
-            options.NoInfsFPMath = true;
-            options.NoNaNsFPMath = true;
-            options.NoSignedZerosFPMath = true;
-        }
-        options.NoTrappingFPMath = true;
-        options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
+        apply_fallback_math_target_options(
+            options, option.enable_fast_math);
         options.EnableIPRA = false;// true causes crash
         options.StackSymbolOrdering = true;
 #ifndef NDEBUG

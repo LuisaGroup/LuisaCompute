@@ -2,6 +2,7 @@
 #include <fstream>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/queue.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -66,7 +67,16 @@ luisa::unique_ptr<Shader> OSOParser::parse(luisa::string_view source) noexcept {
 }
 
 luisa::unique_ptr<Shader> OSOParser::parse_file(luisa::string_view path) noexcept {
-    std::ifstream file{luisa::filesystem::path{path}};
+    // `path` is application-supplied narrow text. path_from_narrow() decodes it
+    // exactly like filesystem::path's narrow constructor, but reports bytes the
+    // ANSI code page cannot represent through its return value instead of
+    // throwing (this function is noexcept). An undecodable name is treated as a
+    // missing file.
+    luisa::filesystem::path file_path;
+    // A name the ANSI code page cannot represent decodes to an empty path, which
+    // then fails the open below and is reported like any other missing file.
+    static_cast<void>(path_from_narrow(path, file_path));
+    std::ifstream file{file_path};
     LUISA_ASSERT(file.is_open(), "Failed to open file '{}'.", path);
     luisa::string source{std::istreambuf_iterator<char>{file},
                          std::istreambuf_iterator<char>{}};

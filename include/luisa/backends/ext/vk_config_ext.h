@@ -79,9 +79,51 @@ public:
     [[nodiscard]] virtual bool enable_bindless_feature() const noexcept {
         return true;
     }
+    // Requested update-after-bind heap capacity for the three global bindless
+    // heaps. Return 0 to use the backend default (262144 on desktop). Mobile
+    // builds can lower this to reduce maxUpdateAfterBindDescriptorsInAllPools
+    // pressure.
+    [[nodiscard]] virtual uint32_t requested_bindless_heap_capacity() const noexcept {
+        return 0u;
+    }
+    // Minimum Vulkan API version the backend must honor during device
+    // capability negotiation. Return VK_API_VERSION_1_2 to force the legacy
+    // barrier/copy paths (the Android-compatible floor), VK_API_VERSION_1_3 to
+    // require synchronization2/copy_commands2, or 0 for "auto" (use whatever
+    // the physical device exposes).
+    [[nodiscard]] virtual uint32_t min_api_version() const noexcept {
+        return 0u;
+    }
+    // Command reordering merges consecutive commands whose resource accesses
+    // do not alias into one barrier-free layer, so several small dispatches
+    // can overlap on the GPU instead of being serialized by a pipeline
+    // barrier per command. Return false to submit the batch in strict order
+    // instead (a barrier boundary between every pair of commands), which is
+    // what LUISA_DISABLE_COMMAND_REORDER=1 forces process-wide. The backend
+    // queries this once per batch, so an override may change at runtime.
+    [[nodiscard]] virtual bool enable_command_reorder() const noexcept {
+        return true;
+    }
     [[nodiscard]] virtual bool enable_raytracing_feature() const noexcept {
         return true;
     }
+    // Answer every acceleration-structure request (create_mesh / create_accel
+    // and their build commands) with the software two-level LBVH of
+    // `luisa-fallback-rtx` (src/backends/common/rtx) and never touch
+    // VK_KHR_acceleration_structure, even on a device that could trace in
+    // hardware. When it is false the backend uses the hardware path whenever
+    // the physical device exposes it, and falls back to the software one only
+    // when it does not, so the default behaviour is unchanged.
+    //
+    // A fallen-back device compiles a ray-tracing shader through the
+    // compatibility HLSL route (the native XIR-to-SPIR-V route has no software
+    // traversal): the shader's acceleration-structure argument is bound to the
+    // fallback's shared acceleration buffer and instance buffer instead of a
+    // VkAccelerationStructureKHR. Ray queries, motion blur, curves and
+    // procedural primitives are not implemented by the fallback and fail
+    // closed. `LUISA_VK_FALLBACK_RTX=1` forces it for tests that cannot hand a
+    // `VulkanDeviceConfigExt` to `Context::create_device`.
+    [[nodiscard]] virtual bool use_fallback_rtx() const noexcept { return false; }
     [[nodiscard]] virtual bool enable_interop_feature() const noexcept {
         return true;
     }

@@ -1,0 +1,12 @@
+{
+  "format": "attention-pv-checkpoint-acceptance-v1",
+  "performance_accepted": false,
+  "raw_records": {"total": 8, "marked_valid": 6, "native_timeout": 2},
+  "driver_diagnostic": "Caused GPU Hang Error (00000003:kIOGPUCommandBufferCallbackErrorHang)",
+  "policy": "Disqualify the entire timing cohort despite partial oracle passes; preserve raw JSON and console unchanged.",
+  "pv_mma_control": "Incomplete; driver GPU hang observed",
+  "pv_reduce_gpu_timing": "NotRun: stopped after device execution errors",
+  "pv_reduce_simd_correctness": "Four new FP64/output-guard cases passed inside the full SIMD LLM CTest",
+  "production_default": "Unchanged MMA; decomposition is benchmark-only",
+  "protected_tirx_initializer_work_tested": false
+}

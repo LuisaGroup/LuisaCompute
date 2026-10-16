@@ -1,0 +1,9 @@
+entry,module,function,attribute,value,known,cuda_status
+luisa_tile_main,000002403921B860,0000024039238BE0,registers,137,1,0
+luisa_tile_main,000002403921B860,0000024039238BE0,static_shared_bytes,16,1,0
+luisa_tile_main,000002403921B860,0000024039238BE0,local_bytes,0,1,0
+luisa_tile_main,000002403921B860,0000024039238BE0,max_threads,384,1,0
+luisa_tile_aligned16,000002403921B860,0000024039236870,registers,46,1,0
+luisa_tile_aligned16,000002403921B860,0000024039236870,static_shared_bytes,16,1,0
+luisa_tile_aligned16,000002403921B860,0000024039236870,local_bytes,0,1,0
+luisa_tile_aligned16,000002403921B860,0000024039236870,max_threads,1024,1,0

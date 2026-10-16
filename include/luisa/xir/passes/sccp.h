@@ -17,7 +17,9 @@ struct SCCPInfo {
 
 // Annotated value-producing instructions are not replaced with module-uniqued
 // constants. Terminator metadata is transferred to replacement branches.
-// Null inputs are no-ops.
+// Raw coroutine definitions use the token-matched suspend-to-resume edges for
+// executable-block discovery, so continuation roots are neither ignored nor
+// treated as independent entry points. Null inputs are no-ops.
 
 [[nodiscard]] LUISA_XIR_API SCCPInfo sccp_pass_run_on_function(Function *function) noexcept;
 [[nodiscard]] LUISA_XIR_API SCCPInfo sccp_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;

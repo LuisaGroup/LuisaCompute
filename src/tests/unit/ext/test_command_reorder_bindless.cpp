@@ -313,10 +313,12 @@ using Reorder = CommandReorderVisitor<FakeReorderFuncTable, true>;
 class IsolatedBindlessCustomCommand final : public CustomDispatchCommand {
 private:
     Argument::BindlessArray _argument;
+    Usage _usage;
 
 public:
-    explicit IsolatedBindlessCustomCommand(uint64_t handle) noexcept
-        : _argument{handle} {}
+    explicit IsolatedBindlessCustomCommand(uint64_t handle,
+                                           Usage usage = Usage::READ) noexcept
+        : _argument{handle}, _usage{usage} {}
 
     [[nodiscard]] uint64_t custom_cmd_uuid() const noexcept override {
         return static_cast<uint64_t>(
@@ -331,19 +333,14 @@ public:
         return make_uint3(1u);
     }
 
-    [[nodiscard]] bool
-    requires_resource_state_isolation() const noexcept override {
-        return true;
-    }
-
     void traverse_arguments(
         MutableArgumentVisitor &visitor) noexcept override {
-        visitor.visit(_argument, Usage::READ);
+        visitor.visit(_argument, _usage);
     }
 
     void traverse_arguments(
         ArgumentVisitor &visitor) const noexcept override {
-        visitor.visit(_argument, Usage::READ);
+        visitor.visit(_argument, _usage);
     }
 };
 
@@ -358,7 +355,10 @@ int main() {
         expect(direct_read_then_bindless(Usage::READ) == 1u);
     };
 
-    "isolated_native_bindless_state_has_its_own_resource_layer"_test = [] {
+    "isolated_custom_read_shares_layer_with_abstract_reads"_test = [] {
+        // A declared READ is a read-only contract: an isolated custom
+        // command reading a bindless array whose snapshot resource was
+        // already read merges into the same layer, before and after.
         constexpr auto texture = 14u;
         constexpr auto heap = 24u;
         auto state = std::make_shared<FakeReorderState>();
@@ -371,7 +371,38 @@ int main() {
         TextureDownloadCommand before{
             texture, PixelStorage::BYTE4, 0u,
             make_uint3(1u), before_data.data()};
-        IsolatedBindlessCustomCommand native{heap};
+        IsolatedBindlessCustomCommand native{heap, Usage::READ};
+        TextureDownloadCommand after{
+            texture, PixelStorage::BYTE4, 0u,
+            make_uint3(1u), after_data.data()};
+
+        before.accept(reorder);
+        native.accept(reorder);
+        after.accept(reorder);
+
+        expect(command_layer(reorder, &before) == 0u);
+        expect(command_layer(reorder, &native) == 0u)
+            << "a declared READ must merge with compatible reads";
+        expect(command_layer(reorder, &after) == 0u);
+    };
+
+    "isolated_custom_write_keeps_exclusive_layer"_test = [] {
+        // A declared WRITE stays exclusive over its snapshot resources: an
+        // isolated custom command writing through a bindless array takes
+        // its own layer between the surrounding reads.
+        constexpr auto texture = 14u;
+        constexpr auto heap = 24u;
+        auto state = std::make_shared<FakeReorderState>();
+        state->bindless_resources.emplace(
+            heap, std::vector{FakeReorderState::Resource{
+                      .handle = texture, .is_buffer = false}});
+        Reorder reorder{FakeReorderFuncTable{state}};
+        std::array<std::byte, 4u> before_data{};
+        std::array<std::byte, 4u> after_data{};
+        TextureDownloadCommand before{
+            texture, PixelStorage::BYTE4, 0u,
+            make_uint3(1u), before_data.data()};
+        IsolatedBindlessCustomCommand native{heap, Usage::WRITE};
         TextureDownloadCommand after{
             texture, PixelStorage::BYTE4, 0u,
             make_uint3(1u), after_data.data()};
@@ -382,9 +413,9 @@ int main() {
 
         expect(command_layer(reorder, &before) == 0u);
         expect(command_layer(reorder, &native) == 1u)
-            << "an exact native state must not merge with a prior read";
+            << "a declared WRITE must not merge with a prior read (WAR)";
         expect(command_layer(reorder, &after) == 2u)
-            << "a following abstract read must start after the native state";
+            << "a following read must start after the write (RAW)";
     };
 
     "direct_read_waits_for_prior_bindless_write_snapshot"_test = [] {
@@ -431,7 +462,15 @@ int main() {
         expect(reorder.command_lists().size() == 2u);
     };
 
-    "bindless_texture_remains_read_only_for_buffer_write_usage"_test = [] {
+    "bindless_write_usage_marks_snapshot_textures_as_writes"_test = [] {
+        // Regression: add_bindless_dispatch_handles() used to degrade
+        // textures of a WRITE-usage bindless snapshot to reads
+        // ("is_buffer && writes_buffers"), assuming the WRITE bit only
+        // covers buffer slots. The DSL marks the WHOLE bindless array
+        // variable WRITE when a shader writes through any slot, and
+        // tex2d()/tex3d() views support write(), so the texture was left
+        // unordered: a later direct read could share the writing
+        // dispatch's layer (RAW hazard).
         constexpr auto texture = 14u;
         constexpr auto heap = 25u;
         constexpr auto shader = 35u;
@@ -448,7 +487,9 @@ int main() {
             texture, PixelStorage::BYTE4, 0u,
             uint3{1u, 1u, 1u}, destination.data()};
         reorder.visit(&direct_read);
-        expect(reorder.command_lists().size() == 1u);
+        expect(reorder.command_lists().size() == 2u)
+            << "a direct read of a bindless-written texture must start on "
+               "a later layer than the writing dispatch (RAW)";
     };
 
     "bindless_texture_read_waits_for_prior_upload"_test = [] {
@@ -963,5 +1004,105 @@ int main() {
             expect(command_layer(reorder, &old_read) == 2u)
                 << "a removed slot must not participate in later dispatch snapshots";
         }
+    };
+
+    "bindless_write_usage_waits_for_prior_direct_texture_read"_test = [] {
+        // Same root cause as
+        // bindless_write_usage_marks_snapshot_textures_as_writes: with the
+        // texture registered as a read, a WRITE-usage dispatch ignored
+        // prior reads of the texture and could share their layer (WAR
+        // hazard) instead of starting one layer later.
+        constexpr auto texture = 121u;
+        constexpr auto heap = 122u;
+        constexpr auto shader = 123u;
+        auto state = std::make_shared<FakeReorderState>();
+        state->shader_usages.emplace(shader, Usage::WRITE);
+        state->bindless_resources.emplace(
+            heap, std::vector{FakeReorderState::Resource{
+                      .handle = texture, .is_buffer = false}});
+        Reorder reorder{FakeReorderFuncTable{state}};
+        std::array<std::byte, 4u> destination{};
+        TextureDownloadCommand prior_read{
+            texture, PixelStorage::BYTE4, 0u,
+            uint3{1u, 1u, 1u}, destination.data()};
+        auto dispatch = make_bindless_dispatch(shader, heap);
+        reorder.visit(&prior_read);
+        reorder.visit(&dispatch);
+        expect(reorder.command_lists().size() == 2u)
+            << "a WRITE-usage bindless dispatch must start one layer after "
+               "a prior direct read of a snapshot texture (WAR)";
+    };
+
+    "bindless_write_usage_serializes_repeated_texture_writes"_test = [] {
+        // Same root cause: with the texture registered as a read, two
+        // consecutive WRITE-usage dispatches were chained through
+        // read layers (which do not order writes), so both could land
+        // in one layer (WAW hazard).
+        constexpr auto texture = 131u;
+        constexpr auto heap = 132u;
+        constexpr auto shader = 133u;
+        auto state = std::make_shared<FakeReorderState>();
+        state->shader_usages.emplace(shader, Usage::WRITE);
+        state->bindless_resources.emplace(
+            heap, std::vector{FakeReorderState::Resource{
+                      .handle = texture, .is_buffer = false}});
+        Reorder reorder{FakeReorderFuncTable{state}};
+        auto first = make_bindless_dispatch(shader, heap);
+        auto second = make_bindless_dispatch(shader, heap);
+        reorder.visit(&first);
+        reorder.visit(&second);
+        expect(reorder.command_lists().size() == 2u)
+            << "repeated WRITE-usage dispatches on one snapshot texture "
+               "must occupy distinct layers (WAW)";
+    };
+
+    "bindless_write_usage_serializes_later_direct_texture_write"_test = [] {
+        // Same root cause: a direct upload after a WRITE-usage dispatch
+        // used to be ordered only through the texture's read layer. That
+        // happened to add a layer, but the invariant to lock is that the
+        // upload starts strictly after the writing dispatch.
+        constexpr auto texture = 141u;
+        constexpr auto heap = 142u;
+        constexpr auto shader = 143u;
+        auto state = std::make_shared<FakeReorderState>();
+        state->shader_usages.emplace(shader, Usage::WRITE);
+        state->bindless_resources.emplace(
+            heap, std::vector{FakeReorderState::Resource{
+                      .handle = texture, .is_buffer = false}});
+        Reorder reorder{FakeReorderFuncTable{state}};
+        auto dispatch = make_bindless_dispatch(shader, heap);
+        std::array<std::byte, 4u> source{};
+        TextureUploadCommand upload{
+            texture, PixelStorage::BYTE4, 0u,
+            uint3{1u, 1u, 1u}, source.data()};
+        reorder.visit(&dispatch);
+        reorder.visit(&upload);
+        expect(reorder.command_lists().size() == 2u)
+            << "a direct upload after a bindless-written texture must "
+               "start on a later layer than the writing dispatch";
+    };
+
+    "bindless_read_usage_keeps_sharing_texture_layer"_test = [] {
+        // Guard against over-serialization from the fix: READ-usage
+        // bindless snapshots must still register textures as reads, so
+        // hazard-free readers keep sharing one layer.
+        constexpr auto texture = 151u;
+        constexpr auto heap = 152u;
+        constexpr auto shader = 153u;
+        auto state = std::make_shared<FakeReorderState>();
+        state->shader_usages.emplace(shader, Usage::READ);
+        state->bindless_resources.emplace(
+            heap, std::vector{FakeReorderState::Resource{
+                      .handle = texture, .is_buffer = false}});
+        Reorder reorder{FakeReorderFuncTable{state}};
+        auto dispatch = make_bindless_dispatch(shader, heap);
+        std::array<std::byte, 4u> destination{};
+        TextureDownloadCommand direct_read{
+            texture, PixelStorage::BYTE4, 0u,
+            uint3{1u, 1u, 1u}, destination.data()};
+        reorder.visit(&dispatch);
+        reorder.visit(&direct_read);
+        expect(reorder.command_lists().size() == 1u)
+            << "READ-usage bindless snapshots must not force extra layers";
     };
 }

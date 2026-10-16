@@ -3,6 +3,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
+#include <cstdlib>
 
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
               "illegal pointer and integer sizes.");
@@ -15,6 +16,14 @@ static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
 
 #ifndef NOMINMAX
 #define NOMINMAX 1
+#endif
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN 1
+#endif
+
+#ifndef VC_EXTRALEAN
+#define VC_EXTRALEAN 1
 #endif
 
 #include <windows.h>
@@ -112,7 +121,7 @@ void set_dll_directory(const PathChar *path) noexcept {
 }// namespace win_detail
 void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     bool has_parent_path = path.has_parent_path();
-    using PathType = std::filesystem::path::value_type;
+    using PathType = luisa::filesystem::path::value_type;
     if (has_parent_path) {
         win_detail::set_dll_directory(path.parent_path().c_str());
     }
@@ -260,7 +269,7 @@ luisa::string cpu_name() noexcept {
 
 luisa::string current_executable_path() noexcept {
     constexpr auto max_path_length = std::max<size_t>(MAX_PATH, 4096);
-    std::filesystem::path::value_type path[max_path_length] = {};
+    luisa::filesystem::path::value_type path[max_path_length] = {};
     auto nchar = GetModuleFileNameW(nullptr, path, max_path_length);
     if (nchar == 0 ||
         (nchar == MAX_PATH &&
@@ -268,7 +277,7 @@ luisa::string current_executable_path() noexcept {
           (path[MAX_PATH - 1] != 0)))) {
         LUISA_ERROR_WITH_LOCATION("Failed to get current executable path.");
     }
-    return luisa::to_string(std::filesystem::canonical(path));
+    return luisa::to_string(luisa::filesystem::canonical(path));
 }
 char env_separator() noexcept {
     return ';';
@@ -281,9 +290,15 @@ char env_separator() noexcept {
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <cxxabi.h>
+#include <cstdio>
+#include <cstring>
 
 #ifdef LUISA_PLATFORM_APPLE
+#ifdef LUISA_PLATFORM_IOS
+#include <mach-o/dyld.h>
+#else
 #include <libproc.h>// to get current executable path
+#endif
 #include <sstream>
 #endif
 
@@ -373,7 +388,7 @@ luisa::vector<TraceItem> backtrace() noexcept {
         iss >> index >> item.module >> std::hex >> item.address >> item.symbol >> plus >> std::dec >> item.offset;
         item.symbol = demangle(item.symbol.c_str());
 #else
-        if (std::string_view raw_item{info[i]}; !raw_item.empty()) {
+        if (luisa::string_view raw_item{info[i]}; !raw_item.empty()) {
             // the returned string is in the format of "binary_name(function_name+offset) [address]"
             // parse address
             auto right_bracket = raw_item.rfind(']');
@@ -423,12 +438,43 @@ luisa::string cpu_name() noexcept {
     constexpr auto buffer_size = static_cast<size_t>(256u);
     char brand[buffer_size];
     auto size = buffer_size;
-    if (sysctlbyname("machdep.cpu.brand_string", brand, &size, nullptr, 0) != 0) {
+#ifdef LUISA_PLATFORM_IOS
+    constexpr auto brand_name = "hw.machine";
+#else
+    constexpr auto brand_name = "machdep.cpu.brand_string";
+#endif
+    if (sysctlbyname(brand_name, brand, &size, nullptr, 0) != 0) {
         return "Unknown ARM64";
     }
     return brand;
 #else
-    return "Unknown ARM64";// TODO: implement this
+    // Linux exposes the CPU model name through /proc/cpuinfo; there is no
+    // architecturally-defined CPUID equivalent on AArch64.
+    if (auto file = std::fopen("/proc/cpuinfo", "r"); file != nullptr) {
+        char line[256];
+        while (std::fgets(line, sizeof(line), file) != nullptr) {
+            if (std::strncmp(line, "Model name", 10) != 0 &&
+                std::strncmp(line, "Hardware", 8) != 0) {
+                continue;
+            }
+            auto *colon = std::strchr(line, ':');
+            if (colon == nullptr) { continue; }
+            ++colon;
+            while (*colon == ' ' || *colon == '\t') { ++colon; }
+            luisa::string name{colon};
+            while (!name.empty() &&
+                   (name.back() == '\n' || name.back() == '\r' ||
+                    name.back() == ' ' || name.back() == '\t')) {
+                name.pop_back();
+            }
+            if (!name.empty()) {
+                std::fclose(file);
+                return name;
+            }
+        }
+        std::fclose(file);
+    }
+    return "Unknown ARM64";
 #endif
 }
 #else
@@ -444,15 +490,27 @@ luisa::string cpu_name() noexcept {
 
 #ifdef LUISA_PLATFORM_APPLE
 luisa::string current_executable_path() noexcept {
+#ifdef LUISA_PLATFORM_IOS
+    auto size = static_cast<uint32_t>(0u);
+    static_cast<void>(_NSGetExecutablePath(nullptr, &size));
+    luisa::vector<char> pathbuf(size);
+    if (_NSGetExecutablePath(pathbuf.data(), &size) == 0) {
+        return luisa::to_string(
+            luisa::filesystem::canonical(pathbuf.data()));
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Failed to get current executable path on iOS.");
+#else
     char pathbuf[PROC_PIDPATHINFO_MAXSIZE] = {};
     auto pid = getpid();
     if (auto size = proc_pidpath(pid, pathbuf, sizeof(pathbuf)); size > 0) {
         luisa::string_view path{pathbuf, static_cast<size_t>(size)};
-        return luisa::to_string(std::filesystem::canonical(path));
+        return luisa::to_string(luisa::filesystem::canonical(path));
     }
     LUISA_ERROR_WITH_LOCATION(
         "Failed to get current executable path (PID = {}): {}.",
         pid, strerror(errno));
+#endif
 }
 #else
 luisa::string current_executable_path() noexcept {
@@ -460,7 +518,7 @@ luisa::string current_executable_path() noexcept {
     for (auto p : {"/proc/self/exe", "/proc/curproc/file", "/proc/self/path/a.out"}) {
         if (auto size = readlink(p, pathbuf, sizeof(pathbuf)); size > 0) {
             luisa::string_view path{pathbuf, static_cast<size_t>(size)};
-            return luisa::to_string(std::filesystem::canonical(path));
+            return luisa::to_string(luisa::filesystem::canonical(path));
         }
     }
     LUISA_ERROR_WITH_LOCATION(
@@ -476,8 +534,51 @@ char env_separator() noexcept {
 
 // common functions
 namespace luisa {
+luisa::optional<luisa::string> get_environment_variable(const char *name) noexcept {
+#if defined(LUISA_PLATFORM_WINDOWS)
+    // Statically linked CRTs keep separate environment tables in each DLL.
+    // Read the process environment directly and retry if its value grows.
+    luisa::string value(128u, '\0');
+    for (;;) {
+        SetLastError(ERROR_SUCCESS);
+        auto length = GetEnvironmentVariableA(name, value.data(), static_cast<DWORD>(value.size()));
+        if (length == 0u) {
+            if (GetLastError() == ERROR_SUCCESS) { return luisa::string{}; }
+            return luisa::nullopt;
+        }
+        if (length < value.size()) {
+            value.resize(length);
+            return value;
+        }
+        value.resize(length);
+    }
+#else
+    if (auto *value = std::getenv(name)) { return luisa::string{value}; }
+    return luisa::nullopt;
+#endif
+}
+
 luisa::string to_string(const TraceItem &item) noexcept {
     using namespace std::string_view_literals;
     return luisa::format("{}", item);
 }
 }// namespace luisa
+
+// Unity-build hygiene: the macros defined above before <windows.h>, plus the
+// classic windows.h polluters, must not leak into the other translation units
+// merged into the same unity-build blob.
+#if defined(LUISA_PLATFORM_WINDOWS)
+#undef UNICODE
+#undef NOMINMAX
+#undef WIN32_LEAN_AND_MEAN
+#undef VC_EXTRALEAN
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
+#ifdef pascal
+#undef pascal
+#endif
+#endif

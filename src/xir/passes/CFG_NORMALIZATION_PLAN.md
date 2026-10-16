@@ -55,8 +55,18 @@ removing and then reconstructing only the merge role.
 
 ## Explicit lowering passes
 
-`lower_break_continue`, `lower_ray_query_loop*`, and `destructure_cfg` are
-explicit representation changes. Callers opt into their documented lowering.
+`lower_break_continue`, `lower_ray_query_to_pipeline`,
+`lower_ray_query_to_loop`, `reconstruct_ray_query_loop`, and `destructure_cfg`
+are explicit representation changes. Callers opt into their documented
+lowering. The two ray-query lowerings name their destination representation:
+callback-owning backends use `RayQueryPipelineInst`, while inline-query
+backends use an ordinary structured `LoopInst`. Reconstruction recognizes only
+the exact `PROCEED -> IS_TERMINATED -> candidate dispatch` loop contract emitted
+by `lower_ray_query_to_loop` or the equivalent pre-mem2reg affine DSL
+`SimpleLoopInst`; an ordinary loop is ignored and a ray-like near-match rejects
+the complete function/module before mutation. A consumer may run reconstruction
+and then a selective pipeline lowering, but that composition remains explicit
+in the consumer's production pipeline.
 `destructure_cfg` lowers `IfInst`, `SwitchInst`, `LoopInst`,
 `SimpleLoopInst`, `BreakInst`, and `ContinueInst` in every owned block.
 `SwitchInst` becomes `IndexedBranchInst`, preserving its selector, case
@@ -91,9 +101,18 @@ after generating them. It does not claim that the whole module is coroutine-free
 
 `restructure_cfg` converts reducible raw CFG regions back into structured
 control flow, including `IndexedBranchInst` back into `SwitchInst` with a
-reconstructed merge. A cyclic SCC with multiple entry blocks is irreducible
-for the current implementation and is rejected before any mutation; callers inspect
+reconstructed merge. Reducibility is checked by recursively decomposing SCCs
+through their unique headers; this detects a multi-entry inner cycle even when
+a natural single-entry outer loop hides it from maximal-SCC analysis.
+`restructure_cfg` rejects such a region before any mutation, and callers inspect
 `RestructureCFGInfo::irreducible_region_count`/`succeeded()`.
+
+Callers that accept arbitrary raw CFG may first run `lower_irreducible_cfg`.
+For every multi-entry cyclic region it redirects both internal and external
+entry edges through selector stores and one dispatcher. The dispatcher becomes
+the unique header without cloning shader-body blocks. The function pass lowers
+outer and newly exposed nested regions to a fixed point; the module overload
+preflights every definition before mutating any definition.
 
 The reconstruction order is inner-to-outer. Each indexed branch receives a
 private merge block. A real common post-dominator is placed after that private

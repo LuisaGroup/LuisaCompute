@@ -1,0 +1,179 @@
+(lldb) target create "/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir"
+Current executable set to '/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir' (arm64).
+(lldb) settings set -- target.run-args  "llm" "masked_softmax" "64,4096" "1" "1" "2" "5" "10" "/tmp/luisa-xir-bounded.kADecq/crash-2.f32"
+(lldb) settings set target.env-vars LUISA_SIMD_WARP_WIDTH=8 LUISA_SIMD_WORKER_COUNT=8
+(lldb) run
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel.cpp.o" changed (actual: 0x6a9f8c30, debug map: 0x6a9f5f2c) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_bindless_array.cpp.o" changed (actual: 0x6a9f8c2f, debug map: 0x6a9f5f2d) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_buffer.cpp.o" changed (actual: 0x6a9f8c2e, debug map: 0x6a9f5f2c) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_curve.cpp.o" changed (actual: 0x6a9f8c2e, debug map: 0x6a9f5f2d) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_device.cpp.o" changed (actual: 0x6a9f8c2f, debug map: 0x6a9f5f2e) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_mesh.cpp.o" changed (actual: 0x6a9f8c30, debug map: 0x6a9f5f30) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_procedural_primitive.cpp.o" changed (actual: 0x6a9f8c31, debug map: 0x6a9f5f30) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_shader.cpp.o" changed (actual: 0x6a9f8c34, debug map: 0x6a9f5f32) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_tile.cpp.o" changed (actual: 0x6a9f8ea4, debug map: 0x6a9f881a) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_stream.cpp.o" changed (actual: 0x6a9f8c33, debug map: 0x6a9f5f31) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_texture.cpp.o" changed (actual: 0x6a9f8c3c, debug map: 0x6a9f5f3c) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_ray_query.cpp.o" changed (actual: 0x6a9f8c31, debug map: 0x6a9f5f31) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_ray_query_triangle.cpp.o" changed (actual: 0x6a9f8c34, debug map: 0x6a9f5f34) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_ray_query_status.cpp.o" changed (actual: 0x6a9f8c34, debug map: 0x6a9f5f34) since this executable was linked, debug info will not be loaded
+error: libluisa-backend-simd.so debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/backends/simd/CMakeFiles/luisa-compute-backend-simd.dir/runtime/simd_accel_ray_query_filter_pipeline.cpp.o" changed (actual: 0x6a9f8c36, debug map: 0x6a9f5f35) since this executable was linked, debug info will not be loaded
+error: libluisa-compute-simd-compiler.a(simd_compiler.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-compiler.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_codegen.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_codegen_cooperative.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_bindless.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_arithmetic.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_accel.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_collectives.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_cooperative.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_control.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_debug.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_direct.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_memory.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_texture.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_terminators.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_local_regions.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_predication.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_state.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_structured_loop.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_ray_query_analysis.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_ray_query.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_ray_query_filter.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_ray_query_pipeline.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+error: libluisa-compute-simd-llvm.a(llvm_schedule_emitter_ray_query_packet.cpp.o) failed to load objfile for /private/tmp/luisa-reduction-checkpoint.gQUERp/build/lib/libluisa-compute-simd-llvm.a
+Debugging will be degraded for this module.
+Process 49797 launched: '/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir' (arm64)
+Process 49797 stopped
+* thread #3, stop reason = EXC_BAD_ACCESS (code=1, address=0x2fac0560)
+    frame #0: 0x00000001000683e8 
+->  0x1000683e8: str    d0, [x13]
+    0x1000683ec: tbz    w12, #0x3, 0x10006839c
+    0x1000683f0: mov.d  x13, v2[1]
+    0x1000683f4: st1.d  { v0 }[1], [x13]
+(lldb) thread backtrace all
+error: benchmark_tile_xir debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/tests/CMakeFiles/benchmark_tile_xir.dir/benchmark/benchmark_tile_xir.cpp.o" changed (actual: 0x6a9f8c3c, debug map: 0x6a9f881b) since this executable was linked, debug info will not be loaded
+error: libluisa-tile-bridge-xir.dylib debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/tile/bridge/xir/CMakeFiles/luisa-compute-tile-bridge-xir.dir/lower.cpp.o" changed (actual: 0x6a9f8c2d, debug map: 0x6a9f8819) since this executable was linked, debug info will not be loaded
+error: libluisa-tile-bridge-xir.dylib debug map object file "/private/tmp/luisa-reduction-checkpoint.gQUERp/build/src/tile/bridge/xir/CMakeFiles/luisa-compute-tile-bridge-xir.dir/planner.cpp.o" changed (actual: 0x6a9f8c2c, debug map: 0x6a9f8818) since this executable was linked, debug info will not be loaded
+  thread #1, queue = 'com.apple.main-thread'
+    frame #0: 0x000000018650b50c libsystem_kernel.dylib`__psynch_cvwait + 8
+    frame #1: 0x000000018654c128 libsystem_pthread.dylib`_pthread_cond_wait + 980
+    frame #2: 0x0000000186461858 libc++.1.dylib`std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&) + 32
+    frame #3: 0x0000000106459c0c libluisa-backend-simd.so`void std::__1::condition_variable::wait[abi:nqe210106]<luisa::compute::simd::SIMDThreadPool::_parallel_for(unsigned long long, unsigned long long, void*, void (*)(void*, unsigned long long, unsigned long long) noexcept)::$_0>(this=<unavailable>, __lk=0x000000016fdfce10, __pred=(unnamed class) @ x19) at condition_variable.h:112:7 [opt] [inlined]
+    frame #4: 0x0000000106459c04 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_parallel_for(this=0x00000009c0805800, count=2, grain_size=1, context=0x000000016fdfce70, invoke=(libluisa-backend-simd.so`void luisa::compute::simd::SIMDThreadPool::parallel_for<luisa::compute::simd::SIMDShader::_dispatch_once(luisa::compute::simd::SIMDThreadPool&, void const*, luisa::Vector<unsigned int, 3ul>, std::__1::function<void (std::__1::basic_string_view<char, std::__1::char_traits<char>>)> const&, unsigned int) const::$_2>(unsigned long long, unsigned long long, luisa::compute::simd::SIMDShader::_dispatch_once(luisa::compute::simd::SIMDThreadPool&, void const*, luisa::Vector<unsigned int, 3ul>, std::__1::function<void (std::__1::basic_string_view<char, std::__1::char_traits<char>>)> const&, unsigned int) const::$_2&&)::'lambda'(void*, unsigned long long, unsigned long long)::__invoke(void*, unsigned long long, unsigned long long))) at simd_thread_pool.cpp:117:16 [opt]
+    frame #5: 0x00000001064512dc libluisa-backend-simd.so`luisa::compute::simd::SIMDShader::_dispatch_once(luisa::compute::simd::SIMDThreadPool&, void const*, luisa::Vector<unsigned int, 3ul>, std::__1::function<void (std::__1::basic_string_view<char, std::__1::char_traits<char>>)> const&, unsigned int) const + 288
+    frame #6: 0x0000000106451778 libluisa-backend-simd.so`luisa::compute::simd::SIMDShader::dispatch(luisa::compute::simd::SIMDThreadPool&, std::__1::function<void (std::__1::basic_string_view<char, std::__1::char_traits<char>>)> const&, std::__1::unique_ptr<luisa::compute::ShaderDispatchCommand, std::__1::default_delete<luisa::compute::ShaderDispatchCommand>>) const + 688
+    frame #7: 0x00000001064587d4 libluisa-backend-simd.so`luisa::compute::simd::SIMDStream::dispatch(luisa::compute::CommandList&&) + 220
+    frame #8: 0x00000001006484ec libluisa-runtime.dylib`luisa::compute::Stream::_dispatch(this=<unavailable>, list=0x000000016fdfd288) at stream.cpp:26:19 [opt] [inlined]
+    frame #9: 0x00000001006484c8 libluisa-runtime.dylib`luisa::compute::Stream::operator<<(this=0x000000016fdfd7b0, commit=<unavailable>) at stream.cpp:107:5 [opt]
+    frame #10: 0x0000000100012af4 benchmark_tile_xir`luisa::test::tile_llm::benchmark(int, char**, std::__1::basic_string_view<char, std::__1::char_traits<char>>, luisa::compute::tile::CompileOptions const&, bool, bool, bool)::'lambda'(unsigned long long)::operator()(unsigned long long) const + 464
+    frame #11: 0x0000000100006150 benchmark_tile_xir`luisa::test::tile_llm::benchmark(int, char**, std::__1::basic_string_view<char, std::__1::char_traits<char>>, luisa::compute::tile::CompileOptions const&, bool, bool, bool) + 3780
+    frame #12: 0x0000000100003780 benchmark_tile_xir`main + 640
+    frame #13: 0x00000001861804e4 dyld`start + 6992
+  thread #2
+    frame #0: 0x0000000100068360 
+    frame #1: 0x00000001064599ec libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_1::operator()(this=<unavailable>, chunk=<unavailable>) const at simd_thread_pool.cpp:49:13 [opt] [inlined]
+    frame #2: 0x00000001064599d0 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_2::operator()(this=<unavailable>, owner=<unavailable>) const at simd_thread_pool.cpp:61:13 [opt] [inlined]
+    frame #3: 0x00000001064599b8 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(this=<unavailable>, worker_index=<unavailable>) at simd_thread_pool.cpp:68:16 [opt]
+    frame #4: 0x0000000106459dcc libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0::operator()(this=0x0000000101d970f8) const at simd_thread_pool.cpp:15:13 [opt] [inlined]
+    frame #6: 0x0000000106459dc4 libluisa-backend-simd.so`void std::__1::__thread_execute[abi:nqe210106]<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>(__t=size=2, (null)=<unavailable>) at thread.h:159:3 [opt] [inlined]
+    frame #7: 0x0000000106459dc4 libluisa-backend-simd.so`void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>>(__vp=0x0000000101d970f0) at thread.h:168:3 [opt]
+    frame #8: 0x000000018654bc58 libsystem_pthread.dylib`_pthread_start + 136
+* thread #3, stop reason = EXC_BAD_ACCESS (code=1, address=0x2fac0560)
+  * frame #0: 0x00000001000683e8 
+    frame #1: 0x00000001064599ec libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_1::operator()(this=<unavailable>, chunk=<unavailable>) const at simd_thread_pool.cpp:49:13 [opt] [inlined]
+    frame #2: 0x00000001064599d0 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_2::operator()(this=<unavailable>, owner=<unavailable>) const at simd_thread_pool.cpp:61:13 [opt] [inlined]
+    frame #3: 0x00000001064599b8 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(this=<unavailable>, worker_index=<unavailable>) at simd_thread_pool.cpp:68:16 [opt]
+    frame #4: 0x0000000106459dcc libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0::operator()(this=0x0000000101d97118) const at simd_thread_pool.cpp:15:13 [opt] [inlined]
+    frame #6: 0x0000000106459dc4 libluisa-backend-simd.so`void std::__1::__thread_execute[abi:nqe210106]<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>(__t=size=2, (null)=<unavailable>) at thread.h:159:3 [opt] [inlined]
+    frame #7: 0x0000000106459dc4 libluisa-backend-simd.so`void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>>(__vp=0x0000000101d97110) at thread.h:168:3 [opt]
+    frame #8: 0x000000018654bc58 libsystem_pthread.dylib`_pthread_start + 136
+  thread #4
+    frame #0: 0x000000018650b50c libsystem_kernel.dylib`__psynch_cvwait + 8
+    frame #1: 0x000000018654c128 libsystem_pthread.dylib`_pthread_cond_wait + 980
+    frame #2: 0x0000000186461858 libc++.1.dylib`std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&) + 32
+    frame #3: 0x0000000106459958 libluisa-backend-simd.so`void std::__1::condition_variable::wait[abi:nqe210106]<luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_0>(this=<unavailable>, __lk=0x000000016ff9ef30, __pred=(unnamed class) @ 0x0000000bd75585c0) at condition_variable.h:112:7 [opt] [inlined]
+    frame #4: 0x0000000106459940 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(this=0x00000009c0805800, worker_index=2) at simd_thread_pool.cpp:37:25 [opt]
+    frame #5: 0x0000000106459dcc libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0::operator()(this=0x0000000101d97148) const at simd_thread_pool.cpp:15:13 [opt] [inlined]
+    frame #7: 0x0000000106459dc4 libluisa-backend-simd.so`void std::__1::__thread_execute[abi:nqe210106]<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>(__t=size=2, (null)=<unavailable>) at thread.h:159:3 [opt] [inlined]
+    frame #8: 0x0000000106459dc4 libluisa-backend-simd.so`void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>>(__vp=0x0000000101d97140) at thread.h:168:3 [opt]
+    frame #9: 0x000000018654bc58 libsystem_pthread.dylib`_pthread_start + 136
+  thread #5
+    frame #0: 0x000000018650b50c libsystem_kernel.dylib`__psynch_cvwait + 8
+    frame #1: 0x000000018654c128 libsystem_pthread.dylib`_pthread_cond_wait + 980
+    frame #2: 0x0000000186461858 libc++.1.dylib`std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&) + 32
+    frame #3: 0x0000000106459958 libluisa-backend-simd.so`void std::__1::condition_variable::wait[abi:nqe210106]<luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_0>(this=<unavailable>, __lk=0x000000017002af30, __pred=(unnamed class) @ 0x0000000bd75585c0) at condition_variable.h:112:7 [opt] [inlined]
+    frame #4: 0x0000000106459940 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(this=0x00000009c0805800, worker_index=3) at simd_thread_pool.cpp:37:25 [opt]
+    frame #5: 0x0000000106459dcc libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0::operator()(this=0x0000000101d97178) const at simd_thread_pool.cpp:15:13 [opt] [inlined]
+    frame #7: 0x0000000106459dc4 libluisa-backend-simd.so`void std::__1::__thread_execute[abi:nqe210106]<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>(__t=size=2, (null)=<unavailable>) at thread.h:159:3 [opt] [inlined]
+    frame #8: 0x0000000106459dc4 libluisa-backend-simd.so`void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>>(__vp=0x0000000101d97170) at thread.h:168:3 [opt]
+    frame #9: 0x000000018654bc58 libsystem_pthread.dylib`_pthread_start + 136
+  thread #6
+    frame #0: 0x000000018650b50c libsystem_kernel.dylib`__psynch_cvwait + 8
+    frame #1: 0x000000018654c128 libsystem_pthread.dylib`_pthread_cond_wait + 980
+    frame #2: 0x0000000186461858 libc++.1.dylib`std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&) + 32
+    frame #3: 0x0000000106459958 libluisa-backend-simd.so`void std::__1::condition_variable::wait[abi:nqe210106]<luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_0>(this=<unavailable>, __lk=0x00000001700b6f30, __pred=(unnamed class) @ 0x0000000bd75585c0) at condition_variable.h:112:7 [opt] [inlined]
+    frame #4: 0x0000000106459940 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(this=0x00000009c0805800, worker_index=4) at simd_thread_pool.cpp:37:25 [opt]
+    frame #5: 0x0000000106459dcc libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0::operator()(this=0x0000000101d971a8) const at simd_thread_pool.cpp:15:13 [opt] [inlined]
+    frame #7: 0x0000000106459dc4 libluisa-backend-simd.so`void std::__1::__thread_execute[abi:nqe210106]<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>(__t=size=2, (null)=<unavailable>) at thread.h:159:3 [opt] [inlined]
+    frame #8: 0x0000000106459dc4 libluisa-backend-simd.so`void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>>(__vp=0x0000000101d971a0) at thread.h:168:3 [opt]
+    frame #9: 0x000000018654bc58 libsystem_pthread.dylib`_pthread_start + 136
+  thread #7
+    frame #0: 0x000000018650b50c libsystem_kernel.dylib`__psynch_cvwait + 8
+    frame #1: 0x000000018654c128 libsystem_pthread.dylib`_pthread_cond_wait + 980
+    frame #2: 0x0000000186461858 libc++.1.dylib`std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&) + 32
+    frame #3: 0x0000000106459958 libluisa-backend-simd.so`void std::__1::condition_variable::wait[abi:nqe210106]<luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_0>(this=<unavailable>, __lk=0x0000000170142f30, __pred=(unnamed class) @ 0x0000000bd75585c0) at condition_variable.h:112:7 [opt] [inlined]
+    frame #4: 0x0000000106459940 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(this=0x00000009c0805800, worker_index=5) at simd_thread_pool.cpp:37:25 [opt]
+    frame #5: 0x0000000106459dcc libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0::operator()(this=0x0000000101d971d8) const at simd_thread_pool.cpp:15:13 [opt] [inlined]
+    frame #7: 0x0000000106459dc4 libluisa-backend-simd.so`void std::__1::__thread_execute[abi:nqe210106]<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>(__t=size=2, (null)=<unavailable>) at thread.h:159:3 [opt] [inlined]
+    frame #8: 0x0000000106459dc4 libluisa-backend-simd.so`void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>>(__vp=0x0000000101d971d0) at thread.h:168:3 [opt]
+    frame #9: 0x000000018654bc58 libsystem_pthread.dylib`_pthread_start + 136
+  thread #8
+    frame #0: 0x000000018650b50c libsystem_kernel.dylib`__psynch_cvwait + 8
+    frame #1: 0x000000018654c128 libsystem_pthread.dylib`_pthread_cond_wait + 980
+    frame #2: 0x0000000186461858 libc++.1.dylib`std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&) + 32
+    frame #3: 0x0000000106459958 libluisa-backend-simd.so`void std::__1::condition_variable::wait[abi:nqe210106]<luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_0>(this=<unavailable>, __lk=0x00000001701cef30, __pred=(unnamed class) @ 0x0000000bd75585c0) at condition_variable.h:112:7 [opt] [inlined]
+    frame #4: 0x0000000106459940 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(this=0x00000009c0805800, worker_index=6) at simd_thread_pool.cpp:37:25 [opt]
+    frame #5: 0x0000000106459dcc libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0::operator()(this=0x0000000101d97208) const at simd_thread_pool.cpp:15:13 [opt] [inlined]
+    frame #7: 0x0000000106459dc4 libluisa-backend-simd.so`void std::__1::__thread_execute[abi:nqe210106]<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>(__t=size=2, (null)=<unavailable>) at thread.h:159:3 [opt] [inlined]
+    frame #8: 0x0000000106459dc4 libluisa-backend-simd.so`void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>>(__vp=0x0000000101d97200) at thread.h:168:3 [opt]
+    frame #9: 0x000000018654bc58 libsystem_pthread.dylib`_pthread_start + 136
+  thread #9
+    frame #0: 0x000000018650b50c libsystem_kernel.dylib`__psynch_cvwait + 8
+    frame #1: 0x000000018654c128 libsystem_pthread.dylib`_pthread_cond_wait + 980
+    frame #2: 0x0000000186461858 libc++.1.dylib`std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&) + 32
+    frame #3: 0x0000000106459958 libluisa-backend-simd.so`void std::__1::condition_variable::wait[abi:nqe210106]<luisa::compute::simd::SIMDThreadPool::_worker_loop(unsigned int)::$_0>(this=<unavailable>, __lk=0x000000017025af30, __pred=(unnamed class) @ 0x0000000bd75585c0) at condition_variable.h:112:7 [opt] [inlined]
+    frame #4: 0x0000000106459940 libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::_worker_loop(this=0x00000009c0805800, worker_index=7) at simd_thread_pool.cpp:37:25 [opt]
+    frame #5: 0x0000000106459dcc libluisa-backend-simd.so`luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0::operator()(this=0x0000000101d97238) const at simd_thread_pool.cpp:15:13 [opt] [inlined]
+    frame #7: 0x0000000106459dc4 libluisa-backend-simd.so`void std::__1::__thread_execute[abi:nqe210106]<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>(__t=size=2, (null)=<unavailable>) at thread.h:159:3 [opt] [inlined]
+    frame #8: 0x0000000106459dc4 libluisa-backend-simd.so`void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, luisa::compute::simd::SIMDThreadPool::SIMDThreadPool(unsigned int)::$_0>>(__vp=0x0000000101d97230) at thread.h:168:3 [opt]
+    frame #9: 0x000000018654bc58 libsystem_pthread.dylib`_pthread_start + 136
+(lldb) register read sp pc x14
+      sp = 0x000000016fe6aae0
+      pc = 0x00000001000683e8
+     x14 = 0x0000000000000000
+(lldb) memory region $x14
+[0x0000000000000000-0x0000000100000000) ---

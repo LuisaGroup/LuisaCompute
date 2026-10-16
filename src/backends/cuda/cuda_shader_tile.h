@@ -1,0 +1,124 @@
+#pragma once
+
+#include <array>
+
+#include <cuda.h>
+
+#include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
+#include <luisa/runtime/rhi/command.h>
+#include <luisa/ast/usage.h>
+
+#include "cuda_shader.h"
+#include "tile/cuda_tile_streaming_guard.h"
+
+namespace luisa::compute::cuda {
+
+class CUDADevice;
+
+// A statically shaped, direct-buffer Tile shader launched on CUDA.
+//
+// Unlike the ordinary DSL CUDAShaderNative, a Tile device artifact has:
+//   * device entries whose parameters are plain typed buffer pointers
+//     (no trailing uint4 launch-size parameter, no cudadevrt/kernel_launcher),
+//   * a static grid/block configuration for each entry, and
+//   * a device binding order that may differ from the original host argument
+//     order (buffer_arguments[device_slot] -> host parameter index).
+//
+// _launch therefore reorders ShaderDispatchCommand arguments into the device
+// binding order and encodes each buffer view as a raw CUdeviceptr (base +
+// offset), the exact by-value parameter the generated CUDA kernel expects.
+class CUDAShaderTile final : public CUDAShader {
+
+public:
+    struct Launch {
+        CUfunction function;
+        std::array<uint32_t, 3u> grid;
+        uint3 block;
+    };
+
+private:
+    CUmodule _module{};
+    CUfunction _function{};
+    CUfunction _aligned16_function{};
+    uint32_t _aligned16_buffer_mask{0u};
+    CUfunction _streaming_scan_function{};
+    native_tile::StreamingScanGuard _streaming_scan_guard{};
+    CUfunction _partition_function{};
+    std::array<uint32_t, 3u> _partition_grid{1u, 1u, 1u};
+    native_tile::StreamingScanGuard _partition_guard{};
+    // Ordinary CUDA candidate module. Both modules live with this shader;
+    // graph users retain the existing obligation to keep the shader alive.
+    CUmodule _cub_scan_module{};
+    CUfunction _cub_scan_function{};
+    std::array<uint32_t, 3u> _cub_scan_grid{1u, 1u, 1u};
+    uint3 _cub_scan_block{0u, 0u, 0u};
+    native_tile::StreamingScanGuard _cub_scan_guard{};
+    uint32_t _cub_scan_alignment_mask{0u};
+    luisa::string _cub_scan_source;
+    luisa::string _cub_scan_identity;
+    luisa::string _entry;
+    std::array<uint32_t, 3u> _grid{1u, 1u, 1u};
+    uint3 _block_size{0u, 0u, 0u};
+    // Indexed by device buffer slot; each value indexes the original host
+    // ShaderDispatchCommand argument (see DeviceArtifact::buffer_arguments).
+    luisa::vector<uint32_t> _buffer_arguments;
+    // The loaded (possibly version-patched) PTX text. Retained for Vulkan
+    // VK_NV_cuda_kernel_launch interop parity with CUDAShaderNative.
+    luisa::vector<std::byte> _module_image;
+
+private:
+    void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
+
+public:
+    // Loads PTX and resolves `entry` inside the caller's active CUDA context.
+    // Retries with CUDAShader::_patch_ptx_version on old-driver
+    // CUDA_ERROR_UNSUPPORTED_PTX_VERSION (mirroring CUDAShaderNative).
+    CUDAShaderTile(CUDADevice *device, luisa::vector<std::byte> ptx,
+                   luisa::string entry,
+                   const std::array<uint32_t, 3u> &grid,
+                   uint3 block_size,
+                   luisa::vector<uint32_t> buffer_arguments,
+                   luisa::vector<Usage> argument_usages) noexcept;
+    // Takes ownership of a fully loaded native Tile cubin and its resolved
+    // entry. No second module load, PTX patching, or importable DSL image.
+    CUDAShaderTile(CUmodule module, CUfunction function, luisa::string entry,
+                   const std::array<uint32_t, 3u> &grid,
+                   luisa::vector<uint32_t> buffer_arguments,
+                   luisa::vector<Usage> argument_usages,
+                   CUfunction aligned16_function = nullptr,
+                   uint32_t aligned16_buffer_mask = 0u,
+                   CUfunction streaming_scan_function = nullptr,
+                   native_tile::StreamingScanGuard streaming_scan_guard = {},
+                   CUfunction partition_function = nullptr,
+                   std::array<uint32_t, 3u> partition_grid = {1u, 1u, 1u},
+                   native_tile::StreamingScanGuard partition_guard = {}) noexcept;
+    ~CUDAShaderTile() noexcept override;
+    // Backend-private installation. Takes module ownership only on success;
+    // the caller unloads a rejected candidate. Original source/entry stay intact.
+    [[nodiscard]] bool install_cub_scan(CUmodule module, CUfunction function,
+                                        std::array<uint32_t, 3u> grid, uint3 block,
+                                        native_tile::StreamingScanGuard guard,
+                                        uint32_t alignment_mask,
+                                        luisa::string source, luisa::string identity) noexcept;
+    [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
+    [[nodiscard]] bool is_tile() const noexcept override { return true; }
+    [[nodiscard]] size_t parameter_count() const noexcept { return _buffer_arguments.size(); }
+    // Shared by live launches and graph construction. Output is in device ABI
+    // order, with BufferView offsets folded into plain device pointers.
+    [[nodiscard]] bool encode_buffer_pointers(luisa::span<const Argument> arguments,
+                                              luisa::span<CUdeviceptr> pointers) const noexcept;
+    // Select only after argument reordering and BufferView offsets are encoded.
+    // The generic handle/entry remain the safe, unspecialized function.
+    // Function and geometry are one decision: an alias fallback must restore
+    // the original grid as well as the original function.
+    [[nodiscard]] Launch select_launch(luisa::span<const CUdeviceptr> pointers) const noexcept;
+    [[nodiscard]] void *handle() const noexcept override { return _function; }
+    [[nodiscard]] luisa::span<const std::byte> module_image() const noexcept override { return _module_image; }
+    [[nodiscard]] luisa::string_view entry() const noexcept override { return _entry; }
+    [[nodiscard]] uint3 block_size() const noexcept override { return _block_size; }
+    [[nodiscard]] size_t bound_argument_count() const noexcept override { return 0u; }
+    [[nodiscard]] auto grid() const noexcept { return _grid; }
+};
+
+}// namespace luisa::compute::cuda

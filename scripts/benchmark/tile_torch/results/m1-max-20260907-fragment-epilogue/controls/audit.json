@@ -1,0 +1,186 @@
+{
+  "passed": true,
+  "complete_outputs": 56,
+  "checked_elements": 630684,
+  "summary": [
+    {
+      "backend": "metal",
+      "operation": "gemm",
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gemm",
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gemm_relu",
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gemm_relu",
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gemm_gelu",
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gemm_gelu",
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "add",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gelu_pair",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "sum",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "softmax",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "cpu",
+      "operation": "add",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": false,
+      "equivalent": true,
+      "tbaa_identities": 5
+    },
+    {
+      "backend": "cpu",
+      "operation": "gelu_pair",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": false,
+      "equivalent": true,
+      "tbaa_identities": 5
+    },
+    {
+      "backend": "cpu",
+      "operation": "sum",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": false,
+      "equivalent": true,
+      "tbaa_identities": 6
+    },
+    {
+      "backend": "cpu",
+      "operation": "softmax",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": false,
+      "equivalent": true,
+      "tbaa_identities": 10
+    }
+  ],
+  "use": "compatibility, not speed",
+  "input_sha256": "659355d4ad94a203c5e2b61ac67980f1828e85135db41ab2bec837032c3d9f2b",
+  "auditor_sha256": "6017c11a564038cb2f1a81d886b0b5cc3573df6e5e5f35f2350b2bf710d134df",
+  "rejected_mutations": [
+    "missing_row",
+    "duplicate_row",
+    "changed_artifacts",
+    "partial_output",
+    "bad_oracle",
+    "missing_source"
+  ]
+}

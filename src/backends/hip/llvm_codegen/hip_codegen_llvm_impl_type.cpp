@@ -4,6 +4,7 @@
 
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/runtime/dispatch_buffer.h>
+#include <luisa/core/stl/memory.h>
 
 #include "hip_codegen_llvm_impl.h"
 #include "../hip_bindless_array.h"
@@ -40,6 +41,10 @@ size_t HIPCodegenLLVMImpl::_get_type_alignment(const Type *type) noexcept {
     if (type->is_basic() || type->is_array() || type->is_structure()) {
         return type->alignment();
     }
+    if (type == Type::of<RayQueryAll>() ||
+        type == Type::of<RayQueryAny>()) {
+        return alignof(uint32_t);
+    }
     if (type->is_resource() || type->is_custom() || type->is_cooperative_vector_ref() || type->is_cooperative_matrix_ref()) {
         return 16;
     }
@@ -50,11 +55,11 @@ const HIPCodegenLLVMImpl::LLVMTypeInfo *HIPCodegenLLVMImpl::_get_llvm_type(const
     if (auto iter = _xir_to_llvm_type.find(type); iter != _xir_to_llvm_type.end()) {
         return iter->second.get();
     }
-    auto llvm_type_info = [this, type]() noexcept -> luisa::unique_ptr<LLVMTypeInfo> {
+    auto llvm_type_info = [this, type]() noexcept -> std::unique_ptr<LLVMTypeInfo> {
         auto make_info = [this](llvm::Type *mem_t, llvm::Type *reg_t, size_t s, size_t a,
                                 luisa::vector<size_t> member_indices = {},
                                 luisa::vector<size_t> member_offsets = {}) noexcept {
-            auto info = luisa::make_unique<LLVMTypeInfo>();
+            auto info = std::make_unique<LLVMTypeInfo>();
             info->mem_type = mem_t;
             info->reg_type = reg_t;
             info->member_indices = std::move(member_indices);
@@ -167,7 +172,8 @@ const HIPCodegenLLVMImpl::LLVMTypeInfo *HIPCodegenLLVMImpl::_get_llvm_type(const
             case Type::Tag::CUSTOM: {
                 if (type == Type::of<RayQueryAll>() || type == Type::of<RayQueryAny>()) {
                     auto llvm_type = _get_llvm_ray_query_type();
-                    return make_info(llvm_type, llvm_type, sizeof(uint8_t), alignof(uint8_t));
+                    return make_info(llvm_type, llvm_type,
+                                     sizeof(uint32_t), alignof(uint32_t));
                 }
                 if (type == Type::of<IndirectDispatchBuffer>()) {
                     // The indirect descriptor is pointer + packed {offset, end},
@@ -234,7 +240,7 @@ const HIPCodegenLLVMImpl::KernelArgumentStruct *HIPCodegenLLVMImpl::_get_kernel_
         llvm_arg_members.emplace_back(generic_ptr);  // stack_data
     }
     auto llvm_arg_struct_type = llvm::StructType::create(_llvm_context, llvm_arg_members, "kernel.params.struct");
-    auto kernel_arg_struct = luisa::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
+    auto kernel_arg_struct = std::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
         .llvm_type = llvm_arg_struct_type,
         .argument_indices = std::move(llvm_arg_member_indices),
         .print_buffer_index = print_buffer_index,
@@ -404,12 +410,13 @@ llvm::Type *HIPCodegenLLVMImpl::_get_llvm_committed_hit_type() noexcept {
 
 llvm::Type *HIPCodegenLLVMImpl::_get_llvm_ray_query_type() noexcept {
     if (_llvm_ray_query_type == nullptr) {
-        auto llvm_i64_type = llvm::Type::getInt64Ty(_llvm_context);
-        _llvm_ray_query_type = llvm::StructType::get(llvm_i64_type,
-                                                     llvm_i64_type,
-                                                     llvm_i64_type,
-                                                     llvm_i64_type,
-                                                     llvm_i64_type);
+        LUISA_ASSERT(
+            _data_layout->getPointerSizeInBits(amdgpu_address_space_local) ==
+                llvm_ray_query_state_address_bits,
+            "HIP RayQuery token width must exactly match the AMDGPU private "
+            "pointer width.");
+        _llvm_ray_query_type = llvm::IntegerType::get(
+            _llvm_context, llvm_ray_query_state_address_bits);
     }
     return _llvm_ray_query_type;
 }

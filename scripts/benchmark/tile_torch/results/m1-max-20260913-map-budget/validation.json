@@ -1,0 +1,91 @@
+{
+  "base_commit": "147700bd431eb054694ba649817b7f50a335b2b1",
+  "source_export": "/tmp/luisa-next-integration.roZbN8/source",
+  "build": "/tmp/luisa-next-integration.roZbN8/build",
+  "raw": "/tmp/luisa-ranking-map-budget.VSzyKx",
+  "host_tests": [
+    {
+      "name": "tile_xir_root_traversal_is_bijective_and_identity_is_exact",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_root_traversal_rejects_invalid_constraints",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_root_traversal_cost_uses_physical_fast_digit",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_deferred_map_depth_budget",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_pure_map_fusion_admission_and_cost",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_expression_reduction_fusion_contract_and_cost",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_pointwise_effect_intervals_and_partitioned_outputs",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_pointwise_does_not_cross_stages_or_reduction_state",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_task_distribution_matches_static_home_chunks",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_task_search_and_policy_are_independent_of_legality",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_load_reduction_fusion_contract_and_cost",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_packet_local_admission_and_abi",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_packet_local_rejects_unrealized_redistribution_and_folds",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_dynamic_extract_has_linear_snapshot_storage",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_large_tiles_have_bounded_code_and_eager_load_snapshots",
+      "exit_code": 134
+    },
+    {
+      "name": "tile_xir_expanded_map_extracts_need_no_snapshot",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_verified_ssa_and_abi",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_expansion_budget_is_fail_closed",
+      "exit_code": 134
+    },
+    {
+      "name": "tile_xir_rejects_unrealized_execution_binding",
+      "exit_code": 0
+    },
+    {
+      "name": "tile_xir_planner_searches_execution_order_not_memory_layout",
+      "exit_code": 0
+    }
+  ],
+  "host_suite_complete_pass": false,
+  "negative_test_contract": "SSA expansion budget cases still abort instead of returning a recoverable error; not changed to expected death.",
+  "measurement_claim": "Correctness/compile-growth validation only, not a post-fix ranking performance comparison."
+}

@@ -88,7 +88,12 @@ BottomAccel::BottomAccel(
 }
 BottomAccel::~BottomAccel() {
     for (auto &&i : handles) {
-        i->accel->allInstance[i->accelIndex].handle = nullptr;
+        auto accel = i->accel;
+        accel->allInstance[i->accelIndex].handle = nullptr;
+        // A mesh-refresh entry queued by the last BLAS recreate (SyncTopAccel)
+        // may still reference this BLAS; drop it so a later TLAS build never
+        // bakes the address of a destroyed BLAS into an instance descriptor.
+        accel->DropRefresh(i->accelIndex, this);
         MeshHandle::DestroyHandle(i);
     }
 }

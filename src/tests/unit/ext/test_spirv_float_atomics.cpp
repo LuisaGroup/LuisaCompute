@@ -19,6 +19,8 @@
 #include <spirv-tools/libspirv.hpp>
 
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include "spirv_codegen/entry.h"
 
@@ -83,7 +85,7 @@ void set_environment_variable(const char *name,
 class ScopedEnvironmentVariable {
 private:
     const char *_name;
-    std::optional<std::string> _previous;
+    luisa::optional<std::string> _previous;
 
 public:
     ScopedEnvironmentVariable(const char *name,
@@ -248,9 +250,9 @@ template<typename Kernel>
         .text;
 }
 
-[[nodiscard]] bool contains(std::string_view text,
-                            std::string_view needle) noexcept {
-    return text.find(needle) != std::string_view::npos;
+[[nodiscard]] bool contains(luisa::string_view text,
+                            luisa::string_view needle) noexcept {
+    return text.find(needle) != luisa::string_view::npos;
 }
 
 [[nodiscard]] size_t count_opcode(

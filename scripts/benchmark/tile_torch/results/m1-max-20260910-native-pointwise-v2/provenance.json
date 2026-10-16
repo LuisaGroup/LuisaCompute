@@ -1,0 +1,119 @@
+{
+  "format": "native-pointwise-archive-provenance-v1",
+  "frozen_unix": 1789029518.325449,
+  "raw_root": "/private/tmp/luisa-pointwise-native.WEtcvZ",
+  "raw_user_spelling": "/tmp/luisa-pointwise-native.WEtcvZ",
+  "inventory": "inventory.json",
+  "inventory_sha256": "e34dbbc6835a0718abcdcbf78f1171c6ccd646d621e4119a5f1ddd005522f477",
+  "phases": {
+    "pilot": {
+      "capture_raw": "/private/tmp/luisa-pointwise-native.WEtcvZ/pilot",
+      "replay_raw": "/private/tmp/luisa-pointwise-native.WEtcvZ/pilot-replay",
+      "captured_cases": 4,
+      "native_timed_visits": 72,
+      "audit_status": "passed",
+      "native_output_checks": 12,
+      "identity_checks": 253,
+      "rejected_mutations": [
+        "missing_visit",
+        "wrong_median",
+        "wrong_ratio",
+        "failed_guard",
+        "wrong_oracle",
+        "verification_only",
+        "wrong_order",
+        "failed_status",
+        "wrong_summary",
+        "duplicate_visit",
+        "boolean_sample"
+      ],
+      "source_root": "/private/tmp/luisa-next-integration.roZbN8/source",
+      "binary": "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+      "baseline_manifest": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/manifest.json",
+      "full_build_gate": {
+        "log": "/private/tmp/luisa-pointwise-native.WEtcvZ/full-build-rope-test-final.log",
+        "external_attestation": true,
+        "limitation": "Caller completed the configured full build before capture; log hash alone does not prove binary/source correspondence."
+      }
+    },
+    "matrix": {
+      "capture_raw": "/private/tmp/luisa-pointwise-native.WEtcvZ/matrix",
+      "replay_raw": "/private/tmp/luisa-pointwise-native.WEtcvZ/matrix-replay",
+      "captured_cases": 24,
+      "native_timed_visits": 432,
+      "audit_status": "passed",
+      "native_output_checks": 72,
+      "identity_checks": 1413,
+      "rejected_mutations": [
+        "missing_visit",
+        "wrong_median",
+        "wrong_ratio",
+        "failed_guard",
+        "wrong_oracle",
+        "verification_only",
+        "wrong_order",
+        "failed_status",
+        "wrong_summary",
+        "duplicate_visit",
+        "boolean_sample"
+      ],
+      "source_root": "/private/tmp/luisa-next-integration.roZbN8/source",
+      "binary": "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+      "baseline_manifest": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/manifest.json",
+      "full_build_gate": {
+        "log": "/private/tmp/luisa-pointwise-native.WEtcvZ/full-build-rope-test-final.log",
+        "external_attestation": true,
+        "limitation": "Caller completed the configured full build before capture; log hash alone does not prove binary/source correspondence."
+      }
+    }
+  },
+  "raw_json_policy": "Original manifest/results bytes preserved with gzip, no path/hash/source rewrites.",
+  "superseded_audit": "pilot-audit.json is retained history. Cite pilot-audit-v2.json and matrix-audit.json for final 11-mutation/identity validation.",
+  "primary_runner_files": [
+    "native_pointwise.py",
+    "native_rows.py",
+    "compare_llm.py",
+    "native_rows_replay.cpp",
+    "audit_native_pointwise.py",
+    "test_native_pointwise.py"
+  ],
+  "unit_support": "validation.tar.gz records all remaining source files required by the combined 29-unit-test receipt.",
+  "helper_scope": "Actual linked native entries, captured ORC objects, emitted LLVM, assembly, Inductor generated source/wrapper/library and the C++ replay helper are archived. No LLVM source is recompiled by this archiver.",
+  "excluded": {
+    "tensor_files": 420,
+    "tensor_bytes": 2007014760,
+    "tensor_payloads": "All f32/f64 inputs, expected values and emitted outputs remain only in the raw local directories. Their exact hashes remain in the unmodified manifests/replay records.",
+    "other": [
+      "whole build binary closure",
+      "full compiler source tree",
+      "Doxygen XML",
+      "external LLVM/Torch/TVM installations"
+    ]
+  },
+  "replayability": {
+    "self_contained": false,
+    "tensor_payloads_persistently_archived": false,
+    "input_regeneration_rules": {
+      "fixture_source": "/private/tmp/luisa-next-integration.roZbN8/source/src/tests/common/tile_llm_test_utils.h",
+      "fixture_source_sha256": "da1e80caf61cad8ea6b57b4d3fbb1553d858d8656433ca3fc8730062170f43af",
+      "fixture_source_archived_in_this_folder": false,
+      "shapes": "input0=(rows,columns). input1/input2=(aux_rows,aux_columns), with aux_rows=1 for RMSNorm/LayerNorm and rows otherwise; aux_columns=columns/2 for RoPE and columns otherwise.",
+      "input0": "For flat index i: std::sin(static_cast<float>(i) * .173f) * 1.7f",
+      "input1": "RoPE: std::cos(static_cast<float>(i) * .013f); otherwise: 1.0f + .2f * std::cos(static_cast<float>(i) * .113f)",
+      "input2": "std::sin(static_cast<float>(i) * .013f)",
+      "oracle": "runners/compare_llm.py::reference consumes the regenerated FP32 arrays after conversion to FP64.",
+      "bit_identity_requirement": "Use the recorded C++ float/libm evaluation and validate every resulting input against case.input_sha256. A mathematically equivalent NumPy/libm expression or different host compiler is not guaranteed bit-identical. Original output snapshots cannot be recovered from input formulas."
+    },
+    "requirements": "The original raw tensor directories and baseline dependency records, compatible Darwin arm64 loader/toolchain and the exact Torch build are still required. The archived folder alone cannot run replay or full tensor audit.",
+    "regeneration": "Captured commands and frozen fixture/oracle/helper source identify how to regenerate inputs, but regenerated bytes must be checked against recorded hashes. A fresh build/capture/replay/audit is a new experiment, never a substitute for this run's discarded or missing output bytes.",
+    "validation": "The final audits actually re-read the original outputs at audit time. This archive rechecks compressed/member byte identity; it does not repeat tensor validation. Runtime/workspace guard arrays were checked during execution and were not retained."
+  },
+  "timing_scope": "Replay contains fixed-candidate native-entry host-wall comparisons under recorded desktop background load. Capture Runtime timings are not comparative. No quiet-machine, default-planner or global performance-parity claim is implied.",
+  "archiver_sha256": "3b8173b7708af3ceaf3d622d3a0165f0c588b51652c4a65b35b7569fccf6bcd0",
+  "verification": {
+    "gzip_raw_json_streams": 4,
+    "tar_members": 1250,
+    "source_files_rechecked": 1263,
+    "byte_identity_passed": true
+  }
+}

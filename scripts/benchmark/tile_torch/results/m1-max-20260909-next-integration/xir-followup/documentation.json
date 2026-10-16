@@ -1,0 +1,86 @@
+{
+  "started_unix": 1788933612.775052,
+  "code_commit": "bc7b1df1f4e8785d50736169a2a7bde3023b231e",
+  "runs": [
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "log": "doxygen.log",
+      "started_unix": 1788933612.775326,
+      "exit_code": 0,
+      "finished_unix": 1788933630.40355,
+      "log_sha256": "3fa8e02bef18774759ea57bf724d72def7fac7e2d38ce206ba87072834364abd"
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/docs-html"
+      ],
+      "log": "sphinx.log",
+      "started_unix": 1788933630.406398,
+      "exit_code": 0,
+      "finished_unix": 1788933685.7782478,
+      "log_sha256": "8a895584a129de5071337562398b9bae07cce013ff73163b91e6579f58b79cea"
+    },
+    {
+      "name": "docs-links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "python",
+        "scripts/check_docs.py",
+        "/private/tmp/luisa-next-xir-checkpoint.pgfKld/docs-html"
+      ],
+      "log": "docs-links.log",
+      "started_unix": 1788933685.77868,
+      "exit_code": 0,
+      "finished_unix": 1788933686.272932,
+      "log_sha256": "020da11bd2d95a12e68c9367f341062fc90c458534613637fde1eac1874bdf9e"
+    }
+  ],
+  "source_sha256": {
+    "docs/Doxyfile": "48ab0698d3a41305fc7255a9f8543f585f4372bc78c04dec05c7cf16e1ad5ede",
+    "docs/conf.py": "b64bf476e090f9c51b92f16cccba82ed9e80a72627d5ae9fb29642dd817d6d1e",
+    "docs/source/performance/validation.md": "fe24e77e5e1a0621d7dbca7a8824475c04c53ff9956783a253d42c36c05aa91d",
+    "docs/source/performance/tile/validation.md": "7599259cbc373079249276a2067fff8c7a3af20b561b4631cb49293322716f85",
+    "scripts/benchmark/tile_torch/results/m1-max-20260909-next-integration/xir-followup/notes.md": "1f8b4816ea36aedbbc31df1c3302250a9615385245e852932bbd06a987b51aa3"
+  },
+  "source_unchanged": true,
+  "passed": true,
+  "finished_unix": 1788933686.2740989
+}

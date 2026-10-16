@@ -34,10 +34,6 @@ example_proj("example_procedural", "rendering/procedural.cpp", true)
 example_proj("example_shader_toy", "rendering/shader_toy.cpp", true)
 example_proj("example_shader_toy_spacex", "rendering/shader_toy_spacex.cpp", true)
 example_proj("example_shader_visuals_present", "rendering/shader_visuals_present.cpp", true)
-if has_config("lc_enable_ir") then
-    example_proj("example_path_tracing_ir", "rendering/path_tracing_ir.cpp", true)
-    example_proj("example_sdf_renderer_ir", "rendering/sdf_renderer_ir.cpp", true)
-end
 if has_config("lc_enable_xir") then
     example_proj("example_path_tracing_xir2ast", "rendering/path_tracing_xir2ast.cpp", true)
     example_proj("example_sdf_renderer_xir2ast", "rendering/sdf_renderer_xir2ast.cpp", true)
@@ -59,12 +55,88 @@ end
 example_proj("example_swapchain", "gui/swapchain.cpp", true)
 example_proj("example_swapchain_static", "gui/swapchain_static.cpp", true)
 example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
+example_proj("example_image_process", "gui/image_process/main.cpp", true, function()
+    add_files("gui/image_process/image_process.cpp", "gui/image_process/headless_test.cpp")
+    if is_plat("windows") then
+        add_syslinks("comdlg32")
+    end
+end)
+-- procedural texture catalog: one .h/.cpp pair per noise algorithm, shared
+-- ImGui driver (main.cpp) + headless self test. Headless is the default so a
+-- tool can verify it: `xmake run example_procedural_tex dx --output-dir out`;
+-- `--gui` opens one window per algorithm (needs lc_enable_gui).
+example_proj("example_procedural_tex", "gui/procedural_tex/main.cpp", false, function()
+    add_files("gui/procedural_tex/noise_*.cpp")
+    if has_config("lc_enable_gui") then add_defines("LUISA_ENABLE_GUI") end
+end)
 
-    -- compute
-    example_proj("example_helloworld", "compute/helloworld.cpp", false)
+      -- compute
+      example_proj("example_helloworld", "compute/helloworld.cpp", false)
+      -- tensor: new Tile DSL port of backup_old_tile/examples/tensor (kernel
+      -- suite + training demos). Headless; needs lc-tile for tile::compile.
+      example_proj("example_tensor", "tensor/main.cpp", false, function()
+          add_deps("lc-tile")
+          add_files("tensor/tensor_kernels.cpp", "tensor/kernel_*.cpp",
+                    "tensor/poly_fit.cpp", "tensor/poly_fit_kernels.cpp",
+                    "tensor/linear_regression.cpp", "tensor/linear_regression_kernels.cpp",
+                    "tensor/mlp.cpp", "tensor/mnist.cpp",
+                    "tensor/cnn_inference.cpp", "tensor/cnn_kernels.cpp",
+                    "tensor/rnn.cpp", "tensor/tensor_basics.cpp")
+      end)
     example_proj("example_cluster_launch_control", "compute/cluster_launch_control.cpp", false)
     example_proj("example_async_copy_prefetch", "compute/async_copy_prefetch.cpp", false)
+    -- software two-level LBVH (Blas/Tlas) built and traversed by hand in kernels,
+    -- cross-checked against the Luisa RTX acceleration structures.
+    -- The LBVH itself lives in compute/lbvh/ (common layout, shared storage and
+    -- build stages, blas, tlas, facade); the target builds them together.
+    example_proj("example_software_lbvh", "compute/software_lbvh.cpp", false, function()
+        add_files("compute/lbvh/*.cpp")
+    end)
+    -- Performance benchmark of the software LBVH: adversarial (worst-case) scenes and
+    -- build/traversal stress sweeps.  Debug mode checks correctness under ASan, release
+    -- mode produces the numbers; run with `xmake run example_software_lbvh_bench cuda`.
+example_proj("example_software_lbvh_bench", "compute/lbvh/bench/benchmark_lbvh.cpp", false, function()
+    add_files("compute/lbvh/*.cpp", "compute/lbvh/bench/bench_harness.cpp",
+              "compute/lbvh/bench/bench_scenes.cpp", "compute/lbvh/bench/bench_stats.cpp")
+end)
+-- A/B harness of the LBVH radix sort: the sort is the dominant build stage, so
+-- this target measures the sort implementations against each other and checks
+-- them bit-exactly against a host reference.  It is not part of the benchmark
+-- catalogue (which drives the library sort through the CLI instead).
+example_proj("example_software_lbvh_sort_bench", "compute/lbvh/bench/sort_bench.cpp", false, function()
+    add_files("compute/lbvh/*.cpp", "compute/lbvh/bench/bench_harness.cpp",
+              "compute/lbvh/bench/bench_scenes.cpp", "compute/lbvh/bench/bench_stats.cpp")
+end)
+-- Extra correctness tests of the software LBVH.  The demo (software_lbvh.cpp)
+-- validates one hand-picked scene against the hardware RTX reference; this test
+-- target adds the cases that are not worth a demo: host references for the build
+-- stages, degenerate and randomized scenes, and small sizes that exercise the
+-- boundaries of the build dispatches.  Exits non-zero on the first failure.
+example_proj("example_software_lbvh_test", "compute/lbvh/test/lbvh_test.cpp", false, function()
+    add_files("compute/lbvh/*.cpp")
+end)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
+    -- Native shader injection driven by a dispatch document (JSON): the example
+    -- compiles one or more native sources (HLSL/GLSL/CUDA C++), creates the
+    -- resources the document declares, loads their inputs (through the
+    -- dstorage extension when the backend has one) and replays the document's
+    -- workflow - every command being separately serializable - then verifies the
+    -- results on the host. `mode.interactive` additionally drives an ImGui
+    -- window through an HDR->display DSL kernel.
+    example_proj("example_native_shader", "compute/native_shader.cpp", false, function()
+        add_files("compute/native_shader_dispatch.cpp", "compute/native_shader_runtime.cpp")
+        -- yyjson: lc-runtime only re-exports the include dir when lc_enable_xir is
+        -- on, so depend on it explicitly (mirrors src/runtime/xmake.lua).
+        if has_config("lc_yyjson_use_xrepo") then
+            add_packages("yyjson")
+        else
+            add_deps("lc-yyjson")
+        end
+        -- GUI is optional at runtime: example_proj already adds lc-gui when
+        -- lc_enable_gui is on; the define only tells the example that
+        -- <luisa/gui/imgui_window.h> is available.
+        if has_config("lc_enable_gui") then add_defines("LUISA_ENABLE_GUI") end
+    end)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)
             example_proj(name, source, gui_dep, function()
@@ -73,20 +145,30 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
             end)
         end
         coro_example_proj("example_coro_sdf_renderer", "rendering/coro_sdf_renderer.cpp", false)
+        coro_example_proj("example_coro_external_stage_debug", "coro/external_stage_debug.cpp", false)
+        coro_example_proj("example_coro_external_stage_neural_sdf", "coro/external_stage_neural_sdf.cpp", false)
+        coro_example_proj("example_coro_on_demand_texture", "coro/on_demand_texture.cpp", false)
         coro_example_proj("example_coro_path_tracing", "rendering/coro_path_tracing.cpp", false)
         coro_example_proj("example_coro_path_tracing_wavefront", "rendering/coro_path_tracing.cpp", false, function()
             add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")
         end)
     end
     example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false, function()
-        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp")
+        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp", "ml/paged_attention.cpp")
     end)
     includes("compute/tokenize")
+    includes("compute/compact")
 
 -- extension
+-- The direct-storage demo is backend agnostic: it runs on dx (real
+-- DirectStorage), vk (host-staged fallback), cuda (mapped files) and metal
+-- (MTLIO), and skips itself when DStorageExt is unavailable.
+if has_config("lc_dx_backend") or has_config("lc_vk_backend") or
+    has_config("lc_cuda_backend") or has_config("lc_metal_backend") then
+    example_proj("example_dstorage", "extension/dstorage.cpp", false)
+end
 if has_config("lc_dx_backend") then
     example_proj("example_dml", "extension/dml.cpp", false)
-    example_proj("example_dstorage", "extension/dstorage.cpp", false)
     -- example_proj("example_dx_supersampling", "extension/dx_supersampling.cpp", true)
     example_proj("example_supersampling", "extension/supersampling.cpp", true)
 end
@@ -108,6 +190,9 @@ end
 if has_config("lc_dx_cuda_interop") then
     example_proj("example_cuda_dx_interop", "interop/cuda_dx_interop.cpp", false)
 end
-if has_config("lc_vk_cuda_interop") then
-    example_proj("example_cuda_vk_interop", "interop/cuda_vk_interop.cpp", false)
-end
+  if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+      example_proj("example_cuda_vk_interop", "interop/cuda_vk_interop.cpp", false)
+  end
+  if has_config("lc_vk_cuda_interop") and has_config("lc_cuda_backend") then
+      example_proj("example_cuda_vk_kernel_launch", "interop/cuda_vk_kernel_launch.cpp", false)
+  end

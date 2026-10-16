@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "analysis": "analyze_collective_work",
+  "source": "actual_captured_function",
+  "facts_kind": "logical_ir_only",
+  "analysis_outside_benchmark_timing": true,
+  "analysis_wall_ms": 0.0308,
+  "ok": true,
+  "facts_complete": true,
+  "status": "complete",
+  "error": null,
+  "facts": {
+    "programs": 1024,
+    "elementwise_elements_per_program": 4608,
+    "global_read_bytes_per_program": 1024,
+    "global_write_bytes_per_program": 1024,
+    "materialized_tile_total_bytes": 18952,
+    "materialized_tile_peak_bytes": 6656,
+    "largest_materialized_tile_elements": 512,
+    "collectives": [
+      {
+        "operation_id": 13,
+        "kind": "maximum",
+        "kind_enum": 2,
+        "element": "float32",
+        "element_enum": 14,
+        "contribution_extent": 512,
+        "independent_elements": 1,
+        "input_elements": 512
+      },
+      {
+        "operation_id": 31,
+        "kind": "sum",
+        "kind_enum": 0,
+        "element": "float32",
+        "element_enum": 14,
+        "contribution_extent": 512,
+        "independent_elements": 1,
+        "input_elements": 512
+      }
+    ]
+  }
+}

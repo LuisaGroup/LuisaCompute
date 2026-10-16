@@ -1,0 +1,5 @@
+entry,module,function,attribute,value,known,cuda_status
+workload_rows_kernel,00000196EDF95FF0,00000196EDE68350,registers,39,1,0
+workload_rows_kernel,00000196EDF95FF0,00000196EDE68350,static_shared_bytes,16,1,0
+workload_rows_kernel,00000196EDF95FF0,00000196EDE68350,local_bytes,0,1,0
+workload_rows_kernel,00000196EDF95FF0,00000196EDE68350,max_threads,128,1,0

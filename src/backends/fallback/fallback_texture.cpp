@@ -6,8 +6,6 @@
 #include <luisa/core/logging.h>
 #include "fallback_texture.h"
 
-#include "luisa/rust/api_types.hpp"
-
 namespace luisa::compute::fallback {
 
 namespace detail {

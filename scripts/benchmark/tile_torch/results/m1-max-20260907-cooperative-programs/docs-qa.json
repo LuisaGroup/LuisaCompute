@@ -1,0 +1,409 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "closest-precedents",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/closest-precedents-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          9,
+          3
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "cypress-the-closest-execution-resource-separation",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/cypress-the-closest-execution-resource-separation-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "twill-the-nearest-joint-cost-solver-comparison",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/twill-the-nearest-joint-cost-solver-comparison-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "tawa-compiler-internal-channels-with-operational-semantics",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/tawa-compiler-internal-channels-with-operational-semantics-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "tirx-a-compatible-lower-boundary-not-our-automatic-planner",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/tirx-a-compatible-lower-boundary-not-our-automatic-planner-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "event-tensor-a-direct-precedent-for-fine-grained-sibling-execution",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/event-tensor-a-direct-precedent-for-fine-grained-sibling-execution-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "more-rigorous-not-unnecessarily-rigid",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/more-rigorous-not-unnecessarily-rigid-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          8,
+          3
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "design-consequences-and-concrete-comparison-cases",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/design-consequences-and-concrete-comparison-cases-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          9,
+          3
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "a-falsifiable-contribution-not-a-novelty-slogan",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/a-falsifiable-contribution-not-a-novelty-slogan-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          7,
+          2
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/calculus.html",
+      "id": "scope-of-the-claims",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/scope-of-the-claims-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          5,
+          2
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/calculus.html",
+      "id": "typed-mapping-witness",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/typed-mapping-witness-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          6,
+          2
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/calculus.html",
+      "id": "multiple-scopes-and-fusion",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/multiple-scopes-and-fusion-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/planner.html",
+      "id": "formal-finite-optimization-problem",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/formal-finite-optimization-problem-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/matrix.html",
+      "id": "automatic-composed-programs",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/automatic-composed-programs-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/performance/tile/results.html",
+      "id": "automatic-cooperation-removes-the-attention-worker-fallback",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/automatic-cooperation-removes-the-attention-worker-fallback-1280.png",
+      "pageWidth": 1280,
+      "counts": [
+        [
+          3,
+          7
+        ]
+      ]
+    },
+    {
+      "route": "source/performance/tile/index.html",
+      "id": "validation-and-next-milestone",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/validation-and-next-milestone-1280.png",
+      "pageWidth": 1280,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "closest-precedents",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/closest-precedents-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          9,
+          3
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "closest-precedents",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/closest-precedents-390-table-0-right.png",
+      "right": {
+        "offset": 0,
+        "lastRight": 363.625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "cypress-the-closest-execution-resource-separation",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/cypress-the-closest-execution-resource-separation-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "twill-the-nearest-joint-cost-solver-comparison",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/twill-the-nearest-joint-cost-solver-comparison-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "tawa-compiler-internal-channels-with-operational-semantics",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/tawa-compiler-internal-channels-with-operational-semantics-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "tirx-a-compatible-lower-boundary-not-our-automatic-planner",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/tirx-a-compatible-lower-boundary-not-our-automatic-planner-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "event-tensor-a-direct-precedent-for-fine-grained-sibling-execution",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/event-tensor-a-direct-precedent-for-fine-grained-sibling-execution-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "more-rigorous-not-unnecessarily-rigid",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/more-rigorous-not-unnecessarily-rigid-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          8,
+          3
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "more-rigorous-not-unnecessarily-rigid",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/more-rigorous-not-unnecessarily-rigid-390-table-0-right.png",
+      "right": {
+        "offset": 0,
+        "lastRight": 363.625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "design-consequences-and-concrete-comparison-cases",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/design-consequences-and-concrete-comparison-cases-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          9,
+          3
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "design-consequences-and-concrete-comparison-cases",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/design-consequences-and-concrete-comparison-cases-390-table-0-right.png",
+      "right": {
+        "offset": 0,
+        "lastRight": 363.625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "a-falsifiable-contribution-not-a-novelty-slogan",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/a-falsifiable-contribution-not-a-novelty-slogan-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          7,
+          2
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/related-work.html",
+      "id": "a-falsifiable-contribution-not-a-novelty-slogan",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/a-falsifiable-contribution-not-a-novelty-slogan-390-table-0-right.png",
+      "right": {
+        "offset": 0,
+        "lastRight": 363.625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "route": "source/internals/tile/calculus.html",
+      "id": "scope-of-the-claims",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/scope-of-the-claims-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          5,
+          2
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/calculus.html",
+      "id": "scope-of-the-claims",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/scope-of-the-claims-390-table-0-right.png",
+      "right": {
+        "offset": 0,
+        "lastRight": 363.625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "route": "source/internals/tile/calculus.html",
+      "id": "typed-mapping-witness",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/typed-mapping-witness-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          6,
+          2
+        ]
+      ]
+    },
+    {
+      "route": "source/internals/tile/calculus.html",
+      "id": "typed-mapping-witness",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/typed-mapping-witness-390-table-0-right.png",
+      "right": {
+        "offset": 0,
+        "lastRight": 363.625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "route": "source/internals/tile/calculus.html",
+      "id": "multiple-scopes-and-fusion",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/multiple-scopes-and-fusion-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/planner.html",
+      "id": "formal-finite-optimization-problem",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/formal-finite-optimization-problem-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "route": "source/internals/tile/matrix.html",
+      "id": "automatic-composed-programs",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/automatic-composed-programs-390.png",
+      "pageWidth": 390,
+      "counts": []
+    },
+    {
+      "route": "source/performance/tile/results.html",
+      "id": "automatic-cooperation-removes-the-attention-worker-fallback",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/automatic-cooperation-removes-the-attention-worker-fallback-390.png",
+      "pageWidth": 390,
+      "counts": [
+        [
+          3,
+          7
+        ]
+      ]
+    },
+    {
+      "route": "source/performance/tile/results.html",
+      "id": "automatic-cooperation-removes-the-attention-worker-fallback",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/automatic-cooperation-removes-the-attention-worker-fallback-390-table-0-right.png",
+      "right": {
+        "offset": 251,
+        "lastRight": 362.984375,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "route": "source/performance/tile/index.html",
+      "id": "validation-and-next-milestone",
+      "width": 390,
+      "screenshot": "/tmp/luisa-related-work-docs.FycKuv/screenshots/validation-and-next-milestone-390.png",
+      "pageWidth": 390,
+      "counts": []
+    }
+  ]
+}

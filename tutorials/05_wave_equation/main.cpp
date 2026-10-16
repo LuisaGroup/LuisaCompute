@@ -32,7 +32,7 @@ using namespace luisa::compute;
 
 namespace {
 
-[[nodiscard]] auto has_flag(int argc, char *argv[], std::string_view flag) noexcept {
+[[nodiscard]] auto has_flag(int argc, char *argv[], luisa::string_view flag) noexcept {
     for (auto i = 2; i < argc; i++) {
         if (flag == argv[i]) {
             return true;
@@ -59,8 +59,8 @@ struct HeightFieldTriple {
           next{device.create_image<float>(PixelStorage::FLOAT1, resolution)} {}
 
     void advance() noexcept {
-        std::swap(prev, curr);
-        std::swap(curr, next);
+        luisa::swap(prev, curr);
+        luisa::swap(curr, next);
     }
 };
 
@@ -70,10 +70,10 @@ int main(int argc, char *argv[]) {
 
     log_level_verbose();
 
-    auto offline = has_flag(argc, argv, "--offline") || (argc > 1 && std::string_view{argv[1]} == "--offline");
+    auto offline = has_flag(argc, argv, "--offline") || (argc > 1 && luisa::string_view{argv[1]} == "--offline");
     luisa::string backend;
     for (int i = 1; i < argc; i++) {
-        if (std::string_view{argv[i]} != "--offline" && backend.empty()) {
+        if (luisa::string_view{argv[i]} != "--offline" && backend.empty()) {
             backend = argv[i];
         }
     }
@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         static constexpr luisa::string_view preferred_backends[] = {
-            "cuda", "dx", "metal", "vk", "fallback", "cpu", "remote"};
+            "cuda", "dx", "metal", "vk", "hip", "fallback"};
         for (auto preferred : preferred_backends) {
             for (auto const &candidate : backends) {
                 if (candidate == preferred && !context.backend_device_names(candidate).empty()) {

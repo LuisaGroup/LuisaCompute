@@ -23,7 +23,10 @@ endfunction()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     # rendering
-    luisa_compute_add_example(example_path_tracing rendering/path_tracing.cpp MIRROR_AS_TEST)
+    luisa_compute_add_example(example_path_tracing
+            rendering/path_tracing.cpp
+            rendering/path_tracing_test.h
+            MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_camera rendering/path_tracing_camera.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_cutout rendering/path_tracing_cutout.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_hdr rendering/path_tracing_hdr.cpp MIRROR_AS_TEST)
@@ -50,14 +53,36 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_example(example_blackhole rendering/blackhole.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_voxel_raytracer rendering/voxel_raytracer.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_procedural rendering/procedural.cpp MIRROR_AS_TEST)
-    luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_toy_spacex rendering/shader_toy_spacex.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_visuals_present rendering/shader_visuals_present.cpp MIRROR_AS_TEST)
 
-    if (LUISA_COMPUTE_ENABLE_RUST)
-        luisa_compute_add_example(example_path_tracing_ir rendering/path_tracing_ir.cpp MIRROR_AS_TEST)
-        luisa_compute_add_example(example_sdf_renderer_ir rendering/sdf_renderer_ir.cpp MIRROR_AS_TEST)
+    # Finite, headless rendering coverage for the AIR-only Metal4 backend.
+    if (TARGET luisa-compute-backend-metal4)
+        function(luisa_metal4_add_render_test target)
+            add_test(NAME metal4_air_render_${target}
+                    COMMAND $<TARGET_FILE:${target}> metal4 --offline ${ARGN})
+            set_tests_properties(metal4_air_render_${target} PROPERTIES
+                    LABELS "integration;integration_metal4;rendering"
+                    TIMEOUT 300)
+        endfunction()
+
+        luisa_metal4_add_render_test(test_path_tracing --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_camera --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_cutout --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_hdr --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_nested_callable --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_ray_masks --spp 1)
+        luisa_metal4_add_render_test(test_path_tracing_spectrum --spp 1)
+        luisa_metal4_add_render_test(test_photon_mapping --spp 1)
+        luisa_metal4_add_render_test(test_sdf_renderer --spp 1)
+        luisa_metal4_add_render_test(test_blackhole)
+        luisa_metal4_add_render_test(test_voxel_raytracer)
+        luisa_metal4_add_render_test(test_procedural --spp 1)
+        luisa_metal4_add_render_test(test_shader_toy)
+        luisa_metal4_add_render_test(test_shader_toy_spacex)
+        luisa_metal4_add_render_test(test_shader_visuals_present)
     endif ()
+
     if (TARGET luisa-compute-xir)
         luisa_compute_add_example(example_path_tracing_xir2ast rendering/path_tracing_xir2ast.cpp MIRROR_AS_TEST)
         luisa_compute_add_example(example_sdf_renderer_xir2ast rendering/sdf_renderer_xir2ast.cpp MIRROR_AS_TEST)
@@ -65,7 +90,6 @@ if (LUISA_COMPUTE_ENABLE_GUI)
 
     # simulation
     luisa_compute_add_example(example_fire_simulation simulation/fire_simulation.cpp MIRROR_AS_TEST)
-    luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_mpm3d simulation/mpm3d.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_mpm88 simulation/mpm88.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_nbody_simulation simulation/nbody_simulation.cpp MIRROR_AS_TEST)
@@ -85,26 +109,200 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     if (WIN32 AND LUISA_COMPUTE_ENABLE_DX)
         luisa_compute_add_example(example_win_hdr gui/win_hdr.cpp)
     endif ()
+    # interactive image processing window (load/process/save, headless self test)
+    luisa_compute_add_example(example_image_process
+            gui/image_process/main.cpp
+            gui/image_process/image_process.cpp
+            gui/image_process/headless_test.cpp)
+    if (WIN32)
+        # native open/save file dialogs
+        target_link_libraries(example_image_process PRIVATE comdlg32)
+    endif ()
 
-    # compute (GUI-dependent)
-    luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
 endif ()
 
 # compute (headless)
+# procedural texture catalog: one .h/.cpp pair per noise algorithm, shared
+# ImGui driver (main.cpp) + headless self test (default mode); --gui opens
+# the interactive windows when the GUI module is enabled
+luisa_compute_add_example(example_procedural_tex
+        gui/procedural_tex/main.cpp
+        gui/procedural_tex/noise_all.cpp
+        gui/procedural_tex/noise_white.cpp
+        gui/procedural_tex/noise_gaussian.cpp
+        gui/procedural_tex/noise_value.cpp
+        gui/procedural_tex/noise_perlin.cpp
+        gui/procedural_tex/noise_simplex.cpp
+        gui/procedural_tex/noise_worley_f1.cpp
+        gui/procedural_tex/noise_worley_f2_minus_f1.cpp
+        gui/procedural_tex/noise_plasma.cpp
+        gui/procedural_tex/noise_fbm.cpp
+        gui/procedural_tex/noise_turbulence.cpp
+        gui/procedural_tex/noise_ridged.cpp
+        gui/procedural_tex/noise_pingpong.cpp
+        gui/procedural_tex/noise_hetero_terrain.cpp
+        gui/procedural_tex/noise_fractal_worley.cpp
+        gui/procedural_tex/noise_domain_warp.cpp
+        gui/procedural_tex/noise_perlin_worley.cpp)
+if (LUISA_COMPUTE_ENABLE_GUI)
+    target_compile_definitions(example_procedural_tex PRIVATE LUISA_ENABLE_GUI)
+endif ()
 luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_coro_sdf_renderer rendering/coro_sdf_renderer.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_gdeflate compute/compact/main.cpp compute/compact/gdeflate.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_native_shader
+        compute/native_shader.cpp
+        compute/native_shader_dispatch.cpp
+        compute/native_shader_runtime.cpp)
+luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_cluster_launch_control compute/cluster_launch_control.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetch.cpp MIRROR_AS_TEST)
+# software two-level LBVH (Blas/Tlas), built and traversed by hand in kernels and
+# cross-checked against the Luisa RTX acceleration structures. Headless and
+# deterministic, and it validates its own BVH and sampled hits, so it also builds
+# as the mirrored test_software_lbvh target (needs an RTX-capable backend).
+# The LBVH itself lives in compute/lbvh/ (common layout, shared storage + build
+# stages, blas, tlas, facade); the target builds them together.
+luisa_compute_add_example(example_software_lbvh
+        compute/software_lbvh.cpp
+        compute/lbvh/lbvh_storage.cpp
+        compute/lbvh/lbvh_sort.cpp
+        compute/lbvh/blas.cpp
+        compute/lbvh/tlas.cpp
+        compute/lbvh/software_lbvh.cpp
+        MIRROR_AS_TEST)
+# Performance benchmark of the software LBVH: adversarial (worst-case) scenes and
+# build/traversal stress sweeps with a device-memory budget.  Not mirrored as a
+# test: it reports numbers instead of asserting, and the release build is the one
+# whose numbers are meaningful.
+luisa_compute_add_example(example_software_lbvh_bench
+    compute/lbvh/bench/benchmark_lbvh.cpp
+    compute/lbvh/bench/bench_scenes.cpp
+    compute/lbvh/bench/bench_harness.cpp
+    compute/lbvh/bench/bench_stats.cpp
+    compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/lbvh_sort.cpp
+    compute/lbvh/blas.cpp
+    compute/lbvh/tlas.cpp
+    compute/lbvh/software_lbvh.cpp)
+# A/B harness of the LBVH radix sort (the dominant build stage): measures the
+# sort implementations against each other and checks them bit-exactly against a
+# host reference.  Not mirrored as a test: it reports numbers.
+luisa_compute_add_example(example_software_lbvh_sort_bench
+    compute/lbvh/bench/sort_bench.cpp
+    compute/lbvh/bench/bench_scenes.cpp
+    compute/lbvh/bench/bench_harness.cpp
+    compute/lbvh/bench/bench_stats.cpp
+    compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/lbvh_sort.cpp
+    compute/lbvh/blas.cpp
+    compute/lbvh/tlas.cpp
+    compute/lbvh/software_lbvh.cpp)
+# Extra correctness tests of the software LBVH: host references for the build
+# stages, degenerate/randomized scenes and the boundary sizes of the build
+# dispatches, next to the demo's RTX cross-check.  Mirrored as a test target
+# (needs an RTX-capable backend).
+luisa_compute_add_example(example_software_lbvh_test
+    compute/lbvh/test/lbvh_test.cpp
+    compute/lbvh/lbvh_storage.cpp
+    compute/lbvh/lbvh_sort.cpp
+    compute/lbvh/blas.cpp
+    compute/lbvh/tlas.cpp
+    compute/lbvh/software_lbvh.cpp
+    MIRROR_AS_TEST)
+# n-gram tokenizer/retrieval/training example (headless, has its own --test mode)
+add_subdirectory(compute/tokenize)
 luisa_compute_add_example(example_multi_head_attention
         ml/multi_head_attention.cpp
         ml/attention_kernels.cpp
         ml/attention_host_data.cpp
         ml/attention_cpu_reference.cpp
         ml/attention_runner.cpp
-        MIRROR_AS_TEST)
+          ml/paged_attention.cpp
+          MIRROR_AS_TEST)
 
-# coroutine (headless)
+ # tensor: new Tile DSL port of backup_old_tile/examples/tensor (kernel suite
+ # + training demos). Headless; links luisa-compute-tile for tile::compile.
+ luisa_compute_add_example(example_tensor
+         tensor/main.cpp
+         tensor/tensor_kernels.cpp
+         tensor/kernel_elementwise_add.cpp
+         tensor/kernel_pipelined_matmul.cpp
+         tensor/kernel_rms_norm.cpp
+         tensor/kernel_tile_fill.cpp
+         tensor/kernel_tile_transpose.cpp
+         tensor/kernel_tile_clamp.cpp
+         tensor/kernel_tile_reduce.cpp
+         tensor/kernel_tile_scan.cpp
+         tensor/kernel_tile_min_abs.cpp
+         tensor/kernel_tile_sync.cpp
+         tensor/kernel_tile_warp_reduce.cpp
+         tensor/kernel_softmax.cpp
+         tensor/kernel_exp.cpp
+         tensor/kernel_log.cpp
+         tensor/kernel_sqrt.cpp
+         tensor/kernel_tanh.cpp
+         tensor/kernel_sigmoid.cpp
+         tensor/kernel_relu.cpp
+         tensor/kernel_leaky_relu.cpp
+         tensor/kernel_gelu.cpp
+         tensor/kernel_identity.cpp
+         tensor/kernel_reciprocal.cpp
+         tensor/kernel_neg.cpp
+         tensor/kernel_cast.cpp
+         tensor/kernel_pow.cpp
+         tensor/kernel_dtypes.cpp
+         tensor/poly_fit.cpp
+         tensor/poly_fit_kernels.cpp
+         tensor/linear_regression.cpp
+         tensor/linear_regression_kernels.cpp
+         tensor/mlp.cpp
+         tensor/mnist.cpp
+         tensor/cnn_inference.cpp
+         tensor/cnn_kernels.cpp
+         tensor/rnn.cpp
+         tensor/tensor_basics.cpp)
+ if (TARGET luisa-compute-tile)
+  target_link_libraries(example_tensor PRIVATE luisa-compute-tile luisa-compute-runtime luisa-compute-dsl luisa-compute-vstl)
+ endif ()
+
+ # coroutine (headless)
+luisa_compute_add_example(example_coro_external_stage_debug
+        coro/external_stage_debug.cpp)
+luisa_compute_add_example(example_coro_external_stage_neural_sdf
+        coro/external_stage_neural_sdf.cpp)
+luisa_compute_add_example(example_coro_on_demand_texture
+        coro/on_demand_texture.cpp)
+if (LUISA_COMPUTE_BUILD_TESTS AND TARGET luisa-compute-backend-metal)
+    add_test(NAME metal_example_coro_external_stage_debug
+            COMMAND $<TARGET_FILE:example_coro_external_stage_debug> metal)
+    set_tests_properties(metal_example_coro_external_stage_debug PROPERTIES
+            LABELS "integration_metal;coro_external_stage"
+            TIMEOUT 120
+            WORKING_DIRECTORY
+            $<TARGET_FILE_DIR:example_coro_external_stage_debug>)
+    add_test(NAME metal_example_coro_external_stage_neural_sdf
+            COMMAND $<TARGET_FILE:example_coro_external_stage_neural_sdf>
+            metal --test)
+    set_tests_properties(
+            metal_example_coro_external_stage_neural_sdf PROPERTIES
+            LABELS "integration_metal;coro_external_stage;graphics_metal"
+            TIMEOUT 180
+            WORKING_DIRECTORY
+            $<TARGET_FILE_DIR:example_coro_external_stage_neural_sdf>)
+    add_test(NAME metal_example_coro_on_demand_texture
+            COMMAND $<TARGET_FILE:example_coro_on_demand_texture>
+            metal --test)
+    set_tests_properties(
+            metal_example_coro_on_demand_texture PROPERTIES
+            LABELS "integration_metal;coro_external_stage;graphics_metal"
+            TIMEOUT 120
+            WORKING_DIRECTORY
+            $<TARGET_FILE_DIR:example_coro_on_demand_texture>)
+endif ()
 luisa_compute_add_example(example_coro_path_tracing rendering/coro_path_tracing.cpp)
 luisa_compute_add_example(example_coro_path_tracing_wavefront rendering/coro_path_tracing.cpp)
 target_compile_definitions(example_coro_path_tracing_wavefront
@@ -121,9 +319,15 @@ if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
     luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver)
 endif ()
 
+# The direct-storage demo is backend agnostic: it runs on dx (real
+# DirectStorage), vk (host-staged fallback), cuda (mapped files) and metal
+# (MTLIO), and skips itself when DStorageExt is unavailable.
+if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN
+        OR LUISA_COMPUTE_ENABLE_CUDA OR LUISA_COMPUTE_ENABLE_METAL)
+    luisa_compute_add_example(example_dstorage extension/dstorage.cpp)
+endif ()
 if (LUISA_COMPUTE_ENABLE_DX)
     luisa_compute_add_example(example_dml extension/dml.cpp)
-    luisa_compute_add_example(example_dstorage extension/dstorage.cpp)
     luisa_compute_add_example(example_dx_supersampling extension/dx_supersampling.cpp)
     luisa_compute_add_example(example_fsr3 extension/fsr3.cpp)
     luisa_compute_add_example(example_supersampling extension/supersampling.cpp)
@@ -143,8 +347,13 @@ if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_DX)
     luisa_compute_add_example(example_cuda_dx_interop interop/cuda_dx_interop.cpp)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_VULKAN)
+if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA)
     luisa_compute_add_example(example_cuda_vk_interop interop/cuda_vk_interop.cpp)
+endif ()
+if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA)
+    # Kernels are compiled from the DSL on a paired cuda device and imported
+    # into the VK extension, so the cuda backend is required.
+    luisa_compute_add_example(example_cuda_vk_kernel_launch interop/cuda_vk_kernel_launch.cpp)
 endif ()
 
 # =============================================================================
@@ -216,4 +425,45 @@ if (LUISA_COMPUTE_ENABLE_GUI AND LUISA_COMPUTE_EXAMPLE_QT_INTEROP)
             luisa_example_pair_link(example_swapchain_qt PRIVATE Qt::Widgets Qt::Core Qt::Gui Qt::GuiPrivate)
         endif ()
     endif ()
+endif ()
+
+if (TARGET luisa-compute-backend-simd)
+    add_dependencies(example_helloworld luisa-compute-backend-simd)
+    add_test(NAME simd_example_helloworld
+            COMMAND $<TARGET_FILE:example_helloworld> simd)
+    set_tests_properties(simd_example_helloworld PROPERTIES
+            LABELS "integration_simd"
+            TIMEOUT 30
+            WORKING_DIRECTORY $<TARGET_FILE_DIR:example_helloworld>)
+
+    foreach (_simd_graphics_example IN ITEMS
+            image_processing
+            shader_toy
+            game_of_life
+            fire_simulation)
+        set(_simd_graphics_target
+                example_${_simd_graphics_example})
+        if (TARGET ${_simd_graphics_target})
+            add_dependencies(${_simd_graphics_target}
+                    luisa-compute-backend-simd)
+            add_test(NAME simd_graphics_${_simd_graphics_example}
+                    COMMAND $<TARGET_FILE:${_simd_graphics_target}>
+                    simd --offline -c
+                    ${CMAKE_SOURCE_DIR}/docs/gallery/test_${_simd_graphics_example}.png)
+            set_tests_properties(
+                    simd_graphics_${_simd_graphics_example} PROPERTIES
+                    LABELS "integration_simd;graphics_simd"
+                    TIMEOUT 120
+                    WORKING_DIRECTORY
+                    $<TARGET_FILE_DIR:${_simd_graphics_target}>)
+        endif ()
+    endforeach ()
+endif ()
+
+if (LUISA_COMPUTE_BUILD_TESTS AND TARGET luisa-compute-backend-metal4)
+    add_test(NAME metal4_example_coro_on_demand_texture
+            COMMAND $<TARGET_FILE:example_coro_on_demand_texture> metal4 --test)
+    set_tests_properties(metal4_example_coro_on_demand_texture PROPERTIES
+            LABELS "integration;integration_metal4;integration_coro"
+            WORKING_DIRECTORY $<TARGET_FILE_DIR:example_coro_on_demand_texture>)
 endif ()

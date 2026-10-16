@@ -1,17 +1,18 @@
 #include <luisa/vstl/log.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/string.h>
 
-void vengine_log(std::string_view const &chunk) {
+void vengine_log(luisa::string_view const &chunk) {
     LUISA_ERROR("{}", chunk);
 }
-void vengine_log(std::string_view const *chunk, size_t chunkCount) {
+void vengine_log(luisa::string_view const *chunk, size_t chunkCount) {
     vstd::string str;
     for (auto i : vstd::range(static_cast<int64>(chunkCount))) {
         str << chunk[i];
     }
     LUISA_ERROR("{}", str);
 }
-void vengine_log(std::initializer_list<std::string_view> const &initList) {
+void vengine_log(std::initializer_list<luisa::string_view> const &initList) {
     vengine_log(initList.begin(), initList.size());
 }
 void vengine_log(std::type_info const &t) {
@@ -21,5 +22,5 @@ void vengine_log(std::type_info const &t) {
 }
 
 void vengine_log(char const *chunk) {
-    vengine_log(std::string_view(chunk));
+    vengine_log(luisa::string_view(chunk));
 }

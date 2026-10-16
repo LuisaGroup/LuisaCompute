@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/audit.py", line 125, in <module>
+    main()
+    ~~~~^^
+  File "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260908-task-grain/audit.py", line 70, in main
+    fingerprints[str(path.relative_to(args.raw))] = dict(bytes=path.stat().st_size, sha256=digest(path))
+                     ~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/mike/.local/share/uv/python/cpython-3.13.7-macos-aarch64-none/lib/python3.13/pathlib/_local.py", line 385, in relative_to
+    raise ValueError(f"{str(self)!r} is not in the subpath of {str(other)!r}")
+ValueError: '/private/tmp/luisa-task-grain.3eLK7H/pilot/rmsnorm-17x65-r0-whole/output.f32.input0.f32' is not in the subpath of '/tmp/luisa-task-grain.3eLK7H'

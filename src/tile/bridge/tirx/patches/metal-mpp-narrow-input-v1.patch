@@ -1,0 +1,173 @@
+diff --git a/src/backend/metal/codegen/codegen_metal.cc b/src/backend/metal/codegen/codegen_metal.cc
+--- a/src/backend/metal/codegen/codegen_metal.cc
++++ b/src/backend/metal/codegen/codegen_metal.cc
+@@ -74,11 +74,19 @@
+   return v != 0;
+ }
+ 
++PrimType CooperativeMemoryDType(const Expr& pointer) {
++  const auto* type = pointer->ty.as<PointerTypeNode>();
++  TVM_FFI_ICHECK(type && (type->element_type == PrimType::Float(32) ||
++                         type->element_type == PrimType::Float(16) ||
++                         type->element_type == PrimType::BFloat(16)))
++      << "Metal cooperative tensor memory inputs require typed FP32, FP16 or BF16 pointers";
++  return type->element_type.as_or_throw<PrimType>();
++}
++
+ void CheckCooperativeMemory(const Expr& pointer, const Expr& stride, int64_t rows, int64_t columns,
+                             bool column_major) {
++  CooperativeMemoryDType(pointer);
+   const auto* type = pointer->ty.as<PointerTypeNode>();
+-  TVM_FFI_ICHECK(type && type->element_type == PrimType::Float(32))
+-      << "Metal cooperative tensor memory inputs require typed FP32 pointers";
+   TVM_FFI_ICHECK(type->storage_scope == "global" || type->storage_scope == "shared")
+       << "Metal cooperative tensor memory must be global or shared, not " << type->storage_scope;
+   int64_t ld = CooperativeConstant(stride, "leading stride");
+@@ -102,6 +110,17 @@
+ }
+ 
+ void CodeGenMetal::CollectCooperativeTensors(const PrimFunc& f) {
++  auto record_inputs = [](CooperativeTensorInfo& info, const Expr& left, const Expr& right) {
++    PrimType left_dtype = CooperativeMemoryDType(left);
++    PrimType right_dtype = CooperativeMemoryDType(right);
++    TVM_FFI_ICHECK(left_dtype == right_dtype)
++        << "Metal MPP requires matching A/B memory input types";
++    TVM_FFI_ICHECK(!info.has_mma ||
++                   (info.left_dtype == left_dtype && info.right_dtype == right_dtype))
++        << "Inconsistent Metal cooperative tensor memory input types";
++    info.left_dtype = left_dtype;
++    info.right_dtype = right_dtype;
++  };
+   auto record = [&](const Expr& data, int64_t m, int64_t n, int64_t k) -> CooperativeTensorInfo& {
+     TVM_FFI_ICHECK(m > 0 && n > 0 && k > 0 && m % 8 == 0 && n % 8 == 0 && k % 8 == 0)
+         << "Metal MPP requires positive, static 8-multiple matrix shapes";
+@@ -127,6 +146,7 @@
+       bool ta = CooperativeBoolean(call->args[9]);
+       bool tb = CooperativeBoolean(call->args[10]);
+       auto& info = record(call->args[0], m, n, k);
++      record_inputs(info, call->args[2], call->args[4]);
+       TVM_FFI_ICHECK(!info.has_mma ||
+                      (info.multiply_only && info.transpose_a == ta && info.transpose_b == tb))
+           << "Inconsistent Metal cooperative tensor operation or operand layouts";
+@@ -143,6 +163,7 @@
+       bool tb = CooperativeBoolean(call->args[12]);
+       for (int index : {0, 6}) {
+         auto& info = record(call->args[index], m, n, k);
++        record_inputs(info, call->args[2], call->args[4]);
+         TVM_FFI_ICHECK(!info.has_mma ||
+                        (!info.multiply_only && info.transpose_a == ta && info.transpose_b == tb))
+             << "Inconsistent Metal cooperative tensor operation or operand layouts";
+@@ -201,8 +222,9 @@
+   std::string extents = "extents<int, " +
+       (actual_columns.defined() ? "dynamic_extent" : std::to_string(columns)) + ", " +
+       (actual_rows.defined() ? "dynamic_extent" : std::to_string(rows)) + ">";
+-  os << "tensor<" << (scope == "global" ? "device" : "threadgroup") << " float, " << extents
+-     << ", tensor_inline>(" << PrintExpr(pointer) << ", " << extents << "{";
++  os << "tensor<" << (scope == "global" ? "device" : "threadgroup") << ' ';
++  PrintType(CooperativeMemoryDType(pointer), os);
++  os << ", " << extents << ", tensor_inline>(" << PrintExpr(pointer) << ", " << extents << "{";
+   if (actual_columns.defined()) os << "int(" << PrintExpr(actual_columns) << ")";
+   if (actual_columns.defined() && actual_rows.defined()) os << ", ";
+   if (actual_rows.defined()) os << "int(" << PrintExpr(actual_rows) << ")";
+@@ -233,6 +255,8 @@
+        << ".get_capacity(); ++" << i << ") { if (" << d << ".is_valid_element(" << i << ")) " << d
+        << '[' << i << "] = " << value << "; } }";
+   } else if (load || store) {
++    TVM_FFI_ICHECK(CooperativeMemoryDType(op->args[2]) == PrimType::Float(32))
++        << "Metal MPP destination memory transfers require typed FP32 pointers";
+     if (bounded_store) {
+       // Logical destination prefixes are independent of the MMA's input
+       // rectangles. Never infer a mask from padded input dimensions.
+@@ -392,13 +416,17 @@
+          << " : " << mm << ")) { uint " << invalid << " = 0u, " << sign
+          << " = 0x80000000u; for (int " << r << " = 0; " << r << " < " << kk
+          << "; ++" << r << ") { uint " << value << "; if (" << mm << " == 0) "
+-         << value << " = as_type<uint>(" << pb << "[ulong("
++         << value << " = " << (info.right_dtype == PrimType::Float(32) ? "as_type<uint>(" : "uint(as_type<ushort>(") << pb << "[ulong("
+          << (info.transpose_b ? outer : r) << ") * " << PrintExpr(op->args[5]) << " + "
+-         << (info.transpose_b ? r : outer) << "]); else "
+-         << value << " = as_type<uint>(" << pa << "[ulong(" << (info.transpose_a ? r : outer)
+-         << ") * " << PrintExpr(op->args[3]) << " + " << (info.transpose_a ? outer : r) << "]); "
+-         << invalid << " |= (" << value << " & 0x7fffffffu) >= 0x7f800000u; " << sign << " &= "
+-         << value << "; } " << owned << " = " << invalid << " | " << sign
++         << (info.transpose_b ? r : outer) << (info.right_dtype == PrimType::Float(32) ? "]); else " : "])); else ")
++         << value << " = " << (info.left_dtype == PrimType::Float(32) ? "as_type<uint>(" : "uint(as_type<ushort>(") << pa << "[ulong(" << (info.transpose_a ? r : outer)
++         << ") * " << PrintExpr(op->args[3]) << " + " << (info.transpose_a ? outer : r)
++         << (info.left_dtype == PrimType::Float(32) ? "]); " : "])); ");
++      bool narrow = info.left_dtype != PrimType::Float(32);
++      os << invalid << " |= (" << value << (narrow ? " & 0x7fffu) >= " : " & 0x7fffffffu) >= ")
++         << (info.left_dtype == PrimType::Float(16) ? "0x7c00u; " : info.left_dtype == PrimType::BFloat(16) ? "0x7f80u; " : "0x7f800000u; ")
++         << sign << " &= " << (narrow ? "(" : "") << value << (narrow ? " << 16u)" : "")
++         << "; } " << owned << " = " << invalid << " | " << sign
+          << "; }\n#pragma unroll\nfor (uint " << i << " = 0; " << i
+          << " < " << d << ".get_capacity(); ++" << i << ") { bool " << valid << " = " << d
+          << ".is_valid_element(" << i << "); uint " << source << " = 0u; if (" << valid
+@@ -753,10 +781,15 @@
+            << ", execution_simdgroups<1>>;\n";
+     PrintIndent();
+     std::string tensor_type = name_supply_->FreshName("mpp_tensor");
++    std::ostringstream left_type, right_type;
++    PrintType(info.left_dtype, left_type);
++    PrintType(info.right_dtype, right_type);
+     stream << "using " << tensor_type << " = " << info.operation_type
+            << "::cooperative_tensor_destination_t<" << info.operation_type
+-           << "::cooperative_tensor_left_input_t<float, float, float>, " << info.operation_type
+-           << "::cooperative_tensor_right_input_t<float, float, float>, float>;\n";
++           << "::cooperative_tensor_left_input_t<" << left_type.str() << ", " << right_type.str()
++           << ", float>, " << info.operation_type
++           << "::cooperative_tensor_right_input_t<" << left_type.str() << ", " << right_type.str()
++           << ", float>, float>;\n";
+     // Metal cooperative tensors have implementation-defined storage size and
+     // cannot be C++ array elements. Static TIR fragment ordinals name distinct
+     // opaque variables instead; dynamic ordinals are rejected above.
+@@ -1052,6 +1085,7 @@
+   refl::GlobalDef().def("target.metal.mpp_bounded_mnk_contract_version", []() { return 1; });
+   refl::GlobalDef().def("target.metal.mpp_bounded_store_contract_version", []() { return 1; });
+   refl::GlobalDef().def("target.metal.mpp_element_contract_version", []() { return 1; });
++  refl::GlobalDef().def("target.metal.mpp_narrow_input_contract_version", []() { return 1; });
+ }
+ }  // namespace codegen
+ }  // namespace tvm
+diff --git a/src/backend/metal/codegen/codegen_metal.h b/src/backend/metal/codegen/codegen_metal.h
+--- a/src/backend/metal/codegen/codegen_metal.h
++++ b/src/backend/metal/codegen/codegen_metal.h
+@@ -69,6 +69,7 @@
+   struct CooperativeTensorInfo {
+     int64_t m, n, k;
+     bool has_mma{false}, multiply_only{false}, transpose_a{false}, transpose_b{false};
++    PrimType left_dtype{PrimType::Float(32)}, right_dtype{PrimType::Float(32)};
+     size_t count{0};
+     std::string operation_type;
+     std::vector<std::string> fragments;
+diff --git a/src/tirx/transform/unsupported_dtype_legalize.cc b/src/tirx/transform/unsupported_dtype_legalize.cc
+--- a/src/tirx/transform/unsupported_dtype_legalize.cc
++++ b/src/tirx/transform/unsupported_dtype_legalize.cc
+@@ -693,6 +693,28 @@
+   }
+ 
+   Expr VisitExpr_(const CallNode* op) final {
++    if (op->op.same_as(builtin::cooperative_tensor_multiply_from_memory()) ||
++        op->op.same_as(builtin::cooperative_tensor_multiply_accumulate_from_memory())) {
++      // The memory-input MPP contract consumes BF16 bits natively. The
++      // surrounding ABI may still use UInt16 storage, but only originally
++      // typed BF16 operands acquire this explicit BF16 pointer projection.
++      // Never infer BF16 semantics from an arbitrary UInt16 pointer.
++      Call call = StmtExprMutator::VisitExpr_(op).as_or_throw<Call>();
++      auto args = call->args;
++      bool changed = false;
++      for (size_t index : {size_t{2}, size_t{4}}) {
++        const auto* type = op->args[index]->ty.as<PointerTypeNode>();
++        if (type && type->element_type == PrimType::BFloat(16) &&
++            MatchType(type->element_type)) {
++          Expr annotation = Call(PrimType::BFloat(16), Op::Get("tirx.type_annotation"), {});
++          args.Set(index, Call(op->args[index]->ty, builtin::ptr_byte_offset(),
++                               {args[index], IntImm(PrimType::Int(32), 0), annotation}));
++          changed = true;
++        }
++      }
++      if (changed) return Call(call->ty, call->op, args, call->attrs, call->ty_args, call->span);
++      return call;
++    }
+     if (const auto* pointer_type = op->ty.as<PointerTypeNode>()) {
+       Expr ret = StmtExprMutator::VisitExpr_(op);
+       const auto* element_type = pointer_type->element_type.as<PrimTypeNode>();

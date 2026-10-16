@@ -1,0 +1,403 @@
+{
+  "schema": 1,
+  "newline": "LF",
+  "worker_raw_checkpoint": {
+    "path": ".deps/oct02-collective-worker-summary-v2/checkpoint.json",
+    "sha256": "fa0331a22e908491fa970e103fef1f69bf8ad095f324ee28343f20a954b76d78",
+    "bytes": 771638
+  },
+  "structural_raw_checkpoint": {
+    "path": ".deps/oct02-collective-structure-summary-v2/checkpoint.json",
+    "sha256": "e4f2e2e2ee55972e22b4435c5898efe4373b9b43c31342a945345ed84debb9a2",
+    "bytes": 283000
+  },
+  "final_validation_status": "all cohort final gates, full saved outputs and source receipts passed; every worker/structural implementation receipt is covered by the actual structural post-queue file recheck",
+  "cohorts": [
+    {
+      "experiment": "worker",
+      "label": "baseline",
+      "aggregate": {
+        "path": ".deps/oct02-collective-workers0-v2/results.json",
+        "sha256": "b5cdc382cc75c4d0c64cefe396870b80c6da8789ec78d8ebc39ac71cf518c9ae",
+        "bytes": 585510
+      },
+      "started": "2026-10-02T23:29:44.133545+08:00",
+      "finished": "2026-10-02T23:40:36.736436+08:00",
+      "status": "passed",
+      "implementation_receipt_set_sha256": "5d2a225fb243bb9ec5bcc204f305705dc5ff7478cda78a4a58a9d54c54967692",
+      "case_count": 16
+    },
+    {
+      "experiment": "worker",
+      "label": "hint4",
+      "aggregate": {
+        "path": ".deps/oct02-collective-workers4-v2/results.json",
+        "sha256": "cee2c0f17ea269742d8bd2fd4104d42ee031f072d55d63c13a2e102d4b893f1a",
+        "bytes": 219660
+      },
+      "started": "2026-10-02T23:25:55.281596+08:00",
+      "finished": "2026-10-02T23:27:48.908821+08:00",
+      "status": "passed",
+      "implementation_receipt_set_sha256": "5d2a225fb243bb9ec5bcc204f305705dc5ff7478cda78a4a58a9d54c54967692",
+      "case_count": 16
+    },
+    {
+      "experiment": "worker",
+      "label": "hint8",
+      "aggregate": {
+        "path": ".deps/oct02-collective-workers8-v2/results.json",
+        "sha256": "13dba4ae36584752d85ace4a039088a08705e0832865886eedc2320efb860122",
+        "bytes": 219822
+      },
+      "started": "2026-10-02T23:27:49.842466+08:00",
+      "finished": "2026-10-02T23:29:43.164298+08:00",
+      "status": "passed",
+      "implementation_receipt_set_sha256": "5d2a225fb243bb9ec5bcc204f305705dc5ff7478cda78a4a58a9d54c54967692",
+      "case_count": 16
+    },
+    {
+      "experiment": "worker",
+      "label": "recheck",
+      "aggregate": {
+        "path": ".deps/oct02-collective-workers0-recheck-v2/results.json",
+        "sha256": "37a717d9212d87ec4783c5767b54a0bef9bfef47e6c76fc19c2419a201ea66df",
+        "bytes": 218713
+      },
+      "started": "2026-10-02T23:40:38.123497+08:00",
+      "finished": "2026-10-02T23:42:40.914372+08:00",
+      "status": "passed",
+      "implementation_receipt_set_sha256": "5d2a225fb243bb9ec5bcc204f305705dc5ff7478cda78a4a58a9d54c54967692",
+      "case_count": 16
+    },
+    {
+      "experiment": "structural",
+      "label": "control",
+      "aggregate": {
+        "path": ".deps/oct02-collective-structure-control-v2/results.json",
+        "sha256": "db5a1077083c9464ac770866b0befa594dcdd565fd87147c6cc3c51ea6078c80",
+        "bytes": 107817
+      },
+      "started": "2026-10-02T23:24:59.791524+08:00",
+      "finished": "2026-10-02T23:25:54.246027+08:00",
+      "status": "passed",
+      "implementation_receipt_set_sha256": "5d2a225fb243bb9ec5bcc204f305705dc5ff7478cda78a4a58a9d54c54967692",
+      "case_count": 7
+    },
+    {
+      "experiment": "structural",
+      "label": "chunk1024",
+      "aggregate": {
+        "path": ".deps/oct02-collective-structure-chunk1024-v2/results.json",
+        "sha256": "29e11945c4902f35e3ccdf07f856e181fc3c9fdc9bb27b0bfe6fe5d6df16256b",
+        "bytes": 59274
+      },
+      "started": "2026-10-02T23:23:18.476956+08:00",
+      "finished": "2026-10-02T23:23:52.182929+08:00",
+      "status": "passed",
+      "implementation_receipt_set_sha256": "5d2a225fb243bb9ec5bcc204f305705dc5ff7478cda78a4a58a9d54c54967692",
+      "case_count": 3
+    },
+    {
+      "experiment": "structural",
+      "label": "chunk2048",
+      "aggregate": {
+        "path": ".deps/oct02-collective-structure-chunk2048-v2/results.json",
+        "sha256": "4e811ab67874d074d423afa1cfde2b83c1e0ab4b8c7ca30140e25199203f281c",
+        "bytes": 59310
+      },
+      "started": "2026-10-02T23:23:53.137445+08:00",
+      "finished": "2026-10-02T23:24:24.286885+08:00",
+      "status": "passed",
+      "implementation_receipt_set_sha256": "5d2a225fb243bb9ec5bcc204f305705dc5ff7478cda78a4a58a9d54c54967692",
+      "case_count": 3
+    },
+    {
+      "experiment": "structural",
+      "label": "independent1",
+      "aggregate": {
+        "path": ".deps/oct02-collective-structure-independent1-v2/results.json",
+        "sha256": "020947ff6fc6807496e58eb9f25c479ca9e89fb725b70f6851478818b8248a80",
+        "bytes": 71912
+      },
+      "started": "2026-10-02T23:24:25.129603+08:00",
+      "finished": "2026-10-02T23:24:58.522709+08:00",
+      "status": "passed",
+      "implementation_receipt_set_sha256": "5d2a225fb243bb9ec5bcc204f305705dc5ff7478cda78a4a58a9d54c54967692",
+      "case_count": 4
+    }
+  ],
+  "implementation_files_current_recheck": [
+    {
+      "path": "build-msvc-llvm/bin/benchmark_tile_workloads.exe",
+      "sha256": "22bc50e8d119f36dd56a480793197af605688df62f7a076846d2a304b85bed56",
+      "bytes": 1232896
+    },
+    {
+      "path": ".deps/torch-cuda-venv/Scripts/python.exe",
+      "sha256": "2204195cec25879507d958a8b6949add67091244b8b4da9cf3672f993548fa49",
+      "bytes": 277808
+    },
+    {
+      "path": "scripts/benchmark/tile_torch/cuda_torch_baseline.py",
+      "sha256": "45eefa4f467433277d57c2fd841982fb52981575ed60a88f57da3ffc7e604b6d",
+      "bytes": 44958
+    },
+    {
+      "path": "scripts/benchmark/tile_torch/cuda_matrix.py",
+      "sha256": "de94d3b335bee0d5b07e81b704027291c0139307c869d7de0c5782eb6231061a",
+      "bytes": 56243
+    },
+    {
+      "path": "scripts/benchmark/tile_torch/windows_affinity.py",
+      "sha256": "1eeedb33b3d5666112e6cb732826dc80af99a3e1f46670a623f21176ab163722",
+      "bytes": 7603
+    },
+    {
+      "path": "build-msvc-llvm/logs/full-build-success.json",
+      "sha256": "cf0cd8ac78b484f42d72dcf5bf756e38b98ddff37916a2f74f047d382f214eb2",
+      "bytes": 290
+    },
+    {
+      "path": "build-msvc-llvm/CMakeCache.txt",
+      "sha256": "0ec2430d571f13eb61b727bef896da366e2b25b13423abb9e8c26a70c04580d7",
+      "bytes": 63039
+    },
+    {
+      "path": "src/tests/benchmark/benchmark_tile_workloads.cpp",
+      "sha256": "787dd2f523aa6233a9ef87517602185fa2090994487ad7a66b7c2db98c5af1fc",
+      "bytes": 51450
+    },
+    {
+      "path": "src/tests/common/tile_workload_test_utils.h",
+      "sha256": "c019235bffd3c2f6d2546103e983b2abcdb4999f34bd491365fcc0589012eb9a",
+      "bytes": 44511
+    },
+    {
+      "path": "src/tests/common/tile_llm_test_utils.h",
+      "sha256": "a1fa5ec12e8014ff7e88121a2da93c5af9076ede10d4cdd039b037423b55eb93",
+      "bytes": 12220
+    },
+    {
+      "path": "src/tests/common/tile_rank_test_utils.h",
+      "sha256": "d9ffb3d40973fb4ea3cd3e7faf31c38728a98557817c8962a8d17007594f9de6",
+      "bytes": 8120
+    },
+    {
+      "path": "src/tests/common/tile_selection_test_utils.h",
+      "sha256": "d04fa891fa5db4a4a7ccf2b15166aa908047fe907a6b9d58cf50529026d5271a",
+      "bytes": 4330
+    },
+    {
+      "path": "src/tests/common/tile_argmax_test_utils.h",
+      "sha256": "457224ca2894c4de8585ae27ad9f078da41e3cdb40308fc7670de2ad8ff149c1",
+      "bytes": 2353
+    },
+    {
+      "path": "src/tests/common/tile_embedding_test_utils.h",
+      "sha256": "95ac20bbfe3cafd17839435ed67344948120def24d220b36fce52b69455de75a",
+      "bytes": 4093
+    },
+    {
+      "path": "src/tests/common/tile_sort_pipeline_test_utils.h",
+      "sha256": "cf0dc58f3201659b0bb33ee88eff248e237fcbecdced4ea1afaf870e80a92225",
+      "bytes": 7668
+    },
+    {
+      "path": "include/luisa/tile/algorithms.h",
+      "sha256": "8d9ab8d371142d62f61f22f6bcb6595fe993653d411fbdbc29fbc9088dfc5bd2",
+      "bytes": 16547
+    },
+    {
+      "path": "include/luisa/tile/value.h",
+      "sha256": "e324b60654a78702ed645bdb0a9f51646ade581c0d8281ea9a9eab5b8c295717",
+      "bytes": 23592
+    },
+    {
+      "path": "include/luisa/tile/dsl.h",
+      "sha256": "c15c39fe8126c47212bd5c6274002b21cf5787f1609aad0960dd86148804070e",
+      "bytes": 39263
+    },
+    {
+      "path": "include/luisa/tile/collective_plan.h",
+      "sha256": "cdc9289d839855b25f245f27cb3b54e9e25dffe4f378facd3271fe19b3650c2a",
+      "bytes": 2111
+    },
+    {
+      "path": "src/tile/collective_plan.cpp",
+      "sha256": "60885039a3f7f7a3aae0d7ef39a7da6d87e67bea74fac9f7c79b8e6825708253",
+      "bytes": 18818
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-ast.dll",
+      "sha256": "5dc065a233212c650e6a669f860c6c5b4dcb6a4da8841846303d624b908c3d08",
+      "bytes": 907776
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-backend-cuda.dll",
+      "sha256": "56b6ab797c1131d12795461c09338d80965a6527a7142c9cede3b10d3a1a4548",
+      "bytes": 33405440
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-backend-fallback.dll",
+      "sha256": "2643f1c0f0672a07a0ca733dfdb4c94c4f880111c69f3fcf2a52d65be8da7b30",
+      "bytes": 44273664
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-backend-remote.dll",
+      "sha256": "3eb82aedf12d4b02cdd0b3cdfb0794bb1af5f4f4ccf6794041f81ae2b2c38a06",
+      "bytes": 506368
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-backend-simd.dll",
+      "sha256": "2874d3dc43ca1dbf82de61e30951607c5ecc0a96ab47a9e56c5cf8e294d3bbe6",
+      "bytes": 39018496
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-backend-vk.dll",
+      "sha256": "5bb7ab37acfc74c5f9abdce32e54d10011978a9a0a7b71ad0a5261e3cd15e49f",
+      "bytes": 7193600
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-core.dll",
+      "sha256": "85794edceb4214f2c1f2768154ee7d94521bcc9b0673e197b501c8aa03989501",
+      "bytes": 786944
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-coro.dll",
+      "sha256": "7e4501b40db6f8c701c787037ed7dbcd7457a072f9bf01a8949f6c698863e5c0",
+      "bytes": 458240
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-dsl.dll",
+      "sha256": "b1dcf41f5237bf86049e68d2355430234a7f2c68b94c1926097b49ac8b769c13",
+      "bytes": 561664
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-ext-glfw.dll",
+      "sha256": "4400941e34b66a47d67978e30cc919739aca4657b0e41db876e96c0f3e45b301",
+      "bytes": 394240
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-gui.dll",
+      "sha256": "45bbc33bd552fa033e1f0ff7fc31f8dcd5a4c8fdffb8c8c0c16cc5e5fee39a12",
+      "bytes": 1729024
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-osl.dll",
+      "sha256": "3a8a73cb80f4f38feac499ca71fe8f500f65cb94c796168ff67246c5c0a3f378",
+      "bytes": 422400
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-runtime.dll",
+      "sha256": "da0e54187e470178dbebbf267a028e8c28337a14ffdb3a529ede61f303eb67a9",
+      "bytes": 1044480
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-tile-bridge-tirx.dll",
+      "sha256": "af41c6dbcc3698d95085eb4bfafbc84b89f9cae266f7f0ff39d879bbd126bbf6",
+      "bytes": 1378816
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-tile-bridge-xir.dll",
+      "sha256": "0d2bcdb6828857531babdbcfbefc5a5cd1aada4a99371ad9759eff209ae2bb74",
+      "bytes": 617984
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-tile.dll",
+      "sha256": "56ff6d5bdb66943d8b2a1fb4743f9caa82d7d894137a3bc18a17a0acaa1e814f",
+      "bytes": 520704
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-validation-layer.dll",
+      "sha256": "fcd4d0e5a7fff2bb514dbe69ec59eb55ce210838f3664eeba53b1db87ef100c5",
+      "bytes": 371200
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa-xir.dll",
+      "sha256": "7abe804880ba58afc6d0b134f011de3dd2c6805acd60f2961ad6fb8232267777",
+      "bytes": 3476480
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa_cuda_tile_compiler.exe",
+      "sha256": "5513a320fcd0b81652e5f6f71ccd3172908524bdccc3e59f8c4f0d2cbf0cdab9",
+      "bytes": 113382400
+    },
+    {
+      "path": "build-msvc-llvm/bin/luisa_nvrtc.exe",
+      "sha256": "3f31e83b8ebde7c409f9f61174c5fa45c9ac16046b2ed97ae31833703d29e754",
+      "bytes": 113371648
+    },
+    {
+      "path": "src/backends/cuda/tile/cuda_tile.cpp",
+      "sha256": "9dc247d8a752717d7b05ce64aefa67f733561bfd74a7cd96f8993f36543c45ac",
+      "bytes": 39188
+    },
+    {
+      "path": "src/backends/cuda/tile/cuda_tile_codegen.cpp",
+      "sha256": "4a8a62233e877587191054d9dac7ace8634d262ceb53fe7be6366255b2c8e74c",
+      "bytes": 81517
+    },
+    {
+      "path": "src/backends/cuda/tile/cuda_tile_ir.cpp",
+      "sha256": "0cbb081d4d0fd092a9a38eb7c5f5444aa8aae825a918dc3de3fd99cf1381b02f",
+      "bytes": 14099
+    },
+    {
+      "path": "src/backends/cuda/tile/cuda_tile_codegen.h",
+      "sha256": "177267992ee9b3ea42533252a4668cb5e446e4f7aaf20184e48f57ee4838b06f",
+      "bytes": 2607
+    },
+    {
+      "path": "src/backends/cuda/cuda_shader_tile.h",
+      "sha256": "c2254634390bc468191de82c9b09e85f693a102f9eb17afd35b4d752f4190ed6",
+      "bytes": 4427
+    },
+    {
+      "path": "src/backends/cuda/cuda_shader_tile.cpp",
+      "sha256": "7a6a4a62e49efad31d2546d3d94c6cad793e0a069d6145ab87c5fb037bd3f975",
+      "bytes": 7036
+    },
+    {
+      "path": "src/backends/cuda/extensions/cuda_graph_ext.cpp",
+      "sha256": "ede199dd1aee8cd6d958a5503bb6d3a5b0b500b9a20d7c0eeed8fdf986f42af4",
+      "bytes": 45408
+    }
+  ],
+  "validators": [
+    {
+      "path": ".deps/collective-structure-summary-prep/summarize_structural.py",
+      "sha256": "e6c0a35f3400cc95b7e27d173278f69b6edece12fc2d1722ac67fb51a8bc78e1",
+      "bytes": 23874
+    },
+    {
+      "path": ".deps/collective-worker-summary-prep/summarize_worker_sweep.py",
+      "sha256": "32c9816aab3eae245b572f6d64bf966fd53b6e70ec8fd33f06ae621ffef40f72",
+      "bytes": 22109
+    },
+    {
+      "path": "scripts/benchmark/tile_torch/cuda_matrix.py",
+      "sha256": "de94d3b335bee0d5b07e81b704027291c0139307c869d7de0c5782eb6231061a",
+      "bytes": 56243
+    },
+    {
+      "path": ".deps/graph-v2-results-prep/export_v2.py",
+      "sha256": "927e61d01fa87b2cdeac2bd7ac504fd89e2ac639dec7a5d0cd66049fa0f5a22a",
+      "bytes": 18576
+    }
+  ],
+  "excluded_history": {
+    "v1_worker": "interrupted; undocumented attempted worker1/2 not admissible",
+    "v1_structural_chunk2048": "aggregate failed on WinError5 atomic checkpoint replacement despite successful GPU child; not relabeled or pooled"
+  },
+  "observations": {
+    "worker_configurations": 16,
+    "worker_native_visits": 64,
+    "worker_torch_visits": 16,
+    "structural_configurations": 7,
+    "structural_native_visits": 17,
+    "distinct_operation_shape_pairs": 10,
+    "distinct_operation_shape_dtype_pairs": 12,
+    "structural_shapes_are_subset_of_worker16": true,
+    "heldout12_measured": false
+  }
+}

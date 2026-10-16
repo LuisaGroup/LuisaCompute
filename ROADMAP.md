@@ -15,17 +15,15 @@ We list some possible future work here. If you have any ideas and suggestions, w
 |--------------------------------|---------------------------------------------|
 | C++                            | ✅                                          |
 | Python                         | ⚠️ (no support for polymorphic constructs)  |
-| [Rust](https://github.com/LuisaGroup/luisa-compute-rs)  | 🚧 (powerful constructs using proc-macro)   |
-| C API                          | 🚧 (for easy bindings in other languages)   |
 | Custom Script/Shading Language | ⌛                                          |
 
 ## DSL
 
 | Module   | Status                                                            |
 |----------|-------------------------------------------------------------------|
-| AST      | ✅ (to be replaced by IR)                                         |
-| IR       | 🚧 (inter-convertibility with the AST; maybe optimization passes) |
-| AutoDiff | 🚧 (reverse mode; transformation passes on the IR)                |
+| AST      | ✅                                                                  |
+| XIR      | 🚧 (AST inter-convertibility and optimization passes)              |
+| AutoDiff | 🚧 (forward/reverse mode transformation passes on XIR)             |
 
 ## Runtime
 

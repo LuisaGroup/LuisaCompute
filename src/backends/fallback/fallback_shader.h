@@ -4,10 +4,13 @@
 
 #pragma once
 
+#include <memory>
+
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/core/stl/memory.h>
 
 namespace llvm {
 class LLVMContext;
@@ -43,6 +46,7 @@ private:
     luisa::vector<luisa::unique_ptr<ShaderPrintFormatter>> _print_formatters;
 
     uint3 _block_size;
+    bool _enable_fast_math{false};
     std::unique_ptr<::llvm::orc::LLJIT> _jit{};
     std::unique_ptr<::llvm::TargetMachine> _target_machine{};
 

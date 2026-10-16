@@ -1,0 +1,37 @@
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 325, col 88
+Warning: The parameter 'B' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 326, col 88
+Warning: The parameter 'C' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 327, col 82
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 352, col 131
+Warning: The parameter 'B' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 353, col 131
+Warning: The parameter 'C' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 354, col 125
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 372, col 99
+Warning: The parameter 'Y' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 373, col 93
+Warning: The parameter 'D' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 374, col 93
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 395, col 87
+Warning: The parameter 'C' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 395, col 111
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 407, col 91
+Warning: The parameter 'C' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 407, col 115
+Warning: The parameter 'X' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 421, col 91
+Warning: The parameter 'Gamma' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 422, col 91
+Warning: The parameter 'Y' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 423, col 85
+Warning: The parameter 'X' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 438, col 93
+Warning: The parameter 'Parameters' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 439, col 93
+Warning: The parameter 'Y' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 440, col 87
+Warning: The parameter 'X' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 459, col 102
+Warning: The parameter 'Residual' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 460, col 102
+Warning: The parameter 'Y' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 461, col 96
+Warning: The parameter 'Logits' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 478, col 97
+Warning: The parameter 'Labels' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 479, col 99
+Warning: The parameter 'Losses' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 480, col 91
+Warning: Narrowing conversion from 'int64_t' (aka 'long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 603, col 34
+Warning: Narrowing conversion from 'int64_t' (aka 'long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 608, col 24
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 609, col 25
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 613, col 102
+Hint: Escaped string literal can be written as a raw string literal (fix available) [modernize-raw-string-literal] at line 646, col 18
+Warning: 'emplace_back' is called inside a loop; consider pre-allocating the container capacity before the loop (fix available) [performance-inefficient-vector-operation] at line 939, col 51
+Warning: 'emplace_back' is called inside a loop; consider pre-allocating the container capacity before the loop (fix available) [performance-inefficient-vector-operation] at line 940, col 51
+Warning: Narrowing conversion from 'int64_t' (aka 'long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 933, col 28
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 934, col 29
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 939, col 125
+------------------------------------------------------------
+Total: 0 error(s), 34 warning(s)

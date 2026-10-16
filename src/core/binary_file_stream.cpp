@@ -2,7 +2,6 @@
 #include <luisa/core/binary_file_stream.h>
 
 namespace luisa {
-
 #if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32)
 #define LUISA_FSEEK _fseeki64
 #define LUISA_FTELL _ftelli64
@@ -10,17 +9,6 @@ namespace luisa {
 #define LUISA_FSEEK fseeko
 #define LUISA_FTELL ftello
 #endif
-
-namespace detail {
-
-[[nodiscard]] LUISA_CORE_API size_t get_c_file_length(::FILE *file) noexcept {
-    LUISA_FSEEK(file, 0, SEEK_END);
-    auto length = LUISA_FTELL(file);
-    LUISA_FSEEK(file, 0, SEEK_SET);
-    return length;
-}
-
-}// namespace detail
 
 BinaryFileStream::BinaryFileStream(::FILE *file, size_t length) noexcept
     : _file{file},

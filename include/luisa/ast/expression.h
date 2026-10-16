@@ -2,6 +2,7 @@
 
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/core/concepts.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/runtime/rhi/curve_basis.h>
@@ -277,12 +278,12 @@ public:
 
 namespace detail {
 
-template<typename ... Args>
+template<typename... Args>
 struct make_literal_value {
     static_assert(always_false_v<Args...>);
 };
 
-template<typename... T, typename ... Others>
+template<typename... T, typename... Others>
 struct make_literal_value<std::tuple<T...>, Others...> {
     using type = luisa::variant<T..., Others...>;
 };
@@ -564,9 +565,13 @@ private:
     void *_user_data;
 
 protected:
-    // TODO
     void _mark(Usage usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override {
+        return hash_combine({hash_value(_callback),
+                             hash_value(_dtor),
+                             hash_value(_user_data),
+                             _arg == nullptr ? 0ull : _arg->hash()});
+    }
 
 public:
     [[nodiscard]] Func func() const noexcept { return _callback; }
@@ -587,9 +592,11 @@ private:
     const Expression *_arg;
 
 protected:
-    // TODO
     void _mark(Usage usage) const noexcept override {}
-    [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override {
+        return hash_combine({hash_value(_source),
+                             _arg == nullptr ? 0ull : _arg->hash()});
+    }
 
 public:
     [[nodiscard]] auto arg() const noexcept { return _arg; }

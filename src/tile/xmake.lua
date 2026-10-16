@@ -1,0 +1,90 @@
+target("lc-tile")
+set_basename("luisa-tile")
+_config_project({
+    project_kind = "shared",
+    batch_size = 4
+})
+-- lc-runtime carries the XIR symbols used by the always-on tile/XIR bridge
+-- (bridge/xir). The CMake build keeps that bridge as a separate static lib
+-- linking luisa-compute-xir; xmake merges XIR into lc-runtime, so lc-tile
+-- links the runtime DLL directly.
+add_deps("lc-core", "lc-runtime")
+add_defines("LUISA_TILE_EXPORT_DLL")
+add_headerfiles("../../include/luisa/tile/**.h", "../../include/luisa/tile.h")
+-- Include the whole tile source tree so the always-on XIR bridge and the
+-- optional TVM TIRx bridge are compiled, mirroring the CMake source layout.
+-- The TIRx bridge stays excluded unless lc_tile_tirx_bridge is enabled, in
+-- which case the bundled apache/tvm submodule (src/ext/tvm) is built from
+-- source by src/ext/xmake.lua and linked directly.
+add_files("*.cpp", "bridge/xir/**.cpp")
+-- The TIRx bridge translation units used to define same-named anonymous-namespace
+-- helpers (e.g. ElementDomain, static_extent) that collided when the unity build
+-- merged them, so they had to be compiled as standalone units.  Every file-local
+-- helper of the bridge now lives in a file-unique `<file>_detail` namespace (see
+-- scripts/unity_isolate_locals.py), which scripts/check_unity_build_conflicts.py
+-- verifies, so the bridge participates in the unity build like the rest of the
+-- target.  The files are only added when the bridge is enabled: remove_files with
+-- a glob does not match inside on_load, so an else-branch removal cannot exclude
+-- them.
+if has_config("lc_tile_tirx_bridge") then
+    add_files("bridge/tirx/**.cpp")
+end
+add_defines("LUISA_TILE_XIR_BRIDGE_EXPORT_DLL")
+
+on_load(function(target)
+      if has_config("lc_tile_tirx_bridge") then
+          target:add("defines", "LUISA_TILE_TIRX_BRIDGE_EXPORT_DLL")
+          -- The bundled TVM/tvm-ffi headers use throw, so this target needs
+          -- C++ exceptions even though the project default disables them.
+          target:set("exceptions", "cxx")
+        -- The TVM targets carry the tvm/include, tvm-ffi/include and dlpack
+        -- include directories in their public interface, so depending on them
+        -- wires up both the headers and the linker inputs.
+        target:add("deps", "tvm_compiler", "tvm_runtime", "tvm_ffi")
+        -- tvm_ffi.dll / tvm_runtime.dll / tvm_compiler.dll live next to
+        -- luisa-tile in the shared bin directory.
+        if is_plat("macosx") then
+            target:add("rpathdirs", "@loader_path")
+        elseif is_plat("linux") then
+            target:add("rpathdirs", "$ORIGIN")
+        end
+    end
+end)
+
+on_config(function(target)
+    if has_config("lc_tile_tirx_bridge") then
+        local tvm_cmake = path.join(get_config("lc_ext_path"), "tvm", "CMakeLists.txt")
+        if not os.exists(tvm_cmake) then
+            raise("lc_tile_tirx_bridge requires the bundled TVM submodule. " ..
+                  "Run `git submodule update --init src/ext/tvm` (with " ..
+                  "`3rdparty/tvm-ffi` and its `3rdparty/dlpack`).")
+        end
+        -- The bridge targets the TIRx API of TVM 46bc8c6a (the pin documented in
+        -- docs/source/internals/tile/cuda-workflow-b.md). Later upstream TIRx
+        -- refactors removed that API outright (#20370 StmtMutator/StmtVisitor,
+        -- #20381 arith -> sym, #20402 tirx/buffer.h merged into tirx/expr.h,
+        -- #20244 masked access split into special calls) and moved the node
+        -- model (PrimVar, TensorLoad, s_tir SBlock). Detect the break instead of
+        -- emitting hundreds of template errors: fail closed with the migration
+        -- checklist. `--lc_tvm_stack=true` still builds the bundled TVM stack.
+        local tvm_root = path.join(get_config("lc_ext_path"), "tvm")
+        local legacy_buffer = path.join(tvm_root, "include", "tvm", "tirx", "buffer.h")
+        local stmt_functor = path.join(tvm_root, "include", "tvm", "tirx", "stmt_functor.h")
+        local content = os.exists(stmt_functor) and io.readfile(stmt_functor) or ""
+        local has_legacy_api = os.exists(legacy_buffer) and content:find("class TVM_DLL StmtMutator", 1, true) ~= nil
+        if not has_legacy_api then
+            raise("lc_tile_tirx_bridge requires the legacy TIRx API (tvm/tirx/buffer.h + " ..
+                  "tvm::tirx::StmtMutator/StmtVisitor/StmtExprVisitor VisitStmt_/VisitExpr_ hooks), " ..
+                  "which the bundled src/ext/tvm no longer provides.\n" ..
+                  "The bridge needs a TIRx migration before it can build against this TVM: " ..
+                  "tirx::PrimVar -> tvm::PrimVar, arith -> sym, tirx::BufferLoad/ProducerLoad -> " ..
+                  "tvm::TensorLoad (with predicate masks moved to the tirx masked_load/masked_store " ..
+                  "special calls), tirx::SBlock -> s_tir::SBlock, and the StmtFunctor Dispatch_ / " ..
+                  "UnchangedOr + InplaceMode mutator contract.\n" ..
+                  "Options: (a) build the TVM stack alone with `--lc_tile_tirx_bridge=false " ..
+                  "--lc_tvm_stack=true`, (b) pin src/ext/tvm to the documented API-compatible " ..
+                  "commit (46bc8c6a / c7b458e9), or (c) migrate src/tile/bridge/tirx to the current API.")
+        end
+    end
+end)
+target_end()

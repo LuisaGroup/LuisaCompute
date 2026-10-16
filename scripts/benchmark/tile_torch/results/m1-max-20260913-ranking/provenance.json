@@ -1,0 +1,24 @@
+{
+  "format": "tile-ranking-checkpoint-v1",
+  "date": "2026-09-13",
+  "base_commit": "147700bd431eb054694ba649817b7f50a335b2b1",
+  "raw_root": "/tmp/luisa-ranking-validation.abYmHx",
+  "tested_source_root": "/tmp/luisa-next-integration.roZbN8/source",
+  "build_directory": "/tmp/luisa-next-integration.roZbN8/build",
+  "full_build_command": ["cmake", "--build", "/tmp/luisa-next-integration.roZbN8/build", "--parallel", "6"],
+  "full_build_exit_code": 0,
+  "ctest": {"simd": "Timeout at 300.05 s", "metal4": "Passed: 473 assertions, 104 dispatches", "tirx_metal": "Passed: 473 assertions, 104 dispatches"},
+  "initial_source_scope": "Ranking test/harness additions over the existing isolated next source. No structured-map budget repair yet; no protected matrix-initializer WIP. Rejected outlined-tail candidate had been removed before this full build.",
+  "cohorts": {
+    "smoke": {"case": "topk:1,7,3", "direction": "descending", "visits": 5, "status": "5 OK", "timeout_seconds": 45},
+    "matrix": {"cases": ["topk:1,31,1", "topk:17,65,8", "topk:128,257,16", "topk:17,1025,1024", "sort:17,65,65", "sort:17,1025,1025"], "direction": "both", "visits": 60, "status": "60 OK", "timeout_seconds": 30}
+  },
+  "shared_arguments": {"routes": ["xir-simd", "xir-metal4", "tirx-metal", "torch-cpu", "torch-mps"], "rounds": 1, "samples": 3, "sample_ms": 10, "warmup_ms": 30, "threads": 1, "metal4_device_timing": true, "metal_device_timing": "/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-benchmark-metal-timing.dylib"},
+  "python": "uv run --offline --no-project --python 3.13 --with numpy --with torch==2.14.0 python",
+  "original_json_policy": "No paths, hashes, statuses or measurements rewritten. evidence.tar.gz retains the complete original directory; matrix.json.gz and smoke.json.gz are convenience copies.",
+  "payloads": "All inputs, values and int64 indices included. Guard arrays were checked at execution, but the export only contains interior payloads.",
+  "byte_verification": "evidence.tar.gz extracted into a fresh directory and diff -qr matched the entire raw directory before read-only audit.",
+  "independent_audit": "audit.py on the extracted evidence passed 65 full output pairs and recomputed host medians. It does not rerun kernels or independently validate GPU counter records.",
+  "identity_limit": "Executable, build/bin library and LLVM hashes retained; not all dynamically loaded external dependencies are recursively fingerprinted. Full binary/toolchain closure and actual ORC native-entry objects are not archived.",
+  "performance_status": "Single-order screening under observed desktop coactivity, not a balanced ranking, calibrated policy, pure CPU kernel measurement or performance-goal acceptance. Later repair measurements must be separate."
+}

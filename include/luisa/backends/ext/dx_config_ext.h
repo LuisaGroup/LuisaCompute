@@ -57,6 +57,15 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
     virtual bool UseEnhancedBarrier() const noexcept { return false; }
     virtual bool UseExperimental() const noexcept { return false; }
 
+    // Command reordering merges consecutive commands whose resource accesses do
+    // not alias into one barrier-free layer, so several small dispatches can
+    // overlap on the GPU instead of being serialized by a barrier per command.
+    // Return false to submit the batch in strict order instead (a barrier
+    // boundary between every pair of commands), which is what
+    // LUISA_DISABLE_COMMAND_REORDER=1 forces process-wide. The backend queries
+    // this once per batch, so an override may change at runtime.
+    [[nodiscard]] virtual bool EnableCommandReorder() const noexcept { return true; }
+
     // Return a custom Agility SDK version (0 = use default / D3D12_PREVIEW_SDK_VERSION)
     [[nodiscard]] virtual uint32_t GetSDKVersion() const noexcept { return 0u; }
 
@@ -66,6 +75,16 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
 
     // Return true to use system <d3d12.h> instead of bundled LCAgilitySDK headers
     [[nodiscard]] virtual bool UseSystemD3D12Headers() const noexcept { return false; }
+    // Force the software (fallback) BVH: `create_mesh` / `create_accel` hand out
+    // the handles of `lc::fallback_rtx::FallbackRtxDevice` and every build and
+    // trace of this device goes through the hand-written two-level LBVH of
+    // src/backends/common/rtx instead of DXR.  The fallback is enabled
+    // automatically when the DXGI device reports no ray-tracing support
+    // (`D3D12_FEATURE_D3D12_OPTIONS5::RaytracingTier ==
+    // D3D12_RAYTRACING_TIER_NOT_SUPPORTED`) or has no `ID3D12Device5`, so this is
+    // only needed to *force* it on a device that does support DXR (which is what
+    // the tests do).  When the fallback is off, nothing about the device changes.
+    [[nodiscard]] virtual bool use_fallback_rtx() const noexcept { return false; }
 
     // Called during create_device
     virtual void ReadbackDX12Device(

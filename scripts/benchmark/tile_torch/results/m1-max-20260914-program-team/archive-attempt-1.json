@@ -1,0 +1,8 @@
+{
+  "status": "Error",
+  "stage": "historical overlay tar inventory before archive output creation",
+  "error": "ValueError: historical overlay tar mismatch: owner-slot",
+  "cause": "Initial archive helper counted macOS AppleDouble ._* metadata as source files. Independent inspection found all 11 full4 and 14 full5 source hashes matched; only corresponding AppleDouble metadata entries were extra.",
+  "resolution": "Archive helper now preserves and hashes these metadata separately, verifies their magic and matching source companion, and retains exact source hash equality. No original tar or compiler/benchmark admission changed.",
+  "native_execution": false
+}

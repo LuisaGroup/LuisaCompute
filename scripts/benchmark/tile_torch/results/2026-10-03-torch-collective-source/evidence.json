@@ -1,0 +1,1046 @@
+{
+  "schema": 1,
+  "observed": "2026-10-03",
+  "versions": {
+    "torch": "2.14.1+cu130",
+    "torch_git": "5c4886908584029761b579af026dcfb627c84070",
+    "triton_distribution": "triton-windows 3.8.0.post29",
+    "triton_compiler": "3.8.0"
+  },
+  "scope": "Source review of retained validated October 2 packets. No new benchmark, GPU trace or compiler execution. Artifact/source receipts describe original local bytes, which are not bundled. This projected JSON has its own separate public receipt.",
+  "source_receipts": [
+    {
+      "path": "${SITE_PACKAGES}/torch/version.py",
+      "sha256": "84e179afbd773ecf41d671a2fa0dd643758f8830f247d563affe419b52ae7e06",
+      "bytes": 327
+    },
+    {
+      "path": "${SITE_PACKAGES}/torch/_inductor/choices.py",
+      "sha256": "4a990743f94d820241c2bea2e631ab28d60db462181a5e51581c4038da3fae35",
+      "bytes": 33130
+    },
+    {
+      "path": "${SITE_PACKAGES}/torch/_inductor/ir.py",
+      "sha256": "ae18b570ffb524eb3e9b7a5ebcf17b9aa762cb492e781dfd134d82dfe4a693bc",
+      "bytes": 462591
+    },
+    {
+      "path": "${SITE_PACKAGES}/torch/_inductor/codegen/triton.py",
+      "sha256": "f533949df423872849aac71a9375cf2a9d56d246340cbec7be749bc8dd5045c4",
+      "bytes": 359096
+    },
+    {
+      "path": "${SITE_PACKAGES}/torch/_inductor/codegen/triton_split_scan.py",
+      "sha256": "0cfe2b65b7c481443cddfca5951e3515e7c30d5a6bc52f19bae93b7e4f2223e6",
+      "bytes": 8233
+    },
+    {
+      "path": "${SITE_PACKAGES}/torch/_inductor/heuristics/triton_codegen/reduction.py",
+      "sha256": "eb88b214e9ff2ef72b168cddc7231be68d7b477c6f96e25f373e5f5bb93da7f7",
+      "bytes": 27294
+    },
+    {
+      "path": "${SITE_PACKAGES}/torch/_inductor/runtime/triton_heuristics.py",
+      "sha256": "7d1c09f6c3765e5f68321898bf175b21bd98f5233b873dd6c165195660fcc76f",
+      "bytes": 216656
+    },
+    {
+      "path": "${SITE_PACKAGES}/torch/_inductor/runtime/coordinate_descent_tuner.py",
+      "sha256": "d143c518c1c23d6f926a3f4d18aeedb79628ab060d03938f6972a24f6c55fc44",
+      "bytes": 18117
+    },
+    {
+      "path": "${SITE_PACKAGES}/triton/backends/nvidia/compiler.py",
+      "sha256": "2ec70107bf28eabe082b9c635c41d72594685c3e3d3393404f7646bb279b4c41",
+      "bytes": 26634
+    },
+    {
+      "path": "${SITE_PACKAGES}/triton/language/core.py",
+      "sha256": "b4966729f21f0db6f20fa4cb9b2b5402c5735e1424ffba05dbd8f480dedee790",
+      "bytes": 143371
+    },
+    {
+      "path": "${SITE_PACKAGES}/triton/language/standard.py",
+      "sha256": "113296c74fb8b8dcf67a1b82f71926842eb66d0c77fe2c4f8d0f315715a38fd4",
+      "bytes": 17257
+    }
+  ],
+  "cases": [
+    {
+      "case": {
+        "id": "aligned16-scan-128x8192-fp16",
+        "operation": "scan",
+        "dimensions": [
+          128,
+          8192
+        ],
+        "tile": [
+          1,
+          8192,
+          1
+        ],
+        "precision": "fp16",
+        "seed": 20261001,
+        "pattern": "cancellation",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-fp16/case.json",
+        "sha256": "008613c1ef8f4d15f88f982d643fa5cd92c78e7eabb5735c78c4db44a18283ad",
+        "bytes": 30434
+      },
+      "native_p50_us": 12.344130527826003,
+      "torch_p50_us": 5.465292794363839,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=128, elementwork=32768, read-bytes=16384, write-bytes=16384, tile-live-bytes=106496, largest-tile=8192; collective=kind3:width8192:independent1",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-fp16/torch/artifacts/inductor-cache/4o/500b3242ebd3f9c04990e5ca29a659a4821415d4386b843dc6c65b90b1dc2d02.best_config",
+            "sha256": "6608d3dfa24040e04f52753d5daa1ca0f201135a2fc5cbd19adc511b291d2d7f",
+            "bytes": 226
+          },
+          "config": {
+            "XBLOCK": 2,
+            "R0_BLOCK": 2048,
+            "num_warps": 16,
+            "num_stages": 1,
+            "configs_hash": "d3ca0c81351eee0a3c6b75587f5b1be891bc9021bf90fe732383ef6bfd664427",
+            "found_by_coordesc": true,
+            "time_taken_ms": 4190,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_red_fused__to_copy_cumsum_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-fp16/torch/artifacts/inductor-cache/uo/cuoyml52nng7cwxkzlnja5fe2ro4pbjwmdet6ld243eeaurkk4kb.py",
+            "sha256": "61b0b8734bce0b27a1a120511c20752b27c14ae125cdca7c3fb4e5079baff59c",
+            "bytes": 8228
+          },
+          "actual_run_callees": [
+            "triton_red_fused__to_copy_cumsum_0.run"
+          ],
+          "heuristic": [
+            "reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-fp16/torch/artifacts/triton-cache/SWYI2BY54PEE6EVNTHVUMJ3V2QUCY4JNI7MHSAVYCFC4ZDF7TETQ/triton_red_fused__to_copy_cumsum_0.ttgir",
+          "sha256": "67acfb6698b859bbbf267f126a15fc98af10656875a189fe8861c961a009fb83",
+          "bytes": 14558
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-fp16/torch/artifacts/triton-cache/SWYI2BY54PEE6EVNTHVUMJ3V2QUCY4JNI7MHSAVYCFC4ZDF7TETQ/triton_red_fused__to_copy_cumsum_0.json",
+          "sha256": "c347d20177c0207661fed1d115e3471bc35549c38c5a6180b086b6ceaa50b89f",
+          "bytes": 1157
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-fp16/torch/artifacts/triton-cache/SWYI2BY54PEE6EVNTHVUMJ3V2QUCY4JNI7MHSAVYCFC4ZDF7TETQ/triton_red_fused__to_copy_cumsum_0.ptx",
+          "sha256": "85f8dbac1e805d605b672109441aace42d2db8305dbe2d7aaeb35549c772e35f",
+          "bytes": 29281
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.v4.b32",
+          "ld.shared.b32",
+          "st.global.v4.b32",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [1, 32], warpsPerCTA = [2, 8], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 16,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 64,
+          "name": "triton_red_fused__to_copy_cumsum_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    },
+    {
+      "case": {
+        "id": "aligned16-scan-128x8192-bf16",
+        "operation": "scan",
+        "dimensions": [
+          128,
+          8192
+        ],
+        "tile": [
+          1,
+          8192,
+          1
+        ],
+        "precision": "bf16",
+        "seed": 20261001,
+        "pattern": "cancellation",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-bf16/case.json",
+        "sha256": "b052fc7772c25c71d561ef819aca70ff8d4fccc7d0dc44ebe610cecd95f51c30",
+        "bytes": 30440
+      },
+      "native_p50_us": 12.356772717134453,
+      "torch_p50_us": 5.4797961495139385,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=128, elementwork=32768, read-bytes=16384, write-bytes=16384, tile-live-bytes=106496, largest-tile=8192; collective=kind3:width8192:independent1",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-bf16/torch/artifacts/inductor-cache/5g/3e59a562732012601e989acf4bf87c1e5e332ac95a848813d322af6e96dd0852.best_config",
+            "sha256": "0eaaec414f4df2a19d889e9640bf493f070b0f56523230e5a8e2a103fee6a502",
+            "bytes": 226
+          },
+          "config": {
+            "XBLOCK": 2,
+            "R0_BLOCK": 2048,
+            "num_warps": 16,
+            "num_stages": 1,
+            "configs_hash": "d3ca0c81351eee0a3c6b75587f5b1be891bc9021bf90fe732383ef6bfd664427",
+            "found_by_coordesc": true,
+            "time_taken_ms": 3557,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_red_fused__to_copy_cumsum_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-bf16/torch/artifacts/inductor-cache/j4/cj46bfshxgziblhm25hwamdq3qoly6mmh4o523qqko27oqwpisfc.py",
+            "sha256": "c804cec9b2eba53def5537a30f03a6c61095f17ad79f88657c0988656496457d",
+            "bytes": 8233
+          },
+          "actual_run_callees": [
+            "triton_red_fused__to_copy_cumsum_0.run"
+          ],
+          "heuristic": [
+            "reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-bf16/torch/artifacts/triton-cache/LAJ55PNPBN6JPJVYAYDBHUQK3MA53UCOQT3FP2MEZ4XUX5I7MGKQ/triton_red_fused__to_copy_cumsum_0.ttgir",
+          "sha256": "0a47b213a2d6685c025b6ac90aa0fa3c2860eb0bf214f915c58a060f745da089",
+          "bytes": 14571
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-bf16/torch/artifacts/triton-cache/LAJ55PNPBN6JPJVYAYDBHUQK3MA53UCOQT3FP2MEZ4XUX5I7MGKQ/triton_red_fused__to_copy_cumsum_0.json",
+          "sha256": "31d59a67c4a17836454ad1c745b0ae3cbc5d3dac42e96f041c47b7d4b40ba4ae",
+          "bytes": 1157
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-scan-128x8192-bf16/torch/artifacts/triton-cache/LAJ55PNPBN6JPJVYAYDBHUQK3MA53UCOQT3FP2MEZ4XUX5I7MGKQ/triton_red_fused__to_copy_cumsum_0.ptx",
+          "sha256": "af47de3e791bc864810f8ec14ee03225f85cf6c71ba4db858b708946fd3fc49c",
+          "bytes": 29295
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.v4.b32",
+          "ld.shared.b32",
+          "st.global.v4.b32",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [1, 32], warpsPerCTA = [2, 8], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 16,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 64,
+          "name": "triton_red_fused__to_copy_cumsum_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    },
+    {
+      "case": {
+        "id": "rowblock-reduce_sum-17x1024-fp16-br4",
+        "operation": "reduce_sum",
+        "dimensions": [
+          17,
+          1024
+        ],
+        "tile": [
+          4,
+          1024,
+          1
+        ],
+        "precision": "fp16",
+        "seed": 20261001,
+        "pattern": "cancellation",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_sum-17x1024-fp16-br4/case.json",
+        "sha256": "a3ca97938c32219a86396edc08ddd4c670f33144ba286e387ed9647908e82af4",
+        "bytes": 30869
+      },
+      "native_p50_us": 2.1990931557177396,
+      "torch_p50_us": 0.9080921079716894,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=5, elementwork=6149, read-bytes=8192, write-bytes=8, tile-live-bytes=25600, largest-tile=4096; collective=kind0:width1024:independent4",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_sum-17x1024-fp16-br4/torch/artifacts/inductor-cache/zt/1702eaa211034880e0262b6459a4c92ad64f266fe8740a840ee0392cc05cfdec.best_config",
+            "sha256": "980fcd026df52853f8260e90c87e208768ba1f89ff9ba48fe4b45e259dfe8afe",
+            "bytes": 207
+          },
+          "config": {
+            "XBLOCK": 1,
+            "num_warps": 8,
+            "num_stages": 1,
+            "configs_hash": "e73e9bfafafce56e2ef7d32144f762f20f1222ca2c90fd2627584187b6c442ab",
+            "found_by_coordesc": true,
+            "time_taken_ms": 1834,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_per_fused__to_copy_sum_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_sum-17x1024-fp16-br4/torch/artifacts/inductor-cache/ix/cixpzy2szfxne5fgepq4fxlqeln3qe4mcpq5ldcyxrjn332xl7nl.py",
+            "sha256": "174e58ccf18bd58277aff979985a2ee388bc486f873e4a4cc114b64c85068cf9",
+            "bytes": 7564
+          },
+          "actual_run_callees": [
+            "triton_per_fused__to_copy_sum_0.run"
+          ],
+          "heuristic": [
+            "persistent_reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_sum-17x1024-fp16-br4/torch/artifacts/triton-cache/NH2C2WKTOQPWAUYY7BLRQWPMOXQEFJSUMPC6XLBP4PR7JOWY55DQ/triton_per_fused__to_copy_sum_0.ttgir",
+          "sha256": "784bd087b637b8836abedfab3e2def95ee6204781ac2550bf22746614c01473f",
+          "bytes": 7164
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_sum-17x1024-fp16-br4/torch/artifacts/triton-cache/NH2C2WKTOQPWAUYY7BLRQWPMOXQEFJSUMPC6XLBP4PR7JOWY55DQ/triton_per_fused__to_copy_sum_0.json",
+          "sha256": "c311ab4d90ae2c09bb7cc635cfaeba2ea104668cd9ffe27d30db5ed1c97b92b5",
+          "bytes": 1153
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_sum-17x1024-fp16-br4/torch/artifacts/triton-cache/NH2C2WKTOQPWAUYY7BLRQWPMOXQEFJSUMPC6XLBP4PR7JOWY55DQ/triton_per_fused__to_copy_sum_0.ptx",
+          "sha256": "d520f512eac3587d83bc09ec7c6a938afc920dcebf500847d9c37dfe1cae1724",
+          "bytes": 15969
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.v2.b32",
+          "ld.shared.b32",
+          "st.global.b16",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 8], order = [1, 0]}>",
+          "#blocked1 = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [32, 1], warpsPerCTA = [8, 1], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 8,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 32,
+          "name": "triton_per_fused__to_copy_sum_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    },
+    {
+      "case": {
+        "id": "rowblock-reduce_max-17x1024-fp16-br4",
+        "operation": "reduce_max",
+        "dimensions": [
+          17,
+          1024
+        ],
+        "tile": [
+          4,
+          1024,
+          1
+        ],
+        "precision": "fp16",
+        "seed": 20261001,
+        "pattern": "random",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_max-17x1024-fp16-br4/case.json",
+        "sha256": "074cfef8a845bbb977b641174707b9876a332abbac9290a03a00ca68fb3de468",
+        "bytes": 30811
+      },
+      "native_p50_us": 2.164782995465158,
+      "torch_p50_us": 0.9135743301280224,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=5, elementwork=10245, read-bytes=8192, write-bytes=8, tile-live-bytes=33792, largest-tile=4096; collective=kind2:width1024:independent4",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_max-17x1024-fp16-br4/torch/artifacts/inductor-cache/cd/30e4e629d2b37a11cbff76f9766fbcaa4a3006598f9770a021a0c00407065236.best_config",
+            "sha256": "f7bf2cb071f7ffd868fa7613dcd795e4b34a3dc38d08edb3b959243e67a06f8a",
+            "bytes": 207
+          },
+          "config": {
+            "XBLOCK": 1,
+            "num_warps": 8,
+            "num_stages": 1,
+            "configs_hash": "e73e9bfafafce56e2ef7d32144f762f20f1222ca2c90fd2627584187b6c442ab",
+            "found_by_coordesc": true,
+            "time_taken_ms": 1554,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_per_fused_amax_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_max-17x1024-fp16-br4/torch/artifacts/inductor-cache/b2/cb2jiyvvpofhcqi6dki4nbb2iw2nwxnqnnrq5uubvc6ida25k4ph.py",
+            "sha256": "158b6b52180b0fd760cd7ff7bcebf1944e07bc915312da09ea14b452fc9e9ea2",
+            "bytes": 7103
+          },
+          "actual_run_callees": [
+            "triton_per_fused_amax_0.run"
+          ],
+          "heuristic": [
+            "persistent_reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_max-17x1024-fp16-br4/torch/artifacts/triton-cache/5LYE7VL26C7SHDGJTYBGOKQSCOWI2TUDBLN3GAYP4XZONWOTWB4Q/triton_per_fused_amax_0.ttgir",
+          "sha256": "2787e1a0ee417b3cf8961a74c0b6421a09bd0e1e5258f7c14667a5fdee2a48fb",
+          "bytes": 7188
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_max-17x1024-fp16-br4/torch/artifacts/triton-cache/5LYE7VL26C7SHDGJTYBGOKQSCOWI2TUDBLN3GAYP4XZONWOTWB4Q/triton_per_fused_amax_0.json",
+          "sha256": "65f1b01bea64074dd73a5cc176ddc057ff3b4df862d8f39b43cd80c579b78475",
+          "bytes": 1145
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-reduce_max-17x1024-fp16-br4/torch/artifacts/triton-cache/5LYE7VL26C7SHDGJTYBGOKQSCOWI2TUDBLN3GAYP4XZONWOTWB4Q/triton_per_fused_amax_0.ptx",
+          "sha256": "90ca843f6c40efef46950b9b166849d470dba4b853f4f48651d009fa519e1d07",
+          "bytes": 16487
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.v2.b32",
+          "ld.shared.b32",
+          "st.global.b16",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 8], order = [1, 0]}>",
+          "#blocked1 = #ttg.blocked<{sizePerThread = [1, 1], threadsPerWarp = [32, 1], warpsPerCTA = [8, 1], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 8,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 32,
+          "name": "triton_per_fused_amax_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    },
+    {
+      "case": {
+        "id": "rowblock-scan-17x1024-fp16-br4",
+        "operation": "scan",
+        "dimensions": [
+          17,
+          1024
+        ],
+        "tile": [
+          4,
+          1024,
+          1
+        ],
+        "precision": "fp16",
+        "seed": 20261001,
+        "pattern": "cancellation",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/rowblock-scan-17x1024-fp16-br4/case.json",
+        "sha256": "400b99474217df3632a8162d75fca6c0c1e6194233136d80a8b6fe645ee0be0e",
+        "bytes": 30624
+      },
+      "native_p50_us": 2.6952377189657843,
+      "torch_p50_us": 1.0025750622228011,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=5, elementwork=10241, read-bytes=8192, write-bytes=8192, tile-live-bytes=32768, largest-tile=4096; collective=kind3:width1024:independent4",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/rowblock-scan-17x1024-fp16-br4/torch/artifacts/inductor-cache/l3/98a5ab1b8930350bfcdc03123f49b7dff41df4ed54f741eb56a37928d51f1368.best_config",
+            "sha256": "ca124127ac4aea83e56e3bbba6e69e608ef7245d04a8c5061e304a6d8758048d",
+            "bytes": 208
+          },
+          "config": {
+            "XBLOCK": 1,
+            "num_warps": 16,
+            "num_stages": 1,
+            "configs_hash": "e73e9bfafafce56e2ef7d32144f762f20f1222ca2c90fd2627584187b6c442ab",
+            "found_by_coordesc": true,
+            "time_taken_ms": 2456,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_per_fused__to_copy_cumsum_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/rowblock-scan-17x1024-fp16-br4/torch/artifacts/inductor-cache/f4/cf42ofqgsjidgmuhq7piwaznc73tve47itbps4i2pecsn7j6azc2.py",
+            "sha256": "91e0abf36b6b69ce6b7a216fb2f24341242e5ac2ca6301aeaf068173f884fa53",
+            "bytes": 7731
+          },
+          "actual_run_callees": [
+            "triton_per_fused__to_copy_cumsum_0.run"
+          ],
+          "heuristic": [
+            "persistent_reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-scan-17x1024-fp16-br4/torch/artifacts/triton-cache/GBN6DIE7WEHJ3AKBWBOV7NPEJWQTQCUFMCU5DHDZUYR6QHH7UILA/triton_per_fused__to_copy_cumsum_0.ttgir",
+          "sha256": "01eec09d7d38f96e721a6c1732b1a8f2b388c637de3773e7b61f843ea2bcd9c0",
+          "bytes": 5927
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-scan-17x1024-fp16-br4/torch/artifacts/triton-cache/GBN6DIE7WEHJ3AKBWBOV7NPEJWQTQCUFMCU5DHDZUYR6QHH7UILA/triton_per_fused__to_copy_cumsum_0.json",
+          "sha256": "34917f2ad21711617e0bb871bcd1607f09cd15501ab7d54165b7e7fb5deb20fc",
+          "bytes": 1157
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/rowblock-scan-17x1024-fp16-br4/torch/artifacts/triton-cache/GBN6DIE7WEHJ3AKBWBOV7NPEJWQTQCUFMCU5DHDZUYR6QHH7UILA/triton_per_fused__to_copy_cumsum_0.ptx",
+          "sha256": "9be2224fc63a161f619151ef3ea2628bdc46e614bf9c9707bb401b7e0eb544f0",
+          "bytes": 19976
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.b32",
+          "ld.shared.v4.b32",
+          "st.global.b32",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 2], threadsPerWarp = [1, 32], warpsPerCTA = [1, 16], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 16,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 64,
+          "name": "triton_per_fused__to_copy_cumsum_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    },
+    {
+      "case": {
+        "id": "aligned16-rmsnorm-1x8192-fp16",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1,
+          8192
+        ],
+        "tile": [
+          1,
+          8192,
+          1
+        ],
+        "precision": "fp16",
+        "seed": 20261001,
+        "pattern": "random",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/aligned16-rmsnorm-1x8192-fp16/case.json",
+        "sha256": "5e0cb446cc5bf97850dc8aa2475ba5cc58c27ce93cab978e59f563e6be05f3b7",
+        "bytes": 30671
+      },
+      "native_p50_us": 2.89009117569763,
+      "torch_p50_us": 1.4143708619204434,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=1, elementwork=73731, read-bytes=32768, write-bytes=16384, tile-live-bytes=106496, largest-tile=8192; collective=kind0:width8192:independent1",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/aligned16-rmsnorm-1x8192-fp16/torch/artifacts/inductor-cache/6r/e63b4d0abe749bfffb39a226d6e478622f30a4004fccfa5936e34c5f2158cd2d.best_config",
+            "sha256": "4a6445619b79f14c1b3ba4bd64245001d9ec2472d2fe151ceda746453727349e",
+            "bytes": 226
+          },
+          "config": {
+            "XBLOCK": 1,
+            "R0_BLOCK": 8192,
+            "num_warps": 16,
+            "num_stages": 1,
+            "configs_hash": "6c963cc703a5123121a31a1d626b7c0b7eb8979125f845021f70be1aac87a368",
+            "found_by_coordesc": true,
+            "time_taken_ms": 3298,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_red_fused__to_copy_add_mean_mul_rsqrt_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/aligned16-rmsnorm-1x8192-fp16/torch/artifacts/inductor-cache/us/cussv6jupwmjatl4rngguf445nywd2a4kr6m2l4nlwhhsnn24dsq.py",
+            "sha256": "b9cb1b485958f0b824b3c5af96427caea5fb1787cb9a0389e79382b684d17305",
+            "bytes": 10585
+          },
+          "actual_run_callees": [
+            "triton_red_fused__to_copy_add_mean_mul_rsqrt_0.run"
+          ],
+          "heuristic": [
+            "reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-rmsnorm-1x8192-fp16/torch/artifacts/triton-cache/3PBZV67THB6TSYSOLLEXFYTK4EOZXMLS54EHNOEO3PZPBOWOTJPA/triton_red_fused__to_copy_add_mean_mul_rsqrt_0.ttgir",
+          "sha256": "df4fc84bcfec642ef402d25e1728b9d8b3427578c8f21237db4739e5967812a5",
+          "bytes": 9868
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-rmsnorm-1x8192-fp16/torch/artifacts/triton-cache/3PBZV67THB6TSYSOLLEXFYTK4EOZXMLS54EHNOEO3PZPBOWOTJPA/triton_red_fused__to_copy_add_mean_mul_rsqrt_0.json",
+          "sha256": "f1688a7ec10ff329e30b856469147ac8ea65136975a2e6a482bfde1cf59c0062",
+          "bytes": 1169
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/aligned16-rmsnorm-1x8192-fp16/torch/artifacts/triton-cache/3PBZV67THB6TSYSOLLEXFYTK4EOZXMLS54EHNOEO3PZPBOWOTJPA/triton_red_fused__to_copy_add_mean_mul_rsqrt_0.ptx",
+          "sha256": "619c05c4949a8705c9c21a76aa5fe44eafae11c9c576b8589c65de505601fde5",
+          "bytes": 30623
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.v4.b32",
+          "ld.global.L1::evict_last.L2::cache_hint.v4.b32",
+          "ld.shared.b32",
+          "st.global.v4.b32",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [1, 32], warpsPerCTA = [1, 16], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 16,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 64,
+          "name": "triton_red_fused__to_copy_add_mean_mul_rsqrt_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    },
+    {
+      "case": {
+        "id": "coverage-rmsnorm-128x8192-bf16-tile1x8192x1",
+        "operation": "rmsnorm",
+        "dimensions": [
+          128,
+          8192
+        ],
+        "tile": [
+          1,
+          8192,
+          1
+        ],
+        "precision": "bf16",
+        "seed": 20261001,
+        "pattern": "random",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/coverage-rmsnorm-128x8192-bf16-tile1x8192x1/case.json",
+        "sha256": "6165f6fadd64dc44804de0fd5a09995635c6b9c6275b8663c3d7136317570c2c",
+        "bytes": 31075
+      },
+      "native_p50_us": 7.73224838136688,
+      "torch_p50_us": 4.8822493600373225,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=128, elementwork=73731, read-bytes=32768, write-bytes=16384, tile-live-bytes=106496, largest-tile=8192; collective=kind0:width8192:independent1",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/coverage-rmsnorm-128x8192-bf16-tile1x8192x1/torch/artifacts/inductor-cache/y7/e15989b3c00f6488addbc486f5d3fc64cc8ddc6286f3fc69594245fa6f596372.best_config",
+            "sha256": "9a80a326f7d0ebcfe55fb7195b50a0004064e3fd457d3b7c91548f08cb057f9f",
+            "bytes": 226
+          },
+          "config": {
+            "XBLOCK": 1,
+            "R0_BLOCK": 2048,
+            "num_warps": 16,
+            "num_stages": 1,
+            "configs_hash": "83ec67589133746011f3cdfbb626537506a6c31ef53b0267743357ae08f64c46",
+            "found_by_coordesc": true,
+            "time_taken_ms": 4557,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_red_fused__to_copy_add_mean_mul_rsqrt_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/coverage-rmsnorm-128x8192-bf16-tile1x8192x1/torch/artifacts/inductor-cache/yj/cyjxeew2gcxlrxwl4m2ltwrjwsdzrdvf7aon5klhnrqqllud4rvw.py",
+            "sha256": "8b9dce3f261d0717c164f1d1e39eb9773821f647539ae803dd49454276f2ca8e",
+            "bytes": 10681
+          },
+          "actual_run_callees": [
+            "triton_red_fused__to_copy_add_mean_mul_rsqrt_0.run"
+          ],
+          "heuristic": [
+            "reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-rmsnorm-128x8192-bf16-tile1x8192x1/torch/artifacts/triton-cache/MITFS5TVQ22NJNOXRCLR5HLDO2S4REF424K7OWF3XF6VWOJJMI3A/triton_red_fused__to_copy_add_mean_mul_rsqrt_0.ttgir",
+          "sha256": "606c5390e4d341d9432d94ef0566846455de3558acfa74069b26ad4910f5c4c8",
+          "bytes": 15707
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-rmsnorm-128x8192-bf16-tile1x8192x1/torch/artifacts/triton-cache/MITFS5TVQ22NJNOXRCLR5HLDO2S4REF424K7OWF3XF6VWOJJMI3A/triton_red_fused__to_copy_add_mean_mul_rsqrt_0.json",
+          "sha256": "7531582c789dc3a4c637fbc078baab4f48746e7dc27b662dfd2384a4d48f1a0e",
+          "bytes": 1169
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-rmsnorm-128x8192-bf16-tile1x8192x1/torch/artifacts/triton-cache/MITFS5TVQ22NJNOXRCLR5HLDO2S4REF424K7OWF3XF6VWOJJMI3A/triton_red_fused__to_copy_add_mean_mul_rsqrt_0.ptx",
+          "sha256": "4782015cea697942543afbda22809855324351ac8c608a6323ae38b00cd89d35",
+          "bytes": 41254
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.v2.b32",
+          "ld.global.L1::evict_last.L2::cache_hint.v2.b32",
+          "ld.shared.b32",
+          "st.global.v2.b32",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 16], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 16,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 64,
+          "name": "triton_red_fused__to_copy_add_mean_mul_rsqrt_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    },
+    {
+      "case": {
+        "id": "coverage-layernorm-128x8192-bf16-tile1x8192x1",
+        "operation": "layernorm",
+        "dimensions": [
+          128,
+          8192
+        ],
+        "tile": [
+          1,
+          8192,
+          1
+        ],
+        "precision": "bf16",
+        "seed": 20261001,
+        "pattern": "random",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/coverage-layernorm-128x8192-bf16-tile1x8192x1/case.json",
+        "sha256": "17f2fbbe7a15d7b3c9ceec40f3872eb6919925b02e677d91432043befd0df31a",
+        "bytes": 31102
+      },
+      "native_p50_us": 11.216057864102451,
+      "torch_p50_us": 8.091120955967668,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=128, elementwork=98308, read-bytes=49152, write-bytes=16384, tile-live-bytes=106496, largest-tile=8192; collective=kind0:width8192:independent1; collective=kind0:width8192:independent1",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/coverage-layernorm-128x8192-bf16-tile1x8192x1/torch/artifacts/inductor-cache/ak/6022c80bb3a4ab65c4f06f9f89317cc4d762cf96cd2965869521e56a5b8c66e6.best_config",
+            "sha256": "46a03373248db6d63665989bd8c45be8ef153ebf9e5a472cff23c477be2e9aea",
+            "bytes": 226
+          },
+          "config": {
+            "XBLOCK": 1,
+            "R0_BLOCK": 2048,
+            "num_warps": 16,
+            "num_stages": 1,
+            "configs_hash": "83ec67589133746011f3cdfbb626537506a6c31ef53b0267743357ae08f64c46",
+            "found_by_coordesc": true,
+            "time_taken_ms": 6129,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_red_fused__to_copy_native_layer_norm_view_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/coverage-layernorm-128x8192-bf16-tile1x8192x1/torch/artifacts/inductor-cache/53/c536nxlsv4icojlmcswm4n6bl6wt6qemk7wn66dz2456nv2l2r3f.py",
+            "sha256": "1c6138570770f9c426825036503dbc97f10d16a0c0f0f4f40f83874ebcaa515e",
+            "bytes": 12583
+          },
+          "actual_run_callees": [
+            "triton_red_fused__to_copy_native_layer_norm_view_0.run"
+          ],
+          "heuristic": [
+            "reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-layernorm-128x8192-bf16-tile1x8192x1/torch/artifacts/triton-cache/BOJJE7QWPIPUM4ZRX6NZGY6FK36GWVZ57WTKAITDIY6XFAKPZJFA/triton_red_fused__to_copy_native_layer_norm_view_0.ttgir",
+          "sha256": "faefe5c747d617cd94cb90ab9821f669fd9e246d97d9fed7ec42c540740e9c5a",
+          "bytes": 26377
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-layernorm-128x8192-bf16-tile1x8192x1/torch/artifacts/triton-cache/BOJJE7QWPIPUM4ZRX6NZGY6FK36GWVZ57WTKAITDIY6XFAKPZJFA/triton_red_fused__to_copy_native_layer_norm_view_0.json",
+          "sha256": "2d9f4379495d75db87911a461bbe2f23719efcef683ed05a63fc61c6356eb912",
+          "bytes": 1174
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-layernorm-128x8192-bf16-tile1x8192x1/torch/artifacts/triton-cache/BOJJE7QWPIPUM4ZRX6NZGY6FK36GWVZ57WTKAITDIY6XFAKPZJFA/triton_red_fused__to_copy_native_layer_norm_view_0.ptx",
+          "sha256": "e55db6d1dfbe8851863bf800877fd0612d53a1d7c53f89df3949ddac4eb6548c",
+          "bytes": 68834
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.v2.b32",
+          "ld.global.L1::evict_last.L2::cache_hint.v2.b32",
+          "ld.shared.b32",
+          "st.global.v2.b32",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 4], threadsPerWarp = [1, 32], warpsPerCTA = [1, 16], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 16,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 192,
+          "name": "triton_red_fused__to_copy_native_layer_norm_view_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    },
+    {
+      "case": {
+        "id": "coverage-softmax-1024x512-fp16-tile1x512x1",
+        "operation": "softmax",
+        "dimensions": [
+          1024,
+          512
+        ],
+        "tile": [
+          1,
+          512,
+          1
+        ],
+        "precision": "fp16",
+        "seed": 20261001,
+        "pattern": "random",
+        "fast_math": false
+      },
+      "case_receipt": {
+        "path": ".deps/oct02-collective-workers0-v2/coverage-softmax-1024x512-fp16-tile1x512x1/case.json",
+        "sha256": "ee4988aca9d753f8615eaf6e2215b607aa2a5adb16ebfd9a7dcd53b076f848d3",
+        "bytes": 30999
+      },
+      "native_p50_us": 5.720578995219038,
+      "torch_p50_us": 3.2821519698830848,
+      "native_realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); collective-work-v1: programs=1024, elementwork=4608, read-bytes=1024, write-bytes=1024, tile-live-bytes=6656, largest-tile=512; collective=kind2:width512:independent1; collective=kind0:width512:independent1",
+      "generated_kernel_count": 1,
+      "external_calls": [],
+      "retained_autotune": [
+        {
+          "receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/coverage-softmax-1024x512-fp16-tile1x512x1/torch/artifacts/inductor-cache/qp/a16bef3b75f1f9726c4fcc3495777eb7debc4e508fceedc40dcc64c3aa29855f.best_config",
+            "sha256": "9d0f27b7f68d9a928ed02b028486dbd3f7563ce44490c84fd9157464d09c4170",
+            "bytes": 207
+          },
+          "config": {
+            "XBLOCK": 2,
+            "num_warps": 4,
+            "num_stages": 1,
+            "configs_hash": "0eace02218cc2f3a11560f201fa8eb59dad8d9edbca2bb6d60d7f9b5228c3476",
+            "found_by_coordesc": true,
+            "time_taken_ms": 3289,
+            "triton_cache_hash": null
+          }
+        }
+      ],
+      "autotune_scope": "Retained local cache record; file hash captured now, not separately frozen in the historical packet.",
+      "kernels": [
+        {
+          "name": "triton_per_fused__softmax__to_copy_prepare_softmax_online_0",
+          "wrapper_receipt": {
+            "path": ".deps/oct02-collective-workers0-v2/coverage-softmax-1024x512-fp16-tile1x512x1/torch/artifacts/inductor-cache/rl/crlidm7dacotjg7nlr57j7kqx2g7vofei7rilitpar64q4vfvk22.py",
+            "sha256": "fd508343ed4c5514c80424fc66c3e9cfef4c2f8af085a24b132e55646e5e9964",
+            "bytes": 9094
+          },
+          "actual_run_callees": [
+            "triton_per_fused__softmax__to_copy_prepare_softmax_online_0.run"
+          ],
+          "heuristic": [
+            "persistent_reduction"
+          ]
+        }
+      ],
+      "retained_compiler_artifact": {
+        "ttgir_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-softmax-1024x512-fp16-tile1x512x1/torch/artifacts/triton-cache/AA5VCE3IT26QCTQW2WI4HGZ5WXMGZFX26ACUXREQLPEE55WBCBMA/triton_per_fused__softmax__to_copy_prepare_softmax_online_0.ttgir",
+          "sha256": "09b6fa1aa274c5c6754454b0f320a7f96ae2cc597cedf267d9ed11c146b7b8dd",
+          "bytes": 11389
+        },
+        "metadata_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-softmax-1024x512-fp16-tile1x512x1/torch/artifacts/triton-cache/AA5VCE3IT26QCTQW2WI4HGZ5WXMGZFX26ACUXREQLPEE55WBCBMA/triton_per_fused__softmax__to_copy_prepare_softmax_online_0.json",
+          "sha256": "1bf2a19006833ffa11a6ab24fc44e47e93676480f6b715bd9ff03f1274c60da4",
+          "bytes": 1181
+        },
+        "ptx_receipt": {
+          "path": ".deps/oct02-collective-workers0-v2/coverage-softmax-1024x512-fp16-tile1x512x1/torch/artifacts/triton-cache/AA5VCE3IT26QCTQW2WI4HGZ5WXMGZFX26ACUXREQLPEE55WBCBMA/triton_per_fused__softmax__to_copy_prepare_softmax_online_0.ptx",
+          "sha256": "4a1f5c9ebe49389aaac13bdabfa672ce3a8d1b0e9e32f1ff7c332cb9574ba381",
+          "bytes": 25556
+        },
+        "memory_instruction_forms": [
+          "ld.global.L1::evict_first.L2::cache_hint.v4.b32",
+          "ld.shared.b32",
+          "st.global.v4.b32",
+          "st.shared::cta.b32"
+        ],
+        "layout_headers": [
+          "#blocked = #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [1, 32], warpsPerCTA = [2, 2], order = [1, 0]}>"
+        ],
+        "selected_metadata": {
+          "target": {
+            "backend": "cuda",
+            "arch": 89,
+            "warp_size": 32
+          },
+          "num_warps": 4,
+          "num_ctas": 1,
+          "num_stages": 1,
+          "enable_fp_fusion": true,
+          "enable_reflect_ftz": true,
+          "shared": 16,
+          "name": "triton_per_fused__softmax__to_copy_prepare_softmax_online_0",
+          "triton_version": "3.8.0"
+        },
+        "matching_scope": "Matching retained TTGIR logical tensor shape and warp metadata to retained best_config; not a new Driver launch trace."
+      }
+    }
+  ],
+  "projection_inputs": [
+    {
+      "path": ".deps/torch-collective-model-review/facts.json",
+      "sha256": "30ed9552dfa1ba54357865a4d59bec0bc9e2acb8063f57d8b8db0de4356976df",
+      "bytes": 44185
+    },
+    {
+      "path": ".deps/torch-collective-model-review/layouts-v2.json",
+      "sha256": "21ea9960a48cee491f15794718c7510413615100038520b11eb0518b21225497",
+      "bytes": 38837
+    }
+  ]
+}

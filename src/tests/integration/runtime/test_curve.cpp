@@ -248,7 +248,7 @@ void test_curve(Device &device) {
         stream << hdr2ldr(hdr_image, ldr_image, false).dispatch(resolution)
                << ldr_image.copy_to(luisa::span{pixels})
                << synchronize();
-        auto output_path = std::filesystem::path{opts.output_dir} / "test_curve.png";
+        auto output_path = luisa::filesystem::path{opts.output_dir} / "test_curve.png";
         auto saved = stbi_write_png(output_path.string().c_str(),
                                     resolution.x, resolution.y, 4,
                                     pixels.data(), resolution.x * 4u);

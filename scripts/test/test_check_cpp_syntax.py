@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+
+import os
+import orjson
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stderr
+from io import StringIO
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from check_all_cpp_syntax import check_file
+from check_all_cpp_syntax import load_compile_command_files
+from check_cpp_syntax import (
+    ClangdLSPClient,
+    _syntax_only_arguments,
+    check_syntax,
+    load_compile_commands,
+    resolve_executable,
+    syntax_compile_commands,
+)
+
+
+class ResolveExecutableTest(unittest.TestCase):
+
+    def test_resolves_explicit_executable(self):
+        self.assertEqual(
+            resolve_executable(sys.executable),
+            str(Path(sys.executable).resolve()),
+        )
+
+    def test_resolves_executable_from_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            name = "clangd-test.exe" if os.name == "nt" else "clangd-test"
+            executable = Path(directory) / name
+            executable.write_text("", encoding="utf-8")
+            executable.chmod(0o755)
+            with mock.patch.dict(os.environ, {"PATH": directory}):
+                self.assertEqual(
+                    resolve_executable(name),
+                    str(executable.resolve()),
+                )
+
+    def test_missing_executable_returns_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"PATH": directory}):
+                self.assertIsNone(
+                    resolve_executable("clangd-that-does-not-exist"))
+
+
+class LoadCompileCommandsTest(unittest.TestCase):
+
+    @staticmethod
+    def _write_database(directory: Path, source: Path):
+        directory.mkdir(parents=True)
+        (directory / "compile_commands.json").write_text(
+            '[{"directory": "' + str(directory) +
+            '", "file": "' + str(source) +
+            '", "command": "c++ -c source.cpp"}]',
+            encoding="utf-8",
+        )
+
+    def test_discovers_matching_build_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.cpp"
+            source.write_text("", encoding="utf-8")
+            self._write_database(root / "build-z", source)
+            self.assertEqual(
+                load_compile_commands(root, file_path=source),
+                str((root / "build-z").resolve()),
+            )
+
+    def test_explicit_database_must_exist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(FileNotFoundError):
+                load_compile_commands(
+                    root, explicit_path=root / "missing-build"
+                )
+
+    def test_explicit_database_failure_does_not_fall_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.cpp"
+            source.write_text("", encoding="utf-8")
+            error = StringIO()
+            with redirect_stderr(error):
+                result = check_syntax(
+                    str(source),
+                    project_root=root,
+                    clangd_path=sys.executable,
+                    compile_commands_path=root / "missing-build",
+                )
+            self.assertEqual(result, 2)
+            self.assertIn("Could not find compile_commands.json", error.getvalue())
+
+
+class DiagnosticsTest(unittest.TestCase):
+
+    def test_waits_for_requested_document_push_diagnostics(self):
+        source = Path("source.cpp").resolve()
+        source_uri = source.as_uri()
+        client = ClangdLSPClient("clangd", ".")
+        client._next_message = mock.Mock(side_effect=[
+            {
+                "method": "textDocument/publishDiagnostics",
+                "params": {"uri": Path(".clangd").resolve().as_uri(),
+                           "diagnostics": []},
+            },
+            {
+                "method": "textDocument/publishDiagnostics",
+                "params": {"uri": source_uri,
+                           "diagnostics": [{"severity": 1}]},
+            },
+        ])
+        self.assertEqual(
+            client.get_diagnostics(str(source)),
+            [{"severity": 1}],
+        )
+        self.assertEqual(client.request_id, 0)
+
+    def test_diagnostic_timeout_is_not_reported_as_success(self):
+        client = ClangdLSPClient("clangd", ".")
+        client._next_message = mock.Mock(
+            side_effect=TimeoutError("diagnostic timeout"),
+        )
+        with self.assertRaisesRegex(TimeoutError, "diagnostic timeout"):
+            client.get_diagnostics("source.cpp")
+
+    @mock.patch("check_cpp_syntax.ClangdLSPClient")
+    def test_check_syntax_fails_closed_on_diagnostic_timeout(self, client_type):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.cpp"
+            source.write_text("int value;", encoding="utf-8")
+            LoadCompileCommandsTest._write_database(root / "build", source)
+            client_type.return_value.get_diagnostics.side_effect = TimeoutError(
+                "diagnostic timeout"
+            )
+            error = StringIO()
+            with redirect_stderr(error):
+                result = check_syntax(
+                    str(source),
+                    project_root=root,
+                    clangd_path="clangd",
+                )
+            self.assertEqual(result, 2)
+            self.assertIn("diagnostic timeout", error.getvalue())
+
+
+class SyntaxCompileCommandsTest(unittest.TestCase):
+
+    def test_demotes_warning_as_error_flags(self):
+        self.assertEqual(
+            _syntax_only_arguments([
+                "c++", "-Werror", "-Werror=deprecated-copy",
+                "-pedantic-errors", "-Wall", "/WX",
+            ]),
+            [
+                "c++", "-Wno-error", "-Wno-error=deprecated-copy",
+                "-pedantic", "-Wall", "/WX-",
+            ],
+        )
+
+    def test_builds_per_translation_unit_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.cpp"
+            other = root / "other.cpp"
+            source.write_text("", encoding="utf-8")
+            other.write_text("", encoding="utf-8")
+            database = root / "compile_commands.json"
+            database.write_text(
+                '[{"directory":"' + str(root) +
+                '","file":"' + str(source) +
+                '","command":"c++ -Werror -c ' + str(source) +
+                '"},{"directory":"' + str(root) +
+                '","file":"' + str(other) +
+                '","command":"c++ -c ' + str(other) + '"}]',
+                encoding="utf-8",
+            )
+            with syntax_compile_commands(root, source) as syntax_directory:
+                entries = orjson.loads(
+                    (Path(syntax_directory) / "compile_commands.json")
+                    .read_bytes()
+                )
+                self.assertEqual(len(entries), 1)
+                self.assertEqual(entries[0]["file"], str(source))
+                self.assertIn("-Wno-error", entries[0]["arguments"])
+                self.assertNotIn("command", entries[0])
+
+
+class CheckAllSyntaxTest(unittest.TestCase):
+
+    def test_resolves_relative_files_and_removes_duplicates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            build = root / "build"
+            source = root / "src" / "source.cpp"
+            build.mkdir()
+            source.parent.mkdir()
+            source.write_text("", encoding="utf-8")
+            database = build / "compile_commands.json"
+            database.write_text(
+                '[{"directory":"' + str(build) +
+                '","file":"../src/source.cpp"},' +
+                '{"directory":"' + str(build) +
+                '","file":"' + str(source) + '"}]',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                load_compile_command_files(str(database)),
+                [str(source.resolve())],
+            )
+
+    @mock.patch("check_all_cpp_syntax.subprocess.run")
+    def test_forwards_explicit_database(self, run):
+        run.return_value = mock.Mock(
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        check_file(
+            "source.cpp",
+            "check_cpp_syntax.py",
+            "/project",
+            "/usr/bin/clangd",
+            "/project/build/compile_commands.json",
+        )
+        command = run.call_args.args[0]
+        self.assertIn("--compile-commands-dir", command)
+        self.assertIn("/project/build/compile_commands.json", command)
+        self.assertIn("--diagnostic-timeout", command)
+
+
+if __name__ == "__main__":
+    unittest.main()

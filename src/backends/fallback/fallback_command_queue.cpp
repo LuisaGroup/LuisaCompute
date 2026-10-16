@@ -24,7 +24,11 @@ struct Thread {
 #endif
     luisa::move_only_function<void()> f;
 
-    static constexpr auto STACK_SIZE = 4_M;
+    // Large generated kernels can require more than 4 MiB of stack when the
+    // fallback compiler deliberately uses its bounded compile-time O0 path.
+    // Stack pages are committed on demand, so reserving 16 MiB keeps ordinary
+    // kernels cheap while allowing those oversized kernels to execute safely.
+    static constexpr auto STACK_SIZE = 16_M;
 
     template<class F>
     explicit Thread(uint tid [[maybe_unused]], F &&f) noexcept : f{std::forward<F>(f)} {
@@ -127,6 +131,10 @@ public:
                             (*task)(j);
                         }
                     }
+                    // Publish the wait predicate under its mutex. Atomicity
+                    // alone cannot close the predicate-to-wait notification
+                    // gap, including after a spurious dispatcher wakeup.
+                    lock.lock();
                     if (_thread_working.fetch_sub(1, std::memory_order_seq_cst) == 1) {
                         _work_done.notify_all();
                     }
@@ -135,7 +143,10 @@ public:
         }
     }
     ~AkrThreadPool() noexcept {
-        _stopped.store(true, std::memory_order_seq_cst);
+        {
+            std::scoped_lock lock{_task_mutex};
+            _stopped.store(true, std::memory_order_seq_cst);
+        }
         _has_work.notify_all();
         _threads.clear();
     }
@@ -174,6 +185,7 @@ inline void FallbackCommandQueue::_run_dispatch_loop() noexcept {
         task();
         // count the finish of a task
         _total_finish_count.fetch_add(1u);
+        _total_finish_count.notify_all();
     }
 #if defined(LUISA_FALLBACK_USE_DISPATCH_QUEUE)
     if (_dispatch_queue != nullptr) {
@@ -187,9 +199,13 @@ inline void FallbackCommandQueue::_run_dispatch_loop() noexcept {
 inline void FallbackCommandQueue::_wait_for_task_queue_available() const noexcept {
     if (_in_flight_limit == 0u) { return; }
     auto last_enqueue_count = _total_enqueue_count.load();
-    while (_total_finish_count.load() + _in_flight_limit <= last_enqueue_count) {
-        using namespace std::chrono_literals;
-        std::this_thread::sleep_for(50us);
+    auto finish_count = _total_finish_count.load();
+    while (finish_count + _in_flight_limit <= last_enqueue_count) {
+        // Wait on the observed value so completion cannot be lost between
+        // checking the limit and blocking. Submitters may wait for different
+        // completion counts.
+        _total_finish_count.wait(finish_count);
+        finish_count = _total_finish_count.load();
     }
 }
 

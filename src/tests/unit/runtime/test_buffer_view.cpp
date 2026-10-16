@@ -14,9 +14,27 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/dsl/sugar.h>
 
+#include <array>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
+
+#ifdef LUISA_USE_SYSTEM_STL
+static_assert(requires(
+    Buffer<int> &buffer,
+    BufferView<int> view,
+    luisa::compute::detail::MipmapView mipmap,
+    std::array<int, 4u> &output,
+    const std::array<int, 4u> &input) {
+    buffer.copy_to(luisa::span{output});
+    buffer.copy_from(luisa::span{input});
+    view.copy_to(luisa::span{output});
+    view.copy_from(luisa::span{input});
+    mipmap.copy_to(luisa::span{output});
+    mipmap.copy_from(luisa::span{input});
+});
+#endif
 
 namespace {
 

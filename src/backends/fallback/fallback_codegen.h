@@ -15,7 +15,7 @@ class Module;
 
 namespace luisa::compute::fallback {
 
-constexpr auto max_thread_frame_size = 4_M;
+constexpr auto initial_thread_frame_buffer_size = 4_M;
 constexpr auto max_shared_memory_size = 1_M;
 
 struct FallbackCodeGenFeedback {
@@ -35,6 +35,7 @@ struct FallbackCodeGenFeedback {
 [[nodiscard]] FallbackCodeGenFeedback
 luisa_fallback_backend_codegen(llvm::LLVMContext &llvm_ctx,
                                llvm::Module *llvm_module,
-                               const xir::Module *module) noexcept;
+                               const xir::Module *module,
+                               bool enable_fast_math) noexcept;
 
 }// namespace luisa::compute::fallback

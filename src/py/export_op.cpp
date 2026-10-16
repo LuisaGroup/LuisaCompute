@@ -199,10 +199,12 @@ void export_op(py::module &m) {
         // optimization hints
         .value("ASSUME", CallOp::ASSUME)
         .value("UNREACHABLE", CallOp::UNREACHABLE)
-        .value("INDIRECT_SET_DISPATCH_KERNEL", CallOp::INDIRECT_SET_DISPATCH_KERNEL)
-        .value("INDIRECT_SET_DISPATCH_COUNT", CallOp::INDIRECT_SET_DISPATCH_COUNT)
+  .value("INDIRECT_SET_DISPATCH_KERNEL", CallOp::INDIRECT_SET_DISPATCH_KERNEL)
+  .value("INDIRECT_SET_DISPATCH_COUNT", CallOp::INDIRECT_SET_DISPATCH_COUNT)
+
         .value("RAY_QUERY_PROCEDURAL_CANDIDATE_HIT", CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT)
         .value("RAY_QUERY_WORLD_SPACE_RAY", CallOp::RAY_QUERY_WORLD_SPACE_RAY)
+        .value("RAY_QUERY_OBJECT_SPACE_RAY", CallOp::RAY_QUERY_OBJECT_SPACE_RAY)
         .value("RAY_QUERY_PROCEED", CallOp::RAY_QUERY_PROCEED)
         .value("RAY_QUERY_IS_TRIANGLE_CANDIDATE", CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE)
         .value("RAY_QUERY_TRIANGLE_CANDIDATE_HIT", CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT)
@@ -231,6 +233,7 @@ void export_op(py::module &m) {
         .value("DETACH", CallOp::DETACH)
         .value("ZERO", CallOp::ZERO)
         .value("ONE", CallOp::ONE)
+        .value("UNDEFINED", CallOp::UNDEFINED)
         .value("REDUCE_SUM", CallOp::REDUCE_SUM)
         .value("REDUCE_PRODUCT", CallOp::REDUCE_PRODUCT)
         .value("REDUCE_MIN", CallOp::REDUCE_MIN)

@@ -8,6 +8,14 @@
 #include <string.h>
 #include <stdarg.h>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <windows.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,13 +48,17 @@ extern nvrtcResult nvrtcGetPTX(nvrtcProgram prog, char *ptx);
 }
 #endif
 
+// Never abort(): the parent process waits on this child, and an abort would
+// pop a blocking crash-report dialog in the user's session, hanging the
+// parent. A clean non-zero exit lets the parent read the message from our
+// stderr and report it as a normal compile failure.
 static void report_error(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
     va_end(args);
     fflush(stderr);
-    abort();
+    exit(1);
 }
 
 #define LUISA_CHECK_NVRTC(...)                     \
@@ -63,9 +75,42 @@ typedef struct str_buffer {
     char *data;
 } str_buffer;
 
+// Reads exactly `size` bytes from the parent's pipe. The stdin handle is a
+// reproc socket pipe; on Windows it is read directly with recv(), because
+// CRT stdio buffering over a socket handle can stall indefinitely once more
+// than one protocol frame is in flight.
+static size_t read_stdin(void *buffer, size_t size) {
+#ifdef _WIN32
+    // The inherited stdin handle is a reproc socket pipe; direct recv() needs
+    // Winsock initialised in this process (the CRT stdio path used before did
+    // that internally).
+    static int winsock_ready = 0;
+    if (!winsock_ready) {
+        WSADATA data;
+        WSAStartup(MAKEWORD(2, 2), &data);
+        winsock_ready = 1;
+    }
+    SOCKET pipe = (SOCKET)GetStdHandle(STD_INPUT_HANDLE);
+    // The reproc socket pipe is inherited in non-blocking mode; make it
+    // blocking so the frame reads below wait like the old stdio path did.
+    u_long blocking = 0;
+    ioctlsocket(pipe, FIONBIO, &blocking);
+    char *out = (char *)buffer;
+    size_t total = 0;
+    while (total < size) {
+        int r = recv(pipe, out + total, (int)(size - total), 0);
+        if (r <= 0) { break; }
+        total += (size_t)r;
+    }
+    return total;
+#else
+    return fread(buffer, 1, size, stdin);
+#endif
+}
+
 static str_buffer read(const char *name) {
     char size_str[16] = {};
-    if (fread(size_str, 1, 16, stdin) != 16) {
+    if (read_stdin(size_str, 16) != 16) {
         report_error("Failed to read %s size from stdin.\n", name);
     }
     str_buffer s = {};
@@ -86,7 +131,7 @@ static str_buffer read(const char *name) {
     if (s.data == NULL) {
         report_error("Failed to allocate %s memory (%" PRIu64 "B).\n", name, s.size);
     }
-    if (!fread(s.data, s.size, 1, stdin)) {
+    if (read_stdin(s.data, s.size) != s.size) {
         free(s.data);
         report_error("Failed to read %s data from stdin.\n", name);
     }
@@ -122,16 +167,23 @@ int main(int argc, char *argv[]) {
     free(filename.data);
     free(src.data);
 
-    // print compile log
+    // print compile log (errors, or warnings on a successful compile): the
+    // parent captures stderr, so the diagnostics reach the caller verbatim
     size_t log_size = 0;
     LUISA_CHECK_NVRTC(nvrtcGetProgramLogSize(prog, &log_size));
     if (log_size > 1u) {
         char *log = (char *)malloc(log_size);
         LUISA_CHECK_NVRTC(nvrtcGetProgramLog(prog, log));
-        fprintf(stderr, "Compile log:\n%s\n", log);
+        fprintf(stderr, "%s", log);
+        if (log[log_size - 2u] != '\n') { fputc('\n', stderr); }
         free(log);
     }
-    LUISA_CHECK_NVRTC(err);
+    if (err != 0) {
+        // Graceful failure: the parent turns this exit code plus the log
+        // above into a compile error instead of hanging on a crashed child.
+        nvrtcDestroyProgram(&prog);
+        return 1;
+    }
 
     // get PTX
     str_buffer buffer = {};

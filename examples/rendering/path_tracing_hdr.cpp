@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
 
@@ -184,7 +184,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "fallback" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution, UInt dispatch_spp) noexcept {
         set_block_size(16u, 16u, 1u);
@@ -368,14 +368,14 @@ int main(int argc, char *argv[]) {
     cmd_list << clear_shader(accum_image).dispatch(resolution)
              << make_sampler_shader(seed_image).dispatch(resolution);
 
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     bool use_aces = false;
     float3 white_point{1.0f};
     float scale = 1.0f;
 
     if (!opts.offline) {
-        window = std::make_unique<Window>("path tracing", resolution);
+        window = luisa::make_unique<Window>("path tracing", resolution);
 
         if (device.backend_name() == "dx") {
             constexpr bool use_hdr10 = true;

@@ -1,0 +1,4998 @@
+{
+  "status": "passed",
+  "visits": 48,
+  "tensor_receipts": 192,
+  "metric_sample_values": 864,
+  "adjacent_pairs_per_case": 4,
+  "python_tests": 40,
+  "retained_failed_builds": 1,
+  "retained_host_build_wrapper_false_positives": 1,
+  "full_build_process_exit_code": 0,
+  "confirmation_exit_code": 0,
+  "cases": [
+    {
+      "case": "attention-small-q4",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        16,
+        33,
+        32,
+        32
+      ],
+      "attention_block": [
+        4,
+        16
+      ],
+      "visits": [
+        {
+          "case": "attention-small-q4",
+          "position": 0,
+          "requested_block": 0,
+          "actual_block": 32,
+          "dispatch": 16,
+          "threadgroups": 1,
+          "useful_packets": 1,
+          "allocated_packets": 1,
+          "padding_packets": 0,
+          "padding_threads": 16,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1730812.5,
+                1942750.0,
+                1851791.6666666665
+              ],
+              "median": 1851791.6666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2065468.7541536987,
+                2066296.8745455146,
+                2585984.3735815957
+              ],
+              "median": 2066296.8745455146,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                5034.2605,
+                2510.9375,
+                2295.88025
+              ],
+              "median": 2510.9375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                2261250,
+                1747458.3333333333,
+                1732291.6666666667
+              ],
+              "median": 1747458.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2377000.0552758574,
+                1722624.9910891056,
+                2073708.3395943046
+              ],
+              "median": 2073708.3395943046,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                3531.167,
+                5730,
+                3197.833
+              ],
+              "median": 3531.167
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "6688",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6091530587889053805",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q4",
+          "position": 1,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 16,
+          "threadgroups": 1,
+          "useful_packets": 1,
+          "allocated_packets": 1,
+          "padding_packets": 0,
+          "padding_threads": 16,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1156187.5,
+                1951979.1666666665,
+                1911520.8333333333
+              ],
+              "median": 1911520.8333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2001140.615902841,
+                2028421.8771848828,
+                2074921.882012859
+              ],
+              "median": 2028421.8771848828,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2747.484375,
+                2434.119875,
+                2110.651125
+              ],
+              "median": 2434.119875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1750041.6666666667,
+                2770166.6666666665,
+                2271166.6666666665
+              ],
+              "median": 2271166.6666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2218708.395957947,
+                2273999.9694749713,
+                2075416.618026793
+              ],
+              "median": 2218708.395957947,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                9929.292,
+                5122.834,
+                9875.792
+              ],
+              "median": 9875.792
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "6688",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6091530587889053805",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q4",
+          "position": 2,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 16,
+          "threadgroups": 1,
+          "useful_packets": 1,
+          "allocated_packets": 1,
+          "padding_packets": 0,
+          "padding_threads": 16,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1722520.8333333333,
+                2071854.1666666667,
+                1715666.6666666665
+              ],
+              "median": 1722520.8333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2019609.3682898208,
+                2059052.0871337503,
+                2062468.760414049
+              ],
+              "median": 2059052.0871337503,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2191.901,
+                2102.224,
+                2977.84375
+              ],
+              "median": 2191.901
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1751166.6666666667,
+                2188833.3333333335,
+                1746250
+              ],
+              "median": 1751166.6666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1751083.298586309,
+                2114500.035531819,
+                1749708.317220211
+              ],
+              "median": 1751083.298586309,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                17989.709,
+                5363.916,
+                18151.417
+              ],
+              "median": 17989.709
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "6688",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6091530587889053805",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q4",
+          "position": 3,
+          "requested_block": 0,
+          "actual_block": 32,
+          "dispatch": 16,
+          "threadgroups": 1,
+          "useful_packets": 1,
+          "allocated_packets": 1,
+          "padding_packets": 0,
+          "padding_threads": 16,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1840541.6666666667,
+                1883187.5,
+                1939770.8333333335
+              ],
+              "median": 1883187.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1984531.2490360811,
+                2073859.3739224598,
+                3515255.215461366
+              ],
+              "median": 2073859.3739224598,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2164.24475,
+                2263.479125,
+                2411.833375
+              ],
+              "median": 2263.479125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1976750,
+                1746500,
+                2319666.6666666665
+              ],
+              "median": 1976750,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2097541.6991859674,
+                1748375.0125393271,
+                2378999.9540895224
+              ],
+              "median": 2097541.6991859674,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                26116.875,
+                5875.208,
+                19293.458
+              ],
+              "median": 19293.458
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "6688",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6091530587889053805",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q4",
+          "position": 4,
+          "requested_block": 0,
+          "actual_block": 32,
+          "dispatch": 16,
+          "threadgroups": 1,
+          "useful_packets": 1,
+          "allocated_packets": 1,
+          "padding_packets": 0,
+          "padding_threads": 16,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1720145.8333333333,
+                1955812.5,
+                1705708.3333333333
+              ],
+              "median": 1720145.8333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2945442.7130986005,
+                2092703.1291648746,
+                2004463.5457452387
+              ],
+              "median": 2092703.1291648746,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2237.578125,
+                5260.47925,
+                2183.86975
+              ],
+              "median": 2237.578125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1761250,
+                2501208.3333333335,
+                2086208.3333333333
+              ],
+              "median": 2086208.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2772583.276964724,
+                2061874.9549612403,
+                2245416.631922126
+              ],
+              "median": 2245416.631922126,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                29073.5,
+                9779.458,
+                3681.959
+              ],
+              "median": 9779.458
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "6688",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6091530587889053805",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q4",
+          "position": 5,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 16,
+          "threadgroups": 1,
+          "useful_packets": 1,
+          "allocated_packets": 1,
+          "padding_packets": 0,
+          "padding_threads": 16,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1728416.6666666665,
+                1945083.3333333335,
+                1721250.0
+              ],
+              "median": 1728416.6666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2989411.455928348,
+                2059453.1233655289,
+                4440421.864273958
+              ],
+              "median": 2989411.455928348,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                3074.130125,
+                3160.729125,
+                2126.974
+              ],
+              "median": 3074.130125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                2760750,
+                2185291.6666666665,
+                1821958.3333333333
+              ],
+              "median": 2185291.6666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2085500.0475421548,
+                1710125.0123232603,
+                1969041.652046144
+              ],
+              "median": 1969041.652046144,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                3002.625,
+                18805.542,
+                3425.125
+              ],
+              "median": 3425.125
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "6688",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6091530587889053805",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q4",
+          "position": 6,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 16,
+          "threadgroups": 1,
+          "useful_packets": 1,
+          "allocated_packets": 1,
+          "padding_packets": 0,
+          "padding_threads": 16,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                2013604.1666666667,
+                2014729.1666666665,
+                2080395.8333333333
+              ],
+              "median": 2014729.1666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2117984.3752179295,
+                5470203.119330108,
+                2087531.247525476
+              ],
+              "median": 2117984.3752179295,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2344.09375,
+                2121.68225,
+                4163.44275
+              ],
+              "median": 2344.09375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                2037541.6666666667,
+                1709833.3333333333,
+                1727375
+              ],
+              "median": 1727375,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2293958.328664303,
+                1731749.9732598662,
+                1967499.96393919
+              ],
+              "median": 1967499.96393919,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                8956.208,
+                10160.75,
+                5929.25
+              ],
+              "median": 8956.208
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "6688",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6091530587889053805",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q4",
+          "position": 7,
+          "requested_block": 0,
+          "actual_block": 32,
+          "dispatch": 16,
+          "threadgroups": 1,
+          "useful_packets": 1,
+          "allocated_packets": 1,
+          "padding_packets": 0,
+          "padding_threads": 16,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1875250.0,
+                1770500.0,
+                1479562.5
+              ],
+              "median": 1770500.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                2013109.3770032749,
+                2058921.876596287,
+                2076531.2510775402
+              ],
+              "median": 2058921.876596287,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                3252.6615,
+                4549.74475,
+                3847.59375
+              ],
+              "median": 3847.59375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                2158791.6666666665,
+                1959666.6666666667,
+                1754291.6666666667
+              ],
+              "median": 1959666.6666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1746166.6138842702,
+                1729541.691020131,
+                1749124.9600425363
+              ],
+              "median": 1746166.6138842702,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                3909.958,
+                2755.666,
+                3984.416
+              ],
+              "median": 3909.958
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "6688",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6091530587889053805",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        }
+      ],
+      "pinned32_over_automatic": {
+        "throughput_instrumented_dispatch_ns": {
+          "pairs": [
+            1.0322547982809442,
+            0.9146836591328974,
+            1.0048082163576246,
+            1.1379436129153722
+          ],
+          "median": 1.0185315073192844,
+          "minimum": 0.9146836591328974,
+          "maximum": 1.1379436129153722
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.9816701085757764,
+            0.9928600333393371,
+            1.4284928493996751,
+            1.0286861290333569
+          ],
+          "median": 1.010773081186347,
+          "minimum": 0.9816701085757764,
+          "maximum": 1.4284928493996751
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.9694067952706906,
+            0.9683769449386903,
+            1.3738649348835585,
+            0.6092362921631215
+          ],
+          "median": 0.9688918701046905,
+          "minimum": 0.6092362921631215,
+          "maximum": 1.3738649348835585
+        },
+        "latency_instrumented_dispatch_ns": {
+          "pairs": [
+            1.2996971792365102,
+            0.8858817081910544,
+            1.047494457648445,
+            0.881463684300051
+          ],
+          "median": 0.9666880829197497,
+          "minimum": 0.881463684300051,
+          "maximum": 1.2996971792365102
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            1.0699230714344379,
+            0.8348264538749741,
+            0.876915946935247,
+            1.1267538551562233
+          ],
+          "median": 0.9734195091848424,
+          "minimum": 0.8348264538749741,
+          "maximum": 1.1267538551562233
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "pairs": [
+            2.7967501961816024,
+            0.932425332980744,
+            0.3502366900087919,
+            2.290614886400314
+          ],
+          "median": 1.6115201096905292,
+          "minimum": 0.3502366900087919,
+          "maximum": 2.7967501961816024
+        }
+      },
+      "output_bitwise_equal": true
+    },
+    {
+      "case": "attention-small-q1",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        16,
+        33,
+        32,
+        32
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "visits": [
+        {
+          "case": "attention-small-q1",
+          "position": 0,
+          "requested_block": 0,
+          "actual_block": 64,
+          "dispatch": 64,
+          "threadgroups": 1,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                754354.1666666666,
+                756229.1666666667,
+                790083.3333333333
+              ],
+              "median": 756229.1666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                877104.1757427156,
+                1083026.043488644,
+                843109.3738181517
+              ],
+              "median": 877104.1757427156,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1169.390625,
+                1511.1615,
+                3014.739625
+              ],
+              "median": 1511.1615
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                779708.3333333334,
+                1078125,
+                833250
+              ],
+              "median": 833250,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                784125.0626370311,
+                964666.7167544365,
+                1119708.4095329046
+              ],
+              "median": 964666.7167544365,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                26060.084,
+                1912.292,
+                1793.583
+              ],
+              "median": 1912.292
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "4224",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "16497985566346230669",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q1",
+          "position": 1,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 64,
+          "threadgroups": 2,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                790604.1666666666,
+                787833.3333333333,
+                789583.3333333333
+              ],
+              "median": 789583.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                884593.7554724514,
+                866062.5026095659,
+                884994.79170423
+              ],
+              "median": 884593.7554724514,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                5980.484375,
+                2151.22925,
+                1520.5885
+              ],
+              "median": 2151.22925
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                813291.6666666666,
+                1342416.6666666667,
+                1153666.6666666667
+              ],
+              "median": 1153666.6666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                820999.9650716782,
+                861916.5746495128,
+                817416.7014658451
+              ],
+              "median": 820999.9650716782,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                1771.916,
+                1571.084,
+                3105.625
+              ],
+              "median": 1771.916
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "4224",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6580195514204966284",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q1",
+          "position": 2,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 64,
+          "threadgroups": 2,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                787000.0,
+                786708.3333333334,
+                799687.5
+              ],
+              "median": 787000.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                854635.4220015928,
+                936911.4559376612,
+                1579776.0424902663
+              ],
+              "median": 936911.4559376612,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2473.099,
+                2016.9115,
+                1217.036375
+              ],
+              "median": 2016.9115
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                804083.3333333334,
+                1331833.3333333333,
+                1138625
+              ],
+              "median": 1138625,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1332333.4278538823,
+                1113916.6308566928,
+                816124.9570548534
+              ],
+              "median": 1113916.6308566928,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                6516.667,
+                1838.708,
+                1921.875
+              ],
+              "median": 1921.875
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "4224",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6580195514204966284",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q1",
+          "position": 3,
+          "requested_block": 0,
+          "actual_block": 64,
+          "dispatch": 64,
+          "threadgroups": 1,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                822020.8333333333,
+                756562.5,
+                756625.0
+              ],
+              "median": 756625.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                862453.1328678131,
+                1742552.0782126114,
+                861838.5472800583
+              ],
+              "median": 862453.1328678131,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1641.677125,
+                1155.890625,
+                1298.489625
+              ],
+              "median": 1298.489625
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                774625,
+                777458.3333333334,
+                786625
+              ],
+              "median": 777458.3333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1006374.9505206943,
+                1300958.334468305,
+                788833.3639129996
+              ],
+              "median": 1006374.9505206943,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                1887.292,
+                1601.916,
+                4655.333
+              ],
+              "median": 1887.292
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "4224",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "16497985566346230669",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q1",
+          "position": 4,
+          "requested_block": 0,
+          "actual_block": 64,
+          "dispatch": 64,
+          "threadgroups": 1,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                903625.0,
+                763479.1666666667,
+                777104.1666666667
+              ],
+              "median": 777104.1666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1114291.6628159583,
+                843046.8733422458,
+                906692.7013918757
+              ],
+              "median": 906692.7013918757,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1548.484375,
+                957.4895,
+                1187.5
+              ],
+              "median": 1187.5
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                818333.3333333334,
+                1123583.3333333333,
+                852041.6666666666
+              ],
+              "median": 852041.6666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1347041.6888594627,
+                1363083.3709612489,
+                782625.051215291
+              ],
+              "median": 1347041.6888594627,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                6665.75,
+                6121.625,
+                76064.458
+              ],
+              "median": 6665.75
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "4224",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "16497985566346230669",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q1",
+          "position": 5,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 64,
+          "threadgroups": 2,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                787041.6666666667,
+                817416.6666666667,
+                809604.1666666667
+              ],
+              "median": 809604.1666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                892494.7906052694,
+                1303812.5034654513,
+                918989.5790768787
+              ],
+              "median": 918989.5790768787,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1980.359375,
+                2494.927,
+                1980.796875
+              ],
+              "median": 1980.796875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1063375,
+                1113708.3333333333,
+                1065166.6666666667
+              ],
+              "median": 1065166.6666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1126208.3426117897,
+                815249.9794960022,
+                1246041.7347028852
+              ],
+              "median": 1126208.3426117897,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2855.5,
+                1682.333,
+                2229.375
+              ],
+              "median": 2229.375
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "4224",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6580195514204966284",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q1",
+          "position": 6,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 64,
+          "threadgroups": 2,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                804083.3333333333,
+                786791.6666666666,
+                787604.1666666666
+              ],
+              "median": 787604.1666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                936020.8350699395,
+                1310734.3693263829,
+                1410348.9666013047
+              ],
+              "median": 1310734.3693263829,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1184.1875,
+                1031.90625,
+                1922.635375
+              ],
+              "median": 1184.1875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1105416.6666666667,
+                1048833.3333333333,
+                1019500
+              ],
+              "median": 1048833.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                815249.9794960022,
+                1319708.302617073,
+                797625.0490173697
+              ],
+              "median": 815249.9794960022,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                16960.75,
+                9142.25,
+                9050.583
+              ],
+              "median": 9142.25
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "4224",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "6580195514204966284",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        },
+        {
+          "case": "attention-small-q1",
+          "position": 7,
+          "requested_block": 0,
+          "actual_block": 64,
+          "dispatch": 64,
+          "threadgroups": 1,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                754229.1666666667,
+                754041.6666666667,
+                775000.0
+              ],
+              "median": 754229.1666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1020489.5952483639,
+                855494.785355404,
+                814328.1302182004
+              ],
+              "median": 855494.785355404,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                3042.239625,
+                1054.59375,
+                1917.63025
+              ],
+              "median": 1917.63025
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                780166.6666666666,
+                1055166.6666666667,
+                773125
+              ],
+              "median": 780166.6666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                1072999.9048635364,
+                781500.0135451555,
+                1241625.053808093
+              ],
+              "median": 1072999.9048635364,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                25205.709,
+                34099.917,
+                4606.541
+              ],
+              "median": 25205.709
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "4224",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "16497985566346230669",
+          "oracle": {
+            "elements": 2048,
+            "max_abs_error": 1.9351825155354552e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "9f0675362a69cc5f0746be9875d6beab5ca64f46d22ca3cc76f0ca621ab2f4c7"
+        }
+      ],
+      "pinned32_over_automatic": {
+        "throughput_instrumented_dispatch_ns": {
+          "pairs": [
+            1.044105898234111,
+            1.040145382454981,
+            1.041821935068765,
+            1.0442504764798495
+          ],
+          "median": 1.042963916651438,
+          "minimum": 1.040145382454981,
+          "maximum": 1.0442504764798495
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            1.008538985375818,
+            1.086333181748973,
+            1.0135623433012375,
+            1.532136012707378
+          ],
+          "median": 1.0499477625251052,
+          "minimum": 1.008538985375818,
+          "maximum": 1.532136012707378
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "pairs": [
+            1.4235601224620928,
+            1.5532750213541369,
+            1.6680394736842106,
+            0.6175265017852112
+          ],
+          "median": 1.4884175719081147,
+          "minimum": 0.6175265017852112,
+          "maximum": 1.6680394736842106
+        },
+        "latency_instrumented_dispatch_ns": {
+          "pairs": [
+            1.3845384538453847,
+            1.4645479393322256,
+            1.2501344809037118,
+            1.3443708609271523
+          ],
+          "median": 1.3644546573862684,
+          "minimum": 1.2501344809037118,
+          "maximum": 1.4645479393322256
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.8510711013580767,
+            1.1068604502530164,
+            0.8360604960677556,
+            0.7597856959732772
+          ],
+          "median": 0.8435657987129161,
+          "minimum": 0.7597856959732772,
+          "maximum": 1.1068604502530164
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.9265928006810675,
+            1.0183241385010906,
+            0.33445223718261263,
+            0.36270552833883785
+          ],
+          "median": 0.6446491645099527,
+          "minimum": 0.33445223718261263,
+          "maximum": 1.0183241385010906
+        }
+      },
+      "output_bitwise_equal": true
+    },
+    {
+      "case": "attention-prefill-q4",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        64,
+        128,
+        64,
+        64
+      ],
+      "attention_block": [
+        4,
+        16
+      ],
+      "visits": [
+        {
+          "case": "attention-prefill-q4",
+          "position": 0,
+          "requested_block": 0,
+          "actual_block": 64,
+          "dispatch": 64,
+          "threadgroups": 1,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                12161479.166666668,
+                1776270.8333333333,
+                6995833.333333334
+              ],
+              "median": 6995833.333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                26372171.88021168,
+                34356145.828496665,
+                20083338.546101004
+              ],
+              "median": 26372171.88021168,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                23221.822875,
+                29312.322875,
+                26912.015625
+              ],
+              "median": 26912.015625
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                4343666.666666667,
+                12579916.666666666,
+                1021416.6666666666
+              ],
+              "median": 4343666.666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                12115874.90979582,
+                12436249.991878867,
+                12327000.03311038
+              ],
+              "median": 12327000.03311038,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                14221.625,
+                20470.875,
+                16220.125
+              ],
+              "median": 16220.125
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "12832",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "16343222171445168500",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q4",
+          "position": 1,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 64,
+          "threadgroups": 2,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                11406250.0,
+                11931750.0,
+                12542145.833333334
+              ],
+              "median": 11931750.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                17286145.841353573,
+                17838796.8626339,
+                18857000.00275392
+              ],
+              "median": 17838796.8626339,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                47258.484375,
+                23494.385375,
+                24855.84375
+              ],
+              "median": 24855.84375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                6410083.333333333,
+                3979500,
+                12439708.333333334
+              ],
+              "median": 6410083.333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                15490291.640162468,
+                12034250.074066222,
+                12546291.6912511
+              ],
+              "median": 12546291.6912511,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                14866.792,
+                16586.542,
+                14849.416
+              ],
+              "median": 14866.792
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "12832",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "8165453449060263306",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q4",
+          "position": 2,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 64,
+          "threadgroups": 2,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7461875.0,
+                12245395.833333332,
+                12311250.0
+              ],
+              "median": 12245395.833333332,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                17425671.87466193,
+                26235718.745738268,
+                24632713.53917662
+              ],
+              "median": 24632713.53917662,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                34979.348875,
+                16249.8645,
+                20373.28125
+              ],
+              "median": 20373.28125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                2521916.6666666665,
+                9980708.333333334,
+                388583.3333333333
+              ],
+              "median": 2521916.6666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                32483833.259902894,
+                29536291.724070907,
+                12583500.007167459
+              ],
+              "median": 29536291.724070907,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                16873.334,
+                49364.042,
+                17320.333
+              ],
+              "median": 17320.333
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "12832",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "8165453449060263306",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q4",
+          "position": 3,
+          "requested_block": 0,
+          "actual_block": 64,
+          "dispatch": 64,
+          "threadgroups": 1,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                9798187.5,
+                12728312.5,
+                12083479.166666668
+              ],
+              "median": 12083479.166666668,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                30852104.173391126,
+                19540921.872248873,
+                20143348.956480622
+              ],
+              "median": 20143348.956480622,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                38906.349,
+                21479.114625,
+                24180.15625
+              ],
+              "median": 24180.15625
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                12673708.333333334,
+                12669000,
+                5431583.333333333
+              ],
+              "median": 12669000,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                12513499.93981421,
+                16680999.89183247,
+                18390208.366326988
+              ],
+              "median": 16680999.89183247,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                20727.833,
+                17869.542,
+                40870.458
+              ],
+              "median": 20727.833
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "12832",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "16343222171445168500",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q4",
+          "position": 4,
+          "requested_block": 0,
+          "actual_block": 64,
+          "dispatch": 64,
+          "threadgroups": 1,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                2011041.6666666667,
+                12297666.666666668,
+                11984687.5
+              ],
+              "median": 11984687.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                30366536.462679505,
+                17065296.88090086,
+                29025796.873611398
+              ],
+              "median": 29025796.873611398,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                29570.6615,
+                16805.427125,
+                21026.677125
+              ],
+              "median": 21026.677125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                12911708.333333334,
+                12080208.333333334,
+                3778291.6666666665
+              ],
+              "median": 12080208.333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                12254916.597157717,
+                31201750.04005432,
+                16957000.01437217
+              ],
+              "median": 16957000.01437217,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                17030.25,
+                26087.584,
+                29587.542
+              ],
+              "median": 26087.584
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "12832",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "16343222171445168500",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q4",
+          "position": 5,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 64,
+          "threadgroups": 2,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7735145.833333333,
+                2912708.3333333335,
+                7448145.833333333
+              ],
+              "median": 7448145.833333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                13803750.000079162,
+                13215218.743425794,
+                19136348.957545124
+              ],
+              "median": 13803750.000079162,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                19577.671875,
+                18653.22925,
+                27047.4635
+              ],
+              "median": 19577.671875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                4009583.3333333335,
+                1532041.6666666667,
+                469666.6666666667
+              ],
+              "median": 1532041.6666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                32231249.96293336,
+                12383499.997667968,
+                12549416.6277349
+              ],
+              "median": 12549416.6277349,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                24481.833,
+                60964.167,
+                35042.417
+              ],
+              "median": 35042.417
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "12832",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "8165453449060263306",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q4",
+          "position": 6,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 64,
+          "threadgroups": 2,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                12668833.333333332,
+                2794104.166666667,
+                6848416.666666667
+              ],
+              "median": 6848416.666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                21954218.75512693,
+                17813395.8397666,
+                28707687.495625578
+              ],
+              "median": 21954218.75512693,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                18292.849,
+                26073.046875,
+                32630.401
+              ],
+              "median": 26073.046875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                817125,
+                3442916.6666666665,
+                12537541.666666666
+              ],
+              "median": 3442916.6666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                11999833.397567272,
+                12561583.309434354,
+                12549750.041216612
+              ],
+              "median": 12549750.041216612,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                15881.167,
+                14603.291,
+                13135.125
+              ],
+              "median": 14603.291
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "12832",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "8165453449060263306",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q4",
+          "position": 7,
+          "requested_block": 0,
+          "actual_block": 64,
+          "dispatch": 64,
+          "threadgroups": 1,
+          "useful_packets": 2,
+          "allocated_packets": 2,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                6414250.0,
+                8988437.5,
+                12378791.666666668
+              ],
+              "median": 8988437.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                17354994.794004597,
+                16742593.754315749,
+                17118817.70461332
+              ],
+              "median": 17118817.70461332,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                22915.20825,
+                24986.927125,
+                22618.4115
+              ],
+              "median": 22915.20825
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                2899666.6666666665,
+                12496750,
+                1709583.3333333333
+              ],
+              "median": 2899666.6666666665,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                18891333.253122866,
+                16341499.984264374,
+                12832500.040531158
+              ],
+              "median": 16341499.984264374,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                29965,
+                17028.041,
+                68581.167
+              ],
+              "median": 29965
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "12832",
+            "static_snapshot_allocations": "10",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "16343222171445168500",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        }
+      ],
+      "pinned32_over_automatic": {
+        "throughput_instrumented_dispatch_ns": {
+          "pairs": [
+            1.7055509231685526,
+            1.0133998382778138,
+            0.6214718434112974,
+            0.7619140330748995
+          ],
+          "median": 0.8876569356763566,
+          "minimum": 0.6214718434112974,
+          "maximum": 1.7055509231685526
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.6764250189048409,
+            1.2228708142025042,
+            0.47556833875002913,
+            1.2824611567193993
+          ],
+          "median": 0.9496479165536725,
+          "minimum": 0.47556833875002913,
+          "maximum": 1.2824611567193993
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.923596511548919,
+            0.8425620181838155,
+            0.9310872925195973,
+            1.13780536447885
+          ],
+          "median": 0.9273419020342581,
+          "minimum": 0.8425620181838155,
+          "maximum": 1.13780536447885
+        },
+        "latency_instrumented_dispatch_ns": {
+          "pairs": [
+            1.475730949274806,
+            0.19906201489199357,
+            0.12682245408295248,
+            1.1873491205885733
+          ],
+          "median": 0.6932055677402834,
+          "minimum": 0.12682245408295248,
+          "maximum": 1.475730949274806
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            1.0177895398354588,
+            1.770654751849305,
+            0.7400729266437722,
+            0.7679680600496326
+          ],
+          "median": 0.8928787999425457,
+          "minimum": 0.7400729266437722,
+          "maximum": 1.770654751849305
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.9165645764135603,
+            0.8356075138197032,
+            1.3432603417779125,
+            0.4873449357583848
+          ],
+          "median": 0.8760860451166317,
+          "minimum": 0.4873449357583848,
+          "maximum": 1.3432603417779125
+        }
+      },
+      "output_bitwise_equal": true
+    },
+    {
+      "case": "attention-prefill-q1",
+      "operation": "attention",
+      "dimensions": [
+        1,
+        4,
+        2,
+        64,
+        128,
+        64,
+        64
+      ],
+      "attention_block": [
+        1,
+        16
+      ],
+      "visits": [
+        {
+          "case": "attention-prefill-q1",
+          "position": 0,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 256,
+          "threadgroups": 1,
+          "useful_packets": 8,
+          "allocated_packets": 8,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7038770.833333334,
+                4093437.5,
+                7061250.0
+              ],
+              "median": 7038770.833333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                10369026.043917984,
+                9664161.465479992,
+                8386015.6300943345
+              ],
+              "median": 9664161.465479992,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                19680.770875,
+                11853.234375,
+                7216.182375
+              ],
+              "median": 11853.234375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                509208.3333333333,
+                7021416.666666667,
+                7228041.666666667
+              ],
+              "median": 7021416.666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7109874.975867569,
+                6985499.989241362,
+                7087041.740305722
+              ],
+              "median": 7087041.740305722,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                8201.708,
+                15445.5,
+                15641.584
+              ],
+              "median": 15445.5
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8320",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "13689811149414800592",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q1",
+          "position": 1,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 256,
+          "threadgroups": 8,
+          "useful_packets": 8,
+          "allocated_packets": 8,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                1705958.3333333333,
+                6614125.0,
+                6635270.833333333
+              ],
+              "median": 6614125.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                16079229.171737097,
+                7417364.584398456,
+                6636000.005528331
+              ],
+              "median": 7417364.584398456,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                7819.75525,
+                8654.354125,
+                14585.921875
+              ],
+              "median": 8654.354125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                3408708.3333333335,
+                419041.6666666667,
+                6881791.666666667
+              ],
+              "median": 3408708.3333333335,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                6595625.076442957,
+                6766166.654415429,
+                6578999.920748174
+              ],
+              "median": 6595625.076442957,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                12203,
+                31967.792,
+                65279.834
+              ],
+              "median": 31967.792
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8320",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "10052152441920750728",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q1",
+          "position": 2,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 256,
+          "threadgroups": 8,
+          "useful_packets": 8,
+          "allocated_packets": 8,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                4743937.5,
+                6668770.833333333,
+                6636458.333333333
+              ],
+              "median": 6636458.333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                6725854.1675983,
+                9422874.994925223,
+                6697333.345073275
+              ],
+              "median": 6725854.1675983,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                12102.099,
+                9779.135375,
+                9738.604125
+              ],
+              "median": 9779.135375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                6580541.666666667,
+                6535791.666666667,
+                81375
+              ],
+              "median": 6535791.666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                26000791.69496894,
+                6656791.6655912995,
+                6763791.665434837
+              ],
+              "median": 6763791.665434837,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                12429.959,
+                23862.875,
+                8055.417
+              ],
+              "median": 12429.959
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8320",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "10052152441920750728",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q1",
+          "position": 3,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 256,
+          "threadgroups": 1,
+          "useful_packets": 8,
+          "allocated_packets": 8,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7027729.166666666,
+                7019645.833333333,
+                5847541.666666667
+              ],
+              "median": 7019645.833333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                10336468.752939254,
+                7041906.254016794,
+                7083026.037435047
+              ],
+              "median": 7083026.037435047,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                11300.5365,
+                20489.50525,
+                8279.625
+              ],
+              "median": 11300.5365
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                7171916.666666667,
+                7004750,
+                2306875
+              ],
+              "median": 7004750,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7252625.0733062625,
+                6944000.022485852,
+                7301625.097170472
+              ],
+              "median": 7252625.0733062625,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                15214.209,
+                15402.833,
+                24304.708
+              ],
+              "median": 15402.833
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8320",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "13689811149414800592",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q1",
+          "position": 4,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 256,
+          "threadgroups": 1,
+          "useful_packets": 8,
+          "allocated_packets": 8,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                6058020.833333334,
+                7068395.833333334,
+                7079291.666666666
+              ],
+              "median": 7068395.833333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7350645.828410052,
+                18435010.410030372,
+                7118421.883205883
+              ],
+              "median": 7350645.828410052,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                12384.770875,
+                8231.94275,
+                16575.849
+              ],
+              "median": 12384.770875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                4286250,
+                3553666.6666666665,
+                7247750
+              ],
+              "median": 4286250,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                6990749.971009791,
+                7267458.364367485,
+                7107208.25009048
+              ],
+              "median": 7107208.25009048,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                9313.375,
+                13165.958,
+                8289.708
+              ],
+              "median": 9313.375
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8320",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "13689811149414800592",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q1",
+          "position": 5,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 256,
+          "threadgroups": 8,
+          "useful_packets": 8,
+          "allocated_packets": 8,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                6667020.833333334,
+                6629875.0,
+                6653687.5
+              ],
+              "median": 6653687.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                6702401.034999639,
+                8668640.62845707,
+                6738385.418429971
+              ],
+              "median": 6738385.418429971,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                9816.296875,
+                6810.546875,
+                6942.171875
+              ],
+              "median": 6942.171875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                1548208.3333333333,
+                6497541.666666667,
+                6540291.666666667
+              ],
+              "median": 6497541.666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                9518499.951809645,
+                6932458.258233964,
+                6601249.915547669
+              ],
+              "median": 6932458.258233964,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                17662.542,
+                26923.75,
+                7687.791
+              ],
+              "median": 17662.542
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8320",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "10052152441920750728",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q1",
+          "position": 6,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 256,
+          "threadgroups": 8,
+          "useful_packets": 8,
+          "allocated_packets": 8,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                6621541.666666667,
+                6626500.0,
+                6655041.666666666
+              ],
+              "median": 6626500.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                6651479.168795049,
+                11546197.914867662,
+                14075953.13503407
+              ],
+              "median": 11546197.914867662,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                7702.322875,
+                7941.276125,
+                17868.14575
+              ],
+              "median": 7941.276125
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                6805833.333333333,
+                6809708.333333333,
+                6550416.666666667
+              ],
+              "median": 6805833.333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                24165291.688404977,
+                6956541.677936912,
+                6757208.378985524
+              ],
+              "median": 6956541.677936912,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                8774.166,
+                8342.25,
+                14812
+              ],
+              "median": 8774.166
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8320",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "10052152441920750728",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        },
+        {
+          "case": "attention-prefill-q1",
+          "position": 7,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 256,
+          "threadgroups": 1,
+          "useful_packets": 8,
+          "allocated_packets": 8,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                7087187.5,
+                7029312.5,
+                4939395.833333333
+              ],
+              "median": 7029312.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                9621906.25432413,
+                7128578.130505048,
+                7118755.209376104
+              ],
+              "median": 7128578.130505048,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                11223.583375,
+                16145.53125,
+                7645.75
+              ],
+              "median": 11223.583375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                7136083.333333333,
+                7081916.666666667,
+                4166791.6666666665
+              ],
+              "median": 7081916.666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                7115583.401173353,
+                7196124.992333353,
+                30574999.982491136
+              ],
+              "median": 7196124.992333353,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                10953.75,
+                60393.417,
+                21400.208
+              ],
+              "median": 21400.208
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8320",
+            "static_snapshot_allocations": "4",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0,1,2]"
+          },
+          "checksum": "13689811149414800592",
+          "oracle": {
+            "elements": 16384,
+            "max_abs_error": 2.1782151514784798e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "682ba7bf135b643e9ff15d9b17a8e11834998523f6d4b2a1d6bbbe7dbd4b835a"
+        }
+      ],
+      "pinned32_over_automatic": {
+        "throughput_instrumented_dispatch_ns": {
+          "pairs": [
+            0.9396704561935233,
+            0.9454121320223302,
+            0.941329214844245,
+            0.9426953204883123
+          ],
+          "median": 0.9420122676662787,
+          "minimum": 0.9396704561935233,
+          "maximum": 0.9454121320223302
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.7675124852676555,
+            0.9495735483748003,
+            0.916706582758523,
+            1.6197055995582716
+          ],
+          "median": 0.9331400655666617,
+          "minimum": 0.7675124852676555,
+          "maximum": 1.6197055995582716
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.7301259598184567,
+            0.865369124288922,
+            0.5605410019343616,
+            0.7075526469281475
+          ],
+          "median": 0.718839303373302,
+          "minimum": 0.5605410019343616,
+          "maximum": 0.865369124288922
+        },
+        "latency_instrumented_dispatch_ns": {
+          "pairs": [
+            0.4854730170786997,
+            0.933051381800445,
+            1.5159035676096044,
+            0.9610157325582763
+          ],
+          "median": 0.9470335571793607,
+          "minimum": 0.4854730170786997,
+          "maximum": 1.5159035676096044
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.9306598321457655,
+            0.9325991068157367,
+            0.9754122876793021,
+            0.9667066213202675
+          ],
+          "median": 0.9496528640680021,
+          "minimum": 0.9306598321457655,
+          "maximum": 0.9754122876793021
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "pairs": [
+            2.0697155805898158,
+            0.8069917397663144,
+            1.896470613499403,
+            0.4100037719259551
+          ],
+          "median": 1.3517311766328586,
+          "minimum": 0.4100037719259551,
+          "maximum": 2.0697155805898158
+        }
+      },
+      "output_bitwise_equal": true
+    },
+    {
+      "case": "rmsnorm-tail",
+      "operation": "rmsnorm",
+      "dimensions": [
+        257,
+        1025
+      ],
+      "attention_block": [
+        1,
+        1
+      ],
+      "visits": [
+        {
+          "case": "rmsnorm-tail",
+          "position": 0,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 257,
+          "threadgroups": 2,
+          "useful_packets": 9,
+          "allocated_packets": 16,
+          "padding_packets": 7,
+          "padding_threads": 255,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                305208.3333333333,
+                293062.5,
+                295687.5
+              ],
+              "median": 295687.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                326125.0094510615,
+                430776.0391384363,
+                325453.11842113733
+              ],
+              "median": 326125.0094510615,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                466.119875,
+                571.765625,
+                424.885375
+              ],
+              "median": 466.119875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                640333.3333333334,
+                351833.3333333333,
+                548458.3333333334
+              ],
+              "median": 548458.3333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                401791.65080189705,
+                350083.3408907056,
+                350499.9913275242
+              ],
+              "median": 350499.9913275242,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                1225.708,
+                6726.167,
+                5994.834
+              ],
+              "median": 5994.834
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8200",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "15734114385170319125",
+          "oracle": {
+            "elements": 263425,
+            "max_abs_error": 5.020275732903201e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b8af99eb457ff3b8ae38ef331491b69f8a5528669631c2e8275f6eb8cd9d533e"
+        },
+        {
+          "case": "rmsnorm-tail",
+          "position": 1,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 257,
+          "threadgroups": 9,
+          "useful_packets": 9,
+          "allocated_packets": 9,
+          "padding_packets": 0,
+          "padding_threads": 31,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                238437.5,
+                242729.16666666666,
+                238562.5
+              ],
+              "median": 238562.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                756046.8802694231,
+                275270.824204199,
+                296588.5360026732
+              ],
+              "median": 296588.5360026732,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                546.458375,
+                378.9375,
+                339.276
+              ],
+              "median": 378.9375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                296708.3333333333,
+                386875,
+                310625
+              ],
+              "median": 310625,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                359166.6463762522,
+                299208.3318531513,
+                586624.9557584524
+              ],
+              "median": 359166.6463762522,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                1648.75,
+                6040.791,
+                76566.041
+              ],
+              "median": 6040.791
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8200",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "7933454791664932425",
+          "oracle": {
+            "elements": 263425,
+            "max_abs_error": 5.020275732903201e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b8af99eb457ff3b8ae38ef331491b69f8a5528669631c2e8275f6eb8cd9d533e"
+        },
+        {
+          "case": "rmsnorm-tail",
+          "position": 2,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 257,
+          "threadgroups": 9,
+          "useful_packets": 9,
+          "allocated_packets": 9,
+          "padding_packets": 0,
+          "padding_threads": 31,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                245375.0,
+                243062.5,
+                241812.5
+              ],
+              "median": 243062.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                268739.5754037425,
+                271843.746304512,
+                290755.2116084844
+              ],
+              "median": 271843.746304512,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                393.94275,
+                1320.1875,
+                351.473875
+              ],
+              "median": 393.94275
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                347500,
+                297000,
+                389791.6666666667
+              ],
+              "median": 347500,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                296874.90314245224,
+                299083.3017975092,
+                351874.9726936221
+              ],
+              "median": 299083.3017975092,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2399.375,
+                1285.583,
+                5820.25
+              ],
+              "median": 2399.375
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8200",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "7933454791664932425",
+          "oracle": {
+            "elements": 263425,
+            "max_abs_error": 5.020275732903201e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b8af99eb457ff3b8ae38ef331491b69f8a5528669631c2e8275f6eb8cd9d533e"
+        },
+        {
+          "case": "rmsnorm-tail",
+          "position": 3,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 257,
+          "threadgroups": 2,
+          "useful_packets": 9,
+          "allocated_packets": 16,
+          "padding_packets": 7,
+          "padding_threads": 255,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                298437.5,
+                294020.8333333334,
+                292208.3333333334
+              ],
+              "median": 294020.8333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                342203.1149966642,
+                326296.8821218237,
+                423541.65634606034
+              ],
+              "median": 342203.1149966642,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                495.5,
+                463.68225,
+                446.864625
+              ],
+              "median": 463.68225
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                362958.3333333333,
+                352250,
+                394250
+              ],
+              "median": 362958.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                414749.956689775,
+                406083.4180563688,
+                475249.95170533657
+              ],
+              "median": 414749.956689775,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2514.625,
+                1389.209,
+                5888.25
+              ],
+              "median": 2514.625
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8200",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "15734114385170319125",
+          "oracle": {
+            "elements": 263425,
+            "max_abs_error": 5.020275732903201e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b8af99eb457ff3b8ae38ef331491b69f8a5528669631c2e8275f6eb8cd9d533e"
+        },
+        {
+          "case": "rmsnorm-tail",
+          "position": 4,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 257,
+          "threadgroups": 2,
+          "useful_packets": 9,
+          "allocated_packets": 16,
+          "padding_packets": 7,
+          "padding_threads": 255,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                302729.1666666667,
+                294333.3333333333,
+                294270.8333333333
+              ],
+              "median": 294333.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                338453.1300980598,
+                328744.7907496244,
+                346781.24939091504
+              ],
+              "median": 338453.1300980598,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1148.869875,
+                1211.46875,
+                501.953125
+              ],
+              "median": 1148.869875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                428708.3333333333,
+                346500,
+                348833.3333333333
+              ],
+              "median": 348833.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                427041.6684448719,
+                354416.6684150696,
+                475749.95551258326
+              ],
+              "median": 427041.6684448719,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2078.375,
+                1073,
+                5219.958
+              ],
+              "median": 2078.375
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8200",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "15734114385170319125",
+          "oracle": {
+            "elements": 263425,
+            "max_abs_error": 5.020275732903201e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b8af99eb457ff3b8ae38ef331491b69f8a5528669631c2e8275f6eb8cd9d533e"
+        },
+        {
+          "case": "rmsnorm-tail",
+          "position": 5,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 257,
+          "threadgroups": 9,
+          "useful_packets": 9,
+          "allocated_packets": 9,
+          "padding_packets": 0,
+          "padding_threads": 31,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                250229.1666666667,
+                242979.1666666667,
+                246604.16666666666
+              ],
+              "median": 246604.16666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                287890.6234400347,
+                266208.3425093442,
+                286031.2524717301
+              ],
+              "median": 286031.2524717301,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                345.229125,
+                387.171875,
+                387.61975
+              ],
+              "median": 387.171875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                295250,
+                294625,
+                298291.6666666667
+              ],
+              "median": 295250,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                409749.91861730814,
+                296749.98950213194,
+                292958.22605490685
+              ],
+              "median": 296749.98950213194,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                762.417,
+                1341.708,
+                42482.375
+              ],
+              "median": 1341.708
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8200",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "7933454791664932425",
+          "oracle": {
+            "elements": 263425,
+            "max_abs_error": 5.020275732903201e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b8af99eb457ff3b8ae38ef331491b69f8a5528669631c2e8275f6eb8cd9d533e"
+        },
+        {
+          "case": "rmsnorm-tail",
+          "position": 6,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 257,
+          "threadgroups": 9,
+          "useful_packets": 9,
+          "allocated_packets": 9,
+          "padding_packets": 0,
+          "padding_threads": 31,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                274375.0,
+                253145.83333333334,
+                239708.33333333334
+              ],
+              "median": 253145.83333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                811328.1219266355,
+                269249.9983822927,
+                267781.2590263784
+              ],
+              "median": 269249.9983822927,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2168.614625,
+                427.109375,
+                908.645875
+              ],
+              "median": 908.645875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                297916.6666666667,
+                334000,
+                303333.3333333333
+              ],
+              "median": 303333.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                353625.0442266464,
+                356875.01076608896,
+                387625.07028877735
+              ],
+              "median": 356875.01076608896,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                8704.208,
+                8355.709,
+                3986.042
+              ],
+              "median": 8355.709
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8200",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "7933454791664932425",
+          "oracle": {
+            "elements": 263425,
+            "max_abs_error": 5.020275732903201e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b8af99eb457ff3b8ae38ef331491b69f8a5528669631c2e8275f6eb8cd9d533e"
+        },
+        {
+          "case": "rmsnorm-tail",
+          "position": 7,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 257,
+          "threadgroups": 2,
+          "useful_packets": 9,
+          "allocated_packets": 16,
+          "padding_packets": 7,
+          "padding_threads": 255,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                298770.8333333334,
+                297520.8333333334,
+                304958.3333333333
+              ],
+              "median": 298770.8333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                332828.13092228025,
+                338895.82846313715,
+                330531.2566226348
+              ],
+              "median": 332828.13092228025,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2532.38025,
+                1060.401125,
+                1414.7395
+              ],
+              "median": 1414.7395
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                347666.6666666667,
+                443666.6666666667,
+                355125
+              ],
+              "median": 355125,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                438499.9629110098,
+                474125.0304505229,
+                349125.00996142626
+              ],
+              "median": 438499.9629110098,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                1030.125,
+                5018.792,
+                2791.208
+              ],
+              "median": 2791.208
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "8200",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "15734114385170319125",
+          "oracle": {
+            "elements": 263425,
+            "max_abs_error": 5.020275732903201e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "b8af99eb457ff3b8ae38ef331491b69f8a5528669631c2e8275f6eb8cd9d533e"
+        }
+      ],
+      "pinned32_over_automatic": {
+        "throughput_instrumented_dispatch_ns": {
+          "pairs": [
+            0.8068061720566476,
+            0.8266846170197689,
+            0.8378397508493771,
+            0.8472909838923366
+          ],
+          "median": 0.832262183934573,
+          "minimum": 0.8068061720566476,
+          "maximum": 0.8472909838923366
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.9094320503106937,
+            0.7943929625163171,
+            0.8451133319076071,
+            0.8089760851529888
+          ],
+          "median": 0.8270447085302979,
+          "minimum": 0.7943929625163171,
+          "maximum": 0.9094320503106937
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "pairs": [
+            0.81296147262547,
+            0.8495963561253422,
+            0.3370023737457647,
+            0.6422708032114747
+          ],
+          "median": 0.7276161379184723,
+          "minimum": 0.3370023737457647,
+          "maximum": 0.8495963561253422
+        },
+        "latency_instrumented_dispatch_ns": {
+          "pairs": [
+            0.5663602522221378,
+            0.9574101710481001,
+            0.8463927376970856,
+            0.8541593335679925
+          ],
+          "median": 0.850276035632539,
+          "minimum": 0.5663602522221378,
+          "maximum": 0.9574101710481001
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            1.0247265485397101,
+            0.7211171381054966,
+            0.6948970356517804,
+            0.8138541412796289
+          ],
+          "median": 0.7674856396925627,
+          "minimum": 0.6948970356517804,
+          "maximum": 1.0247265485397101
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "pairs": [
+            1.0076661005125414,
+            0.9541681165183675,
+            0.6455562639081013,
+            2.993581632038888
+          ],
+          "median": 0.9809171085154544,
+          "minimum": 0.6455562639081013,
+          "maximum": 2.993581632038888
+        }
+      },
+      "output_bitwise_equal": true
+    },
+    {
+      "case": "swiglu-wide-grid",
+      "operation": "swiglu",
+      "dimensions": [
+        8192,
+        65
+      ],
+      "attention_block": [
+        1,
+        1
+      ],
+      "visits": [
+        {
+          "case": "swiglu-wide-grid",
+          "position": 0,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 8192,
+          "threadgroups": 32,
+          "useful_packets": 256,
+          "allocated_packets": 256,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                184937.5,
+                114145.83333333334,
+                116791.66666666666
+              ],
+              "median": 116791.66666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                175151.0426402092,
+                139005.20571041852,
+                168406.25903569162
+              ],
+              "median": 168406.25903569162,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                962.34375,
+                287.578125,
+                420.197875
+              ],
+              "median": 420.197875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                136291.66666666666,
+                145583.33333333334,
+                128500
+              ],
+              "median": 136291.66666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                134999.98021870852,
+                133249.9086856842,
+                133750.02890825272
+              ],
+              "median": 133750.02890825272,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                1056.875,
+                4894.709,
+                741.5
+              ],
+              "median": 1056.875
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "520",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "1521049690680053842",
+          "oracle": {
+            "elements": 532480,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "390392fc64c2648443f48fd8908aaa9ca50519687bbaf0432cad6733a8bf7bf7"
+        },
+        {
+          "case": "swiglu-wide-grid",
+          "position": 1,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 8192,
+          "threadgroups": 256,
+          "useful_packets": 256,
+          "allocated_packets": 256,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                134979.1666666667,
+                127166.66666666666,
+                130229.16666666666
+              ],
+              "median": 130229.16666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                149020.83785273135,
+                166427.0821493119,
+                147187.50026077032
+              ],
+              "median": 149020.83785273135,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2184.38025,
+                2183.026,
+                1070.098875
+              ],
+              "median": 2183.026
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                138833.33333333334,
+                133041.66666666666,
+                155000
+              ],
+              "median": 138833.33333333334,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                133666.67553782463,
+                131499.95356798172,
+                205708.31838995218
+              ],
+              "median": 133666.67553782463,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                5688.292,
+                1231.292,
+                5175.583
+              ],
+              "median": 5175.583
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "520",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "17554226631996202627",
+          "oracle": {
+            "elements": 532480,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "390392fc64c2648443f48fd8908aaa9ca50519687bbaf0432cad6733a8bf7bf7"
+        },
+        {
+          "case": "swiglu-wide-grid",
+          "position": 2,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 8192,
+          "threadgroups": 256,
+          "useful_packets": 256,
+          "allocated_packets": 256,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                142187.5,
+                125270.83333333333,
+                147250.0
+              ],
+              "median": 142187.5,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                146250.00767409801,
+                155468.747834675,
+                142437.5077476725
+              ],
+              "median": 146250.00767409801,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                659.8385,
+                5126.8645,
+                1562.015625
+              ],
+              "median": 1562.015625
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                352250,
+                133375,
+                150750
+              ],
+              "median": 150750,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                148791.70339554548,
+                160875.03172457218,
+                131083.30313116312
+              ],
+              "median": 148791.70339554548,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2031.375,
+                1301.333,
+                975.333
+              ],
+              "median": 1301.333
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "520",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "17554226631996202627",
+          "oracle": {
+            "elements": 532480,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "390392fc64c2648443f48fd8908aaa9ca50519687bbaf0432cad6733a8bf7bf7"
+        },
+        {
+          "case": "swiglu-wide-grid",
+          "position": 3,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 8192,
+          "threadgroups": 32,
+          "useful_packets": 256,
+          "allocated_packets": 256,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                113708.33333333333,
+                116666.66666666666,
+                128312.5
+              ],
+              "median": 116666.66666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                141406.2426192686,
+                148859.38435327262,
+                637499.9938998371
+              ],
+              "median": 148859.38435327262,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                2415.1615,
+                439.973875,
+                273.640625
+              ],
+              "median": 439.973875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                127291.66666666667,
+                131458.33333333334,
+                130000
+              ],
+              "median": 130000,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                140708.40552449226,
+                389249.9953508377,
+                156125.0537633896
+              ],
+              "median": 156125.0537633896,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                979.167,
+                1213.541,
+                6573.375
+              ],
+              "median": 1213.541
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "520",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "1521049690680053842",
+          "oracle": {
+            "elements": 532480,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "390392fc64c2648443f48fd8908aaa9ca50519687bbaf0432cad6733a8bf7bf7"
+        },
+        {
+          "case": "swiglu-wide-grid",
+          "position": 4,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 8192,
+          "threadgroups": 32,
+          "useful_packets": 256,
+          "allocated_packets": 256,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                125416.66666666667,
+                116104.16666666666,
+                149104.16666666666
+              ],
+              "median": 125416.66666666667,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                137687.50068265945,
+                2145609.3672895804,
+                1019749.9941568822
+              ],
+              "median": 1019749.9941568822,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1202.234375,
+                272.6145,
+                392.260375
+              ],
+              "median": 392.260375
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                129166.66666666667,
+                132708.33333333334,
+                130125
+              ],
+              "median": 130125,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                404708.3202749491,
+                240666.67538136244,
+                400625.05286186934
+              ],
+              "median": 400625.05286186934,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                770.375,
+                6086.25,
+                6195.959
+              ],
+              "median": 6086.25
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "520",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "1521049690680053842",
+          "oracle": {
+            "elements": 532480,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "390392fc64c2648443f48fd8908aaa9ca50519687bbaf0432cad6733a8bf7bf7"
+        },
+        {
+          "case": "swiglu-wide-grid",
+          "position": 5,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 8192,
+          "threadgroups": 256,
+          "useful_packets": 256,
+          "allocated_packets": 256,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                137187.5,
+                120000.0,
+                127375.0
+              ],
+              "median": 127375.0,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                173166.65616817772,
+                150859.3704784289,
+                143213.53228297085
+              ],
+              "median": 150859.3704784289,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1182.85425,
+                395.604125,
+                1233.130125
+              ],
+              "median": 1182.85425
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                154791.66666666666,
+                135083.33333333334,
+                182375
+              ],
+              "median": 154791.66666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                133333.2620561123,
+                210291.5896102786,
+                159041.60682111979
+              ],
+              "median": 159041.60682111979,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2198.291,
+                837.208,
+                6058.292
+              ],
+              "median": 2198.291
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "520",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "17554226631996202627",
+          "oracle": {
+            "elements": 532480,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "390392fc64c2648443f48fd8908aaa9ca50519687bbaf0432cad6733a8bf7bf7"
+        },
+        {
+          "case": "swiglu-wide-grid",
+          "position": 6,
+          "requested_block": 32,
+          "actual_block": 32,
+          "dispatch": 8192,
+          "threadgroups": 256,
+          "useful_packets": 256,
+          "allocated_packets": 256,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                158333.3333333333,
+                127687.5,
+                127791.66666666666
+              ],
+              "median": 127791.66666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                180374.99103229493,
+                182078.11808679253,
+                143114.57925941795
+              ],
+              "median": 180374.99103229493,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                383.984375,
+                3352.72925,
+                4297.88025
+              ],
+              "median": 3352.72925
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                129916.66666666667,
+                132250,
+                132375
+              ],
+              "median": 132250,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                172624.94657188654,
+                355541.58966988325,
+                158375.01268833876
+              ],
+              "median": 172624.94657188654,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                8274.459,
+                1266.042,
+                4713.125
+              ],
+              "median": 4713.125
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "520",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "17554226631996202627",
+          "oracle": {
+            "elements": 532480,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "390392fc64c2648443f48fd8908aaa9ca50519687bbaf0432cad6733a8bf7bf7"
+        },
+        {
+          "case": "swiglu-wide-grid",
+          "position": 7,
+          "requested_block": 0,
+          "actual_block": 256,
+          "dispatch": 8192,
+          "threadgroups": 32,
+          "useful_packets": 256,
+          "allocated_packets": 256,
+          "padding_packets": 0,
+          "padding_threads": 0,
+          "metrics": {
+            "throughput_instrumented_dispatch_ns": {
+              "samples": [
+                219458.3333333333,
+                127250.0,
+                144583.3333333333
+              ],
+              "median": 144583.3333333333,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                147223.95280841738,
+                138656.25078324229,
+                139140.6258335337
+              ],
+              "median": 139140.6258335337,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "throughput_host_wall_us_per_dispatch": {
+              "samples": [
+                1124.296875,
+                1221.088625,
+                224.572875
+              ],
+              "median": 1124.296875
+            },
+            "latency_instrumented_dispatch_ns": {
+              "samples": [
+                135875,
+                153291.66666666666,
+                407666.6666666667
+              ],
+              "median": 153291.66666666666,
+              "sample_statistic": "median_dispatch_interval"
+            },
+            "latency_feedback_only_command_buffer_ns_per_dispatch": {
+              "samples": [
+                168625.0325292349,
+                133458.29211175442,
+                132916.72803461552
+              ],
+              "median": 133458.29211175442,
+              "sample_statistic": "sum_nonempty_command_buffer_intervals_divided_by_dispatch_count"
+            },
+            "latency_host_wall_us_per_dispatch": {
+              "samples": [
+                2274.834,
+                1032.875,
+                4873.792
+              ],
+              "median": 2274.834
+            }
+          },
+          "structure": {
+            "local_lanes": "1",
+            "static_snapshot_bytes_per_worker": "520",
+            "static_snapshot_allocations": "2",
+            "max_unrolled_tile_elements": "64",
+            "max_unrolled_region_work": "4096",
+            "unordered_reduction_partitions": "4",
+            "fused_reduction_loads": "0",
+            "fused_reduction_expressions": "0",
+            "fused_pointwise_regions": "0",
+            "deferred_maps": "0",
+            "blocked_mmas": "0",
+            "two_dimensional_mmas": "0",
+            "rolled_mmas": "0",
+            "fast_math": "false",
+            "ordered_reduction": "false",
+            "strict_mma": "false",
+            "root_order": "[0]"
+          },
+          "checksum": "1521049690680053842",
+          "oracle": {
+            "elements": 532480,
+            "max_abs_error": 2.209143261655555e-07,
+            "atol": 5e-05,
+            "rtol": 5e-05
+          },
+          "output_sha256": "390392fc64c2648443f48fd8908aaa9ca50519687bbaf0432cad6733a8bf7bf7"
+        }
+      ],
+      "pinned32_over_automatic": {
+        "throughput_instrumented_dispatch_ns": {
+          "pairs": [
+            1.1150552978951125,
+            1.21875,
+            1.0156146179401992,
+            0.8838616714697407
+          ],
+          "median": 1.0653349579176559,
+          "minimum": 0.8838616714697407,
+          "maximum": 1.21875
+        },
+        "throughput_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.8848889507197486,
+            0.9824708620789265,
+            0.14793760367035622,
+            1.2963502927469477
+          ],
+          "median": 0.9336799063993375,
+          "minimum": 0.14793760367035622,
+          "maximum": 1.2963502927469477
+        },
+        "throughput_host_wall_us_per_dispatch": {
+          "pairs": [
+            5.195233317160397,
+            3.5502463072381283,
+            3.0154823820784857,
+            2.982067570009033
+          ],
+          "median": 3.2828643446583072,
+          "minimum": 2.982067570009033,
+          "maximum": 5.195233317160397
+        },
+        "latency_instrumented_dispatch_ns": {
+          "pairs": [
+            1.0186487312748396,
+            1.1596153846153847,
+            1.1895613192443162,
+            0.8627344387061702
+          ],
+          "median": 1.089132057945112,
+          "minimum": 0.8627344387061702,
+          "maximum": 1.1895613192443162
+        },
+        "latency_feedback_only_command_buffer_ns_per_dispatch": {
+          "pairs": [
+            0.9993767973651411,
+            0.9530289970054522,
+            0.39698367759331166,
+            1.2934748664948823
+          ],
+          "median": 0.9762028971852966,
+          "minimum": 0.39698367759331166,
+          "maximum": 1.2934748664948823
+        },
+        "latency_host_wall_us_per_dispatch": {
+          "pairs": [
+            4.897062566528681,
+            1.0723436620600377,
+            0.36118973095091395,
+            2.071854473776988
+          ],
+          "median": 1.5720990679185127,
+          "minimum": 0.36118973095091395,
+          "maximum": 4.897062566528681
+        }
+      },
+      "output_bitwise_equal": true
+    }
+  ],
+  "maximum_abs_error": 5.020275732903201e-07,
+  "boundary": "Complete exported tensors checked against independent FP64 math. Instrumented dispatch, feedback-only command-buffer and host timings remain distinct. Four adjacent pinned32/auto pairs per case; no cross-framework ranking, live loader proof, or zero-overhead timing claim."
+}

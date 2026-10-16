@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="5"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="91"
+	timestamp="2026-09-10T10:07:49"
+	>
+	<testcase name="test_tile_ir" classname="test_tile_ir" time="0.00854708" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (340 asserts in 10 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_target_info" classname="test_tile_xir_target_info" time="0.900395" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_tile;unit_tile_xir"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (642 asserts in 5 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_metal" classname="test_tile_xir_metal" time="12.4094" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_metal4;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 10:07:50.603] [console] [info] Created context for program 'test_tile_xir_metal'.
+[2026-09-10 10:07:50.604] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 10:07:51.376] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-metal4.so' in 771.1955839999999 ms.
+[2026-09-10 10:07:51.412] [console] [info] Created Metal 4 device 'Apple M1 Max' at index 0.
+[2026-09-10 10:07:51.412] [console] [info] Test device backend: metal4.
+[2026-09-10 10:07:51.412] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=1
+[2026-09-10 10:07:51.490] [console] [info] Metal4 address-driven acceleration-structure builds require Apple9 or newer; using the synchronized Metal AS build bridge on 'Apple M1 Max'. Shader compilation and dispatch remain Metal4 AIR.
+[2026-09-10 10:07:51.761] [console] [info] Metal4 Tile-XIR: llm_rows rows=17 width=7 local_lanes=0
+[2026-09-10 10:07:51.769] [console] [info] M...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_runtime" classname="test_tile_xir_runtime" time="57.9361" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 10:08:03.443] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-10 10:08:03.444] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 10:08:03.649] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-simd.so' in 204.894375 ms.
+[2026-09-10 10:08:03.649] [console] [info] Test device backend: simd.
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (5085845 asserts in 17 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_tile_xir_llm" classname="test_tile_xir_llm" time="20.3034" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-10 10:09:01.473] [console] [info] Created context for program 'test_tile_xir_llm'.
+[2026-09-10 10:09:01.474] [console] [info] Runtime directory: /private/tmp/luisa-next-integration.roZbN8/build/bin.
+[2026-09-10 10:09:01.486] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-integration.roZbN8/build/bin/libluisa-backend-simd.so' in 11.8135 ms.
+[2026-09-10 10:09:01.486] [console] [info] Test device backend: simd.
+[2026-09-10 10:09:01.495] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-10 10:09:01.539] [console] [info] Checking llm_rows with 262144 output elements
+[2026-09-10 10:09:01.580] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-10 10:09:01.612] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-10 10:09:01.714] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-10 10:09:01.818] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-10 10:09:01.852] [console] [info] Checking llm_ro...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

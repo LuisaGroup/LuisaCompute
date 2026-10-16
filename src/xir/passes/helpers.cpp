@@ -57,9 +57,10 @@ InstructionMemoryInfo get_memory_info(Instruction *inst) noexcept {
                 // of a shader invocation. In particular, the ResourceQueryOp
                 // contract explicitly excludes same-shader texture writes
                 // from affecting sampling.
-                case ResourceQueryOp::BUFFER_SIZE:
-                case ResourceQueryOp::BYTE_BUFFER_SIZE:
-                case ResourceQueryOp::TEXTURE2D_SIZE:
+                  case ResourceQueryOp::BUFFER_SIZE:
+                  case ResourceQueryOp::BYTE_BUFFER_SIZE:
+                  case ResourceQueryOp::ACCEL_SIZE:
+                  case ResourceQueryOp::TEXTURE2D_SIZE:
                 case ResourceQueryOp::TEXTURE3D_SIZE:
                 case ResourceQueryOp::BINDLESS_BUFFER_SIZE:
                 case ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE:

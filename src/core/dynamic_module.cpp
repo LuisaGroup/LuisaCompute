@@ -2,6 +2,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <Windows.h>
@@ -34,6 +35,7 @@ void DynamicModule::reset() noexcept {
     }
 }
 
+namespace dynamic_module_detail {
 [[nodiscard]] static std::mutex &dynamic_module_search_path_mutex() noexcept {
     static std::mutex mutex;
     return mutex;
@@ -44,24 +46,27 @@ void DynamicModule::reset() noexcept {
     return paths;
 }
 
+}  // namespace dynamic_module_detail
 #ifdef LUISA_PLATFORM_WINDOWS
+namespace dynamic_module_detail {
 [[nodiscard]] static auto &dynamic_module_search_path_cookies() noexcept {
     static luisa::vector<DLL_DIRECTORY_COOKIE> cookies;
     return cookies;
 }
+}  // namespace dynamic_module_detail
 #endif
 
 void DynamicModule::reset_search_paths() noexcept {
-    dynamic_module_search_paths() = luisa::vector<std::pair<luisa::filesystem::path, std::size_t>>{};
+    dynamic_module_detail::dynamic_module_search_paths() = luisa::vector<std::pair<luisa::filesystem::path, std::size_t>>{};
 #ifdef LUISA_PLATFORM_WINDOWS
-    dynamic_module_search_path_cookies() = luisa::vector<DLL_DIRECTORY_COOKIE>{};
+    dynamic_module_detail::dynamic_module_search_path_cookies() = luisa::vector<DLL_DIRECTORY_COOKIE>{};
 #endif
 }
 
 void DynamicModule::add_search_path(const luisa::filesystem::path &path) noexcept {
-    std::lock_guard lock{dynamic_module_search_path_mutex()};
+    std::lock_guard lock{dynamic_module_detail::dynamic_module_search_path_mutex()};
     auto canonical_path = luisa::filesystem::canonical(path);
-    auto &&paths = dynamic_module_search_paths();
+    auto &&paths = dynamic_module_detail::dynamic_module_search_paths();
     if (
         auto iter = std::find_if(
             paths.begin(),
@@ -73,17 +78,17 @@ void DynamicModule::add_search_path(const luisa::filesystem::path &path) noexcep
         iter->second++;
     } else {
 #ifdef LUISA_PLATFORM_WINDOWS
-        auto &&cookies = dynamic_module_search_path_cookies();
+        auto &&cookies = dynamic_module_detail::dynamic_module_search_path_cookies();
         cookies.emplace_back(AddDllDirectory(canonical_path.c_str()));
 #endif
         paths.emplace_back(std::move(canonical_path), 0);
     }
 }
 
-void DynamicModule::remove_search_path(const std::filesystem::path &path) noexcept {
-    std::lock_guard lock{dynamic_module_search_path_mutex()};
-    auto canonical_path = std::filesystem::canonical(path);
-    auto &&paths = dynamic_module_search_paths();
+void DynamicModule::remove_search_path(const luisa::filesystem::path &path) noexcept {
+    std::lock_guard lock{dynamic_module_detail::dynamic_module_search_path_mutex()};
+    auto canonical_path = luisa::filesystem::canonical(path);
+    auto &&paths = dynamic_module_detail::dynamic_module_search_paths();
     if (auto iter = std::find_if(paths.begin(), paths.end(), [&canonical_path](auto &&p) noexcept {
             return p.first == canonical_path;
         });
@@ -92,7 +97,7 @@ void DynamicModule::remove_search_path(const std::filesystem::path &path) noexce
             auto index = std::distance(paths.begin(), iter);
             paths.erase(iter);
 #ifdef LUISA_PLATFORM_WINDOWS
-            auto &&cookies = dynamic_module_search_path_cookies();
+            auto &&cookies = dynamic_module_detail::dynamic_module_search_path_cookies();
             RemoveDllDirectory(cookies[index]);
             cookies.erase(cookies.begin() + index);
 #endif
@@ -100,9 +105,9 @@ void DynamicModule::remove_search_path(const std::filesystem::path &path) noexce
     }
 }
 
-DynamicModule DynamicModule::load(std::string_view name) noexcept {
-    std::lock_guard lock{dynamic_module_search_path_mutex()};
-    auto &&paths = dynamic_module_search_paths();
+DynamicModule DynamicModule::load(luisa::string_view name) noexcept {
+    std::lock_guard lock{dynamic_module_detail::dynamic_module_search_path_mutex()};
+    auto &&paths = dynamic_module_detail::dynamic_module_search_paths();
     for (auto iter = paths.crbegin(); iter != paths.crend(); iter++) {
         if (auto m = load(iter->first, name)) {
             return m;
@@ -112,8 +117,15 @@ DynamicModule DynamicModule::load(std::string_view name) noexcept {
 }
 
 DynamicModule DynamicModule::load(const luisa::filesystem::path &folder, luisa::string_view name) noexcept {
-    auto make_path = [&folder](const auto &file_name) noexcept {
-        return folder.empty() ? std::filesystem::path{file_name} : folder / file_name;
+    // Module names are narrow text (backend names, file names built from ASCII
+    // identifiers, or full names the application supplied). Decoding them with
+    // path_from_narrow() keeps this noexcept function from throwing through
+    // path's implicit narrow->wide conversion when the ANSI code page cannot
+    // represent the bytes; an undecodable name simply yields no module.
+    auto make_path = [&folder](luisa::string_view file_name) noexcept -> luisa::filesystem::path {
+        luisa::filesystem::path result;
+        if (!path_from_narrow(file_name, result)) return result;
+        return folder.empty() ? std::move(result) : folder / result;
     };
     if (auto m = load_exact(make_path(dynamic_module_name(name)))) {
         return m;
@@ -122,7 +134,7 @@ DynamicModule DynamicModule::load(const luisa::filesystem::path &folder, luisa::
     return load_exact(make_path(name));
 }
 
-DynamicModule DynamicModule::load_exact(const std::filesystem::path &path) noexcept {
+DynamicModule DynamicModule::load_exact(const luisa::filesystem::path &path) noexcept {
     Clock clock;
     if (auto handle = dynamic_module_load(path)) {
         LUISA_INFO("Loaded dynamic module '{}' in {} ms.",

@@ -3,6 +3,7 @@
 #include "attention_config.h"
 #include "attention_kernels.h"
 #include "attention_runner.h"
+#include "paged_attention.h"
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
@@ -183,6 +184,68 @@ void run_attention(Device &device, Stream &stream, AttentionDeviceBuffers &buffe
     } else {
         run_mha(device, stream, buffers, opt, compile_clock);
     }
+}
+
+bool run_paged_attention(Device &device, Stream &stream, AttentionDeviceBuffers &buffers) {
+    // A paged_attention_block_size-thread block spans consecutive i of the
+    // same (b, h), so the page-index read in the attention kernel is
+    // block-uniform.
+    static_assert(seq_len % paged_attention_block_size == 0u,
+                  "seq_len must be a multiple of the block size");
+
+    // The logical page count is derived inside prepare() from the discovered
+    // geometry (pages_per_seq depends on the device tile size):
+    // total_pages = batch * pages_per_seq.
+    PagedAttention paged{device, stream};
+    if (!paged.prepare(batch)) [[unlikely]] {
+        LUISA_WARNING("Falling back to dense MHA.");
+        return false;
+    }
+
+    // -- Warm-up dispatch (not measured) -------------------------------------
+    {
+        CommandList warmup = CommandList::create();
+        paged.compute(warmup, buffers.q_buf, buffers.k_buf, buffers.v_buf, buffers.o_buf);
+        stream << warmup.commit() << synchronize();
+    }
+
+    // -- Re-allocation demo ---------------------------------------------------
+    // Grow the pool beyond its current capacity: a larger sparse buffer is
+    // created, the heap pool is re-allocated into it (live pages copied), and
+    // the old buffer + heaps are destroyed through CommandList::add_callback
+    // so they outlive every GPU reference.
+    LUISA_INFO("Re-allocating paged KV pool ({} -> {} pages) ...",
+               paged.capacity(), paged.capacity() * 2u);
+    if (!paged.reserve(paged.capacity() * 2u)) [[unlikely]] {
+        LUISA_WARNING("Pool re-allocation failed; falling back to dense MHA.");
+        return false;
+    }
+
+    // -- Timed dispatch ------------------------------------------------------
+    LUISA_INFO("Dispatching paged attention GPU kernels ...");
+    Clock dispatch_clock;
+    {
+        CommandList cmd_list = CommandList::create();
+        paged.compute(cmd_list, buffers.q_buf, buffers.k_buf, buffers.v_buf, buffers.o_buf);
+        stream << cmd_list.commit() << synchronize();
+    }
+    LUISA_INFO("  Paged GPU dispatch + sync: {:.2f} ms", dispatch_clock.toc());
+
+    // -- Eviction / reuse demo (vLLM BlockPool free-queue analog) ------------
+    // Runs after the verified dispatch: unmap -> remap of a live tile leaves
+    // stale residency on the dx backend (verified output only depends on the
+    // dispatch above), so the churn demo is presentation-only, like the
+    // original flattened implementation.
+    const auto last_page = paged.total_pages() - 1u;
+    if (paged.evict_page(last_page)) {
+        LUISA_INFO("  KV block {} evicted (ref_cnt -> 0)", last_page);
+        if (paged.allocate_page(last_page)) {
+            LUISA_INFO("  KV block {} reallocated from the block-pool free queue", last_page);
+        }
+    } else {
+        LUISA_INFO("  KV block {} shares its tile with live pages; eviction skipped", last_page);
+    }
+    return true;
 }
 
 void download_output(Stream &stream, AttentionDeviceBuffers &buffers, luisa::vector<float> &output) {

@@ -3,7 +3,10 @@
 #include "ut/ut.hpp"
 
 #include <luisa/core/stl/format.h>
+#include <luisa/dsl/raster/raster_kernel.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #include "hlsl_codegen.h"
 #include "atomic_codegen_policy.h"
@@ -20,17 +23,53 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+struct RasterCodegenVarying {
+    float4 position;
+    float4 color;
+};
+LUISA_STRUCT(RasterCodegenVarying, position, color) {};
+
+struct RasterInterpolationCodegenVarying {
+    float4 position;
+    float center_perspective;
+    float center_no_perspective;
+    float centroid_perspective;
+    float centroid_no_perspective;
+    float sample_perspective;
+    float sample_no_perspective;
+    uint flat;
+
+    LUISA_RASTER_VARYING_INTERPOLATION(
+        CENTER_PERSPECTIVE,
+        CENTER_NO_PERSPECTIVE,
+        CENTROID_PERSPECTIVE,
+        CENTROID_NO_PERSPECTIVE,
+        SAMPLE_PERSPECTIVE,
+        SAMPLE_NO_PERSPECTIVE,
+        FLAT)
+};
+LUISA_STRUCT(
+    RasterInterpolationCodegenVarying,
+    position,
+    center_perspective,
+    center_no_perspective,
+    centroid_perspective,
+    centroid_no_perspective,
+    sample_perspective,
+    sample_no_perspective,
+    flat) {};
+
 namespace {
 
 [[nodiscard]] bool contains(
     luisa::string_view text,
-    std::string_view needle) noexcept {
+    luisa::string_view needle) noexcept {
     return text.find(needle) != luisa::string_view::npos;
 }
 
 [[nodiscard]] size_t count_substring(
     luisa::string_view text,
-    std::string_view needle) noexcept {
+    luisa::string_view needle) noexcept {
     size_t count = 0u;
     for (auto offset = size_t{0u};;) {
         auto position = text.find(needle, offset);
@@ -49,7 +88,7 @@ namespace {
 
 [[nodiscard]] bool calls_have_arity(
     luisa::string_view text,
-    std::string_view name,
+    luisa::string_view name,
     size_t expected_arity,
     size_t expected_count,
     bool exact_identifier = true) noexcept {
@@ -131,7 +170,7 @@ struct DxcSpirvAtomicFacts {
 
 [[nodiscard]] DxcSpirvAtomicFacts compile_and_inspect_dxc_spirv(
     luisa::string_view source,
-    const std::filesystem::path &runtime_directory) {
+    const luisa::filesystem::path &runtime_directory) {
     DxcSpirvAtomicFacts facts;
     lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
     auto compiled = compiler.compile_compute(
@@ -192,18 +231,24 @@ int main(int argc, char *argv[]) {
     };
 
     "hlsl_float_atomic_codegen_respects_spirv_boundary"_test = [argv] {
-        constexpr CallOp float_ops[]{
+        // The bundled DXC lowers float add/sub/min/max/exchange natively
+        // for Vulkan SPIR-V; only float compare-exchange stays unsupported
+        // on the HLSL-to-SPIR-V route.
+        expect(
+            lc::hlsl::plan_hlsl_atomic_lowering(
+                CallOp::ATOMIC_COMPARE_EXCHANGE, true, true) ==
+            lc::hlsl::HlslAtomicLowering::UNSUPPORTED);
+        constexpr CallOp native_float_ops[]{
             CallOp::ATOMIC_EXCHANGE,
-            CallOp::ATOMIC_COMPARE_EXCHANGE,
             CallOp::ATOMIC_FETCH_ADD,
             CallOp::ATOMIC_FETCH_SUB,
             CallOp::ATOMIC_FETCH_MIN,
             CallOp::ATOMIC_FETCH_MAX,
         };
-        for (auto op : float_ops) {
+        for (auto op : native_float_ops) {
             expect(
                 lc::hlsl::plan_hlsl_atomic_lowering(op, true, true) ==
-                lc::hlsl::HlslAtomicLowering::UNSUPPORTED);
+                lc::hlsl::HlslAtomicLowering::NATIVE);
         }
         expect(
             lc::hlsl::plan_hlsl_atomic_lowering(
@@ -230,6 +275,22 @@ int main(int argc, char *argv[]) {
             << "CAS failure must reuse the returned bits instead of reloading";
         expect(!contains(software_program, "InterlockedAdd("));
 
+        // The SPIR-V route must emit the native float atomic and the
+        // bundled DXC must compile it to valid SPIR-V with a float add.
+        auto spirv_native = lc::hlsl::CodegenUtility{}.Codegen(
+            function, {}, 0u, true, false, false);
+        auto spirv_program = spirv_native.result.view();
+        expect(contains(spirv_program, "InterlockedAdd("));
+        expect(!contains(
+            spirv_program, "InterlockedCompareExchangeFloatBitwise("));
+        auto float_dxc = compile_and_inspect_dxc_spirv(
+            spirv_program,
+            luisa::filesystem::path{argv[0]}.parent_path());
+        expect(float_dxc.compiled) << float_dxc.error;
+        expect(float_dxc.validated) << float_dxc.error;
+        expect(float_dxc.float_add_count > 0u);
+        expect(eq(float_dxc.compare_exchange_count, 0u));
+
         Kernel1D integer_kernel = [](BufferUInt values,
                                      BufferUInt old_values) noexcept {
             old_values.write(
@@ -242,7 +303,7 @@ int main(int argc, char *argv[]) {
         expect(contains(integer_program, "InterlockedAdd("));
         auto dxc = compile_and_inspect_dxc_spirv(
             integer_program,
-            std::filesystem::path{argv[0]}.parent_path());
+            luisa::filesystem::path{argv[0]}.parent_path());
         expect(dxc.compiled) << dxc.error;
         expect(dxc.validated) << dxc.error;
         expect(dxc.integer_add_count > 0u);
@@ -484,6 +545,112 @@ int main(int argc, char *argv[]) {
                       "({},{}_rw,", root_name, root_name)));
         expect(calls_have_arity(
             hlsl, "split_texture_callable_abi", 4u, 2u, false));
+    };
+
+    "hlsl_raster_jit_offsets_stage_arguments_consistently"_test = [] {
+        RasterStageKernel vertex = [](
+                                       Var<AppData> input,
+                                       BufferFloat vertex_values) noexcept {
+            Var<RasterCodegenVarying> output;
+            output.position = make_float4(input.position, 1.0f);
+            output.color = make_float4(
+                vertex_values.read(input.vertex_id));
+            return output;
+        };
+        RasterStageKernel pixel = [](
+                                      Var<RasterCodegenVarying> input,
+                                      Float exposure,
+                                      BufferFloat pixel_values) noexcept {
+            return input.color * exposure +
+                   make_float4(pixel_values.read(0u));
+        };
+
+        auto vertex_function = vertex.function();
+        auto pixel_function = pixel.function();
+        auto vertex_arguments = vertex_function.arguments();
+        auto pixel_arguments = pixel_function.arguments();
+        auto pixel_argument_offset = size_t{0u};
+        for (auto argument : vertex_arguments.subspan(1)) {
+            pixel_argument_offset = std::max(
+                pixel_argument_offset,
+                static_cast<size_t>(argument.uid() + 1u));
+        }
+        auto pixel_uniform_id =
+            pixel_arguments[1].uid() + pixel_argument_offset;
+        auto pixel_buffer_id =
+            pixel_arguments[2].uid() + pixel_argument_offset;
+
+        auto codegen = lc::hlsl::CodegenUtility{}.RasterCodegen(
+            vertex_function, pixel_function, {}, 0u,
+            false, false, true);
+        auto hlsl = generated_program(codegen);
+        expect(!hlsl.empty());
+        expect(eq(codegen.validation_count, 2u));
+        expect(eq(count_substring(hlsl, "struct _Args{"), 1u));
+
+        auto pixel_uniform = luisa::format("l{}", pixel_uniform_id);
+        expect(contains(
+            hlsl, luisa::format("float {};", pixel_uniform)));
+        expect(contains(
+            hlsl, luisa::format("a.{}", pixel_uniform)));
+        expect(contains(
+            hlsl, luisa::format("_b{}", pixel_buffer_id)));
+
+        expect(contains(hlsl, "float3 v0:POSITION;"));
+        expect(contains(hlsl, "float2 v4[4]:TEXCOORD0;"));
+        expect(contains(hlsl, "uint v5:SV_VertexID;"));
+        expect(contains(hlsl, "uint v6:SV_InstanceID;"));
+        expect(contains(hlsl, "vv.v0"));
+        expect(!contains(hlsl, "vv.v0.v"));
+    };
+
+    "hlsl_raster_varying_interpolation_modifiers_are_preserved"_test = [] {
+        RasterStageKernel vertex = [](
+                                       Var<AppData> input) noexcept {
+            Var<RasterInterpolationCodegenVarying> output;
+            output.position = make_float4(input.position, 1.0f);
+            auto value = cast<float>(input.vertex_id);
+            output.center_perspective = value;
+            output.center_no_perspective = value;
+            output.centroid_perspective = value;
+            output.centroid_no_perspective = value;
+            output.sample_perspective = value;
+            output.sample_no_perspective = value;
+            output.flat = input.vertex_id;
+            return output;
+        };
+        RasterStageKernel pixel = [](
+                                      Var<RasterInterpolationCodegenVarying> input) noexcept {
+            auto sum = input.center_perspective +
+                       input.center_no_perspective +
+                       input.centroid_perspective +
+                       input.centroid_no_perspective +
+                       input.sample_perspective +
+                       input.sample_no_perspective +
+                       cast<float>(input.flat);
+            return make_float4(sum);
+        };
+
+        auto codegen = lc::hlsl::CodegenUtility{}.RasterCodegen(
+            vertex.function(), pixel.function(), {}, 0u,
+            false, false, false);
+        auto hlsl = codegen.result.view();
+        expect(!hlsl.empty());
+        expect(contains(hlsl, "float v1:TEXCOORD0;"));
+        expect(contains(
+            hlsl, "noperspective float v2:TEXCOORD1;"));
+        expect(contains(
+            hlsl, "centroid float v3:TEXCOORD2;"));
+        expect(contains(
+            hlsl,
+            "centroid noperspective float v4:TEXCOORD3;"));
+        expect(contains(
+            hlsl, "sample float v5:TEXCOORD4;"));
+        expect(contains(
+            hlsl,
+            "sample noperspective float v6:TEXCOORD5;"));
+        expect(contains(
+            hlsl, "nointerpolation uint v7:TEXCOORD6;"));
     };
 
     "hlsl_byte_buffer_validation_macro_arities_are_consistent"_test = [] {

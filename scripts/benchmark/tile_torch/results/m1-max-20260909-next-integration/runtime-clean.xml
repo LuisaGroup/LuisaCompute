@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="1"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="22"
+	timestamp="2026-09-09T12:26:06"
+	>
+	<testcase name="test_tile_xir_runtime" classname="test_tile_xir_runtime" time="22.6793" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:26:06.064] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-09 12:26:06.065] [console] [info] Runtime directory: /private/tmp/luisa-next-checkpoint.J7yODi/build/bin.
+[2026-09-09 12:26:06.068] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-backend-simd.so' in 3.16625 ms.
+[2026-09-09 12:26:06.068] [console] [info] Test device backend: simd.
+[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (903649 asserts in 13 tests)
+</system-out>
+	</testcase>
+</testsuite>

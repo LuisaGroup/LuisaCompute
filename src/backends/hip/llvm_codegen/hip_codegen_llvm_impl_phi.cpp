@@ -16,8 +16,10 @@ void HIPCodegenLLVMImpl::_finalize_pending_phi_nodes(const FunctionContext &func
             auto [value, block] = phi->incoming(i);
             if (!translated_blocks.contains(block)) { continue; }
             auto llvm_value = _get_llvm_value(b, func_ctx, value);
-            auto llvm_block = func_ctx.get_local_value<llvm::BasicBlock>(block);
-            llvm_phi->addIncoming(llvm_value, llvm_block);
+            auto exit_iter = func_ctx.llvm_exit_blocks.find(block);
+            LUISA_ASSERT(exit_iter != func_ctx.llvm_exit_blocks.end(),
+                         "Missing LLVM exit block for XIR PHI predecessor.");
+            llvm_phi->addIncoming(llvm_value, exit_iter->second);
         }
     }
 }

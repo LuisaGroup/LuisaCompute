@@ -11,6 +11,7 @@
 #include "curve.h"
 #include "motion_instance.h"
 #include "procedural_primitives.h"
+#include "raster_shader.h"
 #include "shader.h"
 #include "swap_chain.h"
 #include <luisa/core/logging.h>
@@ -250,29 +251,165 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             mark_handle(c->handle(), Usage::WRITE, Range{c->level(), 1});
         } break;
         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
-            // auto c = static_cast<DrawRasterSceneCommand *>(cmd);
-            // mark_shader_dispatch(dev, c, false);
-            // if (c->_dsv_tex.handle != invalid_resource_handle) {
-            //     mark_handle(c->_dsv_tex.handle, Usage::READ_WRITE, Range{0, 1});
-            // }
-            // for (auto i : vstd::range(c->_rtv_count)) {
-            //     mark_handle(c->_rtv_texs[i].handle, Usage::WRITE, Range{c->_rtv_texs[i].level, 1});
-            // }
-            // for (auto &&i : c->_scene) {
-            //     for (auto &&vb : i._vertex_buffers) {
-            //         mark_handle(const_cast<uint64_t &>(vb._handle), Usage::READ, Range{vb._offset, vb._size});
-            //     }
-            //     luisa::visit(
-            //         [&]<typename T>(T &t) {
-            //             if constexpr (std::is_same_v<T, BufferView<uint>>) {
-            //                 mark_handle(t._handle, Usage::READ, Range{t.offset_bytes(), t.size_bytes()});
-            //             }
-            //         },
-            //         i._index_buffer);
-            // }
+            auto c = static_cast<DrawRasterSceneCommand *>(cmd);
+            auto shader = RWResource::get<RasterShader>(c->handle(), "raster shader");
+            auto dynamic_arguments = c->arguments();
+            auto dynamic_index = 0u;
+            auto mark_argument = [&](ShaderDispatchCommandBase::Argument argument,
+                                     Usage usage) noexcept {
+                switch (argument.tag) {
+                    case ShaderDispatchCommandBase::Argument::Tag::BUFFER:
+                        check_align(argument.buffer.offset);
+                        mark_handle(argument.buffer.handle, usage,
+                                    Range{argument.buffer.offset, argument.buffer.size});
+                        break;
+                    case ShaderDispatchCommandBase::Argument::Tag::TEXTURE: {
+                        auto texture = RWResource::get<RWResource>(
+                            argument.texture.handle, "raster texture");
+                        if (texture->tag() == Resource::Tag::DEPTH_BUFFER &&
+                            (luisa::to_underlying(usage) &
+                             luisa::to_underlying(Usage::WRITE)) != 0u) {
+                            if (shader->conservative_aot()) {
+                                usage = Usage::READ;
+                            } else {
+                                LUISA_ERROR("{} can not be written by a raster shader.",
+                                            texture->get_name());
+                            }
+                        }
+                        mark_handle(argument.texture.handle, usage,
+                                    Range{argument.texture.level, 1});
+                        break;
+                    }
+                    case ShaderDispatchCommandBase::Argument::Tag::BINDLESS_ARRAY:
+                        mark_handle(argument.bindless_array.handle, usage, Range{});
+                        break;
+                    case ShaderDispatchCommandBase::Argument::Tag::ACCEL:
+                        mark_handle(argument.accel.handle, usage, Range{});
+                        break;
+                    case ShaderDispatchCommandBase::Argument::Tag::UNIFORM:
+                        break;
+                }
+            };
+            for (auto &&root : shader->root_arguments()) {
+                ShaderDispatchCommandBase::Argument argument{};
+                if (root.is_bound) {
+                    argument = luisa::visit(
+                        []<typename T>(const T &binding) noexcept -> ShaderDispatchCommandBase::Argument {
+                            using Binding = std::remove_cvref_t<T>;
+                            ShaderDispatchCommandBase::Argument result{};
+                            if constexpr (std::is_same_v<Binding, Function::BufferBinding>) {
+                                result.tag = ShaderDispatchCommandBase::Argument::Tag::BUFFER;
+                                result.buffer = binding;
+                            } else if constexpr (std::is_same_v<Binding, Function::TextureBinding>) {
+                                result.tag = ShaderDispatchCommandBase::Argument::Tag::TEXTURE;
+                                result.texture = binding;
+                            } else if constexpr (std::is_same_v<Binding, Function::BindlessArrayBinding>) {
+                                result.tag = ShaderDispatchCommandBase::Argument::Tag::BINDLESS_ARRAY;
+                                result.bindless_array = binding;
+                            } else if constexpr (std::is_same_v<Binding, Function::AccelBinding>) {
+                                result.tag = ShaderDispatchCommandBase::Argument::Tag::ACCEL;
+                                result.accel = binding;
+                            } else {
+                                LUISA_ERROR_WITH_LOCATION(
+                                    "Invalid implicit raster argument binding.");
+                            }
+                            return result;
+                        },
+                        root.binding);
+                } else {
+                    LUISA_ASSERT(dynamic_index < dynamic_arguments.size(),
+                                 "Raster dispatch has too few dynamic arguments.");
+                    argument = dynamic_arguments[dynamic_index++];
+                }
+                mark_argument(argument, root.usage);
+            }
+            LUISA_ASSERT(dynamic_index == dynamic_arguments.size(),
+                         "Raster dispatch has {} unexpected dynamic argument(s).",
+                         dynamic_arguments.size() - dynamic_index);
+            if (c->_dsv_tex.handle != invalid_resource_handle) {
+                mark_handle(c->_dsv_tex.handle, Usage::READ_WRITE, Range{0, 1});
+            }
+            for (auto i = 0u; i < c->_rtv_count; i++) {
+                mark_handle(c->_rtv_texs[i].handle, Usage::READ_WRITE,
+                            Range{c->_rtv_texs[i].level, 1});
+            }
+            for (auto &&mesh : c->_scene) {
+                for (auto &&vertex : mesh._vertex_buffers) {
+                    mark_handle(vertex._handle, Usage::READ,
+                                Range{vertex._offset, vertex._size});
+                }
+                luisa::visit(
+                    [&]<typename T>(T &index) {
+                        if constexpr (std::is_same_v<T, BufferView<uint>>) {
+                            mark_handle(index._handle, Usage::READ,
+                                        Range{index.offset_bytes(), index.size_bytes()});
+                        }
+                    },
+                    mesh._index_buffer);
+            }
+            mark_handle(c->handle(), Usage::READ, Range{});
         } break;
         case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
             auto c = static_cast<DStorageReadCommand *>(cmd);
+            // The source and destination handles must be registered resources
+            // of the matching kind, and the addressed range must fit inside the
+            // resource.  Byte sizes / mip counts are only checked when the
+            // creating call recorded them (see `lc::validation::Buffer` /
+            // `lc::validation::Texture`).
+            auto require_tag = [&](uint64_t handle, Resource::Tag expected,
+                                   luisa::string_view what) -> RWResource * {
+                if (handle == invalid_resource_handle) { return nullptr; }
+                auto *res = RWResource::try_get<RWResource>(handle);
+                if (res == nullptr) {
+                    LUISA_ERROR("DStorageReadCommand {} handle {} is not a "
+                                "registered resource.",
+                                what, handle);
+                }
+                if (res->tag() != expected) {
+                    LUISA_ERROR("DStorageReadCommand {} handle {} has resource "
+                                "tag {}, but {} is required.",
+                                what, handle,
+                                luisa::to_underlying(res->tag()),
+                                luisa::to_underlying(expected));
+                }
+                return res;
+            };
+            auto check_texture_region = [&](Resource::Tag expected, uint64_t handle,
+                                            uint level, uint32_t const *offset,
+                                            uint32_t const *size, luisa::string_view what) {
+                auto *res = require_tag(handle, expected, what);
+                if (res == nullptr) { return; }
+                auto *tex = static_cast<Texture *>(res);
+                auto any_zero = size[0] == 0u || size[1] == 0u || size[2] == 0u;
+                if (auto levels = tex->mip_levels(); levels != 0u && !any_zero) {
+                    if (level >= levels) {
+                        LUISA_ERROR("DStorageReadCommand {} handle {} addresses mip "
+                                    "level {}, but the texture has {} level(s).",
+                                    what, handle, level, levels);
+                    }
+                    auto mip = luisa::max(tex->size() >> level, 1u);
+                    auto region_offset = uint3{offset[0], offset[1], offset[2]};
+                    auto region_size = uint3{size[0], size[1], size[2]};
+                    if (luisa::any(region_offset + region_size > mip)) {
+                        LUISA_ERROR("DStorageReadCommand {} region ({} + {}) exceeds "
+                                    "mip {} of handle {} (size {}).",
+                                    what, region_offset, region_size, level, handle, mip);
+                    }
+                }
+            };
+            auto check_buffer_range = [&](uint64_t handle, size_t offset, size_t size,
+                                          luisa::string_view what) {
+                auto *res = require_tag(handle, Resource::Tag::BUFFER, what);
+                if (res == nullptr) { return; }
+                auto *buffer = static_cast<Buffer *>(res);
+                if (auto bytes = buffer->size_bytes(); bytes != 0u) {
+                    if (offset > bytes || size > bytes - offset) {
+                        LUISA_ERROR("DStorageReadCommand {} (handle {}, offset {}, "
+                                    "size {}) exceeds the buffer size {}.",
+                                    what, handle, offset, size, bytes);
+                    }
+                }
+            };
             auto check_range = [&](uint64_t handle, Range range) -> vstd::optional<std::pair<Range, Range>> {
                 auto add_range = vstd::scope_exit([&] {
                     dstorage_range_check.try_emplace(handle).first->second.emplace_back(range);
@@ -286,6 +423,14 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             };
             luisa::visit(
                 [&](auto t) {
+                    using T = std::remove_cvref_t<decltype(t)>;
+                    require_tag(t.handle,
+                                std::is_same_v<T, DStorageReadCommand::FileSource>
+                                    ? Resource::Tag::DSTORAGE_FILE
+                                    : Resource::Tag::DSTORAGE_PINNED_MEMORY,
+                                std::is_same_v<T, DStorageReadCommand::FileSource>
+                                    ? "file source"
+                                    : "pinned-memory source");
                     mark_handle(t.handle, Usage::READ, Range{});
                 },
                 c->source());
@@ -297,12 +442,16 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             luisa::visit(
                 [&]<typename T>(T const &t) {
                     if constexpr (std::is_same_v<DStorageReadCommand::BufferRequest, T>) {
+                        check_buffer_range(t.handle, t.offset_bytes, t.size_bytes,
+                                           "buffer destination");
                         mark_handle(t.handle, Usage::WRITE, Range{t.offset_bytes, t.size_bytes});
                         auto check_result = check_range(t.handle, Range{t.offset_bytes, t.size_bytes});
                         if (check_result) [[unlikely]] {
                             log_error(t.handle, check_result);
                         }
                     } else if constexpr (std::is_same_v<DStorageReadCommand::TextureRequest, T>) {
+                        check_texture_region(Resource::Tag::TEXTURE, t.handle, t.level,
+                                             t.offset, t.size, "texture destination");
                         mark_handle(t.handle, Usage::WRITE, Range{t.level, 1});
                         auto check_result = check_range(t.handle, Range{t.level, 1});
                         if (check_result) [[unlikely]] {
@@ -313,7 +462,16 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
                 c->request());
 
         } break;
-        case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH): {
+        case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
+        case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL): {
+            auto c = static_cast<CustomDispatchCommand *>(cmd);
+            CustomDispatchArgumentVisitor visitor{this};
+            c->traverse_arguments(visitor);
+        } break;
+        case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH): {
+            // The declared per-argument usages are the synchronization contract
+            // (see the header of native_shader_ext.h); mark every resource with
+            // them so that misuse is reported like any other dispatch.
             auto c = static_cast<CustomDispatchCommand *>(cmd);
             CustomDispatchArgumentVisitor visitor{this};
             c->traverse_arguments(visitor);
@@ -463,10 +621,17 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 switch (custom_cmd->custom_cmd_uuid()) {
                     case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE):
                     case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):
+                    case to_underlying(CustomCommandUUID::RASTER_CLEAR_RENDER_TARGET):
                         Device::check_stream(handle(), StreamFunc::Graphics, custom_cmd->custom_cmd_uuid());
                         break;
                     case to_underlying(CustomCommandUUID::DSTORAGE_READ):
                         Device::check_stream(handle(), StreamFunc::Custom, custom_cmd->custom_cmd_uuid());
+                        break;
+                    case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL):
+                        Device::check_stream(handle(), StreamFunc::Compute, custom_cmd->custom_cmd_uuid());
+                        break;
+                    case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH):
+                        Device::check_stream(handle(), StreamFunc::Compute, custom_cmd->custom_cmd_uuid());
                         break;
                 }
                 custom(dev, cmd);

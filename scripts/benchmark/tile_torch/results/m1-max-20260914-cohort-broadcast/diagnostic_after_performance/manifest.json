@@ -1,0 +1,245 @@
+{
+  "archive_sha256": "f4b95035a4fedc28e69d2d7bfc6175a3cc2a57b296b066bb5b18eba9de2661a0",
+  "archive_bytes": 289927,
+  "files": {
+    "build-full-10/command.json": {
+      "sha256": "a03a61ababbbe1b11aff8b28b766e97c17ff906ab4387e33ffd89abf906d101a",
+      "size": 3670,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-10/command.json"
+    },
+    "build-full-10/result.json": {
+      "sha256": "1a53f04068e9310a4519a3a4a9cccc2d59f6327e5955c13f0d64cea03c435d71",
+      "size": 3917,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-10/result.json"
+    },
+    "build-full-10/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-10/stderr.txt"
+    },
+    "build-full-10/stdout.txt": {
+      "sha256": "dfe0281e35567e7b2581fd62dd398272d6e5eb416855a96002b1dfeae40e80d0",
+      "size": 591,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-10/stdout.txt"
+    },
+    "full9-freeze-reference.json": {
+      "sha256": "f3fb051955587364735de94feb6354093aedabff16baa2b4dd7470c4bb979456",
+      "size": 3358,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/cpu-ablation-full7.ojSyZd/full9-immutable/raw/source-freeze-cohort-recurrences.json"
+    },
+    "owned-through-full10.json": {
+      "sha256": "6fd017c14bd18f232d459a06bc1799462516001ced5e633a9592785690a84838",
+      "size": 1119,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/owned-through-full10.json"
+    },
+    "source-collective-epoch-counterexample.tar.gz": {
+      "sha256": "8097b9d2754c2778be52487870b7817f237586726218d46ff5b94edab369ba3d",
+      "size": 279983,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/source-collective-epoch-counterexample.tar.gz"
+    },
+    "source-freeze-collective-epoch-counterexample.json": {
+      "sha256": "f37f46ba0a668e9966d74168f037b9e4e18f1b17be597521aad080c5e0b3b55f",
+      "size": 3373,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/source-freeze-collective-epoch-counterexample.json"
+    },
+    "test-full10-epoch-counterexample/command.json": {
+      "sha256": "fc1961b16fb3e099063ef0977d7406745308c8e81f2b722b3ee18ae10e1b8a51",
+      "size": 3779,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full10-epoch-counterexample/command.json"
+    },
+    "test-full10-epoch-counterexample/result.json": {
+      "sha256": "cf4ade7b0538b8b12740193f261ac6d48786e4a81e6e1461a34176b53bbf9359",
+      "size": 4240,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full10-epoch-counterexample/result.json"
+    },
+    "test-full10-epoch-counterexample/stderr.txt": {
+      "sha256": "18e00877dc1071c85cd4f479d451bebeef8309022e46cf8c63b0bed5151984a4",
+      "size": 27,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full10-epoch-counterexample/stderr.txt"
+    },
+    "test-full10-epoch-counterexample/stdout.txt": {
+      "sha256": "f62a82553105c70345d577f82aeb15600c3b7f77755ded1cf261cf93dfa986bc",
+      "size": 23943,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full10-epoch-counterexample/stdout.txt"
+    }
+  },
+  "verification": {
+    "status": "verified_failed_counterexample",
+    "producer": "full10 diagnostic after full9 performance",
+    "freeze_sha256": "f37f46ba0a668e9966d74168f037b9e4e18f1b17be597521aad080c5e0b3b55f",
+    "source_files": 23,
+    "changed_from_full9": [
+      "src/tests/unit/simd/test_llvm_schedule_codegen.cpp",
+      "src/tests/unit/simd/test_xir_to_schedule.cpp"
+    ],
+    "build_status": "passed",
+    "test_status": "failed",
+    "test_exit_code": 8,
+    "timed_out": false,
+    "unique_numeric_failure_records": 16,
+    "numeric_failure_records": [
+      [
+        "escaped population",
+        "16",
+        "0",
+        "2",
+        "1",
+        "2",
+        "1",
+        "0"
+      ],
+      [
+        "escaped population",
+        "16",
+        "1",
+        "2",
+        "1",
+        "2",
+        "1",
+        "0"
+      ],
+      [
+        "escaped population",
+        "2",
+        "0",
+        "2",
+        "1",
+        "2",
+        "1",
+        "0"
+      ],
+      [
+        "escaped population",
+        "2",
+        "1",
+        "2",
+        "1",
+        "2",
+        "1",
+        "0"
+      ],
+      [
+        "escaped population",
+        "4",
+        "0",
+        "2",
+        "1",
+        "2",
+        "1",
+        "0"
+      ],
+      [
+        "escaped population",
+        "4",
+        "1",
+        "2",
+        "1",
+        "2",
+        "1",
+        "0"
+      ],
+      [
+        "escaped population",
+        "8",
+        "0",
+        "2",
+        "1",
+        "2",
+        "1",
+        "0"
+      ],
+      [
+        "escaped population",
+        "8",
+        "1",
+        "2",
+        "1",
+        "2",
+        "1",
+        "0"
+      ],
+      [
+        "second loop sum",
+        "16",
+        "0",
+        "2",
+        "0",
+        "121",
+        "111",
+        "0"
+      ],
+      [
+        "second loop sum",
+        "16",
+        "1",
+        "2",
+        "0",
+        "121",
+        "111",
+        "0"
+      ],
+      [
+        "second loop sum",
+        "2",
+        "0",
+        "2",
+        "0",
+        "121",
+        "111",
+        "0"
+      ],
+      [
+        "second loop sum",
+        "2",
+        "1",
+        "2",
+        "0",
+        "121",
+        "111",
+        "0"
+      ],
+      [
+        "second loop sum",
+        "4",
+        "0",
+        "2",
+        "0",
+        "121",
+        "111",
+        "0"
+      ],
+      [
+        "second loop sum",
+        "4",
+        "1",
+        "2",
+        "0",
+        "121",
+        "111",
+        "0"
+      ],
+      [
+        "second loop sum",
+        "8",
+        "0",
+        "2",
+        "0",
+        "121",
+        "111",
+        "0"
+      ],
+      [
+        "second loop sum",
+        "8",
+        "1",
+        "2",
+        "0",
+        "121",
+        "111",
+        "0"
+      ]
+    ],
+    "native_execution_by_this_verifier": false,
+    "scope": "Actual native failure in both enabled=0/1 modes. Not a full9 admission gate or performance sample."
+  }
+}

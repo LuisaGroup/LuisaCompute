@@ -62,6 +62,13 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
             str << "bary"sv;
             opt->pixelUseBarycentric = true;
             break;
+        case Variable::Tag::RASTER_FRONT_FACING:
+            LUISA_ASSERT(opt->isRaster, "front-facing only allowed in raster shader");
+            str << "front_facing"sv;
+            opt->pixelUseFrontFacing = true;
+            break;
+        case Variable::Tag::RASTER_BASE_INSTANCE:
+            LUISA_NOT_IMPLEMENTED("Raster base-instance input requires Shader Model 6.8, but the HLSL raster backend targets Shader Model 6.5.");
         case Variable::Tag::WARP_LANE_COUNT:
             LUISA_ASSERT(!opt->isRaster, "warp ops only allowed in compute shader");
             if (opt->funcType == CodegenStackData::FuncType::Callable) {
@@ -148,24 +155,28 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
             auto custom_name = f.get_variable_name(id);
             str << custom_name;
             str << "_b"sv;
+            id += opt->argOffset;
             vstd::to_string(id, str);
         } break;
         case Variable::Tag::TEXTURE: {
             auto custom_name = f.get_variable_name(id);
             str << custom_name;
             str << "_t"sv;
+            id += opt->argOffset;
             vstd::to_string(id, str);
         } break;
         case Variable::Tag::BINDLESS_ARRAY: {
             auto custom_name = f.get_variable_name(id);
             str << custom_name;
             str << "_ba"sv;
+            id += opt->argOffset;
             vstd::to_string(id, str);
         } break;
         case Variable::Tag::ACCEL: {
             auto custom_name = f.get_variable_name(id);
             str << custom_name;
             str << "_ac"sv;
+            id += opt->argOffset;
             vstd::to_string(id, str);
         } break;
         default: {

@@ -48,6 +48,7 @@ int main() {
         auto info = analysis.analyze(function);
         expect(info.succeeded());
         expect(info.tracked_pointer_count == 3u);
+        expect(info.materialized_pointer_count == 3u);
         auto *root_in = analysis.in_usage(body, root);
         auto *root_out = analysis.out_usage(body, root);
         auto *field0_out = analysis.out_usage(body, field0);
@@ -239,6 +240,115 @@ int main() {
         expect(entry_out->live.access(1u).none());
         expect(loop_in->live.access(0u).all());
         expect(loop_in->live.access(1u).none());
+    };
+
+    "pointer_usage_projection_equals_full_product_coordinate"_test = [] {
+        Module module;
+        auto *function = module.create_kernel();
+        auto *pair_type = Type::structure(
+            {Type::of<int32_t>(), Type::of<int32_t>()});
+        auto *reference = function->create_reference_argument(pair_type);
+        auto *condition = function->create_value_argument(Type::of<bool>());
+        auto *entry = function->create_body_block();
+        auto *left = function->create_basic_block();
+        auto *right = function->create_basic_block();
+        auto *merge = function->create_basic_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *reference_field0 = builder.gep(
+            Type::of<int32_t>(), reference, {uint_constant(module, 0u)});
+        auto *reference_field1 = builder.gep(
+            Type::of<int32_t>(), reference, {uint_constant(module, 1u)});
+        auto *unrelated = builder.alloca_local(
+            Type::array(Type::of<int32_t>(), 128u));
+        auto *unrelated_field = builder.gep(
+            Type::of<int32_t>(), unrelated, {uint_constant(module, 17u)});
+        static_cast<void>(builder.load(Type::of<int32_t>(), reference_field0));
+        builder.store(unrelated_field,
+                      module.create_constant_one(Type::of<int32_t>()));
+        builder.cond_br(condition, left, right);
+        builder.set_insertion_point(left);
+        builder.store(reference_field1,
+                      module.create_constant_one(Type::of<int32_t>()));
+        builder.br(merge);
+        builder.set_insertion_point(right);
+        builder.store(reference_field0,
+                      module.create_constant_one(Type::of<int32_t>()));
+        builder.br(merge);
+        builder.set_insertion_point(merge);
+        static_cast<void>(builder.load(Type::of<int32_t>(), reference_field1));
+        builder.return_void();
+
+        PointerUsageAnalysis full;
+        auto full_info = full.analyze(function);
+        expect(full_info.succeeded());
+        expect(full_info.tracked_pointer_count > 1u);
+
+        PointerUsageAnalysis projected;
+        Value *requested[]{reference};
+        auto projected_info = projected.analyze(
+            function, luisa::span<Value *const>{requested});
+        expect(projected_info.succeeded());
+        expect(projected_info.tracked_pointer_count > 1u);
+        expect(projected_info.materialized_pointer_count == 1u);
+        expect(projected.in_usage(entry, unrelated) == nullptr)
+            << "unrequested coordinates must not be materialized";
+
+        BasicBlock *blocks[]{entry, left, right, merge};
+        for (auto *block : blocks) {
+            auto *full_in = full.in_usage(block, reference);
+            auto *full_out = full.out_usage(block, reference);
+            auto *projected_in = projected.in_usage(block, reference);
+            auto *projected_out = projected.out_usage(block, reference);
+            expect(full_in != nullptr && full_out != nullptr &&
+                   projected_in != nullptr && projected_out != nullptr);
+            expect(full_in->kill == projected_in->kill);
+            expect(full_in->touch == projected_in->touch);
+            expect(full_in->live == projected_in->live);
+            expect(full_out->kill == projected_out->kill);
+            expect(full_out->touch == projected_out->touch);
+            expect(full_out->live == projected_out->live);
+        }
+    };
+
+    "pointer_usage_projection_is_sparse_across_disjoint_roots"_test = [] {
+        Module module;
+        auto *function = module.create_kernel();
+        luisa::vector<Value *> requested;
+        requested.reserve(48u);
+        for (auto i = 0u; i < 48u; ++i) {
+            requested.emplace_back(
+                function->create_reference_argument(Type::of<uint>()));
+        }
+        auto *body = function->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        for (auto *reference : requested) {
+            static_cast<void>(
+                builder.load(Type::of<uint>(), reference));
+        }
+        // These roots are deliberately disjoint from every requested
+        // coordinate. Projected analysis must still discover and validate
+        // them, while the transfer product is exactly partitioned by root.
+        for (auto i = 0u; i < 4096u; ++i) {
+            auto *unrelated = builder.alloca_local(Type::of<uint>());
+            builder.store(
+                unrelated,
+                module.create_constant_one(Type::of<uint>()));
+        }
+        builder.return_void();
+
+        PointerUsageAnalysis projected;
+        auto info = projected.analyze(
+            function, luisa::span<Value *const>{requested});
+        expect(info.succeeded());
+        expect(info.tracked_pointer_count == 4096u + requested.size());
+        expect(info.materialized_pointer_count == requested.size());
+        for (auto *reference : requested) {
+            auto *entry = projected.in_usage(body, reference);
+            expect(entry != nullptr);
+            expect(entry->live.access().all());
+        }
     };
 
     "pointer_usage_queries_reject_stale_and_destroyed_ir"_test = [] {

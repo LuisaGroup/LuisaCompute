@@ -1,0 +1,101 @@
+#include <algorithm>
+#include <array>
+#include <limits>
+
+#include <tvm/tirx/op.h>
+
+#include <luisa/tile/bridge/tirx/layout.h>
+
+namespace luisa::compute::tile::bridge::tirx {
+
+NativeIndices rectangular_program_ordinal(tvm::PrimExpr physical, uint64_t rows, uint64_t columns,
+                                          uint32_t tile_rows, uint32_t tile_columns) noexcept {
+    if (!physical.defined() || physical.ty() != tvm::PrimType::Int(64) ||
+        rows == 0u || columns == 0u || tile_rows == 0u || tile_columns == 0u ||
+        rows > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) / columns) {
+        return {{}, "program traversal requires positive dimensions, an int64 ordinal and an int64 product"};
+    }
+    if (auto literal = physical.as<tvm::IntImmNode>(); literal &&
+                                                       (literal->value < 0 || static_cast<uint64_t>(literal->value) >= rows * columns)) {
+        return {{}, "physical program ordinal is outside its domain"};
+    }
+    auto r = std::min<uint64_t>(rows, tile_rows);
+    auto c = std::min<uint64_t>(columns, tile_columns);
+    if (r == 1u || c == columns) { return {{std::move(physical)}, {}}; }
+    // Clamping precedes multiplication: r*columns <= rows*columns and every
+    // partial rectangle has positive dimensions for an in-domain ordinal.
+    auto imm = [](uint64_t value) { return tvm::IntImm::Int64(static_cast<int64_t>(value)); };
+    auto row_begin = tvm::floordiv(physical, imm(r * columns)) * imm(r);
+    auto height = tvm::min(imm(r), imm(rows) - row_begin);
+    auto local = tvm::floormod(physical, imm(r * columns));
+    auto column_begin = tvm::floordiv(local, height * imm(c)) * imm(c);
+    auto width = tvm::min(imm(c), imm(columns) - column_begin);
+    auto inside = tvm::floormod(local, height * imm(c));
+    auto logical = (row_begin + tvm::floordiv(inside, width)) * imm(columns) +
+                   column_begin + tvm::floormod(inside, width);
+    return {{std::move(logical)}, {}};
+}
+
+namespace {
+
+[[nodiscard]] bool valid_mapping(const MatrixWorkload &workload, MatrixDistribution distribution) noexcept {
+    auto groups = static_cast<uint64_t>(distribution.subgroups_m) * distribution.subgroups_n;
+    if (!distribution.rectangular() || groups > std::numeric_limits<uint32_t>::max() / 32u ||
+        workload.rows > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
+        workload.columns > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) { return false; }
+    // Time residency and the final destination do not change the spatial relation.
+    distribution.persistent_accumulator = false;
+    distribution.direct_accumulator_store = false;
+    return verify_matrix_distribution(workload, distribution, static_cast<uint32_t>(groups * 32u), 32u);
+}
+
+}// namespace
+
+NativeLayout matrix_distribution_layout(const MatrixWorkload &workload, const MatrixDistribution &distribution) noexcept {
+    if (!valid_mapping(workload, distribution)) { return {{}, "invalid rectangular matrix execution map"}; }
+    DimensionContext dimensions;
+    auto row = dimensions.create_dimension();
+    auto column = dimensions.create_dimension();
+    auto subgroup = dimensions.create_dimension();
+    auto fragment = dimensions.create_dimension();
+    IndexSpace atoms;
+    static_cast<void>(atoms.add(row, workload.rows / 8u));
+    static_cast<void>(atoms.add(column, workload.columns / 8u));
+    LayoutSpec layout{atoms};
+    static_cast<void>(layout.add_shard(distribution.subgroups_m, distribution.subgroups_n, subgroup));
+    static_cast<void>(layout.add_shard(distribution.atom_rows, static_cast<int64_t>(distribution.atom_columns), fragment));
+    static_cast<void>(layout.add_shard(distribution.subgroups_n, 1, subgroup));
+    static_cast<void>(layout.add_shard(distribution.atom_columns, 1, fragment));
+    // TIRx regrouping can remove extent-one shards. Keep both coordinates in
+    // the exported relation even for a single subgroup or a single fragment.
+    static_cast<void>(layout.add_offset(subgroup, 0));
+    static_cast<void>(layout.add_offset(fragment, 0));
+    std::array<AxisBinding, 2u> bindings{{{subgroup, "warpid"}, {fragment, "m"}}};
+    return export_layout(layout, bindings);
+}
+
+NativeIndices matrix_atom_coordinates(const MatrixWorkload &workload, const MatrixDistribution &distribution,
+                                      tvm::PrimExpr subgroup, tvm::PrimExpr fragment) noexcept {
+    if (!valid_mapping(workload, distribution)) { return {{}, "invalid rectangular matrix execution map"}; }
+    DimensionContext dimensions;
+    auto sg = dimensions.create_dimension();
+    auto local = dimensions.create_dimension();
+    auto row = dimensions.create_dimension();
+    auto column = dimensions.create_dimension();
+    IndexSpace physical;
+    static_cast<void>(physical.add(sg, static_cast<uint64_t>(distribution.subgroups_m) * distribution.subgroups_n));
+    static_cast<void>(physical.add(local, distribution.atom_rows * distribution.atom_columns));
+    IndexSpace logical;
+    static_cast<void>(logical.add(row, workload.rows / 8u));
+    static_cast<void>(logical.add(column, workload.columns / 8u));
+    auto groups_n = IndexExpr::constant(distribution.subgroups_n);
+    auto rows = IndexExpr::constant(static_cast<int64_t>(distribution.atom_rows));
+    auto columns = IndexExpr::constant(static_cast<int64_t>(distribution.atom_columns));
+    auto s = IndexExpr::coordinate(sg);
+    auto f = IndexExpr::coordinate(local);
+    std::array outputs{floor_div(s, groups_n) * rows + floor_div(f, columns),
+                       modulo(s, groups_n) * columns + modulo(f, columns)};
+    return lower_index_map(IndexMap{physical, logical, outputs}, {std::move(subgroup), std::move(fragment)});
+}
+
+}// namespace luisa::compute::tile::bridge::tirx

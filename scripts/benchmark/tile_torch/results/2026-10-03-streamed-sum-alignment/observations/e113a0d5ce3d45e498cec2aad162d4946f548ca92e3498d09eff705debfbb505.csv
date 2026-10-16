@@ -1,0 +1,6 @@
+entry,module,function,attribute,value,known,cuda_status
+luisa_tile_main,0000016559C78760,0000016559C05280,registers,45,1,0
+luisa_tile_main,0000016559C78760,0000016559C05280,static_shared_bytes,16,1,0
+luisa_tile_main,0000016559C78760,0000016559C05280,local_bytes,0,1,0
+luisa_tile_main,0000016559C78760,0000016559C05280,max_threads,1024,1,0
+luisa_tile_aligned16,0000016559C78760,none,all,unknown,0,not-queried

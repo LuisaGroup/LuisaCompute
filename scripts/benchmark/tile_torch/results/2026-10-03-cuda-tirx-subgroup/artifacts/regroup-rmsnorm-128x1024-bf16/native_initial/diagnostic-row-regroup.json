@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "baseline_fixture_tile": [
+    1,
+    1024,
+    1
+  ],
+  "actual_capture_tile": [
+    1,
+    1024,
+    1
+  ],
+  "actual_grid": [
+    128,
+    1,
+    1
+  ],
+  "row_block": 1,
+  "logical_rows": 128,
+  "width": 1024,
+  "gamma_singleton_broadcast": false,
+  "actual_final_ranges_disjoint": true,
+  "live_input_slots": [
+    0,
+    1
+  ],
+  "output_slot": 3,
+  "disjoint_checked_input_slots": [
+    0,
+    1,
+    2
+  ],
+  "input_bytes": [
+    262144,
+    2048,
+    2048
+  ],
+  "output_bytes": 262144
+}

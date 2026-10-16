@@ -30,14 +30,33 @@ struct XIRVerificationError {
 struct XIRVerificationResult {
     luisa::vector<XIRVerificationError> errors;
     struct Statistics {
-        // Number of exact Use-node membership predicates evaluated while
-        // checking instruction operands.
-        size_t use_list_membership_queries{0u};
-        // A verifier invocation materializes each distinct referenced
-        // Value/use-list once. This is the operation count that guards the
-        // membership check against quadratic high-fanout behavior.
-        size_t distinct_use_lists_scanned{0u};
-        size_t use_list_entries_scanned{0u};
+        // Exact O(1) physical-owner predicates evaluated while checking the
+        // logical Value of each instruction operand.
+        size_t use_list_owner_checks{0u};
+        // Membership never traverses a use-list. Keeping the work observable
+        // makes an accidental return to fanout-dependent scans testable.
+        size_t use_list_membership_traversal_steps{0u};
+        // Reachable CFG blocks represented by the verifier's sparse
+        // immediate-dominator trees.
+        size_t dominance_tree_nodes{0u};
+        // A non-empty immediate-dominator tree has exactly V - 1 parent
+        // edges. Keeping this observable guards against accidentally
+        // materializing the O(V^2) dominance relation again.
+        size_t dominance_tree_edges{0u};
+        // Locally-owned reachable CFG edges encoded in predecessor CSR form
+        // while constructing the trees.
+        size_t dominance_cfg_edges{0u};
+        // Cooper-Harvey-Kennedy fixed-point sweeps, including the final
+        // unchanged sweep. This makes unexpectedly poor convergence visible
+        // without relying on a wall-clock threshold in unit tests.
+        size_t dominance_fixed_point_iterations{0u};
+        // Exact dominance predicates requested by SSA and structured-control
+        // validation. Each query is answered by two ancestry-interval tests.
+        size_t dominance_queries{0u};
+        // Exact virtual instruction-tag queries used to build the immutable
+        // per-function fact table. This must equal the number of owned
+        // instructions: all later verifier stages consume the cached tag.
+        size_t instruction_tag_queries{0u};
     } statistics;
     [[nodiscard]] bool succeeded() const noexcept { return errors.empty(); }
 };

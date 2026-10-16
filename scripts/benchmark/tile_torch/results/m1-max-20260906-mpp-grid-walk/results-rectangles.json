@@ -1,0 +1,6006 @@
+{
+  "timestamp": "2026-09-05T19:29:56.449232+00:00",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "numpy": "2.5.2",
+  "artifacts_before": {
+    "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp": "b4a23410e12a61899d157410a4ee2cdc656b71688091f3e760b23a8ec3b7e5d8",
+    "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system": "3d6ec98f2ee4cdea36603052f83a4f8044cb31ad1ecde6254d63a4957dbb686a"
+  },
+  "rows": [
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-v9z1pp2q/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 246.037375,
+        "cold_call_ms": 3.239584,
+        "warmup_ms": 101.674333,
+        "download_ms": 0.446667,
+        "repetitions": 40,
+        "throughput_us": [
+          494.227075,
+          485.76875,
+          487.8604,
+          492.5177,
+          490.884375
+        ],
+        "latency_us": [
+          718.583,
+          692.541,
+          699.5,
+          704.333,
+          701.084
+        ],
+        "gpu_throughput_us": [
+          486.208332586,
+          477.406250138,
+          480.056249944,
+          485.425000079,
+          483.671874099
+        ],
+        "gpu_latency_us": [
+          470.6250038,
+          473.749998491,
+          465.58334725,
+          466.083351057,
+          478.874950204
+        ]
+      },
+      "source_sha256": "2e74747513146cd0109c7d2fb7ed1501ba823860289c85517805ad96e12581b2",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 490.884375,
+        "latency_us": 701.084,
+        "gpu_throughput_us": 483.671874099,
+        "gpu_latency_us": 470.6250038
+      },
+      "round": 0,
+      "order": [
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-4t3p3tbi/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 250.927083,
+        "cold_call_ms": 3.14675,
+        "warmup_ms": 100.923958,
+        "download_ms": 0.449709,
+        "repetitions": 38,
+        "throughput_us": [
+          522.959421053,
+          534.661184211,
+          520.505473684,
+          525.364026316,
+          521.547157895
+        ],
+        "latency_us": [
+          815.958,
+          747.875,
+          705.208,
+          876.459,
+          1046.583
+        ],
+        "gpu_throughput_us": [
+          516.427631833,
+          513.695175821,
+          511.233552396,
+          517.628288914,
+          513.97587767
+        ],
+        "gpu_latency_us": [
+          496.125023346,
+          509.666686412,
+          497.62497656,
+          516.041647643,
+          556.666695047
+        ]
+      },
+      "source_sha256": "acbce3897fb832fb0b6c21fbed2daf44136c5ffde21980b1250737421f328619",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 522.959421053,
+        "latency_us": 815.958,
+        "gpu_throughput_us": 513.97587767,
+        "gpu_latency_us": 509.666686412
+      },
+      "round": 0,
+      "order": [
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-gig0q2bi/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 249.417042,
+        "cold_call_ms": 3.2895,
+        "warmup_ms": 103.77675,
+        "download_ms": 0.438917,
+        "repetitions": 40,
+        "throughput_us": [
+          487.37605,
+          489.1302,
+          491.30835,
+          490.054175,
+          488.676025
+        ],
+        "latency_us": [
+          863.666,
+          802.583,
+          696.625,
+          635.5,
+          733.458
+        ],
+        "gpu_throughput_us": [
+          480.202083418,
+          482.105209085,
+          481.929165835,
+          482.528125576,
+          480.975001119
+        ],
+        "gpu_latency_us": [
+          473.499996588,
+          564.62502107,
+          474.375032354,
+          472.749990877,
+          468.374986667
+        ]
+      },
+      "source_sha256": "21e07461444144abb40e5930bca1f8f24528e3690a2dab7693ce05727e102223",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 489.1302,
+        "latency_us": 733.458,
+        "gpu_throughput_us": 481.929165835,
+        "gpu_latency_us": 473.499996588
+      },
+      "round": 0,
+      "order": [
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-6bxzt9d6/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 252.772375,
+        "cold_call_ms": 4.025833,
+        "warmup_ms": 101.462958,
+        "download_ms": 0.447125,
+        "repetitions": 39,
+        "throughput_us": [
+          497.721153846,
+          506.063051282,
+          488.786307692,
+          493.951923077,
+          498.155974359
+        ],
+        "latency_us": [
+          727.833,
+          769.334,
+          768.959,
+          685.625,
+          678.708
+        ],
+        "gpu_throughput_us": [
+          489.788461262,
+          498.314103028,
+          481.378204989,
+          485.842948994,
+          490.464743239
+        ],
+        "gpu_latency_us": [
+          467.083358672,
+          467.083358672,
+          465.749995783,
+          467.29168389,
+          471.87495511
+        ]
+      },
+      "source_sha256": "dc744ee0941bb3e512a8e520cd73b279b16579b8eb058ea08a816f6746649374",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 497.721153846,
+        "latency_us": 727.833,
+        "gpu_throughput_us": 489.788461262,
+        "gpu_latency_us": 467.083358672
+      },
+      "round": 0,
+      "order": [
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-tu4mnxh1/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "row_bytes": [
+          6148,
+          4096,
+          4096
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 50.030917,
+        "cold_call_ms": 9.407084,
+        "warmup_ms": 100.798083,
+        "download_ms": 1.08575,
+        "repetitions": 43,
+        "throughput_us": [
+          457.957372093,
+          447.929255814,
+          448.468023256,
+          461.332372093,
+          449.350767442
+        ],
+        "latency_us": [
+          680.959,
+          634.792,
+          692.125,
+          651.875,
+          655.125
+        ],
+        "gpu_throughput_us": [
+          449.778100606,
+          439.922480985,
+          440.343023213,
+          450.143410532,
+          440.930232925
+        ],
+        "gpu_latency_us": [
+          419.20831427,
+          419.000047259,
+          421.500008088,
+          418.208306655,
+          417.750037741
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 449.350767442,
+        "latency_us": 655.125,
+        "gpu_throughput_us": 440.930232925,
+        "gpu_latency_us": 419.000047259
+      },
+      "round": 0,
+      "order": [
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-cpabbqob/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 319.970541,
+        "cold_call_ms": 29.683292,
+        "warmup_ms": 157.142834,
+        "download_ms": 2.574541,
+        "repetitions": 1,
+        "throughput_us": [
+          20233.458,
+          21368.292,
+          20335.5,
+          20702.042,
+          20194.209
+        ],
+        "latency_us": [
+          20563.666,
+          20018.584,
+          21346.459,
+          19732,
+          20425.583
+        ],
+        "gpu_throughput_us": [
+          19907.3749827,
+          21025.7083527,
+          19992.1249878,
+          20342.7500091,
+          19887.7083603
+        ],
+        "gpu_latency_us": [
+          20257.4583236,
+          19705.499988,
+          20969.3333018,
+          19432.5833581,
+          19890.708325
+        ]
+      },
+      "source_sha256": "04dd4eff2f5428f6dea4646d7d1d785b2cde976811597c735edfb14024262415",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 20335.5,
+        "latency_us": 20425.583,
+        "gpu_throughput_us": 19992.1249878,
+        "gpu_latency_us": 19890.708325
+      },
+      "round": 0,
+      "order": [
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-jwkfcb51/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 315.199917,
+        "cold_call_ms": 33.226792,
+        "warmup_ms": 166.842833,
+        "download_ms": 2.460209,
+        "repetitions": 1,
+        "throughput_us": [
+          21488.708,
+          21822.125,
+          21532.083,
+          21658.959,
+          21914.125
+        ],
+        "latency_us": [
+          21652.292,
+          21852.084,
+          22463.291,
+          21654.958,
+          22025.5
+        ],
+        "gpu_throughput_us": [
+          21142.1249551,
+          21504.5416844,
+          21109.4582919,
+          21329.0000102,
+          21570.1666893
+        ],
+        "gpu_latency_us": [
+          21319.0416689,
+          21546.9583054,
+          22142.2500326,
+          21341.8750209,
+          21726.8750421
+        ]
+      },
+      "source_sha256": "3aa8bed0a59343a7fccf54cd0e23e41d14939bf109f6c639fa031cb0d122b698",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 21658.959,
+        "latency_us": 21852.084,
+        "gpu_throughput_us": 21329.0000102,
+        "gpu_latency_us": 21546.9583054
+      },
+      "round": 0,
+      "order": [
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-gqnp_lvq/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 384.642667,
+        "cold_call_ms": 35.79125,
+        "warmup_ms": 178.178833,
+        "download_ms": 2.575083,
+        "repetitions": 1,
+        "throughput_us": [
+          23364.542,
+          23146.125,
+          23823.5,
+          23568.583,
+          24378.791
+        ],
+        "latency_us": [
+          23705.291,
+          24478.5,
+          23855.292,
+          24931.667,
+          26127.25
+        ],
+        "gpu_throughput_us": [
+          22995.8749842,
+          22323.2083372,
+          23533.3750024,
+          23314.4166996,
+          23977.875011
+        ],
+        "gpu_latency_us": [
+          23143.7499751,
+          23688.9999942,
+          23314.5832899,
+          24170.7499954,
+          25334.7500111
+        ]
+      },
+      "source_sha256": "ccca265c92bd9c41277eb151e53b61d16c98aa612334c5e8c807347872b76de6",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 23568.583,
+        "latency_us": 24478.5,
+        "gpu_throughput_us": 23314.4166996,
+        "gpu_latency_us": 23688.9999942
+      },
+      "round": 0,
+      "order": [
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-jg4hgxjy/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "row_bytes": [
+          16384,
+          16384,
+          16384
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 94.897709,
+        "cold_call_ms": 40.716416,
+        "warmup_ms": 171.189209,
+        "download_ms": 9.181625,
+        "repetitions": 1,
+        "throughput_us": [
+          22510.333,
+          24061.084,
+          24129.875,
+          24402.75,
+          24004.792
+        ],
+        "latency_us": [
+          23858.125,
+          24208.917,
+          24273.833,
+          24304.709,
+          24974.667
+        ],
+        "gpu_throughput_us": [
+          22134.8750056,
+          23698.5000083,
+          23647.9166779,
+          24055.8750229,
+          23686.2082966
+        ],
+        "gpu_latency_us": [
+          23510.8750057,
+          23878.9999858,
+          23953.499971,
+          23884.7500295,
+          24559.4999869
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 24061.084,
+        "latency_us": 24273.833,
+        "gpu_throughput_us": 23686.2082966,
+        "gpu_latency_us": 23884.7500295
+      },
+      "round": 0,
+      "order": [
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-099w33w1/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 407.47175,
+        "cold_call_ms": 32.985542,
+        "warmup_ms": 198.030042,
+        "download_ms": 2.665292,
+        "repetitions": 1,
+        "throughput_us": [
+          26668.166,
+          27616.75,
+          28088.375,
+          27779.792,
+          27921.125
+        ],
+        "latency_us": [
+          28576.459,
+          28650.833,
+          28992.208,
+          29975.792,
+          30606.959
+        ],
+        "gpu_throughput_us": [
+          26372.4583201,
+          27199.3749775,
+          27545.4166695,
+          27374.6666498,
+          27598.5416374
+        ],
+        "gpu_latency_us": [
+          28286.500019,
+          28160.0000453,
+          28273.5000364,
+          29525.0416384,
+          30305.0000221
+        ]
+      },
+      "source_sha256": "3014b4532a369af0e1d286ed6cd747516b41a2224ee662cbc3fd870b8bb4373e",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 27779.792,
+        "latency_us": 28992.208,
+        "gpu_throughput_us": 27374.6666498,
+        "gpu_latency_us": 28286.500019
+      },
+      "round": 0,
+      "order": [
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-tojz1nog/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 552.242916,
+        "cold_call_ms": 476.422292,
+        "warmup_ms": 3618.920875,
+        "download_ms": 10.660667,
+        "repetitions": 1,
+        "throughput_us": [
+          448982.917,
+          450468.834,
+          452214.584,
+          461878.625,
+          466424.75
+        ],
+        "latency_us": [
+          465282.917,
+          472059.333,
+          472325.542,
+          471651.959,
+          465187.25
+        ],
+        "gpu_throughput_us": [
+          448679.875,
+          449460.74998,
+          451713.958348,
+          461351.125035,
+          466064.24998
+        ],
+        "gpu_latency_us": [
+          464986.374951,
+          471752.58334,
+          472007.208329,
+          471349.333297,
+          464750.500047
+        ]
+      },
+      "source_sha256": "f361d933700b5584092ccf9a4aa5f8cb7ab1979065407410de3facf37999ab9f",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 452214.584,
+        "latency_us": 471651.959,
+        "gpu_throughput_us": 451713.958348,
+        "gpu_latency_us": 471349.333297
+      },
+      "round": 0,
+      "order": [
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-21p44e93/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 553.088667,
+        "cold_call_ms": 460.892667,
+        "warmup_ms": 3546.612125,
+        "download_ms": 10.668042,
+        "repetitions": 1,
+        "throughput_us": [
+          440815.75,
+          449320.166,
+          459497.167,
+          472809.166,
+          478107.042
+        ],
+        "latency_us": [
+          489920,
+          504245.25,
+          523566.459,
+          530194.292,
+          527821.042
+        ],
+        "gpu_throughput_us": [
+          440486.875013,
+          449011.624965,
+          459205.99997,
+          472457.124968,
+          477762.416645
+        ],
+        "gpu_latency_us": [
+          489559.625043,
+          503883.249999,
+          523235.125002,
+          529917.041655,
+          527457.874967
+        ]
+      },
+      "source_sha256": "644a847b9938458a2afd0dbcf54fb83c4ddeb179e38653da72a516e37521f688",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 459497.167,
+        "latency_us": 523566.459,
+        "gpu_throughput_us": 459205.99997,
+        "gpu_latency_us": 523235.125002
+      },
+      "round": 0,
+      "order": [
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-j6gbi3ol/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "row_bytes": [
+          32768,
+          32768,
+          32768
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 180.235709,
+        "cold_call_ms": 177.23625,
+        "warmup_ms": 1422.547625,
+        "download_ms": 34.604375,
+        "repetitions": 1,
+        "throughput_us": [
+          256131.791,
+          304443.292,
+          435739.333,
+          596153.542,
+          554654
+        ],
+        "latency_us": [
+          418348.292,
+          329431.792,
+          289130.333,
+          272380.959,
+          255018.25
+        ],
+        "gpu_throughput_us": [
+          255850.624992,
+          303968.249995,
+          435384.16666,
+          595271.041675,
+          554098.125023
+        ],
+        "gpu_latency_us": [
+          418046.250008,
+          329111.624975,
+          288780.166651,
+          272048.999963,
+          254603.583307
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 435739.333,
+        "latency_us": 289130.333,
+        "gpu_throughput_us": 435384.16666,
+        "gpu_latency_us": 288780.166651
+      },
+      "round": 0,
+      "order": [
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-cj4k5kz0/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 548.809916,
+        "cold_call_ms": 341.69575,
+        "warmup_ms": 2618.335166,
+        "download_ms": 12.614458,
+        "repetitions": 1,
+        "throughput_us": [
+          335318.834,
+          354135.375,
+          362568.5,
+          377743.042,
+          389624.375
+        ],
+        "latency_us": [
+          419800,
+          465755.334,
+          510769.292,
+          522480.417,
+          495462.042
+        ],
+        "gpu_throughput_us": [
+          334993.999975,
+          353828.083316,
+          362034.625025,
+          377342.249965,
+          389354.541665
+        ],
+        "gpu_latency_us": [
+          419510.458305,
+          465390.24997,
+          510464.499996,
+          522106.041666,
+          495162.458334
+        ]
+      },
+      "source_sha256": "defd02848d8096652d0577871b0c0a23e03973cd06e06e277e776de4604f7883",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 362568.5,
+        "latency_us": 495462.042,
+        "gpu_throughput_us": 362034.625025,
+        "gpu_latency_us": 495162.458334
+      },
+      "round": 0,
+      "order": [
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-2cuec4au/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 552.759167,
+        "cold_call_ms": 423.313959,
+        "warmup_ms": 3327.788416,
+        "download_ms": 10.540584,
+        "repetitions": 1,
+        "throughput_us": [
+          419015.667,
+          422651.5,
+          418852,
+          427452.792,
+          442679.083
+        ],
+        "latency_us": [
+          447108.792,
+          458728.458,
+          475708.417,
+          494346.417,
+          507470.958
+        ],
+        "gpu_throughput_us": [
+          418745.374947,
+          421905.249998,
+          418557.125027,
+          426687.750034,
+          442353.95838
+        ],
+        "gpu_latency_us": [
+          446456.62501,
+          458023.125015,
+          475332.624977,
+          494032.333314,
+          507138.874964
+        ]
+      },
+      "source_sha256": "86a3a3126fc668c532ae6d1d6f94da707b4de0122e5a114eb07a44f06bf746a5",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 422651.5,
+        "latency_us": 475708.417,
+        "gpu_throughput_us": 421905.249998,
+        "gpu_latency_us": 475332.624977
+      },
+      "round": 0,
+      "order": [
+        "rectangle4x16",
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-geqx_20t/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 432.557208,
+        "cold_call_ms": 104.816583,
+        "warmup_ms": 745.020917,
+        "download_ms": 2.615375,
+        "repetitions": 1,
+        "throughput_us": [
+          94615.833,
+          91784.916,
+          95048.958,
+          96306.75,
+          91959.292
+        ],
+        "latency_us": [
+          94837.166,
+          95607.833,
+          95518.041,
+          96708.875,
+          98836.916
+        ],
+        "gpu_throughput_us": [
+          94314.6250211,
+          91446.6250106,
+          94721.4166517,
+          95452.1666863,
+          91556.3749732
+        ],
+        "gpu_latency_us": [
+          94480.2916492,
+          95263.0416723,
+          95115.8333337,
+          96414.5833277,
+          98544.9166619
+        ]
+      },
+      "source_sha256": "60d892037bdade3e90067545dd8f3ecae234e7ab79e2597b300d3d7f62024cb8",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 94615.833,
+        "latency_us": 95607.833,
+        "gpu_throughput_us": 94314.6250211,
+        "gpu_latency_us": 95263.0416723
+      },
+      "round": 0,
+      "order": [
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-yl9vtfe2/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "row_bytes": [
+          44032,
+          16384,
+          16384
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 117.620208,
+        "cold_call_ms": 70.566667,
+        "warmup_ms": 463.477041,
+        "download_ms": 11.449791,
+        "repetitions": 1,
+        "throughput_us": [
+          66042.833,
+          66289.25,
+          69176.875,
+          68541.333,
+          73743.291
+        ],
+        "latency_us": [
+          79700.167,
+          80552.75,
+          85794.458,
+          88814.958,
+          97426.584
+        ],
+        "gpu_throughput_us": [
+          65628.0833064,
+          66009.3750339,
+          68806.3749694,
+          68067.6250486,
+          73147.2499901
+        ],
+        "gpu_latency_us": [
+          79317.249998,
+          80132.9999813,
+          85198.4999608,
+          88472.6250079,
+          96588.5416372
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 68541.333,
+        "latency_us": 85794.458,
+        "gpu_throughput_us": 68067.6250486,
+        "gpu_latency_us": 85198.4999608
+      },
+      "round": 0,
+      "order": [
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-dt6qtgkp/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 558.809792,
+        "cold_call_ms": 105.95025,
+        "warmup_ms": 850.951875,
+        "download_ms": 2.658084,
+        "repetitions": 1,
+        "throughput_us": [
+          111196.375,
+          107056.5,
+          113151.958,
+          109301.833,
+          112795.75
+        ],
+        "latency_us": [
+          108294.125,
+          108493.333,
+          110418.292,
+          107786.875,
+          105160.667
+        ],
+        "gpu_throughput_us": [
+          110839.208297,
+          106721.624965,
+          112852.249993,
+          108952.208306,
+          112522.791664
+        ],
+        "gpu_latency_us": [
+          107981.54166,
+          108175.624977,
+          110112.291644,
+          107470.749994,
+          104858.50001
+        ]
+      },
+      "source_sha256": "e815593c5cdd7f68e9bfa133b4d441bda400a0f9c05659b567c3460468459d83",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 111196.375,
+        "latency_us": 108294.125,
+        "gpu_throughput_us": 110839.208297,
+        "gpu_latency_us": 107981.54166
+      },
+      "round": 0,
+      "order": [
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-gdjsnwij/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 466.395583,
+        "cold_call_ms": 96.190625,
+        "warmup_ms": 658.548542,
+        "download_ms": 2.750541,
+        "repetitions": 1,
+        "throughput_us": [
+          82089.875,
+          85653.084,
+          84508.291,
+          82959.541,
+          86614.542
+        ],
+        "latency_us": [
+          86221.333,
+          87144.5,
+          91362.5,
+          90060.875,
+          91983.292
+        ],
+        "gpu_throughput_us": [
+          81729.3750006,
+          85344.1250511,
+          84036.7499623,
+          82635.8750346,
+          86146.9166703
+        ],
+        "gpu_latency_us": [
+          85895.7499731,
+          86731.5833457,
+          91046.2916363,
+          89756.5000341,
+          91679.9167171
+        ]
+      },
+      "source_sha256": "1a80a8180c10ea5b40d1aeabcf73302da868b43a9a14ec87c2c3fc4667697f7d",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 84508.291,
+        "latency_us": 90060.875,
+        "gpu_throughput_us": 84036.7499623,
+        "gpu_latency_us": 89756.5000341
+      },
+      "round": 0,
+      "order": [
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-vab9uyum/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 430.499167,
+        "cold_call_ms": 101.424584,
+        "warmup_ms": 734.617416,
+        "download_ms": 2.830292,
+        "repetitions": 1,
+        "throughput_us": [
+          96100,
+          98502.25,
+          97059.375,
+          100280.958,
+          100779.041
+        ],
+        "latency_us": [
+          102757.667,
+          104276.875,
+          107518.167,
+          107653.458,
+          107949.167
+        ],
+        "gpu_throughput_us": [
+          95619.5000326,
+          98195.0416462,
+          96748.5416331,
+          99789.5416804,
+          100475.625019
+        ],
+        "gpu_latency_us": [
+          102428.583312,
+          103909.583355,
+          107210.333343,
+          107327.333302,
+          107598.624949
+        ]
+      },
+      "source_sha256": "7b23f1d0e70c9004e463c5a4275e2b0c5db03f524a252ebb74e871fee7679c94",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 98502.25,
+        "latency_us": 107518.167,
+        "gpu_throughput_us": 98195.0416462,
+        "gpu_latency_us": 107210.333343
+      },
+      "round": 0,
+      "order": [
+        "rectangle8x32",
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-rgc7v93a/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "row_bytes": [
+          4100,
+          16388,
+          16388
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 55.4235,
+        "cold_call_ms": 17.647084,
+        "warmup_ms": 107.551458,
+        "download_ms": 4.732625,
+        "repetitions": 4,
+        "throughput_us": [
+          4712.98975,
+          4384.55225,
+          4512.71875,
+          4620.521,
+          4574.13525
+        ],
+        "latency_us": [
+          5242.084,
+          4386.417,
+          5458.708,
+          5105.458,
+          4462.5
+        ],
+        "gpu_throughput_us": [
+          4627.71875027,
+          4294.06249896,
+          4429.51041623,
+          4525.08333547,
+          4492.06249323
+        ],
+        "gpu_latency_us": [
+          4880.54170273,
+          4046.50002019,
+          4731.41664406,
+          4616.37496483,
+          4141.87496062
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 4574.13525,
+        "latency_us": 5105.458,
+        "gpu_throughput_us": 4492.06249323,
+        "gpu_latency_us": 4616.37496483
+      },
+      "round": 0,
+      "order": [
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-tbnuxd8g/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 351.237375,
+        "cold_call_ms": 12.305125,
+        "warmup_ms": 102.2545,
+        "download_ms": 1.499292,
+        "repetitions": 4,
+        "throughput_us": [
+          4249.05225,
+          4256.1875,
+          4422.323,
+          4342.9375,
+          4306.70825
+        ],
+        "latency_us": [
+          4162.125,
+          4940.583,
+          4372,
+          4778.041,
+          4689.916
+        ],
+        "gpu_throughput_us": [
+          4161.63541377,
+          4172.23958357,
+          4180.08332781,
+          4172.68749152,
+          4221.14583489
+        ],
+        "gpu_latency_us": [
+          3877.75001582,
+          4664.12497917,
+          4047.4999696,
+          4448.62496806,
+          4314.91661584
+        ]
+      },
+      "source_sha256": "eae1450317e5f69c3cfbfa7554222a1368fa71f75b32f9c99c1142454a70926c",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 4306.70825,
+        "latency_us": 4689.916,
+        "gpu_throughput_us": 4172.68749152,
+        "gpu_latency_us": 4314.91661584
+      },
+      "round": 0,
+      "order": [
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-ltfi21y7/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 355.245292,
+        "cold_call_ms": 12.319375,
+        "warmup_ms": 120.920292,
+        "download_ms": 1.563042,
+        "repetitions": 5,
+        "throughput_us": [
+          3885.9332,
+          3773.4082,
+          3736.2666,
+          3829.275,
+          3885.8834
+        ],
+        "latency_us": [
+          3666.25,
+          4727.375,
+          3578.833,
+          4513.625,
+          3529.916
+        ],
+        "gpu_throughput_us": [
+          3827.70000724,
+          3706.17500739,
+          3642.79999631,
+          3762.57500611,
+          3775.60000634
+        ],
+        "gpu_latency_us": [
+          3292.79166181,
+          4232.4999813,
+          3290.95829511,
+          4254.37500235,
+          3271.87497169
+        ]
+      },
+      "source_sha256": "9b9d12f7e1030ddf01757479df627de51fb0005a6d5a6eca795119291f7070a9",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 3829.275,
+        "latency_us": 3666.25,
+        "gpu_throughput_us": 3762.57500611,
+        "gpu_latency_us": 3292.79166181
+      },
+      "round": 0,
+      "order": [
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-bc5gdbeh/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 349.554084,
+        "cold_call_ms": 11.569,
+        "warmup_ms": 104.639875,
+        "download_ms": 2.197583,
+        "repetitions": 6,
+        "throughput_us": [
+          3299.389,
+          3187.96533333,
+          3336.39583333,
+          3181.91666667,
+          3189.5
+        ],
+        "latency_us": [
+          4105.583,
+          3251.542,
+          3981.208,
+          3265.5,
+          3460.583
+        ],
+        "gpu_throughput_us": [
+          3193.09028176,
+          3129.97916869,
+          3213.61111128,
+          3136.66666625,
+          3138.70832906
+        ],
+        "gpu_latency_us": [
+          3613.91669139,
+          2926.99999409,
+          3409.41664763,
+          2951.33335749,
+          3143.62498466
+        ]
+      },
+      "source_sha256": "5c3ab21a8ca4a60d8f166386d55e53f28051a5b6fc9de6e2570f327017bfa6f4",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 3189.5,
+        "latency_us": 3460.583,
+        "gpu_throughput_us": 3138.70832906,
+        "gpu_latency_us": 3143.62498466
+      },
+      "round": 0,
+      "order": [
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-cux73wrb/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 350.545042,
+        "cold_call_ms": 10.790166,
+        "warmup_ms": 122.607083,
+        "download_ms": 1.421959,
+        "repetitions": 6,
+        "throughput_us": [
+          3001.1875,
+          2986.632,
+          3004.8195,
+          3001.21533333,
+          3024.04866667
+        ],
+        "latency_us": [
+          3771.375,
+          3218,
+          3415.125,
+          3140.709,
+          3114.708
+        ],
+        "gpu_throughput_us": [
+          2944.08333139,
+          2938.26388467,
+          2943.36111013,
+          2949.33333256,
+          2972.77083155
+        ],
+        "gpu_latency_us": [
+          3042.45832376,
+          2893.83338531,
+          3168.41667518,
+          2880.3749592,
+          2884.87499347
+        ]
+      },
+      "source_sha256": "d0855e8ad4d39b98618545cf87d62aa7a833e016323288e07012b3ebffc26dbd",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 3001.21533333,
+        "latency_us": 3218,
+        "gpu_throughput_us": 2944.08333139,
+        "gpu_latency_us": 2893.83338531
+      },
+      "round": 0,
+      "order": [
+        "mps",
+        "linear",
+        "rectangle2x8",
+        "rectangle4x16",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-ccxucaep/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 27.758708,
+        "cold_call_ms": 10.59075,
+        "warmup_ms": 102.591917,
+        "download_ms": 1.480541,
+        "repetitions": 6,
+        "throughput_us": [
+          3018.70833333,
+          2987.15966667,
+          2975.69433333,
+          3018.243,
+          3016.52083333
+        ],
+        "latency_us": [
+          3810,
+          3239.041,
+          3519.458,
+          3111.083,
+          3461.583
+        ],
+        "gpu_throughput_us": [
+          2961.16666868,
+          2942.43750007,
+          2928.83333168,
+          2948.89583408,
+          2964.00000419
+        ],
+        "gpu_latency_us": [
+          2964.70837202,
+          2890.62497905,
+          3252.99997348,
+          2881.37496682,
+          2882.29167927
+        ]
+      },
+      "source_sha256": "d0855e8ad4d39b98618545cf87d62aa7a833e016323288e07012b3ebffc26dbd",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 3016.52083333,
+        "latency_us": 3461.583,
+        "gpu_throughput_us": 2948.89583408,
+        "gpu_latency_us": 2890.62497905
+      },
+      "round": 1,
+      "order": [
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-d_59gt69/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 31.619084,
+        "cold_call_ms": 12.029083,
+        "warmup_ms": 100.074125,
+        "download_ms": 1.441,
+        "repetitions": 6,
+        "throughput_us": [
+          3062.06933333,
+          3031.73616667,
+          3045.82633333,
+          3088.15283333,
+          3056.1875
+        ],
+        "latency_us": [
+          3227.834,
+          3207.916,
+          3451.709,
+          3192.792,
+          3344.708
+        ],
+        "gpu_throughput_us": [
+          3002.66666454,
+          2972.85416552,
+          2990.60416485,
+          3005.50694616,
+          2972.74305679
+        ],
+        "gpu_latency_us": [
+          2963.37500913,
+          2917.62501001,
+          3211.00000292,
+          2951.95833314,
+          3101.87495779
+        ]
+      },
+      "source_sha256": "5c3ab21a8ca4a60d8f166386d55e53f28051a5b6fc9de6e2570f327017bfa6f4",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 3056.1875,
+        "latency_us": 3227.834,
+        "gpu_throughput_us": 2990.60416485,
+        "gpu_latency_us": 2963.37500913
+      },
+      "round": 1,
+      "order": [
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-tsszxg_9/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 28.144708,
+        "cold_call_ms": 9.412666,
+        "warmup_ms": 110.976292,
+        "download_ms": 1.425875,
+        "repetitions": 6,
+        "throughput_us": [
+          3112.125,
+          3151.02083333,
+          3084.11816667,
+          3167.13883333,
+          3178.38883333
+        ],
+        "latency_us": [
+          3286.834,
+          3523.5,
+          3239.584,
+          3309.375,
+          3269.792
+        ],
+        "gpu_throughput_us": [
+          3068.66667233,
+          3092.39584021,
+          3029.95833529,
+          3098.40278351,
+          3098.34027818
+        ],
+        "gpu_latency_us": [
+          2983.1250431,
+          3277.74998732,
+          2982.24994913,
+          3006.29169215,
+          3064.12496138
+        ]
+      },
+      "source_sha256": "9b9d12f7e1030ddf01757479df627de51fb0005a6d5a6eca795119291f7070a9",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 3151.02083333,
+        "latency_us": 3286.834,
+        "gpu_throughput_us": 3092.39584021,
+        "gpu_latency_us": 3006.29169215
+      },
+      "round": 1,
+      "order": [
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-us915107/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 28.018833,
+        "cold_call_ms": 11.722333,
+        "warmup_ms": 122.821375,
+        "download_ms": 1.879042,
+        "repetitions": 6,
+        "throughput_us": [
+          2990.4375,
+          3015.625,
+          3031.71533333,
+          2995.611,
+          3010.23616667
+        ],
+        "latency_us": [
+          3401.75,
+          3187.708,
+          3518.75,
+          3144.125,
+          3148
+        ],
+        "gpu_throughput_us": [
+          2943.29165869,
+          2946.48610482,
+          2963.16666451,
+          2941.84027977,
+          2954.04166294
+        ],
+        "gpu_latency_us": [
+          3068.54170049,
+          2897.12502854,
+          3180.54168019,
+          2880.74999116,
+          2889.24999768
+        ]
+      },
+      "source_sha256": "eae1450317e5f69c3cfbfa7554222a1368fa71f75b32f9c99c1142454a70926c",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 3010.23616667,
+        "latency_us": 3187.708,
+        "gpu_throughput_us": 2946.48610482,
+        "gpu_latency_us": 2897.12502854
+      },
+      "round": 1,
+      "order": [
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "2049",
+        "4097",
+        "1025",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-ths4uiuv/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 2049,
+        "n": 4097,
+        "k": 1025,
+        "row_bytes": [
+          4100,
+          16388,
+          16388
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 57.714375,
+        "cold_call_ms": 17.976583,
+        "warmup_ms": 116.646125,
+        "download_ms": 4.597417,
+        "repetitions": 6,
+        "throughput_us": [
+          2885.59733333,
+          2857.96516667,
+          2840.59716667,
+          2765.64583333,
+          2770.6805
+        ],
+        "latency_us": [
+          3084.584,
+          2937.583,
+          3067.875,
+          2985.792,
+          2954.375
+        ],
+        "gpu_throughput_us": [
+          2812.99999915,
+          2807.43750045,
+          2749.66666863,
+          2699.79166721,
+          2717.5208379
+        ],
+        "gpu_latency_us": [
+          2661.29168449,
+          2618.20835294,
+          2772.16668474,
+          2755.37499692,
+          2682.91664543
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 8394753
+      },
+      "medians": {
+        "throughput_us": 2840.59716667,
+        "latency_us": 2985.792,
+        "gpu_throughput_us": 2749.66666863,
+        "gpu_latency_us": 2682.91664543
+      },
+      "round": 1,
+      "order": [
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-ivwc9_s0/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 198.609625,
+        "cold_call_ms": 96.478792,
+        "warmup_ms": 665.579458,
+        "download_ms": 3.02975,
+        "repetitions": 1,
+        "throughput_us": [
+          87353.916,
+          90885.25,
+          91605.334,
+          90117.375,
+          93135.666
+        ],
+        "latency_us": [
+          95029.042,
+          95222.333,
+          98169.833,
+          102151.5,
+          104968.208
+        ],
+        "gpu_throughput_us": [
+          87021.0833382,
+          90561.2916686,
+          91281.5833581,
+          89810.3750078,
+          92673.5416288
+        ],
+        "gpu_latency_us": [
+          94730.5833688,
+          94732.0416453,
+          97669.9583698,
+          101674.166683,
+          104634.874966
+        ]
+      },
+      "source_sha256": "7b23f1d0e70c9004e463c5a4275e2b0c5db03f524a252ebb74e871fee7679c94",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 90885.25,
+        "latency_us": 98169.833,
+        "gpu_throughput_us": 90561.2916686,
+        "gpu_latency_us": 97669.9583698
+      },
+      "round": 1,
+      "order": [
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-627lgohz/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 305.677625,
+        "cold_call_ms": 109.170625,
+        "warmup_ms": 1000.742667,
+        "download_ms": 2.464875,
+        "repetitions": 1,
+        "throughput_us": [
+          149663.583,
+          152906.25,
+          151552.041,
+          154100.042,
+          142019.375
+        ],
+        "latency_us": [
+          134703.709,
+          131912.292,
+          125879.709,
+          122857.291,
+          118580.834
+        ],
+        "gpu_throughput_us": [
+          149328.791653,
+          152488.583291,
+          150857.500033,
+          153802.62502,
+          141710.291675
+        ],
+        "gpu_latency_us": [
+          134242.750006,
+          131552.333361,
+          125486.250035,
+          122527.666681,
+          118293.125008
+        ]
+      },
+      "source_sha256": "1a80a8180c10ea5b40d1aeabcf73302da868b43a9a14ec87c2c3fc4667697f7d",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 151552.041,
+        "latency_us": 125879.709,
+        "gpu_throughput_us": 150857.500033,
+        "gpu_latency_us": 125486.250035
+      },
+      "round": 1,
+      "order": [
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-n9sp2wfx/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 199.510375,
+        "cold_call_ms": 100.04925,
+        "warmup_ms": 702.270084,
+        "download_ms": 2.530708,
+        "repetitions": 1,
+        "throughput_us": [
+          88206.584,
+          89134.084,
+          91144.084,
+          89714,
+          89784.583
+        ],
+        "latency_us": [
+          90439.084,
+          89958.75,
+          91944.25,
+          93061.916,
+          92322.25
+        ],
+        "gpu_throughput_us": [
+          87888.83331,
+          88531.8749934,
+          90846.9583374,
+          89070.0416639,
+          89474.6250124
+        ],
+        "gpu_latency_us": [
+          90116.8750133,
+          89590.7499944,
+          91670.7916185,
+          92656.7499992,
+          92081.2499826
+        ]
+      },
+      "source_sha256": "e815593c5cdd7f68e9bfa133b4d441bda400a0f9c05659b567c3460468459d83",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 89714,
+        "latency_us": 91944.25,
+        "gpu_throughput_us": 89070.0416639,
+        "gpu_latency_us": 91670.7916185
+      },
+      "round": 1,
+      "order": [
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-bam3yuz5/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "row_bytes": [
+          44032,
+          16384,
+          16384
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 115.650791,
+        "cold_call_ms": 85.304291,
+        "warmup_ms": 585.666958,
+        "download_ms": 8.435041,
+        "repetitions": 1,
+        "throughput_us": [
+          82650.167,
+          83993.541,
+          87370.083,
+          90955.083,
+          97439.5
+        ],
+        "latency_us": [
+          94907.667,
+          98557.541,
+          105404.125,
+          105999.042,
+          118940.458
+        ],
+        "gpu_throughput_us": [
+          81904.7083496,
+          83635.6666405,
+          87037.9999978,
+          90601.3333588,
+          96993.6249894
+        ],
+        "gpu_latency_us": [
+          94578.5000222,
+          98220.4166357,
+          105091.75004,
+          105663.708353,
+          118086.750037
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 87370.083,
+        "latency_us": 105404.125,
+        "gpu_throughput_us": 87037.9999978,
+        "gpu_latency_us": 105091.75004
+      },
+      "round": 1,
+      "order": [
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        11008
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "11008",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-zesb88az/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 11008,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 202.142167,
+        "cold_call_ms": 136.650042,
+        "warmup_ms": 985.22975,
+        "download_ms": 2.498625,
+        "repetitions": 1,
+        "throughput_us": [
+          122293.041,
+          123157.25,
+          125591,
+          121324.708,
+          122669.375
+        ],
+        "latency_us": [
+          126886.292,
+          122600.292,
+          121386.708,
+          120866.792,
+          125055.25
+        ],
+        "gpu_throughput_us": [
+          121965.041617,
+          122518.624994,
+          125293.583318,
+          120906.374999,
+          122356.250009
+        ],
+        "gpu_latency_us": [
+          126594.833331,
+          122298.833332,
+          121091.000037,
+          120516.875002,
+          124676.999985
+        ]
+      },
+      "source_sha256": "60d892037bdade3e90067545dd8f3ecae234e7ab79e2597b300d3d7f62024cb8",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 122669.375,
+        "latency_us": 122600.292,
+        "gpu_throughput_us": 122356.250009,
+        "gpu_latency_us": 122298.833332
+      },
+      "round": 1,
+      "order": [
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-1q110mw2/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 310.808708,
+        "cold_call_ms": 482.861625,
+        "warmup_ms": 3641.055,
+        "download_ms": 11.395167,
+        "repetitions": 1,
+        "throughput_us": [
+          463032.458,
+          467738.5,
+          473416.333,
+          480119.583,
+          478250.25
+        ],
+        "latency_us": [
+          490295.334,
+          481151.208,
+          489067.833,
+          487555.375,
+          476550.875
+        ],
+        "gpu_throughput_us": [
+          462192.166655,
+          467485.499976,
+          472995.708289,
+          479775.041691,
+          477887.541638
+        ],
+        "gpu_latency_us": [
+          489974.249969,
+          480863.749981,
+          488755.166647,
+          487257.000001,
+          476073.125028
+        ]
+      },
+      "source_sha256": "86a3a3126fc668c532ae6d1d6f94da707b4de0122e5a114eb07a44f06bf746a5",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 473416.333,
+        "latency_us": 487555.375,
+        "gpu_throughput_us": 472995.708289,
+        "gpu_latency_us": 487257.000001
+      },
+      "round": 1,
+      "order": [
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-2483k7l8/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 306.940333,
+        "cold_call_ms": 341.168959,
+        "warmup_ms": 2746.370416,
+        "download_ms": 11.107125,
+        "repetitions": 1,
+        "throughput_us": [
+          472005.166,
+          635777,
+          754461,
+          598458.834,
+          492820.083
+        ],
+        "latency_us": [
+          441277.875,
+          419637.083,
+          399375.375,
+          385282.542,
+          386952.792
+        ],
+        "gpu_throughput_us": [
+          471692.791674,
+          635362.666624,
+          754102.999985,
+          598058.74998,
+          492398.291652
+        ],
+        "gpu_latency_us": [
+          440920.45835,
+          419296.24998,
+          399035.41666,
+          384743.499977,
+          386649.083288
+        ]
+      },
+      "source_sha256": "defd02848d8096652d0577871b0c0a23e03973cd06e06e277e776de4604f7883",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 598458.834,
+        "latency_us": 399375.375,
+        "gpu_throughput_us": 598058.74998,
+        "gpu_latency_us": 399035.41666
+      },
+      "round": 1,
+      "order": [
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-2fvcmf1r/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "row_bytes": [
+          32768,
+          32768,
+          32768
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 183.290833,
+        "cold_call_ms": 175.915916,
+        "warmup_ms": 1456.452625,
+        "download_ms": 35.9365,
+        "repetitions": 1,
+        "throughput_us": [
+          705924.833,
+          1263393.667,
+          386343.833,
+          294719.292,
+          265284.5
+        ],
+        "latency_us": [
+          251494.792,
+          239438.333,
+          232760.625,
+          236978.792,
+          235855.75
+        ],
+        "gpu_throughput_us": [
+          647256.000026,
+          1257555.70829,
+          385647.833347,
+          294215.000002,
+          264955.624996
+        ],
+        "gpu_latency_us": [
+          251172.708347,
+          239065.375004,
+          232474.666613,
+          236695.875006,
+          235489.458311
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 386343.833,
+        "latency_us": 236978.792,
+        "gpu_throughput_us": 385647.833347,
+        "gpu_latency_us": 236695.875006
+      },
+      "round": 1,
+      "order": [
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-qc_r9jmk/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 313.088083,
+        "cold_call_ms": 453.750292,
+        "warmup_ms": 3792.667584,
+        "download_ms": 11.182,
+        "repetitions": 1,
+        "throughput_us": [
+          699734.375,
+          693141.708,
+          616264.125,
+          563478.042,
+          529513.875
+        ],
+        "latency_us": [
+          506845.333,
+          505648.75,
+          492368.25,
+          498540.25,
+          487834.334
+        ],
+        "gpu_throughput_us": [
+          699409.874971,
+          692811.375018,
+          615919.583302,
+          562288.291636,
+          529249.291692
+        ],
+        "gpu_latency_us": [
+          506523.37505,
+          505322.083307,
+          491915.958351,
+          498211.208323,
+          487132.749986
+        ]
+      },
+      "source_sha256": "644a847b9938458a2afd0dbcf54fb83c4ddeb179e38653da72a516e37521f688",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 616264.125,
+        "latency_us": 498540.25,
+        "gpu_throughput_us": 615919.583302,
+        "gpu_latency_us": 498211.208323
+      },
+      "round": 1,
+      "order": [
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "8192",
+        "8192",
+        "8192",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-1nbl9ema/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 8192,
+        "n": 8192,
+        "k": 8192,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 316.392792,
+        "cold_call_ms": 417.250959,
+        "warmup_ms": 3842.71225,
+        "download_ms": 14.489167,
+        "repetitions": 1,
+        "throughput_us": [
+          689287.875,
+          567065.125,
+          513892.541,
+          479316.459,
+          473402.125
+        ],
+        "latency_us": [
+          469355.792,
+          466842.458,
+          468519,
+          469686.875,
+          491400.208
+        ],
+        "gpu_throughput_us": [
+          688979.625003,
+          566208.125034,
+          513552.999997,
+          479044.000036,
+          472644.875001
+        ],
+        "gpu_latency_us": [
+          469075.833389,
+          466491.041647,
+          468136.125011,
+          469251.500035,
+          490821.000014
+        ]
+      },
+      "source_sha256": "f361d933700b5584092ccf9a4aa5f8cb7ab1979065407410de3facf37999ab9f",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 67108864
+      },
+      "medians": {
+        "throughput_us": 513892.541,
+        "latency_us": 469355.792,
+        "gpu_throughput_us": 513552.999997,
+        "gpu_latency_us": 469075.833389
+      },
+      "round": 1,
+      "order": [
+        "rectangle2x8",
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-q5k5ynzk/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 127.151375,
+        "cold_call_ms": 35.277292,
+        "warmup_ms": 183.358458,
+        "download_ms": 2.641625,
+        "repetitions": 1,
+        "throughput_us": [
+          23630.292,
+          24391.208,
+          25151.625,
+          24473.5,
+          24675.458
+        ],
+        "latency_us": [
+          24907.958,
+          24928.667,
+          25485.25,
+          25782.916,
+          26026.334
+        ],
+        "gpu_throughput_us": [
+          23317.3749875,
+          24084.04171,
+          24608.4583341,
+          24159.5000261,
+          24385.7500027
+        ],
+        "gpu_latency_us": [
+          24611.7083007,
+          24645.2499996,
+          25184.6666215,
+          25475.8750089,
+          25682.9583668
+        ]
+      },
+      "source_sha256": "3014b4532a369af0e1d286ed6cd747516b41a2224ee662cbc3fd870b8bb4373e",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 24473.5,
+        "latency_us": 25485.25,
+        "gpu_throughput_us": 24159.5000261,
+        "gpu_latency_us": 25184.6666215
+      },
+      "round": 1,
+      "order": [
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-iq6vjhfs/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "row_bytes": [
+          16384,
+          16384,
+          16384
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 86.356125,
+        "cold_call_ms": 40.646459,
+        "warmup_ms": 206.81925,
+        "download_ms": 10.006417,
+        "repetitions": 1,
+        "throughput_us": [
+          27725.792,
+          30052.583,
+          29036.584,
+          29860.542,
+          30685.167
+        ],
+        "latency_us": [
+          29769.5,
+          32019.958,
+          32104.041,
+          31273.75,
+          32572.916
+        ],
+        "gpu_throughput_us": [
+          27403.3749592,
+          29695.2500357,
+          28715.0833174,
+          29514.4166448,
+          30278.8749686
+        ],
+        "gpu_latency_us": [
+          29399.4583189,
+          31666.7499719,
+          31675.2499784,
+          30911.7499855,
+          32197.1666417
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 29860.542,
+        "latency_us": 32019.958,
+        "gpu_throughput_us": 29514.4166448,
+        "gpu_latency_us": 31666.7499719
+      },
+      "round": 1,
+      "order": [
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-uj22njaj/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 97.97,
+        "cold_call_ms": 41.32825,
+        "warmup_ms": 264.783,
+        "download_ms": 2.627875,
+        "repetitions": 1,
+        "throughput_us": [
+          38494.625,
+          37803.708,
+          39237.625,
+          39968.417,
+          39092.417
+        ],
+        "latency_us": [
+          41939.959,
+          43171.625,
+          43642.042,
+          45407.791,
+          45601.167
+        ],
+        "gpu_throughput_us": [
+          38154.2500108,
+          37513.9166717,
+          38368.999958,
+          39694.1666258,
+          38791.6250038
+        ],
+        "gpu_latency_us": [
+          41696.8750069,
+          42878.5000113,
+          43270.0000238,
+          44949.9166571,
+          45326.5416436
+        ]
+      },
+      "source_sha256": "ccca265c92bd9c41277eb151e53b61d16c98aa612334c5e8c807347872b76de6",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 39092.417,
+        "latency_us": 43642.042,
+        "gpu_throughput_us": 38368.999958,
+        "gpu_latency_us": 43270.0000238
+      },
+      "round": 1,
+      "order": [
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-sitj4qgm/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 99.762,
+        "cold_call_ms": 44.188708,
+        "warmup_ms": 336.070459,
+        "download_ms": 3.507125,
+        "repetitions": 1,
+        "throughput_us": [
+          47027.25,
+          48198.5,
+          47645.125,
+          49904.25,
+          48888.458
+        ],
+        "latency_us": [
+          48219.459,
+          50701,
+          50130.125,
+          51917.125,
+          50968.709
+        ],
+        "gpu_throughput_us": [
+          46745.7500054,
+          47911.416681,
+          47333.2916154,
+          49524.4999765,
+          48443.5416874
+        ],
+        "gpu_latency_us": [
+          47856.500023,
+          50424.5833145,
+          49822.2500319,
+          51469.4166486,
+          50649.7499882
+        ]
+      },
+      "source_sha256": "3aa8bed0a59343a7fccf54cd0e23e41d14939bf109f6c639fa031cb0d122b698",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 48198.5,
+        "latency_us": 50701,
+        "gpu_throughput_us": 47911.416681,
+        "gpu_latency_us": 50424.5833145
+      },
+      "round": 1,
+      "order": [
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "4096",
+        "4096",
+        "4096",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-_k_fi0g0/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 102.236417,
+        "cold_call_ms": 48.414833,
+        "warmup_ms": 322.022166,
+        "download_ms": 2.560375,
+        "repetitions": 1,
+        "throughput_us": [
+          41719.292,
+          41802.583,
+          42789.333,
+          42161.458,
+          42278.958
+        ],
+        "latency_us": [
+          43123.417,
+          43657.917,
+          43162.75,
+          44491.333,
+          44076.417
+        ],
+        "gpu_throughput_us": [
+          41233.0832914,
+          41330.7499839,
+          42499.5000358,
+          41695.8749993,
+          41957.3750114
+        ],
+        "gpu_latency_us": [
+          42825.5833103,
+          43247.750029,
+          42838.708323,
+          44165.5000322,
+          43793.4999936
+        ]
+      },
+      "source_sha256": "04dd4eff2f5428f6dea4646d7d1d785b2cde976811597c735edfb14024262415",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 16777216
+      },
+      "medians": {
+        "throughput_us": 42161.458,
+        "latency_us": 43657.917,
+        "gpu_throughput_us": 41695.8749993,
+        "gpu_latency_us": 43247.750029
+      },
+      "round": 1,
+      "order": [
+        "linear",
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "mps",
+      "config": null,
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+        "metal",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-s4twhpwu/output.f32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "row_bytes": [
+          6148,
+          4096,
+          4096
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 52.886292,
+        "cold_call_ms": 9.990584,
+        "warmup_ms": 106.993584,
+        "download_ms": 0.735459,
+        "repetitions": 23,
+        "throughput_us": [
+          902.693826087,
+          835.581521739,
+          874.639521739,
+          849.014478261,
+          848.673913043
+        ],
+        "latency_us": [
+          1080.709,
+          1273.583,
+          1070.875,
+          1040.792,
+          934.833
+        ],
+        "gpu_throughput_us": [
+          868.393115841,
+          821.324275381,
+          859.650363133,
+          828.608695883,
+          834.442027237
+        ],
+        "gpu_latency_us": [
+          849.500007462,
+          1039.91670767,
+          847.749994136,
+          812.666665297,
+          691.083318088
+        ]
+      },
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 849.014478261,
+        "latency_us": 1070.875,
+        "gpu_throughput_us": 834.442027237,
+        "gpu_latency_us": 847.749994136
+      },
+      "round": 1,
+      "order": [
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "rectangle8x32",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-qpcqwvwg/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "8",
+        "32"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 8,
+        "walk_columns": 32,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 13.9685,
+        "cold_call_ms": 2.363666,
+        "warmup_ms": 100.361417,
+        "download_ms": 0.426042,
+        "repetitions": 21,
+        "throughput_us": [
+          947.827380952,
+          898.648809524,
+          922.573428571,
+          920.714285714,
+          899.333333333
+        ],
+        "latency_us": [
+          1009.417,
+          1051.333,
+          1119.041,
+          1158.667,
+          1456.208
+        ],
+        "gpu_throughput_us": [
+          916.057537931,
+          884.871031823,
+          907.686508505,
+          904.710317541,
+          885.519839358
+        ],
+        "gpu_latency_us": [
+          770.791666582,
+          845.499977004,
+          911.000010092,
+          919.0000128,
+          1288.16667711
+        ]
+      },
+      "source_sha256": "dc744ee0941bb3e512a8e520cd73b279b16579b8eb058ea08a816f6746649374",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 920.714285714,
+        "latency_us": 1119.041,
+        "gpu_throughput_us": 904.710317541,
+        "gpu_latency_us": 911.000010092
+      },
+      "round": 1,
+      "order": [
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "rectangle4x16",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-c1c2tgfh/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "4",
+        "16"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 4,
+        "walk_columns": 16,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 14.194416,
+        "cold_call_ms": 2.3675,
+        "warmup_ms": 101.513833,
+        "download_ms": 0.421417,
+        "repetitions": 22,
+        "throughput_us": [
+          903.179954545,
+          888.369318182,
+          910.361727273,
+          895.195090909,
+          890.503772727
+        ],
+        "latency_us": [
+          1192.166,
+          1862.417,
+          1039.791,
+          1077.625,
+          1016.208
+        ],
+        "gpu_throughput_us": [
+          873.632575597,
+          874.409089606,
+          894.886364801,
+          885.420455068,
+          876.964014341
+        ],
+        "gpu_latency_us": [
+          914.999982342,
+          1234.08332001,
+          768.666679505,
+          764.375028666,
+          765.833305195
+        ]
+      },
+      "source_sha256": "21e07461444144abb40e5930bca1f8f24528e3690a2dab7693ce05727e102223",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 895.195090909,
+        "latency_us": 1077.625,
+        "gpu_throughput_us": 876.964014341,
+        "gpu_latency_us": 768.666679505
+      },
+      "round": 1,
+      "order": [
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "rectangle2x8",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-wgi0xg75/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2",
+        "8"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2,
+        "walk_columns": 8,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 14.701334,
+        "cold_call_ms": 2.64375,
+        "warmup_ms": 106.447709,
+        "download_ms": 0.422375,
+        "repetitions": 19,
+        "throughput_us": [
+          900.136,
+          916.953947368,
+          892.813578947,
+          900.763157895,
+          905.960526316
+        ],
+        "latency_us": [
+          1140.292,
+          1574.25,
+          1142.917,
+          1042.834,
+          1028.916
+        ],
+        "gpu_throughput_us": [
+          885.300436302,
+          891.381577515,
+          877.894736875,
+          885.019737516,
+          889.271929689
+        ],
+        "gpu_latency_us": [
+          884.249981027,
+          1046.45831743,
+          817.000051029,
+          819.083361421,
+          809.375022072
+        ]
+      },
+      "source_sha256": "acbce3897fb832fb0b6c21fbed2daf44136c5ffde21980b1250737421f328619",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 900.763157895,
+        "latency_us": 1140.292,
+        "gpu_throughput_us": 885.300436302,
+        "gpu_latency_us": 819.083361421
+      },
+      "round": 1,
+      "order": [
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear"
+      ]
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1537
+      ],
+      "path": "linear",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1024",
+        "1024",
+        "1537",
+        "5",
+        "20",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-1psd9cmy/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1024,
+        "n": 1024,
+        "k": 1537,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 1,
+        "walk_columns": 1,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 448,
+        "setup_ms": 13.928875,
+        "cold_call_ms": 2.524875,
+        "warmup_ms": 102.262916,
+        "download_ms": 0.458042,
+        "repetitions": 24,
+        "throughput_us": [
+          806.75175,
+          842.930541667,
+          831.78125,
+          847.414916667,
+          837.909708333
+        ],
+        "latency_us": [
+          1158.166,
+          1012.333,
+          1001.875,
+          1170.917,
+          1039
+        ],
+        "gpu_throughput_us": [
+          794.947916196,
+          826.921876675,
+          817.765624864,
+          830.729167016,
+          824.817708538
+        ],
+        "gpu_latency_us": [
+          882.958353031,
+          779.916648753,
+          768.583326135,
+          892.958370969,
+          765.87498188
+        ]
+      },
+      "source_sha256": "2e74747513146cd0109c7d2fb7ed1501ba823860289c85517805ad96e12581b2",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1048576
+      },
+      "medians": {
+        "throughput_us": 837.909708333,
+        "latency_us": 1039,
+        "gpu_throughput_us": 824.817708538,
+        "gpu_latency_us": 779.916648753
+      },
+      "round": 1,
+      "order": [
+        "mps",
+        "rectangle8x32",
+        "rectangle4x16",
+        "rectangle2x8",
+        "linear"
+      ]
+    }
+  ],
+  "artifacts_after": {
+    "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp": "b4a23410e12a61899d157410a4ee2cdc656b71688091f3e760b23a8ec3b7e5d8",
+    "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system": "3d6ec98f2ee4cdea36603052f83a4f8044cb31ad1ecde6254d63a4957dbb686a"
+  },
+  "artifacts_unchanged": true
+}

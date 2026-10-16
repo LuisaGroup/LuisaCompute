@@ -1,0 +1,6 @@
+[2026-09-06 16:16:56.767] [console] [info] Created context for program 'test_tile_native_runtime'.
+[2026-09-06 16:16:56.767] [console] [info] Runtime directory: /private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin.
+[2026-09-06 16:16:56.772] [console] [info] Loaded dynamic module '/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/libluisa-backend-metal.so' in 4.142708 ms.
+[2026-09-06 16:16:56.793] [console] [info] Created Metal device 'Apple M1 Max' at index 0.
+[2026-09-06 16:16:56.793] [console] [info] Test device backend: metal.
+Suite 'global': all tests passed (364 asserts in 8 tests)

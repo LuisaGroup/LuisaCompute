@@ -16,6 +16,7 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/syntax.h>
+#include <luisa/core/stl/filesystem.h>
 #include "reference_image.h"
 
 #include <filesystem>
@@ -85,8 +86,8 @@ inline void offset_uv(thread float2 &uv, float2 delta) {
     uv += delta;
 }
     )";
-    } else if (device_name == "hip") {
-        // The HIP backend lowers XIR directly to LLVM. Native includes therefore
+    } else if (device_name == "hip" || device_name == "metal4") {
+        // The HIP and Metal4 backends lower XIR directly to LLVM. Native includes therefore
         // use LLVM IR (text shown here; bitcode is accepted as well) and expose
         // unmangled symbols with the exact ExternalCallable register ABI.
         option.native_include = R"(
@@ -157,9 +158,9 @@ entry:
             << "Native include test wrote an incorrect alpha channel.";
     }
 
-    auto output_directory = std::filesystem::path{opts.output_dir};
+    auto output_directory = luisa::filesystem::path{opts.output_dir};
     std::error_code filesystem_error;
-    std::filesystem::create_directories(output_directory, filesystem_error);
+    luisa::filesystem::create_directories(output_directory, filesystem_error);
     boost::ut::expect(!filesystem_error)
         << luisa::format("Failed to create output directory '{}': {}.",
                          output_directory.string(), filesystem_error.message());

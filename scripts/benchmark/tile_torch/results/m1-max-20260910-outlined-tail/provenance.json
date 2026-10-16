@@ -1,0 +1,138 @@
+{
+  "format": "native-outlined-tail-archive-provenance-v1",
+  "raw_root": "/private/tmp/luisa-outlined-tail.gOcYjp",
+  "raw_user_spelling": "/tmp/luisa-outlined-tail.gOcYjp",
+  "inventory": "inventory.json",
+  "inventory_sha256": "141817f84a10d765acebe1829bd77068b036f8079520f3a15b23d6aef5445455",
+  "raw_reports": {
+    "capture": "/private/tmp/luisa-outlined-tail.gOcYjp/capture/manifest.json",
+    "failed_replay": "/private/tmp/luisa-outlined-tail.gOcYjp/replay/results.json",
+    "replay": "/private/tmp/luisa-outlined-tail.gOcYjp/replay-v2/results.json",
+    "audit": "/private/tmp/luisa-outlined-tail.gOcYjp/audit.json"
+  },
+  "disposition": "Rejected experimental candidate; not a deployed compiler or planner optimization. The scoped patch is evidence only.",
+  "comparison": "Both variants keep pointwise fusion and full-packet specialization enabled. Only the real narrow-tail call-site NoInline policy differs.",
+  "variant_semantics": {
+    "off": {
+      "pointwise_fusion": true,
+      "outlined_packet_tail": false
+    },
+    "on": {
+      "pointwise_fusion": true,
+      "outlined_packet_tail": true
+    }
+  },
+  "captured_cases": 24,
+  "native_timed_visits": 432,
+  "failed_attempt": {
+    "status": "error",
+    "timed_visits": 0,
+    "error": "ModuleNotFoundError: No module named 'torch'",
+    "policy": "Preserved unchanged; never pooled with successful timings or counted as a kernel failure."
+  },
+  "audit": {
+    "status": "passed",
+    "identity_checks": 1413,
+    "native_output_checks": 72,
+    "comparison_checks": 24,
+    "rejected_mutations": [
+      "missing_visit",
+      "wrong_median",
+      "wrong_ratio",
+      "failed_guard",
+      "wrong_oracle",
+      "verification_only",
+      "wrong_order",
+      "failed_status",
+      "wrong_summary",
+      "duplicate_visit",
+      "boolean_sample"
+    ],
+    "rejected_comparison_mutations": [
+      "unknown_comparison",
+      "mismatched_comparison",
+      "missing_comparison",
+      "nonboolean_semantics",
+      "wrong_variant_feature",
+      "disabled_full_specialization",
+      "wrong_llvm_hash",
+      "wrong_tail_noinline_claim"
+    ],
+    "auditor_sha256": "d93c047c8a6ee7de013bbbc6394f937aaee9ffe48468d0bf6d337defb69d5bf3"
+  },
+  "source_root": "/private/tmp/luisa-next-integration.roZbN8/source",
+  "binary": "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+  "baseline_manifest": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/manifest.json",
+  "full_build_gate": {
+    "log": "/private/tmp/luisa-outlined-tail.gOcYjp/full-build.log",
+    "external_attestation": true,
+    "limitation": "Caller completed the configured full build before capture; log hash alone does not prove binary/source correspondence."
+  },
+  "fixed_environment": {
+    "LUISA_SIMD_WARP_WIDTH": "8",
+    "LUISA_SIMD_WORKER_COUNT": "1",
+    "LUISA_TILE_BENCH_XIR_BACKEND": "simd",
+    "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "8",
+    "LUISA_TILE_BENCH_XIR_BLOCK_SIZE": "32",
+    "LUISA_TILE_BENCH_XIR_BLOCKS_PER_TASK": "0",
+    "LUISA_TILE_BENCH_XIR_SEARCH_TASK_GRAIN": "0",
+    "LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION": "1",
+    "LUISA_SIMD_DISABLE_EXPRESSION_REDUCTION_FUSION": "1",
+    "LUISA_SIMD_DISABLE_MAP_FUSION": "1",
+    "LUISA_SIMD_DISABLE_LINEAR_1D_BLOCK_COALESCING": "1",
+    "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+    "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+    "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+  },
+  "candidate": {
+    "base_commit": "147700bd431eb054694ba649817b7f50a335b2b1",
+    "patch": "candidate.patch",
+    "patch_sha256": "d44eccaf8415de3698fc02a0b4e53f1f9a340914656e822437e226558258c33d",
+    "base_source_sha256": {
+      "src/backends/simd/llvm/llvm_schedule_codegen.cpp": "3f93e1d5a5377dbc061cce995834175a5d9611faeb7eb495a17417b493338ab5",
+      "src/tests/unit/simd/test_llvm_schedule_codegen.cpp": "be346b28d7907b9b17ba8c749dd44e6df4ab8c9288b95d4d3b7ac49e4faeef77"
+    },
+    "tested_source_sha256": {
+      "src/backends/simd/llvm/llvm_schedule_codegen.cpp": "1d26e18f7c958c9b6da48f4f0c3eb2734d5dead297b905ff16a609c292368a64",
+      "src/tests/unit/simd/test_llvm_schedule_codegen.cpp": "d9d6cff217fb3fc8be565dfd831c5621a6cc146b12f2aaac78e737f040f44e48",
+      "src/tests/common/tile_llm_test_utils.h": "da1e80caf61cad8ea6b57b4d3fbb1553d858d8656433ca3fc8730062170f43af",
+      "src/tests/unit/tile/bridge/test_xir_runtime.cpp": "0cd42f9510964c45354fe75d9a30cf12978238c773604aa6ba595de0205039de",
+      "src/tests/unit/tile/bridge/test_xir_llm.cpp": "8840995f8a992272fe51d5e4f33f508f27d4f5b70a45560c2236de4b0d533117"
+    },
+    "scope": "Only the two C++ candidate files are included in the patch. The five tested source/fixture snapshots match capture source hashes."
+  },
+  "raw_json_policy": "Original JSON bytes are gzip-preserved; no path, hash, source or timing metadata is rewritten.",
+  "runner_freeze": "The four original runners match capture/replay hashes, as do each attempt's frozen runner-sources copies. The current auditor matches the final audit hash.",
+  "supplemental_source_caveat": "The supplemental unit tests and support sources have pinned archival hashes. The original 52-test unit receipt did not hash those files; this archive does not invent a contemporaneous unit-source attestation or claim the auditor tests ran with that earlier receipt.",
+  "included": "Actual emitted LLVM, ORC object and assembly, linked entry dylibs, Inductor sources/wrappers/libraries, ABI header, C++ helper dylib, capture/export/link/replay command metadata, all raw logs including both replay attempts, frozen runners, tested sources and rejected patch.",
+  "excluded": {
+    "tensor_files": 360,
+    "tensor_bytes": 1520174400,
+    "tensor_hash_policy": "Original input/expected/output hashes remain in unmodified reports. Tensor bytes are not re-read or revalidated by this archiver.",
+    "other": [
+      "whole build binary closure",
+      "full compiler source tree",
+      "external LLVM/Torch/TVM installations",
+      "Doxygen XML"
+    ]
+  },
+  "replayability": {
+    "self_contained": false,
+    "tensor_payloads_persistently_archived": false,
+    "requirements": "Original raw tensors, the recorded baseline dependencies and a compatible Darwin arm64 loader/toolchain/Torch are required. This folder alone cannot replay kernels or repeat the full numerical audit.",
+    "regeneration": "Frozen commands and fixture/oracle sources describe regeneration, but regenerated inputs must match recorded hashes. A new capture/replay/audit is a new experiment, not a replacement for missing original output bytes.",
+    "validation": "The final audit re-read original outputs at audit time. This archival step only verifies file/compression identity; runtime/workspace guards were execution-time checks, not retained payloads."
+  },
+  "timing_scope": "Fixed-candidate one-host-thread native-entry host-wall replay under recorded desktop background load. Capture Runtime times are not comparative. No quiet-machine, default-planner or global parity claim is implied.",
+  "archiver_sha256": "31c323f38f0909a93377c60586522892d602f792e77a265c8c506ad256666c7d",
+  "verification": {
+    "compressed_json_streams": 4,
+    "tar_members": 1074,
+    "source_files_rechecked": 1083,
+    "byte_identity_passed": true
+  }
+}

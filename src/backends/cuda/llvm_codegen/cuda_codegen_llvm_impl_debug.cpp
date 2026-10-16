@@ -4,6 +4,8 @@
 
 #include <span>
 #include "cuda_codegen_llvm_impl.h"
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::cuda {
 
@@ -121,7 +123,7 @@ void CUDACodegenLLVMImpl::_translate_print_inst(IB &b, FunctionContext &func_ctx
         auto llvm_op = _get_llvm_value(b, func_ctx, op);
         decode_value(decode_value, op->type(), llvm_op);
     };
-    auto fmt_format = std::string_view{inst->format()};
+    auto fmt_format = luisa::string_view{inst->format()};
     // convert from C++20 std::format to C-style printf format
     while (!fmt_format.empty()) {
         if (fmt_format.front() == '%') {// we need to escape % for printf

@@ -1,0 +1,28 @@
+{
+  "passed": true,
+  "all_suites_green": false,
+  "passing_suites": 17,
+  "successful_suite_assertions": 1054543,
+  "known_failures": [
+    {
+      "log": "test_tile_tirx_memory-metal.log",
+      "line": 168,
+      "failed_assertions": 2
+    },
+    {
+      "log": "test_tile_tirx_cooperative-metal.log",
+      "line": 100,
+      "failed_assertions": 1
+    }
+  ],
+  "use": "new tests pass; two pre-existing barrier source-string suites remain red",
+  "input_sha256": "c7faa2f08a4567d39ee5417c8c4ddf3f9dfb39536cd7cdbef650c9894701975f",
+  "auditor_sha256": "6017c11a564038cb2f1a81d886b0b5cc3573df6e5e5f35f2350b2bf710d134df",
+  "rejected_mutations": [
+    "missing_row",
+    "duplicate_row",
+    "changed_artifacts",
+    "empty_test",
+    "concealed_failure"
+  ]
+}

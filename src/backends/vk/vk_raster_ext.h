@@ -10,6 +10,7 @@ public:
     VkRasterExt(Device *device);
     ~VkRasterExt() noexcept = default;
     [[nodiscard]] ResourceCreationInfo create_raster_shader(
+        const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         const ShaderOption &shader_option) noexcept override;

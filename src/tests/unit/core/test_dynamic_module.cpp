@@ -8,6 +8,7 @@
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
+#include <luisa/core/stl/filesystem.h>
 
 #ifdef LUISA_PLATFORM_WINDOWS
 #include <windows.h>
@@ -168,7 +169,7 @@ void _luisa_reg_dynamicmodule_search_path_management() {
     boost::ut::detail::test{"test", "DynamicModule search path management"} = [] {
         // Get the current executable path as a safe directory
         auto exe_path = current_executable_path();
-        auto exe_dir = std::filesystem::path(exe_path).parent_path();
+        auto exe_dir = luisa::filesystem::path(exe_path).parent_path();
 
         // Test adding search path
         DynamicModule::add_search_path(exe_dir);
@@ -207,25 +208,25 @@ void _luisa_reg_dynamicmodule_load_exact() {
 
     boost::ut::detail::test{"test", "DynamicModule load_exact"} = [] {
         // Try to construct the full path to a system library
-        std::filesystem::path lib_path;
+        luisa::filesystem::path lib_path;
         bool found = false;
 
 #ifdef LUISA_PLATFORM_WINDOWS
         // On Windows, try to find kernel32.dll
         char sys_path[MAX_PATH];
         if (GetSystemDirectoryA(sys_path, MAX_PATH)) {
-            lib_path = std::filesystem::path(sys_path) / "kernel32.dll";
-            found = std::filesystem::exists(lib_path);
+            lib_path = luisa::filesystem::path(sys_path) / "kernel32.dll";
+            found = luisa::filesystem::exists(lib_path);
         }
 #else
         // On Linux, try common libc paths
-        std::vector<std::filesystem::path> candidates = {
+        std::vector<luisa::filesystem::path> candidates = {
             "/lib/x86_64-linux-gnu/libc.so.6",
             "/lib64/libc.so.6",
             "/usr/lib/libc.so.6",
             "/lib/libc.so.6"};
         for (const auto &candidate : candidates) {
-            if (std::filesystem::exists(candidate)) {
+            if (luisa::filesystem::exists(candidate)) {
                 lib_path = candidate;
                 found = true;
                 break;

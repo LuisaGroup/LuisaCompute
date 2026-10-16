@@ -8,7 +8,12 @@ namespace luisa::compute {
 
 namespace detail {
 LUISA_DSL_API void luisa_compute_validate_warp_size(uint8_t warp_size) noexcept {
-    LUISA_ASSERT(warp_size >= 8 && warp_size <= 128 && luisa::next_pow2<uint>(warp_size) == warp_size, "Invalid warp size.");
+    LUISA_ASSERT(
+        warp_size == 1u || warp_size == 2u ||
+            (warp_size >= 4u && warp_size <= 128u &&
+             luisa::next_pow2<uint>(warp_size) == warp_size),
+        "Invalid warp size {}. Expected 1, 2, 4, 8, 16, 32, 64, or 128.",
+        warp_size);
 }
 LUISA_DSL_API void luisa_compute_validate_block_size(uint x, uint y, uint z) noexcept {
     auto size = make_uint3(x, y, z);
@@ -16,9 +21,10 @@ LUISA_DSL_API void luisa_compute_validate_block_size(uint x, uint y, uint z) noe
                  "Invalid block size ({}, {}, {}). "
                  "Block size must be in range [1, 1024].",
                  x, y, z);
-    LUISA_ASSERT((x * y * z) % 32u == 0u,
+    auto thread_count = static_cast<uint64_t>(x) * y * z;
+    LUISA_ASSERT(thread_count <= 1024u && thread_count % 32u == 0u,
                  "Invalid block size ({}, {}, {}). "
-                 "Threads per block must be a multiple of 32.",
+                 "Threads per block must be a multiple of 32 and must not exceed 1024.",
                  x, y, z);
 }
 

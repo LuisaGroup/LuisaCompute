@@ -1,0 +1,77 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "rope",
+  "dimensions": [
+    64,
+    128
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      64,
+      128
+    ],
+    [
+      64,
+      64
+    ],
+    [
+      64,
+      64
+    ]
+  ],
+  "output_shape": [
+    64,
+    128
+  ],
+  "fixture_ms": 0.157833,
+  "runtime_init_ms": 10.562666,
+  "compile_ms": 1659.556334,
+  "allocation_upload_ms": 0.016958,
+  "cold_call_ms": 0.157833,
+  "warmup_ms": 75.2255,
+  "repetitions": 739,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=1, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 26240.000 (arithmetic 1536.000, memory 24576.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=1; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=0; contiguous_private_reads=0; contiguous_private_writes=0; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 8192,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 1.45601681822e-07
+  },
+  "throughput_us": [
+    42.8887577808,
+    44.8058741543,
+    43.5107131258,
+    45.2716508796,
+    42.6547131258,
+    43.3324303112,
+    44.9736129905
+  ],
+  "latency_us": [
+    49.583,
+    54.958,
+    32.666,
+    36.667,
+    44.5,
+    74.417,
+    48.625
+  ]
+}

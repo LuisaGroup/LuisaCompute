@@ -1,8 +1,10 @@
 #pragma once
 
 #include <luisa/core/concepts.h>
+#include <luisa/ast/coro_suspend.h>
 #include <luisa/ast/variable.h>
 #include <luisa/ast/expression.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute {
 class CallableLibrary;
@@ -37,6 +39,9 @@ public:
         AUTO_DIFF,
         PRINT,
         DEBUG_BREAK,
+        // Appended to preserve the binary representation of existing tags.
+        // Uses SwitchCaseStmt/StmtVisitor, with several labels and one body.
+        SWITCH_CASE_GROUP,
     };
 
 private:
@@ -79,6 +84,14 @@ class AutoDiffStmt;
 
 class PrintStmt;
 class DebugBreakStmt;
+
+// A value explicitly exposed by a coroutine suspension boundary. Unlike an
+// AST/XIR name, this is semantic: schedulers may observe the named value after
+// the source scope has suspended and before the target continuation resumes.
+struct CoroFrameExport {
+    const Expression *value{nullptr};
+    luisa::string name;
+};
 
 struct LUISA_AST_API StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
@@ -200,6 +213,27 @@ public:
     LUISA_STATEMENT_COMMON()
 };
 
+// `Local<T>` emits this exact assignment at its lexical declaration point so
+// XIR can recover the dynamic storage epoch even though physical allocas are
+// function-scoped. Direct AST backends must not materialize it: retaining the
+// pre-existing bits is a valid refinement of an arbitrary value and avoids a
+// synthetic aggregate zero fill. The strict shape prevents an ordinary
+// partial assignment from being mistaken for a lifetime boundary.
+[[nodiscard]] inline bool is_local_undefined_lifetime_seed(
+    const AssignStmt *statement) noexcept {
+    if (statement == nullptr ||
+        statement->lhs()->tag() != Expression::Tag::REF ||
+        statement->rhs()->tag() != Expression::Tag::CALL) {
+        return false;
+    }
+    auto *lhs = static_cast<const RefExpr *>(statement->lhs());
+    auto *rhs = static_cast<const CallExpr *>(statement->rhs());
+    return lhs->variable().is_local() &&
+           lhs->type() == rhs->type() &&
+           rhs->op() == CallOp::UNDEFINED &&
+           rhs->arguments().empty();
+}
+
 /// If statement
 class LUISA_AST_API IfStmt : public Statement {
     friend class CallableLibrary;
@@ -235,9 +269,20 @@ public:
 /// Loop statement
 class LUISA_AST_API LoopStmt : public Statement {
     friend class CallableLibrary;
+    friend class detail::FunctionBuilder;
 
 private:
     ScopeStmt _body;
+    // Optional, non-semantic provenance for loops created by the DSL $while
+    // spelling. The explicit guard remains in _body, so consumers that ignore
+    // this hint observe exactly the historical AST. CallableLibrary
+    // serialization may also drop the hint and let later normalization recover
+    // the canonical shape from the explicit guard.
+    const Expression *_while_condition{nullptr};
+    // Number of leading body statements materialized while evaluating the
+    // original condition. Direct structural preservation requires this to be
+    // zero; otherwise skipping the explicit guard could skip observable work.
+    size_t _while_condition_statement_count{0u};
 
 private:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
@@ -246,6 +291,12 @@ public:
     LoopStmt() noexcept : Statement{Tag::LOOP} {}
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
+    [[nodiscard]] auto while_condition() const noexcept {
+        return _while_condition;
+    }
+    [[nodiscard]] auto while_condition_statement_count() const noexcept {
+        return _while_condition_statement_count;
+    }
     LUISA_STATEMENT_COMMON()
 };
 
@@ -256,18 +307,49 @@ class LUISA_AST_API SuspendStmt : public Statement {
 private:
     uint32_t _token;
     luisa::string _name;
+    luisa::vector<CoroFrameExport> _frame_exports;
+    luisa::vector<CoroSuspendExtensionPtr> _extensions;
+    luisa::vector<const Expression *> _extension_binding_values;
 
 private:
     SuspendStmt() noexcept = default;
+    void _validate_extension_bindings() const noexcept;
+    void _mark_extension_bindings() const noexcept;
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:
-    explicit SuspendStmt(uint32_t token, luisa::string name = "") noexcept
-        : Statement{Tag::SUSPEND}, _token{token}, _name{std::move(name)} {}
+    explicit SuspendStmt(
+        uint32_t token, luisa::string name = "",
+        luisa::vector<CoroFrameExport> frame_exports = {},
+        luisa::vector<CoroSuspendExtensionPtr> extensions = {},
+        luisa::vector<const Expression *> extension_binding_values = {}) noexcept
+        : Statement{Tag::SUSPEND},
+          _token{token},
+          _name{std::move(name)},
+          _frame_exports{std::move(frame_exports)},
+          _extensions{std::move(extensions)},
+          _extension_binding_values{std::move(extension_binding_values)} {
+        for (auto &&frame_export : _frame_exports) {
+            if (frame_export.value != nullptr) {
+                frame_export.value->mark(Usage::READ);
+            }
+        }
+        _mark_extension_bindings();
+    }
     explicit SuspendStmt(luisa::string name) noexcept
         : Statement{Tag::SUSPEND}, _token{0u}, _name{std::move(name)} {}
     [[nodiscard]] auto token() const noexcept { return _token; }
     [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
+    [[nodiscard]] auto frame_exports() const noexcept {
+        return luisa::span<const CoroFrameExport>{_frame_exports};
+    }
+    [[nodiscard]] auto extensions() const noexcept {
+        return luisa::span<const CoroSuspendExtensionPtr>{_extensions};
+    }
+    [[nodiscard]] auto extension_binding_values() const noexcept {
+        return luisa::span<const Expression *const>{
+            _extension_binding_values};
+    }
     LUISA_STATEMENT_COMMON()
 };
 
@@ -330,6 +412,9 @@ class LUISA_AST_API SwitchCaseStmt : public Statement {
 
 private:
     const Expression *_expr{};
+    // Empty for the original single-label representation. Groups keep all
+    // labels here, including _expr, without sharing ownership of their body.
+    luisa::vector<const Expression *> _expressions;
     ScopeStmt _body;
     SwitchCaseStmt() noexcept = default;
 
@@ -346,7 +431,12 @@ public:
         : Statement{Tag::SWITCH_CASE}, _expr{expr} {
         _expr->mark(Usage::READ);
     }
+    explicit SwitchCaseStmt(luisa::span<const Expression *const> expressions) noexcept;
+    /// The first label (retained for single-label API compatibility).
     [[nodiscard]] auto expression() const noexcept { return _expr; }
+    [[nodiscard]] luisa::span<const Expression *const> expressions() const noexcept {
+        return _expressions.empty() ? luisa::span{&_expr, 1u} : luisa::span{_expressions};
+    }
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
     LUISA_STATEMENT_COMMON()
@@ -428,7 +518,7 @@ public:
     explicit CommentStmt(luisa::string comment) noexcept
         : Statement{Tag::COMMENT},
           _comment{std::move(comment)} {}
-    [[nodiscard]] auto comment() const noexcept { return std::string_view{_comment}; }
+    [[nodiscard]] auto comment() const noexcept { return luisa::string_view{_comment}; }
     LUISA_STATEMENT_COMMON()
 };
 
@@ -630,7 +720,8 @@ void traverse_expressions(
                 switch_stmt->body(), visit, enter_stmt, exit_stmt);
             break;
         }
-        case Statement::Tag::SWITCH_CASE: {
+        case Statement::Tag::SWITCH_CASE:
+        case Statement::Tag::SWITCH_CASE_GROUP: {
             auto case_stmt = static_cast<const SwitchCaseStmt *>(stmt);
             traverse_expressions<recurse_subexpr>(
                 case_stmt->body(), visit, enter_stmt, exit_stmt);
@@ -667,7 +758,17 @@ void traverse_expressions(
                 rq_stmt->on_procedural_candidate(), visit, enter_stmt, exit_stmt);
             break;
         }
-        case Statement::Tag::SUSPEND: break;
+        case Statement::Tag::SUSPEND: {
+            auto suspend_stmt = static_cast<const SuspendStmt *>(stmt);
+            for (auto &&frame_export : suspend_stmt->frame_exports()) {
+                do_visit(frame_export.value);
+            }
+            for (auto *binding :
+                 suspend_stmt->extension_binding_values()) {
+                do_visit(binding);
+            }
+            break;
+        }
         case Statement::Tag::AUTO_DIFF: {
             auto ad_stmt = static_cast<const AutoDiffStmt *>(stmt);
             traverse_expressions<recurse_subexpr>(

@@ -44,11 +44,20 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool isPixelShader : 1 = false;
     bool pixelFirstArgIsStruct : 1 = false;
     bool pixelUseBarycentric : 1 = false;
+    bool pixelUseFrontFacing : 1 = false;
     bool useTex2DBindless : 1 = false;
     bool useTex3DBindless : 1 = false;
     bool useBufferBindless : 1 = false;
     bool enable_debug_info : 1 = false;
+    bool enable_fast_math : 1 = false;
     bool use_8bit : 1 = false;
+    // Software (fallback) ray tracing: the `accel` argument is bound to two
+    // `StructuredBuffer<uint4>` views instead of a RaytracingAccelerationStructure
+    // plus a `_MeshInst` buffer, and the tracing / instance intrinsics call into
+    // builtin/fallback_rtx_header.bytes.  Off by default, and inert when off: no
+    // other part of the generated source depends on it
+    // (DeviceConfigExt::use_fallback_rtx()).
+    bool fallback_rtx : 1 = false;
     // Key: pair of (function hash, variable uid) → validate index in _validate_N array
     struct ValidateKey {
         uint64_t func_hash;

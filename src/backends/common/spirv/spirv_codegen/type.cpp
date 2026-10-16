@@ -6,14 +6,14 @@ namespace lc::spirv {
 
 namespace {
 
-void add_u32_decoration(spv::Builder &builder, spv::Id target,
+void add_type_u32_decoration(spv::Builder &builder, spv::Id target,
                         spv::Decoration decoration,
                         uint32_t literal) noexcept {
     builder.addDecoration(target, decoration,
                           std::vector<unsigned>{literal});
 }
 
-void add_u32_member_decoration(spv::Builder &builder, spv::Id target,
+void add_type_u32_member_decoration(spv::Builder &builder, spv::Id target,
                                uint32_t member_index,
                                spv::Decoration decoration,
                                uint32_t literal) noexcept {
@@ -21,6 +21,7 @@ void add_u32_member_decoration(spv::Builder &builder, spv::Id target,
                                 std::vector<unsigned>{literal});
 }
 
+namespace spirv_codegen_type_detail {
 [[nodiscard]] const Type *matrix_after_array_layers(
     const Type *type) noexcept {
     while (type != nullptr && type->is_array()) {
@@ -29,15 +30,16 @@ void add_u32_member_decoration(spv::Builder &builder, spv::Id target,
     return type != nullptr && type->is_matrix() ? type : nullptr;
 }
 
+}  // namespace spirv_codegen_type_detail
 void decorate_matrix_layout(spv::Builder &builder, spv::Id struct_type,
                             uint32_t member_index,
                             const Type *member_type) noexcept {
-    if (auto *matrix = matrix_after_array_layers(member_type)) {
+    if (auto *matrix = spirv_codegen_type_detail::matrix_after_array_layers(member_type)) {
         auto *column =
             Type::vector(matrix->element(), matrix->dimension());
         builder.addMemberDecoration(struct_type, member_index,
                                     spv::Decoration::ColMajor);
-        add_u32_member_decoration(
+        add_type_u32_member_decoration(
             builder, struct_type, member_index,
             spv::Decoration::MatrixStride,
             static_cast<uint32_t>(column->size()));
@@ -150,10 +152,10 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             }
             auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
-            add_u32_decoration(
+            add_type_u32_decoration(
                 _builder, runtime_array, spv::Decoration::ArrayStride,
                 use_typed ? static_cast<uint32_t>(elem_type->size()) : 4u);
-            add_u32_member_decoration(
+            add_type_u32_member_decoration(
                 _builder, struct_type, 0u,
                 spv::Decoration::Offset, 0u);
             // Matrix elements in Block-decorated structs require ColMajor and
@@ -192,10 +194,10 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             auto uint_type = _builder.makeUintType(32);
             auto runtime_array = _builder.makeRuntimeArray(uint_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "BindlessArray", false);
-            add_u32_decoration(
+            add_type_u32_decoration(
                 _builder, runtime_array,
                 spv::Decoration::ArrayStride, 4u);
-            add_u32_member_decoration(
+            add_type_u32_member_decoration(
                 _builder, struct_type, 0u,
                 spv::Decoration::Offset, 0u);
             _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
@@ -222,6 +224,31 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             _uses_float8 = true;
             id = _builder.makeFloatE5M2Type();
             break;
+        // 4-bit sub-byte quantized types have no SPIR-V scalar representation;
+        // represent them as 8-bit integer storage (1 byte per element, the
+        // lower nibble holds the value).  Pack/unpack is handled in the tile
+        // lowering; the SPIR-V backend only transports the bytes.
+        case Type::Tag::INT4:
+            id = _builder.makeIntType(8);
+            break;
+        case Type::Tag::FP4_E2M1:
+            id = _builder.makeUintType(8);
+            break;
+        case Type::Tag::COOPERATIVE_VECTOR: {
+            _require_target_feature(target_feature::cooperative_vector,
+                                    _target_features.cooperative_vector);
+            _uses_cooperative_vector = true;
+            _builder.setMemoryModel(spv::AddressingModel::Logical,
+                                    spv::MemoryModel::Vulkan);
+            _builder.addExtension(spv::E_SPV_KHR_vulkan_memory_model);
+            _builder.addCapability(spv::Capability::VulkanMemoryModel);
+            _builder.addExtension(spv::E_SPV_NV_cooperative_vector);
+            _builder.addCapability(spv::Capability::CooperativeVectorNV);
+            auto component = _convert_type(type->element(), usage);
+            auto count = _builder.makeUintConstant(static_cast<uint32_t>(type->dimension()));
+            id = _builder.makeCooperativeVectorTypeNV(component, count);
+            break;
+        }
         case Type::Tag::CUSTOM: {
             auto desc = type->description();
             if (desc == "LC_RayQueryAll" || desc == "LC_RayQueryAny") {
@@ -262,7 +289,7 @@ spv::Id SpirvCodegenEntry::_convert_laid_out_type(const Type *type) noexcept {
             // emit the actual unsigned SPIR-V literal ourselves so layouts at
             // the top of uint32_t's range cannot cross a signed boundary.
             id = _builder.makeArrayType(elem_layout, size_id, 1);
-            add_u32_decoration(
+            add_type_u32_decoration(
                 _builder, id, spv::Decoration::ArrayStride, stride);
             break;
         }
@@ -283,7 +310,7 @@ spv::Id SpirvCodegenEntry::_convert_laid_out_type(const Type *type) noexcept {
             for (uint32_t i = 0; i < members.size(); ++i) {
                 auto m = members[i];
                 offset = luisa::align(offset, m->alignment());
-                add_u32_member_decoration(
+                add_type_u32_member_decoration(
                     _builder, id, i, spv::Decoration::Offset,
                     static_cast<uint32_t>(offset));
                 decorate_matrix_layout(_builder, id, i, m);
@@ -321,6 +348,8 @@ void SpirvCodegenEntry::_mark_8bit_storage_usage(const Type *type, spv::StorageC
         mark_storage();
     } else if (type->tag() == Type::Tag::FLOAT8_E4M3 || type->tag() == Type::Tag::FLOAT8_E5M2) {
         _uses_float8 = true;
+        mark_storage();
+    } else if (type->tag() == Type::Tag::INT4 || type->tag() == Type::Tag::FP4_E2M1) {
         mark_storage();
     } else if (type->is_structure()) {
         for (auto m : type->members()) { _mark_8bit_storage_usage(m, storage); }

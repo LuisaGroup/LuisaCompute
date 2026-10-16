@@ -71,6 +71,24 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::UINT64:
             str << "uint64_t"sv;
             return;
+        // FP8 has no standalone HLSL scalar type (only cooperative-vector
+        // component tags); represent it as uint8_t byte storage.
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+            opt->use_8bit = true;
+            str << "uint8_t"sv;
+            return;
+        // 4-bit sub-byte quantized types: 1 byte of storage per element
+        // (lower nibble holds the value).  INT4 maps to int8_t, FP4 to
+        // uint8_t; pack/unpack is handled in the tile lowering.
+        case Type::Tag::INT4:
+            opt->use_8bit = true;
+            str << "int8_t"sv;
+            return;
+        case Type::Tag::FP4_E2M1:
+            opt->use_8bit = true;
+            str << "uint8_t"sv;
+            return;
         case Type::Tag::COOPERATIVE_VECTOR:
             str << "vk::nv::CooperativeVector<";
             GetTypeName(*type.element(), str, usage);
@@ -117,6 +135,23 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                         str << '4';
                     } else if (aliasStruct) {
                         str << opt->CreateAliasedStruct(ele).first;
+                    } else if (ele->is_bool()) {
+                        // A scalar bool stored as a typed-buffer element must use the
+                        // runtime 1-byte representation (uint8_t).  A DXIL `bool`
+                        // structured-buffer element is 4 bytes while the host binds
+                        // the buffer with StructureByteStride == element->size() == 1,
+                        // so emitting `bool` makes every read pick up a wrong byte
+                        // lane.  (This branch is scalar-bool only: TypeIsAliased is
+                        // false for vectors, so bool vectors fall through to
+                        // GetTypeName below and still get the 4-byte-per-component
+                        // DXIL representation — a known, still-unfixed gap for
+                        // Buffer<boolN>.)  BUFFER_READ /
+                        // BUFFER_WRITE convert the
+                        // stored byte to and from a shader bool.  uint8_t requires the
+                        // 8-bit-capable shader model (SM 6.9) selected below via
+                        // use_8bit.
+                        opt->use_8bit = true;
+                        str << "uint8_t"sv;
                     } else {
                         GetTypeName(*ele, str, usage);
                     }
@@ -145,7 +180,19 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "StructuredBuffer<uint>"sv;
         } break;
         case Type::Tag::ACCEL: {
-            str << "RaytracingAccelerationStructure"sv;
+            if (opt->fallback_rtx) {
+                // Software ray tracing: an `accel` argument is the *bindless
+                // heap* of the TLAS, i.e. the slot table of a `BindlessArray` -
+                // a stream of `uint` handles, exactly the shape a
+                // `BINDLESS_ARRAY` argument has.  The traversal resolves the
+                // region of every tree through it, so there is no shared
+                // acceleration buffer view and no absolute `uint4` handle in the
+                // ABI anymore (fallback_rtx_layout.h).  The instance buffer is
+                // declared next to it by CodegenProperties.
+                str << "StructuredBuffer<uint>"sv;
+            } else {
+                str << "RaytracingAccelerationStructure"sv;
+            }
         } break;
         case Type::Tag::CUSTOM: {
             str << '_' << type.description();

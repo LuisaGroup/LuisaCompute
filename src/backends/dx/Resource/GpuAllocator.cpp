@@ -129,7 +129,18 @@ GpuAllocator::GpuAllocator(
 void GpuAllocator::Defragment() {
     using namespace D3D12MA;
 
-    // Helper lambda to perform defragmentation on a context
+    // D3D12MA hands the caller a list of moves and, per its contract, the default
+    // DEFRAGMENTATION_MOVE_OPERATION_COPY asserts that the caller already recreated
+    // each resource at `pDstTmpAllocation` and copied its data there; EndPass then
+    // swaps the allocation blocks and releases the destination allocation. Doing
+    // that without having moved anything would re-point live allocations at
+    // unwritten memory and free the memory their still-bound ID3D12Resource uses,
+    // so decline every move instead. The pass still consolidates the pools
+    // themselves: empty blocks are released, which is the part of compaction this
+    // backend can perform without per-resource recreation.
+    //
+    // This mirrors vma_defragment() on the Vulkan side, which marks its moves
+    // IGNORE for exactly the same reason.
     auto defragment = [](DefragmentationContext *ctx, vstd::string_view pool_name) {
         if (!ctx) return;
         [&] {
@@ -143,19 +154,28 @@ void GpuAllocator::Defragment() {
                 LUISA_WARNING("Defragmentation BeginPass failed for {} with HRESULT: {}", pool_name, hr);
                 return;
             }
-            // Note: Actual data copying between allocations should be handled here
-            // by the caller. D3D12MA only manages the allocation moves.
-            // For now, we just commit the moves without data copying.
+            for (UINT32 i = 0; i < pass_info.MoveCount; ++i) {
+                pass_info.pMoves[i].Operation = DEFRAGMENTATION_MOVE_OPERATION_IGNORE;
+            }
             hr = ctx->EndPass(&pass_info);
+            if (hr != S_OK && hr != S_FALSE) {
+                LUISA_WARNING("Defragmentation EndPass failed for {} with HRESULT: {}", pool_name, hr);
+            }
         }();
+        DEFRAGMENTATION_STATS stats{};
+        ctx->GetStats(&stats);
+        if (stats.BytesFreed > 0 || stats.HeapsFreed > 0) {
+            LUISA_INFO("D3D12MA memory compacted for {}: {} bytes freed, {} heaps freed",
+                       pool_name, stats.BytesFreed, stats.HeapsFreed);
+        }
         ctx->Release();
     };
 
     // Defragmentation descriptor with balanced algorithm
     DEFRAGMENTATION_DESC desc{};
     desc.Flags = DEFRAGMENTATION_FLAG_ALGORITHM_BALANCED;
-    desc.MaxBytesPerPass = 0;           // No limit
-    desc.MaxAllocationsPerPass = 0;     // No limit
+    desc.MaxBytesPerPass = 0;      // No limit
+    desc.MaxAllocationsPerPass = 0;// No limit
 
     // Defragment default pools
     DefragmentationContext *defrag_ctx = nullptr;

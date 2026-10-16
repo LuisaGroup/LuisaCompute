@@ -27,7 +27,7 @@ struct CodegenResult {
     bool useTex3DBindless{false};
     bool useBufferBindless{false};
     bool use_8bit{false};
-    uint32_t validation_count{0u}; // resource size count when debug mode enabled
+    uint32_t validation_count{0u};// resource size count when debug mode enabled
     uint64 immutableHeaderSize{0u};
     vstd::MD5 typeMD5;
     CodegenResult() = default;
@@ -100,8 +100,8 @@ public:
         uint offset,
         RegisterIndexer &registerCount,
         uint &bind_count);
-    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false);
-    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false);
+    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false);
+    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false);
     CodegenResult RasterCodegen(
         Function vertFunc,
         Function pixelFunc,
@@ -109,7 +109,9 @@ public:
         uint custom_mask,
         bool isSpirV,
         bool noRegister = false,
-        bool enable_debug_info = false);
+        bool enable_debug_info = false,
+        bool enable_fast_math = false,
+        bool fallback_rtx = false);
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
     uint AddPrinter(vstd::string_view name, luisa::compute::Type const *structType);
     vstd::StringBuilder GetNewTempVarName();
@@ -176,11 +178,7 @@ public:
     void visit(const AutoDiffStmt *stmt) override;
     void visit(const PrintStmt *stmt) override;
     void visit(const DebugBreakStmt *stmt) override { LUISA_NOT_IMPLEMENTED(); }
-    void VisitFunction(
-#ifdef LUISA_ENABLE_IR
-        vstd::unordered_set<Variable> const &grad_vars,
-#endif
-        Function func);
+    void VisitFunction(Function func);
     StringStateVisitor(
         Function f,
         vstd::StringBuilder &str,

@@ -1,0 +1,261 @@
+{
+  "schema": 1,
+  "public_files": {
+    ".gitattributes": {
+      "sha256": "711d2fac2c8542803d5c1c34d3a344fca9a441bfa74be1d04e267385aa704647",
+      "bytes": 89
+    },
+    "cases-heldout12-unmeasured.json": {
+      "sha256": "8cdc1510f3bf863eb922984fd1e2105f7b399aca6d3fbcde573593f145747148",
+      "bytes": 2348
+    },
+    "cases-training-0.json": {
+      "sha256": "7465ec283e28dd1d90c38559d5952b86e33c646273795541a97d431fa55a08f3",
+      "bytes": 2953
+    },
+    "cases-training-1.json": {
+      "sha256": "8a1a75b4d2c213bcdfce5a297bea9c1e387dd2b4055188995c6fba4ccc966e97",
+      "bytes": 2962
+    },
+    "code/collective-worker-calibration-prep/calibrate.py": {
+      "sha256": "48505217a47d257645f324287ad063c0d4b185e897665293c708f9bc12f40b16",
+      "bytes": 20506
+    },
+    "code/collective-worker-calibration-prep/README.md": {
+      "sha256": "25d54d07710ace4dfe5d95c6d606788084363831b6798909824809261bb34af9",
+      "bytes": 5129
+    },
+    "code/collective-worker-calibration-prep/test_calibrate.py": {
+      "sha256": "a7155a175fd61d7d452e989eff6ec25bce26aba7a10656cf65ba7d0c196bd346",
+      "bytes": 10296
+    },
+    "code/collective-worker-calibration-v2-prep/calibrate_v2.py": {
+      "sha256": "b7915f90993ffe5afbe00a7f4c98f4cccf92e48e71109809b5afa2472c09b4fe",
+      "bytes": 18100
+    },
+    "code/collective-worker-calibration-v2-prep/DESIGN.md": {
+      "sha256": "55441fb34f40c00736be074076511e8f14035307fe0a458a29899dbdd79c8c40",
+      "bytes": 3951
+    },
+    "code/collective-worker-calibration-v2-prep/test_calibrate_v2.py": {
+      "sha256": "b67efe7be06ef2f49df88864a7d7249007b2e0ab5aab9238a5a464c78bc1f821",
+      "bytes": 7208
+    },
+    "code/collective-worker-calibration-v3-prep/calibrate_v3.py": {
+      "sha256": "3a1d10207e65a7ce5c5ef53158943be351f9d6e00f7d329245a1ac321a0a0a4f",
+      "bytes": 14223
+    },
+    "code/collective-worker-calibration-v3-prep/DESIGN.md": {
+      "sha256": "ee5fe22122843c3db3f1e28a3609eb57d56dd12747aa2fb371c2118037ddfef4",
+      "bytes": 2567
+    },
+    "code/collective-worker-calibration-v3-prep/test_calibrate_v3.py": {
+      "sha256": "035103326ec1499ca7fd4f44b76876ff46c04ef3706ac5ee2ebf02f6d1f5c979",
+      "bytes": 5174
+    },
+    "extra48/checkpoint.json": {
+      "sha256": "8902a511b8cbaee11615a77736f41bdbd45cb0e5df404afe38f980d66873f31e",
+      "bytes": 299110
+    },
+    "inputs/device.json": {
+      "sha256": "f8e857f33108814dcf7f1563664c7162ae9da3b4a01e39fba41ce5e0da615b00",
+      "bytes": 1134
+    },
+    "inputs/summary-0.json": {
+      "sha256": "32b95327d19f3d0c378cfd497463c2c6ceae9f09e774aba7b4ffd135006ca606",
+      "bytes": 232313
+    },
+    "inputs/summary-1.json": {
+      "sha256": "02f6b577704b51a0484b49d84c8253e94cdbe579d26af38f1a65de105eb98141",
+      "bytes": 171258
+    },
+    "models/v1.json": {
+      "sha256": "13e2e39b55ae4da8dc76f5c812a74f40097ed5b7a619cbe8ed18b9e565a6b983",
+      "bytes": 68380
+    },
+    "models/v2.json": {
+      "sha256": "201437542b9f0cbe155600ad9e98cbbad03a6a6dbbdc9a6a9f43bc9bc78dd7d7",
+      "bytes": 305930
+    },
+    "models/v3-cpp-parity.json": {
+      "sha256": "ba0b5af5a653183ca48805ddc49e5a6b605a092b285cbde755eface924addff1",
+      "bytes": 24271
+    },
+    "models/v3.json": {
+      "sha256": "573e62f510656299d81b10ab3cc942629993b4a884e7c457a9ef5c41357263df",
+      "bytes": 280043
+    },
+    "native-samples.csv": {
+      "sha256": "0902b6d246c215bb2e648aafe12769d9745644a9f69294d1417fa5ed38fc6bc6",
+      "bytes": 40880
+    },
+    "public_model.py": {
+      "sha256": "e4742f1e6df2cfac549dfaa0c975eb940c1655a28f0a90258576fa2e894a5a0f",
+      "bytes": 4996
+    },
+    "README.md": {
+      "sha256": "f03e6b165f401923b28580423de34c599e3a73f95bacdf4d1177590ce84149d6",
+      "bytes": 6305
+    },
+    "reproduce.py": {
+      "sha256": "275e49228c749784c10cf7f2aacfc9106470dbc28e6f06788071fffa0a3113c8",
+      "bytes": 2500
+    },
+    "requirements.txt": {
+      "sha256": "7bd6b8946940b79948c548c8048e545684b91c8edc9444d8dfc0c8f76a97c0a7",
+      "bytes": 13
+    }
+  },
+  "original_v3_profile_id": "357c15e0c745797a75e8d11c9de9fafc0ab204f71d1619fedd9251323e7abb35",
+  "original_inputs": [
+    {
+      "path": ".deps/oct02-collective-worker-summary-v2/checkpoint.json",
+      "sha256": "fa0331a22e908491fa970e103fef1f69bf8ad095f324ee28343f20a954b76d78",
+      "bytes": 771638,
+      "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+    },
+    {
+      "path": ".deps/oct02-collective-extra-worker-summary-v1/checkpoint.json",
+      "sha256": "8af0a1b4e8a1edb8a14bc4ebc76be083730efbe5722eddbf45e016a356d42afb",
+      "bytes": 501940,
+      "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+    },
+    {
+      "path": ".deps/oct02-collective-device-facts.json",
+      "sha256": "7e46e3f26ec51dc79aa68e82346cbc256e5dfdd269bea7ac673dcd3c32b991d1",
+      "bytes": 1724,
+      "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+    }
+  ],
+  "original_reports": [
+    {
+      "path": ".deps/oct02-collective-worker-calibration-v2/report.json",
+      "sha256": "2544a8ade0a796e981cc8fb9b11e66f7dd4388290cfd8cfc29c99dec7b0255a7",
+      "bytes": 132668,
+      "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+    },
+    {
+      "path": ".deps/oct03-collective-worker-model-v2/report.json",
+      "sha256": "605cda19f3e03db795f6aee872df62c5d1cdd35a372bc5e4fa3b8ad5fe9e3460",
+      "bytes": 910124,
+      "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+    },
+    {
+      "path": ".deps/oct03-collective-worker-model-v3r1/report.json",
+      "sha256": "6e8a044395503e84aca1e7887ee6b30c2d87f10790efc3e15b9a1328c5fb9545",
+      "bytes": 614907,
+      "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+    }
+  ],
+  "byte_identical_code": [
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-prep/calibrate.py",
+        "sha256": "48505217a47d257645f324287ad063c0d4b185e897665293c708f9bc12f40b16",
+        "bytes": 20506,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-prep/calibrate.py",
+      "byte_identical": true
+    },
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-prep/README.md",
+        "sha256": "25d54d07710ace4dfe5d95c6d606788084363831b6798909824809261bb34af9",
+        "bytes": 5129,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-prep/README.md",
+      "byte_identical": true
+    },
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-prep/test_calibrate.py",
+        "sha256": "a7155a175fd61d7d452e989eff6ec25bce26aba7a10656cf65ba7d0c196bd346",
+        "bytes": 10296,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-prep/test_calibrate.py",
+      "byte_identical": true
+    },
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-v2-prep/calibrate_v2.py",
+        "sha256": "b7915f90993ffe5afbe00a7f4c98f4cccf92e48e71109809b5afa2472c09b4fe",
+        "bytes": 18100,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-v2-prep/calibrate_v2.py",
+      "byte_identical": true
+    },
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-v2-prep/DESIGN.md",
+        "sha256": "55441fb34f40c00736be074076511e8f14035307fe0a458a29899dbdd79c8c40",
+        "bytes": 3951,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-v2-prep/DESIGN.md",
+      "byte_identical": true
+    },
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-v2-prep/test_calibrate_v2.py",
+        "sha256": "b67efe7be06ef2f49df88864a7d7249007b2e0ab5aab9238a5a464c78bc1f821",
+        "bytes": 7208,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-v2-prep/test_calibrate_v2.py",
+      "byte_identical": true
+    },
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-v3-prep/calibrate_v3.py",
+        "sha256": "3a1d10207e65a7ce5c5ef53158943be351f9d6e00f7d329245a1ac321a0a0a4f",
+        "bytes": 14223,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-v3-prep/calibrate_v3.py",
+      "byte_identical": true
+    },
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-v3-prep/DESIGN.md",
+        "sha256": "ee5fe22122843c3db3f1e28a3609eb57d56dd12747aa2fb371c2118037ddfef4",
+        "bytes": 2567,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-v3-prep/DESIGN.md",
+      "byte_identical": true
+    },
+    {
+      "original": {
+        "path": ".deps/collective-worker-calibration-v3-prep/test_calibrate_v3.py",
+        "sha256": "035103326ec1499ca7fd4f44b76876ff46c04ef3706ac5ee2ebf02f6d1f5c979",
+        "bytes": 5174,
+        "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+      },
+      "public_path": "code/collective-worker-calibration-v3-prep/test_calibrate_v3.py",
+      "byte_identical": true
+    }
+  ],
+  "heldout_input": {
+    "path": ".deps/collective-heldout12-prep/cases12.json",
+    "sha256": "5a7a68969ed8320752cf9d5cb3b748438d3080d891f1868ad2ce6cfc8c0db15e",
+    "bytes": 2424,
+    "scope": "original local artifact bytes, not the public redacted/compacted file bytes"
+  },
+  "heldout_measured": false,
+  "redaction": "Local user paths and GPU UUID removed; calibration inputs compacted. Public SHA256 values hash actual published bytes; original hashes identify separate local source artifacts.",
+  "dataset_scope": {
+    "original_configurations": 16,
+    "additional_configurations": 16,
+    "training_rows": 32,
+    "geometry_groups": 18,
+    "native_visits": 112,
+    "extra_native_visits": 48,
+    "samples_per_visit": 7,
+    "geometry_overlap": "Repeated dtype/algebra/geometry variants are not independent shapes."
+  },
+  "excluded_history": "Interrupted v1 worker runs and failed WinError5 structural aggregate are excluded, never relabeled. No structural candidate or heldout output trains these profiles."
+}

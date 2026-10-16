@@ -21,6 +21,7 @@ private:
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     HIPDevice *_device{nullptr};
     bool _requires_global_rt_stack{false};
+    bool _uses_static_global_rt_stack{false};
 
 private:
     void _launch(HIPCommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;

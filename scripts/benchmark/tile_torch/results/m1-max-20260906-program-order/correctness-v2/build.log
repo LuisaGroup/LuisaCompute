@@ -1,0 +1,377 @@
+[0/2] Re-checking globbed directories...
+[1/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/mapping.cpp.o
+[2/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/layout.cpp.o
+[3/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/planner.cpp.o
+[4/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/matrix.cpp.o
+[5/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/cpu.cpp.o
+[6/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/compiler.cpp.o
+[7/82] Embedding metal built-in sources...
+[8/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/cooperative.cpp.o
+[9/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_builtin_embedded.cpp.o
+[10/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/execution.cpp.o
+[11/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_tex_compress_embedded.cpp.o
+[12/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/lower.cpp.o
+[13/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_api.cpp.o
+[14/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/synchronization.cpp.o
+[15/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/__/common/default_binary_io.cpp.o
+[16/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/pipeline.cpp.o
+[17/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_compiler.cpp.o
+[18/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/views.cpp.o
+[19/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_device.cpp.o
+[20/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_texture.cpp.o
+[21/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/tile/metal_tile_codegen.cpp.o
+[22/82] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/reduction.cpp.o
+[23/82] Linking CXX shared library bin/libluisa-tile-bridge-tirx.dylib
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[24/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_event.cpp.o
+[25/82] Building OBJCXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_swapchain.mm.o
+[26/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/tile/metal_tile.cpp.o
+[27/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_codegen_ast.cpp.o
+[28/82] Building OBJCXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_stream.mm.o
+[29/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_stream.cpp.o
+[30/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_stage_buffer_pool.cpp.o
+[31/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_callback_context.cpp.o
+[32/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_bindless_array.cpp.o
+[33/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_swapchain.cpp.o
+[34/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_command_encoder.cpp.o
+[35/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_shader_metadata.cpp.o
+[36/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_shader.cpp.o
+[37/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_denoiser.cpp.o
+[38/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_shader_printer.cpp.o
+[39/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_primitive.cpp.o
+[40/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_procedural_primitive.cpp.o
+[41/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_curve.cpp.o
+[42/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_mesh.cpp.o
+[43/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_buffer.cpp.o
+[44/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_accel.cpp.o
+[45/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_dstorage.cpp.o
+[46/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_debug_capture.cpp.o
+[47/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_pinned_memory.cpp.o
+[48/82] Building CXX object src/backends/metal/CMakeFiles/luisa-compute-backend-metal.dir/metal_tex_compress.cpp.o
+[49/82] Linking CXX shared module bin/libluisa-backend-metal.so
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[50/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx.dir/unit/tile/bridge/test_tirx_layout.cpp.o
+[51/82] Building CXX object src/tests/CMakeFiles/test_tile_xir_runtime.dir/unit/tile/bridge/test_xir_runtime.cpp.o
+[52/82] Building CXX object src/tests/CMakeFiles/test_tile_xir_llm.dir/unit/tile/bridge/test_xir_llm.cpp.o
+[53/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_values.dir/unit/tile/bridge/test_tirx_values.cpp.o
+In file included from /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_values.cpp:2:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_values.cpp:2:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[54/82] Building CXX object src/tests/CMakeFiles/test_tile_native_runtime.dir/unit/tile/test_tile_native_runtime.cpp.o
+[55/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_planner.dir/unit/tile/bridge/test_tirx_planner.cpp.o
+[56/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_cooperative.dir/unit/tile/bridge/test_tirx_cooperative.cpp.o
+[57/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_memory.dir/unit/tile/bridge/test_tirx_memory.cpp.o
+[58/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_pipeline.dir/unit/tile/bridge/test_tirx_pipeline.cpp.o
+[59/82] Linking CXX executable bin/test_tile_xir_runtime
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[60/82] Linking CXX executable bin/test_tile_xir_llm
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[61/82] Linking CXX executable bin/test_tile_native_runtime
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[62/82] Linking CXX executable bin/test_tile_tirx
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[63/82] Linking CXX executable bin/test_tile_tirx_values
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[64/82] Linking CXX executable bin/test_tile_tirx_cooperative
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[65/82] Linking CXX executable bin/test_tile_tirx_memory
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[66/82] Linking CXX executable bin/test_tile_tirx_pipeline
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[67/82] Linking CXX executable bin/test_tile_tirx_planner
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[68/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_poc.dir/unit/tile/bridge/test_tirx_poc.cpp.o
+In file included from /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_poc.cpp:10:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_poc.cpp:10:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[69/82] Linking CXX executable bin/test_tile_tirx_poc
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[70/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_targets.dir/unit/tile/bridge/test_tirx_targets.cpp.o
+[71/82] Linking CXX executable bin/test_tile_tirx_targets
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[72/82] Building CXX object src/tests/CMakeFiles/benchmark_tile_tirx.dir/benchmark/benchmark_tile_tirx.cpp.o
+In file included from /Users/mike/CLionProjects/luisa/src/tests/benchmark/benchmark_tile_tirx.cpp:4:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /Users/mike/CLionProjects/luisa/src/tests/benchmark/benchmark_tile_tirx.cpp:4:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[73/82] Linking CXX executable bin/benchmark_tile_tirx
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[74/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_poc_neural.dir/unit/tile/bridge/test_tirx_poc_neural.cpp.o
+In file included from /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp:5:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_poc_neural.cpp:5:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[75/82] Linking CXX executable bin/test_tile_tirx_poc_neural
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[76/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_poc_algorithms.dir/unit/tile/bridge/test_tirx_poc_algorithms.cpp.o
+In file included from /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp:4:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_poc_algorithms.cpp:4:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:21:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[77/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_execution.dir/unit/tile/bridge/test_tirx_execution.cpp.o
+[78/82] Linking CXX executable bin/test_tile_tirx_poc_algorithms
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[79/82] Linking CXX executable bin/test_tile_tirx_execution
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[80/82] Building CXX object src/tests/CMakeFiles/test_tile_tirx_matrix.dir/unit/tile/bridge/test_tirx_matrix.cpp.o
+[81/82] Linking CXX executable bin/test_tile_tirx_matrix
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0

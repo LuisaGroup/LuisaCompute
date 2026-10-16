@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-10",
+  "base_commit": "811022021",
+  "source_scope": "Isolated base plus committed Metal4 timing and TIRx/STL rejection fixes; excludes unrelated working-tree changes",
+  "full_build": "PASS; build-final-integrated.log and build-stl-fixed.log",
+  "integrated_ctest": {
+    "log": "test-integrated.xml",
+    "passed": 19,
+    "failed": 1,
+    "failed_test": "test_stl_containers",
+    "seconds": 379.26,
+    "failure_cause": "Boost.UT overloaded logical-and eagerly evaluated argv[1] when argc=1"
+  },
+  "after_test_entry_fix": {
+    "log": "test-stl-fixed.xml",
+    "passed": 3,
+    "failed": 0,
+    "seconds": 0.70,
+    "normal_stl_cases": 28,
+    "normal_stl_assertions": 118,
+    "scope": "Normal STL test plus mutable and const map.at rejection subprocesses; no GPU benchmark rerun"
+  },
+  "metal4_timing": {"cases": 6, "assertions": 8515, "required_timestamps": true},
+  "tirx_targets": {"cases": 4, "assertions": 3273},
+  "artifacts_after_validation_sha256": {
+    "test_metal4_timing": "42524c834c4d63c53080657f34781cb2107b9bb90a1ceb73138dc981697c6da7",
+    "benchmark_tile_xir": "6a8a030adb98c760e9a0ebc1206066e5df2e6610400eb1b5f2be3fcba1d7bf0b",
+    "libluisa-backend-metal4.so": "faabacd98f5fb4274b5888eb0ffb599d7a8df88caa8b1d7dfe521c1885062e0f",
+    "libluisa-tile-bridge-tirx.dylib": "1dc8e4ba1385fb9b340b207f2e72bb3d215dc927f74f63807f2806b2de10c5c3",
+    "test_tile_tirx_targets": "0fac21760579ecd468ab08446f9dd790d1d16de0e284fd61a76e91bb5926deef",
+    "test_stl_containers": "a12c2c22ba6fb7e8b9a3aa98ed59f19c465792f8f4a1a0ad9c576a86f220309b"
+  },
+  "measurement_boundary": "These correctness artifacts precede the final timing-test argv/environment guard fix; they do not replace the earlier frozen benchmark manifests. No new performance result is inferred."
+}

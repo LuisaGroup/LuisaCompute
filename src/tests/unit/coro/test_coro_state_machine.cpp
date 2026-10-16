@@ -10,6 +10,8 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
+#include <array>
+
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
@@ -50,7 +52,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         LUISA_INFO("Coroutine created, subroutine_count={}", coro.subroutine_count());
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         LUISA_INFO("Dispatch complete");
 
@@ -76,7 +78,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -103,7 +105,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -126,7 +128,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<float>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
 
         std::vector<float> host(16, -1.f);
@@ -152,7 +154,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -179,7 +181,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -213,7 +215,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -238,7 +240,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(16)(stream);
+        stream << scheduler(output).dispatch(16);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -274,7 +276,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(12)(stream);
+        stream << scheduler(output).dispatch(12);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -311,7 +313,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(12)(stream);
+        stream << scheduler(output).dispatch(12);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -342,7 +344,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(8)(stream);
+        stream << scheduler(output).dispatch(8);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -374,7 +376,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         LUISA_INFO("multi_suspend: scope_count={}", coro.subroutine_count());
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -399,7 +401,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(N)(stream);
+        stream << scheduler(output).dispatch(N);
         stream << synchronize();
 
         std::vector<int> host(N, -1);
@@ -424,7 +426,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
         LUISA_INFO("for_suspend scope_count={}", coro.subroutine_count());
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -452,7 +454,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
             buf.write(0, acc);
         });
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -478,7 +480,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -509,7 +511,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
 
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(6)(stream);
+        stream << scheduler(output).dispatch(6);
         stream << synchronize();
 
         std::vector<int> host(16, -1);
@@ -533,7 +535,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
         LUISA_INFO("double_suspend scope_count={}", coro.subroutine_count());
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -558,7 +560,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
         LUISA_INFO("triple_suspend scope_count={}", coro.subroutine_count());
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -582,7 +584,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
         LUISA_INFO("for_plus_after scope_count={}", coro.subroutine_count());
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -606,7 +608,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
         LUISA_INFO("sdf_5scope scope_count={}", coro.subroutine_count());
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -631,7 +633,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
         LUISA_INFO("var_in_loop scope_count={}", coro.subroutine_count());
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();
@@ -657,13 +659,44 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
         LUISA_INFO("if_read_i scope_count={}", coro.subroutine_count());
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("if_read_i host[0]={}", host[0]);
         expect(host[0] == 42);
     };
+
+    "state_machine_nested_break_preserves_loop_update_count"_test =
+        [options] {
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            Stream stream = device.create_stream();
+            Buffer<uint> output = device.create_buffer<uint>(1u);
+            auto coro = Coroutine<void(Buffer<uint>)>(
+                [](Var<Buffer<uint>> buf) {
+                    $suspend("before_search");
+                    UInt found = ~0u;
+                    $for (i, 16u) {
+                        $if (i >= 4u) {
+                            $if (i == 5u) {
+                                found = i;
+                                $break;
+                            };
+                        };
+                    };
+                    buf.write(0u, found);
+                });
+            StateMachineCoroScheduler<Buffer<uint>> scheduler{
+                device, coro};
+            stream << scheduler(output).dispatch(1u);
+            std::array<uint, 1u> host{};
+            stream << output.copy_to(luisa::span{host})
+                   << synchronize();
+            expect(host[0] == 5u)
+                << "an enclosing loop update must execute exactly once "
+                   "when a nested selection exits through it";
+        };
 
     "state_machine_path_tracing_nested_break_pattern"_test = [options] {
         auto dc = luisa::test::coro_test::create_device(options);
@@ -691,7 +724,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         });
         LUISA_INFO("nested_break scope_count={}", coro.subroutine_count());
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
-        scheduler(output).dispatch(1)(stream);
+        stream << scheduler(output).dispatch(1);
         stream << synchronize();
         std::vector<int> host(16, -1);
         stream << output.copy_to(luisa::span{host}) << synchronize();

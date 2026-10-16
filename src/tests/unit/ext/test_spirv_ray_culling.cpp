@@ -16,6 +16,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
 
 #include "spirv_codegen/entry.h"
 #include "spirv_codegen/utils.h"
@@ -84,7 +85,7 @@ struct RayQuerySpirvFacts {
             facts.initialize_flags.emplace_back(iter->value);
         }
     }
-    std::sort(facts.initialize_flags.begin(),
+    luisa::sort(facts.initialize_flags.begin(),
               facts.initialize_flags.end());
     return facts;
 }

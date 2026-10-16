@@ -1,0 +1,683 @@
+{
+  "frozen_unix": 1788928452.079576,
+  "parent_commit": "360d9791e344da06bcbde4dc871526aa336900b9",
+  "merged_next": "8911828eb234a37d1059bb9b01e82d2915624f80",
+  "merge_commit": "360d9791e344da06bcbde4dc871526aa336900b9",
+  "native_compiler_commit": "67330a633ee7901034ab4a9360d9cd15be904b1f",
+  "native_raw": "/private/tmp/luisa-pointwise-native.1P87uU",
+  "integration_raw": "/private/tmp/luisa-next-checkpoint.J7yODi",
+  "source_contract": "Git archives of the merge commit and recursively pinned submodule commits; uncommitted source and dependency checkouts excluded. Final build additionally contains the separately fingerprinted Metal test-only argv guard overlay.",
+  "source_overlays": {
+    "src/tests/unit/runtime/test_metal_codegen_regressions.cpp": "89b5b7eb29544645bcb8956748ea74e6aea8ee33dfe2f9f5c52fb39220febadb"
+  },
+  "pinned_repositories": 19,
+  "preserved_user_file_sha256": {
+    ".agents/skills/cmake/SKILL.md": "0b74b8972cc53e139ddc3b4d7e55d6497a41d26c1e5ccb10c676154e0088d436",
+    "docs/source/internals/tile/matrix.md": "a01a33677f0405f8451e69b359ea6e2d5e092fa49d8529097034697217c98fe0",
+    "examples/ios/README.md": "3a92edc324ed52e574032cd174705cc740465003953963bde80ee65850e99013",
+    "examples/ios/metal4_path_tracing/README.md": "c9836e3baae34e6e96c1d862cad66369a53f6b3b2cd55e01d690113b8c1eb792",
+    "include/luisa/tile/bridge/tirx/planner.h": "4efb4268e79133dd23ef5a17f5350ab924fa3992386af09a6c405f3cf0deb1c6",
+    "src/tests/unit/tile/bridge/test_tirx_matrix.cpp": "381e8859f893f423a976f4a2b7654bd99710920f42ff327f524f88f525ea9999",
+    "src/tile/bridge/tirx/compiler.cpp": "935cb214a605fbda3d2e9baccbb0404b57c2b697ed67ba249d6e8afa9a321510",
+    "src/tile/bridge/tirx/cooperative.cpp": "9e3d19dfc1e8ceb91a3750425e738e0fe381dea44a945ce02b13cf366e1f890c",
+    "src/tile/bridge/tirx/execution.h": "1611493eb4e95385427b03c43275c3056aa472d3a0cfe75167422fcff452c13a",
+    "src/tile/bridge/tirx/matrix.cpp": "348d929cc46ccf285660b57749c9368359a5a4ce695ec6248f23c05874e2a545",
+    "src/tile/bridge/tirx/views.cpp": "bad840ffa8a7b1923a5c277e1194d260d545c708d26bb6b158d2680f73fd6f17"
+  },
+  "preserved_dependency_checkouts": {
+    "./src/ext/EASTL": "2103f669d7f7e1c9270baa651fe3435f1eae84d5",
+    "./src/ext/EASTL/packages/EABase": "486aa56ad39c4de8e65f9e150d03999c01a1afaf",
+    "./src/ext/EASTL/packages/mimalloc": "908ae17bcc05c3ca662c0ed9757da4d5a828aab0",
+    "./src/ext/HIPRT": "c0969a8125756151fcb090e2f7e63f691fb0123c",
+    "./src/ext/SPIRV-Tools": "e3f2dff067d3486b8d59397322f8f3e6fa9020b4",
+    "./src/ext/glfw": "92dcf4ce74f2e2554a98fea09be7c705c17daa5a",
+    "./src/ext/glslang": "19b5a9cc3cc51c83e59aa24d7b20c14e064825f4",
+    "./src/ext/imgui": "fd13a1e8923a0a7077b404fc36fd063b25a0c0b5",
+    "./src/ext/llvm-downgrade": "6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb",
+    "./src/ext/magic_enum": "a99f69495f48e8dff89b14b40a233163248c38c4",
+    "./src/ext/marl": "4ed34cc722fce3522ef6c7c87384083480f11314",
+    "./src/ext/pybind11": "5261e2d1e147f7251a03ae929b09a7f71afd867c",
+    "./src/ext/reproc": "cd03ee4731a4283849cd5d0f5425926d60b3b540",
+    "./src/ext/spdlog": "5713c799685d19c82350032cda4f12fedaf57426",
+    "./src/ext/spirv-headers": "0d25db97cb9b8f725e4c95e4553001710e7fc39d",
+    "./src/ext/stb/stb": "2c980bb59875b0d32144a71867fbdebb2f77cd20",
+    "./src/ext/xxHash": "c0b5ea995d66691734b1a79ad89e73a0d2fd5a53",
+    "./src/ext/yyjson": "db37a64d63d38a8ddea35aa811b1163831028490"
+  },
+  "integration_binary_sha256": {
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-backend-metal.so": "58e67e12ad3a8f0067bc1d6c1ef08b7b7416362b873c68eea3785bec19cf446d",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-tile-bridge-tirx.dylib": "d5a29243736fb80aa4893482be0f82254bba02364cbbeb18a3380f4c1b4cacae",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-backend-simd.so": "bafc6f55f3a61a57b023b5cc9a7e83d99393f77c65a22aeb5c8b8c13f9b4c2b5",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-ast.dylib": "798e6ed9431bce163378574f85212003d40116ffc01aeb28357f963d3d36a6a5",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-coro.dylib": "6355e3994c59fb43c43a03961f81d7540e3d4ae199bfc5fa08313da2e7b7f487",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-core.dylib": "129c52d88d4c59af33e76c18a430824e918893a02536fc24ca46b5632d22f7aa",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-osl.dylib": "481942d918c567ad6bed2c87b96b758ecb52ffa84683a8f411991cefe1ca7112",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-runtime.dylib": "68e746e3ef4b806fc4bea8ec2580d38db22250f11a4243d34403c4b51c92e2e7",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-tile-bridge-xir.dylib": "d35b15554a5ba87799e2a6a4655d049e095c12e54513d66044db6599154e46f7",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-xir.dylib": "880379d677a815ceb602d5850982d3f84d81d9e8818ffa740d77d38cae118b05",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-benchmark-metal-timing.dylib": "e3c58d7179663e317d00506dd74a75c3bdd736527d990c2c9e63cf147bb0d13b",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-dsl.dylib": "59a17b5502552781101b6a1060faa0d0ac006644cc657e73b353cd03947f5c1b",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-tile.dylib": "8263b059be47f1098f1a64498e54976e37a072f6aa00cf216208718a75d5fc14",
+    "/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-validation-layer.so": "e09d2c3b0b3d69a6513cd780e220b1bda53bea13eea7ae5b82f04fbbbc1a6dfb",
+    "/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib/libtvm_compiler.dylib": "f8cbc539e86c4cbcb716f6649a97e10f839d1102035b9c759b17da3d017e73e9",
+    "/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib/libtvm_runtime.dylib": "4b9879128fbd5c54f65e10c9687d9625835832092a4aaea3f8c4393253ce87bb",
+    "/Users/mike/.cache/luisa-tile/tvm-fragment-build.0ToXYr/lib/libtvm_ffi.dylib": "81863ce0917fdc49729ae6be3555cf6c06b3351d33c49f293425cf318efa107c"
+  },
+  "native_code_checkpoint": "../m1-max-20260909-xir-pointwise/provenance.json",
+  "native_code_checkpoint_sha256": "7dba7ede46f953f9f65e4ad1ea906d2c180c23b0df3267ff7e20c7777413a2ed",
+  "new_performance_claim": false,
+  "new_cost_calibration": false,
+  "pointwise_default_changed": false,
+  "selection": "Both premerge fixed 24-case attempts excluded as complete cohorts after observed foreign render interference. No cherry-picked clean cases, performance ratios or defaults are promoted.",
+  "payload_retention": "Full tensor outputs stay in the native raw directory; Git keeps hashes and independent checks. Ephemeral guards were checked during replay.",
+  "artifacts": {
+    "audit.json": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/audit.json",
+      "role": "native correctness and exclusion audit",
+      "source_sha256": "ecb31a14c03574f704b46727a8fe328b4431b60693599a47feef75871741d28a",
+      "archived_sha256": "ecb31a14c03574f704b46727a8fe328b4431b60693599a47feef75871741d28a",
+      "source_bytes": 1476,
+      "archived_bytes": 1476
+    },
+    "verification.json": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/verification-qualified.json",
+      "role": "qualified integration checks with explicit test-only overlay",
+      "source_sha256": "d231cd95086b69b315d34e0c1ca29125ad682890a6a356bc6d5178f36de7b706",
+      "archived_sha256": "d231cd95086b69b315d34e0c1ca29125ad682890a6a356bc6d5178f36de7b706",
+      "source_bytes": 13212,
+      "archived_bytes": 13212
+    },
+    "verification-initial.json": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/verification.json",
+      "role": "retained initial failed invocations",
+      "source_sha256": "ffbf0d425f17602be9fb304fd89318a46b2db9e32af2e28e3264b64805bbff7a",
+      "archived_sha256": "ffbf0d425f17602be9fb304fd89318a46b2db9e32af2e28e3264b64805bbff7a",
+      "source_bytes": 3958,
+      "archived_bytes": 3958
+    },
+    "verification-recheck.json": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/verification-final.json",
+      "role": "retained second failed invocations",
+      "source_sha256": "487dc5da0cefb52a4b4d9881e0a09cd4faeb531824475b1764ce3db7d7cc9b91",
+      "archived_sha256": "487dc5da0cefb52a4b4d9881e0a09cd4faeb531824475b1764ce3db7d7cc9b91",
+      "source_bytes": 10179,
+      "archived_bytes": 10179
+    },
+    "source-snapshot.json.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/snapshot.json",
+      "role": "initial committed source and recursively pinned dependencies; overlay is recorded separately",
+      "source_sha256": "a64b3d385a1a59a934cb7ef0237f005b9d685df424cfc5a0fbd2663d762b6ff2",
+      "archived_sha256": "9227b66e28f789f3f89827715f2abc48c99b9308f3d4e1ffb6ca3df9b21966fe",
+      "source_bytes": 2816740,
+      "archived_bytes": 815811
+    },
+    "overlay/src/tests/unit/runtime/test_metal_codegen_regressions.cpp": {
+      "origin": "/Users/mike/CLionProjects/luisa/src/tests/unit/runtime/test_metal_codegen_regressions.cpp",
+      "role": "only source change from the initial archive; test-only argument guard",
+      "source_sha256": "89b5b7eb29544645bcb8956748ea74e6aea8ee33dfe2f9f5c52fb39220febadb",
+      "archived_sha256": "89b5b7eb29544645bcb8956748ea74e6aea8ee33dfe2f9f5c52fb39220febadb",
+      "source_bytes": 17146,
+      "archived_bytes": 17146
+    },
+    "snapshot.py": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/snapshot.py",
+      "role": "snapshot authoring source",
+      "source_sha256": "ef4b978e857bf00d8b6476ae988baf176af4a5c06a1dc3f3db639d9e3c663fc7",
+      "archived_sha256": "ef4b978e857bf00d8b6476ae988baf176af4a5c06a1dc3f3db639d9e3c663fc7",
+      "source_bytes": 2544,
+      "archived_bytes": 2544
+    },
+    "audit_replays.py": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/audit_replays.py",
+      "role": "independent native audit source",
+      "source_sha256": "f4d306f933b66889676edd001975d9203a9f4d8b3e682352c2863d679891dbd5",
+      "archived_sha256": "f4d306f933b66889676edd001975d9203a9f4d8b3e682352c2863d679891dbd5",
+      "source_bytes": 7419,
+      "archived_bytes": 7419
+    },
+    "observe_replay.py": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/observe_replay.py",
+      "role": "first process observer source",
+      "source_sha256": "c49ab58763968c00594cc77f45452257ebf2bfff580a302378a2fe04e4d46627",
+      "archived_sha256": "c49ab58763968c00594cc77f45452257ebf2bfff580a302378a2fe04e4d46627",
+      "source_bytes": 2343,
+      "archived_bytes": 2343
+    },
+    "observe_replay_v2.py": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/observe_replay_v2.py",
+      "role": "second process observer with quiet preflight",
+      "source_sha256": "d5dd071fafb983b2cce0839f2aae2d904be92fb9733b1f581d4b9eb78505c958",
+      "archived_sha256": "d5dd071fafb983b2cce0839f2aae2d904be92fb9733b1f581d4b9eb78505c958",
+      "source_bytes": 2928,
+      "archived_bytes": 2928
+    },
+    "pilot.py": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/replay-v2/pilot.py",
+      "role": "unchanged native replay source",
+      "source_sha256": "64b8249c3de4c2a71e16673eb4e74076c6d2498295f85c710c160d03226a5049",
+      "archived_sha256": "64b8249c3de4c2a71e16673eb4e74076c6d2498295f85c710c160d03226a5049",
+      "source_bytes": 15995,
+      "archived_bytes": 15995
+    },
+    "run_tests.py": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/run_tests.py",
+      "role": "integration test supervisor",
+      "source_sha256": "f64b9857b884275f538352ecaa13f83306d61c79b27ceffc5e2f931d665fa97c",
+      "archived_sha256": "f64b9857b884275f538352ecaa13f83306d61c79b27ceffc5e2f931d665fa97c",
+      "source_bytes": 2971,
+      "archived_bytes": 2971
+    },
+    "run_rechecks.py": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/run_rechecks.py",
+      "role": "second supervisor; failed A/B environment preserved",
+      "source_sha256": "4e91bddf1de16a1cba258e70af9fae3634807b870b1ed9ef178149ac1ee60b7e",
+      "archived_sha256": "4e91bddf1de16a1cba258e70af9fae3634807b870b1ed9ef178149ac1ee60b7e",
+      "source_bytes": 4738,
+      "archived_bytes": 4738
+    },
+    "finish_verification.py": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/finish_verification.py",
+      "role": "final supervisor; policy switches left to Runtime fixtures",
+      "source_sha256": "4196b338257d1b6c083b548aae669069020840467d8beb509fb8ba5cfbf15c8d",
+      "archived_sha256": "4196b338257d1b6c083b548aae669069020840467d8beb509fb8ba5cfbf15c8d",
+      "source_bytes": 5041,
+      "archived_bytes": 5041
+    },
+    "documentation.json": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/documentation.json",
+      "role": "strict docs build and rendered QA",
+      "source_sha256": "2e4bd519ebb39304af8504431e438235654ee38181ab72330311a3a3fefe416c",
+      "archived_sha256": "2e4bd519ebb39304af8504431e438235654ee38181ab72330311a3a3fefe416c",
+      "source_bytes": 16329,
+      "archived_bytes": 16329
+    },
+    "run_docs_checks.py": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/run_docs_checks.py",
+      "role": "documentation check supervisor",
+      "source_sha256": "28b5ac88fd1749197512ece8b341ab0d10d1c2c089274e56895cb2ec633344bd",
+      "archived_sha256": "28b5ac88fd1749197512ece8b341ab0d10d1c2c089274e56895cb2ec633344bd",
+      "source_bytes": 3311,
+      "archived_bytes": 3311
+    },
+    "qa-docs.cjs": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/qa-docs.cjs",
+      "role": "rendered desktop/mobile QA source",
+      "source_sha256": "9751e797d42f4c7748d67a34c0cdeeb5c8022d7337a498a64c401b798f9f6bd9",
+      "archived_sha256": "9751e797d42f4c7748d67a34c0cdeeb5c8022d7337a498a64c401b798f9f6bd9",
+      "source_bytes": 2931,
+      "archived_bytes": 2931
+    },
+    "docs-qa.json": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-qa/receipt.json",
+      "role": "rendered desktop/mobile QA receipt; screenshots stay local",
+      "source_sha256": "0a07159b2e98c418bc17277dedbbc4d71cdcba9ffcfca8553e9c69906860048c",
+      "archived_sha256": "0a07159b2e98c418bc17277dedbbc4d71cdcba9ffcfca8553e9c69906860048c",
+      "source_bytes": 3361,
+      "archived_bytes": 3361
+    },
+    "configure-command.json": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/configure-command.json",
+      "role": "exact build configuration",
+      "source_sha256": "3fad24ac9bdfe9516107fc6754b9eeb38bf04ed1469c9d3ffb3313e41303160a",
+      "archived_sha256": "3fad24ac9bdfe9516107fc6754b9eeb38bf04ed1469c9d3ffb3313e41303160a",
+      "source_bytes": 1428,
+      "archived_bytes": 1428
+    },
+    "logs/snapshot.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/snapshot.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "63567c661c409444cfd31e6fc57559079c81520b3eb6f6bb962ee28e836dda13",
+      "archived_sha256": "c0f4ed16aa375c85593827fcfaa69e425d694c13ad7ed1757e32c31e758491f0",
+      "source_bytes": 2070,
+      "archived_bytes": 843
+    },
+    "logs/snapshot-v2.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/snapshot-v2.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "b1bc256616cbfe909c2278108080a0410c366de7bbcf46909ddbc39c84e76a5d",
+      "archived_sha256": "d4d156d1d5fbe985599a1151f9595d1b33caa90f5801d4743111538b5ded577b",
+      "source_bytes": 1360,
+      "archived_bytes": 716
+    },
+    "logs/spirv-tools-fetch.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/spirv-tools-fetch.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "e0d54b0dadc9416ae747b1486147de6f070daae21331b108b93ce134fc83bea3",
+      "archived_sha256": "292ca3cae16c1069f51131f53900992af330276cddcb7ea74770684faa6abfa8",
+      "source_bytes": 125,
+      "archived_bytes": 133
+    },
+    "logs/configure.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/configure.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "45229e0a50d841523171675b3d7084f7ea00e05dfa4663d7b21e7e859738c146",
+      "archived_sha256": "0d4db94d6827a744cc24b5afe1ffcf627c3a718a0d6832c4e627580b01db2005",
+      "source_bytes": 2410,
+      "archived_bytes": 762
+    },
+    "logs/full-build.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/full-build.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "db0f69ae331f6ecbb2b354da2a8dd4dafaef356547eb644abf0ac0191a86ed78",
+      "archived_sha256": "16e71d88b1b6712d29e8d93030c4025cb8ceef4860240d8b12b0293e20657893",
+      "source_bytes": 186973,
+      "archived_bytes": 19135
+    },
+    "logs/full-build-fixed.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/full-build-fixed.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "e6721f05c49fc001612d8273060e28a5ad60a0ffd43153fbb738038b10b1e252",
+      "archived_sha256": "402161f1d22693e72877b51918dbf3bdfdf55d24566fee9ad1b83a1469625fcd",
+      "source_bytes": 280,
+      "archived_bytes": 188
+    },
+    "logs/metal-stack.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/metal-stack.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "3b87acc060aa180ef2df809576e1edf76c66a8e20a4bf42cded67451225b3191",
+      "archived_sha256": "9a71a1680e38fa559b499948662eecbc22e3539ce7b5d02661ecfaf906a5ddaa",
+      "source_bytes": 3692,
+      "archived_bytes": 1149
+    },
+    "logs/metal-lldb.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/metal-lldb.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "17a243d20e028a01d60deab0c79f1f9c7488fed9b398d0384c9a46027d8ba843",
+      "archived_sha256": "f6cda6b4fa645c98af0f65ccdcc6b6879bb729418201c6b68f6f3431d7caa058",
+      "source_bytes": 1883,
+      "archived_bytes": 710
+    },
+    "logs/metal-full-lldb.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/metal-full-lldb.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "c96b17343abe4ca503affd9f18fd7c30518541a1c23eef371787016ac53f164e",
+      "archived_sha256": "31a0265da3d6a54dd0773f79405864f2a77f58a29b25d72e7d39c7f29a03389e",
+      "source_bytes": 2190,
+      "archived_bytes": 836
+    },
+    "logs/pointwise-ab-recheck.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/pointwise-ab-recheck.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "fc9e06761a39130d16c2ba7ac1e669d5ca4ce0dbd6836691cabc75af4f8f4651",
+      "archived_sha256": "01bca378a8cd82ab37b954d0c7755b5c3203f8138466910fe930456494b03e1c",
+      "source_bytes": 1511,
+      "archived_bytes": 555
+    },
+    "logs/test-supervisor.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/test-supervisor.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "0c44683c22ce71c259d916d9bf0f7c8b350a2f24ebefcf5b34a2a83f78660ddf",
+      "archived_sha256": "487d65e5fcf221e06b947ee606b0c8d91843caa34396eeae0e0d9a21a411874f",
+      "source_bytes": 150,
+      "archived_bytes": 103
+    },
+    "logs/recheck-supervisor.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/recheck-supervisor.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "baa9d1a03aba0714b955961e022320b53e6a3348585185a5581227576d070814",
+      "archived_sha256": "d51109d60809fe87da4be10d478619afc5e73d816318e6a0791e31e553ae0bdd",
+      "source_bytes": 233,
+      "archived_bytes": 137
+    },
+    "logs/finish-supervisor.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/finish-supervisor.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "e8f0e10929de65be8449f277ff0df4ef11304c5628da0718eb14aa6e4ea772c4",
+      "archived_sha256": "8132ffed9a2dae6b5b6cfaf75d472b6c0be8988c12899c19a2476459a2c0b9b6",
+      "source_bytes": 118,
+      "archived_bytes": 110
+    },
+    "logs/format-pristine.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/format-pristine.log",
+      "role": "integration preparation; first snapshot failure retained",
+      "source_sha256": "81adcc5b505510344b13206d0a1c1b075833564011cf1edfc6b2adad72481d1a",
+      "archived_sha256": "57e470dcfb46459cee5087a0e91e353c921f7353b860ecd4acb248e113d953ea",
+      "source_bytes": 2078,
+      "archived_bytes": 320
+    },
+    "logs/ctest-tile.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/ctest-tile.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "7820f2794e5ded05d6a92ad32b15d69692db99b7760f8dfb99199eaad98d2a69",
+      "archived_sha256": "adfc62257611e4295fb6aaf72fd3392ae4d097cb47c06b294b651948864f0e00",
+      "source_bytes": 5000,
+      "archived_bytes": 987
+    },
+    "tile.xml": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/tile.xml",
+      "role": "CTest case-level result",
+      "source_sha256": "a37c3a13910a8cec8acf11610d8ff455e2c952a05efad03913d6353f896ecb31",
+      "archived_sha256": "a37c3a13910a8cec8acf11610d8ff455e2c952a05efad03913d6353f896ecb31",
+      "source_bytes": 14965,
+      "archived_bytes": 14965
+    },
+    "logs/ctest-xir-simd.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/ctest-xir-simd.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "75ef36b38e435515e7f0bc81fea5234a954395c18f9aaecb4c80576457442d46",
+      "archived_sha256": "9ca62dc02a692d1176235a6fbd057d887446dca08e851eb3348b150bdb876d69",
+      "source_bytes": 11410,
+      "archived_bytes": 1976
+    },
+    "xir-simd.xml": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/xir-simd.xml",
+      "role": "CTest case-level result",
+      "source_sha256": "4f7ad606cec1de8c73038cf64b4dd8cacd13395609e59716355baab9b79ca7ee",
+      "archived_sha256": "4f7ad606cec1de8c73038cf64b4dd8cacd13395609e59716355baab9b79ca7ee",
+      "source_bytes": 41099,
+      "archived_bytes": 41099
+    },
+    "logs/full-build-final-gate.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/full-build-final-gate.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+      "archived_sha256": "20ae9cecca091e5f9ddcce9e45ea49173afd1bb322a91838663eda09a112238b",
+      "source_bytes": 83,
+      "archived_bytes": 96
+    },
+    "logs/ctest-metal-fixed.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/ctest-metal-fixed.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "947b6ecb23acb97ce9b953cc27856668ecbf4e0afeb08fd331fe434e2351cbf2",
+      "archived_sha256": "cf660cd1c28f850b0c4b90918d332d399d26dca38deb563e8f7d99ba6266fd42",
+      "source_bytes": 602,
+      "archived_bytes": 272
+    },
+    "metal-fixed.xml": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/metal-fixed.xml",
+      "role": "CTest case-level result",
+      "source_sha256": "29efdaf7d85fbd31b005fe814af31a7552dea341090f1a939916b22b37c45cd6",
+      "archived_sha256": "29efdaf7d85fbd31b005fe814af31a7552dea341090f1a939916b22b37c45cd6",
+      "source_bytes": 1447,
+      "archived_bytes": 1447
+    },
+    "logs/metal-local-only.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/metal-local-only.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "97cd1145bc7b6fb42e01b2bdb11872c28fa6d59689dfb171378591d1446165bf",
+      "archived_sha256": "db14f3cb147dd759cab739e334555fd676b507bcb0467e0f4cf2077eda8cf66b",
+      "source_bytes": 611,
+      "archived_bytes": 327
+    },
+    "logs/ctest-llm-fused.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/ctest-llm-fused.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "98fc2d7fe13b08b26575e4c57d3c91b32b4cbe2113d5113064bb7be035fa951a",
+      "archived_sha256": "28360231a6304ed4b9fbb8a2629b952d22e15bf633ec93201f6b4c00e2900090",
+      "source_bytes": 402,
+      "archived_bytes": 228
+    },
+    "llm-fused.xml": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/llm-fused.xml",
+      "role": "CTest case-level result",
+      "source_sha256": "1f1b8f164a61f5305289a7682cbdb11895b6a052bd5c1108b97ba80ca0c1150d",
+      "archived_sha256": "1f1b8f164a61f5305289a7682cbdb11895b6a052bd5c1108b97ba80ca0c1150d",
+      "source_bytes": 1567,
+      "archived_bytes": 1567
+    },
+    "logs/syntax-final.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/syntax-final.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "813de762e578582f7c4d9ba4e3e4b060b7908b7824458c6a2799f24f079f88a1",
+      "archived_sha256": "1f835c833bce51f34e7b5d7ea9d3510e898c833a3d4b20508b18823ad0a6b18c",
+      "source_bytes": 255,
+      "archived_bytes": 176
+    },
+    "logs/ctest-runtime-clean.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/ctest-runtime-clean.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "35ae410f7e6a114e26b427dc110a1b1d733f20d21ce8378e24d155ce5046d7fe",
+      "archived_sha256": "a05454db7f84e9b13ea5b1ea7c59aa56d12cdb543d8048c33a6cb612eca3afa9",
+      "source_bytes": 406,
+      "archived_bytes": 230
+    },
+    "runtime-clean.xml": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/runtime-clean.xml",
+      "role": "CTest case-level result",
+      "source_sha256": "2a22f803a576802144c22258714291ca02aa07988b905021c91ece82a613eac5",
+      "archived_sha256": "2a22f803a576802144c22258714291ca02aa07988b905021c91ece82a613eac5",
+      "source_bytes": 1005,
+      "archived_bytes": 1005
+    },
+    "logs/format-changed.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/format-changed.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archived_sha256": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+      "source_bytes": 0,
+      "archived_bytes": 20
+    },
+    "logs/full-build-gate.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/full-build-gate.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+      "archived_sha256": "20ae9cecca091e5f9ddcce9e45ea49173afd1bb322a91838663eda09a112238b",
+      "source_bytes": 83,
+      "archived_bytes": 96
+    },
+    "logs/ctest-metal.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/ctest-metal.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "ecccb5e9414780988d1e97f284226b7b356518a3e606d5afd46065e448d9ce72",
+      "archived_sha256": "5a5ff051f9ee981f089e8d44af7139fc3c8f1b27dc2d7e4d5f9e03f2809e32b1",
+      "source_bytes": 1448,
+      "archived_bytes": 622
+    },
+    "metal.xml": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/metal.xml",
+      "role": "CTest case-level result",
+      "source_sha256": "9ff5467e58d1f47e1bbb4afe5bd9de18ac8daa2fc74408f13e8df43183a90c1e",
+      "archived_sha256": "9ff5467e58d1f47e1bbb4afe5bd9de18ac8daa2fc74408f13e8df43183a90c1e",
+      "source_bytes": 1510,
+      "archived_bytes": 1510
+    },
+    "logs/ctest-pointwise.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/ctest-pointwise.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "927e4e2c4eae6ed301dc25b0754831a583032c9193a34098c6e4e6080e3d00dc",
+      "archived_sha256": "a54037a54d5d6e7ed4f6ef56b9e693fd20bdedf9289925689935e4ea10bdcce2",
+      "source_bytes": 296959,
+      "archived_bytes": 2098
+    },
+    "pointwise.xml": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/pointwise.xml",
+      "role": "CTest case-level result",
+      "source_sha256": "e1df1ce543e1d35fe36891babca0e3d361e49ab2b02cc54389aeb11cd4b5c1e8",
+      "archived_sha256": "e1df1ce543e1d35fe36891babca0e3d361e49ab2b02cc54389aeb11cd4b5c1e8",
+      "source_bytes": 470197,
+      "archived_bytes": 470197
+    },
+    "logs/ctest-runtime-ab.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/ctest-runtime-ab.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "d5c87084fb3a7de3b43cb5110269a463d7f7a002c4199648ca6fe4f24bd797a1",
+      "archived_sha256": "3945c27ffd4598677fb0bde71be50a97e3404030de84583a65e6ed60771211fa",
+      "source_bytes": 14036,
+      "archived_bytes": 712
+    },
+    "runtime-ab.xml": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/runtime-ab.xml",
+      "role": "CTest case-level result",
+      "source_sha256": "efd5f3b148c4bf16558d558428e3919503b99fe2a3a4269aa04ba7138a4bda65",
+      "archived_sha256": "efd5f3b148c4bf16558d558428e3919503b99fe2a3a4269aa04ba7138a4bda65",
+      "source_bytes": 21033,
+      "archived_bytes": 21033
+    },
+    "logs/format-final.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/format-final.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "81adcc5b505510344b13206d0a1c1b075833564011cf1edfc6b2adad72481d1a",
+      "archived_sha256": "57e470dcfb46459cee5087a0e91e353c921f7353b860ecd4acb248e113d953ea",
+      "source_bytes": 2078,
+      "archived_bytes": 320
+    },
+    "logs/doxygen.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/doxygen.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "1d29f3aebe7e906140b689101b2e2f9d6856eb214cc96244b7c138a0203c1711",
+      "archived_sha256": "9c733a415ac360b8738dc70e6aee22a91c78753d98fd06b2d968f35443136a39",
+      "source_bytes": 3922050,
+      "archived_bytes": 267205
+    },
+    "logs/sphinx-v2.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/sphinx-v2.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "9a64beb54f9ee3da2548d5c6fbf16c6eceb125bb2cf5b10e6d9aa0cd16acdf6b",
+      "archived_sha256": "9efbe507d377feea1ded58f08f03766e8889ee5467c7e84ad33ef8725116df2a",
+      "source_bytes": 25981,
+      "archived_bytes": 3903
+    },
+    "logs/docs-links.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-links.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "57ddd09f68e8247d8738da696a7b2829500e608cc82776350c3f8c4de8a575f9",
+      "archived_sha256": "c45e9805dbb6432def5a5581402e18cadcab1bcbbaf03621edfb58ef46896ac2",
+      "source_bytes": 116,
+      "archived_bytes": 122
+    },
+    "logs/docs-render.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/docs-render.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "954f469e62862323a8b3b52b2ae3200e230d9a9e93ee475ed5737870493f1e20",
+      "archived_sha256": "ce6bd9dbdceac3e69bd71c39ea144840f4850efb5247049173ef27a25c58a273",
+      "source_bytes": 108,
+      "archived_bytes": 112
+    },
+    "logs/sphinx.log.gz": {
+      "origin": "/private/tmp/luisa-next-checkpoint.J7yODi/sphinx.log",
+      "role": "executed check; both successes and failures retained",
+      "source_sha256": "5a46a0a6ad884f91ffff6e1930b6389eae91bd1e33ffca6d192608d7283b83d3",
+      "archived_sha256": "9bf995e4921c1d045dd674c086837ffc6e2e0e83ee60868800f1dcfb2ec7afe1",
+      "source_bytes": 10246,
+      "archived_bytes": 2351
+    },
+    "logs/native-audit-final.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/audit-final.log",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "ecb31a14c03574f704b46727a8fe328b4431b60693599a47feef75871741d28a",
+      "archived_sha256": "f6b3f25f4a8db6ed69d2a2981264b1b4cfdc30dd6b066d7e090d7f17e66e3c91",
+      "source_bytes": 1476,
+      "archived_bytes": 761
+    },
+    "logs/native-full-build.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/full-build.log",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91",
+      "archived_sha256": "20ae9cecca091e5f9ddcce9e45ea49173afd1bb322a91838663eda09a112238b",
+      "source_bytes": 83,
+      "archived_bytes": 96
+    },
+    "logs/native-source-main.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/source-main.log",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "dd1037f9d274cd5c69ab1e6bfd37205a792391d9cf4b72106ce30c1b770427bc",
+      "archived_sha256": "9274dd3fc9a7e051b3b8bd49b108a81e3dbbc98ee3017126849dd50752c5e2fa",
+      "source_bytes": 1538,
+      "archived_bytes": 320
+    },
+    "logs/native-source-isolated.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/source-isolated.log",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "e09f8ab27cdcff613947f45dfdb5d9f2cac55bfd0a71a7bfce4eeaf22753b739",
+      "archived_sha256": "4acaf57d3179dcccf8f4590cdceb9b815c3b8abc8d61162881eb2704b04b5a7c",
+      "source_bytes": 3010,
+      "archived_bytes": 363
+    },
+    "logs/native-binaries-before.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/binaries-before.log",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "553376c04573fef0e78bff514930942131da030162790c817ab227a28b1d02a5",
+      "archived_sha256": "7b02680ab7ce0cfe43999ac4c02bd481671e90b937b84367d8f0a097b2a3f044",
+      "source_bytes": 1154,
+      "archived_bytes": 198
+    },
+    "logs/native-binaries-after.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/binaries-after.log",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "553376c04573fef0e78bff514930942131da030162790c817ab227a28b1d02a5",
+      "archived_sha256": "7b02680ab7ce0cfe43999ac4c02bd481671e90b937b84367d8f0a097b2a3f044",
+      "source_bytes": 1154,
+      "archived_bytes": 198
+    },
+    "logs/native-next-merge.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/next-merge.log",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "e25168a33921eff8f6bdb2990c6d9a012b682c765986881930f2ed6b6894bf5f",
+      "archived_sha256": "cc0866e257e69022e53dabeae8532ebbedbf8ed97b45736f8425d8f97f314fc5",
+      "source_bytes": 15440,
+      "archived_bytes": 2961
+    },
+    "logs/native-premerge-user-sha256.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/premerge-user-sha256.txt",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "62169bcf4a08c4cf86e958bb600946cd4f41dbf8449a7be3a20791f9b018db7e",
+      "archived_sha256": "3b26c9312cef8e731de447ce883cdb775f155ca62e7aa16b50e8b7b70cd275d4",
+      "source_bytes": 1115,
+      "archived_bytes": 658
+    },
+    "logs/native-premerge-submodule-heads.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/premerge-submodule-heads.txt",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "cf810be3477d9e36ae2c410b5923aa91d9dd523fc76af0058ac16613f2dec7a8",
+      "archived_sha256": "4890419b932d0c0e74534f4d638fb70a341a39442a9ae2ae5fc43b4dc4a1df27",
+      "source_bytes": 656,
+      "archived_bytes": 390
+    },
+    "logs/native-postmerge-submodule-heads.txt.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/postmerge-submodule-heads.txt",
+      "role": "premerge identity, preservation or audit evidence",
+      "source_sha256": "cf810be3477d9e36ae2c410b5923aa91d9dd523fc76af0058ac16613f2dec7a8",
+      "archived_sha256": "4890419b932d0c0e74534f4d638fb70a341a39442a9ae2ae5fc43b4dc4a1df27",
+      "source_bytes": 656,
+      "archived_bytes": 390
+    },
+    "excluded-native-replay-v1.json.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/replay-v1/results.json",
+      "role": "EXCLUDED performance; additional correctness only",
+      "source_sha256": "5e3d699d9502a4a227febfae0826caa05557b033527626dfb28ec4a71c0c7dfb",
+      "archived_sha256": "3e9cc09eabc15d78557f4970fceb7f2dcd395c3579c3bb7db7afe5869e428005",
+      "source_bytes": 409715,
+      "archived_bytes": 36909
+    },
+    "logs/excluded-native-replay-v1.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/replay-v1.log",
+      "role": "EXCLUDED performance",
+      "source_sha256": "e27e0f573ccfd96528bd6e2cf849aa2d9f787d65b6d8eda974a417d7f792e64f",
+      "archived_sha256": "c1cb7ef040562e65bb8aaaed515d3731a0f9571730093938a99fff9856b19a91",
+      "source_bytes": 16884,
+      "archived_bytes": 3530
+    },
+    "host-observation-v1.json.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/host-observation.json",
+      "role": "privacy-minimized coactivity evidence",
+      "source_sha256": "b397683bb67e84ee18d49a27d0587ecdb2f0a049bf17c7472cfe800c33d5bdb3",
+      "archived_sha256": "13d002937dc276fc02c88972e4a1a37beeaee57be20e5ee70a3081fe66c80327",
+      "source_bytes": 5919,
+      "archived_bytes": 1200
+    },
+    "excluded-native-replay-v2.json.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/replay-v2/results.json",
+      "role": "EXCLUDED performance; additional correctness only",
+      "source_sha256": "a9b9bb651522d8bb283e2e0a82eab75052696ea5a3419f4f0d4c4c07dde03b55",
+      "archived_sha256": "bebac74a7a8c9d18a77768f14a68a54aa19d3ccd20b1ddbd7efdd953515a0012",
+      "source_bytes": 409687,
+      "archived_bytes": 36818
+    },
+    "logs/excluded-native-replay-v2.log.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/replay-v2.log",
+      "role": "EXCLUDED performance",
+      "source_sha256": "3d6c5f6f03ef495948158c35794560337eb51eea5d0c5d9e2cd20f75f80ab16b",
+      "archived_sha256": "97942df524500039bd7e82f985c5aa4fc1a77c32e9fcd5040b6a203f381b7b10",
+      "source_bytes": 16885,
+      "archived_bytes": 3533
+    },
+    "host-observation-v2.json.gz": {
+      "origin": "/private/tmp/luisa-pointwise-native.1P87uU/host-observation-v2.json",
+      "role": "privacy-minimized coactivity evidence",
+      "source_sha256": "f95ef1b6bef616682ea02d7809d8094dc0965d814605f4dd14cb14d4ffc3da21",
+      "archived_sha256": "617dfcd176a8ec1d1983386b262f36f39eb3953bd9cb00804b95b8e1b59a9276",
+      "source_bytes": 11074,
+      "archived_bytes": 1696
+    }
+  }
+}

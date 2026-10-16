@@ -7,7 +7,7 @@ This section provides step-by-step tutorials for building practical applications
 1. [ShaderToy-Style Mandelbrot](#shadertoy-style-mandelbrot-set) - A gentle introduction
 2. [Path Tracing Renderer](#path-tracing-renderer) - Global illumination with ray tracing
 3. [MPM Fluid Simulation](#mpm-fluid-simulation) - Material Point Method for fluids
-4. [Conway's Game of Life](#conways-game-of-life) - Cellular automata with ping-pong buffering
+4. [Conway's Game of Life](#conway-s-game-of-life) - Cellular automata with ping-pong buffering
 5. [Wave Equation Simulation](#wave-equation-simulation) - Interactive PDE solver
 6. [Image Processing Pipeline](#image-processing-pipeline) - Multi-pass filters and effects
 7. [N-Body Simulation](#n-body-gravitational-simulation) - Gravitational particle physics
@@ -67,7 +67,7 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
     // Step 1: Create context and device
     Context context{argv[0]};
-    Device device = context.create_device("cuda");  // or "cpu", "metal", "dx"
+    Device device = context.create_device("cuda");  // or "metal", "dx", "vk", "hip", "fallback"
     Stream stream = device.create_stream();
     
     // Step 2: Create an image to render to
@@ -1810,6 +1810,7 @@ $for (step, max_steps) {
     prev_y = pos.y;  // Update for next iteration
     // ... continue ray marching ...
 };
+```
 
 #### Step 4: Background Starfield
 

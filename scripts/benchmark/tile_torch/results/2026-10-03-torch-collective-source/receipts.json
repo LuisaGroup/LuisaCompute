@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "files": {
+    ".gitattributes": {
+      "sha256": "a79691a93b46e49ce460c26ef22afcc03d6eca1e63bf2edbc20e96159510f6c9",
+      "bytes": 14
+    },
+    "evidence.json": {
+      "sha256": "30e4e6d6183a0aeb41adb255433be008ed98bffc29a0d659f483550276f7b2f6",
+      "bytes": 45679
+    },
+    "README.md": {
+      "sha256": "2b82225cc1fcf4a2570de1d7e64989e4790bacfbfb7e61330a3f80ce23106858",
+      "bytes": 567
+    }
+  }
+}

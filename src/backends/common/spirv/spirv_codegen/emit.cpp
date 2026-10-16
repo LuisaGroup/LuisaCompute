@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <numeric>
 #include <sstream>
+#include <type_traits>
 #include <luisa/core/logging.h>
 #include <luisa/ast/function.h>
 #include <luisa/xir/module.h>
@@ -50,6 +52,8 @@
 #include <luisa/xir/instructions/raster_discard.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/runtime/rtx/ray.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/memory.h>
 #include <SPIRV/disassemble.h>
 #include "../../indirect_dispatch_layout.h"
 
@@ -93,7 +97,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _global_invocation_id_var = spv::NoResult;
     _dispatch_metadata = {};
     _functions_requiring_dispatch_metadata.clear();
-    _readonly_resource_origins.clear();
+    _unique_resource_origins.clear();
 }
 
 bool SpirvCodegenEntry::_is_indirect_dispatch_type(
@@ -221,21 +225,30 @@ void SpirvCodegenEntry::_analyze_instruction_usage(
                         _print_formats.emplace_back(print->format(), s);
                         break;
                     }
-                    case xir::DerivedInstructionTag::RESOURCE_QUERY:
+                    case xir::DerivedInstructionTag::RESOURCE_QUERY: {
+                        auto resource = static_cast<
+                            const xir::ResourceQueryInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceQueryInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
-                    case xir::DerivedInstructionTag::RESOURCE_READ:
+                    }
+                    case xir::DerivedInstructionTag::RESOURCE_READ: {
+                        auto resource = static_cast<
+                            const xir::ResourceReadInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceReadInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
-                    case xir::DerivedInstructionTag::RESOURCE_WRITE:
+                    }
+                    case xir::DerivedInstructionTag::RESOURCE_WRITE: {
+                        auto resource = static_cast<
+                            const xir::ResourceWriteInst *>(inst);
                         analysis.bindless_resources.merge(
                             spirv_bindless_resource_usage(
-                                static_cast<const xir::ResourceWriteInst *>(inst)->op()));
+                                resource->op(), resource->bindless_access()));
                         break;
+                    }
                     default: break;
                 }
                 analysis.used_types.emplace(inst->type());
@@ -279,6 +292,8 @@ void spirv_codegen_add_narrow_constant_capabilities(
     switch (type->tag()) {
         case Type::Tag::INT8:
         case Type::Tag::UINT8:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             builder.addCapability(spv::Capability::Int8);
             break;
         case Type::Tag::INT16:
@@ -317,6 +332,8 @@ void spirv_codegen_add_narrow_constant_capabilities(
         case Type::Tag::BOOL: return builder.makeBoolConstant(*static_cast<const bool *>(data));
         case Type::Tag::INT8: return builder.makeInt8Constant(*static_cast<const int8_t *>(data));
         case Type::Tag::UINT8: return builder.makeUint8Constant(*static_cast<const uint8_t *>(data));
+        case Type::Tag::INT4: return builder.makeInt8Constant(*static_cast<const int8_t *>(data));
+        case Type::Tag::FP4_E2M1: return builder.makeUint8Constant(*static_cast<const uint8_t *>(data));
         case Type::Tag::INT16: return builder.makeInt16Constant(*static_cast<const int16_t *>(data));
         case Type::Tag::UINT16: return builder.makeUint16Constant(*static_cast<const uint16_t *>(data));
         case Type::Tag::INT32: return builder.makeIntConstant(*static_cast<const int32_t *>(data));
@@ -360,6 +377,8 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             return spirv_codegen_emit_scalar_constant(_builder, spv_type, type, data);
         case Type::Tag::VECTOR: {
             auto elem_type = type->element();
@@ -423,7 +442,12 @@ spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
         auto ptr = _create_access_chain(
             spv::StorageClass::Uniform, _constant_ubo_var,
             std::vector<spv::Id>{_builder.makeUintConstant(ubo_it->second)});
-        return _builder.createLoad(ptr, spv::NoPrecision);
+        auto loaded = _builder.createLoad(ptr, spv::NoPrecision);
+        auto logical_type = _convert_type(c->type(), Usage::READ);
+        return _builder.getTypeId(loaded) == logical_type ?
+                   loaded :
+                   _builder.createUnaryOp(
+                       spv::Op::OpCopyLogical, logical_type, loaded);
     }
     auto id = _emit_literal(c->type(), c->data());
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit constant.");
@@ -513,12 +537,12 @@ spv::Block *SpirvCodegenEntry::_emit_dispatch_metadata_prologue(
     auto *indirect_block = _create_physical_block(function);
     auto *merge_block = _create_physical_block(function);
     auto selection_merge =
-        std::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
+        luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
     selection_merge->reserveOperands(2u);
     selection_merge->addIdOperand(merge_block->getId());
     selection_merge->addImmediateOperand(
         spv::SelectionControlMask::MaskNone);
-    header->addInstruction(std::move(selection_merge));
+    header->addInstruction(to_std_unique_ptr(std::move(selection_merge)));
     _builder.createConditionalBranch(
         is_indirect, indirect_block, direct_block);
 
@@ -563,7 +587,7 @@ spv::Block *SpirvCodegenEntry::_emit_dispatch_metadata_prologue(
     _builder.createBranch(false, merge_block);
 
     _builder.setBuildPoint(merge_block);
-    auto phi = std::make_unique<spv::Instruction>(
+    auto phi = luisa::make_unique<spv::Instruction>(
         _builder.getUniqueId(), uint4_type, spv::Op::OpPhi);
     auto packed = phi->getResultId();
     phi->reserveOperands(4u);
@@ -571,7 +595,7 @@ spv::Block *SpirvCodegenEntry::_emit_dispatch_metadata_prologue(
     phi->addIdOperand(direct_block->getId());
     phi->addIdOperand(indirect);
     phi->addIdOperand(indirect_block->getId());
-    merge_block->addInstruction(std::move(phi));
+    merge_block->addInstruction(to_std_unique_ptr(std::move(phi)));
     _set_dispatch_metadata(packed);
     return merge_block;
 }
@@ -585,13 +609,7 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
             break;
         case xir::DerivedValueTag::UNDEFINED: {
             auto spv_type = _convert_type(value->type(), Usage::READ);
-            if (_builder.isPointerType(spv_type)) {
-                id = _builder.createUndefined(spv_type);
-            } else {
-                spirv_codegen_add_narrow_constant_capabilities(
-                    _builder, value->type());
-                id = _builder.makeNullConstant(spv_type);
-            }
+            id = _builder.createUndefined(spv_type);
             break;
         }
         case xir::DerivedValueTag::SPECIAL_REGISTER: {
@@ -708,12 +726,13 @@ spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::
     new_access_chain.swizzle.clear();
     new_access_chain.component = spv::NoResult;
     new_access_chain.descHeapInfo.descHeapBaseTy = spv::NoResult;
-    new_access_chain.descHeapInfo.descHeapStorageClass = spv::StorageClass::Max;
-    new_access_chain.descHeapInfo.descHeapBaseArrayStride = 0;
+    new_access_chain.descHeapInfo.descHeapBaseOffset = spv::NoResult;
+    new_access_chain.descHeapInfo.descHeapIndexChain.clear();
+    new_access_chain.descHeapInfo.descTy = spv::NoResult;
+    new_access_chain.descHeapInfo.descStorageClass = spv::StorageClass::Max;
+    new_access_chain.descHeapInfo.descReadonly = false;
+    new_access_chain.descHeapInfo.descWriteonly = false;
     new_access_chain.descHeapInfo.descHeapInstId.clear();
-    new_access_chain.descHeapInfo.structRsrcTyOffsetCount = 0;
-    new_access_chain.descHeapInfo.structRsrcTyFirstArrIndex = 0;
-    new_access_chain.descHeapInfo.structRemappedBase = spv::NoResult;
     if (nonuniform) {
         LUISA_ASSERT(!indices.empty(),
                      "A non-uniform SPIR-V access chain must have an index.");
@@ -847,11 +866,11 @@ void SpirvCodegenEntry::_predeclare_phis() noexcept {
             std::stable_sort(
                 node.incomings.begin(), node.incomings.end(),
                 [](auto &lhs, auto &rhs) noexcept { return lhs.order < rhs.order; });
-            auto instruction = std::make_unique<spv::Instruction>(
+            auto instruction = luisa::make_unique<spv::Instruction>(
                 _builder.getUniqueId(), phi_type, spv::Op::OpPhi);
             instruction->reserveOperands(layout.operand_word_count);
             node.instruction = instruction.get();
-            node.block->addInstruction(std::move(instruction));
+            node.block->addInstruction(to_std_unique_ptr(std::move(instruction)));
         }
         auto result_id = deferred.nodes.at(deferred.result_node_index)
                              .instruction->getResultId();
@@ -1256,8 +1275,8 @@ void SpirvCodegenEntry::_emit_kernel(
         selection_merge->reserveOperands(2);
         selection_merge->addIdOperand(body_block->getId());
         selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
-        metadata_merge->addInstruction(
-            std::unique_ptr<spv::Instruction>(selection_merge));
+  metadata_merge->addInstruction(
+      std::unique_ptr<spv::Instruction>(selection_merge));
 
         // Branch conditional
         _builder.createConditionalBranch(cmp, return_block, body_block);
@@ -1344,16 +1363,16 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
         bool used = analyzed_usage != Usage::NONE;
         auto module_specialized =
             arg->is_resource() &&
-            _readonly_resource_origins.contains(arg);
+            _unique_resource_origins.contains(arg);
         arg_used.push_back(used && !module_specialized);
         if ((!used || module_specialized) &&
             _is_kernel_resource_argument(arg)) {
             // Skip unused resource arguments to avoid type mismatches
             // between kernel globals (which may be arrays or have different
             // sampled/storage qualifiers) and callable parameters. A
-            // module-specialized read-only resource is skipped for the same
-            // ABI reason and resolved to its unique kernel binding at each
-            // use inside the callable.
+            // module-specialized resource is skipped for the same ABI reason
+            // and each read/write is resolved to its proven unique kernel
+            // binding inside the callable.
             continue;
         }
         auto usage = _function_argument_usage_of(callable, arg);
@@ -1487,6 +1506,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     _print_formats.clear();
     _requires_printing = false;
     _direct_buffer_metadata_indices.clear();
+    _bound_direct_buffer_bias_alignments.clear();
     _bindless_buffer_metadata_ids.clear();
     LUISA_ASSERT(
         _atomic_buffer_plan_installed,
@@ -1499,14 +1519,48 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     auto analysis = _analyze_module_usage(module);
     _analyze_dispatch_metadata_requirements(analysis);
     _analyze_function_argument_usage(module);
-    _readonly_resource_origins =
-        analyze_spirv_readonly_resource_origins(
+    _unique_resource_origins =
+        analyze_spirv_unique_resource_origins(
             module, _function_argument_usage);
     LUISA_ASSERT(!analysis.used_functions_post_order.empty() &&
                      analysis.used_functions_post_order.back()->isa<xir::KernelFunction>(),
                  "SPIR-V module plan requires the kernel to be last in callable post-order.");
     auto *kernel = static_cast<const xir::KernelFunction *>(
         analysis.used_functions_post_order.back());
+    {
+        luisa::vector<const xir::Argument *> xir_arguments;
+        for (auto *argument : kernel->arguments()) {
+            xir_arguments.emplace_back(argument);
+        }
+        LUISA_ASSERT(
+            bindings.size() <= xir_arguments.size(),
+            "SPIR-V kernel has {} bound AST arguments but only {} XIR arguments.",
+            bindings.size(), xir_arguments.size());
+        for (auto i = 0u; i < bindings.size(); ++i) {
+            auto *argument = xir_arguments[i];
+            luisa::visit(
+                [&](auto &&binding) noexcept {
+                    using Binding = std::remove_cvref_t<decltype(binding)>;
+                    if constexpr (std::is_same_v<
+                                      Binding,
+                                      Function::BufferBinding>) {
+                        if (argument->type() != nullptr &&
+                            argument->type()->is_buffer() &&
+                            argument->type()->element() == nullptr) {
+                            // storage_buffer_descriptor_range() chooses a
+                            // descriptor base divisible by four. Therefore
+                            // bias = logical_offset - descriptor_offset has
+                            // every power-of-two divisor shared by offset and
+                            // four. Offset zero denotes the strongest fact.
+                            _bound_direct_buffer_bias_alignments.emplace(
+                                argument,
+                                std::gcd(binding.offset, size_t{4u}));
+                        }
+                    }
+                },
+                bindings[i]);
+        }
+    }
     auto argument_layout =
         plan_spirv_kernel_argument_layout(kernel);
     LUISA_ASSERT(
@@ -1543,7 +1597,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     luisa::vector<const Type *> ordered_types;
     ordered_types.reserve(analysis.used_types.size());
     for (auto *type : analysis.used_types) { ordered_types.emplace_back(type); }
-    std::sort(ordered_types.begin(), ordered_types.end(), [](const Type *lhs, const Type *rhs) noexcept {
+    luisa::sort(ordered_types.begin(), ordered_types.end(), [](const Type *lhs, const Type *rhs) noexcept {
         if (lhs == nullptr || rhs == nullptr) { return lhs == nullptr && rhs != nullptr; }
         return lhs->description() < rhs->description();
     });
@@ -1561,7 +1615,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     luisa::vector<const xir::Constant *> ordered_constants;
     ordered_constants.reserve(analysis.used_constants.size());
     for (auto *constant : analysis.used_constants) { ordered_constants.emplace_back(constant); }
-    std::sort(ordered_constants.begin(), ordered_constants.end(), [](const xir::Constant *lhs, const xir::Constant *rhs) noexcept {
+    luisa::sort(ordered_constants.begin(), ordered_constants.end(), [](const xir::Constant *lhs, const xir::Constant *rhs) noexcept {
         auto lhs_type = lhs->type();
         auto rhs_type = rhs->type();
         if (lhs_type->description() != rhs_type->description()) {

@@ -18,6 +18,7 @@
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -129,8 +130,8 @@ void test_atomic_queue(Device &device) {
         expect(count_valid) << luisa::format("{} count: expected {}, got {}", label, expected.size(), count);
         if (!count_valid) { return; }
         luisa::vector<uint> actual{values.begin(), values.begin() + count};
-        std::sort(actual.begin(), actual.end());
-        std::sort(expected.begin(), expected.end());
+        luisa::sort(actual.begin(), actual.end());
+        luisa::sort(expected.begin(), expected.end());
         expect(actual == expected) << luisa::format("{} contents", label);
     };
 

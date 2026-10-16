@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "aligned16-scan-128x8192-fp16",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-scan-128x8192-bf16",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "aligned16-control-scan-128x8192-fp32",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ]
+}

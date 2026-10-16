@@ -5,6 +5,7 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/rtx/motion_transform.h>
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/core/stl/string.h>
 
 #include "../optix_api.h"
 #include "cuda_codegen_llvm_impl.h"
@@ -205,6 +206,12 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
             auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
             return b.CreatePtrToInt(llvm_buffer_ptr, llvm_result_type);
         }
+        case xir::ResourceQueryOp::ACCEL_SIZE: {
+            auto llvm_accel = _get_llvm_value(b, func_ctx, inst->operand(0));
+            auto llvm_instance_count = b.CreateExtractValue(llvm_accel, llvm_accel_type_instance_count_index);
+            auto llvm_result_type = _get_llvm_type(inst->type())->reg_type;
+            return b.CreateZExtOrTrunc(llvm_instance_count, llvm_result_type);
+        }
         case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM: {
             LUISA_DEBUG_ASSERT(inst->type() == Type::of<luisa::float4x4>());
             auto llvm_accel = _get_llvm_value(b, func_ctx, inst->operand(0));
@@ -315,11 +322,21 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
                                                 llvm::ConstantFP::getZero(b.getFloatTy());
             auto llvm_mask = uses_motion_blur ? _get_llvm_value(b, func_ctx, inst->operand(3)) :
                                                 _get_llvm_value(b, func_ctx, inst->operand(2));
-            auto llvm_flags = is_any ? b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT | optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT) :
-                                       b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT);
-            _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_initialize, b.getVoidTy(),
-                                      {llvm_accel, llvm_ray, llvm_time, llvm_mask, llvm_flags});
-            return llvm::Constant::getNullValue(_get_llvm_ray_query_type());
+            auto hit = static_cast<llvm::Value *>(llvm::Constant::getNullValue(_get_llvm_committed_hit_type()));
+            hit = b.CreateInsertValue(hit, b.getInt32(~0u), llvm_committed_hit_type_inst_id_index);
+            hit = b.CreateInsertValue(hit, b.getInt32(~0u), llvm_committed_hit_type_prim_id_index);
+            hit = b.CreateInsertValue(hit, b.CreateExtractValue(llvm_ray, llvm_ray_type_t_max_index), llvm_committed_hit_type_t_index);
+            auto query_type = _get_llvm_ray_query_type();
+            auto query_accel = static_cast<llvm::Value *>(llvm::Constant::getNullValue(query_type->getStructElementType(llvm_ray_query_type_accel_index)));
+            query_accel = b.CreateInsertValue(query_accel, b.CreateExtractValue(llvm_accel, llvm_accel_type_handle_index), llvm_accel_type_handle_index);
+            query_accel = b.CreateInsertValue(query_accel, b.CreateExtractValue(llvm_accel, llvm_accel_type_instances_index), llvm_accel_type_instances_index);
+            auto query = static_cast<llvm::Value *>(llvm::Constant::getNullValue(query_type));
+            query = b.CreateInsertValue(query, query_accel, llvm_ray_query_type_accel_index);
+            query = b.CreateInsertValue(query, llvm_ray, llvm_ray_query_type_ray_index);
+            query = b.CreateInsertValue(query, llvm_time, llvm_ray_query_type_time_index);
+            query = b.CreateInsertValue(query, b.CreateZExtOrTrunc(llvm_mask, b.getInt32Ty()), llvm_ray_query_type_mask_index);
+            query = b.CreateInsertValue(query, hit, llvm_ray_query_type_hit_index);
+            return b.CreateInsertValue(query, b.getInt8(llvm_ray_query_state_initialized), llvm_ray_query_type_state_index);
         }
     }
     LUISA_NOT_IMPLEMENTED();
@@ -477,6 +494,60 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Fun
             auto llvm_ptr = b.CreateIntToPtr(llvm_address, b.getPtrTy());
             return _load_llvm_value(b, llvm_ptr, inst->type());
         }
+        case xir::ResourceReadOp::COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_MUL:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::BINDLESS_COOPERATIVE_VECTOR_LOAD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SPLAT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CAST:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD:
+        // Future cooperative-vector element-wise operations — TODO: implement
+        // in the CUDA LLVM backend.
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DOT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ABS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIGN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FLOOR:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_CEIL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_FRACT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TRUNC:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ROUND:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RINT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_RSQRT:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EXP10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG2:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LOG10:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SATURATE:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISINF:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ISNAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_TAN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASIN:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_COSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ASINH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ACOSH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ATANH:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MIX:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LERP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_POW:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_STEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_ADD:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_SUB:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_MUL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_DIV:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_EQUAL:
+        case xir::ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL: break;
     }
     LUISA_NOT_IMPLEMENTED();
 }
@@ -660,6 +731,11 @@ void CUDACodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext 
         }
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL: break;
         case xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT: break;
+        case xir::ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_ACCUMULATE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::BINDLESS_COOPERATIVE_VECTOR_STORE:
+        case xir::ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE: break;
     }
     LUISA_NOT_IMPLEMENTED();
 }
@@ -743,19 +819,11 @@ void CUDACodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel,
         IB fb{entry};
         auto flags_ptr = fb.CreateStructGEP(_get_llvm_accel_instance_type(), f->getArg(0), llvm_accel_instance_type_flags_index);
         auto flags = fb.CreateLoad(fb.getInt32Ty(), flags_ptr);
-        auto is_triangle = fb.CreateAnd(flags, optix::INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING);
-        is_triangle = fb.CreateICmpNE(is_triangle, fb.getInt32(0));
-        auto body = llvm::BasicBlock::Create(_llvm_context, "body", f);
-        auto exit = llvm::BasicBlock::Create(_llvm_context, "exit", f);
-        fb.CreateCondBr(is_triangle, body, exit);
-        fb.SetInsertPoint(body);
         auto cleared_flags = fb.CreateAnd(flags, ~(optix::INSTANCE_FLAG_DISABLE_ANYHIT | optix::INSTANCE_FLAG_ENFORCE_ANYHIT));
         auto new_flag_bit = fb.CreateSelect(f->getArg(1),
                                             fb.getInt32(optix::INSTANCE_FLAG_DISABLE_ANYHIT),
-                                            b.getInt32(optix::INSTANCE_FLAG_ENFORCE_ANYHIT));
+                                            fb.getInt32(optix::INSTANCE_FLAG_ENFORCE_ANYHIT));
         fb.CreateStore(fb.CreateOr(cleared_flags, new_flag_bit), flags_ptr);
-        fb.CreateBr(exit);
-        fb.SetInsertPoint(exit);
         fb.CreateRetVoid();
     }
     b.CreateCall(f, {instance_ptr, is_opaque});
@@ -825,7 +893,7 @@ llvm::Value *CUDACodegenLLVMImpl::_accel_trace_any(IB &b, uint32_t flags, llvm::
 void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32_t sbt_offset, uint32_t flags,
                                             llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask,
                                             llvm::ArrayRef<llvm::Value *> registers) noexcept {
-    LUISA_DEBUG_ASSERT(registers.size() <= 2);
+    LUISA_DEBUG_ASSERT(registers.size() <= 32u);
     auto handle = b.CreateExtractValue(accel, llvm_accel_type_handle_index);
     auto ox = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 0});
     auto oy = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 1});
@@ -887,7 +955,22 @@ void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32
             args.emplace_back(undef);
         }
     }
-    b.CreateCall(llvm_asm, args);
+    if (_config.output_format == CUDACodegenLLVMConfig::OutputFormat::OPTIX_IR) {
+        // Direct IR already carries float operand types, as in the SDK's optixTraverse.
+        // Retain the typed-register workaround for PTX ingestion only.
+        llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(),
+                                      "call ($0,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31), _optix_hitobject_traverse, ($32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60,$61,$62,$63,$64,$65,$66,$67,$68,$69,$70,$71,$72,$73,$74,$75,$76,$77,$78,$79,$80);",
+                                      llvm_asm->getConstraintString(), true);
+    }
+    // The payload can contain pointers to mutable traversal state and captures.
+    // OptiX invokes hit programs that access that memory before returning.
+    llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(), llvm_asm->getAsmString(),
+                                    (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
+    auto call = b.CreateCall(llvm_asm, args);
+    if (payload_type == optix::PAYLOAD_TYPE_ID_1) {
+        _ray_query_trace_calls.emplace_back(call);
+        _ray_query_payload_count = std::max(_ray_query_payload_count, static_cast<uint32_t>(registers.size()));
+    }
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_undef(IB &b) noexcept {
@@ -972,7 +1055,7 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_hit_kind(IB &b) noexcept {
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcept {
-    auto f = [&](std::string_view component) {
+    auto f = [&](luisa::string_view component) {
         auto asm_str = fmt::format("call ($0), _optix_get_{}, ();", component);
         auto llvm_asm = _get_inline_asm(asm_str, "=f", false);
         return b.CreateCall(llvm_asm, {});
@@ -994,6 +1077,41 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcep
     result = b.CreateInsertValue(result, dz, {llvm_ray_type_direction_index, 2});
     result = b.CreateInsertValue(result, tmin, llvm_ray_type_t_min_index);
     result = b.CreateInsertValue(result, tmax, llvm_ray_type_t_max_index);
+    return result;
+}
+
+llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_object_space_ray(IB &b) noexcept {
+    auto f = [&](luisa::string_view component) {
+        auto asm_str = fmt::format("call ($0), _optix_get_{}, ();", component);
+        auto llvm_asm = _get_inline_asm(asm_str, "=f", false);
+        return b.CreateCall(llvm_asm, {});
+    };
+    auto ox = f("object_ray_origin_x");
+    auto oy = f("object_ray_origin_y");
+    auto oz = f("object_ray_origin_z");
+    auto dx = f("object_ray_direction_x");
+    auto dy = f("object_ray_direction_y");
+    auto dz = f("object_ray_direction_z");
+    auto tmin = f("ray_tmin");
+    auto tmax = f("ray_tmax");
+    auto result = static_cast<llvm::Value *>(
+        llvm::PoisonValue::get(_get_llvm_ray_type()));
+    result = b.CreateInsertValue(
+        result, ox, {llvm_ray_type_origin_index, 0});
+    result = b.CreateInsertValue(
+        result, oy, {llvm_ray_type_origin_index, 1});
+    result = b.CreateInsertValue(
+        result, oz, {llvm_ray_type_origin_index, 2});
+    result = b.CreateInsertValue(
+        result, dx, {llvm_ray_type_direction_index, 0});
+    result = b.CreateInsertValue(
+        result, dy, {llvm_ray_type_direction_index, 1});
+    result = b.CreateInsertValue(
+        result, dz, {llvm_ray_type_direction_index, 2});
+    result = b.CreateInsertValue(
+        result, tmin, llvm_ray_type_t_min_index);
+    result = b.CreateInsertValue(
+        result, tmax, llvm_ray_type_t_max_index);
     return result;
 }
 

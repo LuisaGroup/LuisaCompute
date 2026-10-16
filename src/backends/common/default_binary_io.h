@@ -26,8 +26,8 @@ private:
     bool _use_lmdb;
     mutable luisa::spin_mutex _global_mtx;
     mutable MutexMap _mutex_map;
-    std::filesystem::path _cache_dir;
-    std::filesystem::path _data_dir;
+    luisa::filesystem::path _cache_dir;
+    luisa::filesystem::path _data_dir;
     mutable vstd::StackObject<vstd::LMDB> _data_lmdb;
     mutable vstd::StackObject<vstd::LMDB> _cache_lmdb;
 

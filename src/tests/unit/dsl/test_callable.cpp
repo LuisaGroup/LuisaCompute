@@ -114,6 +114,73 @@ void test_callable(Device &device) {
     expect(all_correct) << "callable composition should produce correct results (data[i] + 3.0f)";
 }
 
+void test_equivalent_callable_capture_environments(Device &device) {
+    static constexpr auto element_count = 257u;
+    auto lhs = device.create_buffer<uint32_t>(element_count);
+    auto rhs = device.create_buffer<uint32_t>(element_count);
+    auto output = device.create_buffer<uint2>(element_count);
+
+    luisa::vector<uint32_t> lhs_values(element_count);
+    luisa::vector<uint32_t> rhs_values(element_count);
+    luisa::vector<uint2> output_values(element_count);
+    for (auto i = 0u; i < element_count; ++i) {
+        lhs_values[i] = 0x10000000u + i * 17u;
+        rhs_values[i] = 0x80000000u + i * 29u;
+    }
+
+    uint64_t lhs_callable_hash = 0u;
+    uint64_t rhs_callable_hash = 0u;
+    Kernel1D kernel = [&](BufferUInt lhs_argument,
+                          BufferUInt rhs_argument,
+                          BufferUInt2 output_argument) noexcept {
+        Callable read_lhs = [&lhs_argument](UInt index) noexcept {
+            return lhs_argument.read(index);
+        };
+        Callable read_rhs = [&rhs_argument](UInt index) noexcept {
+            return rhs_argument.read(index);
+        };
+        lhs_callable_hash = read_lhs.function().hash();
+        rhs_callable_hash = read_rhs.function().hash();
+        const auto index = dispatch_x();
+        output_argument.write(
+            index,
+            make_uint2(read_lhs(index), read_rhs(index)));
+    };
+
+    expect(lhs_callable_hash == rhs_callable_hash)
+        << "equivalent callable definitions must have one structural hash";
+    expect(kernel.function()->function().custom_callables().size() == 1u)
+        << "the completed call graph must canonicalize equivalent definitions";
+
+    auto shader = device.compile(
+        kernel, ShaderOption{.enable_cache = false});
+    auto stream = device.create_stream();
+    stream << lhs.copy_from(luisa::span{lhs_values.data(), lhs_values.size()})
+           << rhs.copy_from(luisa::span{rhs_values.data(), rhs_values.size()})
+           << shader(lhs, rhs, output).dispatch(element_count)
+           << output.copy_to(luisa::span{output_values.data(), output_values.size()})
+           << synchronize();
+
+    for (auto i = 0u; i < element_count; ++i) {
+        expect(output_values[i].x == lhs_values[i])
+            << "canonical callable definition lost the left capture environment";
+        expect(output_values[i].y == rhs_values[i])
+            << "canonical callable definition lost the right capture environment";
+    }
+}
+
+void test_callable_has_no_launch_block_size() {
+    Callable identity = [](UInt value) noexcept { return value; };
+    const auto callable_block_size = identity.function().block_size();
+    expect(all(callable_block_size == make_uint3(0u)))
+        << "callable metadata must have a defined empty launch block size";
+
+    Kernel1D kernel = [](BufferUInt) noexcept {};
+    const auto kernel_block_size = kernel.function()->function().block_size();
+    expect(all(kernel_block_size == make_uint3(256u, 1u, 1u)))
+        << "one-dimensional kernels must retain their default launch block size";
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -123,4 +190,6 @@ int main(int argc, char *argv[]) {
 
     auto &device = dc->device;
     test_callable(device);
+    test_equivalent_callable_capture_environments(device);
+    test_callable_has_no_launch_block_size();
 }

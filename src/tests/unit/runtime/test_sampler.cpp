@@ -32,6 +32,14 @@ enum Output : uint32_t {
     bilinear_center,
     bilinear_repeat_edge,
     size_query,
+    explicit_2d,
+    explicit_2d_level,
+    explicit_2d_grad,
+    explicit_2d_grad_level,
+    explicit_3d,
+    explicit_3d_level,
+    explicit_3d_grad,
+    explicit_3d_grad_level,
     output_count
 };
 
@@ -106,6 +114,8 @@ enum Output : uint32_t {
 void test_sampler(Device &device) {
     auto texture = device.create_image<float>(
         PixelStorage::FLOAT4, make_uint2(texture_size));
+    auto volume = device.create_volume<float>(
+        PixelStorage::FLOAT4, make_uint3(2u));
     luisa::vector<float4> source(texture_size * texture_size);
     for (auto y = 0u; y < texture_size; y++) {
         for (auto x = 0u; x < texture_size; x++) {
@@ -113,23 +123,35 @@ void test_sampler(Device &device) {
         }
     }
 
-    auto heap = device.create_bindless_array(6u);
+    std::array<float4, 8u> volume_source{};
+    for (auto i = 0u; i < volume_source.size(); ++i) {
+        volume_source[i] = make_float4(
+            static_cast<float>(i + 1u),
+            static_cast<float>(i + 2u),
+            static_cast<float>(i + 3u), 1.0f);
+    }
+
+    auto heap = device.create_bindless_array(7u);
     auto output = device.create_buffer<float4>(output_count);
     std::array<float4, output_count> actual{};
     auto stream = device.create_stream();
     stream << texture.copy_from(luisa::span{source})
+           << volume.copy_from(luisa::span{volume_source})
            << heap.emplace_on_update(0u, texture, Sampler::point_edge())
                   .emplace_on_update(1u, texture, Sampler::point_repeat())
                   .emplace_on_update(2u, texture, Sampler::point_mirror())
                   .emplace_on_update(3u, texture, Sampler::point_zero())
                   .emplace_on_update(4u, texture, Sampler::linear_point_edge())
                   .emplace_on_update(5u, texture, Sampler::linear_point_repeat())
+                  .emplace_on_update(6u, volume, Sampler::point_edge())
                   .update();
 
     constexpr auto interior_uv = make_float2(0.30f, 0.60f);
     constexpr auto outside_uv = make_float2(-0.40f, 1.40f);
     constexpr auto center_uv = make_float2(0.50f, 0.50f);
     constexpr auto repeat_edge_uv = make_float2(0.0f, 0.50f);
+    constexpr auto explicit_uv = make_float2(-0.25f, 0.25f);
+    constexpr auto explicit_uvw = make_float3(-0.25f, 0.25f, 0.75f);
     Kernel1D check_sampler = [&](BindlessVar bindless,
                                  BufferFloat4 result) noexcept {
         result.write(static_cast<uint32_t>(point_interior),
@@ -151,9 +173,59 @@ void test_sampler(Device &device) {
                      make_float4(cast<float>(size.x), cast<float>(size.y),
                                  0.0f, 0.0f));
     };
+    // Explicit-sampler sampling is a separate kernel: the legacy CUDA AST
+    // codegen does not implement these ops (they would hit
+    // LUISA_NOT_IMPLEMENTED), while the fallback, DX, HIP, and Metal backends
+    // lower them natively.
+    Kernel1D check_explicit_sampler = [&](BindlessVar bindless,
+                                          BufferFloat4 result) noexcept {
+        auto explicit_texture = bindless.tex2d(0u);
+        auto zero2 = make_float2(0.0f);
+        result.write(static_cast<uint32_t>(explicit_2d),
+                     explicit_texture.sample(
+                         explicit_uv, SamplerFilter::POINT,
+                         SamplerAddress::REPEAT));
+        result.write(static_cast<uint32_t>(explicit_2d_level),
+                     explicit_texture.sample(
+                         explicit_uv, 0.0f, SamplerFilter::POINT,
+                         SamplerAddress::REPEAT));
+        result.write(static_cast<uint32_t>(explicit_2d_grad),
+                     explicit_texture.sample(
+                         explicit_uv, zero2, zero2,
+                         SamplerFilter::POINT, SamplerAddress::REPEAT));
+        result.write(static_cast<uint32_t>(explicit_2d_grad_level),
+                     explicit_texture.sample(
+                         explicit_uv, zero2, zero2, 0.0f,
+                         SamplerFilter::POINT, SamplerAddress::REPEAT));
+
+        auto explicit_volume = bindless.tex3d(6u);
+        auto zero3 = make_float3(0.0f);
+        result.write(static_cast<uint32_t>(explicit_3d),
+                     explicit_volume.sample(
+                         explicit_uvw, SamplerFilter::POINT,
+                         SamplerAddress::REPEAT));
+        result.write(static_cast<uint32_t>(explicit_3d_level),
+                     explicit_volume.sample(
+                         explicit_uvw, 0.0f, SamplerFilter::POINT,
+                         SamplerAddress::REPEAT));
+        result.write(static_cast<uint32_t>(explicit_3d_grad),
+                     explicit_volume.sample(
+                         explicit_uvw, zero3, zero3,
+                         SamplerFilter::POINT, SamplerAddress::REPEAT));
+        result.write(static_cast<uint32_t>(explicit_3d_grad_level),
+                     explicit_volume.sample(
+                         explicit_uvw, zero3, zero3, 0.0f,
+                         SamplerFilter::POINT, SamplerAddress::REPEAT));
+    };
+    const auto supports_explicit_sampler = device.backend_name() != "cuda";
     auto shader = device.compile(check_sampler);
-    stream << shader(heap, output).dispatch(1u)
-           << output.copy_to(luisa::span{actual})
+    stream << shader(heap, output).dispatch(1u);
+    if (supports_explicit_sampler) {
+        auto explicit_shader = device.compile(check_explicit_sampler);
+        // Keep the shader's executable storage alive until its dispatch ends.
+        stream << explicit_shader(heap, output).dispatch(1u) << synchronize();
+    }
+    stream << output.copy_to(luisa::span{actual})
            << synchronize();
 
     std::array<float4, output_count> expected{
@@ -165,10 +237,19 @@ void test_sampler(Device &device) {
         sample_linear(center_uv, Sampler::Address::EDGE),
         sample_linear(repeat_edge_uv, Sampler::Address::REPEAT),
         make_float4(static_cast<float>(texture_size),
-                    static_cast<float>(texture_size), 0.0f, 0.0f)};
+                    static_cast<float>(texture_size), 0.0f, 0.0f),
+        sample_point(explicit_uv, Sampler::Address::REPEAT),
+        sample_point(explicit_uv, Sampler::Address::REPEAT),
+        sample_point(explicit_uv, Sampler::Address::REPEAT),
+        sample_point(explicit_uv, Sampler::Address::REPEAT),
+        volume_source[5u], volume_source[5u], volume_source[5u],
+        volume_source[5u]};
 
     constexpr auto epsilon = 1.0e-5f;
     for (auto i = 0u; i < output_count; i++) {
+        if (!supports_explicit_sampler && i >= explicit_2d) {
+            continue;// explicit-sampler slots are not written on this backend
+        }
         auto error = max_error(actual[i], expected[i]);
         expect(static_cast<bool>(error <= epsilon))
             << "sampler result " << i << " must match the host oracle; max error " << error;

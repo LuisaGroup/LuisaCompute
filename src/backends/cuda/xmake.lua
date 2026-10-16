@@ -12,6 +12,18 @@ on_load(function(target)
         target:add("syslinks", "Cfgmgr32", "Advapi32", {
             public = true
         })
+    else
+        -- The CUDA toolchain only contributes $CUDA_PATH/lib, while the Linux
+        -- toolkit packages put the static device/runtime libraries
+        -- (libcudadevrt.a, libcudart_static.a, libnvrtc_static.a) in lib64.
+        -- Publish both directories so the -l flags actually resolve.
+        local cuda_home = os.getenv("CUDA_PATH") or os.getenv("CUDA_HOME") or "/usr/local/cuda"
+        for _, subdir in ipairs({"lib64", "lib"}) do
+            local lib_dir = path.join(cuda_home, subdir)
+            if os.isdir(lib_dir) then
+                target:add("linkdirs", lib_dir, {public = true, force = true})
+            end
+        end
     end
 end)
 target_end()
@@ -30,13 +42,20 @@ _config_project({
     project_kind = "shared",
     batch_size = 4
 })
-add_deps("lc-runtime", "lc-cuda-backend-base", 'lc-cuda-backend-builtin')
+add_deps("lc-runtime", "lc-cuda-backend-base", 'lc-cuda-backend-builtin', "lc-tile")
 
 add_rules('lc_llvm')
 lc_set_pcxxheader("lc_cuda_pch.h")
 add_headerfiles("*.h")
+add_headerfiles("tile/*.h")
 add_defines('LUISA_BIN_2_OBJ')
 on_load(function(target)
+    -- The software ray-tracing fallback (src/backends/common/rtx): the library
+    -- that answers `create_mesh` / `create_accel` when the user asked for the
+    -- fallback or when the machine has no OptiX (see cuda_config_ext.h and
+    -- cuda_device.cpp).  `src/backends/common/xmake.lua` builds it whenever a
+    -- backend that can fall back is enabled.
+    target:add("deps", "luisa-fallback-rtx")
     if has_config("lc_reproc_use_xrepo") then
         target:add("packages", "reproc")
     else
@@ -49,10 +68,14 @@ on_load(function(target)
     local src_path = os.scriptdir()
     local exclude_files = {}
     exclude_files["cuda_nvrtc_compiler.cpp"] = true
+    -- The CUDA 13.4 native Tile compiler is a CMake-gated optional executable.
+    -- Without LUISA_CUDA_TILE_IR_ENABLED, xmake keeps an explicit unavailable
+    -- diagnostic and never links nvrtcGetTileIR into the ordinary backend.
+    exclude_files["cuda_tile_ir_compiler.cpp"] = true
     exclude_files["cuda_builtin_embedded.cpp"] = true
     exclude_files["cuda_devrt_embedded.cpp"] = true
     exclude_files["cuda_texture_compression.cpp"] = true
-    local file_paths = {'*.cpp', 'extensions/*.cpp'}
+    local file_paths = {'*.cpp', 'extensions/*.cpp', 'tile/*.cpp'}
     for _, f in ipairs(file_paths) do
         for _, filepath in ipairs(os.files(path.join(src_path, f))) do
             local file_name = path.filename(filepath)
@@ -61,12 +84,36 @@ on_load(function(target)
             end
         end
     end
-    if has_config('lc_llvm_path') then
+    -- `--lc_llvm_path=` (empty) is Lua-truthy, so test the value, not the key:
+    -- otherwise the LLVM codegen sources are compiled without any LLVM headers.
+    local lc_llvm_path = get_config("lc_llvm_path")
+    if type(lc_llvm_path) == "string" and lc_llvm_path ~= "" then
+        -- XIR kernels, including autodiff, lower directly to LLVM/PTX.
         target:add("defines", 'LUISA_ENABLE_XIR', 'LUISA_COMPUTE_ENABLE_LLVM')
-        target:add("files", path.join(os.scriptdir(), 'llvm_codegen/*.cpp'))
+        -- OptiX IR requires CMake's opt-in LLVM 7 writer; xmake remains PTX-only.
+        target:add("files", path.join(os.scriptdir(), 'llvm_codegen/*.cpp|cuda_codegen_llvm_optix_ir*.cpp'))
     end
     target:add("defines", "LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN")
     target:add("deps", "lc-vulkan-swapchain", "lc-volk")
+    -- Ordinary CUDA Tile realizers also need these headers without TIRx.
+    import("cuda_sdkdir", {rootdir = get_config("lc_scripts_path")})
+    import("detect.sdks.find_cuda")
+    local cuda = find_cuda(cuda_sdkdir())
+    local include_dirs = cuda and cuda.includedirs
+    local include_dir = type(include_dirs) == "table" and include_dirs[1] or include_dirs
+    assert(type(include_dir) == "string" and include_dir ~= "",
+           "CUDA Tile requires the CUDA toolkit include directory")
+    include_dir = include_dir:gsub("\\", "/"):gsub('"', '\\"')
+    target:add("defines", 'LUISA_CUDA_TILE_TOOLKIT_INCLUDE_DIR="' .. include_dir .. '"')
+      if has_config("lc_tile_tirx_bridge") then
+          -- The TIRx bridge sources are compiled into lc-tile for xmake. This
+          -- define mirrors the CMake `if (TARGET ...tirx)` wiring in
+          -- src/backends/cuda/CMakeLists.txt.
+          target:add("defines", "LUISA_CUDA_TILE_TIRX")
+          -- cuda_tile.cpp includes the TIRx compiler header, which pulls in
+          -- tvm-ffi headers that use throw.
+          target:set("exceptions", "cxx")
+      end
 end)
 add_files("extensions/cuda_denoiser.cpp", "extensions/cuda_dstorage.cpp", "extensions/cuda_pinned_memory.cpp")
 add_links("cuda")
@@ -95,9 +142,9 @@ _config_project({
     runtime = "MT"
 })
 if is_plat("windows") then
-    add_syslinks("Ws2_32", "User32")
-end
-set_basename("luisa_nvrtc")
+      add_syslinks("Ws2_32", "User32", "ntdll")
+  end
+  set_basename("luisa_nvrtc")
 add_deps("lc-cuda-backend-base")
 add_links("nvrtc_static", "nvrtc-builtins_static", "nvptxcompiler_static")
 add_files("cuda_nvrtc_compiler.cpp")

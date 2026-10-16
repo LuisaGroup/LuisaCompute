@@ -4,6 +4,8 @@
 #include <luisa/core/stl/functional.h>
 #include <luisa/core/platform.h>
 #include <luisa/core/concepts.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa {
 
@@ -92,21 +94,21 @@ public:
      *
      * @param path
      */
-    static void add_search_path(const std::filesystem::path &path) noexcept;
+    static void add_search_path(const luisa::filesystem::path &path) noexcept;
 
     /**
      * @brief Remove dynamic module search path
      *
      * @param path
      */
-    static void remove_search_path(const std::filesystem::path &path) noexcept;
+    static void remove_search_path(const luisa::filesystem::path &path) noexcept;
 
     /**
      * @brief Load module with the specified name in search paths and the working directory
      * @param name Name of the module
      * @return The module if successfully loaded, otherwise a nullopt
      */
-    [[nodiscard]] static DynamicModule load(std::string_view name) noexcept;
+    [[nodiscard]] static DynamicModule load(luisa::string_view name) noexcept;
 
     /**
      * @brief Load module with the specified name in a folder
@@ -115,12 +117,12 @@ public:
      * @return The module if successfully loaded, otherwise a nullopt
      */
     [[nodiscard]] static DynamicModule load(const luisa::filesystem::path &folder,
-                                            std::string_view name) noexcept;
+                                            luisa::string_view name) noexcept;
 
     /**
      * @brief Load module with the specified path, without adding prefixes or suffices.
      */
-    [[nodiscard]] static DynamicModule load_exact(const std::filesystem::path &path) noexcept;
+    [[nodiscard]] static DynamicModule load_exact(const luisa::filesystem::path &path) noexcept;
 
 };
 

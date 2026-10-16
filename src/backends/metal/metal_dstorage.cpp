@@ -5,6 +5,7 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/mathematics.h>
+#include <luisa/core/stl/filesystem.h>
 
 #include "metal_device.h"
 #include "metal_buffer.h"
@@ -337,8 +338,8 @@ private:
             auto r = luisa::get<DStorageReadCommand::TextureRequest>(request);
             auto texture = reinterpret_cast<MetalTexture *>(r.handle);
             auto size = make_uint3(r.size[0], r.size[1], r.size[2]);
-            auto pitch_size = pixel_storage_size(texture->storage(), make_uint3(size.x, 1u, 1u));
-            auto image_size = pixel_storage_size(texture->storage(), make_uint3(size.xy(), 1u));
+            auto pitch_size = pixel_storage_size(r.storage, make_uint3(size.x, 1u, 1u));
+            auto image_size = pixel_storage_size(r.storage, make_uint3(size.xy(), 1u));
             _io_command_buffer->loadTexture(texture->handle(), 0u, r.level,
                                             MTL::Size{r.size[0], r.size[1], r.size[2]},
                                             pitch_size, image_size, MTL::Origin{0, 0, 0},
@@ -362,8 +363,8 @@ private:
             auto r = luisa::get<DStorageReadCommand::TextureRequest>(request);
             auto dst = reinterpret_cast<MetalTexture *>(r.handle);
             auto size = make_uint3(r.size[0], r.size[1], r.size[2]);
-            auto pitch_size = pixel_storage_size(dst->storage(), make_uint3(size.x, 1u, 1u));
-            auto image_size = pixel_storage_size(dst->storage(), make_uint3(size.xy(), 1u));
+            auto pitch_size = pixel_storage_size(r.storage, make_uint3(size.x, 1u, 1u));
+            auto image_size = pixel_storage_size(r.storage, make_uint3(size.xy(), 1u));
             encoder->copyFromBuffer(buffer, offset, pitch_size, image_size,
                                     MTL::Size{r.size[0], r.size[1], r.size[2]},
                                     dst->handle(), 0u, r.level, MTL::Origin{0, 0, 0});
@@ -515,7 +516,9 @@ void MetalIOStream::signal(MetalEvent *event, uint64_t value) noexcept {
     auto command_buffer = MetalStream::queue()->commandBufferWithUnretainedReferences();
     barrier(command_buffer);
     event->signal(command_buffer, value);
-    command_buffer->commit();
+    CallbackContainer callbacks;
+    callbacks.emplace_back(event->host_signal_callback(value));
+    submit(command_buffer, std::move(callbacks));
 }
 
 void MetalIOStream::wait(MetalEvent *event, uint64_t value) noexcept {
@@ -533,6 +536,7 @@ void MetalIOStream::synchronize() noexcept {
     barrier(command_buffer);
     command_buffer->commit();
     command_buffer->waitUntilCompleted();
+    MetalStream::synchronize();
 }
 
 MetalDStorageExt::MetalDStorageExt(MetalDevice *device) noexcept
@@ -557,7 +561,7 @@ DeviceInterface *MetalDStorageExt::device() const noexcept { return _device; }
 [[nodiscard]] DStorageExt::FileCreationInfo MetalDStorageExt::open_file_handle(luisa::string_view path) noexcept {
     return with_autorelease_pool([=, this] {
         std::error_code ec;
-        auto size = std::filesystem::file_size(path, ec);
+        auto size = luisa::filesystem::file_size(path, ec);
         if (ec) {
             LUISA_WARNING_WITH_LOCATION(
                 "Failed to open file handle (path: {}): {}",

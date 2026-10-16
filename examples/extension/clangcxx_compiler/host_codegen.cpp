@@ -272,7 +272,9 @@ vstd::StringBuilder HostCodegen::codegen(
 		LUISA_ERROR("template.txt file is invalid.");
 	}
 	luisa::vector<std::byte> template_text;
-	template_text.resize_uninitialized(file_stream.length());
+	// read() overwrites every byte below, so an uninitialized resize is intended;
+	// use the portable helper (EASTL resize_uninitialized / std::vector resize).
+	luisa::vector_resize(template_text, static_cast<size_t>(file_stream.length()));
 	file_stream.read(template_text);
 
 	detail::load_str(map, build_args);

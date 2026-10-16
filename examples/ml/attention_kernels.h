@@ -32,6 +32,39 @@ using OnlineAttentionKernel = luisa::compute::Kernel1D<void(FloatBuffer, FloatBu
 // Classic MHA kernel (broadcast K/V tiles via shared memory).
 using MhaOnlineAttentionKernel = luisa::compute::Kernel1D<void(FloatBuffer, FloatBuffer, FloatBuffer, FloatBuffer)>;
 
+// -- vLLM-style paged attention kernels ------------------------------------
+// The device-visible page index (block-table analog) stores one *element
+// offset* per logical page (see PagedAttention's indexing module), so the
+// kernels resolve logical -> physical without knowing the tile stride: the
+// offset already points at the page base inside the pool.
+//
+// Reshape: scatter the dense K/V tensors into the paged KV pool through the
+// page index. One thread per dense element.
+// Params: dense K, dense V, paged K pool, paged V pool, page index (element
+//         offsets), tokens_per_page, pages_per_seq.
+using ReshapeKVToPagedKernel = luisa::compute::Kernel1D<void(FloatBuffer, FloatBuffer,
+                                                             FloatBuffer, FloatBuffer,
+                                                             luisa::compute::Buffer<luisa::uint>,
+                                                             luisa::uint, luisa::uint)>;
+using ReshapeKVToPagedShader = luisa::compute::Shader1D<FloatBuffer, FloatBuffer,
+                                                        FloatBuffer, FloatBuffer,
+                                                        luisa::compute::Buffer<luisa::uint>,
+                                                        luisa::uint, luisa::uint>;
+// Paged attention: page-index-indirected online softmax, one thread per
+// (b, h, i) query row, page -> sub-tile loop structure. The shared-memory
+// sub-tile size and tokens_per_page are baked in at construction (host-known;
+// the kernel is compiled per discovered geometry), while pages_per_seq (the
+// page-index stride) stays a runtime kernel argument.
+// Params: Q, paged K pool, paged V pool, O, page index, pages_per_seq.
+using PagedAttentionKernel = luisa::compute::Kernel1D<void(FloatBuffer, FloatBuffer,
+                                                           FloatBuffer, FloatBuffer,
+                                                           luisa::compute::Buffer<luisa::uint>,
+                                                           luisa::uint)>;
+using PagedAttentionShader = luisa::compute::Shader1D<FloatBuffer, FloatBuffer,
+                                                      FloatBuffer, FloatBuffer,
+                                                      luisa::compute::Buffer<luisa::uint>,
+                                                      luisa::uint>;
+
 // -- Kernel factories ------------------------------------------------------
 // Template factories: Cooperative=true selects the cooperative-vector inner
 // loop; Cooperative=false selects the scalar fallback. Both instantiate the
@@ -46,5 +79,11 @@ template <bool Cooperative>
 [[nodiscard]] OnlineAttentionKernel create_online_attention_kernel();
 
 [[nodiscard]] MhaOnlineAttentionKernel create_mha_online_attention_kernel();
+
+// Paged factories (host geometry discovered at runtime from the sparse-buffer
+// tile size). create_paged_attention_kernel bakes the shared-memory sub-tile
+// (largest divisor of tokens_per_page <= paged_sub_tile_max) into the kernel.
+[[nodiscard]] ReshapeKVToPagedKernel create_reshape_kv_to_paged_kernel();
+[[nodiscard]] PagedAttentionKernel create_paged_attention_kernel(luisa::uint tokens_per_page_host);
 
 }// namespace mla

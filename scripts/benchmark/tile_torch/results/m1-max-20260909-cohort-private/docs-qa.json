@@ -1,0 +1,81 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.83",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "use-site-private-indices-unlock-contiguous-simd-memory",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-cohort-private.qfZvpM/docs-visual/use-site-private-indices-unlock-contiguous-simd-memory-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [
+        [
+          7,
+          6
+        ],
+        [
+          7,
+          4
+        ]
+      ],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "private-index-equality-belongs-to-a-use-and-an-epoch",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-cohort-private.qfZvpM/docs-visual/private-index-equality-belongs-to-a-use-and-an-epoch-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "use-site-private-indices-unlock-contiguous-simd-memory",
+      "width": 390,
+      "screenshot": "/tmp/luisa-cohort-private.qfZvpM/docs-visual/use-site-private-indices-unlock-contiguous-simd-memory-390.png",
+      "scrolledScreenshot": "/tmp/luisa-cohort-private.qfZvpM/docs-visual/use-site-private-indices-unlock-contiguous-simd-memory-390-right.png",
+      "scrolls": [
+        {
+          "element": "TABLE",
+          "maximum": 341,
+          "reached": 341
+        },
+        {
+          "element": "TABLE",
+          "maximum": 65,
+          "reached": 65
+        }
+      ],
+      "tables": [
+        [
+          7,
+          6
+        ],
+        [
+          7,
+          4
+        ]
+      ],
+      "pageWidth": 390
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "private-index-equality-belongs-to-a-use-and-an-epoch",
+      "width": 390,
+      "screenshot": "/tmp/luisa-cohort-private.qfZvpM/docs-visual/private-index-equality-belongs-to-a-use-and-an-epoch-390.png",
+      "scrolledScreenshot": "/tmp/luisa-cohort-private.qfZvpM/docs-visual/private-index-equality-belongs-to-a-use-and-an-epoch-390-right.png",
+      "scrolls": [
+        {
+          "element": "PRE",
+          "maximum": 237,
+          "reached": 237
+        }
+      ],
+      "tables": [],
+      "pageWidth": 390
+    }
+  ]
+}

@@ -7,6 +7,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
+#include <luisa/core/stl/optional.h>
 
 #include <array>
 #include <cstddef>
@@ -48,7 +49,7 @@ void set_environment_variable(const char *name,
 class ScopedEnvironmentVariable {
 private:
     const char *_name;
-    std::optional<std::string> _previous;
+    luisa::optional<std::string> _previous;
 
 public:
     ScopedEnvironmentVariable(const char *name,
@@ -94,7 +95,7 @@ using ParsedConstants = std::unordered_map<spv::Id, ParsedConstant>;
 
 struct FloatTypeSignature {
     uint32_t width{0u};
-    std::optional<uint32_t> encoding;
+    luisa::optional<uint32_t> encoding;
 
     [[nodiscard]] bool operator==(
         const FloatTypeSignature &) const noexcept = default;

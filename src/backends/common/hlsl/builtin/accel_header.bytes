@@ -1,7 +1,7 @@
 template<typename T>
 float4x4 _InstMatrix(T instBuffer,uint index){
 _MeshInst v=instBuffer[index];
-return float4x4(
+return _float4x4(
 float4(v.p0.x,v.p1.x,v.p2.x,0),
 float4(v.p0.y,v.p1.y,v.p2.y,0),
 float4(v.p0.z,v.p1.z,v.p2.z,0),

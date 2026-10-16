@@ -4,6 +4,7 @@
 
 #include "hip_check.h"
 #include "hip_texture.h"
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::hip {
 
@@ -295,7 +296,7 @@ namespace {
 
 }// namespace
 
-void HIPTexture::create_texture_objects(std::span<hipTextureObject_t> objects, Sampler s) const noexcept {
+void HIPTexture::create_texture_objects(luisa::span<hipTextureObject_t> objects, Sampler s) const noexcept {
     LUISA_ASSERT(hip_texture_is_samplable(format()),
                  "Pixel format {} cannot be used for texture sampling.",
                  luisa::to_underlying(format()));
@@ -310,7 +311,7 @@ void HIPTexture::create_texture_objects(std::span<hipTextureObject_t> objects, S
     }
 }
 
-void HIPTexture::copy_image_descriptors(std::span<HIPImageDescriptor> descriptors) const noexcept {
+void HIPTexture::copy_image_descriptors(luisa::span<HIPImageDescriptor> descriptors) const noexcept {
     LUISA_ASSERT(hip_texture_is_samplable(format()),
                  "Pixel format {} cannot be used for texture sampling.",
                  luisa::to_underlying(format()));
@@ -329,7 +330,7 @@ void HIPTexture::copy_image_descriptors(std::span<HIPImageDescriptor> descriptor
     }
 }
 
-void HIPTexture::copy_sampler_descriptors(std::span<HIPSamplerDescriptor> descriptors) const noexcept {
+void HIPTexture::copy_sampler_descriptors(luisa::span<HIPSamplerDescriptor> descriptors) const noexcept {
     static constexpr auto sampler_count = 16u;
     LUISA_ASSERT(hip_texture_is_samplable(format()),
                  "Pixel format {} cannot be used for texture sampling.",
@@ -362,8 +363,8 @@ void HIPTexture::_initialize_direct_descriptor() noexcept {
     host_descriptor.size_z = texture_size.z;
     if (hip_texture_is_samplable(format())) {
         copy_image_descriptors(
-            std::span{host_descriptor.images, static_cast<size_t>(_levels)});
-        copy_sampler_descriptors(std::span{host_descriptor.samplers});
+            luisa::span{host_descriptor.images, static_cast<size_t>(_levels)});
+        copy_sampler_descriptors(luisa::span{host_descriptor.samplers});
     }
     LUISA_CHECK_HIP(hipMalloc(&_direct_descriptor, sizeof(host_descriptor)));
     auto descriptor = reinterpret_cast<uint64_t>(_direct_descriptor);

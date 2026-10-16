@@ -38,7 +38,7 @@ class DefineIter : public vstd::IRange<luisa::string_view> {
     luisa::unordered_set<luisa::string> const *first_map;
     luisa::span<luisa::string_view> const *second_map;
     luisa::unordered_set<luisa::string>::const_iterator first_iter;
-    luisa::span<luisa::string_view>::const_iterator second_iter;
+    decltype(std::declval<luisa::span<luisa::string_view> const &>().begin()) second_iter;
     luisa::string_view value;
 
 public:
@@ -415,9 +415,9 @@ Argument list:
                     local_result.emplace_back(',');
                     size_t idx = [&]() {
                         std::lock_guard lck{mtx};
-                        auto sz = result.size();
-                        result.push_back_uninitialized(local_result.size());
-                        return sz;
+                          auto sz = result.size();
+                          luisa::enlarge_by(result, local_result.size());
+                          return sz;
                     }();
                     memcpy(result.data() + idx, local_result.data(), local_result.size());
                 });
@@ -605,10 +605,10 @@ Argument list:
                         }
 #endif
                         {
-                            bytes.clear();
-                            BinaryFileStream fs{luisa::to_string(i)};
-                            bytes.resize_uninitialized(fs.length());
-                            fs.read(bytes);
+                              bytes.clear();
+                              BinaryFileStream fs{luisa::to_string(i)};
+                              luisa::vector_resize(bytes, static_cast<size_t>(fs.length()));
+                              fs.read(bytes);
                         }
                         tmp_pack_db.write(path_str, bytes);
                         // TODO

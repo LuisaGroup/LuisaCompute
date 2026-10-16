@@ -19,6 +19,8 @@
 #include <luisa/runtime/rtx/aabb.h>
 #include <luisa/ast/callable_library.h>
 #include <luisa/ast/atomic_ref_node.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/functional.h>
 #include <variant>
 namespace luisa::compute {
 template<typename T>
@@ -37,6 +39,7 @@ namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
 constexpr auto pyref = py::return_value_policy::reference;
+constexpr auto pyref_internal = py::return_value_policy::reference_internal;
 using luisa::compute::detail::FunctionBuilder;
 static luisa::weak_ptr<PyStream::Data> default_stream_data;
 struct IntEval {
@@ -91,7 +94,18 @@ ManagedDevice::~ManagedDevice() noexcept {
         }
     }
 }
-static std::filesystem::path output_path;
+static luisa::filesystem::path output_path;
+
+// pybind11 hands out UTF-8 text, so every path that originates from a Python
+// string is decoded with path_from_utf8(). filesystem::path's own narrow
+// conversion uses the ANSI code page and throws std::system_error on bytes that
+// page cannot represent, which would terminate this exception-free binding; an
+// undecodable name yields an empty path and is reported as a failed open.
+[[nodiscard]] static luisa::filesystem::path pybind_path(luisa::string_view text) noexcept {
+    luisa::filesystem::path result;
+    static_cast<void>(path_from_utf8(text, result));
+    return result;
+}
 void interop_copy(DeviceInterface &d, uint64_t interop_buffer, uint64_t interop_buffer_offset_bytes, void *cu_stream_ptr, void *cu_buffer, size_t size_bytes, bool interop_to_compute) {
     interop.create(&d);
     auto gs = default_stream_data.lock();
@@ -139,7 +153,7 @@ struct AtomicAccessChain {
 class UserBinaryIO : public BinaryIO {
 
 private:
-    std::filesystem::path _path;
+    luisa::filesystem::path _path;
 
 public:
     UserBinaryIO() noexcept {
@@ -152,23 +166,31 @@ public:
         if (!home) {
             LUISA_WARNING("Failed to get user home directory: environment variable not found.");
         } else {
-            std::error_code ec;
-            auto p = std::filesystem::canonical(home, ec);
-            if (!ec) {
-                _path = p / ".luisa";
+            // The environment block is narrow (ANSI code page) text, so the home
+            // directory is decoded with path_from_narrow() rather than through
+            // path's throwing constructor.
+            luisa::filesystem::path home_path;
+            if (!path_from_narrow(luisa::string_view{home}, home_path)) [[unlikely]] {
+                LUISA_WARNING("Failed to get user home directory: '{}' is not representable in the ANSI code page.", home);
             } else {
-                LUISA_WARNING("Failed to get user home directory: {}.", ec.message());
+                std::error_code ec;
+                auto p = luisa::filesystem::canonical(home_path, ec);
+                if (!ec) {
+                    _path = p / ".luisa";
+                } else {
+                    LUISA_WARNING("Failed to get user home directory: {}.", ec.message());
+                }
             }
         }
         if (_path.empty()) {
             LUISA_WARNING("Failed to get user home directory. Using temporary directory instead.");
-            _path = std::filesystem::temp_directory_path() / ".luisa";
+            _path = luisa::filesystem::temp_directory_path() / ".luisa";
         }
         std::error_code ec;
-        std::filesystem::create_directories(_path, ec);
+        luisa::filesystem::create_directories(_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application data directory at '{}': {}.",
-                          _path.string(), ec.message());
+                          luisa::to_string(_path), ec.message());
         }
     }
 
@@ -178,16 +200,16 @@ public:
     }
     [[nodiscard]] unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) const noexcept override {
         if (_path.empty()) { return {}; }
-        auto path = _path / "cache" / name;
-        return luisa::make_unique<BinaryFileStream>(luisa::string{path.string()});
+        auto path = _path / "cache" / pybind_path(name);
+        return luisa::make_unique<BinaryFileStream>(luisa::to_string(path));
     }
     [[nodiscard]] unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) const noexcept override {
         if (_path.empty()) { return {}; }
-        auto path = _path / "internal" / name;
-        return luisa::make_unique<BinaryFileStream>(luisa::string{path.string()});
+        auto path = _path / "internal" / pybind_path(name);
+        return luisa::make_unique<BinaryFileStream>(luisa::to_string(path));
     }
     [[nodiscard]] filesystem::path write_shader_bytecode(luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
-        std::filesystem::path path{name};
+        auto path = pybind_path(name);
         if (std::ofstream file{path, std::ios::binary}) {
             file.write(reinterpret_cast<const char *>(data.data()), data.size_bytes());
             return path;
@@ -199,60 +221,60 @@ public:
         if (_path.empty()) { return; }
         auto cache_path = _path / "cache";
         std::error_code ec;
-        std::filesystem::remove_all(cache_path, ec);
+        luisa::filesystem::remove_all(cache_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to remove cache directory '{}': {}.",
-                          cache_path.string(), ec.message());
+                          luisa::to_string(cache_path), ec.message());
         }
     }
     [[nodiscard]] filesystem::path write_shader_cache(luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
         if (_path.empty()) { return {}; }
         auto cache_path = _path / "cache";
         std::error_code ec;
-        std::filesystem::create_directories(cache_path, ec);
+        luisa::filesystem::create_directories(cache_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application cache directory at '{}': {}.",
-                          cache_path.string(), ec.message());
+                          luisa::to_string(cache_path), ec.message());
             return {};
         }
-        auto path = cache_path / name;
+        auto path = cache_path / pybind_path(name);
         if (std::ofstream file{path, std::ios::binary}) {
             file.write(reinterpret_cast<const char *>(data.data()), data.size_bytes());
             return path;
         }
-        LUISA_WARNING("Failed to write shader cache to '{}'.", path.string());
+        LUISA_WARNING("Failed to write shader cache to '{}'.", luisa::to_string(path));
         return {};
     }
     [[nodiscard]] filesystem::path write_internal_shader(luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
         if (_path.empty()) { return {}; }
         auto internal_path = _path / "internal";
         std::error_code ec;
-        std::filesystem::create_directories(internal_path, ec);
+        luisa::filesystem::create_directories(internal_path, ec);
         if (ec) {
             LUISA_WARNING("Failed to create application internal data directory at '{}': {}.",
-                          internal_path.string(), ec.message());
+                          luisa::to_string(internal_path), ec.message());
             return {};
         }
-        auto path = internal_path / name;
+        auto path = internal_path / pybind_path(name);
         if (std::ofstream file{path, std::ios::binary}) {
             file.write(reinterpret_cast<const char *>(data.data()), data.size_bytes());
             return path;
         }
-        LUISA_WARNING("Failed to write internal shader to '{}'.", path.string());
+        LUISA_WARNING("Failed to write internal shader to '{}'.", luisa::to_string(path));
         return {};
     }
 };
 
 void export_runtime(py::module &m) {
-    // py::class_<ManagedMeshFormat>(m, "MeshFormat")
-    //     .def(py::init<>())
-    //     .def("add_attribute", [](ManagedMeshFormat &fmt, VertexAttributeType type, VertexElementFormat format) {
-    //         fmt.attributes.emplace_back(VertexAttribute{.type = type, .format = format});
-    //     })
-    //     .def("add_stream", [](ManagedMeshFormat &fmt) {
-    //         fmt.format.emplace_vertex_stream(fmt.attributes);
-    //         fmt.attributes.clear();
-    //     });
+    py::class_<ManagedMeshFormat>(m, "MeshFormat")
+        .def(py::init<>())
+        .def("add_attribute", [](ManagedMeshFormat &fmt, VertexAttributeType type, PixelFormat format) {
+            fmt.attributes.emplace_back(VertexAttribute{.type = type, .format = format});
+        })
+        .def("add_stream", [](ManagedMeshFormat &fmt) {
+            fmt.format.emplace_vertex_stream(fmt.attributes);
+            fmt.attributes.clear();
+        });
     py::class_<ResourceCreationInfo>(m, "ResourceCreationInfo")
         .def(py::init<>())
         .def("handle", [](ResourceCreationInfo &self) { return self.handle; })
@@ -264,11 +286,15 @@ void export_runtime(py::module &m) {
             DeviceConfig config{.binary_io = &io};
             return ManagedDevice(self.create_device(backend_name, &config));
         })// TODO: support properties
-        .def("set_shader_path", [](Context &self, std::string const &str) {
-            std::filesystem::path p{str};
-            auto cp = std::filesystem::canonical(p);
-            if (!std::filesystem::is_directory(cp))
-                cp = std::filesystem::canonical(cp.parent_path());
+          .def("set_shader_path", [](Context &self, std::string const &str) {
+              auto p = pybind_path(luisa::string_view{str});
+              if (p.empty()) {
+                  LUISA_WARNING("Shader output path '{}' is not valid UTF-8; ignoring it.", str);
+                  return;
+              }
+              auto cp = luisa::filesystem::canonical(p);
+            if (!luisa::filesystem::is_directory(cp))
+                cp = luisa::filesystem::canonical(cp.parent_path());
             output_path = std::move(cp);
         })
         .def("create_headless_device", [](Context &self, luisa::string_view backend_name) {
@@ -347,7 +373,7 @@ void export_runtime(py::module &m) {
                 }
                 return stream;
             })
-        .def("impl", [](ManagedDevice &s) { return s.device.impl(); }, pyref)
+        .def("impl", [](ManagedDevice &s) { return s.device.impl(); }, py::return_value_policy::reference_internal)
         .def("create_accel", [](ManagedDevice &device, AccelOption::UsageHint hint, bool allow_compact, bool allow_update) { return ManagedAccel(device.device.create_accel(AccelOption{
             .hint = hint,
             .allow_compaction = allow_compact,
@@ -385,7 +411,7 @@ void export_runtime(py::module &m) {
             luisa::string_view str_view;
             luisa::string dst_path_str;
             if (!output_path.empty()) {
-                auto dst_path = output_path / std::filesystem::path{str};
+                auto dst_path = output_path / pybind_path(str);
                 dst_path_str = to_string(dst_path);
                 str_view = dst_path_str;
             } else {
@@ -404,7 +430,7 @@ void export_runtime(py::module &m) {
                     luisa::string_view str_view;
                     luisa::string dst_path_str;
                     if (!output_path.empty()) {
-                        auto dst_path = output_path / std::filesystem::path{str};
+                        auto dst_path = output_path / pybind_path(str);
                         dst_path_str = to_string(dst_path);
                         str_view = dst_path_str;
                     } else {
@@ -465,30 +491,30 @@ void export_runtime(py::module &m) {
                 }
             }
             return 0; })
-        .def("save_raster_shader", [](DeviceInterface &self, Function vertex, Function pixel, luisa::string_view str) {
+        .def("save_raster_shader", [](DeviceInterface &self, const ManagedMeshFormat &mesh_format, Function vertex, Function pixel, luisa::string_view str) {
             ShaderOption option;
             option.compile_only = true;
             if (!output_path.empty()) {
-                auto dst_path = output_path / std::filesystem::path{str};
+                auto dst_path = output_path / pybind_path(str);
                 option.name = to_string(dst_path);
             } else {
                 option.name = str;
             }
             static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
-                                  ->create_raster_shader(vertex, pixel, option)); })
-        .def("save_raster_shader_async", [](DeviceInterface &self, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
+                                  ->create_raster_shader(mesh_format.format, vertex, pixel, option)); })
+        .def("save_raster_shader_async", [](DeviceInterface &self, const ManagedMeshFormat &mesh_format, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.create();
-            futures.emplace_back(luisa::fiber::async([str = luisa::string{str}, vertex, pixel, &self]() {
+            futures.emplace_back(luisa::fiber::async([str = luisa::string{str}, mesh_format = mesh_format.format, vertex, pixel, &self]() {
                 ShaderOption option;
                 option.compile_only = true;
                 if (!output_path.empty()) {
-                    auto dst_path = output_path / std::filesystem::path{str};
+                    auto dst_path = output_path / pybind_path(str);
                     option.name = to_string(dst_path);
                 } else {
                     option.name = str;
                 }
                 static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
-                                      ->create_raster_shader(vertex->function(), pixel->function(), option));
+                                      ->create_raster_shader(mesh_format, vertex->function(), pixel->function(), option));
             })); })
         .def("destroy_shader", [](DeviceInterface &self, uint64_t handle) { RefCounter::current->DeRef(handle); })
         .def("create_buffer", [](DeviceInterface &d, const Type *type, size_t size) -> ResourceCreationInfo{
@@ -582,8 +608,8 @@ void export_runtime(py::module &m) {
             "add", [](PyStream &self, Command *cmd) { self.add(cmd); }, pyref)
         .def(
             "add_upload_buffer", [](PyStream &self, py::buffer &&buf) { self.add_upload(std::move(buf)); }, pyref)
-        // .def(
-        //     "add_readback_buffer", [](PyStream &self, py::buffer &&buf) { self.add_readback(std::move(buf)); }, pyref)
+        .def(
+            "add_readback_buffer", [](PyStream &self, py::buffer &&buf) { self.add_readback(std::move(buf)); }, pyref)
         .def(
             "update_accel", [](PyStream &self, ManagedAccel &accel) {
                 accel.update(self);
@@ -668,9 +694,9 @@ void export_runtime(py::module &m) {
             self.load(vec);
         });
     py::class_<FunctionBuilder, luisa::shared_ptr<FunctionBuilder>>(m, "FunctionBuilder")
-        .def("define_kernel", &FunctionBuilder::define_kernel<const std::function<void()> &>)
-        .def("define_callable", &FunctionBuilder::define_callable<const std::function<void()> &>)
-        .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const std::function<void()> &>)
+        .def("define_kernel", &FunctionBuilder::define_kernel<const luisa::function<void()> &>)
+        .def("define_callable", &FunctionBuilder::define_callable<const luisa::function<void()> &>)
+        .def("define_raster_stage", &FunctionBuilder::define_raster_stage<const luisa::function<void()> &>)
         .def("set_block_size", [](FunctionBuilder &self, uint32_t sx, uint32_t sy, uint32_t sz) { self.set_block_size(uint3(sx, sy, sz)); })
         .def("dimension", [](FunctionBuilder &self) {
             if (self.block_size().z > 1) {
@@ -696,29 +722,30 @@ void export_runtime(py::module &m) {
         //         eval);
         // })
 
-        .def("thread_id", &FunctionBuilder::thread_id, pyref)
-        .def("block_id", &FunctionBuilder::block_id, pyref)
-        .def("dispatch_id", &FunctionBuilder::dispatch_id, pyref)
-        .def("kernel_id", &FunctionBuilder::kernel_id, pyref)
-        .def("warp_lane_count", &FunctionBuilder::warp_lane_count, pyref)
-        .def("warp_lane_id", &FunctionBuilder::warp_lane_id, pyref)
-        .def("dispatch_size", &FunctionBuilder::dispatch_size, pyref)
+        // Expressions and statements borrow storage from this builder's arena.
+        .def("thread_id", &FunctionBuilder::thread_id, pyref_internal)
+        .def("block_id", &FunctionBuilder::block_id, pyref_internal)
+        .def("dispatch_id", &FunctionBuilder::dispatch_id, pyref_internal)
+        .def("kernel_id", &FunctionBuilder::kernel_id, pyref_internal)
+        .def("warp_lane_count", &FunctionBuilder::warp_lane_count, pyref_internal)
+        .def("warp_lane_id", &FunctionBuilder::warp_lane_id, pyref_internal)
+        .def("dispatch_size", &FunctionBuilder::dispatch_size, pyref_internal)
 
-        .def("local", &FunctionBuilder::local, pyref)
-        .def("shared", &FunctionBuilder::shared, pyref)
+        .def("local", &FunctionBuilder::local, pyref_internal)
+        .def("shared", &FunctionBuilder::shared, pyref_internal)
         // .def("shared")
         // .def("constant")
-        .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref)
-        .def("texture_binding", &FunctionBuilder::texture_binding, pyref)
-        .def("bindless_array_binding", &FunctionBuilder::bindless_array_binding, pyref)
-        .def("accel_binding", &FunctionBuilder::accel_binding, pyref)
+        .def("buffer_binding", &FunctionBuilder::buffer_binding, pyref_internal)
+        .def("texture_binding", &FunctionBuilder::texture_binding, pyref_internal)
+        .def("bindless_array_binding", &FunctionBuilder::bindless_array_binding, pyref_internal)
+        .def("accel_binding", &FunctionBuilder::accel_binding, pyref_internal)
 
-        .def("argument", &FunctionBuilder::argument, pyref)
-        .def("reference", &FunctionBuilder::reference, pyref)
-        .def("buffer", &FunctionBuilder::buffer, pyref)
-        .def("texture", &FunctionBuilder::texture, pyref)
-        .def("bindless_array", &FunctionBuilder::bindless_array, pyref)
-        .def("accel", &FunctionBuilder::accel, pyref)
+        .def("argument", &FunctionBuilder::argument, pyref_internal)
+        .def("reference", &FunctionBuilder::reference, pyref_internal)
+        .def("buffer", &FunctionBuilder::buffer, pyref_internal)
+        .def("texture", &FunctionBuilder::texture, pyref_internal)
+        .def("bindless_array", &FunctionBuilder::bindless_array, pyref_internal)
+        .def("accel", &FunctionBuilder::accel, pyref_internal)
 
         .def("literal", [](FunctionBuilder &self, const Type *type, const StdLiteralType &value)
 
@@ -783,16 +810,16 @@ void export_runtime(py::module &m) {
                            print_v(), type->description());
                    },
                    LiteralExpr::Value{value_ptr}); },
-             pyref)
-        .def("unary", &FunctionBuilder::unary, pyref)
-        .def("binary", &FunctionBuilder::binary, pyref)
-        .def("member", &FunctionBuilder::member, pyref)
-        .def("access", &FunctionBuilder::access, pyref)
-        .def("swizzle", &FunctionBuilder::swizzle, pyref)
-        .def("cast", &FunctionBuilder::cast, pyref)
+             pyref_internal)
+        .def("unary", &FunctionBuilder::unary, pyref_internal)
+        .def("binary", &FunctionBuilder::binary, pyref_internal)
+        .def("member", &FunctionBuilder::member, pyref_internal)
+        .def("access", &FunctionBuilder::access, pyref_internal)
+        .def("swizzle", &FunctionBuilder::swizzle, pyref_internal)
+        .def("cast", &FunctionBuilder::cast, pyref_internal)
 
-        .def("call", [](FunctionBuilder &self, const Type *type, CallOp call_op, const std::vector<const Expression *> &args) { return self.call(type, call_op, std::move(args)); }, pyref)
-        .def("call", [](FunctionBuilder &self, const Type *type, Function custom, const std::vector<const Expression *> &args) { return self.call(type, custom, std::move(args)); }, pyref)
+        .def("call", [](FunctionBuilder &self, const Type *type, CallOp call_op, const std::vector<const Expression *> &args) { return self.call(type, call_op, std::move(args)); }, pyref_internal)
+        .def("call", [](FunctionBuilder &self, const Type *type, Function custom, const std::vector<const Expression *> &args) { return self.call(type, custom, std::move(args)); }, pyref_internal)
         .def("call", [](FunctionBuilder &self, CallOp call_op, const std::vector<const Expression *> &args) { self.call(call_op, std::move(args)); })
         .def("call", [](FunctionBuilder &self, Function custom, const std::vector<const Expression *> &args) { self.call(custom, std::move(args)); })
 
@@ -801,21 +828,24 @@ void export_runtime(py::module &m) {
         .def("return_", &FunctionBuilder::return_)
         .def("assign", [](FunctionBuilder &self, Expression const *l, Expression const *r) { self.assign(l, r); }, pyref)
 
-        .def("if_", &FunctionBuilder::if_, pyref)
-        .def("switch_", &FunctionBuilder::switch_, pyref)
-        .def("ray_query_", &FunctionBuilder::ray_query_, pyref)
-        .def("case_", &FunctionBuilder::case_, pyref)
-        .def("loop_", &FunctionBuilder::loop_, pyref)
+        .def("if_", &FunctionBuilder::if_, pyref_internal)
+        .def("switch_", &FunctionBuilder::switch_, pyref_internal)
+        .def("ray_query_", &FunctionBuilder::ray_query_, pyref_internal)
+        .def("case_", py::overload_cast<const Expression *>(&FunctionBuilder::case_), pyref_internal)
+        .def("case_group", [](FunctionBuilder &self, const luisa::vector<const Expression *> &labels) {
+            return self.case_(luisa::span{labels});
+        }, pyref_internal)
+        .def("loop_", &FunctionBuilder::loop_, pyref_internal)
         // .def("switch_")
         // .def("case_")
-        .def("default_", &FunctionBuilder::default_, pyref)
+        .def("default_", &FunctionBuilder::default_, pyref_internal)
         .def("for_", [](FunctionBuilder &self, const Expression *var, const Expression *condition, const Expression *update) {
                 auto ptr = self.for_(var, condition, update);
-                return ptr; }, pyref)
-        .def("autodiff_", &FunctionBuilder::autodiff_, pyref)
+                return ptr; }, pyref_internal)
+        .def("autodiff_", &FunctionBuilder::autodiff_, pyref_internal)
         .def("print_", [](FunctionBuilder &self, luisa::string_view format, const std::vector<const Expression *> &args) { self.print_(luisa::string{format}, args); }, pyref)
         // .def("meta") // unused
-        .def("function", &FunctionBuilder::function);// returning object
+        .def("function", &FunctionBuilder::function, py::keep_alive<0, 1>());
 
     py::class_<AtomicAccessChain>(m, "AtomicAccessChain")
         .def(py::init<>())

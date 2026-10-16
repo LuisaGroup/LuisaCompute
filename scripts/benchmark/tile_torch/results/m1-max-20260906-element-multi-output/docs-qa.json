@@ -1,0 +1,20 @@
+{
+  "source": "existing Sphinx docs hierarchy; no new reader pages or parallel report app",
+  "html_directory": "/tmp/luisa-multi-docs.Zqwi0E/html",
+  "sphinx_command": "uv run --offline --no-project --python 3.13 --with sphinx --with sphinx-rtd-theme --with myst-parser --with breathe sphinx-build -b html -E -a -W --keep-going docs /tmp/luisa-multi-docs.Zqwi0E/html",
+  "sphinx_exit": 1,
+  "sphinx_warnings": 10,
+  "warning_scope": "existing api_reference.rst missing docs/output/xml/index.xml; Doxygen unavailable locally",
+  "new_tile_warnings": 0,
+  "html_pages": 48,
+  "checked_local_targets": 3665,
+  "checked_compatibility_anchors": 199,
+  "local_link_check_passed": true,
+  "browser": "installed Google Chrome, headless Playwright",
+  "viewports": [1440, 390],
+  "checked_sections": ["multi-output-pointwise-fusion-removes-a-mapping-boundary", "automatic-gpu-pointwise-graphs", "current-conclusion"],
+  "new_table_header_plus_data_rows": 9,
+  "page_horizontal_overflow": false,
+  "desktop_table_and_lowering_map_visually_inspected": true,
+  "full_api_docs_certified": false
+}

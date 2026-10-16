@@ -72,7 +72,12 @@ struct InstKeyHash {
     } else if (key.tag == DerivedInstructionTag::CAST) {
         key.sub_op = static_cast<uint64_t>(static_cast<const CastInst *>(inst)->op());
     } else if (key.tag == DerivedInstructionTag::RESOURCE_QUERY) {
-        key.sub_op = static_cast<uint64_t>(static_cast<const ResourceQueryInst *>(inst)->op());
+        auto query = static_cast<const ResourceQueryInst *>(inst);
+        key.sub_op =
+            static_cast<uint64_t>(query->op()) |
+            (static_cast<uint64_t>(
+                 query->bindless_access().encoded())
+             << 32u);
     }
     return key;
 }

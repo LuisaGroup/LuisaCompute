@@ -270,7 +270,7 @@ namespace {
 
 }// namespace
 
-static void run(FunctionDefinition *def, LoopRotationInfo &info) noexcept {
+static void loop_rotation_run(FunctionDefinition *def, LoopRotationInfo &info) noexcept {
     if (def == nullptr) { return; }
     if (contains_structured_control_flow(def)) {
         ++info.structured_cfg_error_count;
@@ -302,7 +302,7 @@ static void run(FunctionDefinition *def, LoopRotationInfo &info) noexcept {
     }
 }
 
-[[nodiscard]] static bool preflight_module(
+[[nodiscard]] static bool loop_rotation_preflight_module(
     Module *module, LoopRotationInfo &info) noexcept {
     if (module == nullptr) { return true; }
     for (auto *function : module->function_list()) {
@@ -324,17 +324,17 @@ static void run(FunctionDefinition *def, LoopRotationInfo &info) noexcept {
 
 LoopRotationInfo loop_rotation_pass_run_on_function(FunctionDefinition *def) noexcept {
     LoopRotationInfo info;
-    detail::run(def, info);
+    detail::loop_rotation_run(def, info);
     return info;
 }
 
 LoopRotationInfo loop_rotation_pass_run_on_module(Module *module,
                                                   PassReport *report) noexcept {
     LoopRotationInfo info;
-    if (detail::preflight_module(module, info)) {
+    if (detail::loop_rotation_preflight_module(module, info)) {
         if (module != nullptr) {
             for (auto *function : module->function_list()) {
-                detail::run(function == nullptr ? nullptr :
+                detail::loop_rotation_run(function == nullptr ? nullptr :
                                                     function->definition(),
                             info);
             }

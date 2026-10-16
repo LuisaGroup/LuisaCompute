@@ -14,6 +14,15 @@ Located in `src/ext/glslang/SPIRV`. Headers:
 #include "SPIRV/disassemble.h"
 ```
 
+Consumers in this repo: the native XIR->SPIR-V codegen owns one builder per module
+(`luisa::make_unique<spv::Builder>(spv::Spv_1_5, 0, &_logger)` in
+`src/backends/common/spirv/spirv_codegen/emit.cpp`, held as `_builder_ptr`/`_builder` in
+`src/backends/common/spirv/spirv_codegen/entry.h`; emitted from `type.cpp`, `bind.cpp`,
+`instruction.cpp`). The GLSL path in `src/backends/vk/glslang_compiler.cpp`
+(`compile_glsl_to_spirv`, used by `native_shader_ext`) goes through
+`glslang::GlslangToSpv(*intermediate, words, &options)` with `glslang::SpvOptions` instead
+of driving `spv::Builder` directly.
+
 > Code snippets follow glslang's own conventions (e.g. `camelCase` builder methods). LuisaCompute project style rules apply to project code, while `src/ext/glslang` is third-party code.
 
 ## SpvBuilder Lifecycle
@@ -87,9 +96,9 @@ spv::Id coopMatTy = builder.makeCooperativeMatrixTypeKHR(floatTy, scopeId, rowsI
 spv::Id coopVecTy = builder.makeCooperativeVectorTypeNV(floatTy, componentsId);
 spv::Id tensorTy  = builder.makeTensorTypeARM(floatTy, rankId);
 
-// Generic
-std::vector<spv::IdImmediate> ops = {{true, someId}};
-spv::Id genericTy = builder.makeGenericType(spv::Op::OpType..., ops);
+// Generic (opcode-driven type creation, e.g. tensor layout/view types)
+std::vector<spv::IdImmediate> ops = {{true, rankId}, {true, dimId}};
+spv::Id genericTy = builder.makeGenericType(spv::Op::OpTypeTensorLayoutNV, ops);
 ```
 
 ## Type Queries
@@ -139,9 +148,9 @@ spv::Id specVec = builder.makeCompositeConstant(vec4Ty, {f32, f32, f32, f32}, tr
 ## Variables
 
 ```cpp
-spv::Id global = builder.createVariable(spv::Decoration::NoPrecision, spv::StorageClass::Private, floatTy, "g", builder.makeFloatConstant(0.0f));
-spv::Id local  = builder.createVariable(spv::Decoration::NoPrecision, spv::StorageClass::Function, floatTy, "l");
-spv::Id untyped= builder.createUntypedVariable(spv::Decoration::NoPrecision, spv::StorageClass::StorageBuffer, "u", dataTypeId, initId);
+spv::Id global = builder.createVariable(spv::NoPrecision, spv::StorageClass::Private, floatTy, "g", builder.makeFloatConstant(0.0f));
+spv::Id local  = builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, floatTy, "l");
+spv::Id untyped= builder.createUntypedVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, "u", dataTypeId, initId);
 spv::Id undef  = builder.createUndefined(floatTy);
 ```
 
@@ -156,9 +165,9 @@ builder.addExecutionMode(entry, spv::ExecutionMode::OriginUpperLeft);
 // Regular function
 spv::Block* entryBlock = nullptr;
 spv::Function* func = builder.makeFunctionEntry(
-    spv::Decoration::NoPrecision, floatTy, "myFunc", spv::LinkageType::Max,
+    spv::NoPrecision, floatTy, "myFunc", spv::LinkageType::Max,
     {floatTy, int32Ty},
-    {{spv::Decoration::NoPrecision}, {spv::Decoration::NoPrecision}},
+    {{spv::NoPrecision}, {spv::NoPrecision}},
     &entryBlock);
 
 builder.enterFunction(func);
@@ -204,7 +213,7 @@ builder.setBuildPoint(&loop.body);
 builder.createLoopContinue();
 builder.setBuildPoint(&loop.continue_target);
 // loop increment (optional)
-builder.createBranch(false, &loop.head);
+builder.createBranch(true, &loop.head); // implicit back edge (no debug source location)
 builder.setBuildPoint(&loop.merge);
 builder.closeLoop();
 // break: builder.createLoopExit();  continue: builder.createLoopContinue();
@@ -221,15 +230,17 @@ spv::Id mul  = builder.createBinOp(spv::Op::OpIMul, int32Ty, a, b);
 spv::Id div  = builder.createBinOp(spv::Op::OpFDiv, floatTy, a, b);
 spv::Id and_ = builder.createBinOp(spv::Op::OpBitwiseAnd, uint32Ty, a, b);
 
-// ExtInst (ternary)
-spv::Id fma = builder.createOp(spv::Op::OpExtInst, floatTy, {glsl450, GLSLstd450Fma, a, b, c});
+// OpExtInst: the entry point is a literal, so use createBuiltinCall (not createOp)
+spv::Id fma = builder.createBuiltinCall(floatTy, glsl450, GLSLstd450Fma, {a, b, c});
 
-// Generic n-ary
-spv::Id r = builder.createOp(spv::Op::OpVectorTimesMatrix, vec4Ty, {a, b, c});
+// Generic operand-vector form (any createOp arity)
+spv::Id r = builder.createOp(spv::Op::OpVectorTimesMatrix, vec4Ty, {vec, mat});
 
-// Mixed ID/immediates
-std::vector<spv::IdImmediate> mixed = {{true, idOp}, {false, (unsigned)spv::MemoryAccessMask::Aligned}};
-spv::Id r = builder.createOp(spv::Op::Op..., typeId, mixed);
+// Mixed ID/immediates (literal words mixed with IDs, e.g. a group-op reduction literal)
+std::vector<spv::IdImmediate> mixed = {{true, scopeId},
+                                       {false, (unsigned)spv::GroupOperation::Reduce},
+                                       {true, val}};
+spv::Id reduced = builder.createOp(spv::Op::OpGroupNonUniformBitwiseAnd, typeId, mixed);
 
 // SpecConstantOp
 spv::Id specAdd = builder.createSpecConstantOp(spv::Op::OpIAdd, int32Ty, {specA, specB}, {});
@@ -238,9 +249,10 @@ spv::Id specAdd = builder.createSpecConstantOp(spv::Op::OpIAdd, int32Ty, {specA,
 ## Memory Instructions
 
 ```cpp
-spv::Id loaded = builder.createLoad(ptrId, spv::Decoration::NoPrecision);
+spv::Id loaded = builder.createLoad(ptrId, spv::NoPrecision);
 builder.createStore(valueId, ptrId);
-builder.createStore(valueId, ptrId, spv::MemoryAccessMask::NonUniformPointerEXT, spv::Scope::Device, 4);
+builder.createStore(valueId, ptrId, spv::MemoryAccessMask::Aligned | spv::MemoryAccessMask::MakePointerAvailableKHR,
+                    spv::Scope::Device, 16); // store emits the scope word only for MakePointerAvailableKHR (load: MakePointerVisibleKHR)
 
 // Access chain
 std::vector<spv::Id> indexes = {builder.makeUintConstant(0), builder.makeUintConstant(2)};
@@ -254,16 +266,16 @@ spv::Id dynEl = builder.createVectorExtractDynamic(vec, elemType, indexId);
 spv::Id dynVec= builder.createVectorInsertDynamic(vec, vecType, newElem, indexId);
 spv::Id comp  = builder.createCompositeConstruct(vec4Ty, {a, b, c, d});
 
-spv::Id vec4 = builder.createConstructor(spv::Decoration::NoPrecision, {scalarId}, vec4Ty);
-spv::Id mat  = builder.createMatrixConstructor(spv::Decoration::NoPrecision, srcs, mat4x4Ty);
+spv::Id vec4 = builder.createConstructor(spv::NoPrecision, {scalarId}, vec4Ty);
+spv::Id mat  = builder.createMatrixConstructor(spv::NoPrecision, srcs, mat4x4Ty);
 
 // Swizzle
-spv::Id swz = builder.createRvalueSwizzle(spv::Decoration::NoPrecision, vec4Ty, vec, {2, 1, 0, 3});
+spv::Id swz = builder.createRvalueSwizzle(spv::NoPrecision, vec4Ty, vec, {2, 1, 0, 3});
 spv::Id lswz= builder.createLvalueSwizzle(vec4Ty, target, source, {2, 1, 0, 3});
 
 // Scalar promotion (in-place)
-builder.promoteScalar(spv::Decoration::NoPrecision, left, right);
-spv::Id smeared = builder.smearScalar(spv::Decoration::NoPrecision, scalarId, vec4Ty);
+builder.promoteScalar(spv::NoPrecision, left, right);
+spv::Id smeared = builder.smearScalar(spv::NoPrecision, scalarId, vec4Ty);
 ```
 
 ## Access Chain Helper
@@ -317,7 +329,7 @@ builder.addDecoration(id, spv::Decoration::RelaxedPrecision);
 builder.addDecoration(id, spv::Decoration::BuiltIn, (int)spv::BuiltIn::Position);
 builder.addMemberDecoration(structTy, 0, spv::Decoration::Offset, 0);
 builder.addMemberDecoration(structTy, 1, spv::Decoration::Offset, 16);
-builder.addDecoration(id, spv::Decoration::WorkgroupSize, std::vector<unsigned>{64, 1, 1});
+builder.addExecutionMode(entry, spv::ExecutionMode::LocalSize, 64, 1, 1); // WorkgroupSize is a BuiltIn, not a Decoration
 builder.addDecorationId(id, spv::Decoration::ArrayStrideIdEXT, strideId);
 builder.addLinkageDecoration(id, "myFunc", spv::LinkageType::Export);
 ```
@@ -329,6 +341,12 @@ builder.createControlBarrier(spv::Scope::Workgroup, spv::Scope::Device,
     spv::MemorySemanticsMask::UniformMemory | spv::MemorySemanticsMask::WorkgroupMemory);
 builder.createMemoryBarrier(spv::Scope::Device, spv::MemorySemanticsMask::ImageMemory);
 ```
+
+Group (subgroup) ops have no dedicated helper: add the capability, then emit the
+`OpGroupNonUniform*` opcode through `createOp` (with `IdImmediate` literals as above) or
+`createNoResultOp` — as done throughout `src/backends/common/spirv/spirv_codegen/instruction.cpp`
+(e.g. `builder.addCapability(spv::Capability::GroupNonUniformVote);` then
+`builder.createOp(spv::Op::OpGroupNonUniformAll, boolTy, {scope, val});`).
 
 ## Debug Info
 
@@ -342,16 +360,22 @@ builder.setSourceText(sourceText);
 
 ### NonSemantic Shader Debug Info
 ```cpp
-builder.setEmitNonSemanticShaderDebugInfo(true);  // also enables OpLine-style tracking
+builder.setEmitNonSemanticShaderDebugInfo(true);  // trackDebugInfo + NonSemantic import; emits DebugLine ext-insts (not OpLine)
 spv::Id debugType = builder.getDebugType(spirvTypeId);
 builder.enterLexicalBlock(line, column);
 builder.leaveLexicalBlock();
 builder.setupFunctionDebugInfo(func, "myFunc", paramTypes, paramNames);
 spv::Id dbgGlobal = builder.createDebugGlobalVariable(debugType, "globalVar", varId);
 spv::Id dbgLocal  = builder.createDebugLocalVariable(debugType, "localVar", argNumber);
-spv::Id dbgDecl   = builder.makeDebugDeclare(dbgLocal, ptrId);
-spv::Id dbgVal    = builder.makeDebugValue(dbgLocal, valueId);
+spv::Id dbgDecl = builder.makeDebugDeclare(dbgLocal, ptrId);
+spv::Id dbgVal = builder.makeDebugValue(dbgLocal, valueId);
 ```
+
+Import string and enumerators are versioned but *not* named with a `100` suffix: the
+OpExtInstImport name is built as `"NonSemantic.Shader.DebugInfo." + version`
+(`SpvBuilder.cpp:2241`, `requireNonSemanticShaderDebugInfoVersion(unsigned)`), and the
+opcode enumerators in `SPIRV/NonSemanticShaderDebugInfo.h` are
+`NonSemanticShaderDebugInfoDebug*` (e.g. `NonSemanticShaderDebugInfoDebugLine`).
 
 ## Function Calls & Builtins
 
@@ -415,6 +439,7 @@ block->addLocalVariable(std::unique_ptr<spv::Instruction>(varInst));
 bool terminated = block->isTerminated();
 
 spv::Function* func = new spv::Function(funcId, retType, funcType, firstParamId, linkage, name, module);
+// the Function ctor already registers itself with the module (spvIR.h: `parent.addFunction(this)`)
 func->addBlock(block);
 func->setReturnPrecision(spv::Decoration::RelaxedPrecision);
 func->addParamPrecision(0, spv::Decoration::RelaxedPrecision);
@@ -450,7 +475,7 @@ From `TGlslangToSpvTraverser` (`src/ext/glslang/SPIRV/GlslangToSpv.cpp`). Common
 ```cpp
 builder.clearAccessChain();
 // Treat spec constants, r-value parameters, and non-pointer/untyped values as r-values.
-if (isRValue || rValueParameters.count(symbolId) ||
+if (qualifier.isSpecConstant() || rValueParameters.find(symbol->getId()) != rValueParameters.end() ||
     (!builder.isPointerType(builder.getTypeId(id)) && !builder.isUntypedPointer(id)))
     builder.setAccessChainRValue(id);
 else
@@ -491,22 +516,30 @@ builder.accessChainPushSwizzle(swizzle, convertGlslangToSpvType(node->getLeft()-
 
 ### visitUnary (Inc/Dec)
 ```cpp
-spv::Id operand = builder.accessChainGetLValue();
-spv::Id one = builder.makeIntConstant(1);
-spv::Id result = builder.createBinOp(op, type, operand, one);
-builder.accessChainStore(result, ...);
-builder.clearAccessChain(); builder.setAccessChainRValue(result);
+// operand is loaded r-value style; the access chain still points at the l-value
+spv::Id operand = accessChainLoad(node->getOperand()->getType());
+spv::Id one = builder.makeIntConstant(1);   // makeFloatConstant(1.0F) / makeInt8Constant(1) by basic type
+// The traverser goes through its own createBinaryOperation() helper (glslang::TOperator
+// EOpAdd/EOpSub + decorations), which in turn calls builder.createBinOp.
+spv::Id result = createBinaryOperation(op, decorations, convertGlslangToSpvType(node->getType()),
+                                       operand, one, node->getType().getBasicType());
+builder.accessChainStore(result, TranslateNonUniformDecoration(builder.getAccessChain().coherentFlags));
+builder.clearAccessChain();
+if (node->getOp() == glslang::EOpPreIncrement || node->getOp() == glslang::EOpPreDecrement)
+    builder.setAccessChainRValue(result);   // pre: yield the new value
+else
+    builder.setAccessChainRValue(operand);  // post: yield the old value
 ```
 
 ### visitUnary (Builtin / NoResult / ArrayLength)
 ```cpp
 // Builtin
-spv::Id result = builder.createBuiltinCall(resultType(), glsl450, opcode, {operand});
-// No-result
-builder.createNoResultOp(spv::Op::OpKill);
-builder.createNoResultOp(spv::Op::OpTerminateInvocation);
-builder.createNoResultOp(spv::Op::OpDemoteToHelperInvocationEXT);
+spv::Id result = builder.createBuiltinCall(resultType(), stdBuiltins, opcode, {operand});
+// No-result (visitUnary; discard / terminate-invocation / demote are statement
+// terminators emitted in visitBranch instead)
 builder.createNoResultOp(spv::Op::OpAssumeTrueKHR, operand);
+builder.createNoResultOp(spv::Op::OpEmitStreamVertex, operand);
+builder.createNoResultOp(spv::Op::OpRayQueryTerminateKHR, operand);
 // Array length
 spv::Id len = builder.createArrayLength(builder.accessChainGetLValue(), member, bits);
 len = builder.createUnaryOp(spv::Op::OpBitcast, builder.makeIntType(bits), len);
@@ -515,8 +548,8 @@ spv::Id lenKHR = builder.createCooperativeMatrixLengthKHR(typeId);
 spv::Id lenNV  = builder.createCooperativeMatrixLengthNV(typeId);
 spv::Id lenVec = builder.getCooperativeVectorNumComponents(typeId);
 // Tensor
-spv::Id layout = builder.createOp(spv::Op::OpCreateTensorLayoutNV, resultType(), {});
-spv::Id view   = builder.createOp(spv::Op::OpCreateTensorViewNV, resultType(), {});
+spv::Id layout = builder.createOp(spv::Op::OpCreateTensorLayoutNV, resultType(), std::vector<spv::Id>{});
+spv::Id view = builder.createOp(spv::Op::OpCreateTensorViewNV, resultType(), std::vector<spv::Id>{});
 ```
 
 ### visitAggregate
@@ -553,8 +586,8 @@ builder.enterLexicalBlock(loc.line, loc.column); /* body */ builder.leaveLexical
 spv::Id result = builder.createTriOp(spv::Op::OpSelect, resultType, cond, trueVal, falseVal);
 // Vector selection: for SPIR-V < 1.4 smear the scalar condition to the vector width;
 // for SPIR-V >= 1.4 OpSelect accepts a scalar condition directly.
-if (builder.getSpvVersion() < spv::Spv_1_4 && builder.isVector(trueVal)) {
-    cond = builder.smearScalar(precision, cond,
+if (glslangIntermediate->getSpv().spv < glslang::EShTargetSpv_1_4 && builder.isVector(trueVal)) {
+    cond = builder.smearScalar(spv::NoPrecision, cond,
                                builder.makeVectorType(builder.makeBoolType(),
                                                       builder.getNumComponents(trueVal)));
 }
@@ -582,7 +615,7 @@ builder.setBuildPoint(&loop.head);
 builder.createLoopMerge(&loop.merge, &loop.continue_target, spv::LoopControlMask::MaskNone, {});
 builder.createConditionalBranch(cond, &loop.body, &loop.merge);
 builder.setBuildPoint(&loop.body); /* body */ builder.createLoopContinue();
-builder.setBuildPoint(&loop.continue_target); /* increment */ builder.createBranch(false, &loop.head);
+builder.setBuildPoint(&loop.continue_target); /* increment */ builder.createBranch(true, &loop.head);
 builder.setBuildPoint(&loop.merge);
 builder.closeLoop();
 ```
@@ -594,22 +627,24 @@ builder.makeReturn(false);                // void
 builder.createLoopExit();                 // break
 builder.createLoopContinue();             // continue
 builder.makeStatementTerminator(spv::Op::OpKill, "post-discard");
-builder.makeStatementTerminator(spv::Op::OpTerminateInvocation, "post-terminate");
+builder.makeStatementTerminator(spv::Op::OpTerminateInvocation, "post-terminate-invocation");
 builder.createNoResultOp(spv::Op::OpDemoteToHelperInvocationEXT);
-builder.makeStatementTerminator(spv::Op::OpTerminateRayKHR, "post-terminate-ray");
-builder.makeStatementTerminator(spv::Op::OpIgnoreIntersectionKHR, "post-ignore");
+builder.makeStatementTerminator(spv::Op::OpTerminateRayKHR, "post-terminateRayKHR");
+builder.makeStatementTerminator(spv::Op::OpIgnoreIntersectionKHR, "post-ignoreIntersectionKHR");
 ```
 
 ### visitConstantUnion
 ```cpp
-spv::Id constantId = createSpvConstant(node);
+int nextConst = 0;
+spv::Id constant = createSpvConstantFromConstUnionArray(node->getType(), node->getConstArray(), nextConst, false);
 builder.clearAccessChain();
-builder.setAccessChainRValue(constantId);
+builder.setAccessChainRValue(constant);
 ```
 
 ### visitVariableDecl
 ```cpp
-builder.setDebugSourceLocation(node->getLoc().line, node->getLoc().getFilename());
+builder.setDebugSourceLocation(node->getDeclSymbol()->getLoc().line,
+                               node->getDeclSymbol()->getLoc().getFilename());
 ```
 
 ### visitFunctions

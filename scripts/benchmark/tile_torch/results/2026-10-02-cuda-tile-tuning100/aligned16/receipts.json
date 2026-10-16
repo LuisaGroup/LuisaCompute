@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "newline": "LF",
+  "files": {
+    "checkpoint.json": {
+      "bytes": 164080,
+      "sha256": "8433f265eae1c0139de21a6cf9149c89b32f771804a66faeab7c582ee8057fd1"
+    },
+    "README.md": {
+      "bytes": 5949,
+      "sha256": "2f12893a36d58bff946015d9508e067561bd69415b24fae9833eec6e8d2e11fd"
+    }
+  }
+}

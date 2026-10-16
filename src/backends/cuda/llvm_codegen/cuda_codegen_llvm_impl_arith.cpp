@@ -6,6 +6,8 @@
 #include <numbers>
 
 #include "cuda_codegen_llvm_impl.h"
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::compute::cuda {
 
@@ -815,12 +817,12 @@ namespace detail {
                                                       llvm::Type *t, bool enable_fast_math) noexcept {
     auto op_suffix = t->isDoubleTy() ? "" : "f";
     if (enable_fast_math) {
-        auto nv_fast_op_name = fmt::format("__nv_fast_{}{}", std::string_view{op_name}, op_suffix);
+        auto nv_fast_op_name = fmt::format("__nv_fast_{}{}", luisa::string_view{op_name}, op_suffix);
         if (auto op = m.getFunction(nv_fast_op_name)) {
             return op;
         }
     }
-    auto nv_op_name = fmt::format("__nv_{}{}", std::string_view{op_name}, op_suffix);
+    auto nv_op_name = fmt::format("__nv_{}{}", luisa::string_view{op_name}, op_suffix);
     auto op = m.getFunction(nv_op_name);
     LUISA_ASSERT(op != nullptr, "libdevice function {} not found.", op_name);
     return op;
@@ -1446,6 +1448,11 @@ namespace detail {
     switch (c->type()->tag()) {
         case Type::Tag::INT8: return c->as<int8_t>();
         case Type::Tag::UINT8: return c->as<uint8_t>();
+        // FP8 / I4 / FP4 placeholders: evaluate as i8/u8.
+        case Type::Tag::INT4: return c->as<int8_t>();
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::FP4_E2M1: return c->as<uint8_t>();
         case Type::Tag::INT16: return c->as<int16_t>();
         case Type::Tag::UINT16: return c->as<uint16_t>();
         case Type::Tag::INT32: return c->as<int32_t>();

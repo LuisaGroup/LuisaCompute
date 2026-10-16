@@ -13,15 +13,23 @@
 #include "sparse_binding_plan.h"
 #include "sparse_heap.h"
 #include "timeline_semaphore_plan.h"
+#include "device_feature_plan.h"
+#include "command_buffer_sync.h"
 #include "indirect_buffer.h"
 #include "descriptor_interface_plan.h"
 #include "queue_family_contract.h"
 #include "resource_barrier_contract.h"
 #include <luisa/runtime/swapchain.h>
 #include <luisa/backends/ext/vk_custom_cmd.h>
+#include <luisa/backends/ext/vk_cuda_interop.h>
+#include <luisa/core/stl/memory.h>
+#ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
+#include "vk_cuda_interop_ext.h"
+#endif
 #include "../common/argument_block_layout.h"
 #include "../common/shader_print_formatter.h"
 #include "raster_shader.h"
+#include "native_shader_ext.h"
 #include <bit>
 #include <limits>
 namespace lc::vk {
@@ -144,13 +152,13 @@ void set_config_resource_restore_state(
 uint64_t ReorderFuncTable::canonical_buffer_handle(
     uint64_t handle) const noexcept {
     auto buffer = reinterpret_cast<Buffer const *>(handle);
-    return std::bit_cast<uint64_t>(buffer->vk_buffer());
+    return luisa::bit_cast<uint64_t>(buffer->vk_buffer());
 }
 
 uint64_t ReorderFuncTable::canonical_texture_handle(
     uint64_t handle) const noexcept {
     auto texture = reinterpret_cast<Texture const *>(handle);
-    return std::bit_cast<uint64_t>(texture->vk_image());
+    return luisa::bit_cast<uint64_t>(texture->vk_image());
 }
 
 void ReorderFuncTable::traverse_bindless_resources(
@@ -557,6 +565,181 @@ static void validate_argument_block_plan(
         argument_block_layout_status_name(plan.layout.status()));
 }
 
+// ---------------------------------------------------------------------------
+// Software (fallback) acceleration structures in the command stream.
+//
+// A device that answers ray tracing with the fallback has no
+// VkAccelerationStructureKHR at all: the acceleration-structure argument of a
+// shader is bound to the fallback's shared acceleration buffer and to its
+// instance buffer, i.e. to two ordinary storage buffers
+// (src/backends/common/rtx/fallback_rtx_layout.h).  Everything such an
+// argument contributes to the command stream is therefore the plain
+// storage-buffer contract, and the fallback's own build commands are ordinary
+// dispatches, spliced in by `CommandBuffer::execute`.
+// ---------------------------------------------------------------------------
+
+// A `uint4` is the element type of both fallback buffers, so it is also the
+// stride a storage-buffer descriptor of one of them has to respect.
+inline constexpr size_t fallback_accel_element_stride = 16u;
+
+// The push-constant block of a compute shader starts with the fixed dispatch
+// block the HLSL codegen always declares; a device that runs the software
+// fallback appends one 32-bit word per fallback `accel` argument right after it
+// (the tree's region base, `accelBase` in fallback_rtx_header.bytes), and
+// `Device::_create_shader_hlsl` sizes the block accordingly.
+inline constexpr uint32_t fallback_accel_base_push_offset =
+    static_cast<uint32_t>(sizeof(IndirectDispatchPushConstants));
+static_assert(sizeof(IndirectDispatchPushConstants) == 32u);
+
+// The bindless heap of a software (fallback) acceleration structure plus the
+// two buffers the fallback's storage keeps, resolved from
+// `FallbackRtxDevice::binding()` at every use and never cached: the fallback
+// storage grows by appending a larger buffer and retiring the old one, and the
+// TLAS' heap is replaced when it outgrows its slot count (the library documents
+// both).
+//
+// The heap is what the shader-visible ABI is built on: a heap entry is a view
+// that starts at the region it names, so a traversal resolves a BLAS by its slot
+// and indexes every region relatively - there is no absolute-offset descriptor
+// and no backwards descriptor indexing any more
+// (src/backends/common/rtx/fallback_rtx_layout.h).
+//
+//  * `heap` is the TLAS' bindless array.  Its slot table is the `accel`
+//    argument's first descriptor, and its slots (the backend's global bindless
+//    heap holds the buffers) are the regions the traversal resolves.
+//  * `accel` / `accel_region_offset` are the *shared acceleration buffer* and the
+//    byte offset of this tree's region inside it.  The GPU path never names them
+//    (the heap does), but the barrier pass still has to put the buffer the heap
+//    will read into its state, and the (debug) validators download it.
+//  * `instances` is the instance buffer bound at this tree's slice, so element 0
+//    is the tree's first instance record and `instance_u4 * instance` indexes it.
+struct FallbackAccelBuffers {
+    BindlessArray const *heap{};
+    Buffer const *accel{};
+    Buffer const *instances{};
+    size_t instance_offset{};
+    size_t accel_region_offset{};
+    // The heap slot of the tree's own region (`heap_tlas_slot`), which is the
+    // `accelBase` the generated shader is handed.
+    uint32_t region_slot{};
+};
+
+[[nodiscard]] static FallbackAccelBuffers fallback_accel_buffers(
+    Device *device, uint64_t handle, const char *phase) noexcept {
+    auto binding = device->fallback_rtx()->binding(handle);
+    LUISA_ASSERT(
+        binding.valid(),
+        "Vulkan {} was handed the software fallback acceleration structure "
+        "of handle {}, which has not been built yet. Build the acceleration "
+        "structure before dispatching a shader that traces through it.",
+        phase, handle);
+    auto *heap = reinterpret_cast<BindlessArray const *>(binding.accel_heap);
+    auto *accel = reinterpret_cast<Buffer const *>(binding.accel_buffer);
+    auto *instances = reinterpret_cast<Buffer const *>(binding.instance_buffer);
+    LUISA_ASSERT(
+        heap != nullptr && accel != nullptr && instances != nullptr &&
+            binding.accel_offset_bytes <= accel->byte_size() &&
+            binding.instance_offset_bytes <= instances->byte_size(),
+        "Vulkan {} found an uninitialized software fallback acceleration "
+        "structure for handle {}.",
+        phase, handle);
+    return FallbackAccelBuffers{
+        heap, accel, instances, binding.instance_offset_bytes,
+        binding.accel_offset_bytes, binding.accel_slot};
+}
+
+// The region's `accelBase`: the heap slot of the tree's own region.  It is the
+// only thing that still distinguishes one fallback `accel` argument from
+// another in the push-constant block.
+[[nodiscard]] static uint32_t fallback_accel_region_base(
+    const FallbackAccelBuffers &buffers) noexcept {
+    return buffers.region_slot;
+}
+
+// The instance view spans the tree's instance records to the end of the
+// instance buffer; the acceleration view spans the whole buffer (the tree's
+// offsets are absolute, see above).
+[[nodiscard]] static size_t fallback_accel_descriptor_range(
+    const Buffer *buffer, size_t offset) noexcept {
+    LUISA_ASSERT(offset <= buffer->byte_size(),
+                 "Vulkan software fallback buffer offset {} exceeds the "
+                 "buffer size {}.",
+                 offset, buffer->byte_size());
+    return buffer->byte_size() - offset;
+}
+
+[[nodiscard]] static void validate_fallback_accel_descriptor(
+    Device *device, const Buffer *buffer, size_t offset,
+    const char *name) noexcept {
+    auto &limits = device->properties().limits;
+    auto status = detail::validate_direct_storage_buffer_descriptor(
+        offset, fallback_accel_descriptor_range(buffer, offset),
+        buffer->byte_size(), fallback_accel_element_stride,
+        std::max<VkDeviceSize>(1u, limits.minStorageBufferOffsetAlignment),
+        limits.maxStorageBufferRange);
+    LUISA_ASSERT(
+        status == detail::DirectStorageBufferDescriptorStatus::SUCCESS,
+        "The Vulkan software ray-tracing fallback cannot describe its {} "
+        "buffer as a storage-buffer descriptor at offset {} of a {} byte "
+        "buffer: {}. The fallback's offsets are multiples of {} bytes; this "
+        "device requires descriptor offsets to be multiples of {}. Disable "
+        "the fallback (VulkanDeviceConfigExt::use_fallback_rtx()) on this "
+        "device.",
+        name, offset, buffer->byte_size(),
+        detail::direct_storage_buffer_descriptor_status_name(status),
+        fallback_accel_element_stride,
+        limits.minStorageBufferOffsetAlignment);
+}
+
+// The descriptor slots an acceleration-structure argument occupies.  The HLSL
+// codegen declares the two (the acceleration view and the instance view) for
+// every `accel` argument of a fallback shader, which is the two-descriptor ABI
+// the native argument already uses; the roles are read from the compiled
+// property list so the barrier pass and the bind pass consume exactly what the
+// shader declares.
+struct FallbackAccelRoles {
+    static constexpr auto invalid = std::numeric_limits<uint32_t>::max();
+    uint32_t accel{invalid};
+    uint32_t instance{invalid};
+    bool instance_writable{false};
+};
+
+// The HLSL codegen declares the fallback's two views as ordinary storage
+// buffers (property.cpp): the acceleration view (`StructuredBuffer<uint4>`,
+// the whole acceleration buffer, an absolute handle space) and the instance
+// view (`StructuredBuffer`/`RWStructuredBuffer<uint4>`, bound at this tree's
+// slice).  A write-only `accel` argument declares the instance view alone, and
+// its type is then the RW one - which is what tells the two cases apart.
+[[nodiscard]] static FallbackAccelRoles consume_fallback_accel_roles(
+    vstd::span<const hlsl::Property> bindings,
+    uint32_t &descriptor_index) noexcept {
+    using hlsl::ShaderVariableType;
+    FallbackAccelRoles roles;
+    auto *property = detail::find_local_descriptor_property(
+        bindings, descriptor_index);
+    if (property != nullptr &&
+        property->type == ShaderVariableType::StructuredBuffer) {
+        roles.accel = descriptor_index++;
+        property = detail::find_local_descriptor_property(
+            bindings, descriptor_index);
+    }
+    if (property != nullptr &&
+        (property->type == ShaderVariableType::StructuredBuffer ||
+         property->type == ShaderVariableType::RWStructuredBuffer)) {
+        roles.instance = descriptor_index++;
+        roles.instance_writable =
+            property->type == ShaderVariableType::RWStructuredBuffer;
+    }
+
+    LUISA_ASSERT(
+        roles.accel != FallbackAccelRoles::invalid ||
+            roles.instance != FallbackAccelRoles::invalid,
+        "Vulkan found a software fallback acceleration-structure argument "
+        "without a descriptor at binding {}, but the shader declares one.",
+        descriptor_index);
+    return roles;
+}
+
 struct ResourceBarrierVisitor {
     ResourceBarrier *barrier;
     SavedArgumentCursor arguments;
@@ -570,6 +753,10 @@ struct ResourceBarrierVisitor {
     ResourceBarrier::Usage read_usage;
     ResourceBarrier::Usage accel_read_usage;
     vstd::span<const hlsl::Property> bindings;
+    // The device the buffered commands belong to.  Only the fallback path
+    // needs it (to resolve its acceleration-structure binding); it is set by
+    // the caller right after construction.
+    Device *device{nullptr};
     uint32_t descriptor_index{};
     detail::ShaderCodegenDialect codegen_dialect{
         detail::ShaderCodegenDialect::HLSL_SPIRV};
@@ -803,6 +990,53 @@ struct ResourceBarrierVisitor {
         auto &argument = arguments.next_accel();
         LUISA_ASSERT(bf.handle != 0u,
                      "Vulkan dispatch contains a null accel handle.");
+        if (validation_values != nullptr) {
+            // One HLSL validation word per accel argument, in kernel-argument
+            // order: the instance count the shader's `accel.size()` query reads
+            // from the host-injected validation slot. An acceleration structure
+            // that was never built has no instance count and reports zero.
+            uint32_t value = 0u;
+            if (device->owns_fallback_accel(bf.handle)) {
+                auto binding = device->fallback_rtx()->binding(bf.handle);
+                value = binding.valid() ? binding.instance_count : 0u;
+            } else {
+                value = reinterpret_cast<Tlas *>(bf.handle)
+                                ->last_instance_count();
+            }
+            validation_values->emplace_back(value);
+        }
+        // ---- software (fallback) acceleration structure ----------------------
+        // Its descriptors are storage buffers, so the argument contributes the
+        // storage-buffer read/write contract and nothing else: there is no
+        // VkAccelerationStructureKHR to transition and no acceleration-
+        // structure build to order against (the fallback builds are ordinary
+        // dispatches, spliced into this command buffer at the position of the
+        // build command).
+        if (device->owns_fallback_accel(bf.handle)) {
+            auto roles = consume_fallback_accel_roles(
+                bindings, descriptor_index);
+            auto buffers = fallback_accel_buffers(
+                device, bf.handle, "barrier preprocessing");
+            if (roles.accel != FallbackAccelRoles::invalid) {
+                barrier->record(
+                    BufferView{buffers.accel, 0u, buffers.accel->byte_size()},
+                    read_usage);
+                // The slot table the traversal indexes is a storage buffer of
+                // its own, and the descriptors it resolves are written by the
+                // bindless-array update command - so the table is read here.
+                auto &index_buffer = buffers.heap->indices_buffer();
+                barrier->record(
+                    BufferView{&index_buffer, 0u, index_buffer.byte_size()},
+                    read_usage);
+            }
+            if (roles.instance != FallbackAccelRoles::invalid) {
+                barrier->record(
+                    BufferView{buffers.instances, 0u,
+                               buffers.instances->byte_size()},
+                    roles.instance_writable ? uav_usage : read_usage);
+            }
+            return;
+        }
         auto tlas = reinterpret_cast<Tlas *>(bf.handle);
         auto [reads, writes] = resource_access(argument.var_usage);
         auto native = codegen_dialect ==
@@ -896,6 +1130,14 @@ struct BindPropVisitor {
     vstd::vector<VkImageView> *img_views;
     SavedArgumentCursor arguments;
     vstd::span<const hlsl::Property> bindings;
+    // The device the descriptors belong to; only the fallback path needs it
+    // (to resolve its acceleration-structure binding).  Set by the caller.
+    Device *device{nullptr};
+    // The region base of every software (fallback) `accel` argument, in
+    // argument order: the command encoder writes them into the shader's
+    // push-constant block, after the fixed dispatch block
+    // (`fallback_accel_base_push_offset`).
+    vstd::vector<uint32_t> fallback_accel_bases;
     detail::ShaderCodegenDialect codegen_dialect{
         detail::ShaderCodegenDialect::HLSL_SPIRV};
     ResourceBarrier::Usage uav_usage;
@@ -1102,6 +1344,73 @@ struct BindPropVisitor {
         auto &argument = arguments.next_accel();
         LUISA_ASSERT(bf.handle != 0u,
                      "Vulkan dispatch contains a null accel handle.");
+        // ---- software (fallback) acceleration structure ----------------------
+        // The two slots the shader declared are bound to the fallback's shared
+        // acceleration buffer and to its instance buffer, both ordinary storage
+        // buffers.  The acceleration view is the *whole* buffer (a handle is an
+        // absolute `uint4` index), and the tree's own region reaches the shader
+        // as the `accelBase` push-constant word.
+        if (device->owns_fallback_accel(bf.handle)) {
+            auto roles = consume_fallback_accel_roles(
+                bindings, desc_index);
+            auto buffers = fallback_accel_buffers(
+                device, bf.handle, "descriptor binding");
+            auto bind_buffer = [&](uint32_t index, const Buffer *buffer,
+                                   size_t offset, const char *name) noexcept {
+                validate_fallback_accel_descriptor(
+                    device, buffer, offset, name);
+                auto buffer_desc =
+                    cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                *buffer_desc = VkDescriptorBufferInfo{
+                    buffer->vk_buffer(), offset,
+                    fallback_accel_descriptor_range(buffer, offset)};
+                cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    desc_set,
+                    index,
+                    0,
+                    1,
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    nullptr,
+                    buffer_desc,
+                    nullptr});
+            };
+            if (roles.accel != FallbackAccelRoles::invalid) {
+                // The `accel` argument's first descriptor is the TLAS' bindless
+                // heap: its *slot table* is a stream of `uint` handles, exactly
+                // the shape a `BindlessArray` argument's index buffer has (the
+                // buffers the slots name live in the device's global bindless
+                // heap, which the shader metadata binds).
+                auto &index_buffer = buffers.heap->indices_buffer();
+                auto index_desc =
+                    cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                *index_desc = VkDescriptorBufferInfo{
+                    index_buffer.vk_buffer(), 0u, index_buffer.byte_size()};
+                cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    desc_set,
+                    roles.accel,
+                    0,
+                    1,
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    nullptr,
+                    index_desc,
+                    nullptr});
+            }
+            if (roles.instance != FallbackAccelRoles::invalid) {
+                bind_buffer(roles.instance, buffers.instances,
+                            buffers.instance_offset, "instance");
+            }
+            // Every fallback `accel` argument owns one region-base word of the
+            // shader's push-constant block (`entry_points.cpp` appends one
+            // `ConstantValue` marker per argument), in argument order - the
+            // order this pass visits them in.
+            fallback_accel_bases.emplace_back(
+                fallback_accel_region_base(buffers));
+            return;
+        }
         auto tlas = reinterpret_cast<Tlas *>(bf.handle);
         auto [reads, writes] = resource_access(argument.var_usage);
         auto native = codegen_dialect ==
@@ -1299,20 +1608,38 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
     upload_alloc.visitor.device = &device;
     readback_alloc.visitor.device = &device;
     {
+        // Size the per-stream descriptor pool from the physical-device limits.
+        // Desktop defaults (maxSets=262144, 65536 per type) are preserved when
+        // the device allows them; mobile/low-end devices get clamped pools to
+        // avoid large host-side reservations.
+        auto const &limits = device.properties().limits;
+        auto pool_plan = detail::plan_descriptor_pool_sizes(
+            limits.maxPerStageDescriptorStorageBuffers,
+            limits.maxPerStageDescriptorStorageImages,
+            limits.maxPerStageDescriptorSampledImages,
+            limits.maxPerStageDescriptorSamplers,
+            limits.maxPerStageDescriptorUniformBuffers,
+            limits.maxDescriptorSetStorageBuffers,
+            limits.maxDescriptorSetStorageImages,
+            limits.maxDescriptorSetSampledImages,
+            limits.maxDescriptorSetSamplers,
+            limits.maxDescriptorSetUniformBuffers,
+            device.enable_raytracing());
         VkDescriptorPoolSize pool_sizes[6];
-        pool_sizes[0].descriptorCount = 65536;
+        pool_sizes[0].descriptorCount = pool_plan.storage_buffers;
         pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_sizes[1].descriptorCount = 65536;
+        pool_sizes[1].descriptorCount = pool_plan.storage_images;
         pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        pool_sizes[2].descriptorCount = 65536;
+        pool_sizes[2].descriptorCount = pool_plan.sampled_images;
         pool_sizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        pool_sizes[3].descriptorCount = 65536;
+        pool_sizes[3].descriptorCount = pool_plan.samplers;
         pool_sizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
-        pool_sizes[4].descriptorCount = 65536;
+        pool_sizes[4].descriptorCount = pool_plan.uniform_buffers;
         pool_sizes[4].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         auto pool_size_count = 5u;
         if (device.enable_raytracing()) {
-            pool_sizes[pool_size_count].descriptorCount = 65536;
+            pool_sizes[pool_size_count].descriptorCount =
+                pool_plan.acceleration_structures;
             pool_sizes[pool_size_count].type =
                 VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
             ++pool_size_count;
@@ -1320,7 +1647,7 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
         VkDescriptorPoolCreateInfo createInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             .flags = 0,
-            .maxSets = 262144,
+            .maxSets = pool_plan.max_sets,
             .poolSizeCount = pool_size_count,
             .pPoolSizes = pool_sizes};
         VK_CHECK_RESULT(vkCreateDescriptorPool(device.logic_device(), &createInfo, Device::alloc_callbacks(), &desc_pool));
@@ -1424,15 +1751,18 @@ Stream::Stream(Device *device, StreamTag tag)
         case StreamTag::GRAPHICS:
             _queue = device->graphics_queue();
             _resource_barrier.queue_type = ResourceBarrier::QueueType::GRAPHICS;
+            _resource_barrier.device = device;
             _queue_mtx = &device->graphics_queue_mtx();
             break;
         case StreamTag::COPY:
             _resource_barrier.queue_type = ResourceBarrier::QueueType::COPY;
+            _resource_barrier.device = device;
             _queue = device->copy_queue();
             _queue_mtx = &device->copy_queue_mtx();
             break;
         case StreamTag::COMPUTE:
             _resource_barrier.queue_type = ResourceBarrier::QueueType::COMPUTE;
+            _resource_barrier.device = device;
             _queue = device->compute_queue();
             _queue_mtx = &device->compute_queue_mtx();
             break;
@@ -2385,9 +2715,74 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     planned_argument_buffer_layout.status()));
         }
     };
-    for (auto &&command : cmds) {
+    // Reordering is decided once per batch: the visitor assigns each command to
+    // a barrier-free layer, or, when the switch is off, keeps strict submission
+    // order so this batch can be A/B compared against a reordered one.
+    _stream.reorder.set_enabled(device()->command_reorder_enabled());
+    // ---- software (fallback) acceleration-structure builds ------------------
+    // A mesh/TLAS build of a device that runs the software fallback is not a
+    // vkCmdBuildAccelerationStructuresKHR at all: the fallback returns the
+    // dispatches of its own build (`FallbackRtxDevice::build_blas` /
+    // `build_accel`) and they have to land here, *before* the reorder and the
+    // argument preprocessing, so that they are reordered, barriered and
+    // preprocessed exactly like the hand-written dispatches they are.  The
+    // native build command is dropped: its handle belongs to the fallback, so
+    // reinterpreting it as a `Blas`/`Tlas` would be meaningless.
+    luisa::vector<luisa::unique_ptr<Command>> fallback_builds;
+    luisa::vector<Command const *> expanded_commands;
+    expanded_commands.reserve(cmds.size());
+    if (device()->use_fallback_rtx()) {
+        for (auto &&command : cmds) {
+            auto expanded = false;
+            switch (command->tag()) {
+                case Command::Tag::EMeshBuildCommand: {
+                    auto c = static_cast<MeshBuildCommand const *>(command.get());
+                    if (device()->owns_fallback_blas(c->handle())) {
+                        lc::fallback_rtx::FallbackRtxDevice::MeshGeometry geometry{
+                            .vertex_buffer = c->vertex_buffer(),
+                            .vertex_buffer_offset = c->vertex_buffer_offset(),
+                            .vertex_stride = c->vertex_stride(),
+                            .vertex_buffer_size = c->vertex_buffer_size(),
+                            .triangle_buffer = c->triangle_buffer(),
+                            .triangle_buffer_offset = c->triangle_buffer_offset(),
+                            .triangle_buffer_size = c->triangle_buffer_size()};
+                        auto list = device()->fallback_rtx()->build_blas(
+                            c->handle(), geometry);
+                        for (auto &&stolen : list.steal_commands()) {
+                            expanded_commands.emplace_back(stolen.get());
+                            fallback_builds.emplace_back(std::move(stolen));
+                        }
+                        expanded = true;
+                    }
+                } break;
+                case Command::Tag::EAccelBuildCommand: {
+                    auto c = static_cast<AccelBuildCommand const *>(command.get());
+                    if (device()->owns_fallback_accel(c->handle())) {
+                        auto list = device()->fallback_rtx()->build_accel(
+                            c->handle(), c->instance_count(),
+                            c->modifications(),
+                            c->update_instance_buffer_only());
+                        for (auto &&stolen : list.steal_commands()) {
+                            expanded_commands.emplace_back(stolen.get());
+                            fallback_builds.emplace_back(std::move(stolen));
+                        }
+                        expanded = true;
+                    }
+                } break;
+                default: break;
+            }
+            if (!expanded) { expanded_commands.emplace_back(command.get()); }
+        }
+    } else {
+        // The fallback is off: the batch is exactly what the caller handed in,
+        // and this loop only borrows the pointers.
+        for (auto &&command : cmds) {
+            expanded_commands.emplace_back(command.get());
+        }
+    }
+    for (auto command : expanded_commands) {
         if (command->tag() == Command::Tag::EShaderDispatchCommand) {
-            auto c = static_cast<ShaderDispatchCommand const *>(command.get());
+            auto c = static_cast<ShaderDispatchCommand const *>(command);
             if (c->is_indirect()) {
                 auto indirect = validate_indirect_dispatch_source(c);
                 if (indirect.plan.command_count == 0u) {
@@ -2403,12 +2798,12 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         command->accept(_stream.reorder);
         switch (command->tag()) {
             case Command::Tag::EShaderDispatchCommand: {
-                auto c = static_cast<ShaderDispatchCommand const *>(command.get());
+                auto c = static_cast<ShaderDispatchCommand const *>(command);
                 auto shader = reinterpret_cast<Shader const *>(c->handle());
                 dispatch_shader(c, shader);
             } break;
             case Command::Tag::ECustomCommand: {
-                auto cmd = static_cast<CustomCommand const *>(command.get());
+                auto cmd = static_cast<CustomCommand const *>(command);
                 if (cmd->custom_cmd_uuid() == to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE)) {
                     auto c = static_cast<DrawRasterSceneCommand const *>(cmd);
                     auto shader = reinterpret_cast<Shader const *>(c->handle());
@@ -2418,7 +2813,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             case Command::Tag::EMotionInstanceBuildCommand: {
                 // Handle motion instance build early (before reordering/preprocess)
                 // to ensure child is set before TLAS build references it
-                auto c = static_cast<MotionInstanceBuildCommand const *>(command.get());
+                auto c = static_cast<MotionInstanceBuildCommand const *>(command);
                 auto mi = reinterpret_cast<MotionInstance *>(c->handle());
                 mi->set_child(reinterpret_cast<Blas *>(c->child()));
                 mi->set_keyframes(const_cast<MotionInstanceBuildCommand *>(c)->steal_keyframes());
@@ -2429,6 +2824,12 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     const auto uniform_buffer_size =
         planned_argument_buffer_layout.size();
     auto cmd_lists = _stream.reorder.command_lists();
+    // Layer accounting is what decides how many barrier boundaries the batch is
+    // recorded with, so make it visible when debugging reorder behaviour.
+    size_t used_layers = 0u;
+    for (auto *head : cmd_lists) {
+        if (head != nullptr) used_layers++;
+    }
     auto clear_reorder = vstd::scope_exit([&] {
         _stream.reorder.clear();
     });
@@ -2484,6 +2885,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             shader->binds(),
             shader->resource_argument_binding_offset(),
             shader->codegen_dialect()};
+        // Only the fallback path reads this one (it resolves the software
+        // acceleration-structure binding of an `accel` argument).
+        visitor.device = device();
         decode_cmd(shader->captured(), visitor);
         decode_cmd(c->arguments(), visitor);
         visitor.arguments.finish("argument preprocessing");
@@ -2773,6 +3177,60 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 record_custom_resource_usage(
                                     resource_barrier, i);
                             }
+                        } break;
+                        case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL): {
+                            auto cmd = static_cast<vk_cuda_interop::CudaKernelLaunchCommand const *>(c);
+                            cmd->traverse_arguments([&]<typename T>(T const &arg, Usage usage) noexcept {
+                                auto barrier_usage =
+                                    (luisa::to_underlying(usage) &
+                                     luisa::to_underlying(Usage::WRITE)) != 0u ?
+                                        ResourceBarrier::Usage::kComputeUAV :
+                                        ResourceBarrier::Usage::kComputeRead;
+                                if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                                    LUISA_ASSERT(arg.handle != 0u,
+                                                 "Vulkan CUDA kernel launch contains a null buffer handle.");
+                                    auto buffer = reinterpret_cast<Buffer const *>(arg.handle);
+                                    resource_barrier->record(
+                                        BufferView(buffer, arg.offset, arg.size),
+                                        barrier_usage);
+                                } else if constexpr (std::is_same_v<T, Argument::Texture>) {
+                                    LUISA_ASSERT(arg.handle != 0u,
+                                                 "Vulkan CUDA kernel launch contains a null texture handle.");
+                                    auto tex = reinterpret_cast<Texture const *>(arg.handle);
+                                    resource_barrier->record(
+                                        TexView(tex, arg.level),
+                                        barrier_usage);
+                                } else {
+                                    LUISA_ERROR_WITH_LOCATION(
+                                        "Bindless-array and accel arguments are not "
+                                        "supported for CUDA kernel launch.");
+                                }
+                            });
+                        } break;
+                        case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH): {
+                            // A native shader dispatch declares its resource usages
+                            // through traverse_arguments; they are the barrier
+                            // contract (see the header of native_shader_ext.h).
+                            auto cmd = static_cast<NativeShaderDispatchCommand const *>(c);
+                            cmd->traverse_arguments([&]<typename T>(T const &arg, Usage usage) noexcept {
+                                auto barrier_usage =
+                                    (luisa::to_underlying(usage) &
+                                     luisa::to_underlying(Usage::WRITE)) != 0u ?
+                                        ResourceBarrier::Usage::kComputeUAV :
+                                        ResourceBarrier::Usage::kComputeRead;
+                                if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                                    LUISA_ASSERT(arg.handle != 0u,
+                                                 "Native shader dispatch contains a null buffer handle.");
+                                    auto buffer = reinterpret_cast<Buffer const *>(arg.handle);
+                                    resource_barrier->record(
+                                        BufferView(buffer, arg.offset, arg.size),
+                                        barrier_usage);
+                                } else {
+                                    LUISA_ERROR_WITH_LOCATION(
+                                        "Native shader dispatches only support buffer "
+                                        "arguments on the Vulkan backend.");
+                                }
+                            });
                         } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
                         // values are added.
@@ -3183,7 +3641,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     buffer_pair.dst,
                     static_cast<uint32_t>(regions.size()),
                     regions.data()};
-                vkCmdCopyBuffer2(_cmdbuffer, &copy_info2);
+                detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
             }
             pending_upload.copies.clear();
         };
@@ -3197,7 +3655,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     buffer_pair.dst,
                     static_cast<uint32_t>(regions.size()),
                     regions.data()};
-                vkCmdCopyBuffer2(_cmdbuffer, &copy_info2);
+                detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
             }
             pending_download.copies.clear();
         };
@@ -3254,9 +3712,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         reinterpret_cast<Buffer const *>(c->dst_handle())->vk_buffer(),
                         1,
                         &buffer_copy};
-                    vkCmdCopyBuffer2(
-                        _cmdbuffer,
-                        &copy_info2);
+                    detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
                 } break;
                 case Command::Tag::EBufferToTextureCopyCommand: {
                     flush_all_pending();
@@ -3282,7 +3738,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         resource_barrier->get_layout(tex, c->level()),
                         1,
                         &region};
-                    vkCmdCopyBufferToImage2(_cmdbuffer, &copy_info);
+                    detail::cmd_copy_buffer_to_image(_cmdbuffer, device(), &copy_info);
                 } break;
                 case Command::Tag::EShaderDispatchCommand: {
                     flush_all_pending();
@@ -3312,6 +3768,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     }
                     bool is_rt_shader = (shader->shader_tag() == Shader::ShaderTag::kRayTracingShader);
                     BindPropVisitor visitor{};
+                    visitor.device = device();
                     set_dispatch_args(
                         visitor, c, shader, indirect_source);
                     constexpr size_t max_printer_count = 1024ull * 1024ull;
@@ -3345,9 +3802,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             count_buffer.buffer->vk_buffer(),
                             1,
                             &buffer_copy};
-                        vkCmdCopyBuffer2(
-                            _cmdbuffer,
-                            &copy_info2);
+                        detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
 
                         data_buffer = BufferView{
                             reinterpret_cast<Buffer const *>(data_chunk.handle),
@@ -3465,6 +3920,36 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             push_shader_constants(
                                 shader, push_stage, 0u, value);
                         }
+                        // Software (fallback) ray tracing: the region base of
+                        // every fallback `accel` argument travels in the same
+                        // push-constant block, right after the dispatch block
+                        // the codegen declares first (32 + 4 * i, see
+                        // fallback_rtx_header.bytes and entry_points.cpp) - one
+                        // 32-bit word per argument, in the argument order the
+                        // property table reserved the words in.
+                        auto expected_base_count =
+                            shader->push_constant_size() >
+                                    fallback_accel_base_push_offset ?
+                                (shader->push_constant_size() -
+                                 fallback_accel_base_push_offset) /
+                                    4u :
+                                0u;
+                        LUISA_ASSERT(
+                            visitor.fallback_accel_bases.size() ==
+                                expected_base_count,
+                            "Vulkan fallback ray tracing pushed {} region "
+                            "bases, but the shader's push-constant block "
+                            "({} bytes) expects {}.",
+                            visitor.fallback_accel_bases.size(),
+                            shader->push_constant_size(),
+                            expected_base_count);
+                        for (auto i = 0u;
+                             i < visitor.fallback_accel_bases.size(); ++i) {
+                            push_shader_constants(
+                                shader, push_stage,
+                                fallback_accel_base_push_offset + 4u * i,
+                                visitor.fallback_accel_bases[i]);
+                        }
                     };
                     if (c->is_indirect()) {
                         auto commands = prepare_indirect_dispatch(
@@ -3576,9 +4061,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 1,
                                 &buffer_copy};
 
-                            vkCmdCopyBuffer2(
-                                _cmdbuffer,
-                                &copy_info2);
+                            detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
                         }
                         // Copy data
                         {
@@ -3595,9 +4078,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 reinterpret_cast<Buffer const *>(data_readback.buffer)->vk_buffer(),
                                 1,
                                 &buffer_copy};
-                            vkCmdCopyBuffer2(
-                                _cmdbuffer,
-                                &copy_info2);
+                            detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
                         }
                         states()->callbacks.emplace_back(
                             [printers = shader->printers(),
@@ -3654,7 +4135,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         resource_barrier->get_layout(tex, c->level()),
                         1,
                         &region};
-                    vkCmdCopyBufferToImage2(_cmdbuffer, &copy_info);
+                    detail::cmd_copy_buffer_to_image(_cmdbuffer, device(), &copy_info);
                 } break;
                 case Command::Tag::ETextureDownloadCommand: {
                     flush_all_pending();
@@ -3687,9 +4168,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         buffer.buffer->vk_buffer(),
                         1,
                         &region};
-                    vkCmdCopyImageToBuffer2(
-                        _cmdbuffer,
-                        &info);
+                    detail::cmd_copy_image_to_buffer(_cmdbuffer, device(), &info);
                 } break;
                 case Command::Tag::ETextureCopyCommand: {
                     flush_all_pending();
@@ -3716,9 +4195,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         resource_barrier->get_layout(dst_tex, c->dst_level()),
                         1,
                         &copy};
-                    vkCmdCopyImage2(
-                        _cmdbuffer,
-                        &info);
+                    detail::cmd_copy_image(_cmdbuffer, device(), &info);
                 } break;
                 case Command::Tag::ETextureToBufferCopyCommand: {
                     flush_all_pending();
@@ -3743,9 +4220,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         reinterpret_cast<Buffer const *>(c->buffer())->vk_buffer(),
                         1,
                         &region};
-                    vkCmdCopyImageToBuffer2(
-                        _cmdbuffer,
-                        &info);
+                    detail::cmd_copy_image_to_buffer(_cmdbuffer, device(), &info);
                 } break;
                 case Command::Tag::EAccelBuildCommand: {
                     flush_all_pending();
@@ -3901,8 +4376,35 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
                             auto cmd = static_cast<DrawRasterSceneCommand const *>(c);
                             auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
-                            auto pipe = shader->create_pipeline(cmd->rtv_texs(), cmd->dsv_tex(), cmd->mesh_format(), cmd->raster_state());
+                            // Vulkan bakes the vertex binding stride into the
+                            // pipeline, so it must come from the meshes'
+                            // VertexBufferViews (like on DX), not from the
+                            // mesh format's attribute sizes. All meshes of
+                            // one draw share the pipeline and must therefore
+                            // agree on the per-binding strides.
+                            luisa::fixed_vector<uint, 4> strides;
+                            for (auto &mesh : cmd->scene()) {
+                                auto vb = mesh.vertex_buffers();
+                                if (strides.empty()) {
+                                    for (auto &i : vb) {
+                                        strides.emplace_back(static_cast<uint>(i.stride()));
+                                    }
+                                } else {
+                                    LUISA_ASSERT(
+                                        strides.size() == vb.size(),
+                                        "Raster meshes of one draw disagree on the vertex stream count ({} vs {}).",
+                                        strides.size(), vb.size());
+                                    for (auto binding : vstd::range(vb.size())) {
+                                        LUISA_ASSERT(
+                                            strides[binding] == vb[binding].stride(),
+                                            "Raster meshes of one draw disagree on the stride of vertex stream {} ({} vs {}).",
+                                            binding, strides[binding], vb[binding].stride());
+                                    }
+                                }
+                            }
+                            auto pipe = shader->create_pipeline(cmd->rtv_texs(), cmd->dsv_tex(), cmd->mesh_format(), cmd->raster_state(), strides);
                             BindPropVisitor visitor{};
+                            visitor.device = device();
                             // bind arguments
                             set_dispatch_args(visitor, cmd, shader);
                             bind_shader_desc(visitor, shader, VK_PIPELINE_BIND_POINT_GRAPHICS);
@@ -4040,7 +4542,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                             t,
                                             mesh.instance_count(),
                                             mesh.vertex_offset(),
-                                            0);
+                                            mesh.base_instance());
                                     } else {
                                         auto buffer = reinterpret_cast<Buffer *>(t.handle());
                                         vkCmdBindIndexBuffer(_cmdbuffer, buffer->vk_buffer(), t.offset_bytes(), VK_INDEX_TYPE_UINT32);
@@ -4051,7 +4553,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                             mesh.instance_count(),
                                             0,
                                             mesh.vertex_offset(),
-                                            0);
+                                            mesh.base_instance());
                                     }
                                     // Draw indexed
                                 },
@@ -4085,6 +4587,23 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 _stream.queue(),
                                 _cmdbuffer,
                                 _state->desc_pool);
+                        } break;
+                        case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL): {
+#ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
+                            cuda_launch_kernel(
+                                device(), _cmdbuffer,
+                                static_cast<vk_cuda_interop::CudaKernelLaunchCommand const *>(c));
+#else
+                            LUISA_ERROR(
+                                "VK_CUDA_LAUNCH_KERNEL requires the vk backend "
+                                "built with lc_vk_cuda_interop (xmake) / "
+                                "LUISA_COMPUTE_ENABLE_VK_CUDA_INTEROP (cmake).");
+#endif
+                        } break;
+                        case to_underlying(CustomCommandUUID::NATIVE_SHADER_DISPATCH): {
+                            encode_native_shader_dispatch(
+                                device(), _state.get(), _cmdbuffer,
+                                static_cast<NativeShaderDispatchCommand const *>(c));
                         } break;
                         // NOTE: unimplemented command type — extend as new CustomCommandUUID
                         // values are added.

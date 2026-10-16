@@ -194,6 +194,30 @@ void reg_coro_frame_desc_from_materialize() {
         expect(desc.field_count() == 0u);
         expect(desc.total_size() == 0u);
     };
+
+    "from_materialize_info_preserves_logical_field_aliases"_test = [] {
+        auto field_index = CoroFrameDesc::reserved_field_count;
+        CoroMaterializeInfo info;
+        info.frame_field_count = field_index + 1u;
+        info.frame_fields.emplace_back(
+            CoroMaterializeInfo::FrameField{
+                .name = "physical_state",
+                .type = Type::of<uint>(),
+                .index = field_index});
+        info.name_to_field.emplace("physical_state", field_index);
+        info.name_to_field.emplace("coro_hint", field_index);
+        info.name_to_type.emplace("physical_state", Type::of<uint>());
+        info.name_to_type.emplace("coro_hint", Type::of<uint>());
+
+        CoroFrameDesc desc;
+        desc.from_materialize_info(info);
+
+        expect(desc.field_count() == 1u);
+        expect(desc.field_index("physical_state") == 0u);
+        expect(desc.field_index("coro_hint") == 0u);
+        expect(desc.field("coro_hint") == &desc.field(0u));
+        expect(desc.field("coro_hint")->type == Type::of<uint>());
+    };
 }
 
 }// namespace

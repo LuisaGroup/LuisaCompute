@@ -1,0 +1,31 @@
+{
+  "package": {
+    "command": ["/tmp/luisa-metal-attention-recovery.5MPxs3/venv/bin/python", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/package.py", "/tmp/luisa-metal-block-mapping.eI6JXf", "--helpers-dir", "scripts/benchmark/tile_torch"],
+    "exit_code": 0,
+    "stdout": {
+      "status": "packaged",
+      "evidence_bytes": 6865084,
+      "evidence_sha256": "0fc4db4d8ecfdcb962e439f97787e2ae5fc957486b8f2c31f9ffb1cf11f40d1d",
+      "members": 828,
+      "tensors": 192,
+      "selected_sources": 156,
+      "raw_unchanged": true
+    },
+    "package_script_sha256": "918c25f3ba55692cd5b1d9a807abc65fcb57e9d2b079b99a96b53160640e83cf",
+    "inventory_sha256": "76a04f9f67cfe5d3395d85a272edafbb52abc37fdfa7d69dd12fb387db57c15a",
+    "complete_archive_member_readback": true
+  },
+  "fresh_extraction": {
+    "command": ["tar", "-xJf", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/evidence.tar.xz", "-C", "/tmp/luisa-metal-block-portable.vyzCDa"],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "audit_equality": {
+    "command": ["cmp", "audit-1.json", "audit-portable.json"],
+    "cwd": "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping",
+    "exit_code": 0,
+    "result_sha256": "c907463c207a94b2cf42e3ed08570b7ce9f4077692bbfcfdfbf20ae0b49a1cf3"
+  },
+  "boundary": "Observed command exits and outputs retained without invented timestamps. No build, GPU/native execution, or performance recapture. Original raw files remained unchanged; packaged binaries are fingerprints only."
+}

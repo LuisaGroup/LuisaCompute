@@ -1,0 +1,29 @@
+{
+  "started_unix": 1788930704.964753,
+  "runs": [
+    {
+      "name": "expressions-exact-w1",
+      "argv": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions_preserve_tree_and_snapshots"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "1",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930704.9648051,
+      "exit_code": 0,
+      "finished_unix": 1788930706.291522,
+      "log": "expressions-exact-w1.log",
+      "assertions": 4509696,
+      "selected_test_passed": false,
+      "log_sha256": "fee901ac2fcb0097a44b32a9401feeafb37dd384bd840f502ef42faa31d2404d"
+    }
+  ],
+  "passed": false,
+  "supersedes": "verification.json expressions-w1/w2/w4/w8/w16: wildcard query selected zero tests; these runs are excluded."
+}

@@ -154,8 +154,13 @@ const BasicBlock *ConditionalBranchTerminatorInstruction::false_block() const no
 
 void ControlFlowMerge::set_merge_block(BasicBlock *block) noexcept {
     [[maybe_unused]] auto base = _base_instruction();
-    LUISA_DEBUG_ASSERT(block == nullptr || block->parent_function() == base->parent_function(),
-                       "Invalid merge block.");
+    // Keep the pointer inside the owning module. The verifier is responsible
+    // for diagnosing a block from another function;
+    // allowing that malformed-but-memory-safe state is required by pass
+    // preflight and transactional-rejection tests.
+    LUISA_DEBUG_ASSERT(block == nullptr ||
+                           block->parent_module() == base->parent_module(),
+                       "Invalid merge block allocation.");
     _merge_block = block;
 }
 

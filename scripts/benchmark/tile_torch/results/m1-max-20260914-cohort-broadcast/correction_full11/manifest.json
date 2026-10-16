@@ -1,0 +1,467 @@
+{
+  "schema_version": 1,
+  "archive_sha256": "a5aa138ee7ab6e551094c6ce8e9a1b2bc493c0fbe4e771b7de5d6030eb2d6d23",
+  "archive_bytes": 641971,
+  "local_commit": "e20d24d524908076e978b1752b05112262f925b1",
+  "live_sources_unchanged_before_after": true,
+  "files": {
+    "raw/build-full-10/command.json": {
+      "sha256": "a03a61ababbbe1b11aff8b28b766e97c17ff906ab4387e33ffd89abf906d101a",
+      "size": 3670,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-10/command.json"
+    },
+    "raw/build-full-10/result.json": {
+      "sha256": "1a53f04068e9310a4519a3a4a9cccc2d59f6327e5955c13f0d64cea03c435d71",
+      "size": 3917,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-10/result.json"
+    },
+    "raw/build-full-10/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-10/stderr.txt"
+    },
+    "raw/build-full-10/stdout.txt": {
+      "sha256": "dfe0281e35567e7b2581fd62dd398272d6e5eb416855a96002b1dfeae40e80d0",
+      "size": 591,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-10/stdout.txt"
+    },
+    "raw/build-full-11/command.json": {
+      "sha256": "894d8cb5d94cf1050a8c69fabb5dc6d9b57f25da17e603ee9cacd13818b5666e",
+      "size": 4025,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-11/command.json"
+    },
+    "raw/build-full-11/result.json": {
+      "sha256": "fb761dfdf7323b318a90b366fd460170c8ad0044bb711fe74462823284f73a4a",
+      "size": 4273,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-11/result.json"
+    },
+    "raw/build-full-11/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-11/stderr.txt"
+    },
+    "raw/build-full-11/stdout.txt": {
+      "sha256": "046fb29fb9739410a40ec56dc7061096ccc63fe02ae2b0508e6307588ee1ca77",
+      "size": 6294,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/build-full-11/stdout.txt"
+    },
+    "raw/owned-through-full10.json": {
+      "sha256": "6fd017c14bd18f232d459a06bc1799462516001ced5e633a9592785690a84838",
+      "size": 1119,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/owned-through-full10.json"
+    },
+    "raw/owned.json": {
+      "sha256": "f32dc1817ac3447986bcf324925747f1e9f731730fb287a736a3811bdde0a9e5",
+      "size": 1271,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/owned.json"
+    },
+    "raw/run.py": {
+      "sha256": "cf117729fa704f03080787d8a4849f22d37200b021284150e7dc6177a3e590fe",
+      "size": 12423,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/run.py"
+    },
+    "raw/source-clone.json": {
+      "sha256": "f91e0baf9dc9a8d01b111bfbba6d74af0e1704094924ee4cab6b0e27a3fef4e5",
+      "size": 8793,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/source-clone.json"
+    },
+    "raw/source-collective-epoch-counterexample.tar.gz": {
+      "sha256": "8097b9d2754c2778be52487870b7817f237586726218d46ff5b94edab369ba3d",
+      "size": 279983,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/source-collective-epoch-counterexample.tar.gz"
+    },
+    "raw/source-freeze-collective-epoch-counterexample.json": {
+      "sha256": "f37f46ba0a668e9966d74168f037b9e4e18f1b17be597521aad080c5e0b3b55f",
+      "size": 3373,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/source-freeze-collective-epoch-counterexample.json"
+    },
+    "raw/source-freeze-collective-epoch-storage.json": {
+      "sha256": "29ef908f51beadddedaac6cc85735f2c260cf86978c075bd0fb875707230099c",
+      "size": 3727,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/source-freeze-collective-epoch-storage.json"
+    },
+    "raw/test-full10-epoch-counterexample/command.json": {
+      "sha256": "fc1961b16fb3e099063ef0977d7406745308c8e81f2b722b3ee18ae10e1b8a51",
+      "size": 3779,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full10-epoch-counterexample/command.json"
+    },
+    "raw/test-full10-epoch-counterexample/result.json": {
+      "sha256": "cf4ade7b0538b8b12740193f261ac6d48786e4a81e6e1461a34176b53bbf9359",
+      "size": 4240,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full10-epoch-counterexample/result.json"
+    },
+    "raw/test-full10-epoch-counterexample/stderr.txt": {
+      "sha256": "18e00877dc1071c85cd4f479d451bebeef8309022e46cf8c63b0bed5151984a4",
+      "size": 27,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full10-epoch-counterexample/stderr.txt"
+    },
+    "raw/test-full10-epoch-counterexample/stdout.txt": {
+      "sha256": "f62a82553105c70345d577f82aeb15600c3b7f77755ded1cf261cf93dfa986bc",
+      "size": 23943,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full10-epoch-counterexample/stdout.txt"
+    },
+    "raw/test-full11-host-plan/command.json": {
+      "sha256": "a5a4f28649d25274d877e7ec4c14b6fab77e82927b7edd0ab5f775e091217dd1",
+      "size": 4119,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-host-plan/command.json"
+    },
+    "raw/test-full11-host-plan/result.json": {
+      "sha256": "283b4449b4c986a294df200d22dca9b3071cdd9390462cc60a3392a2a081c2f3",
+      "size": 4366,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-host-plan/result.json"
+    },
+    "raw/test-full11-host-plan/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-host-plan/stderr.txt"
+    },
+    "raw/test-full11-host-plan/stdout.txt": {
+      "sha256": "1284c61e35e1d992446b056df631eac150e081cfff53760374d0aabcfb8f3ed0",
+      "size": 1586,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-host-plan/stdout.txt"
+    },
+    "raw/test-full11-tile-simd/command.json": {
+      "sha256": "898ae8f9185df1404a5ec4bf07dbcb2ef8fa94793023086f6d8b276444811753",
+      "size": 4085,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-tile-simd/command.json"
+    },
+    "raw/test-full11-tile-simd/result.json": {
+      "sha256": "4a1a98e884de718209cdfc91185f88c0e7ce4a6d0fe5fe6b194cb7a999779184",
+      "size": 4333,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-tile-simd/result.json"
+    },
+    "raw/test-full11-tile-simd/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-tile-simd/stderr.txt"
+    },
+    "raw/test-full11-tile-simd/stdout.txt": {
+      "sha256": "6b02e31e1e67a1a1713b3ecf97b37a95fa0d8aa774b10fe74170fef226f7c41a",
+      "size": 2484,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-tile-simd/stdout.txt"
+    },
+    "raw/test-full11-unit-simd/command.json": {
+      "sha256": "5769c58bd3d5bd00115a059564b6150959f36e909f1405e068fe18bc5da8c660",
+      "size": 4083,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-unit-simd/command.json"
+    },
+    "raw/test-full11-unit-simd/result.json": {
+      "sha256": "7d63baa33161fb57cbb5cec1e3298a1c41eaac88400ad376531e11cf36f9fd68",
+      "size": 4330,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-unit-simd/result.json"
+    },
+    "raw/test-full11-unit-simd/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-unit-simd/stderr.txt"
+    },
+    "raw/test-full11-unit-simd/stdout.txt": {
+      "sha256": "704b320e4804849575e0ab9279c4673f6d171be0dbea1ead366ced72b90d193e",
+      "size": 15756,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/test-full11-unit-simd/stdout.txt"
+    },
+    "raw/tidy-full11-schedule-collectives/command.json": {
+      "sha256": "453464a4c360f5dfcdb620370fb739482e95adb672b6d1e8a9fa7ca7e2ee0e8e",
+      "size": 4494,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-schedule-collectives/command.json"
+    },
+    "raw/tidy-full11-schedule-collectives/result.json": {
+      "sha256": "cc4db2aa7dc8d05237a1729bba92c4348d435a5512a3f4d48d4b375f2860ba31",
+      "size": 4741,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-schedule-collectives/result.json"
+    },
+    "raw/tidy-full11-schedule-collectives/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-schedule-collectives/stderr.txt"
+    },
+    "raw/tidy-full11-schedule-collectives/stdout.txt": {
+      "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+      "size": 22,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-schedule-collectives/stdout.txt"
+    },
+    "raw/tidy-full11-test-schedule-codegen/command.json": {
+      "sha256": "3f8312ea5a98e57fa72b77e3bf96958cff4444bc84ec6935d4a50602e3b462ff",
+      "size": 4484,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-schedule-codegen/command.json"
+    },
+    "raw/tidy-full11-test-schedule-codegen/result.json": {
+      "sha256": "0bb50d52b7ac5b4a5bcba1b7a847d81c4d05dad20ace12040460e06ca8c9d068",
+      "size": 4731,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-schedule-codegen/result.json"
+    },
+    "raw/tidy-full11-test-schedule-codegen/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-schedule-codegen/stderr.txt"
+    },
+    "raw/tidy-full11-test-schedule-codegen/stdout.txt": {
+      "sha256": "bc6dd72959ef8c1b4e11a5523e3f18c481305f23cb84e739dc2bbb5312eea51d",
+      "size": 3851,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-schedule-codegen/stdout.txt"
+    },
+    "raw/tidy-full11-test-warp-uniformity/command.json": {
+      "sha256": "20784d1692daa7189be4dddbad2725b54cc929608076293367e8ade87e817820",
+      "size": 4479,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-warp-uniformity/command.json"
+    },
+    "raw/tidy-full11-test-warp-uniformity/result.json": {
+      "sha256": "547738d622d0578b6a6672bac5a5ec71cd4a2abe72f6fc443c0de347e82bf354",
+      "size": 4726,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-warp-uniformity/result.json"
+    },
+    "raw/tidy-full11-test-warp-uniformity/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-warp-uniformity/stderr.txt"
+    },
+    "raw/tidy-full11-test-warp-uniformity/stdout.txt": {
+      "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+      "size": 22,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-warp-uniformity/stdout.txt"
+    },
+    "raw/tidy-full11-test-xir-schedule/command.json": {
+      "sha256": "704dcda21ab0f6b483f612993a7ebbd49b2c3f1f6fa57ed380ebe6a1309c641f",
+      "size": 4479,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-xir-schedule/command.json"
+    },
+    "raw/tidy-full11-test-xir-schedule/result.json": {
+      "sha256": "27b3f61fa9a46ae99e2d52c9680851f964ccdcfac6308e4fb437fcd63b317f74",
+      "size": 4726,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-xir-schedule/result.json"
+    },
+    "raw/tidy-full11-test-xir-schedule/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-xir-schedule/stderr.txt"
+    },
+    "raw/tidy-full11-test-xir-schedule/stdout.txt": {
+      "sha256": "27763210122f3c441ee4bc02d1ec3c04bd7414b0deb81b253d26c2b6dff290d2",
+      "size": 22,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-test-xir-schedule/stdout.txt"
+    },
+    "raw/tidy-full11-warp-uniformity/command.json": {
+      "sha256": "f5cc7e4a0c5dc000dd42cb36e66593d0e3322b52ec66bb4b899920e092ca910a",
+      "size": 4480,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-warp-uniformity/command.json"
+    },
+    "raw/tidy-full11-warp-uniformity/result.json": {
+      "sha256": "e9ff351c9d0fba3a9d549063e8b9e757d642412f4fa3e2bafaa5d315ee40e7a3",
+      "size": 4727,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-warp-uniformity/result.json"
+    },
+    "raw/tidy-full11-warp-uniformity/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-warp-uniformity/stderr.txt"
+    },
+    "raw/tidy-full11-warp-uniformity/stdout.txt": {
+      "sha256": "c8dbef69eb9dca2944e31a87dab38f7553982f1133aa8596a5c6e864a9dd5786",
+      "size": 866,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-warp-uniformity/stdout.txt"
+    },
+    "raw/tidy-full11-xir-schedule/command.json": {
+      "sha256": "698e225d2876d4616e97fe4d027d52d0e62e064106ec41cdd7799132921206ca",
+      "size": 4480,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-xir-schedule/command.json"
+    },
+    "raw/tidy-full11-xir-schedule/result.json": {
+      "sha256": "d844ed6922414816e3f5ae6e9f2dfc5f46f3f83e410fc0ec91b269ef4c325116",
+      "size": 4727,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-xir-schedule/result.json"
+    },
+    "raw/tidy-full11-xir-schedule/stderr.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-xir-schedule/stderr.txt"
+    },
+    "raw/tidy-full11-xir-schedule/stdout.txt": {
+      "sha256": "51a8f619e1e0cf3d984d5a749b4887cdcbf5dc98b3bf6f90afb91c5311330b99",
+      "size": 1836,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/tidy-full11-xir-schedule/stdout.txt"
+    },
+    "raw/toolchain.json": {
+      "sha256": "fe232e6257652120c2090b6a1bee5060365479bb5ac1894323c482f0fd123156",
+      "size": 4603,
+      "original": "/tmp/luisa-metal-program-team.TGZv8f/toolchain.json"
+    },
+    "source/include/luisa/tile/bridge/xir/lower.h": {
+      "sha256": "edae24486f7717ca42e474c06652d6f75ae500c1ca836c406d93111de9a029d4",
+      "size": 8233,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/include/luisa/tile/bridge/xir/lower.h"
+    },
+    "source/include/luisa/tile/bridge/xir/planner.h": {
+      "sha256": "b9f6783fd2771adfb6943599dc3c2f4d25ba3d41327250d4beada9aa96d00ebb",
+      "size": 14416,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/include/luisa/tile/bridge/xir/planner.h"
+    },
+    "source/src/backends/simd/llvm/llvm_jit.cpp": {
+      "sha256": "8cf75e6fed72dc0d34a4ba5f97cb3e5110804cdd6eb80ffc964b3f95157dfdcc",
+      "size": 20207,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/llvm/llvm_jit.cpp"
+    },
+    "source/src/backends/simd/llvm/llvm_schedule_emitter_collectives.cpp": {
+      "sha256": "79e4fecbc90021383c0f6c719a16690151c58e96780c3fb5a77ce0f653ed59d7",
+      "size": 10133,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/llvm/llvm_schedule_emitter_collectives.cpp"
+    },
+    "source/src/backends/simd/llvm/llvm_schedule_emitter_direct.cpp": {
+      "sha256": "76c91719de9e2bb92ac32ea4cdaac951b28ada0779f497c4627661fb25482360",
+      "size": 44336,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/llvm/llvm_schedule_emitter_direct.cpp"
+    },
+    "source/src/backends/simd/llvm/llvm_schedule_emitter_predication.cpp": {
+      "sha256": "e8432b6a90b914c6895c6ca1a80deac0a64508fe28e0b5946ba8d142749bd6bd",
+      "size": 84763,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/llvm/llvm_schedule_emitter_predication.cpp"
+    },
+    "source/src/backends/simd/llvm/llvm_warp_collectives.cpp": {
+      "sha256": "0989612629c7e64e3cc65601d32904f7c3ae76289f7abe5bc65b0557546c5d44",
+      "size": 23012,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/llvm/llvm_warp_collectives.cpp"
+    },
+    "source/src/backends/simd/schedule/schedule_ir.cpp": {
+      "sha256": "2ae1646bb94bfa5c9b455b8ccc81e84553d1056b7b5cca08b31d7536bb60092b",
+      "size": 40692,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/schedule/schedule_ir.cpp"
+    },
+    "source/src/backends/simd/schedule/warp_uniformity.cpp": {
+      "sha256": "d2b17cb590f3e70a03a0c35a994d97e1ae0b8672fbdbecf4c712271f51c0c977",
+      "size": 27142,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/schedule/warp_uniformity.cpp"
+    },
+    "source/src/backends/simd/schedule/warp_uniformity.h": {
+      "sha256": "544e631128a72fde59f74e488c029c51af586201daec0413490958bf49f9c2ca",
+      "size": 2281,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/schedule/warp_uniformity.h"
+    },
+    "source/src/backends/simd/schedule/xir_to_schedule.cpp": {
+      "sha256": "e9eca43bae21c11e2a92831ba1ca76079516985e41a3d18c37083898b5a1fadd",
+      "size": 92307,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/schedule/xir_to_schedule.cpp"
+    },
+    "source/src/backends/simd/simd_compiler.cpp": {
+      "sha256": "3f3aad743bc48df29b7a6f40219f4d4bd14e03e9c2222143aa18d9cb65af3ce7",
+      "size": 61140,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/backends/simd/simd_compiler.cpp"
+    },
+    "source/src/tests/common/tile_xir_attention_test_utils.h": {
+      "sha256": "7417f86d414992b8e5b1d0afe1fc912ea3ebe31176d157889823a5db41903f2f",
+      "size": 22077,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/common/tile_xir_attention_test_utils.h"
+    },
+    "source/src/tests/unit/simd/test_llvm_schedule_codegen.cpp": {
+      "sha256": "9699b54c259a48284b901268d4aaa9842412742b5f24da1aeb276c93b178a00b",
+      "size": 790754,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/unit/simd/test_llvm_schedule_codegen.cpp"
+    },
+    "source/src/tests/unit/simd/test_llvm_warp_collectives.cpp": {
+      "sha256": "43ab3164885bff526f9ca8715fe6d4fbe27f2e378d886a7c6dafd747161413af",
+      "size": 17456,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/unit/simd/test_llvm_warp_collectives.cpp"
+    },
+    "source/src/tests/unit/simd/test_warp_uniformity.cpp": {
+      "sha256": "a6363e2a99864ace46b451edca86280fe5b46c119798c681ba863c7ee4032836",
+      "size": 17824,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/unit/simd/test_warp_uniformity.cpp"
+    },
+    "source/src/tests/unit/simd/test_xir_to_schedule.cpp": {
+      "sha256": "9d926bfbc6f1271bf73e45f127a959704ede0353d3881a7504b146404e06b458",
+      "size": 75881,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/unit/simd/test_xir_to_schedule.cpp"
+    },
+    "source/src/tests/unit/tile/bridge/test_xir.cpp": {
+      "sha256": "8b41807697384e14476371c7a195eba86bec6b0cd524481018ecab8b014aa24d",
+      "size": 55527,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/unit/tile/bridge/test_xir.cpp"
+    },
+    "source/src/tests/unit/tile/bridge/test_xir_metal.cpp": {
+      "sha256": "5bda69d1054f4e497f13125306ae1afd503f9c661145bfd087c73bb3e221a3a6",
+      "size": 7795,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/unit/tile/bridge/test_xir_metal.cpp"
+    },
+    "source/src/tests/unit/tile/bridge/test_xir_program_team.cpp": {
+      "sha256": "65e241775ca9c5e0d1b8e8db155211931bb948651b2c3494427473b6a93adbc2",
+      "size": 33170,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/unit/tile/bridge/test_xir_program_team.cpp"
+    },
+    "source/src/tests/unit/tile/bridge/test_xir_runtime.cpp": {
+      "sha256": "6d383b101c3187cc5a805a956bb7b65a16a31ee0a910886a98428a477175c4cc",
+      "size": 101586,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tests/unit/tile/bridge/test_xir_runtime.cpp"
+    },
+    "source/src/tile/bridge/xir/lower.cpp": {
+      "sha256": "3f1547b509bbee8368d58956478d57ba3b082e3e2cee5f9194e1fc5b4a1ed77b",
+      "size": 108168,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tile/bridge/xir/lower.cpp"
+    },
+    "source/src/tile/bridge/xir/planner.cpp": {
+      "sha256": "59e15d3da6b1f0ecbef72d61534ca17d22f81b911d395ff59dd3b13a3845cd91",
+      "size": 53230,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tile/bridge/xir/planner.cpp"
+    },
+    "source/src/tile/bridge/xir/program_plan.h": {
+      "sha256": "7495b3fc9bf093b7159af9867e7382eb810cb790acd3a22594bb8ddb0e5a1c05",
+      "size": 25405,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tile/bridge/xir/program_plan.h"
+    },
+    "source/src/tile/bridge/xir/resources.h": {
+      "sha256": "44665f7ffa1a1e2db4371956bc606347fb04ac3dd816e6f52aae369fb2928d01",
+      "size": 20810,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tile/bridge/xir/resources.h"
+    },
+    "source/src/tile/verifier.cpp": {
+      "sha256": "8babafde3b55f2c6c91969c1a45b28478cd525de54af970cfa36cfb4b090f88e",
+      "size": 50649,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/src/tile/verifier.cpp"
+    },
+    "tools/.clang-format": {
+      "sha256": "a599620ac697222f2f469b8e251a076fcfa4650849770472a31d6b4247ee8ad5",
+      "size": 3442,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/.clang-format"
+    },
+    "tools/.clang-tidy": {
+      "sha256": "fc4457969861c20dbcd3f15e6d8ab6a75a09a5039276ac73393d4f59861ecc49",
+      "size": 4547,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/.clang-tidy"
+    },
+    "tools/.clangd": {
+      "sha256": "9261142e776e61ed8b904d7878580917a082d36fbd24a8d8a4621ced911e37ad",
+      "size": 355,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/.clangd"
+    },
+    "tools/compile_commands.json": {
+      "sha256": "030711053c89bc7cf76aa517516c9097952eb948b40d197b1284aecdcb926740",
+      "size": 2216785,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/build/compile_commands.json"
+    },
+    "tools/scripts/check_cpp_syntax.py": {
+      "sha256": "085dad336e546e04ff9081f6b93f2bcf5db54f30b1a1d724d4ed384165a420a3",
+      "size": 21324,
+      "original": "/Users/mike/.cache/luisa-tile/metal-program-team.xIQgCS/source/scripts/check_cpp_syntax.py"
+    }
+  },
+  "verification": {
+    "status": "verified",
+    "full11_freeze_sha256": "29ef908f51beadddedaac6cc85735f2c260cf86978c075bd0fb875707230099c",
+    "full11_source_files": 26,
+    "full10_freeze_sha256": "f37f46ba0a668e9966d74168f037b9e4e18f1b17be597521aad080c5e0b3b55f",
+    "full10_source_files": 23,
+    "full10_unique_numeric_failures": 16,
+    "full11_green_ctest_counts": [
+      13,
+      1,
+      2
+    ],
+    "static_warnings": {
+      "tidy-full11-warp-uniformity": 3,
+      "tidy-full11-xir-schedule": 6,
+      "tidy-full11-schedule-collectives": 0,
+      "tidy-full11-test-warp-uniformity": 0,
+      "tidy-full11-test-xir-schedule": 0,
+      "tidy-full11-test-schedule-codegen": 20
+    },
+    "native_execution_by_this_tool": false,
+    "performance_claim": false
+  }
+}

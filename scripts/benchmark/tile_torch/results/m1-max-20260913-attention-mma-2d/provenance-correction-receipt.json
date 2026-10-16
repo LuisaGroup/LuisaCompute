@@ -1,0 +1,60 @@
+{
+  "status": "corrected_by_supplement_only",
+  "frozen_files_unchanged": {
+    "sources.tar.gz": "a5f4877073e65e21a18a3704e9c158ac89a8aac94f02af882c4ca14f4316ec14",
+    "provenance.json": "fc41b156781d820a935473b92d58f6ad225110240039d922215907d8edb8a12c"
+  },
+  "authoritative_source": "Complete regular source files inside sources.tar.gz, checked against provenance.source_sha256. The supplemental patch is not a substitute.",
+  "archived_patch": {
+    "member": "_provenance/owned-changes-from-main-head.patch",
+    "bytes": 46883,
+    "sha256": "e7cab7f63f53160149d2e761139ccb00fb01f74417e0632b30e282b28a6d8571",
+    "readonly_parse_command": "tar -xzOf sources.tar.gz _provenance/owned-changes-from-main-head.patch | git apply --numstat --",
+    "returncode": 128,
+    "diagnostic": "error: corrupt patch at line 639"
+  },
+  "exact_patch": {
+    "file": "owned-changes-exact.patch",
+    "bytes": 46884,
+    "sha256": "ee7b25b7a47d96412835be14afed38cf67180b4f6569ff98afca0fb9c5e3e14d",
+    "generation": "Exact stdout of git diff --binary HEAD -- followed by the ten explicit owned paths from archive_sources.py. Saved bytes independently matched the same command's stdout SHA256.",
+    "readonly_parse_command": "git apply --numstat -- owned-changes-exact.patch",
+    "returncode": 0,
+    "numstat": [
+      "5\t0\tinclude/luisa/tile/bridge/xir/lower.h",
+      "6\t1\tinclude/luisa/tile/bridge/xir/planner.h",
+      "2\t0\tsrc/backends/metal4/tile/metal_tile.cpp",
+      "2\t0\tsrc/backends/simd/runtime/simd_tile.cpp",
+      "7\t0\tsrc/tests/benchmark/benchmark_tile_xir.cpp",
+      "40\t8\tsrc/tests/unit/tile/bridge/test_xir_runtime.cpp",
+      "157\t0\tsrc/tests/unit/tile/bridge/test_xir_target_info.cpp",
+      "73\t12\tsrc/tile/bridge/xir/lower.cpp",
+      "13\t1\tsrc/tile/bridge/xir/planner.cpp",
+      "31\t9\tsrc/tile/bridge/xir/representation.h"
+    ]
+  },
+  "relationship": "Exact patch minus precisely one terminal LF is byte-identical to archived patch; no other source/diff content changed.",
+  "chronology_correction": {
+    "original_statement_preserved": true,
+    "source": "Exact original plan/captures/provenance/replays JSON timestamps; main-thread confirmation for build/test completion before both capture and source snapshot.",
+    "corrected": "Build retry1 and all four full CTests plus seven short host tests completed before both capture and source snapshot. Source snapshot completed while captures were underway. Competitive replay began after both had completed.",
+    "earlier_supplement_statement_superseded": "The earlier supplement incorrectly placed source snapshot completion before capture start.",
+    "recorded_unix_timestamps": {
+      "plan.json:frozen_unix": 1789297276.716018,
+      "captures.json:started": 1789297276.7162921,
+      "provenance.json:frozen_unix": 1789297282.999222,
+      "captures.json:finished": 1789297334.4378948,
+      "replays.json:started": 1789297358.339317,
+      "replays.json:finished": 1789297381.5977259
+    },
+    "source_identity": "Ten owned main/isolate file hashes matched; archiver also checked source hashes remained unchanged during snapshot.",
+    "logs": "Detailed initial/retry and test logs are archived separately by main. No unrecorded build/test completion timestamp is invented."
+  },
+  "safety": {
+    "actual_patch_applied": false,
+    "frozen_archive_overwritten": false,
+    "source_edited": false,
+    "producer_or_replay_executed": false,
+    "checks_run_only_after_competitive_replay_completed": true
+  }
+}

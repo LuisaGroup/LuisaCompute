@@ -32,7 +32,7 @@ inline void prepare_ut_arguments(int argc, char *argv[]) noexcept {
 [[nodiscard]] inline Options parse_options(int argc, char *argv[]) noexcept {
     auto exe = argc > 0 && argv != nullptr && argv[0] != nullptr ? argv[0] : safe_argv0();
     if (argc <= 1 || argv[1] == nullptr) {
-        LUISA_ERROR("Usage: {} <backend> [<test name|pattern|tags> ...] [Boost.UT options]. <backend>: cuda, dx, cpu, fallback, hip, metal, vk", exe);
+        LUISA_ERROR("Usage: {} <backend> [<test name|pattern|tags> ...] [Boost.UT options]. <backend>: cuda, dx, fallback, hip, metal, vk", exe);
     }
     prepare_ut_arguments(argc, argv);
     auto &ut_argv = ut_arguments();

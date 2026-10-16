@@ -25,7 +25,6 @@ if (CUDAToolkit_FOUND)
             cuda_command_encoder.cpp cuda_command_encoder.h
             cuda_texture.cpp cuda_texture.h
             cuda_codegen_ast.cpp cuda_codegen_ast.h
-            cuda_codegen_xir.cpp cuda_codegen_xir.h
             cuda_compiler.cpp cuda_compiler.h
             cuda_accel.cpp cuda_accel.h
             cuda_primitive.cpp cuda_primitive.h
@@ -33,13 +32,24 @@ if (CUDAToolkit_FOUND)
             cuda_curve.cpp cuda_curve.h
             cuda_mesh.cpp cuda_mesh.h
             cuda_motion_instance.cpp cuda_motion_instance.h
-            cuda_shader.cpp cuda_shader.h
-            cuda_shader_metadata.cpp cuda_shader_metadata.h
-            cuda_shader_native.cpp cuda_shader_native.h
-            cuda_shader_optix.cpp cuda_shader_optix.h
+              cuda_shader.cpp cuda_shader.h
+              cuda_shader_metadata.cpp cuda_shader_metadata.h
+              cuda_shader_native.cpp cuda_shader_native.h
+              cuda_shader_tile.cpp cuda_shader_tile.h
+              tile/cuda_tile.cpp tile/cuda_tile.h
+              tile/cuda_tile_codegen.cpp tile/cuda_tile_codegen.h
+              tile/cuda_tile_cub_scan.cpp tile/cuda_tile_cub_scan.h
+              tile/cuda_tile_partition_codegen.cpp tile/cuda_tile_partition_codegen.h
+              tile/cuda_tile_streaming_scan.cpp tile/cuda_tile_streaming_scan.h
+              tile/cuda_tile_streaming_scan_codegen.cpp tile/cuda_tile_streaming_guard.h
+              tile/cuda_tile_ir.cpp tile/cuda_tile_ir.h
+              cuda_shader_optix.cpp cuda_shader_optix.h
             cuda_shader_printer.cpp cuda_shader_printer.h
             cuda_sparse_heap.cpp cuda_sparse_heap.h
             cuda_swapchain.cpp cuda_swapchain.h
+            native_shader.cpp native_shader.h
+            native_shader_ext.cpp native_shader_ext.h
+            native_shader_reflection.h
             cuda_callback_context.h
             cuda_builtin_embedded.cpp cuda_builtin_embedded.h
             optix_api.cpp optix_api.h
@@ -63,10 +73,27 @@ if (CUDAToolkit_FOUND)
             CUDA::cuda_driver
             luisa-compute-vulkan-swapchain
             luisa-compute-xir
+            luisa-compute-tile
             reproc reproc++)
 
+    if (TARGET luisa-compute-tile-bridge-tirx)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE luisa-compute-tile-bridge-tirx)
+        target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_CUDA_TILE_TIRX=1)
+    endif ()
+    # Ordinary CUDA Tile realizers use SDK headers in the standalone NVRTC
+    # compiler, including when the optional TIRx bridge is disabled.
+    list(GET CUDAToolkit_INCLUDE_DIRS 0 _luisa_cuda_tile_include)
+    file(TO_CMAKE_PATH "${_luisa_cuda_tile_include}" _luisa_cuda_tile_include)
+    target_compile_definitions(luisa-compute-backend-cuda PRIVATE
+            "LUISA_CUDA_TILE_TOOLKIT_INCLUDE_DIR=\"${_luisa_cuda_tile_include}\"")
+
+    # software ray-tracing fallback (src/backends/common/rtx).  Guarded so that a
+    # tree which does not build the module yet still configures.
+    if (TARGET luisa-fallback-rtx)
+        target_link_libraries(luisa-compute-backend-cuda PRIVATE luisa-fallback-rtx)
+    endif ()
+
     # LLVM
-    option(LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN "Enable experimental LLVM-based CUDA codegen" OFF)
     if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
         add_subdirectory(llvm_codegen)
     endif ()
@@ -102,8 +129,58 @@ if (CUDAToolkit_FOUND)
                     "LINKER:/FORCE:MULTIPLE"
                     "LINKER:/OPT:REF")
         endif ()
-        target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE Ws2_32)
+        # Recent static NVRTC libraries import RtlGetLastNtStatus from ntdll.
+        target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE Ws2_32 ntdll)
     endif ()
+    # CUDA 12.1 remains sufficient for the ordinary PTX/OptiX backend. The
+    # independent native Tile helper is built only with its actual SDK tools.
+    if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL 13.4 AND
+        (WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+        find_path(_luisa_cuda_tile_ir_include NAMES cuda_tile.h
+                PATHS ${CUDAToolkit_INCLUDE_DIRS} NO_DEFAULT_PATH NO_CACHE)
+        find_program(_luisa_cuda_tile_ir_assembler NAMES tileiras
+                PATHS "${CUDAToolkit_BIN_DIR}" "${CUDAToolkit_BIN_DIR}/.."
+                NO_DEFAULT_PATH NO_CACHE)
+        if (_luisa_cuda_tile_ir_include AND _luisa_cuda_tile_ir_assembler)
+            file(TO_CMAKE_PATH "${_luisa_cuda_tile_ir_include}" _luisa_cuda_tile_ir_include)
+            file(TO_CMAKE_PATH "${_luisa_cuda_tile_ir_assembler}" _luisa_cuda_tile_ir_assembler)
+            string(REPLACE "\"" "\\\"" _luisa_cuda_tile_ir_include "${_luisa_cuda_tile_ir_include}")
+            string(REPLACE "\"" "\\\"" _luisa_cuda_tile_ir_assembler "${_luisa_cuda_tile_ir_assembler}")
+            add_executable(luisa-cuda-tile-compiler cuda_tile_ir_compiler.cpp)
+            target_compile_features(luisa-cuda-tile-compiler PRIVATE cxx_std_20)
+            target_link_libraries(luisa-cuda-tile-compiler PRIVATE CUDA::nvrtc_static)
+            if (UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+                target_compile_options(luisa-cuda-tile-compiler PRIVATE -stdlib=libstdc++)
+                target_link_options(luisa-cuda-tile-compiler PRIVATE -stdlib=libstdc++)
+            endif ()
+            target_compile_definitions(luisa-cuda-tile-compiler PRIVATE
+                    "LUISA_CUDA_TILE_IR_INCLUDE_DIR=\"${_luisa_cuda_tile_ir_include}\"")
+            set_target_properties(luisa-cuda-tile-compiler PROPERTIES OUTPUT_NAME "luisa_cuda_tile_compiler")
+            if (WIN32)
+                # Large Tile expressions exceed the default 1 MiB NVRTC process stack.
+                # Reserve more address space without increasing the initial commit.
+                if (MINGW)
+                    target_link_options(luisa-cuda-tile-compiler PRIVATE "LINKER:--stack,16777216")
+                else ()
+                    target_link_options(luisa-cuda-tile-compiler PRIVATE "LINKER:/STACK:16777216")
+                endif ()
+                target_link_libraries(luisa-cuda-tile-compiler PRIVATE Ws2_32 ntdll)
+                if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+                    target_link_options(luisa-cuda-tile-compiler PRIVATE
+                            "LINKER:/FORCE:MULTIPLE" "LINKER:/OPT:REF")
+                endif ()
+                if (MINGW)
+                    target_link_options(luisa-cuda-tile-compiler PRIVATE -municode)
+                endif ()
+            endif ()
+            target_compile_definitions(luisa-compute-backend-cuda PRIVATE
+                    LUISA_CUDA_TILE_IR_ENABLED=1
+                    "LUISA_CUDA_TILE_IR_ASSEMBLER=\"${_luisa_cuda_tile_ir_assembler}\"")
+            add_dependencies(luisa-compute-backend-cuda luisa-cuda-tile-compiler)
+            install(TARGETS luisa-cuda-tile-compiler RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+        endif ()
+    endif ()
+
     add_dependencies(luisa-compute-backend-cuda luisa-cuda-nvrtc-standalone-compiler)
     install(TARGETS luisa-cuda-nvrtc-standalone-compiler RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 

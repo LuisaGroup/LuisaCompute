@@ -1,0 +1,150 @@
+#pragma once
+
+#include <luisa/ast/usage.h>
+#include <luisa/tile/ir.h>
+#include <luisa/xir/module.h>
+
+namespace luisa::compute::tile::bridge::xir {
+
+struct LowerOptions {
+    uint32_t block_size{64u};
+    // Bound compile-time expansion; never truncate a Tile or its operations.
+    uint32_t max_expanded_values{262144u};
+    // Empty preserves declaration order, useful as a fixed baseline.
+    luisa::vector<uint32_t> root_axis_order;
+    // Total compiler-owned snapshot storage per physical worker/lane (not packet).
+    // A hard bound, not a peak-liveness or target stack-size estimate.
+    uint64_t max_local_bytes{262144u};
+    // Larger Tile traversals use runtime loops. Zero keeps the fully expanded
+    // realization as an explicit diagnostic baseline; it does not remove budgets.
+    uint32_t max_unrolled_tile_elements{64u};
+    // Potential scalar work replicated by a map containing nested execution
+    // regions or MMA. Pure pointwise maps keep the element-only threshold.
+    // Also bounds each opt-in MMA register block's potential expansion.
+    // Zero disables this additional budget; max_unrolled_tile_elements == 0
+    // retains the fully expanded diagnostic baseline regardless of this value.
+    uint32_t max_unrolled_region_work{4096u};
+    // Opt-in contiguous-output MMA register blocking (1, 2 or 4). One keeps
+    // reference emission. Admission uses logical operand strides/broadcasts,
+    // preserves each output's contraction order and existing snapshot storage.
+    uint32_t mma_output_block{1u};
+    // Fixed opt-in candidate: use a 2x2 microtile within the four-accumulator
+    // budget when two output axes have complementary operand broadcasts.
+    // Other contractions retain the existing one-dimensional realization.
+    bool enable_mma_2d_blocking{false};
+    // Additional MMA-only host-unroll cap. Zero inherits the Tile threshold;
+    // nonzero may roll the contraction earlier without changing the global
+    // Tile threshold or any other reduction. Newly dynamic operand reads get
+    // indexable definition snapshots through the shared resource plan.
+    // max_unrolled_tile_elements == 0 takes precedence and retains fully
+    // expanded diagnostic emission.
+    uint32_t max_unrolled_mma_terms{0u};
+    // Backend opt-in: preserve admitted FP32 contractions as a typed XIR
+    // intrinsic with private snapshots. This vector width is within one
+    // logical program, independent of packet/local distribution. Zero keeps
+    // reference emission; the consuming backend must support the intrinsic.
+    uint32_t native_mma_vector_width{0u};
+    // Opt-in contiguous resource-to-snapshot transfer within one program.
+    // Does not change snapshot allocation or load timing. Ineligible views
+    // and partial logical bounds retain the original elementwise traversal.
+    uint32_t native_copy_vector_width{0u};
+    // Bounded pure unordered reductions may partition contributions among
+    // these independent accumulators. One preserves the sequential baseline.
+    uint32_t reduction_partitions{4u};
+    // One keeps complete independent programs per physical lane. A power-of-
+    // two packet width cooperates within a program: either one common local
+    // axis or an admitted phase schedule with explicit cross-owner broadcasts.
+    // The caller must compile with this exact packet width; lower() validates
+    // the selected execution, projection and closed-reduction contracts.
+    uint32_t local_lanes{1u};
+    // Fuse a load with its first pointwise unordered reduction, retaining a
+    // snapshot for later consumers. Never moves reads across writes/stages.
+    // Opt-in: fewer private reads can still increase masked-memory/CFG cost.
+    bool enable_load_reduction_fusion{false};
+    // Version closed common-domain pointwise regions: stream shared SSA DAGs
+    // when resource intervals are disjoint, otherwise retain eager snapshots.
+    // Opt-in while native profitability and resource costs are evaluated.
+    bool enable_pointwise_fusion{false};
+    // Move a materialized pure expression into its first reduction traversal.
+    // Compute each point once, retaining its snapshot for later consumers.
+    // Independent opt-in; preserves the chosen reduction tree and math policy.
+    bool enable_expression_reduction_fusion{false};
+    // Defer single-use pure scalar maps and their indexed expressions within
+    // one execution region. Captures immutable SSA representations, never
+    // delayed memory loads. Experimental complete-program-lane realization.
+    bool enable_map_fusion{false};
+    // Fixed root traversal factors, indexed by original domain axis. Empty
+    // preserves lexicographic traversal; otherwise each positive factor must
+    // divide its static extent. Enumerate outer digits, then inner digits, in
+    // root_axis_order. Does not reorder any work inside a logical program.
+    luisa::vector<uint32_t> root_axis_tiles;
+};
+
+// Static compiler-owned array allocations per physical worker/lane. This is
+// neither peak live storage nor a target stack/register/occupancy estimate.
+struct ExecutionResources {
+    uint64_t snapshot_bytes_per_worker{0u};
+    uint64_t snapshot_allocations{0u};
+};
+
+struct ResourceAnalysis {
+    ExecutionResources resources;
+    luisa::string error;
+    [[nodiscard]] bool ok() const noexcept { return error.empty(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// Analyze the same representation and static emission plan as lower(), without
+// emitting XIR. Reports demand independently of max_local_bytes; unsupported
+// realization contracts return an error rather than an optimistic estimate.
+[[nodiscard]] LUISA_TILE_XIR_BRIDGE_API ResourceAnalysis analyze_resources(
+    const Function &function, const LowerOptions &options = {}) noexcept;
+
+struct NativeFunction {
+    luisa::unique_ptr<compute::xir::Module> module;
+    compute::xir::KernelFunction *function{nullptr};
+    uint32_t dispatch_size{0u};
+    luisa::vector<Usage> argument_usages;
+    luisa::vector<size_t> argument_sizes_bytes;
+    // Zero permits any packet width. Otherwise the consumer must preserve
+    // this width: dispatch coordinates and collectives form one ABI contract.
+    uint32_t required_packet_width{0u};
+    // Static realization counts, not dynamic memory transactions.
+    uint32_t fused_reduction_loads{0u};
+    uint32_t elided_load_snapshots{0u};
+    uint32_t fused_pointwise_regions{0u};
+    uint32_t fused_pointwise_loads{0u};
+    uint32_t fused_pointwise_stores{0u};
+    uint32_t pointwise_alias_checks{0u};
+    uint32_t fused_reduction_expressions{0u};
+    uint32_t elided_expression_snapshots{0u};
+    uint32_t deferred_maps{0u};
+    uint32_t blocked_mmas{0u};
+    uint32_t two_dimensional_mmas{0u};
+    uint32_t native_mmas{0u};
+    uint32_t native_output_mmas{0u};
+    uint32_t native_contraction_mmas{0u};
+    uint32_t native_copies{0u};
+    // MMA operations with at least one emitted runtime contraction loop.
+    uint32_t rolled_mmas{0u};
+    ExecutionResources resources;
+    luisa::string error;
+    [[nodiscard]] bool ok() const noexcept { return module != nullptr && function != nullptr && error.empty(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
+};
+
+// In-memory, verified SSA/CFG bridge, with no AST or TVM intermediate.
+// One root parallel domain maps to independent logical programs. Static Tile
+// elements use SSA or bounded traversal of compiler-owned snapshots; pure
+// single-use elementwise values may be deferred to their consumer. A backend
+// can pack whole programs or distribute a common local axis across a physical
+// packet. No CPU-specific lane cap is imposed here; the backend must satisfy
+// required_packet_width. Closed unordered reductions may use partials/shuffles.
+// Other recurrences
+// preserve lexicographic order; explicit right folds
+// visit the reversed logical sequence without changing update operands. This
+// realization does not implement cooperative bindings or manual Memory.
+[[nodiscard]] LUISA_TILE_XIR_BRIDGE_API NativeFunction lower(
+    const Function &function, const LowerOptions &options = {}) noexcept;
+
+}// namespace luisa::compute::tile::bridge::xir

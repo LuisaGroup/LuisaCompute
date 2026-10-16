@@ -261,8 +261,8 @@ void UploadBuffer::flush_range(size_t begin, size_t end) {
         begin, end - begin));
 }
 
-DefaultBuffer::DefaultBuffer(Device *device, VkBuffer vk_buffer, VkDeviceMemory memory, size_t size_bytes)
-    : Buffer{device, size_bytes} {
+DefaultBuffer::DefaultBuffer(Device *device, VkBuffer vk_buffer, VkDeviceMemory memory, size_t size_bytes, bool device_address_capable)
+    : Buffer{device, size_bytes, 0u, device_address_capable} {
     _buffer = vk_buffer;
     _allocated_memory = memory;
     _external_allocation = true;

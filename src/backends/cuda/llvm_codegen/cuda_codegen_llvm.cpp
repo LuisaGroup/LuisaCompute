@@ -6,23 +6,23 @@
 #include "cuda_codegen_llvm_impl.h"
 #include "cuda_codegen_llvm.h"
 
-
 namespace luisa::compute::cuda {
 
-luisa::string luisa_compute_cuda_codegen_llvm(const xir::Module &xir_module, const CUDACodegenLLVMConfig &config) noexcept {
+CUDACodegenLLVMResult luisa_compute_cuda_codegen_llvm(const xir::Module &xir_module, const CUDACodegenLLVMConfig &config) noexcept {
     Clock clk;
     CUDACodegenLLVMImpl impl{config};
-    auto ptx = impl.generate(xir_module);
-    LUISA_INFO_WITH_LOCATION("Generated PTX with CUDA LLVM CodeGen in {} ms.", clk.toc());
+    auto code = impl.generate(xir_module);
+    auto optix_ir = config.output_format == CUDACodegenLLVMConfig::OutputFormat::OPTIX_IR;
+    LUISA_INFO_WITH_LOCATION("Generated {} with CUDA LLVM CodeGen in {} ms.", optix_ir ? "OptiX IR" : "PTX", clk.toc());
     static auto dump_ptx = [] {
         using namespace std::string_view_literals;
         auto env = getenv("LUISA_DUMP_PTX");
         return env != nullptr && env == "1"sv;
     }();
-    if (dump_ptx) {
-        LUISA_INFO("Generated PTX:\n{}", ptx);
+    if (dump_ptx && !optix_ir) {
+        LUISA_INFO("Generated PTX:\n{}", code);
     }
-    return ptx;
+    return {std::move(code), impl.ray_query_payload_count()};
 }
 
 }// namespace luisa::compute::cuda

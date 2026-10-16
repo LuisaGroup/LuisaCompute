@@ -46,8 +46,8 @@ void test_curve_pbrt_diffuse(Device &device) {
 
     log_level_verbose();
 
-    auto curve_path = std::filesystem::path{argv[2]};
-    if (!std::filesystem::is_regular_file(curve_path)) {
+    auto curve_path = luisa::filesystem::path{argv[2]};
+    if (!luisa::filesystem::is_regular_file(curve_path)) {
         boost::ut::expect(false) << "PBRT curve input file does not exist: " << curve_path.string();
         return;
     }

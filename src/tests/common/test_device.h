@@ -13,6 +13,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
+#include <luisa/core/stl/optional.h>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -31,7 +32,7 @@ struct DeviceContext {
 inline void print_device_usage(const char *exe) noexcept {
     LUISA_INFO(
         "Usage: {} <backend>. <backend> must be an installed runtime backend "
-        "(for example: cpu, cuda, dx, fallback, hip, metal, remote, vk).",
+        "(for example: cuda, dx, fallback, hip, metal, vk).",
         exe);
 }
 
@@ -76,27 +77,27 @@ inline const char *safe_argv0() noexcept {
 /// Create a device from Boost.UT's stored argc/argv
 /// (available when linking with ut.hpp).
 /// Returns std::nullopt if no backend argument is provided.
-[[nodiscard]] inline std::optional<DeviceContext> create_device_from_ut() {
+[[nodiscard]] inline luisa::optional<DeviceContext> create_device_from_ut() {
     auto argc = boost::ut::detail::cfg::largc;
     auto argv = boost::ut::detail::cfg::largv;
     const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
     if (argc <= 1 || argv == nullptr || argv[1] == nullptr || argv[1][0] == '\0') {
         print_device_usage(exe);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     compute::Context context{exe};
     compute::Device device = context.create_device(argv[1]);
     log_test_backend(argv[1], device);
     return DeviceContext{std::move(context), std::move(device)};
 }
-[[nodiscard]] inline std::optional<DeviceContext> create_device_from_ut(
+[[nodiscard]] inline luisa::optional<DeviceContext> create_device_from_ut(
     int argc, char *argv[],
     const compute::DeviceConfig *config = nullptr,
     bool enable_validation = false) {
     const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
     if (argc <= 1 || argv == nullptr || argv[1] == nullptr || argv[1][0] == '\0') {
         print_device_usage(exe);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     compute::Context context{exe};
     compute::Device device = context.create_device(

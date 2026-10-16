@@ -99,6 +99,11 @@ struct MatrixContainer {
 };
 LUISA_STRUCT(MatrixContainer, aa, m, bb) {};
 
+struct ClipMatrix {
+    float4x4 world_to_clip_prev;
+};
+LUISA_STRUCT(ClipMatrix, world_to_clip_prev) {};
+
 int test_matrix_kernel(Device &device) {
     Stream stream = device.create_stream();
     constexpr auto n = 16u;
@@ -225,6 +230,114 @@ int test_matrix_struct(Device &device) {
     return 0;
 }
 
+static void expect_float4_eq(const char *operation, float4 actual, float4 expected) {
+    for (auto i = 0u; i < 4u; ++i) {
+        expect(finite_approx(actual[i], expected[i]))
+            << operation << " mismatch at [" << i << "]: got " << actual[i] << ", expected " << expected[i];
+    }
+}
+
+// Regression for https://github.com/LuisaGroup/LuisaCompute/issues/275
+// DX: Float4x4 built from BufferFloat::read() columns miscompiled in M * e_j.
+int test_float4x4_ctor_from_buffer_reads(Device &device) {
+    Stream stream = device.create_stream();
+    const uint dump_scale = 16u;
+
+    // Camera-like P·V: z-row == w-row (CSE bait from the original repro).
+    float host_consts[16] = {
+        1.0f, 0.0f, 0.25f, 0.25f,
+        0.0f, 2.03159f, -0.54024f, -0.54024f,
+        0.0f, 0.0f, 1.5f, 1.5f,
+        -0.04889f, 1.82729f, 6.63580f, 6.63580f};
+
+    float4x4 host_m = make_float4x4(
+        make_float4(host_consts[0], host_consts[1], host_consts[2], host_consts[3]),
+        make_float4(host_consts[4], host_consts[5], host_consts[6], host_consts[7]),
+        make_float4(host_consts[8], host_consts[9], host_consts[10], host_consts[11]),
+        make_float4(host_consts[12], host_consts[13], host_consts[14], host_consts[15]));
+
+    ClipMatrix host_rc{};
+    host_rc.world_to_clip_prev = host_m;
+
+    auto consts = device.create_buffer<float>(16u);
+    auto inputs = device.create_buffer<float>(1u);
+    auto rcbuf = device.create_buffer<ClipMatrix>(1u);
+    constexpr auto out_n = 256u;
+    auto outputs = device.create_buffer<float>(out_n);
+
+    Kernel1D kernel = [&](BufferFloat consts_buf, BufferFloat /*unused_inputs*/,
+                          BufferVar<ClipMatrix> rc, BufferFloat out) noexcept {
+        auto idx = dispatch_id().x;
+        Float4x4 MA = Float4x4(
+            make_float4(consts_buf.read(0u), consts_buf.read(1u), consts_buf.read(2u), consts_buf.read(3u)),
+            make_float4(consts_buf.read(4u), consts_buf.read(5u), consts_buf.read(6u), consts_buf.read(7u)),
+            make_float4(consts_buf.read(8u), consts_buf.read(9u), consts_buf.read(10u), consts_buf.read(11u)),
+            make_float4(consts_buf.read(12u), consts_buf.read(13u), consts_buf.read(14u), consts_buf.read(15u)));
+        Float4x4 MB = make_float4x4(
+            make_float4(consts_buf.read(0u), consts_buf.read(1u), consts_buf.read(2u), consts_buf.read(3u)),
+            make_float4(consts_buf.read(4u), consts_buf.read(5u), consts_buf.read(6u), consts_buf.read(7u)),
+            make_float4(consts_buf.read(8u), consts_buf.read(9u), consts_buf.read(10u), consts_buf.read(11u)),
+            make_float4(consts_buf.read(12u), consts_buf.read(13u), consts_buf.read(14u), consts_buf.read(15u)));
+        auto MC = rc.read(0u).world_to_clip_prev;
+        UInt diag_base = dump_scale * 8u;
+        auto dump_basis = [&](UInt base, Float4x4 m) {
+            Float4 e0 = make_float4(1.f, 0.f, 0.f, 0.f);
+            Float4 e1 = make_float4(0.f, 1.f, 0.f, 0.f);
+            Float4 e2 = make_float4(0.f, 0.f, 1.f, 0.f);
+            Float4 e3 = make_float4(0.f, 0.f, 0.f, 1.f);
+            Float4 b0 = m * e0;
+            Float4 b1 = m * e1;
+            Float4 b2 = m * e2;
+            Float4 b3 = m * e3;
+            out.write(base + 0u, b0.x);
+            out.write(base + 1u, b0.y);
+            out.write(base + 2u, b0.z);
+            out.write(base + 3u, b0.w);
+            out.write(base + 4u, b1.x);
+            out.write(base + 5u, b1.y);
+            out.write(base + 6u, b1.z);
+            out.write(base + 7u, b1.w);
+            out.write(base + 8u, b2.x);
+            out.write(base + 9u, b2.y);
+            out.write(base + 10u, b2.z);
+            out.write(base + 11u, b2.w);
+            out.write(base + 12u, b3.x);
+            out.write(base + 13u, b3.y);
+            out.write(base + 14u, b3.z);
+            out.write(base + 15u, b3.w);
+        };
+        $if (idx == 0u) {
+            dump_basis(diag_base + 28u, MA);
+            dump_basis(diag_base + 44u, MB);
+            dump_basis(diag_base + 60u, Float4x4(MC));
+        };
+    };
+
+    luisa::vector<float> host_out(out_n, 0.0f);
+    auto shader = device.compile(kernel);
+    stream << consts.copy_from(luisa::span{host_consts, 16u})
+           << rcbuf.copy_from(luisa::span{&host_rc, 1u})
+           << shader(consts, inputs, rcbuf, outputs).dispatch(1u)
+           << outputs.copy_to(luisa::span{host_out})
+           << synchronize();
+
+    auto check_block = [&](const char *label, uint base) {
+        for (auto col = 0u; col < 4u; ++col) {
+            auto got = make_float4(
+                host_out[base + col * 4u + 0u],
+                host_out[base + col * 4u + 1u],
+                host_out[base + col * 4u + 2u],
+                host_out[base + col * 4u + 3u]);
+            expect_float4_eq(label, got, host_m[col]);
+        }
+    };
+    auto diag_base = dump_scale * 8u;
+    check_block("Float4x4 ctor M*e_j", diag_base + 28u);
+    check_block("make_float4x4 M*e_j", diag_base + 44u);
+    check_block("struct member M*e_j", diag_base + 60u);
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -236,4 +349,5 @@ int main(int argc, char *argv[]) {
     test_matrix2x2(device);
     test_matrix_kernel(device);
     test_matrix_struct(device);
+    test_float4x4_ctor_from_buffer_reads(device);
 }

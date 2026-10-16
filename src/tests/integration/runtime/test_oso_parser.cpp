@@ -9,6 +9,7 @@
 
 #include <luisa/osl/shader.h>
 #include <luisa/osl/oso_parser.h>
+#include <luisa/core/stl/filesystem.h>
 
 using namespace boost::ut;
 using namespace boost::ut::literals;
@@ -177,9 +178,9 @@ end
         shader = luisa::compute::osl::OSOParser::parse(code);
     } else {
         // Parse shader from file
-        auto shader_path = std::filesystem::path{argv[2]};
-        boost::ut::expect(std::filesystem::is_regular_file(shader_path)) << "OSO input file does not exist: " << shader_path.string();
-        if (!std::filesystem::is_regular_file(shader_path)) {
+        auto shader_path = luisa::filesystem::path{argv[2]};
+        boost::ut::expect(luisa::filesystem::is_regular_file(shader_path)) << "OSO input file does not exist: " << shader_path.string();
+        if (!luisa::filesystem::is_regular_file(shader_path)) {
             return;
         }
         shader = luisa::compute::osl::OSOParser::parse_file(shader_path.string());

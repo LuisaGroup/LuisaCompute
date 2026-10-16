@@ -4,7 +4,16 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(BUILD_SHARED_LIBS ON)
+if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # iOS applications cannot discover and load LuisaCompute backend modules
+    # from a runtime directory. Keep the compiler/runtime dependency graph in
+    # the application image so it can be signed as one unit.
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL
+            "Build LuisaCompute libraries as shared libraries" FORCE)
+else ()
+    set(BUILD_SHARED_LIBS ON CACHE BOOL
+            "Build LuisaCompute libraries as shared libraries" FORCE)
+endif ()
 
 # We need Metal 3 so macOS 13+ is required
 if (APPLE)
@@ -21,7 +30,11 @@ if (APPLE)
             set(CMAKE_OSX_DEPLOYMENT_TARGET "13" CACHE STRING "Minimum OS X deployment version")
         endif ()
     endif ()
-    message(STATUS "macOS deployment target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        message(STATUS "iOS deployment target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    else ()
+        message(STATUS "macOS deployment target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    endif ()
 endif ()
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR

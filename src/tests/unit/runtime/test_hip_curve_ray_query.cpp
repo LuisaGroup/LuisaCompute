@@ -1,4 +1,4 @@
-// Exact HIP XIR ray-query coverage for curve surface candidates.
+// Shared CUDA LLVM and HIP XIR coverage for curve surface candidates.
 // This test verifies opaque auto-commit, non-opaque accept/reject callbacks,
 // ALL/ANY query modes, curve classification, hit IDs/parameters, and the
 // committed world-ray distance exposed from a callback.
@@ -45,6 +45,7 @@ void expect_near(luisa::string_view query, size_t index,
 
 void check_results(
     luisa::string_view query,
+    bool terminate_on_first,
     luisa::span<const uint4> summaries,
     luisa::span<const float4> committed_details,
     luisa::span<const uint4> callback_metadata,
@@ -67,9 +68,15 @@ void check_results(
         expect(summary.x == exp.hit_type)
             << luisa::format("{} case {} hit type: got {}, expected {}",
                              query, i, summary.x, exp.hit_type);
-        expect(summary.w == exp.callback_count)
-            << luisa::format("{} case {} callback count: got {}, expected {}",
-                             query, i, summary.w, exp.callback_count);
+        // Curve splitting may publish the same candidate more than once.
+        // Opacity suppresses callbacks, and ANY stops at its first commit.
+        auto exact_callback_count = exp.callback_count == 0u ||
+                                    (terminate_on_first && exp.has_committed_curve);
+        expect(exact_callback_count ? summary.w == exp.callback_count :
+                                      summary.w >= exp.callback_count)
+            << luisa::format("{} case {} callback count: got {}, expected {} {}",
+                             query, i, summary.w,
+                             exact_callback_count ? "exactly" : "at least", exp.callback_count);
 
         if (exp.has_committed_curve) {
             expect(summary.y == exp.committed_inst)
@@ -96,11 +103,17 @@ void check_results(
             expect(callback.z == exp.callback_prim)
                 << luisa::format("{} case {} candidate primitive: got {}, expected {}",
                                  query, i, callback.z, exp.callback_prim);
-            expect(callback.w == exp.callback_count);
+            expect(callback.w == 0u)
+                << luisa::format("{} case {} invalid candidate mask: {} "
+                                 "(curve=1 inst=2 prim=4 t=8 u=16 marker=32 pre-bound=64 post-bound=128)",
+                                 query, i, callback.w);
             expect_near(query, i, "candidate distance", candidate.x, exp.candidate_t);
             expect_near(query, i, "candidate curve parameter", candidate.y, exp.candidate_u);
             expect_near(query, i, "candidate curve marker", candidate.z, -1.0f);
-            expect_near(query, i, "candidate pre-commit ray tmax", candidate.w, 1.0f);
+            auto final_candidate_tmax_before =
+                exp.has_committed_curve && summary.w > 1u ? exp.committed_t : 1.0f;
+            expect_near(query, i, "candidate pre-commit ray tmax",
+                        candidate.w, final_candidate_tmax_before);
             expect_near(query, i, "candidate post-commit ray tmax",
                         candidate_tmax_after[i], exp.candidate_tmax_after);
         } else {
@@ -116,8 +129,8 @@ void check_results(
 }
 
 void test_hip_curve_ray_query(Device &device) {
-    if (device.backend_name() != "hip") {
-        LUISA_INFO("Skipping HIP-specific curve ray-query test on backend '{}'.",
+    if (device.backend_name() != "hip" && device.backend_name() != "cuda") {
+        LUISA_INFO("Skipping CUDA/HIP curve ray-query test on backend '{}'.",
                    device.backend_name());
         return;
     }
@@ -146,9 +159,33 @@ void test_hip_curve_ray_query(Device &device) {
            << accel.build()
            << synchronize();
 
+    // Check every callback, not just the final candidate recorded below. An
+    // earlier wrong candidate must stay observable even if a later one is valid.
+    auto candidate_error_mask = [](Bool accept, UInt callback_count,
+                                   UInt callback_curve, UInt callback_inst,
+                                   UInt callback_prim, UInt expected_prim,
+                                   Float candidate_t, Float candidate_u,
+                                   Float candidate_v, Float tmax_before,
+                                   Float tmax_after) noexcept {
+        constexpr auto tolerance = 2.0e-4f;
+        auto expected_t = ite(expected_prim == 0u, 0.45f, 0.40f);
+        auto expected_before = ite(accept & (callback_count > 1u), expected_t, 1.0f);
+        auto expected_after = ite(accept, expected_t, 1.0f);
+        // Negate the valid comparison so NaN fails as well as a finite mismatch.
+        return ite(callback_curve != 1u, 1u, 0u) |
+               ite(callback_inst != 1u, 2u, 0u) |
+               ite(callback_prim != expected_prim, 4u, 0u) |
+               ite(!(abs(candidate_t - expected_t) < tolerance), 8u, 0u) |
+               ite(!(abs(candidate_u - 0.5f) < tolerance), 16u, 0u) |
+               ite(!(abs(candidate_v + 1.0f) < tolerance), 32u, 0u) |
+               ite(!(abs(tmax_before - expected_before) < tolerance), 64u, 0u) |
+               ite(!(abs(tmax_after - expected_after) < tolerance), 128u, 0u);
+    };
+
     auto write_results = [](UInt index, const Var<CommittedHit> &committed,
                             UInt callback_count, UInt callback_curve,
                             UInt callback_inst, UInt callback_prim,
+                            UInt callback_invalid_mask,
                             Float candidate_t, Float candidate_u,
                             Float candidate_v, Float candidate_tmax_before,
                             Float candidate_tmax_after,
@@ -171,7 +208,7 @@ void test_hip_curve_ray_query(Device &device) {
                                            callback_curve,
                                            callback_inst,
                                            callback_prim,
-                                           callback_count));
+                                           callback_invalid_mask));
         candidate_details.write(index, make_float4(
                                            candidate_t,
                                            candidate_u,
@@ -180,7 +217,7 @@ void test_hip_curve_ray_query(Device &device) {
         output_candidate_tmax_after.write(index, candidate_tmax_after);
     };
 
-    Kernel1D trace_all = [write_results](
+    Kernel1D trace_all = [write_results, candidate_error_mask](
                              AccelVar accel,
                              BufferUInt4 summaries,
                              BufferFloat4 committed_details,
@@ -198,6 +235,7 @@ void test_hip_curve_ray_query(Device &device) {
         UInt callback_curve = 0u;
         UInt callback_inst = ~0u;
         UInt callback_prim = ~0u;
+        UInt callback_invalid_mask = 0u;
         Float candidate_t = -1.0f;
         Float candidate_u = -1.0f;
         Float candidate_v = -1.0f;
@@ -224,18 +262,23 @@ void test_hip_curve_ray_query(Device &device) {
                                      $else {
                                          candidate_tmax_committed = candidate.ray()->t_max();
                                      };
+                                     callback_invalid_mask |= candidate_error_mask(
+                                         accept, callback_count, callback_curve,
+                                         callback_inst, callback_prim, ite(index == 2u, 1u, 0u),
+                                         candidate_t, candidate_u, candidate_v,
+                                         candidate_tmax_before, candidate_tmax_committed);
                                  })
                              .trace();
         write_results(index, committed,
                       callback_count, callback_curve,
-                      callback_inst, callback_prim,
+                      callback_inst, callback_prim, callback_invalid_mask,
                       candidate_t, candidate_u, candidate_v,
                       candidate_tmax_before, candidate_tmax_committed,
                       summaries, committed_details, callback_metadata,
                       candidate_details, candidate_tmax_after);
     };
 
-    Kernel1D trace_any = [write_results](
+    Kernel1D trace_any = [write_results, candidate_error_mask](
                              AccelVar accel,
                              BufferUInt4 summaries,
                              BufferFloat4 committed_details,
@@ -253,6 +296,7 @@ void test_hip_curve_ray_query(Device &device) {
         UInt callback_curve = 0u;
         UInt callback_inst = ~0u;
         UInt callback_prim = ~0u;
+        UInt callback_invalid_mask = 0u;
         Float candidate_t = -1.0f;
         Float candidate_u = -1.0f;
         Float candidate_v = -1.0f;
@@ -279,19 +323,24 @@ void test_hip_curve_ray_query(Device &device) {
                                      $else {
                                          candidate_tmax_committed = candidate.ray()->t_max();
                                      };
+                                     callback_invalid_mask |= candidate_error_mask(
+                                         accept, callback_count, callback_curve,
+                                         callback_inst, callback_prim, ite(index == 2u, 0u, 1u),
+                                         candidate_t, candidate_u, candidate_v,
+                                         candidate_tmax_before, candidate_tmax_committed);
                                  })
                              .trace();
         write_results(index, committed,
                       callback_count, callback_curve,
-                      callback_inst, callback_prim,
+                      callback_inst, callback_prim, callback_invalid_mask,
                       candidate_t, candidate_u, candidate_v,
                       candidate_tmax_before, candidate_tmax_committed,
                       summaries, committed_details, callback_metadata,
                       candidate_details, candidate_tmax_after);
     };
 
-    auto all_shader = device.compile(trace_all);
-    auto any_shader = device.compile(trace_any);
+    auto all_shader = device.compile(trace_all, ShaderOption{.enable_cache = false});
+    auto any_shader = device.compile(trace_any, ShaderOption{.enable_cache = false});
     auto summaries = device.create_buffer<uint4>(3u);
     auto committed_details = device.create_buffer<float4>(3u);
     auto callback_metadata = device.create_buffer<uint4>(3u);
@@ -327,7 +376,7 @@ void test_hip_curve_ray_query(Device &device) {
         ExpectedCase{miss, ~0u, ~0u, 1u, false, 1.0f,
                      true, 1u, 1u, 0.40f, 0.5f, 1.0f}};
     dispatch_and_download(all_shader);
-    check_results("ALL", host_summaries, host_committed_details,
+    check_results("ALL", false, host_summaries, host_committed_details,
                   host_callback_metadata, host_candidate_details,
                   host_candidate_tmax_after, expected_all);
 
@@ -339,7 +388,7 @@ void test_hip_curve_ray_query(Device &device) {
         ExpectedCase{miss, ~0u, ~0u, 1u, false, 1.0f,
                      true, 1u, 0u, 0.45f, 0.5f, 1.0f}};
     dispatch_and_download(any_shader);
-    check_results("ANY", host_summaries, host_committed_details,
+    check_results("ANY", true, host_summaries, host_committed_details,
                   host_callback_metadata, host_candidate_details,
                   host_candidate_tmax_after, expected_any);
 }
@@ -351,7 +400,7 @@ int main(int argc, char *argv[]) {
     if (!dc) { return 0; }
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
-    "HIP XIR curve ray queries preserve exact surface semantics"_test = [&] {
+    "CUDA and HIP curve ray queries preserve exact surface semantics"_test = [&] {
         test_hip_curve_ray_query(dc->device);
     };
 }

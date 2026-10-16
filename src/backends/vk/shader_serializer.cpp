@@ -14,7 +14,14 @@ namespace detail {
 struct PSODataPackage {
     VkPipelineCacheHeaderVersionOne header;
     std::byte md5[sizeof(vstd::MD5)];
+    uint64_t pipeline_cache_identity;
+    uint64_t contract_version;
 };
+static_assert(
+    sizeof(PSODataPackage) ==
+    sizeof(VkPipelineCacheHeaderVersionOne) +
+        sizeof(vstd::MD5) + sizeof(uint64_t) * 2u);
+inline constexpr uint64_t pso_identity_contract_version = 1u;
 }// namespace detail
 class StringViewBinaryStream : public BinaryStream {
 
@@ -58,6 +65,12 @@ namespace {
          .use_tex3d_bindless = use_tex3d_bindless,
          .has_constant_ubo_payload = has_constant_ubo_payload,
          .acceleration_structure_available = device->enable_raytracing(),
+         // Keep the persisted-property check in step with the pipeline
+         // layout of this device: with the software fallback the
+         // acceleration-structure slot is a storage buffer, so a program
+         // that is reloaded here must be planned the same way it was
+         // created.
+         .fallback_rtx = device->use_fallback_rtx(),
          .sampled_image_update_after_bind_enabled = device->enable_bindless(),
          .storage_buffer_update_after_bind_enabled = device->enable_bindless()},
         detail::descriptor_interface_limits_from(
@@ -264,7 +277,10 @@ void ShaderSerializer::serialize_pso(
     }
     using namespace detail;
     PSODataPackage package{
-        .header = device->pso_header()};
+        .header = device->pso_header(),
+        .pipeline_cache_identity =
+            shader->pipeline_cache_identity(),
+        .contract_version = pso_identity_contract_version};
     memcpy(package.md5, &shader_md5, sizeof(vstd::MD5));
     vstd::MD5 pso_md5{
         {reinterpret_cast<uint8_t const *>(&package), sizeof(PSODataPackage)}};
@@ -350,7 +366,8 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
     vstd::string_view file_name,
     SerdeType serde_type,
     BinaryIO const *bin_io,
-    uint32_t push_constant_size) {
+    uint32_t push_constant_size,
+    bool enable_driver_optimization) {
     using namespace detail;
     DeserResult result{
         .shader = nullptr};
@@ -426,7 +443,12 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
     vstd::string pso_name;
     {
         PSODataPackage package{
-            .header = device->pso_header()};
+            .header = device->pso_header(),
+            .pipeline_cache_identity =
+                ComputeShader::pipeline_create_flags(
+                    enable_driver_optimization),
+            .contract_version =
+                pso_identity_contract_version};
         if (!requirements.shader_md5) {
             requirements.shader_md5.emplace(file_name);
         }
@@ -479,7 +501,8 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         required_subgroup_size,
         push_constant_size,
         static_cast<detail::ShaderCodegenDialect>(
-            header.codegen_dialect)};
+            header.codegen_dialect),
+        enable_driver_optimization};
     if (pso_data.empty() &&
         shader->serialize_pso(pso_data)) {
         auto artifact = serialize_pipeline_cache_artifact(pso_data);

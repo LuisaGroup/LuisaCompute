@@ -7,7 +7,11 @@ class VkCudaInteropImpl : public VkCudaInterop {
 public:
     VkCudaInterop *impl;
 
-    BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
+          BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
+      BufferCreationInfo create_interop_buffer_from_cuda(
+          const Type *element, size_t elem_count, uint64_t *cuda_device_ptr) noexcept override {
+          return impl->create_interop_buffer_from_cuda(element, elem_count, cuda_device_ptr);
+      }
     ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
@@ -35,6 +39,15 @@ public:
     }
     DeviceInterface *device() noexcept override {
         return impl->device();
+    }
+    bool cuda_kernel_launch_supported() const noexcept override {
+        return impl->cuda_kernel_launch_supported();
+    }
+    uint64_t create_cuda_kernel_shader(uint64_t cuda_shader_handle) noexcept override {
+        return impl->create_cuda_kernel_shader(cuda_shader_handle);
+    }
+    void destroy_cuda_kernel_shader(uint64_t handle) noexcept override {
+        impl->destroy_cuda_kernel_shader(handle);
     }
 };
 }// namespace lc::validation

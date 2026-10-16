@@ -1,0 +1,160 @@
+
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 45 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 45 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 45 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 1025 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 1025 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 1025 1
+Running test "tile_matrix_mpp_realized_work"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 45 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 1025 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m 1025 1[31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:411[31m - test condition:  [false[31m][0m
+
+ 1025 1MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(17) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(17) - T.max(pipeline_6 * T.int64(16), T.int64(1))
+MEAN_EXTENT original=T.min(T.int64(51) - pipeline_6 % T.int64(4) * T.int64(16), T.int64(16)) simplified=T.int64(51) - T.max(pipeline_6 * T.int64(16), T.int64(35))
+MEAN_EXTENT original=T.min(T.int64(17) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(17) - T.max(pipeline_6 * T.int64(16), T.int64(1))
+MEAN_EXTENT original=T.min(T.int64(51) - pipeline_6 % T.int64(4) * T.int64(16), T.int64(16)) simplified=T.int64(51) - T.max(pipeline_6 * T.int64(16), T.int64(35))
+MEAN_EXTENT original=T.min(T.int64(17) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(17) - T.max(pipeline_6 * T.int64(16), T.int64(1))
+MEAN_EXTENT original=T.min(T.int64(51) - pipeline_6 % T.int64(4) * T.int64(16), T.int64(16)) simplified=T.int64(51) - T.max(pipeline_6 * T.int64(16), T.int64(35))
+MEAN_EXTENT original=T.min(T.int64(17) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(17) - T.max(pipeline_6 * T.int64(16), T.int64(1))
+MEAN_EXTENT original=T.min(T.int64(51) - pipeline_6 % T.int64(4) * T.int64(16), T.int64(16)) simplified=T.int64(51) - T.max(pipeline_6 * T.int64(16), T.int64(35))
+MEAN_EXTENT original=T.min(T.int64(17) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(17) - T.max(pipeline_6 * T.int64(16), T.int64(1))
+MEAN_EXTENT original=T.min(T.int64(51) - pipeline_6 % T.int64(4) * T.int64(16), T.int64(16)) simplified=T.int64(51) - T.max(pipeline_6 * T.int64(16), T.int64(35))
+MEAN_EXTENT original=T.min(T.int64(17) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(17) - T.max(pipeline_6 * T.int64(16), T.int64(1))
+MEAN_EXTENT original=T.min(T.int64(51) - pipeline_6 % T.int64(4) * T.int64(16), T.int64(16)) simplified=T.int64(51) - T.max(pipeline_6 * T.int64(16), T.int64(35))
+MEAN_EXTENT original=T.min(T.int64(17) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(17) - T.max(pipeline_6 * T.int64(16), T.int64(1))
+MEAN_EXTENT original=T.min(T.int64(51) - pipeline_6 % T.int64(4) * T.int64(16), T.int64(16)) simplified=T.int64(51) - T.max(pipeline_6 * T.int64(16), T.int64(35))
+MEAN_EXTENT original=T.int64(5) simplified=T.int64(5)
+MEAN_EXTENT original=T.int64(5) simplified=T.int64(5)
+MEAN_EXTENT original=T.int64(5) simplified=T.int64(5)
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.int64(17) simplified=T.int64(17)
+MEAN_EXTENT original=T.int64(17) simplified=T.int64(17)
+MEAN_EXTENT original=T.int64(17) simplified=T.int64(17)
+MEAN_EXTENT original=T.min(T.int64(1025) - pipeline_6 % T.int64(3) * T.int64(512), T.int64(512)) simplified=T.int64(1025) - T.max(pipeline_6 * T.int64(512), T.int64(513))
+MEAN_EXTENT original=T.min(T.int64(1025) - pipeline_6 % T.int64(3) * T.int64(512), T.int64(512)) simplified=T.int64(1025) - T.max(pipeline_6 * T.int64(512), T.int64(513))
+MEAN_EXTENT original=T.min(T.int64(1025) - pipeline_6 % T.int64(3) * T.int64(512), T.int64(512)) simplified=T.int64(1025) - T.max(pipeline_6 * T.int64(512), T.int64(513))
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(11008) - pipeline_6 % T.int64(11) * T.int64(1024), T.int64(1024)) simplified=T.int64(11008) - T.max(pipeline_6 * T.int64(1024), T.int64(9984))
+MEAN_EXTENT original=T.min(T.int64(11008) - pipeline_6 % T.int64(11) * T.int64(1024), T.int64(1024)) simplified=T.int64(11008) - T.max(pipeline_6 * T.int64(1024), T.int64(9984))
+MEAN_EXTENT original=T.min(T.int64(11008) - pipeline_6 % T.int64(11) * T.int64(1024), T.int64(1024)) simplified=T.int64(11008) - T.max(pipeline_6 * T.int64(1024), T.int64(9984))
+MEAN_EXTENT original=T.min(T.int64(11008) - pipeline_6 % T.int64(11) * T.int64(1024), T.int64(1024)) simplified=T.int64(11008) - T.max(pipeline_6 * T.int64(1024), T.int64(9984))
+MEAN_EXTENT original=T.min(T.int64(11008) - pipeline_6 % T.int64(11) * T.int64(1024), T.int64(1024)) simplified=T.int64(11008) - T.max(pipeline_6 * T.int64(1024), T.int64(9984))
+MEAN_EXTENT original=T.min(T.int64(11008) - pipeline_6 % T.int64(11) * T.int64(1024), T.int64(1024)) simplified=T.int64(11008) - T.max(pipeline_6 * T.int64(1024), T.int64(9984))
+MEAN_EXTENT original=T.min(T.int64(11008) - pipeline_6 % T.int64(11) * T.int64(1024), T.int64(1024)) simplified=T.int64(11008) - T.max(pipeline_6 * T.int64(1024), T.int64(9984))
+MEAN_EXTENT original=T.min(T.int64(11008) - pipeline_6 % T.int64(11) * T.int64(1024), T.int64(1024)) simplified=T.int64(11008) - T.max(pipeline_6 * T.int64(1024), T.int64(9984))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.int64(61) simplified=T.int64(61)
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(1033) - pipeline_6 % T.int64(2) * T.int64(1024), T.int64(1024)) simplified=T.int64(1033) - T.max(pipeline_6 * T.int64(1024), T.int64(9))
+MEAN_EXTENT original=T.min(T.int64(29) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(29) - T.max(pipeline_6 * T.int64(16), T.int64(13))
+MEAN_EXTENT original=T.min(T.int64(29) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(29) - T.max(pipeline_6 * T.int64(16), T.int64(13))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.min(T.int64(45) - pipeline_6 % T.int64(3) * T.int64(16), T.int64(16)) simplified=T.int64(45) - T.max(pipeline_6 * T.int64(16), T.int64(29))
+MEAN_EXTENT original=T.int64(1) simplified=T.int64(1)
+MEAN_EXTENT original=T.int64(1) simplified=T.int64(1)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.min(T.int64(21) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(21) - T.max(pipeline_6 * T.int64(16), T.int64(5))
+MEAN_EXTENT original=T.min(T.int64(21) - pipeline_6 % T.int64(2) * T.int64(16), T.int64(16)) simplified=T.int64(21) - T.max(pipeline_6 * T.int64(16), T.int64(5))
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+MEAN_EXTENT original=T.int64(7) simplified=T.int64(7)
+
+===============================================================================
+Suite global
+tests:   34 | [31m6 failed[0m
+asserts: 4235 | 33 passed | [31m6 failed[0m
+

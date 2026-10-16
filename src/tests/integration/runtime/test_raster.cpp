@@ -166,6 +166,137 @@ void test_raster(Device &device) {
             return;
         }
         }
+
+        // Robustness probes for the raster backends' pipeline caches:
+        // (1) The same shader and raster state drawn with two different
+        //     MeshFormats (describing the same triangle through different
+        //     vertex buffer layouts) must produce identical results. The DX
+        //     backend used to key its PSO cache without the mesh format, so
+        //     the second draw reused the first input layout.
+        // (2) The same shader and raster state drawn into two different
+        //     color attachment formats must both render correctly. The
+        //     Vulkan backend used to key its pipeline cache without the
+        //     attachment formats, so the second draw reused a render pass
+        //     created for the first format.
+        {
+            struct PaddedVertex {
+                float4 pad;
+                float4 pos;
+            };
+            static_assert(sizeof(PaddedVertex) == 32u);
+            PaddedVertex padded[6];
+            for (size_t i = 0; i < 6u; ++i) {
+                padded[i].pad = make_float4(0.f);
+                padded[i].pos = make_float4(vertices[i].pos, 1.f);
+            }
+            Buffer<PaddedVertex> padded_buffer = device.create_buffer<PaddedVertex>(6);
+            stream << padded_buffer.copy_from(luisa::span{padded, std::size(padded)});
+            VertexBufferView padded_view{padded_buffer};
+
+            // Mesh format A: position at offset 0 of the plain Vertex buffer.
+            MeshFormat format_a;
+            VertexAttribute attributes_a[] = {
+                {VertexAttributeType::Position, PixelFormat::RGBA32F},
+                {VertexAttributeType::Normal, PixelFormat::RGBA32F}};
+            format_a.emplace_vertex_stream(attributes_a);
+            // Mesh format B: position at offset 16 of the padded buffer,
+            // behind the NORMAL attribute.
+            MeshFormat format_b;
+            VertexAttribute attributes_b[] = {
+                {VertexAttributeType::Normal, PixelFormat::RGBA32F},
+                {VertexAttributeType::Position, PixelFormat::RGBA32F}};
+            format_b.emplace_vertex_stream(attributes_b);
+
+            auto img_a = device.create_image<float>(PixelStorage::BYTE4, width, height, 1, false, true);
+            auto img_b = device.create_image<float>(PixelStorage::BYTE4, width, height, 1, false, true);
+            luisa::vector<RasterMesh> meshes_a;
+            meshes_a.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 114514);
+            luisa::vector<RasterMesh> meshes_b;
+            meshes_b.emplace_back(luisa::span<VertexBufferView const>{&padded_view, 1}, idx_buffer, 1, 114514);
+            luisa::vector<std::byte> pixels_a(pixels.size());
+            luisa::vector<std::byte> pixels_b(pixels.size());
+            stream
+                << clear_shader(img_a).dispatch(width, height)
+                << clear_shader(img_b).dispatch(width, height)
+                << depth_buffer.clear(1.0)
+                << shader(0.0f, 0.0f).draw(std::move(meshes_a), format_a, Viewport{0, 0, width, height}, state, &depth_buffer, img_a)
+                << depth_buffer.clear(1.0)
+                << shader(0.0f, 0.0f).draw(std::move(meshes_b), format_b, Viewport{0, 0, width, height}, state, &depth_buffer, img_b)
+                << img_a.copy_to(luisa::span{pixels_a})
+                << img_b.copy_to(luisa::span{pixels_b})
+                << synchronize();
+            size_t mismatch = 0;
+            for (size_t i = 0; i < pixels_a.size(); ++i) {
+                mismatch += (pixels_a[i] != pixels_b[i]) ? 1u : 0u;
+            }
+            boost::ut::expect(mismatch == 0u)
+                << luisa::format("Mesh-format probe: {} of {} bytes differ between the two mesh formats.", mismatch, pixels_a.size());
+            if (mismatch != 0u) {
+                stbi_write_png("test_raster_probe_a.png", width, height, 4, pixels_a.data(), width * 4);
+                stbi_write_png("test_raster_probe_b.png", width, height, 4, pixels_b.data(), width * 4);
+                return;
+            }
+
+            // Probe 2: same mesh/state, different color attachment format.
+            auto img_float = device.create_image<float>(PixelStorage::FLOAT4, width, height, 1, false, true);
+            luisa::vector<float> float_pixels(static_cast<size_t>(width) * height * 4u);
+            luisa::vector<RasterMesh> meshes_c;
+            meshes_c.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 114514);
+            stream
+                << clear_shader(img_float).dispatch(width, height)
+                << depth_buffer.clear(1.0)
+                << shader(0.0f, 0.0f).draw(std::move(meshes_c), mesh_format, Viewport{0, 0, width, height}, state, &depth_buffer, img_float)
+                << img_float.copy_to(luisa::span{float_pixels})
+                << synchronize();
+            size_t float_mismatch = 0;
+            for (size_t p = 0; p < static_cast<size_t>(width) * height; ++p) {
+                for (uint c = 0; c < 4u; ++c) {
+                    auto v = float_pixels[p * 4u + c];
+                    v = std::clamp(v, 0.f, 1.f);
+                    auto as_byte = static_cast<uint8_t>(v * 255.f + 0.5f);
+                    auto diff = std::abs(static_cast<int>(as_byte) - static_cast<int>(reinterpret_cast<const uint8_t *>(pixels_a.data())[p * 4u + c]));
+                    float_mismatch += (diff > 1) ? 1u : 0u;
+                }
+            }
+            boost::ut::expect(float_mismatch == 0u)
+                << luisa::format("Attachment-format probe: {} of {} channel values differ between BYTE4 and FLOAT4 attachments.", float_mismatch, pixels_a.size());
+            if (float_mismatch != 0u) {
+                luisa::vector<uint8_t> float_as_bytes(float_pixels.size());
+                for (size_t i = 0; i < float_pixels.size(); ++i) {
+                    auto v = std::clamp(float_pixels[i], 0.f, 1.f);
+                    float_as_bytes[i] = static_cast<uint8_t>(v * 255.f + 0.5f);
+                }
+                stbi_write_png("test_raster_probe_float.png", width, height, 4, float_as_bytes.data(), width * 4);
+            }
+
+            // Probe 3: blending that keeps the previous attachment contents
+            // (dst factor Zero) must render the same image as the opaque
+            // draw. This exercises the blend render-pass path with a LOAD
+            // op and a preserved initial layout.
+            auto blend_state = state;
+            blend_state.blend_state.enable_blend = true;
+            blend_state.blend_state.prim_op = BlendWeight::One;
+            blend_state.blend_state.img_op = BlendWeight::Zero;
+            auto img_blend = device.create_image<float>(PixelStorage::BYTE4, width, height, 1, false, true);
+            luisa::vector<std::byte> pixels_blend(pixels.size());
+            luisa::vector<RasterMesh> meshes_d;
+            meshes_d.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 114514);
+            stream
+                << clear_shader(img_blend).dispatch(width, height)
+                << depth_buffer.clear(1.0)
+                << shader(0.0f, 0.0f).draw(std::move(meshes_d), mesh_format, Viewport{0, 0, width, height}, blend_state, &depth_buffer, img_blend)
+                << img_blend.copy_to(luisa::span{pixels_blend})
+                << synchronize();
+            size_t blend_mismatch = 0;
+            for (size_t i = 0; i < pixels_a.size(); ++i) {
+                blend_mismatch += (pixels_blend[i] != pixels_a[i]) ? 1u : 0u;
+            }
+            boost::ut::expect(blend_mismatch == 0u)
+                << luisa::format("Blend probe: {} of {} bytes differ between the blended and the opaque draw.", blend_mismatch, pixels_a.size());
+            if (blend_mismatch != 0u) {
+                stbi_write_png("test_raster_probe_blend.png", width, height, 4, pixels_blend.data(), width * 4);
+            }
+        }
         return;
     }
 }

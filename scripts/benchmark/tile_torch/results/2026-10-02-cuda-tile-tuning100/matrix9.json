@@ -1,0 +1,168 @@
+{
+  "schema": 1,
+  "description": "Run --ranking-contract standard. Two existing GEMM shapes and one GEMV shape, each with three explicit schedules. No GEMM/GEMV algorithm substitution.",
+  "cases": [
+    {
+      "id": "schedule-gemm-32x1024x4096-fp32-32x32x32",
+      "operation": "gemm",
+      "dimensions": [
+        32,
+        1024,
+        4096
+      ],
+      "tile": [
+        32,
+        32,
+        32
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "schedule-gemm-32x1024x4096-fp32-16x32x32",
+      "operation": "gemm",
+      "dimensions": [
+        32,
+        1024,
+        4096
+      ],
+      "tile": [
+        16,
+        32,
+        32
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "schedule-gemm-32x1024x4096-fp32-32x16x32",
+      "operation": "gemm",
+      "dimensions": [
+        32,
+        1024,
+        4096
+      ],
+      "tile": [
+        32,
+        16,
+        32
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "schedule-gemm-4x4096x4096-bf16-16x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        4,
+        4096,
+        4096
+      ],
+      "tile": [
+        16,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "schedule-gemm-4x4096x4096-bf16-4x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        4,
+        4096,
+        4096
+      ],
+      "tile": [
+        4,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "schedule-gemm-4x4096x4096-bf16-4x32x32",
+      "operation": "gemm",
+      "dimensions": [
+        4,
+        4096,
+        4096
+      ],
+      "tile": [
+        4,
+        32,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "schedule-gemv-4096x4096-fp32-1x1x1024",
+      "operation": "gemv",
+      "dimensions": [
+        4096,
+        1,
+        4096
+      ],
+      "tile": [
+        1,
+        1,
+        1024
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "schedule-gemv-4096x4096-fp32-4x1x1024",
+      "operation": "gemv",
+      "dimensions": [
+        4096,
+        1,
+        4096
+      ],
+      "tile": [
+        4,
+        1,
+        1024
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "schedule-gemv-4096x4096-fp32-1x1x512",
+      "operation": "gemv",
+      "dimensions": [
+        4096,
+        1,
+        4096
+      ],
+      "tile": [
+        1,
+        1,
+        512
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ]
+}

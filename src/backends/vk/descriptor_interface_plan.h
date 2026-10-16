@@ -16,6 +16,10 @@ namespace lc::vk::detail {
 // bindings in set 0, the immutable sampler heap in set 1, then the enabled
 // update-after-bind heaps in buffer/2D/3D order.
 inline constexpr uint32_t descriptor_interface_max_local_bindings = 256u;
+// Upper bound of the push-constant markers a fallback-RTX property table may
+// carry: the codegen's own block plus one 32-bit word per fallback `accel`
+// argument. Bounded so a malformed table cannot claim an arbitrary block.
+inline constexpr uint32_t descriptor_interface_max_push_constant_markers = 64u;
 inline constexpr uint32_t descriptor_interface_sampler_count = 16u;
 inline constexpr uint32_t descriptor_interface_max_set_count = 5u;
 inline constexpr uint32_t descriptor_interface_max_property_count =
@@ -277,6 +281,12 @@ struct DescriptorInterfaceRequest {
     bool use_tex3d_bindless{};
     bool has_constant_ubo_payload{};
     bool acceleration_structure_available{};
+    // The device answers ray tracing with the software fallback
+    // (`Device::use_fallback_rtx()`): the acceleration-structure slot of a
+    // shader is the fallback's acceleration buffer, i.e. a storage buffer,
+    // and each fallback `accel` argument appends one push-constant word (the
+    // tree's region base) to the block the codegen already declares.
+    bool fallback_rtx{};
     bool sampled_image_update_after_bind_enabled{};
     bool storage_buffer_update_after_bind_enabled{};
 };
@@ -292,6 +302,9 @@ struct DescriptorInterfacePlan {
     uint32_t update_after_bind_set_count{};
     uint32_t indirect_dispatch_binding_count{};
     uint32_t acceleration_structure_binding_count{};
+    // Markers of the push-constant block in the property table (see
+    // `fallback_rtx` above); 1 on the hardware path.
+    uint32_t push_constant_marker_count{};
 
     [[nodiscard]] constexpr explicit operator bool() const noexcept {
         return error == DescriptorInterfaceError::NONE;
@@ -348,7 +361,8 @@ enum class GlobalHeapRole : uint8_t { NONE,
 }
 
 [[nodiscard]] constexpr DescriptorInterfaceCounts descriptor_counts(
-    hlsl::ShaderVariableType type, uint32_t count) noexcept {
+    hlsl::ShaderVariableType type, uint32_t count,
+    bool fallback_rtx = false) noexcept {
     auto result = DescriptorInterfaceCounts{};
     switch (type) {
         case hlsl::ShaderVariableType::ConstantBuffer:
@@ -375,7 +389,16 @@ enum class GlobalHeapRole : uint8_t { NONE,
             result.samplers = count;
             break;
         case hlsl::ShaderVariableType::SPIRVAccel:
-            result.acceleration_structures = count;
+            // The acceleration-structure slot of a device that runs the
+            // software fallback is the fallback's shared acceleration buffer
+            // (`StructuredBuffer<uint4>`, src/backends/common/rtx/fallback_rtx.h):
+            // same shader-visible ABI tag, ordinary storage buffer on the
+            // Vulkan side.
+            if (fallback_rtx) {
+                result.storage_buffers = count;
+            } else {
+                result.acceleration_structures = count;
+            }
             break;
         case hlsl::ShaderVariableType::ConstantValue: break;
     }
@@ -561,7 +584,17 @@ check_update_after_bind_limits(
                 return fail(
                     DescriptorInterfaceError::NONCANONICAL_PUSH_CONSTANT);
             }
-            if (++push_constant_count > 1u) {
+            // The codegen declares the push-constant block once. A device that
+            // runs the software fallback appends one 32-bit word per fallback
+            // `accel` argument (the tree's region base), which the command
+            // encoder writes after the fixed dispatch block (stream.cpp), so
+            // such a property table carries one marker per word. The hardware
+            // path stays exactly one marker.
+            auto max_push_constant_markers =
+                request.fallback_rtx ?
+                    descriptor_interface_max_push_constant_markers :
+                    1u;
+            if (++push_constant_count > max_push_constant_markers) {
                 return fail(
                     DescriptorInterfaceError::DUPLICATE_PUSH_CONSTANT);
             }
@@ -666,15 +699,20 @@ check_update_after_bind_limits(
             }
         }
         if (property.type == hlsl::ShaderVariableType::SPIRVAccel) {
-            if (!request.acceleration_structure_available) {
+            if (!request.acceleration_structure_available &&
+                !request.fallback_rtx) {
                 return fail(
                     DescriptorInterfaceError::ACCELERATION_STRUCTURE_NOT_SUPPORTED);
             }
-            ++plan.acceleration_structure_binding_count;
+            if (!request.fallback_rtx) {
+                ++plan.acceleration_structure_binding_count;
+            }
         }
-        plan.set_counts[0u] += descriptor_counts(property.type, 1u);
+        plan.set_counts[0u] += descriptor_counts(
+            property.type, 1u, request.fallback_rtx);
     }
 
+    plan.push_constant_marker_count = push_constant_count;
     if (sampler_count != 1u) {
         return fail(
             DescriptorInterfaceError::MISSING_OR_DUPLICATE_SAMPLER);
@@ -745,7 +783,8 @@ plan_persisted_descriptor_interface(
     DescriptorInterfaceStageMask stage_mask,
     bool use_buffer_bindless, bool use_tex2d_bindless,
     bool use_tex3d_bindless,
-    bool has_constant_ubo_payload) noexcept {
+    bool has_constant_ubo_payload,
+    bool fallback_rtx = false) noexcept {
     constexpr auto maximum = std::numeric_limits<uint32_t>::max();
     constexpr auto structural_limits = DescriptorInterfaceLimits{
         .max_bound_descriptor_sets = descriptor_interface_max_set_count,
@@ -784,6 +823,7 @@ plan_persisted_descriptor_interface(
          .use_tex3d_bindless = use_tex3d_bindless,
          .has_constant_ubo_payload = has_constant_ubo_payload,
          .acceleration_structure_available = true,
+         .fallback_rtx = fallback_rtx,
          .sampled_image_update_after_bind_enabled = uses_bindless,
          .storage_buffer_update_after_bind_enabled = uses_bindless},
         structural_limits);

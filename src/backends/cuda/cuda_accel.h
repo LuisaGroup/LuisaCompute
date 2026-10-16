@@ -29,6 +29,7 @@ public:
     struct alignas(16) Binding {
         optix::TraversableHandle handle;
         CUdeviceptr instances;
+        uint32_t instance_count;
     };
 
 private:
@@ -37,6 +38,7 @@ private:
     mutable spin_mutex _mutex;
     optix::TraversableHandle _handle{};
     CUdeviceptr _instance_buffer{};
+    uint32_t _instance_count{};
     size_t _instance_buffer_size{};
     CUdeviceptr _bvh_buffer{};
     size_t _bvh_buffer_size{};

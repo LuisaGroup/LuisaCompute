@@ -7,6 +7,12 @@
 # --- CTest integration ---
 enable_testing()
 
+# Loading incompatible LLVM majors in one process can coalesce LLVM's weak
+# C++ symbols. Keep TVM comparison optional without disabling either bridge's
+# standalone tests or the native tests' independent numerical oracle.
+option(LUISA_COMPUTE_TILE_XIR_TEST_TIRX_COMPARISON
+        "Compare XIR with TIRx in-process (requires compatible LLVM libraries)" ON)
+
 # Helper: add a standalone test executable, include path, AND register with CTest.
 # Usage: luisa_compute_add_test(name source LABELS label1;label2 [ARGS arg1 ...])
 # Tests without LABELS compile but are NOT registered with CTest.
@@ -19,13 +25,261 @@ function(luisa_compute_add_test name source)
     target_include_directories(${name} PRIVATE ./ ./common)
     if (CT_LABELS)
         add_test(NAME ${name} COMMAND ${name} ${CT_ARGS})
-        set_tests_properties(${name} PROPERTIES LABELS "${CT_LABELS}")
+        # PARSE_ARGV preserves literal semicolons as \; inside a single
+        # argument. CTest expects an actual CMake list for multiple labels.
+        string(REPLACE "\\;" ";" _test_labels "${CT_LABELS}")
+        set_tests_properties(${name} PROPERTIES LABELS "${_test_labels}")
     endif ()
 endfunction()
 
 # =============================================================================
 # Unit Tests
 # =============================================================================
+
+# --- unit/simd: dependency-light Schedule IR semantic model ---
+# Keep this target independent from LLVM, Embree, and the runtime backends so
+# divergent-control semantics can be tested in the smallest host build.
+add_executable(test_simd_cohort_scheduler
+        unit/simd/test_cohort_scheduler.cpp)
+target_compile_features(test_simd_cohort_scheduler PRIVATE cxx_std_20)
+target_include_directories(test_simd_cohort_scheduler PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+# The schedule headers include <luisa/core/stl/optional.h>, which needs the
+# core interface (the bundled EASTL include dirs) even in this LLVM-free test.
+target_link_libraries(test_simd_cohort_scheduler PRIVATE luisa-compute-core)
+add_test(NAME test_simd_cohort_scheduler
+        COMMAND test_simd_cohort_scheduler)
+set_tests_properties(test_simd_cohort_scheduler PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_scheduler_model
+        unit/simd/test_scheduler_model.cpp)
+target_compile_features(test_simd_scheduler_model PRIVATE cxx_std_20)
+target_include_directories(test_simd_scheduler_model PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+target_link_libraries(test_simd_scheduler_model PRIVATE luisa-compute-core)
+add_test(NAME test_simd_scheduler_model
+        COMMAND test_simd_scheduler_model)
+set_tests_properties(test_simd_scheduler_model PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_reference_warp_collectives
+        unit/simd/test_reference_warp_collectives.cpp)
+target_compile_features(test_simd_reference_warp_collectives PRIVATE cxx_std_20)
+target_include_directories(test_simd_reference_warp_collectives PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/unit/simd
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+target_link_libraries(test_simd_reference_warp_collectives PRIVATE luisa-compute-core)
+add_test(NAME test_simd_reference_warp_collectives
+        COMMAND test_simd_reference_warp_collectives)
+set_tests_properties(test_simd_reference_warp_collectives PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_embree_packet_support
+        unit/simd/test_simd_embree_packet_support.cpp)
+target_compile_features(test_simd_embree_packet_support PRIVATE cxx_std_20)
+target_include_directories(test_simd_embree_packet_support PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/runtime)
+add_test(NAME test_simd_embree_packet_support
+        COMMAND test_simd_embree_packet_support)
+set_tests_properties(test_simd_embree_packet_support PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_schedule_ir
+        unit/simd/test_schedule_ir.cpp
+        ../backends/simd/schedule/schedule_ir.cpp)
+target_compile_features(test_simd_schedule_ir PRIVATE cxx_std_20)
+target_include_directories(test_simd_schedule_ir PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+target_link_libraries(test_simd_schedule_ir PRIVATE luisa-compute-core)
+add_test(NAME test_simd_schedule_ir
+        COMMAND test_simd_schedule_ir)
+set_tests_properties(test_simd_schedule_ir PROPERTIES
+        LABELS "unit;unit_simd")
+
+add_executable(test_simd_thread_pool
+        unit/simd/test_simd_thread_pool.cpp
+        ../backends/simd/runtime/simd_thread_pool.cpp)
+target_compile_features(test_simd_thread_pool PRIVATE cxx_std_20)
+target_include_directories(test_simd_thread_pool PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/runtime)
+target_link_libraries(test_simd_thread_pool PRIVATE
+        luisa-compute-core)
+add_test(NAME test_simd_thread_pool
+        COMMAND test_simd_thread_pool)
+set_tests_properties(test_simd_thread_pool PROPERTIES
+        LABELS "unit;unit_simd")
+
+# Exercise the portable worker-pool protocol without loading LLVM/Embree or
+# compiling a shader. Compile the same production queue implementation here.
+luisa_compute_add_test(test_fallback_command_queue
+        unit/fallback/test_fallback_command_queue.cpp
+        LABELS "unit;unit_fallback")
+target_sources(test_fallback_command_queue PRIVATE
+        ../backends/fallback/fallback_command_queue.cpp)
+target_include_directories(test_fallback_command_queue PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback)
+target_link_libraries(test_fallback_command_queue PRIVATE ${CMAKE_DL_LIBS})
+set_tests_properties(test_fallback_command_queue PROPERTIES TIMEOUT 60)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME test_fallback_command_queue_completion
+            COMMAND test_fallback_command_queue completion)
+    set_tests_properties(test_fallback_command_queue_completion PROPERTIES
+            LABELS "unit;unit_fallback" TIMEOUT 60)
+endif ()
+
+luisa_compute_add_test(test_simd_warp_uniformity
+        unit/simd/test_warp_uniformity.cpp
+        LABELS "unit;unit_simd;unit_xir")
+target_sources(test_simd_warp_uniformity PRIVATE
+        ../backends/simd/schedule/warp_uniformity.cpp)
+target_include_directories(test_simd_warp_uniformity PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+
+luisa_compute_add_test(test_simd_xir_to_schedule
+        unit/simd/test_xir_to_schedule.cpp
+        LABELS "unit;unit_simd;unit_xir")
+target_sources(test_simd_xir_to_schedule PRIVATE
+        ../backends/simd/schedule/block_barrier.cpp
+        ../backends/simd/schedule/schedule_ir.cpp
+        ../backends/simd/schedule/warp_uniformity.cpp
+        ../backends/simd/schedule/xir_to_schedule.cpp)
+target_include_directories(test_simd_xir_to_schedule PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd/schedule)
+
+if (TARGET luisa-compute-simd-llvm)
+    add_executable(test_fallback_llvm_abi_alignment
+            unit/fallback/test_fallback_llvm_abi_alignment.cpp
+            ../backends/fallback/fallback_codegen.cpp)
+    target_compile_features(test_fallback_llvm_abi_alignment PRIVATE cxx_std_20)
+    target_link_libraries(test_fallback_llvm_abi_alignment PRIVATE luisa-compute-simd-llvm)
+    target_include_directories(test_fallback_llvm_abi_alignment PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_fallback_llvm_abi_alignment COMMAND test_fallback_llvm_abi_alignment)
+    set_tests_properties(test_fallback_llvm_abi_alignment PROPERTIES
+            LABELS "unit;unit_fallback;unit_llvm")
+
+    luisa_compute_add_test(test_simd_phi_parallel_copy unit/simd/test_phi_parallel_copy.cpp
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+    target_link_libraries(test_simd_phi_parallel_copy PRIVATE luisa-compute-simd-compiler)
+    target_include_directories(test_simd_phi_parallel_copy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd)
+    add_executable(test_fallback_llvm_native_math
+            unit/fallback/test_fallback_llvm_native_math.cpp
+            ../backends/fallback/fallback_codegen.cpp)
+    target_compile_features(test_fallback_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(test_fallback_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_fallback_llvm_native_math PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/fallback
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_fallback_llvm_native_math
+            COMMAND test_fallback_llvm_native_math)
+    set_tests_properties(test_fallback_llvm_native_math PROPERTIES
+            LABELS "unit;unit_fallback;unit_llvm;integration_fallback")
+
+    add_executable(test_simd_llvm_native_math
+            unit/simd/test_llvm_native_math.cpp
+            unit/simd/test_llvm_native_math_fast.cpp)
+    target_compile_features(test_simd_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_native_math PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_native_math
+            COMMAND test_simd_llvm_native_math)
+    set_tests_properties(test_simd_llvm_native_math PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+
+    add_executable(benchmark_llvm_native_math
+            unit/simd/benchmark_llvm_native_math.cpp)
+    target_compile_features(benchmark_llvm_native_math PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_llvm_native_math PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(benchmark_llvm_native_math PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+
+    add_executable(benchmark_simd_predicated_if
+            unit/simd/benchmark_predicated_if_conversion.cpp)
+    target_compile_features(benchmark_simd_predicated_if PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_simd_predicated_if PRIVATE
+            luisa-compute-simd-compiler)
+    target_include_directories(benchmark_simd_predicated_if PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+
+    add_executable(benchmark_simd_loop_unswitch
+            unit/simd/benchmark_loop_unswitch.cpp)
+    target_compile_features(benchmark_simd_loop_unswitch PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_simd_loop_unswitch PRIVATE
+            luisa-compute-simd-compiler)
+    target_include_directories(benchmark_simd_loop_unswitch PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+
+    add_executable(benchmark_simd_gemm_assembly
+            unit/simd/benchmark_simd_gemm_assembly.cpp)
+    target_compile_features(benchmark_simd_gemm_assembly PRIVATE cxx_std_20)
+    target_link_libraries(benchmark_simd_gemm_assembly PRIVATE
+            luisa-compute-simd-compiler
+            luisa-compute-dsl)
+    target_include_directories(benchmark_simd_gemm_assembly PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/simd
+            ${LLVM_INCLUDE_DIRS})
+
+    luisa_compute_add_test(benchmark_simd_ray_query
+            unit/simd/benchmark_simd_ray_query.cpp)
+    luisa_compute_add_test(benchmark_simd_procedural_ray_query
+            unit/simd/benchmark_simd_procedural_ray_query.cpp)
+    luisa_compute_add_test(benchmark_ast2xir_inline_ray_query
+            unit/xir/benchmark_ast2xir_inline_ray_query.cpp)
+
+    add_executable(test_simd_llvm_value_layout
+            unit/simd/test_llvm_value_layout.cpp)
+    target_compile_features(test_simd_llvm_value_layout PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_value_layout PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_value_layout PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_value_layout
+            COMMAND test_simd_llvm_value_layout)
+    set_tests_properties(test_simd_llvm_value_layout PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm")
+
+    add_executable(test_simd_llvm_warp_collectives
+            unit/simd/test_llvm_warp_collectives.cpp)
+    target_compile_features(test_simd_llvm_warp_collectives PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_warp_collectives PRIVATE
+            luisa-compute-simd-llvm)
+    target_include_directories(test_simd_llvm_warp_collectives PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/unit/simd
+            ${LLVM_INCLUDE_DIRS})
+    add_test(NAME test_simd_llvm_warp_collectives
+            COMMAND test_simd_llvm_warp_collectives)
+    set_tests_properties(test_simd_llvm_warp_collectives PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm")
+
+    add_executable(test_simd_llvm_schedule_codegen
+            unit/simd/test_llvm_schedule_codegen.cpp)
+    target_compile_features(test_simd_llvm_schedule_codegen PRIVATE cxx_std_20)
+    target_link_libraries(test_simd_llvm_schedule_codegen PRIVATE
+            luisa-compute-simd-compiler
+            luisa-compute-dsl)
+    target_include_directories(test_simd_llvm_schedule_codegen PRIVATE
+            ${LLVM_INCLUDE_DIRS})
+    # Clang's UBSan function-type check reads an eight-byte signature before
+    # every indirect-call target. ORC JIT entry points are not Clang-emitted
+    # functions and may begin at a page boundary, so that probe can fault
+    # before the generated function is entered. Keep ASan and the remaining
+    # UBSan checks enabled for this test while disabling only that incompatible
+    # call-site check.
+    if (LUISA_COMPUTE_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set_property(SOURCE unit/simd/test_llvm_schedule_codegen.cpp
+                APPEND PROPERTY COMPILE_OPTIONS "-fno-sanitize=function")
+    endif ()
+    add_test(NAME test_simd_llvm_schedule_codegen
+            COMMAND test_simd_llvm_schedule_codegen)
+    set_tests_properties(test_simd_llvm_schedule_codegen PROPERTIES
+            LABELS "unit;unit_simd;unit_llvm;integration_simd")
+endif ()
 
 # --- unit/core: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_basic_traits       unit/core/test_basic_traits.cpp       LABELS "unit;unit_core")
@@ -41,8 +295,16 @@ luisa_compute_add_test(test_matrix             unit/core/test_matrix.cpp        
 luisa_compute_add_test(test_pool               unit/core/test_pool.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_type               unit/core/test_type.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_stl_containers     unit/core/test_stl_containers.cpp     LABELS "unit;unit_core")
+foreach (_map_rejection IN ITEMS mutable const)
+    add_test(NAME test_map_at_reject_${_map_rejection}
+            COMMAND ${CMAKE_COMMAND}
+            "-DTEST_PROGRAM=$<TARGET_FILE:test_stl_containers>"
+            "-DTEST_CASE=${_map_rejection}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/common/map_expect_rejection.cmake)
+    set_tests_properties(test_map_at_reject_${_map_rejection} PROPERTIES
+            LABELS "unit;unit_core" TIMEOUT 40)
+endforeach ()
 luisa_compute_add_test(test_hash               unit/core/test_hash.cpp               LABELS "unit;unit_core")
-luisa_compute_add_test(test_integer_power_contract unit/core/test_integer_power_contract.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_spin_mutex         unit/core/test_spin_mutex.cpp         LABELS "unit;unit_core")
 luisa_compute_add_test(test_fiber              unit/core/test_fiber.cpp              LABELS "unit;unit_core")
 luisa_compute_add_test(test_platform_utils     unit/core/test_platform.cpp           LABELS "unit;unit_core")
@@ -60,19 +322,164 @@ luisa_compute_add_test(test_sparse_buffer_tile_plan unit/core/test_sparse_buffer
 target_include_directories(test_sparse_buffer_tile_plan PRIVATE ../runtime)
 luisa_compute_add_test(test_sparse_texture_tile_plan unit/core/test_sparse_texture_tile_plan.cpp LABELS "unit;unit_core")
 target_include_directories(test_sparse_texture_tile_plan PRIVATE ../runtime)
+if (TARGET luisa-compute-backend-cuda)
+    # Sidecar parsing is host-only; compile the helper without loading the CUDA backend.
+    luisa_compute_add_test(test_cuda_shader_metadata
+            unit/core/test_cuda_shader_metadata.cpp LABELS "unit;unit_core;unit_cuda")
+    target_sources(test_cuda_shader_metadata PRIVATE
+            ../backends/cuda/cuda_shader_metadata.cpp
+            ../backends/cuda/llvm_codegen/cuda_codegen_llvm_optix_ir.cpp)
+    target_include_directories(test_cuda_shader_metadata PRIVATE ../backends/cuda)
+endif ()
 luisa_compute_add_test(test_hip_curve_bounds   unit/core/test_hip_curve_bounds.cpp   LABELS "unit;unit_core")
 target_sources(test_hip_curve_bounds PRIVATE ../backends/hip/hip_curve_bounds.cpp)
 target_include_directories(test_hip_curve_bounds PRIVATE ../backends/hip)
-luisa_compute_add_test(test_glslang_spirv      unit/ext/test_glslang_spirv.cpp       LABELS "unit;unit_ext")
-target_link_libraries(test_glslang_spirv PRIVATE glslang-default-resource-limits)
+luisa_compute_add_test(test_hip_geometry_memory_policy unit/core/test_hip_geometry_memory_policy.cpp LABELS "unit;unit_core")
+target_include_directories(test_hip_geometry_memory_policy PRIVATE ../backends/hip)
+luisa_compute_add_test(test_hip_llvm_pipeline unit/core/test_hip_llvm_pipeline.cpp LABELS "unit;unit_core")
+target_sources(test_hip_llvm_pipeline PRIVATE ../backends/hip/llvm_codegen/hip_llvm_pipeline.cpp)
+target_include_directories(test_hip_llvm_pipeline PRIVATE ../backends/hip/llvm_codegen)
+if (TARGET luisa-compute-backend-hip)
+    # The HIP LLVM package is discovered in a sibling directory scope. Resolve
+    # the cached package path here as well so the IR-only regression can link
+    # the exact same LLVM installation without depending on backend internals.
+    find_package(LLVM QUIET CONFIG)
+    # This is a dependency-light ownership/lifetime contract for HIPRTC option
+    # storage. It needs HIP headers but must not pull the runtime/backend (and
+    # therefore a full HIPRT build) into an otherwise host-only unit test.
+    add_executable(test_hip_shader_link_options
+            unit/core/test_hip_shader_link_options.cpp)
+    target_compile_features(test_hip_shader_link_options PRIVATE cxx_std_20)
+    target_include_directories(test_hip_shader_link_options PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/../backends/hip)
+    target_link_libraries(test_hip_shader_link_options PRIVATE hip::host)
+    add_test(NAME test_hip_shader_link_options
+            COMMAND test_hip_shader_link_options)
+    set_tests_properties(test_hip_shader_link_options PROPERTIES
+            LABELS "unit;unit_core;unit_hip")
+endif ()
+if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
+    luisa_compute_add_test(test_hip_floating_remainder unit/core/test_hip_floating_remainder.cpp LABELS "unit;unit_core;unit_hip")
+    target_sources(test_hip_floating_remainder PRIVATE
+            ../backends/hip/llvm_codegen/hip_floating_remainder.cpp)
+    target_include_directories(test_hip_floating_remainder PRIVATE
+            ../backends/hip/llvm_codegen ${LLVM_INCLUDE_DIRS})
+    if (TARGET LLVM)
+        target_link_libraries(test_hip_floating_remainder PRIVATE LLVM)
+    else ()
+        llvm_map_components_to_libnames(_hip_floating_remainder_llvm_libs core support)
+        target_link_libraries(test_hip_floating_remainder PRIVATE
+                ${_hip_floating_remainder_llvm_libs})
+    endif ()
+    luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
+    target_sources(test_hip_callable_abi PRIVATE
+        unit/core/test_hip_late_inline.cpp
+        ../backends/hip/llvm_codegen/hip_callable_abi.cpp
+        ../backends/hip/llvm_codegen/hip_inlining_policy.cpp
+        ../backends/hip/llvm_codegen/hip_private_memory.cpp)
+    target_include_directories(test_hip_callable_abi PRIVATE
+            ../backends/hip/llvm_codegen ${LLVM_INCLUDE_DIRS})
+    if (TARGET LLVM)
+        target_link_libraries(test_hip_callable_abi PRIVATE LLVM)
+    else ()
+        llvm_map_components_to_libnames(_hip_callable_abi_llvm_libs
+                core asmparser support transformutils analysis passes ipo)
+        target_link_libraries(test_hip_callable_abi PRIVATE
+                ${_hip_callable_abi_llvm_libs})
+    endif ()
+endif ()
+if (TARGET luisa-compute-backend-cuda AND LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
+    # Discover the same cached SDK as the backend; this test does not load CUDA.
+    find_package(LLVM QUIET CONFIG)
+    if (LLVM_FOUND)
+        add_executable(test_cuda_llvm_ray_query_callback_sharing
+                unit/core/test_cuda_llvm_ray_query_callback_sharing.cpp)
+        target_compile_features(test_cuda_llvm_ray_query_callback_sharing PRIVATE cxx_std_20)
+        target_include_directories(test_cuda_llvm_ray_query_callback_sharing PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR} ../backends/cuda/llvm_codegen ${LLVM_INCLUDE_DIRS})
+        separate_arguments(_cuda_callback_test_definitions NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+        target_compile_options(test_cuda_llvm_ray_query_callback_sharing PRIVATE ${_cuda_callback_test_definitions})
+        if (NOT LLVM_ENABLE_RTTI)
+            if (MSVC)
+                target_compile_options(test_cuda_llvm_ray_query_callback_sharing PRIVATE /GR-)
+            else ()
+                target_compile_options(test_cuda_llvm_ray_query_callback_sharing PRIVATE -fno-rtti)
+            endif ()
+        endif ()
+        if (TARGET LLVM)
+            target_link_libraries(test_cuda_llvm_ray_query_callback_sharing PRIVATE LLVM)
+        else ()
+            llvm_map_components_to_libnames(_cuda_callback_test_libraries core support transformutils)
+            target_link_libraries(test_cuda_llvm_ray_query_callback_sharing PRIVATE ${_cuda_callback_test_libraries})
+        endif ()
+        add_test(NAME test_cuda_llvm_ray_query_callback_sharing COMMAND test_cuda_llvm_ray_query_callback_sharing)
+        set_tests_properties(test_cuda_llvm_ray_query_callback_sharing PROPERTIES LABELS "unit;unit_core;unit_cuda;unit_llvm")
+    endif ()
+endif ()
+if (TARGET luisa-compute-ext-llvm-downgrade AND LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR)
+    # LLVM was discovered in a sibling scope; use the same cached SDK for this
+    # CPU-only writer/reader regression without loading a runtime backend.
+    find_package(LLVM REQUIRED CONFIG)
+    add_executable(test_llvm_downgrade70 unit/ext/test_llvm_downgrade70.cpp)
+    target_compile_features(test_llvm_downgrade70 PRIVATE cxx_std_20)
+    target_include_directories(test_llvm_downgrade70 PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/../ext ${LLVM_INCLUDE_DIRS})
+    separate_arguments(_llvm_downgrade70_test_definitions NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+    target_compile_options(test_llvm_downgrade70 PRIVATE ${_llvm_downgrade70_test_definitions})
+    if (NOT LLVM_ENABLE_RTTI)
+        if (MSVC)
+            target_compile_options(test_llvm_downgrade70 PRIVATE /GR-)
+        else ()
+            target_compile_options(test_llvm_downgrade70 PRIVATE -fno-rtti)
+        endif ()
+    endif ()
+    llvm_map_components_to_libnames(_llvm_downgrade70_test_libraries bitreader core support)
+    target_link_libraries(test_llvm_downgrade70 PRIVATE
+            luisa-compute-ext-llvm-downgrade ${_llvm_downgrade70_test_libraries})
+    add_test(NAME test_llvm_downgrade70 COMMAND test_llvm_downgrade70)
+    set_tests_properties(test_llvm_downgrade70 PROPERTIES LABELS "unit;unit_ext;unit_llvm")
+endif ()
+luisa_compute_add_test(test_glslang_spirv unit/ext/test_glslang_spirv.cpp LABELS "unit;unit_ext")
+# glslang is linked explicitly: the old luisa-compute-ext INTERFACE edge that
+# leaked it into every compute consumer is gone (see src/ext/CMakeLists.txt).
+target_link_libraries(test_glslang_spirv PRIVATE glslang glslang-default-resource-limits)
+luisa_compute_add_test(test_native_shader_reflection unit/ext/test_native_shader_reflection.cpp LABELS "unit;unit_ext")
+target_include_directories(test_native_shader_reflection PRIVATE ../backends/common)
+target_link_libraries(test_native_shader_reflection PRIVATE glslang glslang-default-resource-limits)
+luisa_compute_add_test(test_native_shader_command unit/ext/test_native_shader_command.cpp LABELS "unit;unit_ext")
+luisa_compute_add_test(test_native_shader_cuda_reflection unit/ext/test_native_shader_cuda_reflection.cpp LABELS "unit;unit_ext")
+target_include_directories(test_native_shader_cuda_reflection PRIVATE ../backends/cuda)
 luisa_compute_add_test(test_command_reorder_bindless unit/ext/test_command_reorder_bindless.cpp LABELS "unit;unit_ext")
 target_include_directories(test_command_reorder_bindless PRIVATE ../backends/common)
+luisa_compute_add_test(test_command_reorder_ranges unit/ext/test_command_reorder_ranges.cpp LABELS "unit;unit_ext")
+target_include_directories(test_command_reorder_ranges PRIVATE ../backends/common)
+# A/B benchmark for the vk/dx command-reordering pass (needs a GPU device, so it
+# is not CTest-registered): benchmark_command_reorder <dx|vk> [dispatches] [threads] [iters] [rounds]
+luisa_compute_add_test(benchmark_command_reorder benchmark/benchmark_command_reorder.cpp)
+# Host-side counterpart (GPU-idle kernels) measuring pure submission cost.
+luisa_compute_add_test(benchmark_command_reorder_host benchmark/benchmark_command_reorder_host.cpp)
+luisa_compute_add_test(test_vk_cuda_launch_command unit/ext/test_vk_cuda_launch_command.cpp LABELS "unit;unit_ext")
+luisa_compute_add_test(test_vk_cuda_command_owns_blob unit/ext/test_vk_cuda_command_owns_blob.cpp LABELS "unit;unit_ext")
+get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)
+# Kernels are compiled from the DSL on a paired cuda device and imported into
+# the VK extension, so the cuda backend is required.
+if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA)
+ luisa_compute_add_test(test_vk_cuda_kernel_launch integration/runtime/test_vk_cuda_kernel_launch.cpp)
+endif ()
+# cuda-backend dispatch vs. CUDA kernels launched through the Vulkan runtime
+# (VK_NV_cuda_kernel_launch) with the reorder pass on/off. Needs the vk backend,
+# the cuda backend and the vk-side CUDA interop; run it manually with
+# `benchmark_cuda_vs_vk_cuda_reorder vk` (it is not CTest-registered).
+if (LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED AND LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_VULKAN)
+ luisa_compute_add_test(benchmark_cuda_vs_vk_cuda_reorder benchmark/benchmark_cuda_vs_vk_cuda_reorder.cpp)
+endif ()
 luisa_compute_add_test(test_spirv_motion_patch unit/ext/test_spirv_motion_patch.cpp  LABELS "unit;unit_ext")
 target_sources(test_spirv_motion_patch PRIVATE ../backends/vk/spirv_motion_patch.cpp)
 target_include_directories(test_spirv_motion_patch PRIVATE ../backends/vk)
 if (TARGET luisa-compute-backend-vk)
-    luisa_compute_add_test(test_vk_device_feature_plan unit/ext/test_vk_device_feature_plan.cpp LABELS "unit;unit_ext;vk")
-    target_include_directories(test_vk_device_feature_plan PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_user_compute_codegen_route unit/ext/test_vk_user_compute_codegen_route.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_user_compute_codegen_route PRIVATE ../backends/vk)
     luisa_compute_add_test(test_vk_sparse_residency_registry unit/ext/test_vk_sparse_residency_registry.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_sparse_residency_registry PRIVATE ../backends/vk)
     target_sources(test_vk_sparse_residency_registry PRIVATE ../backends/vk/sparse_residency_registry.cpp)
@@ -99,7 +506,6 @@ if (TARGET luisa-compute-backend-vk)
     luisa_compute_add_test(test_vk_cuda_interop_texture_plan unit/ext/test_vk_cuda_interop_texture_plan.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_cuda_interop_texture_plan PRIVATE ../backends/vk)
     foreach (_vulkan_header_test IN ITEMS
-            test_vk_device_feature_plan
             test_vk_resource_barrier_contract
             test_vk_result_contract
             test_vk_cuda_interop_texture_plan)
@@ -126,8 +532,101 @@ if (TARGET luisa-compute-backend-vk)
 endif ()
 luisa_compute_add_test(test_argument_block_layout unit/ext/test_argument_block_layout.cpp LABELS "unit;unit_ext")
 target_include_directories(test_argument_block_layout PRIVATE ../backends/common)
+if (APPLE)
+    luisa_compute_add_test(test_metal_shared_ptr unit/ext/test_metal_shared_ptr.cpp
+            LABELS "unit;unit_ext;unit_metal")
+endif ()
+if (TARGET luisa-compute-metal4-air-codegen)
+    luisa_compute_add_test(test_metal4_xir_preflight
+            unit/ext/test_metal4_xir_preflight.cpp
+            LABELS "unit;unit_ext;unit_metal4")
+    target_link_libraries(test_metal4_xir_preflight PRIVATE
+            luisa-compute-metal4-air-codegen)
+endif ()
+if (TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(benchmark_metal4
+            benchmark/benchmark_metal4.cpp)
+
+    luisa_compute_add_test(test_metal4_metallib
+            unit/ext/test_metal_metallib.cpp
+            LABELS "unit;unit_ext;unit_metal4")
+    target_sources(test_metal4_metallib PRIVATE
+            ../backends/metal4/metal_metallib.cpp)
+    target_include_directories(test_metal4_metallib PRIVATE
+            ../backends/metal4)
+
+    luisa_compute_add_test(test_metal4_raster_archive
+            unit/ext/test_metal_raster_archive.cpp
+            LABELS "unit;unit_ext;unit_metal4")
+    target_sources(test_metal4_raster_archive PRIVATE
+            ../backends/metal4/metal_raster_archive.cpp)
+    target_include_directories(test_metal4_raster_archive PRIVATE
+            ../backends/metal4)
+
+    if (TARGET luisa-metal4-ios-path-tracer-aot)
+        add_test(NAME test_metal4_ios_air_aot_codegen
+                COMMAND luisa-metal4-ios-path-tracer-aot
+                "${CMAKE_CURRENT_BINARY_DIR}/metal4-ios-aot-test/luisa_ios_path_tracing.metallib"
+                26.0 26.4)
+        set_tests_properties(test_metal4_ios_air_aot_codegen PROPERTIES
+                LABELS "unit;unit_metal4;integration_codegen"
+                TIMEOUT 60)
+    endif ()
+
+    luisa_compute_add_test(test_metal4_device_conformance
+            integration/runtime/test_metal4_device_conformance.cpp
+            LABELS "integration;integration_metal4;integration_render"
+            ARGS metal4)
+    target_sources(test_metal4_device_conformance PRIVATE
+            ios/metal4_device_conformance.cpp)
+    target_include_directories(test_metal4_device_conformance PRIVATE
+            ios)
+    set_tests_properties(test_metal4_device_conformance PROPERTIES
+            TIMEOUT 300)
+
+    foreach (_metal4_test IN ITEMS
+            test_metal_xir_air
+            test_metal4_switch_lookup
+            test_metal_xir_air_accel
+            test_metal4_air_extended_accel_limits
+            test_metal4_motion_instance_render
+            test_metal_xir_air_ray_query
+            test_metal_xir_air_ray_query_state_machine
+            test_metal_xir_air_typed_bindless
+            test_metal_xir_air_raster
+            test_metal4_raster_stencil)
+        luisa_compute_add_test(${_metal4_test}
+                integration/runtime/${_metal4_test}.cpp
+                LABELS "integration;integration_metal4"
+                ARGS metal4)
+        set_tests_properties(${_metal4_test} PROPERTIES
+                TIMEOUT 300)
+    endforeach ()
+    set_tests_properties(test_metal_xir_air_raster PROPERTIES
+            LABELS "integration;integration_metal4;integration_render"
+            ENVIRONMENT "LUISA_DUMP_LLVM_IR=1")
+    set_tests_properties(test_metal4_motion_instance_render PROPERTIES
+            LABELS "integration;integration_metal4;integration_render")
+    set_tests_properties(test_metal4_raster_stencil PROPERTIES
+            LABELS "integration;integration_metal4;integration_render")
+    add_test(NAME test_metal_xir_air_raster_validation
+            COMMAND test_metal_xir_air_raster metal4)
+    set_tests_properties(test_metal_xir_air_raster_validation PROPERTIES
+            LABELS "integration;integration_metal4;integration_render;integration_validation"
+            ENVIRONMENT "LUISA_DUMP_LLVM_IR=1;LUISA_ENABLE_VALIDATION=1"
+            TIMEOUT 300)
+    add_test(NAME test_metal4_raster_stencil_validation
+            COMMAND test_metal4_raster_stencil metal4)
+    set_tests_properties(test_metal4_raster_stencil_validation PROPERTIES
+            LABELS "integration;integration_metal4;integration_render;integration_validation"
+            ENVIRONMENT "LUISA_ENABLE_VALIDATION=1"
+            TIMEOUT 300)
+endif ()
+
 luisa_compute_add_test(test_pixel_storage unit/core/test_pixel_storage.cpp LABELS "unit;unit_core")
-luisa_compute_add_test(test_eastl_allocation unit/core/test_eastl_allocation.cpp LABELS "unit;unit_core")
+if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)
+    luisa_compute_add_test(test_eastl_allocation unit/core/test_eastl_allocation.cpp LABELS "unit;unit_core")
+endif ()
 if (TARGET luisa-compute-hlsl-codegen)
     luisa_compute_add_test(test_hlsl_validation_codegen unit/ext/test_hlsl_validation_codegen.cpp LABELS "unit;unit_ext;hlsl")
     target_include_directories(test_hlsl_validation_codegen PRIVATE ../backends/common/hlsl)
@@ -148,6 +647,8 @@ if (TARGET luisa-compute-spirv)
     target_link_libraries(test_spirv_ray_culling PRIVATE luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_xir_dialect unit/ext/test_spirv_xir_dialect.cpp LABELS "unit;unit_ext;spirv")
     target_link_libraries(test_spirv_xir_dialect PRIVATE luisa-compute-spirv)
+    luisa_compute_add_test(test_spirv_undefined unit/ext/test_spirv_undefined.cpp LABELS "unit;unit_ext;spirv")
+    target_link_libraries(test_spirv_undefined PRIVATE luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_handoff_boundaries unit/ext/test_spirv_handoff_boundaries.cpp LABELS "unit;unit_ext;spirv")
     target_link_libraries(test_spirv_handoff_boundaries PRIVATE luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_volatile_buffers unit/ext/test_spirv_volatile_buffers.cpp LABELS "unit;unit_ext;spirv")
@@ -185,17 +686,330 @@ if (TARGET luisa-compute-spirv-llvm)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
+    luisa_compute_add_test(test_native_window_events
+            unit/runtime/test_native_window_events.cpp
+            LABELS "unit;unit_runtime;unit_gui")
 endif ()
 
 # --- unit/ast: standalone tests (backend-free tests are labeled for CTest) ---
 luisa_compute_add_test(test_ast             unit/ast/test_ast.cpp)
 luisa_compute_add_test(test_ast_basic       unit/ast/test_ast_basic.cpp)
+luisa_compute_add_test(test_function_builder_dag unit/ast/test_function_builder_dag.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_async_copy_ast  unit/ast/test_async_copy_ast.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_bindless_write_usage unit/ast/test_bindless_write_usage.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_builtin_kernel  unit/ast/test_builtin_kernel.cpp)
 target_include_directories(test_builtin_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src/runtime)
 luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
-luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
+  luisa_compute_add_test(test_cooperative_vector unit/ast/test_cooperative_vector.cpp)
+
+# --- unit/tile: execution-first TileIR and layout algebra ---
+luisa_compute_add_test(test_tile_layout unit/tile/test_tile_layout.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_ir unit/tile/test_tile_ir.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_collective_plan unit/tile/test_tile_collective_plan.cpp LABELS "unit;unit_tile")
+target_link_libraries(test_tile_collective_plan PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_collective_partition unit/tile/test_tile_collective_partition.cpp LABELS "unit;unit_tile")
+target_link_libraries(test_tile_collective_partition PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_collective_prefix unit/tile/test_tile_collective_prefix.cpp LABELS "unit;unit_tile")
+target_link_libraries(test_tile_collective_prefix PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_cuda_collective_codegen unit/tile/test_tile_cuda_collective_codegen.cpp LABELS "unit;unit_tile")
+target_sources(test_tile_cuda_collective_codegen PRIVATE
+        ../backends/cuda/tile/cuda_tile_codegen.cpp
+        ../backends/cuda/tile/cuda_tile_partition_codegen.cpp
+        ../backends/cuda/tile/cuda_tile_streaming_scan.cpp
+        ../backends/cuda/tile/cuda_tile_streaming_scan_codegen.cpp)
+target_include_directories(test_tile_cuda_collective_codegen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/cuda/tile)
+target_link_libraries(test_tile_cuda_collective_codegen PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_cuda_cub_scan_codegen unit/tile/test_tile_cuda_cub_scan_codegen.cpp LABELS "unit;unit_tile")
+target_sources(test_tile_cuda_cub_scan_codegen PRIVATE
+        ../backends/cuda/tile/cuda_tile_codegen.cpp
+        ../backends/cuda/tile/cuda_tile_cub_scan.cpp)
+target_include_directories(test_tile_cuda_cub_scan_codegen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/cuda/tile)
+target_link_libraries(test_tile_cuda_cub_scan_codegen PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_cuda_scan_cost unit/tile/test_tile_cuda_scan_cost.cpp LABELS "unit;unit_tile")
+target_sources(test_tile_cuda_scan_cost PRIVATE
+        ../backends/cuda/tile/cuda_tile_codegen.cpp
+        ../backends/cuda/tile/cuda_tile_cub_scan.cpp)
+target_include_directories(test_tile_cuda_scan_cost PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../backends/cuda/tile)
+target_link_libraries(test_tile_cuda_scan_cost PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_dsl unit/tile/test_tile_dsl.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_memory unit/tile/test_tile_memory.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_migrated unit/tile/test_tile_migrated.cpp LABELS "unit;unit_tile")
+luisa_compute_add_test(test_tile_types unit/tile/test_tile_types.cpp LABELS "unit;unit_tile")
+target_link_libraries(test_tile_types PRIVATE luisa::tile-xir)
+target_compile_definitions(test_tile_types PRIVATE LUISA_TILE_TEST_XIR=1)
+luisa_compute_add_test(benchmark_tile_migrated benchmark/benchmark_tile_migrated.cpp)
+if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+    target_link_libraries(benchmark_tile_migrated PRIVATE luisa::tile-tirx)
+    target_compile_definitions(benchmark_tile_migrated PRIVATE LUISA_TILE_BENCH_TIRX=1)
+endif ()
+foreach (_tile_migrated_target IN ITEMS test_tile_migrated test_tile_types benchmark_tile_migrated)
+    target_include_directories(${_tile_migrated_target} PRIVATE ${PROJECT_SOURCE_DIR}/examples)
+endforeach ()
+if (TARGET luisa-compute-backend-simd)
+    add_dependencies(benchmark_tile_migrated luisa-compute-backend-simd)
+    add_dependencies(test_tile_migrated luisa-compute-backend-simd)
+    add_test(NAME test_tile_migrated_simd COMMAND test_tile_migrated simd)
+    set_tests_properties(test_tile_migrated_simd PROPERTIES LABELS "integration;integration_tile_xir;integration_simd" TIMEOUT 240)
+    add_dependencies(test_tile_types luisa-compute-backend-simd)
+    add_test(NAME test_tile_types_simd COMMAND test_tile_types simd)
+    set_tests_properties(test_tile_types_simd PROPERTIES LABELS "integration;integration_tile_xir;integration_simd" TIMEOUT 240)
+endif ()
+if (TARGET luisa-compute-backend-metal AND LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+    add_test(NAME test_tile_migrated_metal COMMAND test_tile_migrated metal)
+    set_tests_properties(test_tile_migrated_metal PROPERTIES LABELS "integration;integration_tile_tirx" TIMEOUT 240)
+    add_test(NAME test_tile_types_metal COMMAND test_tile_types metal)
+    set_tests_properties(test_tile_types_metal PROPERTIES LABELS "integration;integration_tile_tirx" TIMEOUT 240)
+endif ()
+luisa_compute_add_test(test_tile_xir unit/tile/bridge/test_xir.cpp LABELS "unit;unit_tile;unit_tile_xir")
+target_link_libraries(test_tile_xir PRIVATE luisa::tile-xir)
+luisa_compute_add_test(test_tile_xir_target_info unit/tile/bridge/test_xir_target_info.cpp LABELS "unit;unit_tile;unit_tile_xir")
+target_link_libraries(test_tile_xir_target_info PRIVATE luisa::tile-xir)
+luisa_compute_add_test(test_tile_xir_program_team unit/tile/bridge/test_xir_program_team.cpp LABELS "unit;unit_tile;unit_tile_xir")
+target_link_libraries(test_tile_xir_program_team PRIVATE luisa::tile-xir)
+target_include_directories(test_tile_xir_program_team PRIVATE ${PROJECT_SOURCE_DIR}/src/tile/bridge/xir)
+if (TARGET luisa-compute-backend-simd OR TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(benchmark_tile_xir benchmark/benchmark_tile_xir.cpp)
+    foreach (_tile_xir_backend IN ITEMS simd metal4)
+        if (TARGET luisa-compute-backend-${_tile_xir_backend})
+            add_dependencies(benchmark_tile_xir luisa-compute-backend-${_tile_xir_backend})
+        endif ()
+    endforeach ()
+endif ()
+if (TARGET luisa-compute-backend-simd OR TARGET luisa-compute-backend-metal4 OR
+        (TARGET luisa-compute-backend-metal AND LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY))
+    # Runtime-only linkage keeps LLVM-backed XIR and TVM out of one executable.
+    luisa_compute_add_test(test_tile_xir_ranking unit/tile/bridge/test_xir_ranking.cpp)
+    foreach (_ranking_backend IN ITEMS simd metal4)
+        if (TARGET luisa-compute-backend-${_ranking_backend})
+            add_dependencies(test_tile_xir_ranking luisa-compute-backend-${_ranking_backend})
+            add_test(NAME test_tile_ranking_${_ranking_backend} COMMAND test_tile_xir_ranking ${_ranking_backend})
+            set_tests_properties(test_tile_ranking_${_ranking_backend} PROPERTIES
+                    LABELS "integration;integration_tile_xir;integration_${_ranking_backend}"
+                    TIMEOUT 300 FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+        endif ()
+    endforeach ()
+    if (TARGET luisa-compute-backend-metal AND LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+        add_dependencies(test_tile_xir_ranking luisa-compute-backend-metal)
+        add_test(NAME test_tile_ranking_tirx_metal COMMAND test_tile_xir_ranking metal)
+        set_tests_properties(test_tile_ranking_tirx_metal PROPERTIES
+                LABELS "integration;integration_tile_tirx" TIMEOUT 300
+                FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+    endif ()
+endif ()
+# TileIR -> XIR -> AST -> create_shader fallback GEMM benchmark on GPU
+# backends (dx/vk); the backend name comes from argv.
+luisa_compute_add_test(benchmark_tile_xir_gpu benchmark/benchmark_tile_xir_gpu.cpp)
+target_link_libraries(benchmark_tile_xir_gpu PRIVATE luisa::tile-xir)
+luisa_compute_add_test(benchmark_tile_workloads benchmark/benchmark_tile_workloads.cpp)
+target_link_libraries(benchmark_tile_workloads PRIVATE luisa-compute-tile)
+luisa_compute_add_test(test_tile_primitives unit/tile/test_tile_primitives.cpp LABELS "unit;unit_tile" ARGS host)
+target_link_libraries(test_tile_primitives PRIVATE luisa-compute-tile)
+if (TARGET CUDA::cuda_driver AND TARGET luisa-compute-backend-cuda)
+    target_compile_definitions(benchmark_tile_workloads PRIVATE LUISA_TILE_BENCH_CUDA_EVENTS=1)
+    target_link_libraries(benchmark_tile_workloads PRIVATE CUDA::cuda_driver)
+    add_dependencies(benchmark_tile_workloads luisa-compute-backend-cuda)
+endif ()
+foreach (_tile_xir_gpu_backend IN ITEMS dx vk)
+    if (TARGET luisa-compute-backend-${_tile_xir_gpu_backend})
+        add_dependencies(benchmark_tile_xir_gpu luisa-compute-backend-${_tile_xir_gpu_backend})
+    endif ()
+endforeach ()
+if (TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(test_metal4_timing unit/runtime/test_metal4_timing.cpp
+            LABELS "integration;integration_tile_xir;integration_metal4" ARGS metal4)
+    add_dependencies(test_metal4_timing luisa-compute-backend-metal4)
+    set_tests_properties(test_metal4_timing PROPERTIES TIMEOUT 180
+            FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+    luisa_compute_add_test(test_tile_xir_metal unit/tile/bridge/test_xir_metal.cpp
+            LABELS "integration;integration_tile_xir;integration_metal4" ARGS metal4)
+    add_dependencies(test_tile_xir_metal luisa-compute-backend-metal4)
+    set_tests_properties(test_tile_xir_metal PROPERTIES TIMEOUT 240
+            FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+endif ()
+if (TARGET luisa-compute-backend-simd)
+    luisa_compute_add_test(test_tile_xir_runtime unit/tile/bridge/test_xir_runtime.cpp
+            LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
+    add_dependencies(test_tile_xir_runtime luisa-compute-backend-simd)
+    luisa_compute_add_test(test_tile_xir_llm unit/tile/bridge/test_xir_llm.cpp
+            LABELS "integration;integration_tile_xir;integration_simd" ARGS simd)
+    add_dependencies(test_tile_xir_llm luisa-compute-backend-simd)
+    foreach (_attention_rejection IN ITEMS heads block)
+        add_test(NAME test_tile_xir_llm_reject_${_attention_rejection}
+                COMMAND ${CMAKE_COMMAND}
+                "-DTEST_PROGRAM=$<TARGET_FILE:test_tile_xir_llm>"
+                "-DTEST_CASE=${_attention_rejection}"
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/common/tile_llm_expect_rejection.cmake)
+        set_tests_properties(test_tile_xir_llm_reject_${_attention_rejection} PROPERTIES
+                LABELS "unit;unit_tile;unit_tile_xir" TIMEOUT 40)
+    endforeach ()
+      if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_COMPUTE_TILE_XIR_TEST_TIRX_COMPARISON)
+          target_link_libraries(test_tile_xir_runtime PRIVATE luisa::tile-tirx)
+          target_compile_definitions(test_tile_xir_runtime PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)
+          target_link_libraries(test_tile_xir_llm PRIVATE luisa::tile-tirx)
+          target_compile_definitions(test_tile_xir_llm PRIVATE LUISA_TEST_TILE_XIR_TIRX=1)
+      endif ()
+  endif ()
+  # TileIR -> XIR -> AST -> create_shader fallback (src/backends/common/tile_xir_kernel.h)
+  if (TARGET luisa-compute-backend-dx)
+      luisa_compute_add_test(test_tile_xir_runtime_gpu_dx unit/tile/bridge/test_xir_runtime_gpu.cpp
+              LABELS "integration;integration_tile_xir;integration_dx" ARGS dx)
+      add_dependencies(test_tile_xir_runtime_gpu_dx luisa-compute-backend-dx)
+      target_link_libraries(test_tile_xir_runtime_gpu_dx PRIVATE luisa::tile-xir)
+      set_tests_properties(test_tile_xir_runtime_gpu_dx PROPERTIES TIMEOUT 240
+              FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+  endif ()
+  if (TARGET luisa-compute-backend-vk)
+      luisa_compute_add_test(test_tile_xir_runtime_gpu_vk unit/tile/bridge/test_xir_runtime_gpu.cpp
+              LABELS "integration;integration_tile_xir;integration_vk" ARGS vk)
+      add_dependencies(test_tile_xir_runtime_gpu_vk luisa-compute-backend-vk)
+      target_link_libraries(test_tile_xir_runtime_gpu_vk PRIVATE luisa::tile-xir)
+      set_tests_properties(test_tile_xir_runtime_gpu_vk PROPERTIES TIMEOUT 240
+              FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+  endif ()
+set(_tile_test_cpp_standards 20)
+set(_tile_poc_cpp_standard 20)
+if ("cxx_std_23" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+    list(APPEND _tile_test_cpp_standards 23)
+    set(_tile_poc_cpp_standard 23)
+endif ()
+foreach (_tile_cpp_standard IN LISTS _tile_test_cpp_standards)
+    luisa_compute_add_test(test_tile_values_cpp${_tile_cpp_standard}
+            unit/tile/test_tile_values.cpp LABELS "unit;unit_tile")
+    target_include_directories(test_tile_values_cpp${_tile_cpp_standard}
+            PRIVATE ${PROJECT_SOURCE_DIR}/docs/source/tile)
+    set_target_properties(test_tile_values_cpp${_tile_cpp_standard} PROPERTIES
+            CXX_STANDARD ${_tile_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+endforeach ()
+if (LUISA_COMPUTE_ENABLE_METAL AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    luisa_compute_add_test(test_tile_native_codegen
+            unit/tile/test_tile_native_codegen.cpp LABELS "unit;unit_tile;unit_tile_native")
+    target_sources(test_tile_native_codegen PRIVATE ../backends/metal/tile/metal_tile_codegen.cpp)
+    target_include_directories(test_tile_native_codegen PRIVATE ../backends/metal/tile)
+    luisa_compute_add_test(test_tile_native_runtime
+            unit/tile/test_tile_native_runtime.cpp LABELS "integration;integration_tile_native" ARGS metal)
+    luisa_compute_add_test(benchmark_tile_native benchmark/benchmark_tile_native.cpp)
+    if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+        target_link_libraries(test_tile_native_runtime PRIVATE luisa::tile-tirx)
+        target_compile_definitions(test_tile_native_runtime PRIVATE LUISA_TEST_TILE_NATIVE_TIRX=1)
+    endif ()
+endif ()
+if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # Independent system-library baselines, not a Tile/TVM lowering path.
+    enable_language(OBJCXX)
+    # Opt-in diagnostics shared by native benchmarks and Python via ctypes.
+    # No framework/backend dependency and no hooks at library-load time.
+    add_library(luisa-benchmark-metal-timing SHARED common/metal_benchmark_timing.mm)
+    set_target_properties(luisa-benchmark-metal-timing PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(luisa-benchmark-metal-timing PRIVATE -fobjc-arc)
+    target_link_libraries(luisa-benchmark-metal-timing PRIVATE "-framework Foundation" "-framework Metal")
+    add_executable(test_tile_metal_timing unit/tile/test_metal_timing.mm)
+    set_target_properties(test_tile_metal_timing PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(test_tile_metal_timing PRIVATE -fobjc-arc)
+    target_include_directories(test_tile_metal_timing PRIVATE ./ common)
+    target_link_libraries(test_tile_metal_timing PRIVATE luisa-benchmark-metal-timing
+            "-framework Foundation" "-framework Metal")
+    add_test(NAME test_tile_metal_timing COMMAND test_tile_metal_timing)
+    set_tests_properties(test_tile_metal_timing PROPERTIES LABELS "integration;integration_tile_timing")
+    add_executable(benchmark_tile_system benchmark/benchmark_tile_system.mm)
+    target_include_directories(benchmark_tile_system PRIVATE common)
+    set_target_properties(benchmark_tile_system PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_system PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_system PRIVATE
+            luisa-compute-core
+            "-framework Foundation" "-framework Accelerate"
+            "-framework Metal" "-framework MetalPerformanceShaders")
+    add_executable(benchmark_tile_manual benchmark/benchmark_tile_manual.mm)
+    set_target_properties(benchmark_tile_manual PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_manual PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_manual PRIVATE
+            luisa-compute-core
+            "-framework Foundation" "-framework Metal")
+    add_executable(benchmark_tile_mpp benchmark/benchmark_tile_mpp.mm)
+    set_target_properties(benchmark_tile_mpp PROPERTIES
+            OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON OBJCXX_EXTENSIONS OFF)
+    target_compile_options(benchmark_tile_mpp PRIVATE -fobjc-arc)
+    target_link_libraries(benchmark_tile_mpp PRIVATE
+            luisa-compute-core
+            "-framework Foundation" "-framework Metal")
+    foreach (_system_backend IN ITEMS cpu metal)
+        add_test(NAME test_tile_system_${_system_backend}
+                COMMAND benchmark_tile_system --self-test ${_system_backend})
+    endforeach ()
+    set_tests_properties(test_tile_system_cpu PROPERTIES
+            LABELS "unit;unit_tile;unit_tile_system")
+    # Hardware availability must not become a new default host-unit dependency.
+    set_tests_properties(test_tile_system_metal PROPERTIES
+            LABELS "integration;integration_tile_system;unit_tile_system")
+endif ()
+if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+    luisa_compute_add_test(test_tile_tirx
+            unit/tile/bridge/test_tirx_layout.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_values
+            unit/tile/bridge/test_tirx_values.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_values PRIVATE luisa::tile-tirx)
+    set_target_properties(test_tile_tirx_values PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    luisa_compute_add_test(test_tile_tirx_execution
+            unit/tile/bridge/test_tirx_execution.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_execution PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_cooperative
+            unit/tile/bridge/test_tirx_cooperative.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_cooperative PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_memory
+            unit/tile/bridge/test_tirx_memory.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_memory PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_pipeline
+            unit/tile/bridge/test_tirx_pipeline.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_pipeline PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_matrix
+            unit/tile/bridge/test_tirx_matrix.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_matrix PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_planner
+            unit/tile/bridge/test_tirx_planner.cpp LABELS "unit;unit_tile;unit_tile_tirx")
+    target_link_libraries(test_tile_tirx_planner PRIVATE luisa::tile-tirx)
+    # Host-only CUDA device-artifact coverage: compile_device() must emit a
+    # CUDA C / PTX artifact (or fail closed) without needing a CUDA GPU.
+    luisa_compute_add_test(test_tirx_device_cuda
+            unit/tile/bridge/test_tirx_device_cuda.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_cuda")
+    target_link_libraries(test_tirx_device_cuda PRIVATE luisa::tile-tirx)
+    # Opt-in timing executable: never a noisy CTest performance threshold.
+    luisa_compute_add_test(benchmark_tile_tirx benchmark/benchmark_tile_tirx.cpp)
+    target_link_libraries(benchmark_tile_tirx PRIVATE luisa::tile-tirx)
+    set_target_properties(benchmark_tile_tirx PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    luisa_compute_add_test(test_tile_tirx_poc
+            unit/tile/bridge/test_tirx_poc.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_poc_neural
+            unit/tile/bridge/test_tirx_poc_neural.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc_neural PRIVATE luisa::tile-tirx)
+    luisa_compute_add_test(test_tile_tirx_poc_algorithms
+            unit/tile/bridge/test_tirx_poc_algorithms.cpp
+            LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc")
+    target_link_libraries(test_tile_tirx_poc_algorithms PRIVATE luisa::tile-tirx)
+    # Prefer native C++23 subscript syntax when available, without raising
+    # the project's C++20 minimum. Both modes share the same source.
+    set_target_properties(test_tile_tirx_poc test_tile_tirx_poc_neural test_tile_tirx_poc_algorithms
+            PROPERTIES CXX_STANDARD ${_tile_poc_cpp_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if (APPLE AND LUISA_TILE_TVM_METAL_RUNTIME_LIBRARY)
+        luisa_compute_add_test(test_tile_tirx_targets
+                unit/tile/bridge/test_tirx_targets.cpp
+                LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_targets")
+        target_link_libraries(test_tile_tirx_targets PRIVATE luisa::tile-tirx)
+        foreach (_tile_poc IN ITEMS test_tile_tirx_poc test_tile_tirx_poc_neural test_tile_tirx_poc_algorithms test_tile_tirx_values test_tile_tirx_execution test_tile_tirx_cooperative test_tile_tirx_memory test_tile_tirx_pipeline test_tile_tirx_matrix)
+            add_test(NAME ${_tile_poc}_metal COMMAND ${_tile_poc} metal)
+            set_tests_properties(${_tile_poc}_metal PROPERTIES
+                    LABELS "unit;unit_tile;unit_tile_tirx;unit_tile_poc;unit_tile_targets")
+        endforeach ()
+    endif ()
+endif ()
 
 # --- unit/dsl: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_binding_group          unit/dsl/test_binding_group.cpp)
@@ -218,15 +1032,41 @@ luisa_compute_add_test(test_8bit                   unit/dsl/test_8bit.cpp)
 luisa_compute_add_test(test_polymorphic            unit/dsl/test_polymorphic.cpp)
 luisa_compute_add_test(test_dsl_autodiff           unit/dsl/test_autodiff.cpp)
 luisa_compute_add_test(test_async_copy              unit/dsl/test_async_copy.cpp)
-luisa_compute_add_test(test_async_copy_cuda        unit/runtime/test_async_copy_cuda.cpp)
+luisa_compute_add_test(test_async_copy_cuda           unit/runtime/test_async_copy_cuda.cpp)
+# Shader-cache coverage: unit/runtime/test_fallback_shader_cache.cpp (reuse across devices),
+# unit/runtime/test_hip_shader_cache.cpp and unit/runtime/test_vk_shader_cache.cpp
+# (backend artifact/PSO reuse). All three inject a BinaryIO via DeviceConfig.
 luisa_compute_add_test(test_cluster_launch_control  unit/runtime/test_cluster_launch_control.cpp)
 
 # --- unit/runtime: standalone tests (need backend, NOT auto-run via CTest) ---
-luisa_compute_add_test(test_accel_build_modes   unit/runtime/test_accel_build_modes.cpp)
-luisa_compute_add_test(test_accel_visibility    unit/runtime/test_accel_visibility.cpp)
+luisa_compute_add_test(test_accel_build_modes unit/runtime/test_accel_build_modes.cpp)
+luisa_compute_add_test(test_accel_blas_lifetime unit/runtime/test_accel_blas_lifetime.cpp)
+luisa_compute_add_test(test_accel_tlas_instances unit/runtime/test_accel_tlas_instances.cpp)
+luisa_compute_add_test(test_accel_visibility unit/runtime/test_accel_visibility.cpp)
 luisa_compute_add_test(test_hip_rt_scratch_reuse unit/runtime/test_hip_rt_scratch_reuse.cpp)
+luisa_compute_add_test(test_hip_large_accel_instances unit/runtime/test_hip_large_accel_instances.cpp)
 luisa_compute_add_test(test_hip_shader_cache    unit/runtime/test_hip_shader_cache.cpp)
+luisa_compute_add_test(test_hip_callable_boundary unit/runtime/test_hip_callable_boundary.cpp)
+luisa_compute_add_test(test_hip_packed_pointer_effects unit/runtime/test_hip_packed_pointer_effects.cpp)
+foreach (_packed_pointer_backend hip fallback)
+    if (TARGET luisa-compute-backend-${_packed_pointer_backend})
+        add_test(NAME test_hip_packed_pointer_effects_${_packed_pointer_backend}
+                COMMAND test_hip_packed_pointer_effects ${_packed_pointer_backend})
+        set_tests_properties(test_hip_packed_pointer_effects_${_packed_pointer_backend}
+                PROPERTIES LABELS "unit;unit_runtime;${_packed_pointer_backend}")
+    endif ()
+endforeach ()
+luisa_compute_add_test(test_hip_float_atomic_memory_model unit/runtime/test_hip_float_atomic_memory_model.cpp)
+luisa_compute_add_test(test_counted_local_array unit/runtime/test_counted_local_array.cpp)
 luisa_compute_add_test(test_atomic              unit/runtime/test_atomic.cpp)
+foreach (backend metal metal4)
+    if (TARGET luisa-compute-backend-${backend})
+        add_test(NAME test_atomic_divergent_address_${backend}
+                COMMAND test_atomic ${backend} shared_atomic_address_after_divergent_loop)
+        set_tests_properties(test_atomic_divergent_address_${backend} PROPERTIES
+                TIMEOUT 60 LABELS "unit;unit_runtime;integration_${backend}")
+    endif ()
+endforeach ()
 luisa_compute_add_test(test_atomic_queue        unit/runtime/test_atomic_queue.cpp)
 luisa_compute_add_test(test_byte_buffer         unit/runtime/test_byte_buffer.cpp)
 luisa_compute_add_test(test_context             unit/runtime/test_context.cpp)
@@ -237,35 +1077,137 @@ luisa_compute_add_test(test_complex_kernel      unit/runtime/test_complex_kernel
 if (TARGET luisa-compute-backend-fallback)
     # Uses two independent fallback Device instances and a shared in-memory
     # BinaryIO to verify cold compilation, object-cache reuse, and dynamic
-    # uniform arguments. Kept out of unattended CTest because it requires the
-    # optional LLVM/Embree fallback backend at runtime.
+    # uniform arguments. The general cache/codegen suite remains manual;
+    # only the focused FTZ submode is registered below when Fallback is built.
     luisa_compute_add_test(test_fallback_shader_cache unit/runtime/test_fallback_shader_cache.cpp)
+    add_dependencies(test_fallback_shader_cache luisa-compute-backend-fallback)
+    foreach (_fallback_single_threading IN ITEMS 0 1)
+        add_test(NAME fallback_fast_math_environment_${_fallback_single_threading}
+                COMMAND $<TARGET_FILE:test_fallback_shader_cache> --ftz-only)
+        set_tests_properties(fallback_fast_math_environment_${_fallback_single_threading} PROPERTIES
+                LABELS "unit;unit_runtime;integration_fallback"
+                ENVIRONMENT "LUISA_SINGLE_THREADING=${_fallback_single_threading}"
+                TIMEOUT 120)
+    endforeach ()
+    luisa_compute_add_test(test_fallback_coro_allocation
+            unit/runtime/test_fallback_coro_allocation.cpp
+            LABELS "unit;unit_runtime;integration_fallback")
+    add_dependencies(test_fallback_coro_allocation luisa-compute-backend-fallback)
+    luisa_compute_add_test(test_fallback_coro_arena
+            unit/fallback/test_fallback_coro_arena.cpp LABELS "unit;unit_fallback")
+    target_include_directories(test_fallback_coro_arena PRIVATE ../backends/fallback)
 endif ()
-luisa_compute_add_test(test_bindless_mip        unit/runtime/test_bindless_mip.cpp)
+# Host-only CUDA PTX `.version` patcher unit test: no driver/GPU, no backend
+# link; it includes the dependency-light header directly from the CUDA source
+# tree and runs as a normal host CTest (no backend argument).
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    luisa_compute_add_test(test_cuda_ptx_version
+            unit/runtime/test_cuda_ptx_version.cpp
+            LABELS "unit;unit_runtime;unit_cuda")
+    target_include_directories(test_cuda_ptx_version PRIVATE ../backends/cuda)
+endif ()
+luisa_compute_add_test(test_bindless_mip unit/runtime/test_bindless_mip.cpp)
 luisa_compute_add_test(test_direct_texture_sampling unit/runtime/test_direct_texture_sampling.cpp)
+luisa_compute_add_test(test_metal_codegen_regressions unit/runtime/test_metal_codegen_regressions.cpp)
+if (TARGET luisa-compute-backend-metal)
+    add_test(NAME test_metal_local_codegen
+            COMMAND test_metal_codegen_regressions metal)
+    set_tests_properties(test_metal_local_codegen PROPERTIES
+            LABELS "integration;integration_metal" TIMEOUT 120)
+endif ()
+if (TARGET luisa-compute-backend-metal4)
+    add_test(NAME test_metal4_codegen_regressions
+            COMMAND test_metal_codegen_regressions metal4)
+    set_tests_properties(test_metal4_codegen_regressions PROPERTIES
+            LABELS "integration;integration_metal4" TIMEOUT 120)
+    add_test(NAME test_metal4_local_lifetimes
+            COMMAND test_metal_codegen_regressions metal4 --local-only)
+    set_tests_properties(test_metal4_local_lifetimes PROPERTIES
+            LABELS "integration;integration_metal4" TIMEOUT 120)
+endif ()
 luisa_compute_add_test(test_mipmap              unit/runtime/test_mipmap.cpp)
 luisa_compute_add_test(test_motion_instance_keyframes unit/runtime/test_motion_instance_keyframes.cpp LABELS "unit;unit_runtime")
+luisa_compute_add_test(test_multi_dispatch unit/runtime/test_multi_dispatch.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_pinned_mem          unit/runtime/test_pinned_mem.cpp)
 luisa_compute_add_test(test_printer             unit/runtime/test_printer.cpp)
 luisa_compute_add_test(test_printer_custom_callback unit/runtime/test_printer_custom_callback.cpp)
 luisa_compute_add_test(test_sampler             unit/runtime/test_sampler.cpp)
+if (TARGET luisa-compute-backend-fallback)
+    add_dependencies(test_sampler luisa-compute-backend-fallback)
+    add_test(NAME fallback_test_sampler
+            COMMAND $<TARGET_FILE:test_sampler> fallback)
+    set_tests_properties(fallback_test_sampler PROPERTIES
+            LABELS "unit;unit_runtime;fallback")
+endif ()
 luisa_compute_add_test(test_shared_memory       unit/runtime/test_shared_memory.cpp)
 luisa_compute_add_test(test_softmax             unit/runtime/test_softmax.cpp)
-if (LUISA_COMPUTE_ENABLE_TENSOR AND FALSE) # disabled: link errors against missing Tensor symbols
-    luisa_compute_add_test(test_tensor              unit/runtime/test_tensor.cpp)
-endif ()
 luisa_compute_add_test(test_texture_compress    unit/runtime/test_texture_compress.cpp)
 luisa_compute_add_test(test_pbrt_curve_parser  unit/runtime/test_pbrt_curve_parser.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_texture_io          unit/runtime/test_texture_io.cpp)
-luisa_compute_add_test(test_timeline_event      unit/runtime/test_timeline_event.cpp)
+if (TARGET luisa-compute-backend-metal4)
+    luisa_compute_add_test(test_timeline_event unit/runtime/test_timeline_event.cpp
+            LABELS "unit;unit_runtime;integration;integration_metal4"
+            ARGS metal4)
+else ()
+    luisa_compute_add_test(test_timeline_event unit/runtime/test_timeline_event.cpp)
+endif ()
 luisa_compute_add_test(test_warp                unit/runtime/test_warp.cpp)
 luisa_compute_add_test(test_warp_prefix_scan    unit/runtime/test_warp_prefix_scan.cpp)
 luisa_compute_add_test(test_warp_sparse_collectives unit/runtime/test_warp_sparse_collectives.cpp)
 luisa_compute_add_test(test_hip_wave_size       unit/runtime/test_hip_wave_size.cpp)
 luisa_compute_add_test(test_mha_warp_reduction  unit/runtime/test_mha_warp_reduction.cpp)
+luisa_compute_add_test(test_ast_json_serde      unit/ast/test_ast_json_serde.cpp
+        LABELS "unit;unit_ast")
+luisa_compute_add_test(test_switch_case_group unit/dsl/test_switch_case_group.cpp
+        LABELS "unit;unit_ast;unit_xir;unit_dsl")
+luisa_compute_add_test(test_xir_restructure_shared_switch unit/xir/test_xir_restructure_shared_switch.cpp
+        LABELS "unit;unit_xir")
+if (LUISA_COMPUTE_ENABLE_REMOTE)
+    luisa_compute_add_test(test_remote_blob_cache
+            unit/runtime/test_remote_blob_cache.cpp
+            LABELS "unit;unit_runtime;remote")
+    target_link_libraries(test_remote_blob_cache PRIVATE
+            luisa-compute-remote-runtime)
+    luisa_compute_add_test(test_remote_protocol unit/runtime/test_remote_protocol.cpp
+            LABELS "unit;unit_runtime;remote")
+    target_link_libraries(test_remote_protocol PRIVATE
+            luisa-compute-remote-common)
+    luisa_compute_add_test(test_remote_transport unit/runtime/test_remote_transport.cpp
+            LABELS "unit;unit_runtime;remote")
+    target_link_libraries(test_remote_transport PRIVATE
+            luisa-compute-remote-common
+            luisa-compute-ext-asio)
+    luisa_compute_add_test(test_remote_backend_e2e
+            unit/runtime/test_remote_backend_e2e.cpp
+            LABELS "unit;unit_runtime;remote;integration")
+    target_link_libraries(test_remote_backend_e2e PRIVATE
+            luisa-compute-remote-runtime
+            luisa-compute-ext-asio)
+    add_dependencies(test_remote_backend_e2e
+            luisa-compute-backend-remote)
+    luisa_compute_add_test(test_remote_backend_native
+            unit/runtime/test_remote_backend_native.cpp)
+    add_dependencies(test_remote_backend_native
+            luisa-compute-backend-remote)
+    if (TARGET luisa-compute-backend-metal)
+        add_dependencies(test_remote_backend_native
+                luisa-compute-backend-metal)
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_GUI)
+        luisa_compute_add_test(test_remote_backend_swapchain
+                unit/runtime/test_remote_backend_swapchain.cpp)
+        add_dependencies(test_remote_backend_swapchain
+                luisa-compute-backend-remote)
+        if (TARGET luisa-compute-backend-metal)
+            add_dependencies(test_remote_backend_swapchain
+                    luisa-compute-backend-metal)
+        endif ()
+    endif ()
+endif ()
 if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.
+    luisa_compute_add_test(test_vk_shader_cache unit/runtime/test_vk_shader_cache.cpp)
     luisa_compute_add_test(test_vk_spirv_codegen_path unit/runtime/test_vk_spirv_codegen_path.cpp)
     target_link_libraries(test_vk_spirv_codegen_path PRIVATE
             luisa-compute-spirv
@@ -273,8 +1215,64 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     target_include_directories(test_vk_spirv_codegen_path PRIVATE ../backends/common)
     target_compile_options(test_vk_spirv_codegen_path PRIVATE
             $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+    if (LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY)
+        target_compile_definitions(test_vk_spirv_codegen_path PRIVATE
+                LUISA_TEST_VK_HAS_DXC_COMPATIBILITY=1)
+    else ()
+        target_compile_definitions(test_vk_spirv_codegen_path PRIVATE
+                LUISA_TEST_VK_HAS_DXC_COMPATIBILITY=0)
+    endif ()
 endif ()
 luisa_compute_add_test(test_ray_query_world_ray unit/runtime/test_ray_query_world_ray.cpp)
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    luisa_compute_add_test(test_cuda_llvm_ray_query unit/runtime/test_cuda_llvm_ray_query.cpp)
+    luisa_compute_add_test(test_cuda_llvm_shader_cache unit/runtime/test_cuda_llvm_shader_cache.cpp)
+    # Shared fixtures retain their original HIP targets below. These explicit
+    # CUDA targets exercise the same numerical oracles through CUDA LLVM.
+    luisa_compute_add_test(test_cuda_llvm_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
+    luisa_compute_add_test(test_cuda_llvm_motion_ray_query unit/runtime/test_hip_motion_ray_query.cpp)
+    luisa_compute_add_test(test_cuda_llvm_ray_query_bounds unit/runtime/test_cuda_llvm_ray_query_bounds.cpp)
+    luisa_compute_add_test(test_cuda_llvm_float_atomics unit/runtime/test_cuda_llvm_float_atomics.cpp)
+    luisa_compute_add_test(test_cuda_llvm_ray_query_images unit/runtime/test_cuda_llvm_ray_query_images.cpp)
+    luisa_compute_add_test(test_cuda_llvm_bool_reductions unit/runtime/test_cuda_llvm_bool_reductions.cpp)
+    if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
+        foreach (test_target IN ITEMS test_cuda_llvm_ray_query test_cuda_llvm_shader_cache
+                test_cuda_llvm_curve_ray_query test_cuda_llvm_motion_ray_query test_cuda_llvm_ray_query_bounds
+                test_cuda_llvm_float_atomics test_cuda_llvm_ray_query_images test_cuda_llvm_bool_reductions
+                test_ray_query_world_ray test_accel_visibility test_accel_build_modes)
+            add_dependencies(${test_target} luisa-compute-backend-cuda)
+            set(require_compile OFF)
+            if (test_target MATCHES "^test_cuda_llvm_")
+                set(require_compile ON)
+            endif ()
+            add_test(NAME cuda_llvm_${test_target}
+                    COMMAND ${CMAKE_COMMAND}
+                    "-DTEST_EXECUTABLE=$<TARGET_FILE:${test_target}>"
+                    "-DREQUIRE_COMPILE=${require_compile}"
+                    -DREQUIRE_PTX=ON
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/common/run_cuda_llvm_test.cmake")
+            set_tests_properties(cuda_llvm_${test_target} PROPERTIES
+                    LABELS "integration;integration_cuda;integration_cuda_llvm"
+                    ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1;LUISA_CUDA_LLVM_OPTIX_IR=0"
+                    TIMEOUT 300)
+            if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR AND
+                    NOT test_target STREQUAL "test_cuda_llvm_shader_cache")
+                # Cached fixtures still recreate their OptiX module in each
+                # process. Check its real input format even on a warm cache.
+                add_test(NAME cuda_optix_ir_${test_target}
+                        COMMAND ${CMAKE_COMMAND}
+                        "-DTEST_EXECUTABLE=$<TARGET_FILE:${test_target}>"
+                        "-DREQUIRE_COMPILE=${require_compile}"
+                        -DREQUIRE_OPTIX_IR=ON
+                        -P "${CMAKE_CURRENT_SOURCE_DIR}/common/run_cuda_llvm_test.cmake")
+                set_tests_properties(cuda_optix_ir_${test_target} PROPERTIES
+                        LABELS "integration;integration_cuda;integration_cuda_optix_ir"
+                        ENVIRONMENT "LUISA_EXPERIMENTAL_LLVM_CODEGEN=1;LUISA_CUDA_LLVM_OPTIX_IR=1"
+                        TIMEOUT 300)
+            endif ()
+        endforeach ()
+    endif ()
+endif ()
 luisa_compute_add_test(test_buffer_io           unit/runtime/test_buffer_io.cpp)
 luisa_compute_add_test(test_buffer              unit/runtime/test_buffer.cpp)
 luisa_compute_add_test(test_out_of_range        unit/runtime/test_out_of_range.cpp)
@@ -282,7 +1280,27 @@ luisa_compute_add_test(test_buffer_view         unit/runtime/test_buffer_view.cp
 luisa_compute_add_test(test_device_test         unit/runtime/test_device.cpp)
 luisa_compute_add_test(test_external_buffer     unit/runtime/test_external_buffer.cpp)
 luisa_compute_add_test(test_gemm                unit/runtime/test_gemm.cpp)
+luisa_compute_add_test(test_block_size_bench    unit/runtime/test_block_size_bench.cpp)
+luisa_compute_add_test(benchmark_simd_gemm      unit/simd/benchmark_simd_gemm.cpp)
 luisa_compute_add_test(test_hip_codegen_arithmetic unit/runtime/test_hip_codegen_arithmetic.cpp)
+luisa_compute_add_test(test_hip_fmod unit/runtime/test_hip_fmod.cpp)
+luisa_compute_add_test(test_switch_case_group_runtime unit/runtime/test_switch_case_group_runtime.cpp)
+foreach(switch_backend IN ITEMS HIP FALLBACK VULKAN)
+    if (LUISA_COMPUTE_ENABLE_${switch_backend})
+        string(TOLOWER "${switch_backend}" switch_backend_name)
+        if (switch_backend STREQUAL "VULKAN")
+            set(switch_backend_name vk)
+        endif ()
+        add_test(NAME test_switch_case_group_${switch_backend_name}
+            COMMAND test_switch_case_group_runtime ${switch_backend_name})
+        set_tests_properties(test_switch_case_group_${switch_backend_name} PROPERTIES
+            LABELS "runtime;runtime_${switch_backend_name}" TIMEOUT 120)
+        if (switch_backend STREQUAL "VULKAN")
+            set_tests_properties(test_switch_case_group_vk PROPERTIES ENVIRONMENT
+                "LUISA_VULKAN_USE_XIR=1;LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1;LUISA_VULKAN_DISABLE_DXC=1")
+        endif ()
+    endif ()
+endforeach()
 luisa_compute_add_test(test_hip_curve_ray_query unit/runtime/test_hip_curve_ray_query.cpp)
 luisa_compute_add_test(test_hip_motion_instance_matrix unit/runtime/test_hip_motion_instance_matrix.cpp)
 luisa_compute_add_test(test_hip_motion_instance_device_ops unit/runtime/test_hip_motion_instance_device_ops.cpp)
@@ -306,6 +1324,9 @@ luisa_compute_add_test(test_dsl_xir_optimize_vk unit/runtime/test_dsl_xir_optimi
 
 # --- unit/xir: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_ast_pack_usage unit/xir/test_ast_pack_usage.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_ast_external_lowering unit/xir/test_ast_external_lowering.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_ast_callable_swizzle unit/xir/test_ast_callable_swizzle.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_module      unit/xir/test_xir_module.cpp      LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_builder     unit/xir/test_xir_builder.cpp     LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_verifier    unit/xir/test_xir_verifier.cpp    LABELS "unit;unit_xir")
@@ -313,15 +1334,23 @@ luisa_compute_add_test(test_xir_translators unit/xir/test_xir_translators.cpp LA
 luisa_compute_add_test(test_xir_interchange unit/xir/test_xir_interchange.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir2ast_translators unit/xir/test_xir2ast_translators.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_passes      unit/xir/test_xir_passes.cpp      LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_resource_origin unit/xir/test_xir_resource_origin.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_promote_ref_forwarding unit/xir/test_xir_pass_promote_ref_forwarding.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_aggregate_field_bitmask unit/xir/test_xir_aggregate_field_bitmask.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_alias_analysis unit/xir/test_xir_pass_alias_analysis.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_core_analyses unit/xir/test_xir_pass_core_analyses.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_defer_local_aggregate_load unit/xir/test_xir_pass_defer_local_aggregate_load.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_coro_rematerialize unit/xir/test_xir_pass_coro_rematerialize.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_coro_alloca_scope unit/xir/test_xir_pass_coro_alloca_scope.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_coro_discriminated_prefix unit/xir/test_xir_pass_coro_discriminated_prefix.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_pointer_usage unit/xir/test_xir_pass_pointer_usage.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_scalar_evolution unit/xir/test_xir_pass_scalar_evolution.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_integer_alignment unit/xir/test_xir_integer_alignment.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_unused_callable_removal unit/xir/test_xir_pass_unused_callable_removal.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_licm unit/xir/test_xir_pass_licm.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_lower_break_continue unit/xir/test_xir_pass_lower_break_continue.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_coro_cfg_distill unit/xir/test_coro_cfg_distill.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_coro_cfg_dataflow unit/xir/test_coro_cfg_dataflow.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_coro_materialize unit/xir/test_coro_materialize.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_dead_field unit/xir/test_coro_dead_field.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_frame_size unit/xir/test_coro_frame_size.cpp LABELS "unit;unit_xir;unit_coro")
@@ -334,8 +1363,38 @@ luisa_compute_add_test(test_coro_frame_desc unit/dsl/test_coro_frame_desc.cpp LA
 luisa_compute_add_test(test_coro_frame_runtime unit/dsl/test_coro_frame_runtime.cpp)
 luisa_compute_add_test(test_coro_compile_trigger unit/dsl/test_coro_compile_trigger.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_func            unit/dsl/test_coro_func.cpp            LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_coro_readonly_forwarding unit/coro/test_coro_readonly_forwarding.cpp)
+foreach(_readonly_backend IN ITEMS hip fallback vk)
+    string(TOUPPER "${_readonly_backend}" _readonly_backend_option)
+    if(_readonly_backend STREQUAL "vk")
+        set(_readonly_backend_option VULKAN)
+    endif()
+    if(NOT LUISA_COMPUTE_ENABLE_${_readonly_backend_option})
+        continue()
+    endif()
+    add_test(NAME test_coro_readonly_forwarding_${_readonly_backend}
+        COMMAND test_coro_readonly_forwarding ${_readonly_backend})
+    set_tests_properties(test_coro_readonly_forwarding_${_readonly_backend}
+        PROPERTIES LABELS "unit_coro_runtime")
+endforeach()
+if(TEST test_coro_readonly_forwarding_vk)
+    set_tests_properties(test_coro_readonly_forwarding_vk PROPERTIES ENVIRONMENT
+        "LUISA_VULKAN_USE_XIR=1;LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1;LUISA_VULKAN_DISABLE_DXC=1")
+endif()
 luisa_compute_add_test(test_coro_suspend         unit/dsl/test_coro_suspend.cpp         LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_coro_graph unit/coro/test_coro_graph.cpp LABELS "unit;unit_coro")
+luisa_compute_add_test(test_coro_transition_predicates unit/coro/test_coro_transition_predicates.cpp
+        LABELS "unit;unit_coro;unit_xir")
+luisa_compute_add_test(test_coro_transition_predicate_retirement unit/coro/test_coro_transition_predicate_retirement.cpp
+        LABELS "unit;unit_coro;unit_xir")
+luisa_compute_add_test(test_coro_boolean_predicate_liveness unit/coro/test_coro_boolean_predicate_liveness.cpp
+        LABELS "unit;unit_coro;unit_xir")
+# Exercise the private liveness API without widening the SDK's exported ABI.
+target_sources(test_coro_boolean_predicate_liveness PRIVATE
+        ../xir/passes/coro_scalar_relation_liveness.cpp
+        ../xir/passes/coro_semantic_graph.cpp)
+target_include_directories(test_coro_boolean_predicate_liveness PRIVATE ../xir/passes)
+luisa_compute_add_test(test_coro_graph_wavefront_policy unit/coro/test_coro_graph_wavefront_policy.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_scheduler_base unit/coro/test_coro_scheduler_base.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_state_machine unit/coro/test_coro_state_machine.cpp)
 luisa_compute_add_test(test_coro_persistent    unit/coro/test_coro_persistent.cpp)
@@ -343,8 +1402,46 @@ luisa_compute_add_test(test_coro_persistent_opt unit/coro/test_coro_persistent_o
 luisa_compute_add_test(test_coro_persistent_integration unit/coro/test_coro_persistent_integration.cpp)
 luisa_compute_add_test(test_coro_soa_layout     unit/coro/test_coro_soa_layout.cpp)
 luisa_compute_add_test(test_coro_wavefront      unit/coro/test_coro_wavefront.cpp)
+luisa_compute_add_test(test_coro_wavefront_auxiliary_pipeline
+        unit/coro/test_coro_wavefront_auxiliary_pipeline.cpp)
+luisa_compute_add_test(test_coro_wavefront_resume_annotation
+        unit/coro/test_coro_wavefront_resume_annotation.cpp)
+luisa_compute_add_test(test_coro_wavefront_resume_batching
+        unit/coro/test_coro_wavefront_resume_batching.cpp)
+luisa_compute_add_test(test_coro_wavefront_resume_batching_guarded
+        unit/coro/test_coro_wavefront_resume_batching_guarded.cpp LABELS "unit;unit_coro")
+add_test(NAME test_coro_wavefront_resume_batching_metadata
+        COMMAND test_coro_wavefront_resume_batching
+                fallback resume_batching_rejects_incompatible_metadata)
+set_tests_properties(test_coro_wavefront_resume_batching_metadata
+        PROPERTIES LABELS "unit;unit_coro")
+foreach(_batch_backend IN ITEMS hip fallback vk)
+    string(TOUPPER "${_batch_backend}" _batch_backend_option)
+    if(_batch_backend STREQUAL "vk")
+        set(_batch_backend_option VULKAN)
+    endif()
+    if(NOT LUISA_COMPUTE_ENABLE_${_batch_backend_option})
+        continue()
+    endif()
+    add_test(NAME test_coro_wavefront_resume_batching_${_batch_backend}
+            COMMAND test_coro_wavefront_resume_batching ${_batch_backend})
+    set_tests_properties(test_coro_wavefront_resume_batching_${_batch_backend}
+            PROPERTIES LABELS "unit_coro_runtime"
+            ENVIRONMENT "LUISA_CORO_WAVEFRONT_VERIFY_QUEUES=1")
+endforeach()
+if(TEST test_coro_wavefront_resume_batching_vk)
+    set_property(TEST test_coro_wavefront_resume_batching_vk APPEND PROPERTY ENVIRONMENT
+            "LUISA_VULKAN_USE_XIR=1;LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1;LUISA_VULKAN_DISABLE_DXC=1")
+endif()
+luisa_compute_add_test(test_coro_wavefront_auxiliary_admission
+        unit/coro/test_coro_wavefront_auxiliary_admission.cpp)
 luisa_compute_add_test(test_coro_radix_sort     unit/coro/test_coro_radix_sort.cpp)
 luisa_compute_add_test(test_coro_all_schedulers unit/coro/test_coro_all_schedulers.cpp)
+luisa_compute_add_test(test_coro_packed_word unit/coro/test_coro_packed_word.cpp)
+foreach (_target test_coro_wavefront test_coro_all_schedulers)
+    target_compile_options(${_target} PRIVATE
+            $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+endforeach ()
 luisa_compute_add_test(test_coro_multisplit     unit/coro/test_coro_multisplit.cpp     LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_compaction    unit/coro/test_coro_compaction.cpp    LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_wavefront_integration unit/coro/test_coro_wavefront_integration.cpp)
@@ -353,9 +1450,18 @@ luisa_compute_add_test(test_coro_pipeline_3suspend unit/coro/test_coro_pipeline_
 luisa_compute_add_test(test_xir_pass_destructure_cfg unit/xir/test_xir_pass_destructure_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_simplify_cfg unit/xir/test_xir_pass_simplify_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_early_cse unit/xir/test_xir_pass_early_cse.cpp LABELS "unit;unit_xir")
-luisa_compute_add_test(test_xir_pass_lower_ray_query_loop unit/xir/test_xir_pass_lower_ray_query_loop.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_lower_ray_query_to_pipeline unit/xir/test_xir_pass_lower_ray_query_to_pipeline.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_reconstruct_ray_query_loop unit/xir/test_xir_pass_reconstruct_ray_query_loop.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_lower_irreducible_cfg unit/xir/test_xir_pass_lower_irreducible_cfg.cpp LABELS "unit;unit_xir;unit_coro")
 luisa_compute_add_test(test_xir_pass_fuse_consecutive_buffer_reads unit/xir/test_xir_pass_fuse_consecutive_buffer_reads.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_restructure_cfg.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_restructure_cfg_entry_boundaries unit/xir/test_xir_pass_restructure_cfg_entry_boundaries.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_restructure_cfg_owned_blocks unit/xir/test_xir_pass_restructure_cfg_owned_blocks.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_restructure_cfg_loop_scopes unit/xir/test_xir_pass_restructure_cfg_loop_scopes.cpp LABELS "unit;unit_xir;unit_coro")
+luisa_compute_add_test(test_xir_pass_restructure_cfg_update_bypass unit/xir/test_xir_pass_restructure_cfg_update_bypass.cpp LABELS "unit;unit_xir;unit_coro")
+set_tests_properties(test_xir_pass_restructure_cfg_loop_scopes PROPERTIES TIMEOUT 30)
+luisa_compute_add_test(test_xir_pass_restructure_cfg_construct_exits unit/xir/test_xir_pass_restructure_cfg_construct_exits.cpp LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_restructure_cfg_selection_relations unit/xir/test_xir_pass_restructure_cfg_selection_relations.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_convergence_region unit/xir/test_xir_pass_convergence_region.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_post_dom_tree unit/xir/test_xir_pass_post_dom_tree.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_autodiff_cfg unit/xir/test_xir_pass_autodiff_cfg.cpp LABELS "unit;unit_xir")
@@ -375,10 +1481,32 @@ luisa_compute_add_test(test_xir_pass_mutation_safety unit/xir/test_xir_pass_muta
 # =============================================================================
 
 # --- integration/runtime: standalone tests ---
-luisa_compute_add_test(test_device_debugger         integration/runtime/test_device_debugger.cpp)
+luisa_compute_add_test(test_device_debugger integration/runtime/test_device_debugger.cpp)
+luisa_compute_add_test(test_function_debugger integration/runtime/test_function_debugger.cpp)
 luisa_compute_add_test(test_dstorage_decompression  integration/runtime/test_dstorage_decompression.cpp)
+luisa_compute_add_test(test_dstorage integration/runtime/test_dstorage.cpp LABELS "integration;integration_runtime")
 luisa_compute_add_test(test_procedural_callable      integration/runtime/test_procedural_callable.cpp)
+if (TARGET luisa-compute-backend-metal4)
+    add_test(NAME test_metal4_procedural_callable
+            COMMAND test_procedural_callable metal4 --spp 4)
+    set_tests_properties(test_metal4_procedural_callable PROPERTIES
+            LABELS "integration;integration_metal4;integration_render"
+            TIMEOUT 300)
+endif ()
 luisa_compute_add_test(test_rtx                      integration/runtime/test_rtx.cpp)
+# `--fallback-rtx` forces the software BVH through the backend's
+# DeviceConfigExt; the definitions gate the matching config-ext includes.
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    target_compile_definitions(test_rtx PRIVATE LUISA_TEST_RTX_HAS_CUDA=1)
+endif ()
+if (LUISA_COMPUTE_ENABLE_DX)
+    target_compile_definitions(test_rtx PRIVATE LUISA_TEST_RTX_HAS_DX=1)
+    target_link_libraries(test_rtx PRIVATE D3D12 dxgi)
+endif ()
+if (LUISA_COMPUTE_ENABLE_VULKAN)
+    target_compile_definitions(test_rtx PRIVATE LUISA_TEST_RTX_HAS_VK=1)
+    target_link_libraries(test_rtx PRIVATE luisa-compute-ext-volk)
+endif ()
 luisa_compute_add_test(test_aot                      integration/runtime/test_aot.cpp)
 luisa_compute_add_test(test_oso_parser               integration/runtime/test_oso_parser.cpp)
 
@@ -397,7 +1525,8 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_test(test_mesh_2                  integration/runtime/motion_blur/test_mesh_2.cpp)
     luisa_compute_add_test(test_mesh_3                  integration/runtime/motion_blur/test_mesh_3.cpp)
     luisa_compute_add_test(test_mesh_4                  integration/runtime/motion_blur/test_mesh_4.cpp)
-    luisa_compute_add_test(test_native_include          integration/runtime/test_native_include.cpp)
+luisa_compute_add_test(test_native_include integration/runtime/test_native_include.cpp)
+luisa_compute_add_test(test_native_shader integration/runtime/test_native_shader.cpp LABELS "integration;integration_runtime")
     luisa_compute_add_test(test_present                 integration/runtime/test_present.cpp)
     luisa_compute_add_test(test_runtime                 integration/runtime/test_runtime.cpp)
     luisa_compute_add_test(test_select_device           integration/runtime/test_select_device.cpp)
@@ -412,34 +1541,135 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     target_include_directories(test_transient_resource PRIVATE ./ ./common)
 endif ()
 
+if (TARGET luisa-compute-backend-metal4)
+    function(luisa_metal4_add_air_runtime_test name target)
+        add_test(NAME ${name} COMMAND $<TARGET_FILE:${target}> metal4 ${ARGN})
+        set_tests_properties(${name} PROPERTIES
+                LABELS "integration;integration_metal4"
+                TIMEOUT 300)
+    endfunction()
+
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_autodiff test_dsl_autodiff)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_printer test_printer)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_printer_callback test_printer_custom_callback)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_world_and_object_ray test_ray_query_world_ray)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_buffer_io test_buffer_io)
+    luisa_metal4_add_air_runtime_test(
+            test_metal4_air_bindless_mip test_bindless_mip)
+    if (TARGET test_bindless_buffer)
+        luisa_metal4_add_air_runtime_test(
+                test_metal4_air_bindless_buffer test_bindless_buffer --offline)
+    endif ()
+    if (TARGET test_indirect)
+        luisa_metal4_add_air_runtime_test(
+                test_metal4_air_indirect test_indirect)
+    endif ()
+    if (TARGET test_native_include)
+        luisa_metal4_add_air_runtime_test(
+                test_metal4_air_native_include test_native_include --offline)
+    endif ()
+    if (TARGET test_cooperative_vector)
+        luisa_metal4_add_air_runtime_test(
+                test_metal4_air_cooperative_vector test_cooperative_vector)
+    endif ()
+endif ()
+
 # --- integration/runtime: DX-only tests ---
 if (LUISA_COMPUTE_ENABLE_DX)
-    luisa_compute_add_test(test_raster         integration/runtime/test_raster.cpp)
+      luisa_compute_add_test(test_raster integration/runtime/test_raster.cpp)
+      luisa_compute_add_test(test_imgui_raster_offline integration/runtime/test_imgui_raster_offline.cpp)
     luisa_compute_add_test(test_memory_compact integration/runtime/test_memory_compact.cpp)
     # test_work_graph disabled: work_graph headers not yet available
     # luisa_compute_add_test(test_work_graph      integration/runtime/test_work_graph.cpp     ARGS dx)
 endif ()
 
-# --- integration/runtime: CUDA-only tests ---
-if (LUISA_COMPUTE_ENABLE_CUDA)
-    luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
-endif ()
+  # --- integration/runtime: CUDA-only tests ---
+  if (LUISA_COMPUTE_ENABLE_CUDA)
+      luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
+      luisa_compute_add_test(test_cuda_graph_dag integration/runtime/test_cuda_graph_dag.cpp)
+      luisa_compute_add_test(test_tile_cuda_ptx
+              unit/tile/test_tile_cuda_ptx.cpp
+              LABELS "integration;integration_tile_cuda" ARGS cuda)
+      target_link_libraries(test_tile_cuda_ptx PRIVATE luisa-compute-tile)
+      if (LUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE)
+          target_link_libraries(test_tile_cuda_ptx PRIVATE luisa::tile-tirx)
+          target_compile_definitions(test_tile_cuda_ptx PRIVATE LUISA_TEST_TILE_CUDA_TIRX=1)
+      endif ()
+      add_dependencies(test_tile_cuda_ptx luisa-compute-backend-cuda)
+      add_dependencies(test_tile_cuda_ptx luisa-cuda-nvrtc-standalone-compiler)
 
-# --- integration/ir: standalone tests ---
-if (LUISA_COMPUTE_ENABLE_RUST)
-    luisa_compute_add_test(test_autodiff        integration/ir/test_autodiff.cpp)
-    luisa_compute_add_test(test_autodiff_full    integration/ir/test_autodiff_full.cpp)
-    luisa_compute_add_test(test_ast2ir           integration/ir/test_ast2ir.cpp)
-    luisa_compute_add_test(test_ast2ir_headless  integration/ir/test_ast2ir_headless.cpp)
-    luisa_compute_add_test(test_ast2ir_ir2ast    integration/ir/test_ast2ir_ir2ast.cpp)
-    luisa_compute_add_test(test_hip_legacy_ir_device integration/ir/test_hip_legacy_ir_device.cpp)
+      # Deliberately manual: positive verification requires an explicit runtime opt-in.
+      luisa_compute_add_test(test_tile_cuda_ir unit/tile/test_tile_cuda_ir.cpp)
+      luisa_compute_add_test(test_tile_cuda_graph unit/tile/test_tile_cuda_graph.cpp)
+      target_link_libraries(test_tile_cuda_graph PRIVATE luisa-compute-tile)
+      add_dependencies(test_tile_cuda_graph luisa-compute-backend-cuda)
+      luisa_compute_add_test(test_tile_cuda_alignment unit/tile/test_tile_cuda_alignment.cpp)
+      target_link_libraries(test_tile_cuda_alignment PRIVATE luisa-compute-tile)
+      add_dependencies(test_tile_cuda_alignment luisa-compute-backend-cuda)
+      target_link_libraries(test_tile_cuda_ir PRIVATE luisa-compute-tile)
+      add_dependencies(test_tile_cuda_ir luisa-compute-backend-cuda)
+      if (TARGET luisa-cuda-tile-compiler)
+          # Manual opt-in test: actual Driver graph entry inspection needs the
+          # same CUDA 13.4+ SDK as the native Tile compiler.
+          luisa_compute_add_test(test_tile_cuda_streaming_scan unit/tile/test_tile_cuda_streaming_scan.cpp)
+          target_link_libraries(test_tile_cuda_streaming_scan PRIVATE luisa-compute-tile CUDA::cuda_driver)
+          add_dependencies(test_tile_cuda_streaming_scan luisa-compute-backend-cuda luisa-cuda-tile-compiler)
+          luisa_compute_add_test(test_tile_cuda_cub_scan unit/tile/test_tile_cuda_cub_scan.cpp)
+          target_link_libraries(test_tile_cuda_cub_scan PRIVATE luisa-compute-tile CUDA::cuda_driver)
+          add_dependencies(test_tile_cuda_cub_scan luisa-compute-backend-cuda luisa-cuda-tile-compiler)
+          luisa_compute_add_test(test_tile_cuda_program_partition unit/tile/test_tile_cuda_program_partition.cpp)
+          target_link_libraries(test_tile_cuda_program_partition PRIVATE luisa-compute-tile CUDA::cuda_driver)
+          add_dependencies(test_tile_cuda_program_partition luisa-compute-backend-cuda luisa-cuda-tile-compiler)
+          target_compile_definitions(test_tile_cuda_ir PRIVATE LUISA_TEST_CUDA_TILE_IR_ENABLED=1)
+          add_dependencies(test_tile_cuda_ir luisa-cuda-tile-compiler)
+          add_dependencies(test_tile_cuda_alignment luisa-cuda-tile-compiler)
+      endif ()
+  endif ()
 
-    if (LUISA_COMPUTE_ENABLE_GUI)
-        luisa_compute_add_test(test_kernel_ir integration/ir/test_kernel_ir.cpp)
+# --- integration/runtime: external device config extension tests ---
+# Exercises backend-specific DeviceConfigExt subclasses (CUDA/DX/Vulkan) and,
+# for DX and Vulkan, the borrowed-command-list/command-buffer submission path.
+# Requires a physical device; invoked manually with a backend argument.
+if (LUISA_COMPUTE_ENABLE_CUDA OR LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
+    luisa_compute_add_test(test_external_device integration/runtime/test_external_device.cpp)
+    if (LUISA_COMPUTE_ENABLE_CUDA)
+        target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_CUDA=1)
     endif ()
-endif ()
+    if (LUISA_COMPUTE_ENABLE_DX)
+        target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_DX=1)
+        target_link_libraries(test_external_device PRIVATE D3D12 dxgi)
+    endif ()
+      if (LUISA_COMPUTE_ENABLE_VULKAN)
+          target_compile_definitions(test_external_device PRIVATE LUISA_TEST_EXTERNAL_DEVICE_HAS_VK=1)
+          target_link_libraries(test_external_device PRIVATE luisa-compute-ext-volk)
+      endif ()
+  endif ()
+  # --- integration/runtime: hardware vs software (fallback) ray tracing ---
+  # Builds one scene on two devices - one with the backend's native acceleration
+  # structures, one with the luisa-fallback-rtx software BVH - and requires the
+  # two to agree.
+  if (LUISA_COMPUTE_ENABLE_CUDA OR LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
+      luisa_compute_add_test(test_fallback_rtx integration/runtime/test_fallback_rtx.cpp)
+      if (LUISA_COMPUTE_ENABLE_CUDA)
+          target_compile_definitions(test_fallback_rtx PRIVATE LUISA_TEST_FALLBACK_RTX_HAS_CUDA=1)
+      endif ()
+      if (LUISA_COMPUTE_ENABLE_DX)
+          target_compile_definitions(test_fallback_rtx PRIVATE LUISA_TEST_FALLBACK_RTX_HAS_DX=1)
+          target_link_libraries(test_fallback_rtx PRIVATE D3D12 dxgi)
+      endif ()
+      if (LUISA_COMPUTE_ENABLE_VULKAN)
+          target_compile_definitions(test_fallback_rtx PRIVATE LUISA_TEST_FALLBACK_RTX_HAS_VK=1)
+          target_link_libraries(test_fallback_rtx PRIVATE luisa-compute-ext-volk)
+      endif ()
+  endif ()
 
-luisa_compute_add_test(test_xir2ast_roundtrip integration/ir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")
+# --- integration/xir: standalone tests ---
+luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_roundtrip.cpp LABELS "unit;unit_xir")
 
 # --- unit/dsl: standalone GPU tests ---
 luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cpp)
@@ -449,3 +1679,163 @@ luisa_compute_add_test(test_fp4                  unit/runtime/test_fp4.cpp)
 luisa_compute_add_test(test_fp4_quantization     unit/runtime/test_fp4_quantization.cpp)
 luisa_compute_add_test(test_fp8                  unit/runtime/test_fp8.cpp)
 luisa_compute_add_test(test_fp8_quantization     unit/runtime/test_fp8_quantization.cpp)
+
+# The SIMD backend is a host-only module, so its supported runtime conformance
+# subset is safe to run unattended without a GPU or driver installation.
+if (TARGET luisa-compute-backend-simd)
+    luisa_compute_add_test(test_simd_runtime_widths
+            unit/simd/test_simd_runtime_widths.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_local_memory
+            unit/simd/test_simd_local_memory.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_atomics
+            unit/simd/test_simd_atomics.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_bindless_buffers
+            unit/simd/test_simd_bindless_buffers.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_bindless_textures
+            unit/simd/test_simd_bindless_textures.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_arithmetic
+            unit/simd/test_simd_arithmetic.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_accel
+            unit/simd/test_simd_accel.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_curves
+            unit/simd/test_simd_curves.cpp
+            LABELS integration_simd runtime_simd)
+    luisa_compute_add_test(test_simd_procedural
+            unit/simd/test_simd_procedural.cpp
+            LABELS integration_simd runtime_simd)
+    foreach (_simd_backend_test IN ITEMS
+            test_simd_runtime_widths
+            test_simd_local_memory
+            test_simd_atomics
+            test_simd_bindless_buffers
+            test_simd_bindless_textures
+            test_simd_arithmetic
+            test_simd_accel
+            test_simd_curves
+            test_simd_procedural)
+        add_dependencies(${_simd_backend_test}
+                luisa-compute-backend-simd)
+    endforeach ()
+    add_test(NAME test_simd_accel_incoherent_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_incoherent_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_COHERENT_W16_DIRECT_TRACE=1")
+    add_test(NAME test_simd_accel_surface_filter_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_surface_filter_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_IN_FILTER_RAY_QUERY_PIPELINE=1")
+    add_test(NAME test_simd_accel_surface_filter_packet_input_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_surface_filter_packet_input_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_IN_FILTER_RAY_PACKET_INPUT=1")
+    add_test(NAME test_simd_accel_surface_filter_candidate_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_surface_filter_candidate_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_DIRECT_SURFACE_FILTER_CANDIDATE=1")
+    add_test(NAME test_simd_accel_compact_surface_filter_state_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_compact_surface_filter_state_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_COMPACT_SURFACE_FILTER_STATE=1")
+    add_test(NAME test_simd_accel_output_only_empty_surface_filter_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_output_only_empty_surface_filter_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_OUTPUT_ONLY_EMPTY_SURFACE_FILTER=1")
+    add_test(NAME test_simd_accel_w16_sparse_empty_packet_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_w16_sparse_empty_packet_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_W16_SPARSE_EMPTY_SURFACE_FILTER_PACKET_NARROWING=1")
+    add_test(NAME test_simd_accel_w16_sparse_direct_output_packet_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_w16_sparse_direct_output_packet_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_WARP_WIDTH=16;LUISA_SIMD_DISABLE_W16_SPARSE_DIRECT_OUTPUT_SURFACE_FILTER_PACKET_NARROWING=1")
+    add_test(NAME test_simd_accel_direct_output_surface_filter_oracle
+            COMMAND $<TARGET_FILE:test_simd_accel>)
+    set_tests_properties(test_simd_accel_direct_output_surface_filter_oracle PROPERTIES
+            LABELS "integration_simd;runtime_simd"
+            ENVIRONMENT "LUISA_SIMD_DISABLE_DIRECT_OUTPUT_SURFACE_FILTER=1")
+
+    foreach (_simd_runtime_test IN ITEMS
+            test_buffer
+            test_buffer_view
+            test_buffer_io
+            test_texture_io
+            test_direct_texture_sampling
+            test_accel_build_modes
+            test_accel_visibility
+            test_ray_query_world_ray
+            test_dsl_slp_vectorization
+            test_printer
+            test_printer_custom_callback
+            test_shared_mem
+            test_shared_memory
+            test_softmax
+            test_warp
+            test_warp_prefix_scan
+            test_warp_sparse_collectives)
+        add_dependencies(${_simd_runtime_test}
+                luisa-compute-backend-simd)
+        add_test(NAME simd_${_simd_runtime_test}
+                COMMAND $<TARGET_FILE:${_simd_runtime_test}> simd)
+        set_tests_properties(simd_${_simd_runtime_test} PROPERTIES
+                LABELS "integration_simd;runtime_simd")
+    endforeach ()
+    foreach (_simd_shared_width IN ITEMS 1 2 4 16)
+        foreach (_simd_shared_test IN ITEMS
+                test_shared_mem
+                test_shared_memory
+                test_softmax)
+            add_test(
+                    NAME simd_${_simd_shared_test}_w${_simd_shared_width}
+                    COMMAND $<TARGET_FILE:${_simd_shared_test}> simd)
+            set_tests_properties(
+                    simd_${_simd_shared_test}_w${_simd_shared_width}
+                    PROPERTIES
+                    LABELS "integration_simd;runtime_simd"
+                    ENVIRONMENT
+                    "LUISA_SIMD_WARP_WIDTH=${_simd_shared_width}")
+        endforeach ()
+    endforeach ()
+    add_dependencies(test_bindless_mip
+            luisa-compute-backend-simd)
+    add_test(NAME simd_test_bindless_mip
+            COMMAND $<TARGET_FILE:test_bindless_mip> simd)
+    set_tests_properties(simd_test_bindless_mip PROPERTIES
+            LABELS "integration_simd;runtime_simd")
+endif ()
+
+luisa_compute_add_test(test_coro_shared_callable unit/coro/test_coro_shared_callable.cpp)
+
+if (TARGET luisa-compute-backend-metal)
+    add_test(NAME test_coro_shared_callable_metal COMMAND test_coro_shared_callable metal)
+    set_tests_properties(test_coro_shared_callable_metal PROPERTIES TIMEOUT 600 LABELS "integration;integration_metal;integration_coro")
+endif ()
+if (TARGET luisa-compute-backend-metal4)
+    add_test(NAME test_coro_shared_callable_metal4 COMMAND test_coro_shared_callable metal4)
+    set_tests_properties(test_coro_shared_callable_metal4 PROPERTIES TIMEOUT 600 LABELS "integration;integration_metal4;integration_coro")
+endif ()
+
+luisa_compute_add_test(test_coro_callable_rendering integration/runtime/test_coro_callable_rendering.cpp)
+foreach (backend metal metal4)
+    if (TARGET luisa-compute-backend-${backend})
+        add_test(NAME test_coro_callable_rendering_${backend} COMMAND test_coro_callable_rendering ${backend})
+        set_tests_properties(test_coro_callable_rendering_${backend} PROPERTIES TIMEOUT 600 LABELS "integration;integration_${backend};integration_coro;integration_rendering")
+    endif ()
+endforeach ()
+
+luisa_compute_add_test(test_xir_pass_restructure_cfg_semantics unit/xir/test_xir_pass_restructure_cfg_semantics.cpp LABELS "unit;unit_xir;unit_coro")
+set_tests_properties(test_xir_pass_restructure_cfg_semantics PROPERTIES TIMEOUT 120)

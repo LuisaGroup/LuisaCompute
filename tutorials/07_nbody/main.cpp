@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         static constexpr luisa::string_view preferred_backends[] = {
-            "cuda", "dx", "metal", "vk", "fallback", "cpu", "remote"};
+            "cuda", "dx", "metal", "vk", "hip", "fallback"};
         for (auto preferred : preferred_backends) {
             for (auto const &candidate : backends) {
                 if (candidate == preferred && !context.backend_device_names(candidate).empty()) {
@@ -293,7 +293,7 @@ int main(int argc, char *argv[]) {
     auto run_simulation_steps = [&](Buffer<Particle> &current, Buffer<Particle> &next, uint step_count) noexcept {
         for (auto i = 0u; i < step_count; i++) {
             stream << simulate_shader(current, next).dispatch(particle_count) << synchronize();
-            std::swap(current, next);
+            luisa::swap(current, next);
         }
     };
 

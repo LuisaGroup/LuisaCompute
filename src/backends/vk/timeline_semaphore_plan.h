@@ -78,10 +78,11 @@ plan_timeline_semaphore_signal(
     uint64_t tracked_signal_value,
     uint64_t signal_value,
     uint64_t max_value_difference) noexcept {
+    // Per the Vulkan spec, maxTimelineSemaphoreValueDifference == 0 means
+    // "no limit". Normalize it to the largest representable window so
+    // conformant drivers that report 0 are not rejected.
     if (max_value_difference == 0u) {
-        return {
-            .status = TimelineSemaphoreValueStatus::
-                ZERO_MAX_VALUE_DIFFERENCE};
+        max_value_difference = std::numeric_limits<uint64_t>::max();
     }
     if (current_value > tracked_signal_value) {
         return {
@@ -115,10 +116,9 @@ plan_timeline_semaphore_wait(
     uint64_t tracked_signal_value,
     uint64_t wait_value,
     uint64_t max_value_difference) noexcept {
+    // maxTimelineSemaphoreValueDifference == 0 means "no limit".
     if (max_value_difference == 0u) {
-        return {
-            .status = TimelineSemaphoreValueStatus::
-                ZERO_MAX_VALUE_DIFFERENCE};
+        max_value_difference = std::numeric_limits<uint64_t>::max();
     }
     if (current_value > tracked_signal_value) {
         return {

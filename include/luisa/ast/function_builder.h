@@ -16,6 +16,7 @@
 
 // Runtime depends on AST but this file is header only.
 #include <luisa/runtime/rhi/curve_basis.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa {
 class MemorySanitizer;
@@ -35,10 +36,17 @@ class CurveBasisSet;
 namespace luisa::compute::detail {
 
 class FunctionDuplicator;
+class FunctionDebugger;
+
+/// Defined in function_builder_debugger.cpp: applies the debug generator to a
+/// kernel when the LUISA_AST_DEBUG_KERNEL environment flag is set, and returns
+/// the function unchanged otherwise (see define_kernel).
+[[nodiscard]] LUISA_AST_API luisa::shared_ptr<const FunctionBuilder>
+debug_function_if_enabled(luisa::shared_ptr<const FunctionBuilder> f) noexcept;
 
 /**
  * @brief %Function builder.
- * 
+ *
  * Build kernel or callable function
  */
 class LUISA_AST_API FunctionBuilder : public luisa::enable_shared_from_this<FunctionBuilder> {
@@ -47,6 +55,7 @@ class LUISA_AST_API FunctionBuilder : public luisa::enable_shared_from_this<Func
     friend class luisa::compute::CallableLibrary;
     friend class lc::validation::Device;
     friend class FunctionDuplicator;
+    friend class FunctionDebugger;
 
 public:
     /**
@@ -115,7 +124,10 @@ private:
     CallOpSet _direct_builtin_callables;
     CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
-    uint3 _block_size;
+    // Launch dimensions belong exclusively to kernels. Keep the metadata
+    // defined for non-kernel functions so reflection and hashing never read
+    // indeterminate storage; DSL access is rejected at the API boundary.
+    uint3 _block_size{};
     CurveBasisSet _required_curve_bases;
     Tag _tag;
     uint8_t _allowed_warp_size{255u};
@@ -123,12 +135,14 @@ private:
     bool _requires_atomic_float{false};
     bool _requires_printing{false};
     bool _use_cooperative_operations{false};
+    bool _requires_noinline{false};
     uint32_t _next_coro_suspend_token{1u};
     // Codegen Comment
     mutable luisa::string _name;
     mutable luisa::vector<luisa::string> _variables_names;
 
 protected:
+    class SuspendExtensionRecorder;
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
     [[nodiscard]] uint32_t _next_suspend_token() noexcept;
@@ -237,6 +251,9 @@ public:
     /// Return tag(KERNEL, CALLABLE).
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     /// Return pointer to body.
+    /// Inferred from this definition and its statically bound callees.
+    [[nodiscard]] bool may_suspend() const noexcept;
+
     [[nodiscard]] auto body() noexcept { return &_body; }
     /// Return const pointer to body.
     [[nodiscard]] auto body() const noexcept { return &_body; }
@@ -264,13 +281,19 @@ public:
     [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return if uses printing.
     [[nodiscard]] bool requires_printing() const noexcept;
+    /// Return whether this function requires a retained call boundary.
+    [[nodiscard]] bool requires_noinline() const noexcept;
 
     // build primitives
     /// Define a kernel function with given definition
     template<typename Def>
     static auto define_kernel(Def &&def) {
         auto k = _define(Function::Tag::KERNEL, std::forward<Def>(def));
-        return k->_duplicate_if_necessary();
+        auto f = k->_duplicate_if_necessary();
+        // Opt-in debug generator (see function_builder_debugger.h): rewrites
+        // the kernel so failing operations print a diagnostic and stop the
+        // thread. Enabled through LUISA_AST_DEBUG_KERNEL=1; a no-op otherwise.
+        return debug_function_if_enabled(std::move(f));
     }
 
     /// Define a callable function with given definition
@@ -297,6 +320,8 @@ public:
 
     /// Set name
     void set_name(luisa::string_view name) const noexcept;
+    /// Require backends to retain calls to this function.
+    void mark_noinline() noexcept;
     void set_variable_name(uint32_t id, luisa::string_view name) const noexcept;
     luisa::string_view get_variable_name(uint32_t uid) const noexcept;
 
@@ -317,6 +342,10 @@ public:
     [[nodiscard]] const RefExpr *kernel_id() noexcept;
     /// Return object id (for rasterization only).
     [[nodiscard]] const RefExpr *raster_object_id() noexcept;
+    /// Return whether the current fragment belongs to a front-facing primitive.
+    [[nodiscard]] const RefExpr *raster_is_front_face() noexcept;
+    /// Return the first instance selected by the current raster draw.
+    [[nodiscard]] const RefExpr *raster_base_instance() noexcept;
     [[nodiscard]] const RefExpr *raster_barycentrics() noexcept;
     /// Return warp lane count
     [[nodiscard]] const RefExpr *warp_lane_count() noexcept;
@@ -427,19 +456,51 @@ public:
     void suspend_(luisa::string name) noexcept;
     /// Add suspend statement with token and name
     void suspend_(uint32_t token, luisa::string name) noexcept;
+    /// Add suspend statement with explicitly scheduler-visible frame values
+    void suspend_(luisa::string name,
+                  luisa::vector<CoroFrameExport> frame_exports) noexcept;
+    /// Add named/tokenized suspend statement with frame exports
+    void suspend_(uint32_t token, luisa::string name,
+                  luisa::vector<CoroFrameExport> frame_exports) noexcept;
+    /// Add a suspend statement with source extension objects. The objects are
+    /// frozen to data-backed AST-owned representations before recording.
+    void suspend_(
+        luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept;
+    void suspend_(
+        uint32_t token, luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions) noexcept;
+    /// Internal normalized form used by AST duplication/deserialization paths.
+    void suspend_(
+        uint32_t token, luisa::string name,
+        luisa::vector<CoroFrameExport> frame_exports,
+        luisa::vector<CoroSuspendExtensionPtr> extensions,
+        luisa::vector<const Expression *> extension_binding_values) noexcept;
     /// Add comment statement
     void comment_(luisa::string comment) noexcept;
     /// Add assign statement
     void assign(const Expression *lhs, const Expression *rhs) noexcept;
+    /// Add an expression statement. This is primarily used by structured AST
+    /// reconstruction where the expression has already been materialized.
+    void expression_statement(const Expression *expr) noexcept;
 
     /// Add if statement
     [[nodiscard]] IfStmt *if_(const Expression *cond) noexcept;
     /// Add loop statement
     [[nodiscard]] LoopStmt *loop_() noexcept;
+    /// Record the original condition of a loop created by the DSL $while
+    /// spelling. This is optimization provenance only; the loop body must
+    /// still contain the ordinary explicit guard.
+    void mark_loop_as_while(LoopStmt *loop,
+                            const Expression *condition,
+                            size_t condition_statement_count) noexcept;
     /// Add switch statement
     [[nodiscard]] SwitchStmt *switch_(const Expression *expr) noexcept;
     /// Add case statement
     [[nodiscard]] SwitchCaseStmt *case_(const Expression *expr) noexcept;
+    [[nodiscard]] SwitchCaseStmt *case_(luisa::span<const Expression *const> expressions) noexcept;
     /// Add default statement
     [[nodiscard]] SwitchDefaultStmt *default_() noexcept;
     /// Add for statement

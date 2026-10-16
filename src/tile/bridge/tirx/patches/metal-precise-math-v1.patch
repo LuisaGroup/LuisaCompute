@@ -1,0 +1,70 @@
+--- a/src/backend/metal/codegen/codegen_metal.cc
++++ b/src/backend/metal/codegen/codegen_metal.cc
+@@ -913,6 +913,7 @@
+
+ ffi::Module BuildMetal(IRModule mod, Target target) {
+   bool output_ssa = false;
++  bool precise_math = mod->GetAttr<bool>("tirx.metal.precise_math", false).value();
+   mod = tirx::transform::PointerValueTypeRewrite()(std::move(mod));
+
+   std::ostringstream source_maker;
+@@ -922,8 +923,14 @@
+   // Map<String, Bytes> across all multi-shader backends.
+   ffi::Map<ffi::String, ffi::Bytes> smap;
+   const auto fmetal_compile = tvm::ffi::Function::GetGlobal("tvm_callback_metal_compile");
++  // The legacy callback has no arithmetic-options contract. Do not silently
++  // accept a precompiled library that may have reassociated an ordered fold.
++  TVM_FFI_ICHECK(!precise_math || !fmetal_compile)
++      << "Precise Metal compilation requires the native runtime compiler; "
++         "tvm_callback_metal_compile does not advertise arithmetic options";
+   // Default payload format. A callback may override it per the contract below.
+-  std::string fmt = fmetal_compile ? "metallib" : "metal";
++  // Keep this choice in the serialized payload, not an in-memory source hint.
++  std::string fmt = precise_math ? "metal_precise" : fmetal_compile ? "metallib" : "metal";
+   bool fmt_locked = false;
+
+   for (auto kv : mod->functions) {
+@@ -990,6 +997,7 @@
+   static bool registered = false;
+   if (registered) return;
+   registered = true;
+
+   namespace refl = tvm::ffi::reflection;
++  refl::GlobalDef().def("target.metal.precise_math_contract_version", []() { return 1; });
+   refl::GlobalDef().def("target.build.metal", BuildMetal);
+--- a/src/backend/metal/runtime/metal_module.mm
++++ b/src/backend/metal/runtime/metal_module.mm
+@@ -136,7 +136,7 @@
+     TVM_FFI_ICHECK(kernel != smap_.end());
+     const ffi::Bytes& source = (*kernel).second;
+
+-    if (fmt_ == "metal") {
++    if (fmt_ == "metal" || fmt_ == "metal_precise") {
+       MTLCompileOptions* opts = [[MTLCompileOptions alloc] init];
+       MTLLanguageVersion language_version = MTLLanguageVersion2_3;
+ #if defined(TVM_METAL_HAS_MSL_4_0)
+@@ -145,7 +145,7 @@
+       }
+ #endif
+       opts.languageVersion = language_version;
+-      opts.fastMathEnabled = YES;
++      opts.fastMathEnabled = fmt_ != "metal_precise";
+       // Per-kernel payload is bytes; treat as UTF-8 MSL source.
+       std::string source_str(source.data(), source.size());
+       lib = [w->devices[device_id]
+@@ -161,6 +161,7 @@
+         LOG(INFO) << "Warning: " << [[err_msg localizedDescription] UTF8String];
+       }
+     } else {
++      TVM_FFI_ICHECK_EQ(fmt_, "metallib") << "Unsupported Metal module format";
+       // Build from library.
+       auto q = dispatch_queue_create("q", DISPATCH_QUEUE_SERIAL);
+       auto data = dispatch_data_create(source.data(), source.size(), q,
+@@ -339,6 +340,7 @@
+
+ TVM_FFI_STATIC_INIT_BLOCK() {
+   namespace refl = tvm::ffi::reflection;
++  refl::GlobalDef().def("runtime.metal.precise_math_contract_version", []() { return 1; });
+   // Registry: "ffi.Module.create.metal" — codegen-time Metal module factory.
+   // Used by src/target/metal/metal_fallback_module.h:MetalModuleCreateWithFallback.
+   // Registry: "ffi.Module.load_from_bytes.metal" — disk loader.  Only this

@@ -222,23 +222,39 @@ static auto test_binary_file_stream_registration = [] {
             LUISA_INFO("Test 12 passed: Destructor works correctly");
         }
 
-        // Test 13: Construction from FILE* and length
+        // Test 13: C stream length and ownership
         {
-            LUISA_INFO("Test 13: Construction from FILE* and length...");
+            LUISA_INFO("Test 13: C stream length and ownership...");
             FILE *file = std::fopen(test_file_path, "rb");
             expect(static_cast<bool>(file != nullptr));
 
-            // Get file length manually
-            std::fseek(file, 0, SEEK_END);
-            size_t length = std::ftell(file);
-            std::fseek(file, 0, SEEK_SET);
+            auto length = luisa::detail::get_c_file_length(file);
+            expect(static_cast<bool>(length == test_data.size()));
+            expect(static_cast<bool>(std::ftell(file) == 0));
 
+#if defined(_WIN32) && !defined(_DLL)
+            // Each /MT module owns its CRT file-descriptor table. Keep this
+            // FILE* in the test executable; let luisa-core open its own stream.
+            expect(static_cast<bool>(std::fclose(file) == 0));
+            BinaryFileStream stream(luisa::string{test_file_path});
+#else
             BinaryFileStream stream(file, length);
+#endif
             expect(static_cast<bool>(stream.valid()));
             expect(static_cast<bool>(stream.length() == length));
 
-            // Stream will close the file in destructor
-            LUISA_INFO("Test 13 passed: FILE* constructor works correctly");
+            std::byte buffer[16];
+            stream.read(luisa::span<std::byte>(buffer, 16));
+            expect(static_cast<bool>(std::memcmp(buffer, test_data.data(), 16) == 0));
+            stream.set_pos(128);
+            stream.read(luisa::span<std::byte>(buffer, 16));
+            expect(static_cast<bool>(std::memcmp(buffer, test_data.data() + 128, 16) == 0));
+            expect(static_cast<bool>(stream.pos() == 144));
+            stream.close();
+            expect(static_cast<bool>(!stream.valid()));
+            expect(static_cast<bool>(stream.length() == 0));
+            expect(static_cast<bool>(stream.pos() == 0));
+            LUISA_INFO("Test 13 passed: C stream length and ownership work correctly");
         }
 
         // Test 14: Read with zero-length buffer

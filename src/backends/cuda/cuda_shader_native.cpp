@@ -1,4 +1,5 @@
 #include <luisa/runtime/rhi/command.h>
+#include <luisa/core/stl/string.h>
 
 #include "cuda_error.h"
 #include "cuda_device.h"
@@ -24,7 +25,7 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
 
     auto load_ptx = [&](const void *ptx, size_t ptx_size) noexcept {
         auto devrt = device->cudadevrt_library();
-        if (devrt.empty() || std::string_view{static_cast<const char *>(ptx), ptx_size}.find("kernel_launcher") == std::string_view::npos) {
+        if (devrt.empty() || luisa::string_view{static_cast<const char *>(ptx), ptx_size}.find("kernel_launcher") == luisa::string_view::npos) {
             LUISA_WARNING_WITH_LOCATION(
                 "CUDA Device Runtime library is not linked. "
                 "Indirect dispatch will not be available for this kernel.");
@@ -51,6 +52,11 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
         }
         LUISA_CHECK_CUDA(cuLinkComplete(link_state, &cubin, &cubin_size));
         LUISA_CHECK_CUDA(cuModuleLoadData(&_module, cubin));
+        // Retain the linked cubin as the module image for cross-backend
+        // import: the pre-link PTX references cudadevrt symbols (through
+        // kernel_launcher) and would fail a standalone (re)load.
+        auto image = static_cast<const std::byte *>(cubin);
+        _module_image.assign(image, image + cubin_size);
         LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
         if (!devrt.empty()) {
             if (cuModuleGetFunction(&_indirect_function, _module, "kernel_launcher") != CUDA_SUCCESS) {
@@ -70,6 +76,11 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
         ret = load_ptx(ptx.data(), ptx.size());
     }
     LUISA_CHECK_CUDA(ret);
+    if (_module_image.empty()) {
+        // Plain-PTX load path (no cudadevrt link): retain the loaded (and
+        // possibly version-patched) PTX text for cross-backend import.
+        _module_image = std::move(ptx);
+    }
 }
 
 CUDAShaderNative::~CUDAShaderNative() noexcept {
@@ -82,15 +93,15 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
 
     auto argument_buffer_offset = static_cast<size_t>(0u);
     auto allocate_argument = [&](size_t bytes) noexcept {
-        static constexpr auto alignment = 16u;
-        auto offset = (argument_buffer_offset + alignment - 1u) / alignment * alignment;
+        static constexpr auto cuda_shader_native_alignment = 16u;
+        auto offset = (argument_buffer_offset + cuda_shader_native_alignment - 1u) / cuda_shader_native_alignment * cuda_shader_native_alignment;
         LUISA_ASSERT(offset + bytes <= argument_buffer.size(),
                      "Too many arguments in ShaderDispatchCommand");
         argument_buffer_offset = offset + bytes;
         return argument_buffer.data() + offset;
     };
 
-    auto encode_argument = [&allocate_argument, command](const auto &arg) noexcept {
+    auto encode_argument = [&allocate_argument, &encoder, command](const auto &arg) noexcept {
         using Tag = ShaderDispatchCommand::Argument::Tag;
         switch (arg.tag) {
             case Tag::BUFFER: {
@@ -128,7 +139,44 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
                 std::memcpy(ptr, &binding, sizeof(binding));
                 break;
             }
-            case Tag::ACCEL: {
+              case Tag::ACCEL: {
+                  // A *fallback* accel argument carries the fallback's own heap
+                  // ABI (`LCFallbackAccel`, cuda_builtin/
+                  // cuda_device_fallback_rtx.h): the bindless heap of the TLAS
+                  // - whose slots hold the region buffers its traversal resolves
+                  // - the heap slot of the tree's own region, and the device
+                  // address of the tree's instance slice.  They are resolved
+                  // here, on every dispatch, because the fallback storage may
+                  // have grown and the heap may have been replaced since the
+                  // last one.
+                  if (encoder.stream()->device()->owns_fallback_accel(arg.accel.handle)) {
+                      struct alignas(16) FallbackAccelArgument {
+                          uint64_t heap_slots;
+                          uint64_t heap_capacity;
+                          uint64_t instances;
+                          uint32_t region_slot;
+                          uint32_t pad;
+                      };
+                      static_assert(sizeof(FallbackAccelArgument) == 32u,
+                                    "the fallback accel argument is 32 bytes");
+                      auto binding = encoder.stream()->device()->fallback_rtx()->binding(arg.accel.handle);
+                      // Not built yet: bind nulls, which the traversal reports as
+                      // a miss (see `lc_fallback_trace_closest`).
+                      FallbackAccelArgument argument{0ull, 0ull, 0ull, 0u, 0u};
+                      if (binding.valid()) {
+                          auto *heap = reinterpret_cast<const CUDABindlessArray *>(binding.accel_heap);
+                          auto heap_binding = heap->binding();
+                          argument.heap_slots = heap_binding.slots;
+                          argument.heap_capacity = heap_binding.capacity;
+                          argument.instances =
+                              reinterpret_cast<const CUDABuffer *>(binding.instance_buffer)->device_address() +
+                              binding.instance_offset_bytes;
+                          argument.region_slot = binding.accel_slot;
+                      }
+                      auto ptr = allocate_argument(sizeof(argument));
+                      std::memcpy(ptr, &argument, sizeof(argument));
+                      break;
+                  }
                 auto accel = reinterpret_cast<const CUDAAccel *>(arg.accel.handle);
                 auto binding = accel->binding();
                 auto ptr = allocate_argument(sizeof(binding));
@@ -172,20 +220,31 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             single_dispatch_size = command->dispatch_size();
             dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
         }
+        auto kernel_id = 0u;
         for (auto dispatch_size : dispatch_sizes) {
-            if (any(dispatch_size == make_uint3(0u))) { continue; }
-            auto launch_size_and_kernel_id = make_uint4(dispatch_size, 0u);
+            if (any(dispatch_size == make_uint3(0u))) {
+                ++kernel_id;
+                continue;
+            }
+            auto launch_size_and_kernel_id = make_uint4(dispatch_size, kernel_id);
             std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
             // launch configuration
             auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
-            auto blocks = (command->dispatch_size() + block_size - 1u) / block_size;
-            auto arguments = static_cast<void *>(argument_buffer.data());
+            auto blocks = (dispatch_size + block_size - 1u) / block_size;
+            // `kernelParams` is the array of pointers to the parameter values
+            // itself (one entry per kernel parameter); a DSL kernel has exactly
+            // one (the packed argument buffer), just like the indirect path
+            // above.  Passing the address of a local that holds the array base
+            // instead would make the driver read every parameter after the
+            // first out of unrelated stack memory.
+            void *arguments[] = {argument_buffer.data()};
             LUISA_CHECK_CUDA(cuLaunchKernel(
                 _function,
                 blocks.x, blocks.y, blocks.z,
                 block_size.x, block_size.y, block_size.z,
                 0u, cuda_stream,
-                &arguments, nullptr));
+                arguments, nullptr));
+            ++kernel_id;
         }
     }
 }

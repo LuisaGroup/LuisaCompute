@@ -249,16 +249,19 @@ void test_accel_device_mutation(Device &device) {
         accel.set_instance_transform(0u, transform);
         accel.set_instance_visibility(0u, visibility_mask);
     };
-    Kernel1D trace_and_mutate = [](AccelVar accel,
-                                   BufferUInt4 result) noexcept {
+    Kernel1D trace_instance = [](AccelVar accel,
+                                 BufferUInt4 result) noexcept {
         auto ray = make_ray(make_float3(0.0f, 0.0f, 1.0f),
                             make_float3(0.0f, 0.0f, -1.0f));
         auto hit = accel.intersect(ray, {});
         auto user_id = accel.instance_user_id(0u);
-        accel.set_instance_visibility(0u, 0x4u);
         result.write(0u, make_uint4(
                              hit->inst, hit->prim,
                              cast<uint>(!hit->miss()), user_id));
+    };
+    Kernel1D mutate_visibility = [](AccelVar accel,
+                                    UInt visibility) noexcept {
+        accel.set_instance_visibility(0u, visibility);
     };
     Kernel1D query_visibility = [](AccelVar accel,
                                    BufferUInt4 result) noexcept {
@@ -292,7 +295,8 @@ void test_accel_device_mutation(Device &device) {
     };
 
     auto mutate_shader = device.compile(mutate);
-    auto trace_and_mutate_shader = device.compile(trace_and_mutate);
+    auto trace_instance_shader = device.compile(trace_instance);
+    auto mutate_visibility_shader = device.compile(mutate_visibility);
     auto query_visibility_shader = device.compile(query_visibility);
     auto trace_shader = device.compile(trace);
     auto origins = device.create_buffer<float3>(3u);
@@ -300,21 +304,23 @@ void test_accel_device_mutation(Device &device) {
     auto results = device.create_buffer<uint4>(3u);
     auto observed = device.create_buffer<uint2>(1u);
 
-    // This is deliberately one kernel: the accel argument must bind both its
-    // acceleration-structure descriptor and its writable instance buffer. The
-    // following result buffer also catches descriptor-count drift at the
-    // logical-resource boundary.
+    // The shared AST rule forbids using one accel argument for both tracing and
+    // writing in the same kernel (the D3D12 HLSL signature of a writable accel
+    // binds the instance buffer without the trace descriptor), so the trace and
+    // the visibility mutation are exercised as separate dispatches that still
+    // round-trip through the same device-side instance buffer.
     std::array<uint4, 1u> combined_result{};
     auto combined_result_buffer = device.create_buffer<uint4>(1u);
-    stream << trace_and_mutate_shader(accel, combined_result_buffer).dispatch(1u)
+    stream << trace_instance_shader(accel, combined_result_buffer).dispatch(1u)
            << combined_result_buffer.copy_to(luisa::span{combined_result})
            << synchronize();
     expect(static_cast<bool>(all(
         combined_result[0] == make_uint4(0u, 0u, 1u, 0u))))
         << luisa::format(
-               "combined accel read/write result mismatch: got {}",
+               "combined accel read result mismatch: got {}",
                combined_result[0]);
-    stream << query_visibility_shader(accel, combined_result_buffer).dispatch(1u)
+    stream << mutate_visibility_shader(accel, 0x4u).dispatch(1u)
+           << query_visibility_shader(accel, combined_result_buffer).dispatch(1u)
            << combined_result_buffer.copy_to(luisa::span{combined_result})
            << synchronize();
     expect(combined_result[0].x == 0x4u)
@@ -437,17 +443,20 @@ void test_accel_opacity(Device &device) {
     Kernel1D mutate = [](AccelVar accel, Bool opaque) noexcept {
         accel.set_instance_opaque(0u, opaque);
     };
+    Kernel1D mutate_visibility = [](
+                                     AccelVar accel,
+                                     UInt visibility) noexcept {
+        accel.set_instance_visibility(0u, visibility);
+    };
 
     auto trace_shader = device.compile(trace);
     auto mutate_shader = device.compile(mutate);
+    auto mutate_visibility_shader = device.compile(mutate_visibility);
     auto results = device.create_buffer<uint4>(2u);
 
-    auto run = [&](uint expected_callback_count,
-                   luisa::string_view phase) {
-        std::array<uint4, 2u> host_results{};
-        stream << trace_shader(results, accel).dispatch(1u)
-               << results.copy_to(luisa::span{host_results})
-               << synchronize();
+    auto verify_results = [&](const std::array<uint4, 2u> &host_results,
+                              uint expected_callback_count,
+                              luisa::string_view phase) {
         for (auto query = 0u; query < 2u; query++) {
             auto result = host_results[query];
             auto query_name = query == 0u ? "closest" : "any";
@@ -465,26 +474,132 @@ void test_accel_opacity(Device &device) {
                                  phase, query_name, result.w, expected_callback_count);
         }
     };
+    auto run = [&](auto &target_accel,
+                   uint expected_callback_count,
+                   luisa::string_view phase) {
+        std::array<uint4, 2u> host_results{};
+        stream << trace_shader(results, target_accel).dispatch(1u)
+               << results.copy_to(luisa::span{host_results})
+               << synchronize();
+        verify_results(host_results, expected_callback_count, phase);
+    };
 
     // Opaque hits must commit in traversal and skip user filtering.
-    run(0u, "initial host opaque");
+    run(accel, 0u, "initial host opaque");
+
+    // Shader arguments are encoded when commands are submitted. Building a
+    // fresh accel and tracing it in the same stream must not depend on a
+    // pre-build instance-array pointer.
+    constexpr auto same_stream_visibility = 0x5au;
+    constexpr auto same_stream_user_id = 0x00c0ffeeu;
+    const auto same_stream_transform = make_float4x4(
+        float4{2.0f, 0.0f, 0.0f, 0.0f},
+        float4{0.0f, 3.0f, 0.0f, 0.0f},
+        float4{0.0f, 0.0f, 1.0f, 0.0f},
+        float4{0.0f, 0.0f, 0.0f, 1.0f});
+    auto same_stream_accel = device.create_accel();
+    same_stream_accel.emplace_back(
+        mesh, same_stream_transform,
+        same_stream_visibility, true,
+        same_stream_user_id);
+    Kernel1D inspect = [](
+                           BufferUInt2 metadata,
+                           BufferFloat4x4 transforms,
+                           AccelVar accel) noexcept {
+        metadata.write(
+            0u,
+            make_uint2(
+                accel.instance_visibility_mask(0u),
+                accel.instance_user_id(0u)));
+        transforms.write(
+            0u, accel.instance_transform(0u));
+    };
+    auto inspect_shader = device.compile(inspect);
+    auto metadata = device.create_buffer<uint2>(1u);
+    auto transforms =
+        device.create_buffer<float4x4>(1u);
+    std::array<uint4, 2u> same_stream_results{};
+    std::array<uint2, 1u> same_stream_metadata{};
+    std::array<float4x4, 1u> same_stream_transforms{};
+    stream << same_stream_accel.build()
+           << trace_shader(
+                  results, same_stream_accel)
+                  .dispatch(1u)
+           << inspect_shader(
+                  metadata, transforms,
+                  same_stream_accel)
+                  .dispatch(1u)
+           << results.copy_to(luisa::span{same_stream_results})
+           << metadata.copy_to(
+                  luisa::span{same_stream_metadata})
+           << transforms.copy_to(
+                  luisa::span{same_stream_transforms})
+           << synchronize();
+    verify_results(
+        same_stream_results, 0u, "same-stream host opaque build");
+    expect(static_cast<bool>(
+        all(
+            same_stream_metadata[0] ==
+            make_uint2(
+                same_stream_visibility,
+                same_stream_user_id))))
+        << luisa::format(
+               "same-stream accel metadata view is stale: got {}",
+               same_stream_metadata[0]);
+    for (auto column = 0u; column < 4u; column++) {
+        expect(static_cast<bool>(
+            all(
+                same_stream_transforms[0][column] ==
+                same_stream_transform[column])))
+            << luisa::format(
+                   "same-stream accel transform column {} is stale",
+                   column);
+    }
 
     accel.set_opaque_on_update(0u, false);
     stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(1u, "host non-opaque update");
+    run(accel, 1u, "host non-opaque update");
 
     accel.set_opaque_on_update(0u, true);
     stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(0u, "host opaque update");
+    run(accel, 0u, "host opaque update");
 
     // Device-side mutation must use the same opacity bit as host updates.
     stream << mutate_shader(accel, false).dispatch(1u)
            << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(1u, "device non-opaque update");
+    run(accel, 1u, "device non-opaque update");
 
     stream << mutate_shader(accel, true).dispatch(1u)
            << accel.build(Accel::BuildRequest::PREFER_UPDATE);
-    run(0u, "device opaque update");
+    run(accel, 0u, "device opaque update");
+
+    auto read_visibility = [&]() noexcept {
+        stream << inspect_shader(metadata, transforms, accel).dispatch(1u)
+               << metadata.copy_to(
+                      luisa::span{same_stream_metadata})
+               << synchronize();
+        return same_stream_metadata[0].x;
+    };
+
+    // The packed HIP node snapshot shares one uint with public visibility,
+    // while both fields remain independently mutable. A host visibility-only
+    // update after a device opacity write must preserve opacity. Conversely, a
+    // host opacity-only update after a device visibility write must preserve
+    // the newer visibility. These two orders catch whole-word uploads from a
+    // stale host mirror in either direction.
+    stream << mutate_shader(accel, false).dispatch(1u)
+           << accel.build(Accel::BuildRequest::PREFER_UPDATE);
+    accel.set_visibility_on_update(0u, 0x5au);
+    stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
+    run(accel, 1u, "host visibility preserves device non-opacity");
+    expect(read_visibility() == 0x5au);
+
+    stream << mutate_visibility_shader(accel, 0x3cu).dispatch(1u)
+           << accel.build(Accel::BuildRequest::PREFER_UPDATE);
+    accel.set_opaque_on_update(0u, true);
+    stream << accel.build(Accel::BuildRequest::PREFER_UPDATE);
+    run(accel, 0u, "host opacity preserves device visibility");
+    expect(read_visibility() == 0x3cu);
 }
 
 int main(int argc, char *argv[]) {

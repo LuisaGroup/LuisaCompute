@@ -1,0 +1,39 @@
+{
+  "scope": "Compiler-only cross-target diagnostic. Proposed precise-math tests were not run.",
+  "input_sha256": "76f062a92cbcfad53238e6161a7327f8cc09a627602c7f5dc89910b5cbbb1844",
+  "runs": [
+    {
+      "target": "x86-baseline",
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llc",
+        "-mtriple=x86_64-unknown-linux-gnu",
+        "-mcpu=x86-64",
+        "/private/tmp/luisa-packet-inline.UY1lIE/roundeven-probe.ll",
+        "-o",
+        "-"
+      ],
+      "exit_code": 0,
+      "stderr": "",
+      "assembly_sha256": "dbee01a70ef3c7df126da41083a740cf5ab8adf89cf2024e756e11af09243534",
+      "scalar_roundeven_calls": 4,
+      "vector_frintn_instructions": 0
+    },
+    {
+      "target": "apple-m1",
+      "command": [
+        "/opt/homebrew/opt/llvm@21/bin/llc",
+        "-mtriple=aarch64-apple-darwin",
+        "-mcpu=apple-m1",
+        "/private/tmp/luisa-packet-inline.UY1lIE/roundeven-probe.ll",
+        "-o",
+        "-"
+      ],
+      "exit_code": 0,
+      "stderr": "",
+      "assembly_sha256": "54a95f6b790a5f71aaa835a6a730b471fa7ea8f65ab68927e943be218704cdfc",
+      "scalar_roundeven_calls": 0,
+      "vector_frintn_instructions": 1
+    }
+  ],
+  "passed": true
+}

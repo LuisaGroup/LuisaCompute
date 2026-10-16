@@ -1,0 +1,10 @@
+
+Running test "tile_cooperative_shared_resources_and_global_order"... [31mFAILED
+[0min: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_cooperative.cpp:100[31m - test condition:  [false[31m][0m
+
+
+===============================================================================
+Suite global
+tests:   12 | [31m1 failed[0m
+asserts: 897 | 11 passed | [31m1 failed[0m
+

@@ -3,6 +3,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa::compute {
 
@@ -50,7 +51,7 @@ public:
     template<typename F>
     void with(F &&f) const noexcept {
         mark_begin();
-        std::invoke(std::forward<F>(f));
+        luisa::invoke(std::forward<F>(f));
         mark_end();
     }
 };

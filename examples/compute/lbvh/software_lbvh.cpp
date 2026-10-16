@@ -1,0 +1,243 @@
+// The software two-level LBVH facade: the compiled two-level traversal kernel
+// plus the thin wrappers that forward to the shared storage and the two
+// builders, following the hardware backends' estimate -> create -> pre_build ->
+// build order.
+
+#include "software_lbvh.h"
+
+namespace luisa::example::lbvh {
+
+namespace {
+
+// One thread per ray; the traversal itself lives in tlas.cpp, where the top
+// level drives the bottom level.  One thread handles the ray
+// `ray_offset + i * ray_stride`, so a caller can keep every single submission
+// short by walking a strided slice of the rays (striding keeps every slice
+// representative of the whole ray set, a contiguous prefix is not: in a camera
+// frustum the first rows can miss the whole scene).
+[[nodiscard]] auto make_trace_kernel() noexcept {
+    return Kernel1D{[](BindlessVar heap, BufferVar<LbvhBlas> blas_table,
+                       BufferVar<LbvhInstance> instances, BufferVar<float3> vertices,
+                       BufferVar<Triangle> triangles, BufferVar<LbvhRay> rays,
+                       BufferVar<LbvhHit> hits, UInt tlas_node_offset, UInt ray_offset,
+                       UInt ray_stride, UInt count) noexcept {
+        set_block_size(64u);
+        UInt i = dispatch_id().x;
+        $if (i < count) {
+            auto index = ray_offset + i * ray_stride;
+            auto ray = rays.read(index);
+            // `heap` is the TLAS' bindless heap: the traversal resolves both the
+            // top-level region and every BLAS it reaches through it
+            // (lbvh_common.h's "The bindless heap of a TLAS").
+            auto hit = tlas_traversal(ray, heap, tlas_node_offset, blas_table,
+                                      instances, vertices, triangles);
+            hits.write(index, hit);
+        };
+    }};
+}
+
+// Device-side self-check of the TLAS' bindless heap (lbvh_common.h): for every
+// BLAS, the root node must be reachable both through the record's heap slot and
+// directly from the shared node buffer, and the slot must be the one the layout
+// fixes (`heap_first_blas_slot` + the record's index).  The TLAS' own region
+// (`heap_tlas_slot`) is compared the same way on lane 0.  The comparisons are
+// exact: both reads fetch the same bytes of the same node.
+[[nodiscard]] auto make_heap_check_kernel() noexcept {
+    return Kernel1D{[](BindlessVar heap, BufferVar<LbvhBlas> blas_table,
+                       BufferVar<LbvhNode> nodes, BufferVar<uint> problems,
+                       UInt blas_count, UInt tlas_node_offset) noexcept {
+        set_block_size(64u);
+        UInt i = dispatch_id().x;
+        $if (i < blas_count) {
+            auto record = blas_table.read(i);
+            auto via_heap = heap.buffer<LbvhNode>(record.heap_slot).read(0u);
+            auto direct = nodes.read(record.node_offset);
+            auto same = (record.heap_slot == heap_first_blas_slot + i) &
+                        all(aabb_lo(via_heap) == aabb_lo(direct)) &
+                        all(aabb_hi(via_heap) == aabb_hi(direct)) &
+                        (child_left(via_heap) == child_left(direct)) &
+                        (child_right(via_heap) == child_right(direct));
+            $if (!same) { problems.atomic(0u).fetch_add(1u); };
+        };
+        $if (i == 0u) {
+            auto via_heap = heap.buffer<LbvhNode>(heap_tlas_slot).read(0u);
+            auto direct = nodes.read(tlas_node_offset);
+            auto same = all(aabb_lo(via_heap) == aabb_lo(direct)) &
+                        all(aabb_hi(via_heap) == aabb_hi(direct)) &
+                        (child_left(via_heap) == child_left(direct)) &
+                        (child_right(via_heap) == child_right(direct));
+            $if (!same) { problems.atomic(0u).fetch_add(1u); };
+        };
+    }};
+}
+
+}// namespace
+
+SoftwareLbvh::SoftwareLbvh(Device &device, const Sizes &sizes) noexcept
+    : _storage{device, sizes},
+      _blas_builder{device},
+      _tlas_builder{device},
+      _trace_kernel{device.compile(make_trace_kernel())},
+      _heap_check_kernel{device.compile(make_heap_check_kernel())},
+      _heap_problems{device.create_buffer<uint>(1u)} {}
+
+Blas SoftwareLbvh::create_blas(const AccelOption &option, uint triangle_offset,
+                               uint triangle_count, float3 object_min,
+                               float3 object_max) noexcept {
+    auto blas = _blas_builder.create(option, triangle_offset, triangle_count,
+                                     object_min, object_max);
+    _blas_count++;
+    return blas;
+}
+
+Tlas SoftwareLbvh::create_accel(const AccelOption &option, uint instance_count) noexcept {
+    return _tlas_builder.create(option, instance_count);
+}
+
+size_t SoftwareLbvh::pre_build_blas(Blas &blas) noexcept {
+    return _blas_builder.pre_build(_storage, blas);
+}
+
+size_t SoftwareLbvh::pre_build_accel(Stream &stream, Tlas &tlas,
+                                     luisa::span<const Blas> blases,
+                                     luisa::span<const InstanceDesc> instances) noexcept {
+    return _tlas_builder.pre_build(stream, _storage, tlas, blases, instances);
+}
+
+void SoftwareLbvh::build_blas(Stream &stream, const Blas &blas,
+                              const Buffer<float3> &vertices,
+                              const Buffer<Triangle> &triangles,
+                              AccelBuildRequest request,
+                              LbvhBuildTimings *timings) noexcept {
+    _blas_builder.build(stream, _storage, blas, vertices, triangles, request, timings);
+}
+
+void SoftwareLbvh::build_accel(Stream &stream, const Tlas &tlas,
+                               AccelBuildRequest request,
+                               LbvhBuildTimings *timings) noexcept {
+    _tlas_builder.build(stream, _storage, tlas, request, timings);
+}
+
+LbvhStorage::CompactResult SoftwareLbvh::compact(Stream &stream, Tlas &tlas,
+                                                 luisa::span<const Blas> blases,
+                                                 CompactionPolicy policy,
+                                                 bool release_scratch) noexcept {
+    LUISA_ASSERT(tlas.is_pre_built(), "compact() on a TLAS that was not built.");
+    LUISA_ASSERT(tlas.has_heap(), "compact() on a TLAS without a bindless heap.");
+    // The RTX contract, translated: `allow_compaction` is the caller's intent (a
+    // hint, never a semantic change), and this call is the action that honours
+    // it.  Check it here, where the options are still visible, exactly like a
+    // backend checks the flag before it compacts.
+    LUISA_ASSERT(tlas.option().allow_compaction,
+                 "compact() requires the TLAS to be created with "
+                 "AccelOption::allow_compaction.");
+    for (auto i = 0u; i < blases.size(); i++) {
+        LUISA_ASSERT(blases[i].option().allow_compaction,
+                     "compact() requires every BLAS to be created with "
+                     "AccelOption::allow_compaction (BLAS {} was not).",
+                     i);
+    }
+    // One command list carries the copy, the heap re-registration and the
+    // retirement, so they are guaranteed to complete in that order on the device
+    // (a list is executed as a unit, and its callbacks run after it).
+    CommandList list = CommandList::create(1u, 2u);
+    // (2)/(3): the device size query + the exact-size allocation; the copy is
+    // recorded into `list`.  `LbvhStorage::compact` synchronises the stream, so
+    // the host has the node count before it sizes the dense buffer.
+    auto result = _storage.compact(stream, list, policy);
+    if (result.compacted()) {
+        // (4a): re-register every heap view onto the dense buffer.  It is the
+        // same list as the copy, so no traversal that resolves through the new
+        // views can run before the copy has filled the buffer.
+        _tlas_builder.emplace_heaps(result.nodes, tlas, blases);
+        list << tlas.heap().update();
+        // (4b): retire the loose node buffer - and, opt-in, the build scratch -
+        // through a *completion* callback of the same list.  The callback owns
+        // the moved buffers (`Buffer` is movable, not copyable, and destroys its
+        // handle in its destructor), so the device buffers are released only
+        // after the list has completed and every recorded dispatch that read them
+        // is done.  `add_dtor_callback` would run at submit time - never use it
+        // for a resource retirement.  The build scratch is only read by the
+        // build, which has completed (compact() synchronised for its size query),
+        // and nothing this list records reads it.
+        auto scratch = release_scratch ? _storage.release_build_scratch()
+                                       : LbvhStorage::ReleasedScratch{};
+        result.reclaimed_scratch_bytes = scratch.bytes;
+        list.add_callback([old_nodes = _storage.take_loose_nodes(),
+                           scratch = std::move(scratch)]() mutable noexcept {
+            // the assignments destroy the buffers: this is where the device
+            // handles are released, after the GPU work above finished
+            old_nodes = {};
+            scratch = LbvhStorage::ReleasedScratch{};
+        });
+        // The storage adopts the dense buffer *before* the commit (the
+        // retirement callback owns only the old/loose buffer and the
+        // temporaries); a callback that captured the new buffer would leave the
+        // storage holding a destroyed handle.  This is the Luisa shape of
+        // Metal's `compacted_handle->retain()` before
+        // `copyAndCompactAccelerationStructure`.
+        _storage.adopt_nodes(std::move(result.nodes));
+        if (result.reclaimed_scratch_bytes != 0u) {
+            LUISA_INFO("software LBVH compact(): build scratch retired "
+                       "({} B, {}).",
+                       result.reclaimed_scratch_bytes,
+                       _storage.buildable() ? "storage still buildable"
+                                            : "storage now traverse-only");
+        }
+    }
+    stream << list.commit();
+    LUISA_ASSERT(!tlas.heap().dirty(),
+                 "the bindless heap must be re-registered before the traversal.");
+    return result;
+}
+
+void SoftwareLbvh::trace_software(Stream &stream, const Buffer<float3> &vertices,
+                                  const Buffer<Triangle> &triangles,
+                                  const Buffer<LbvhRay> &rays, const Buffer<LbvhHit> &hits,
+                                  const Tlas &tlas, uint ray_count, uint ray_offset,
+                                  uint ray_stride) noexcept {
+    LUISA_ASSERT(tlas.is_pre_built(), "trace_software() on a TLAS that was not built.");
+    LUISA_ASSERT(tlas.has_heap(), "trace_software() on a TLAS without a bindless heap.");
+    LUISA_ASSERT(ray_stride > 0u, "a strided traversal needs a positive stride.");
+    // The kernel walks the ray indices `ray_offset, ray_offset + ray_stride, ...`
+    // `ray_count` times; the caller owns that (offset, stride, count) triple, so
+    // this is where a slice that would leave the ray/hit buffers is rejected
+    // instead of reading and writing one element past them - the kernels address
+    // buffers by index and a device bounds check only exists in a debug build.
+    if (ray_count > 0u) {
+        auto last = static_cast<size_t>(ray_offset) +
+                    static_cast<size_t>(ray_count - 1u) * ray_stride;
+        LUISA_ASSERT(last < static_cast<size_t>(rays.size()) &&
+                         last < static_cast<size_t>(hits.size()),
+                     "strided traversal [{} + {} * {}] runs past the "
+                     "{} rays / {} hits it was given.",
+                     ray_offset, ray_count, ray_stride, rays.size(), hits.size());
+    }
+    stream << _trace_kernel(tlas.heap(), _storage.blas_table(), _storage.instances(),
+                            vertices, triangles, rays, hits, tlas.node_offset(), ray_offset,
+                            ray_stride, ray_count)
+                  .dispatch(ray_count);
+}
+
+size_t SoftwareLbvh::validate_heap(Stream &stream, const Tlas &tlas,
+                                   uint blas_count) noexcept {
+    LUISA_ASSERT(tlas.has_heap(), "validate_heap() on a TLAS without a bindless heap.");
+    LUISA_ASSERT(tlas.heap_size() >= static_cast<size_t>(blas_count) + heap_first_blas_slot,
+                 "the TLAS heap holds {} slot(s) but {} BLAS + {} reserved slots are checked.",
+                 tlas.heap_size(), blas_count, heap_first_blas_slot);
+    // One element accumulates the mismatches, and one thread per BLAS compares
+    // its root; the TLAS' own root is compared by lane 0.  The counters are
+    // device-side so the check does not depend on the host being able to read a
+    // `BindlessArray` (it cannot).
+    auto zero = 0u;
+    auto host = 0u;
+    stream << _heap_problems.copy_from(luisa::span<const uint>{&zero, 1u})
+           << _heap_check_kernel(tlas.heap(), _storage.blas_table(), _storage.nodes(),
+                                 _heap_problems, blas_count, tlas.node_offset())
+                  .dispatch(std::max(blas_count, 1u))
+           << _heap_problems.copy_to(luisa::span<uint>{&host, 1u})
+           << synchronize();
+    return host;
+}
+
+}// namespace luisa::example::lbvh

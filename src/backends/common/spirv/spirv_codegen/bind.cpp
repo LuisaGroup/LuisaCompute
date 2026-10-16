@@ -24,6 +24,7 @@ void add_u32_member_decoration(spv::Builder &builder, spv::Id target,
                                 std::vector<unsigned>{literal});
 }
 
+namespace spirv_bind_detail {
 [[nodiscard]] const Type *matrix_after_array_layers(
     const Type *type) noexcept {
     while (type != nullptr && type->is_array()) {
@@ -32,6 +33,7 @@ void add_u32_member_decoration(spv::Builder &builder, spv::Id target,
     return type != nullptr && type->is_matrix() ? type : nullptr;
 }
 
+}  // namespace spirv_bind_detail
 struct ConstantUBOElementLayout {
     size_t base_alignment;
     size_t occupied_size;
@@ -82,6 +84,8 @@ struct ConstantUBOElementLayout {
         case Type::Tag::UINT8:
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::INT4:
+        case Type::Tag::FP4_E2M1:
             return features.uniform_storage_buffer_8bit_access;
         case Type::Tag::INT16:
         case Type::Tag::UINT16:
@@ -224,6 +228,8 @@ void SpirvCodegenEntry::generate_binding(
             case Variable::Tag::WARP_LANE_ID:
             case Variable::Tag::RASTER_OBJECT_ID:
             case Variable::Tag::RASTER_BARYCENTRICS:
+            case Variable::Tag::RASTER_FRONT_FACING:
+            case Variable::Tag::RASTER_BASE_INSTANCE:
                 break;
             default:
                 cbuffer_non_empty = true;
@@ -238,9 +244,10 @@ void SpirvCodegenEntry::generate_binding(
         _runtime_target_plan.bindless_resources.buffer_heap;
     _use_buffer_bindless_metadata =
         _runtime_target_plan.bindless_resources.buffer_metadata;
-    LUISA_ASSERT(
-        !_use_buffer_bindless || _use_buffer_bindless_metadata,
-        "SPIR-V bindless buffer heap access has no per-slot metadata plan.");
+    // These are independent descriptor domains. Mixed-layout buffer reads
+    // take their bias/size/address from the metadata buffer, while typed
+    // buffer reads carry bias and size in the four-word slot record and need
+    // only the global heap. Device-address queries still request metadata.
     _use_tex2d_bindless =
         _runtime_target_plan.bindless_resources.texture_2d;
     _use_tex3d_bindless =
@@ -391,7 +398,7 @@ void SpirvCodegenEntry::generate_binding(
                 static_cast<uint32_t>(array_stride));
             member_types.push_back(array_type);
             member_matrices.push_back(
-                matrix_after_array_layers(element_type));
+                spirv_bind_detail::matrix_after_array_layers(element_type));
 
             _ubo_constant_member_indices.emplace(constant, member_idx);
 

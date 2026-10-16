@@ -1,0 +1,96 @@
+{
+  "ctest": "validation-logs.json.gz:ctest-all.log",
+  "build": "validation-logs.json.gz:build-tests.log",
+  "assessment": "Share with caveats: bounded native comparison, not all-operator/default-policy parity",
+  "incomplete_handoff_blockers": [],
+  "caveats": [
+    "native timer includes required traversal and entry work",
+    "two E2E orders are descriptive",
+    "only RMSNorm compared with native Inductor",
+    "static assembly observations are not hardware profile attribution"
+  ],
+  "source_audit": "provenance.json",
+  "evidence_audit": "audit.json",
+  "audience": "technical",
+  "surface": "existing repository Sphinx docs, as requested by user",
+  "structure": "technical summary; exact timing boundaries; native and E2E results; general legality; actual Inductor and private-memory inspection; model implications; validation and limits",
+  "visuals": "exact cell-lookup tables for multiple fixed factors, plus native text diagrams; no cross-size absolute-time chart",
+  "documentation": [
+    {
+      "name": "doxygen",
+      "command": [
+        "doxygen",
+        "docs/Doxyfile"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 17.885515208006836,
+      "warning_lines": 15093
+    },
+    {
+      "name": "sphinx",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "--with",
+        "sphinx-rtd-theme",
+        "--with",
+        "myst-parser",
+        "--with",
+        "breathe",
+        "sphinx-build",
+        "-b",
+        "html",
+        "-W",
+        "--keep-going",
+        "docs",
+        "/tmp/luisa-cohort-private.qfZvpM/docs-html"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 54.596511624986306,
+      "warning_lines": 0
+    },
+    {
+      "name": "links",
+      "command": [
+        "uv",
+        "run",
+        "--offline",
+        "--no-project",
+        "--python",
+        "3.13",
+        "--with",
+        "sphinx",
+        "python",
+        "scripts/check_docs.py",
+        "/tmp/luisa-cohort-private.qfZvpM/docs-html"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.5341432910645381,
+      "warning_lines": 0
+    },
+    {
+      "name": "visual",
+      "command": [
+        "/Users/mike/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
+        "/Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260909-cohort-private/qa_docs.cjs",
+        "/tmp/luisa-cohort-private.qfZvpM/docs-html",
+        "/tmp/luisa-cohort-private.qfZvpM/docs-visual"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 7.549142041942105,
+      "warning_lines": 0
+    }
+  ],
+  "source_sha256": {
+    "docs/source/internals/tile/xir.md": "662ac713bfa44441ff1fee2e5a6d58fc40a384089df5ae3fc0a748d782804e30",
+    "docs/source/performance/tile/results.md": "5a0867a2b93c047874ccb40316d27f681dcb272d2251b9b695a846ac3fad9156",
+    "docs/source/performance/tile/index.md": "67890bf5a11ba2728e3f97e946d2c391e40cf343d950b7419db8e4d19afe25ee"
+  },
+  "complete": true
+}

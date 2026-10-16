@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Documentation moved — LuisaCompute</title>
+  <link rel="canonical" href="{{ pathto(destination) }}">
+  <script>
+    const destination = {{ pathto(destination)|tojson }};
+    const fragments = {
+      {% for anchor, page in fragments.items() %}
+      {{ anchor|tojson }}: {{ pathto(page)|tojson }},
+      {% endfor %}
+    };
+    const renamed = {{ renamed_fragments|tojson }};
+    const anchor = window.location.hash.slice(1);
+    const target = fragments[anchor] || destination;
+    const suffix = anchor ? "#" + (renamed[anchor] || anchor) : "";
+    window.location.replace(target + window.location.search + suffix);
+  </script>
+</head>
+<body>
+  <h1>This documentation has moved</h1>
+  <p><a href="{{ pathto(destination) }}">Continue to the current documentation</a>.</p>
+  {% if fragments %}
+  <p>The original page was split by topic. With JavaScript disabled, choose a destination:</p>
+  <ul>
+    {% for page in fragments.values()|unique %}
+    <li><a href="{{ pathto(page) }}">{{ destination_titles[page]|e }}</a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</body>
+</html>

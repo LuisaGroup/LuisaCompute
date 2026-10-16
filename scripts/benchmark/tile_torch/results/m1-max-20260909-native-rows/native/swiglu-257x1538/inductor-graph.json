@@ -1,0 +1,7 @@
+{
+  "source": "\n\n\ndef forward(self, L_x_ : torch.Tensor, L_u_ : torch.Tensor):\n    l_x_ = L_x_\n    l_u_ = L_u_\n    silu = torch.nn.functional.silu(l_x_);  l_x_ = None\n    mul = silu * l_u_;  silu = l_u_ = None\n    return (mul,)\n    ",
+  "inputs": [
+    "L_x_",
+    "L_u_"
+  ]
+}

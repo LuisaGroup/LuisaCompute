@@ -153,6 +153,39 @@ void reg_early_cse() {
         expect(pair->operand(1u) == size0);
     };
 
+    "cse_keeps_distinct_bindless_access_semantics"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *bindless =
+            k->create_resource_argument(Type::from("bindless_array"));
+        auto *slot = m.create_constant_zero(Type::of<uint>());
+        auto *stride = m.create_constant_one(Type::of<uint>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *sink = b.alloca_local(Type::of<uint2>());
+        auto *mixed = b.call(
+            Type::of<uint>(), ResourceQueryOp::BINDLESS_BUFFER_SIZE,
+            {bindless, slot, stride},
+            BindlessResourceAccess{.typed = false, .uniform = true});
+        auto *typed = b.call(
+            Type::of<uint>(), ResourceQueryOp::BINDLESS_BUFFER_SIZE,
+            {bindless, slot, stride},
+            BindlessResourceAccess{.typed = true, .uniform = true});
+        auto *pair = b.call(Type::of<uint2>(), ArithmeticOp::AGGREGATE,
+                            {mixed, typed});
+        b.store(sink, pair);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = early_cse_pass_run_on_function(k);
+
+        expect(info.eliminated_inst_count == 0u);
+        expect(pair->operand(0u) == mixed);
+        expect(pair->operand(1u) == typed);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
     "cse_annotated_duplicate_keeps_distinct_metadata_owner"_test = [] {
         Module m;
         auto *f = m.create_callable(Type::of<int2>());

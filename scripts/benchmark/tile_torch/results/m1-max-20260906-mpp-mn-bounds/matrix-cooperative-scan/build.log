@@ -1,0 +1,110 @@
+[0/2] Re-checking globbed directories...
+[1/25] Embedding metal built-in sources...
+[2/20] Linking CXX shared library bin/libluisa-tile-bridge-tirx.dylib
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[3/20] Linking CXX shared module bin/libluisa-backend-metal.so
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[4/20] Linking CXX executable bin/test_tile_tirx
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[5/20] Linking CXX executable bin/test_tile_tirx_execution
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[6/20] Linking CXX executable bin/test_tile_xir_llm
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[7/20] Linking CXX executable bin/test_tile_tirx_values
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[8/20] Linking CXX executable bin/test_tile_tirx_memory
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[9/20] Linking CXX executable bin/test_tile_xir_runtime
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[10/20] Linking CXX executable bin/test_tile_tirx_cooperative
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[11/20] Linking CXX executable bin/test_tile_native_runtime
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[12/20] Linking CXX executable bin/test_tile_tirx_pipeline
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[13/20] Linking CXX executable bin/test_tile_tirx_matrix
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[14/20] Linking CXX executable bin/test_tile_tirx_planner
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[15/20] Linking CXX executable bin/benchmark_tile_tirx
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[16/20] Linking CXX executable bin/test_tile_tirx_poc_algorithms
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[17/20] Linking CXX executable bin/test_tile_tirx_targets
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[18/20] Linking CXX executable bin/test_tile_tirx_poc
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0
+[19/20] Linking CXX executable bin/test_tile_tirx_poc_neural
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_compiler.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_ffi.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_metal.dylib' which was built for newer version 26.0
+ld: warning: building for macOS-13.0, but linking with dylib '@rpath/libtvm_runtime_extra.dylib' which was built for newer version 26.0

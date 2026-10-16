@@ -36,6 +36,7 @@ struct BasicBlockPointerUsage {
 
 struct PointerUsageAnalysisInfo {
     size_t tracked_pointer_count{0u};
+    size_t materialized_pointer_count{0u};
     size_t analyzed_block_count{0u};
     size_t conservative_access_count{0u};
     size_t invalid_access_count{0u};
@@ -61,8 +62,19 @@ public:
 
     void clear() noexcept;
     [[nodiscard]] PointerUsageAnalysisInfo analyze(FunctionDefinition *function) noexcept;
+    // Solve only the requested pointer-view coordinates. Pointer discovery
+    // and access validation still cover the complete function, so this is an
+    // exact projection of the full product lattice rather than a local-use
+    // approximation. Queries for unrequested pointers return nullptr.
+    [[nodiscard]] PointerUsageAnalysisInfo analyze(
+        FunctionDefinition *function,
+        luisa::span<Value *const> result_pointers) noexcept;
     [[nodiscard]] bool is_current() const noexcept;
     [[nodiscard]] FunctionDefinition *function() const noexcept;
+    // Unchecked access for a caller that has established is_current() once
+    // and performs no IR mutation across a batch of queries.
+    [[nodiscard]] const BasicBlockPointerUsage *
+    current_block_usage(BasicBlock *block) const noexcept;
     [[nodiscard]] const BasicBlockPointerUsage *block_usage(BasicBlock *block) const noexcept;
     [[nodiscard]] const PointerUsage *in_usage(BasicBlock *block, Value *pointer) const noexcept;
     [[nodiscard]] const PointerUsage *out_usage(BasicBlock *block, Value *pointer) const noexcept;

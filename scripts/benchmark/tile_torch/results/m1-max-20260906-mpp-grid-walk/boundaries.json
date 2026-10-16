@@ -1,0 +1,320 @@
+{
+  "binary": "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+  "sha256_before": "27d81ce42fc7881d293a5b94c5b14d3efbe353a50d3186c06a579dfa43dac0ab",
+  "valid_outputs": [
+    {
+      "shape": [
+        1,
+        1,
+        1
+      ],
+      "path": "boundary",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-naus6qvn/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2147483647",
+        "2147483647"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 1,
+        "n": 1,
+        "k": 1,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2147483647,
+        "walk_columns": 2147483647,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 1024,
+        "setup_ms": 255.782167,
+        "cold_call_ms": 0.529417,
+        "warmup_ms": 1.246667,
+        "download_ms": 0.307,
+        "repetitions": 57,
+        "throughput_us": [
+          17.0168070175
+        ],
+        "latency_us": [
+          247.708
+        ],
+        "gpu_throughput_us": [
+          12.1403503918
+        ],
+        "gpu_latency_us": [
+          21.6249609366
+        ]
+      },
+      "source_sha256": "81ed277741ab2bdebd7a757bf39e6ac1de28598fe1d50c526235d672354b7495",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 1
+      },
+      "medians": {
+        "throughput_us": 17.0168070175,
+        "latency_us": 247.708,
+        "gpu_throughput_us": 12.1403503918,
+        "gpu_latency_us": 21.6249609366
+      }
+    },
+    {
+      "shape": [
+        129,
+        33,
+        7
+      ],
+      "path": "boundary",
+      "config": [
+        32,
+        32,
+        1,
+        1,
+        0,
+        1,
+        4,
+        4
+      ],
+      "valid": true,
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "129",
+        "33",
+        "7",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-9gghwus_/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2147483647",
+        "2147483647"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "measurement": {
+        "backend": "metal",
+        "implementation": "mpp_tensor_ops_matmul2d",
+        "precision": "fp32",
+        "m": 129,
+        "n": 33,
+        "k": 7,
+        "device": "Apple M1 Max",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "execution_simdgroups": 1,
+        "group_simdgroups": 4,
+        "cohort_rows": 4,
+        "walk_rows": 2147483647,
+        "walk_columns": 2147483647,
+        "block": [
+          32,
+          32
+        ],
+        "cooperative_output": true,
+        "relaxed_precision": false,
+        "static_reduction": false,
+        "inline_tensors": true,
+        "command_api": "MTLCommandQueue",
+        "fast_math": false,
+        "thread_execution_width": 32,
+        "static_threadgroup_bytes": 0,
+        "max_threads_per_group": 1024,
+        "setup_ms": 299.485917,
+        "cold_call_ms": 1.648166,
+        "warmup_ms": 1.225084,
+        "download_ms": 0.2415,
+        "repetitions": 48,
+        "throughput_us": [
+          19.6571041667
+        ],
+        "latency_us": [
+          234.25
+        ],
+        "gpu_throughput_us": [
+          14.7421875833
+        ],
+        "gpu_latency_us": [
+          24.5000119321
+        ]
+      },
+      "source_sha256": "310edb3dfbc163076fb385e8a75412fbfd25e4b4dafeb76314dc02f0d2f38153",
+      "correctness": {
+        "max_abs_error": 0.0,
+        "atol": 0.0001,
+        "rtol": 0.0001,
+        "checked_elements": 4257
+      },
+      "medians": {
+        "throughput_us": 19.6571041667,
+        "latency_us": 234.25,
+        "gpu_throughput_us": 14.7421875833,
+        "gpu_latency_us": 24.5000119321
+      }
+    }
+  ],
+  "rejected_requests": [
+    {
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-boundaries-93_y6ahh/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "0",
+        "1"
+      ],
+      "returncode": 1,
+      "stderr": "expected a positive int32\n",
+      "passed": true
+    },
+    {
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-boundaries-93_y6ahh/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1",
+        "0"
+      ],
+      "returncode": 1,
+      "stderr": "expected a positive int32\n",
+      "passed": true
+    },
+    {
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "1",
+        "65",
+        "1",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-boundaries-93_y6ahh/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "2147483647",
+        "1"
+      ],
+      "returncode": 1,
+      "stderr": "linear MPP walk exceeds uint32 program coordinates\n",
+      "passed": true
+    },
+    {
+      "command": [
+        "/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_mpp",
+        "fp32",
+        "2147483647",
+        "2147483647",
+        "1",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/mpp-walk-boundaries-93_y6ahh/output.f32",
+        "32",
+        "32",
+        "1",
+        "1",
+        "0",
+        "0",
+        "1",
+        "4",
+        "4",
+        "1",
+        "1"
+      ],
+      "returncode": 1,
+      "stderr": "linear MPP walk exceeds uint32 program coordinates\n",
+      "passed": true
+    }
+  ],
+  "sha256_after": "27d81ce42fc7881d293a5b94c5b14d3efbe353a50d3186c06a579dfa43dac0ab",
+  "passed": true
+}

@@ -18,9 +18,15 @@ struct PromoteRefArgInfo {
     }
 };
 
-// Only defined, unconstrained callables whose reference arguments and
-// thread-local call-site actuals satisfy the read-only proof are rewritten.
-// Argument metadata is transferred to the replacement value argument.
+// Only recursively read-only reference arguments of defined, unconstrained
+// callables with in-module call sites are considered. Each call-site actual
+// must resolve to thread-local storage and have a distinct local-allocation
+// root from every reference that the callee may write. Argument metadata is
+// transferred to the replacement value argument.
+// Read-only effects propagate through defined direct callees independently
+// of whether those callees' own call sites allow signature promotion. Unknown
+// calls, pointer escapes, writes and unresolved recursive effects remain
+// conservative; the local-storage and cross-argument alias checks still apply.
 [[nodiscard]] LUISA_XIR_API PromoteRefArgInfo promote_ref_arg_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

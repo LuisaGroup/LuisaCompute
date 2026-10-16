@@ -1,0 +1,280 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "alignedview-reduce_sum-256x128-fp16-t8x128x1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        256,
+        128
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "cancellation",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_max-256x128-fp16-t8x128x1",
+      "operation": "reduce_max",
+      "dimensions": [
+        256,
+        128
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_sum-256x128-bf16-t8x128x1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        256,
+        128
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "cancellation",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_max-256x128-bf16-t8x128x1",
+      "operation": "reduce_max",
+      "dimensions": [
+        256,
+        128
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "adversarial",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_sum-64x256-fp16-t4x256x1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        64,
+        256
+      ],
+      "tile": [
+        4,
+        256,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "cancellation",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_max-128x512-bf16-t8x512x1",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        512
+      ],
+      "tile": [
+        8,
+        512,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "adversarial",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_sum-128x1024-bf16-t4x1024x1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "cancellation",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_max-128x8192-fp16-t1x8192x1",
+      "operation": "reduce_max",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_sum-257x128-bf16-t8x128x1",
+      "operation": "reduce_sum",
+      "dimensions": [
+        257,
+        128
+      ],
+      "tile": [
+        8,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "cancellation",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-reduce_max-31x513-fp16-t4x1024x1",
+      "operation": "reduce_max",
+      "dimensions": [
+        31,
+        513
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-rmsnorm-128x1024-bf16-t1x1024x1",
+      "operation": "rmsnorm",
+      "dimensions": [
+        128,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "random",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-softmax-32x512-fp16-t1x512x1",
+      "operation": "softmax",
+      "dimensions": [
+        32,
+        512
+      ],
+      "tile": [
+        1,
+        512,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-scan-128x8192-fp16-t1x8192x1",
+      "operation": "scan",
+      "dimensions": [
+        128,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "cancellation",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-scan-129x8191-bf16-t1x8192x1",
+      "operation": "scan",
+      "dimensions": [
+        129,
+        8191
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "cancellation",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-gemm-512x512x512-bf16-t64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        512,
+        512,
+        512
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "pattern": "random",
+      "seed": 20261003,
+      "fast_math": false
+    },
+    {
+      "id": "alignedview-bmm-2x64x64x64-fp16-t16x32x32",
+      "operation": "bmm",
+      "dimensions": [
+        2,
+        64,
+        64,
+        64
+      ],
+      "tile": [
+        16,
+        32,
+        32
+      ],
+      "precision": "fp16",
+      "pattern": "random",
+      "seed": 20261003,
+      "fast_math": false
+    }
+  ]
+}

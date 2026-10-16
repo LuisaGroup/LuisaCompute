@@ -1,0 +1,909 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-03T01:49:41.464338+00:00",
+    "cpu": "Apple M1 Max",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.7 (main, Sep  2 2025, 14:05:52) [Clang 20.1.4 ]",
+    "torch_version": "2.14.0",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "threads": 8,
+    "thread_environment": {
+      "TVM_NUM_THREADS": "8",
+      "OMP_NUM_THREADS": "8",
+      "VECLIB_MAXIMUM_THREADS": "8"
+    },
+    "git_revision": "2fce394f6f4e8b2363e6aab9bc93ba4d649b0d37",
+    "worktree_dirty": true,
+    "native_binary": "/Users/mike/CLionProjects/luisa/cmake-build-tirx/bin/benchmark_tile_tirx",
+    "native_sha256": "c3db34218c5bf81a2660e8ca2840ac950cccce487d06c6dc49e2f71da61557dc",
+    "adjacent_tile_library_sha256": {
+      "libluisa-tile-bridge-tirx.dylib": "d6e3f15c9c6772e174038f38efaf7733fc4f5a2c2ba5f3ad5db8835485d95368",
+      "libluisa-tile.dylib": "2fca1d5b1db5249e66d9582f7ed9e1819863f2741009b00ed4c46b8de3b4de66"
+    },
+    "samples": 9,
+    "sample_ms": 20,
+    "warmup_ms": 150,
+    "execution_scope": "group",
+    "pipeline_window": 2,
+    "cooperative_matrix": true,
+    "vectorize": true,
+    "auto_vectorize": false,
+    "gemm_tuning_candidates": [],
+    "quick": false,
+    "timing": "synchronized device-resident host wall time including dispatch"
+  },
+  "results": [
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 32,
+        "n": 32,
+        "k": 32
+      },
+      "name": "gemm_32x32x32",
+      "backend": "metal",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 2,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 2,
+        "runtime_init_ms": 18.488375,
+        "capture_ms": 0.08175,
+        "compile_ms": 47.13825,
+        "allocation_upload_ms": 2.124292,
+        "cold_call_ms": 1.195708,
+        "warmup_ms": 150.710375,
+        "download_ms": 0.288209,
+        "repetitions": 2974,
+        "output_elements": 1024,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          5.41962273033,
+          5.36861129792,
+          5.48086180229,
+          6.04362811029,
+          5.41040416947,
+          5.44610255548,
+          5.94956287828,
+          5.56231809011,
+          5.43975588433
+        ],
+        "latency_us": [
+          632.459,
+          301.333,
+          297.709,
+          218,
+          241.291,
+          280.917,
+          250.416,
+          205,
+          228.792
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 5.44610255548,
+        "throughput_us_p90": 5.968375924682,
+        "latency_us_p50": 250.416,
+        "latency_us_p90": 367.55820000000006
+      },
+      "torch": {
+        "cold_call_ms": 51.60275,
+        "warmup_ms": 150.11925,
+        "repetitions": 664,
+        "throughput_us": [
+          30.938817771084338,
+          28.995921686746986,
+          29.968373493975903,
+          30.060115963855424,
+          29.79775301204819,
+          32.23211596385542,
+          30.12757228915663,
+          31.409137048192772,
+          29.5574171686747
+        ],
+        "latency_us": [
+          334.583,
+          300.459,
+          286.041,
+          261.25,
+          286.58299999999997,
+          288.375,
+          290.666,
+          255.959,
+          265.459
+        ],
+        "throughput_us_p50": 30.060115963855424,
+        "throughput_us_p90": 31.5737328313253,
+        "latency_us_p50": 286.58299999999997,
+        "latency_us_p90": 307.28380000000004,
+        "download_ms": 1.073792,
+        "allocation_upload_ms": 5.123125,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.18117370412105022,
+      "valid": true
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 128,
+        "n": 128,
+        "k": 128
+      },
+      "name": "gemm_128x128x128",
+      "backend": "metal",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 7.676667,
+        "warmup_ms": 151.275,
+        "repetitions": 625,
+        "throughput_us": [
+          29.8916,
+          30.708732800000003,
+          29.766732799999996,
+          28.97,
+          29.3274,
+          30.834932800000004,
+          29.748265600000003,
+          29.531467199999994,
+          29.4238
+        ],
+        "latency_us": [
+          375.917,
+          308.584,
+          1169.166,
+          473.791,
+          329.541,
+          289.25,
+          362.25,
+          349.666,
+          773.791
+        ],
+        "throughput_us_p50": 29.748265600000003,
+        "throughput_us_p90": 30.733972800000004,
+        "latency_us_p50": 362.25,
+        "latency_us_p90": 852.8660000000001,
+        "download_ms": 0.275208,
+        "allocation_upload_ms": 1.026708,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 2,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 2,
+        "runtime_init_ms": 18.099209,
+        "capture_ms": 0.062041,
+        "compile_ms": 50.058458,
+        "allocation_upload_ms": 1.690541,
+        "cold_call_ms": 1.260792,
+        "warmup_ms": 150.386541,
+        "download_ms": 0.352459,
+        "repetitions": 1271,
+        "output_elements": 16384,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          14.4487608183,
+          14.9942958301,
+          14.5117033832,
+          14.3138929976,
+          14.2015476003,
+          14.7325924469,
+          14.3732297404,
+          14.3248426436,
+          14.2243965382
+        ],
+        "latency_us": [
+          307.209,
+          268.958,
+          288.625,
+          257.875,
+          283.417,
+          289.75,
+          447.5,
+          1035.792,
+          333.833
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 14.3732297404,
+        "throughput_us_p90": 14.78493312354,
+        "latency_us_p50": 289.75,
+        "latency_us_p90": 565.1584
+      },
+      "slowdown": 0.48316194072168017,
+      "valid": true
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 512,
+        "n": 512,
+        "k": 512
+      },
+      "name": "gemm_512x512x512",
+      "backend": "metal",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 2,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 2,
+        "runtime_init_ms": 18.51025,
+        "capture_ms": 0.061292,
+        "compile_ms": 48.976375,
+        "allocation_upload_ms": 1.916583,
+        "cold_call_ms": 2.219958,
+        "warmup_ms": 152.577417,
+        "download_ms": 1.525333,
+        "repetitions": 53,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          367.752358491,
+          381.671377358,
+          372.632075472,
+          381.377358491,
+          391.246867925,
+          379.389943396,
+          394.899377358,
+          369.980358491,
+          383.54009434
+        ],
+        "latency_us": [
+          765.25,
+          810.916,
+          562.584,
+          543.209,
+          549.917,
+          548.333,
+          530.667,
+          567.667,
+          563.083
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 381.377358491,
+        "throughput_us_p90": 391.9773698116,
+        "latency_us_p50": 562.584,
+        "latency_us_p90": 774.3832
+      },
+      "torch": {
+        "cold_call_ms": 3.381083,
+        "warmup_ms": 150.557166,
+        "repetitions": 324,
+        "throughput_us": [
+          52.83012037037038,
+          52.89184567901234,
+          52.767620370370366,
+          52.82895987654321,
+          53.239583333333336,
+          52.75102777777777,
+          53.65895061728395,
+          53.56340123456789,
+          53.96347839506172
+        ],
+        "latency_us": [
+          1091.375,
+          359.75,
+          346.833,
+          319.791,
+          385.625,
+          493.5,
+          532.333,
+          302.58299999999997,
+          349.75
+        ],
+        "throughput_us_p50": 52.89184567901234,
+        "throughput_us_p90": 53.719856172839506,
+        "latency_us_p50": 359.75,
+        "latency_us_p90": 644.1414000000001,
+        "download_ms": 0.344792,
+        "allocation_upload_ms": 0.896125,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 7.210513333293109,
+      "valid": true
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 1024,
+        "k": 1024
+      },
+      "name": "gemm_1024x1024x1024",
+      "backend": "metal",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 3.574792,
+        "warmup_ms": 150.267333,
+        "repetitions": 62,
+        "throughput_us": [
+          311.22916129032257,
+          321.1082096774194,
+          316.57862903225805,
+          310.88440322580647,
+          329.5880322580645,
+          314.8655967741936,
+          321.4207096774193,
+          321.2063225806451,
+          312.4348225806451
+        ],
+        "latency_us": [
+          675.125,
+          1216.292,
+          596.833,
+          657.5419999999999,
+          712.708,
+          944.75,
+          583.792,
+          559.833,
+          546.292
+        ],
+        "throughput_us_p50": 316.57862903225805,
+        "throughput_us_p90": 323.05417419354836,
+        "latency_us_p50": 657.5419999999999,
+        "latency_us_p90": 999.0584,
+        "download_ms": 0.426375,
+        "allocation_upload_ms": 1.99625,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 2,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 2,
+        "runtime_init_ms": 18.793583,
+        "capture_ms": 0.058083,
+        "compile_ms": 46.857917,
+        "allocation_upload_ms": 3.640167,
+        "cold_call_ms": 5.019667,
+        "warmup_ms": 156.720125,
+        "download_ms": 0.857625,
+        "repetitions": 7,
+        "output_elements": 1048576,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          2725.52385714,
+          2799.33328571,
+          2776.85114286,
+          2714.19642857,
+          2696.61914286,
+          2878.875,
+          2709.76185714,
+          2693.80942857,
+          2917.91657143
+        ],
+        "latency_us": [
+          2701.209,
+          3044.083,
+          3028.459,
+          2649.208,
+          3132.541,
+          2948.625,
+          2672.084,
+          3323.666,
+          3030.583
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 2725.52385714,
+        "throughput_us_p90": 2886.683314286,
+        "latency_us_p50": 3028.459,
+        "latency_us_p90": 3170.766
+      },
+      "slowdown": 8.60931094897843,
+      "valid": true
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 256,
+        "n": 1024,
+        "k": 128
+      },
+      "name": "gemm_256x1024x128",
+      "backend": "metal",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 2,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 2,
+        "runtime_init_ms": 18.710875,
+        "capture_ms": 0.067958,
+        "compile_ms": 49.025917,
+        "allocation_upload_ms": 1.337459,
+        "cold_call_ms": 1.226542,
+        "warmup_ms": 150.729291,
+        "download_ms": 0.5615,
+        "repetitions": 197,
+        "output_elements": 262144,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          96.616751269,
+          94.7948375635,
+          93.5063451777,
+          93.9636192893,
+          97.3039340102,
+          94.4830761421,
+          93.0983502538,
+          93.6334619289,
+          97.6802030457
+        ],
+        "latency_us": [
+          348.916,
+          350.917,
+          448.459,
+          462.416,
+          493.875,
+          311.542,
+          342.458,
+          322.625,
+          341.167
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 94.4830761421,
+        "throughput_us_p90": 97.3791878173,
+        "latency_us_p50": 348.916,
+        "latency_us_p90": 468.7078
+      },
+      "torch": {
+        "cold_call_ms": 4.624416,
+        "warmup_ms": 150.124167,
+        "repetitions": 512,
+        "throughput_us": [
+          31.0189609375,
+          31.501382812499997,
+          31.13899609375,
+          30.96297265625,
+          31.51358984375,
+          31.562826171875003,
+          32.32373046875,
+          32.1918125,
+          32.329509765625
+        ],
+        "latency_us": [
+          386.916,
+          418.75,
+          274.54200000000003,
+          333.709,
+          284.0,
+          259.5,
+          322.75,
+          282.08299999999997,
+          295.0
+        ],
+        "throughput_us_p50": 31.51358984375,
+        "throughput_us_p90": 32.324886328125,
+        "latency_us_p50": 295.0,
+        "latency_us_p90": 393.2828,
+        "download_ms": 0.361417,
+        "allocation_upload_ms": 1.1585,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 2.9981692536637032,
+      "valid": true
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 1024,
+        "n": 128,
+        "k": 256
+      },
+      "name": "gemm_1024x128x256",
+      "backend": "metal",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 6.290792,
+        "warmup_ms": 150.352584,
+        "repetitions": 508,
+        "throughput_us": [
+          32.07127559055118,
+          31.408218503937007,
+          32.4881062992126,
+          32.194307086614174,
+          32.58161023622047,
+          31.244832677165356,
+          32.94077952755906,
+          31.120570866141733,
+          32.6415688976378
+        ],
+        "latency_us": [
+          371.75,
+          392.45799999999997,
+          299.291,
+          264.625,
+          271.541,
+          287.792,
+          283.5,
+          300.041,
+          371.25
+        ],
+        "throughput_us_p50": 32.194307086614174,
+        "throughput_us_p90": 32.70141102362205,
+        "latency_us_p50": 299.291,
+        "latency_us_p90": 375.8916,
+        "download_ms": 0.353041,
+        "allocation_upload_ms": 1.176875,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 2,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 2,
+        "runtime_init_ms": 17.87275,
+        "capture_ms": 0.056375,
+        "compile_ms": 48.282584,
+        "allocation_upload_ms": 1.904708,
+        "cold_call_ms": 1.351042,
+        "warmup_ms": 150.943,
+        "download_ms": 0.377125,
+        "repetitions": 189,
+        "output_elements": 131072,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          103.825179894,
+          102.468915344,
+          101.726190476,
+          103.619047619,
+          102.83752381,
+          101.529322751,
+          105.074296296,
+          102.85626455,
+          101.51984127
+        ],
+        "latency_us": [
+          418.459,
+          407.208,
+          1122.916,
+          353.917,
+          402.083,
+          759,
+          323.083,
+          309.208,
+          306.208
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 102.83752381,
+        "throughput_us_p90": 104.0750031744,
+        "latency_us_p50": 402.083,
+        "latency_us_p90": 831.7832000000001
+      },
+      "slowdown": 3.1942766630550663,
+      "valid": true
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 127,
+        "n": 193,
+        "k": 61
+      },
+      "name": "gemm_127x193x61",
+      "backend": "metal",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "native_first",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 2,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 2,
+        "runtime_init_ms": 19.791375,
+        "capture_ms": 0.053417,
+        "compile_ms": 53.779625,
+        "allocation_upload_ms": 2.460416,
+        "cold_call_ms": 1.23275,
+        "warmup_ms": 150.109583,
+        "download_ms": 0.283542,
+        "repetitions": 831,
+        "output_elements": 24511,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          12.5882466907,
+          10.2221720818,
+          10.3855294826,
+          10.329322503,
+          10.3409049338,
+          10.4096967509,
+          10.421179302,
+          11.5132876053,
+          9.90032009627
+        ],
+        "latency_us": [
+          274.208,
+          296.125,
+          217.292,
+          236.667,
+          312.625,
+          219.167,
+          487.834,
+          417.125,
+          204.041
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 10.3855294826,
+        "throughput_us_p90": 11.72827942238,
+        "latency_us_p50": 274.208,
+        "latency_us_p90": 431.2668
+      },
+      "torch": {
+        "cold_call_ms": 4.444459,
+        "warmup_ms": 150.413417,
+        "repetitions": 633,
+        "throughput_us": [
+          28.586230647709318,
+          31.560361769352294,
+          29.485715639810426,
+          29.30660821484992,
+          28.97827804107425,
+          31.17614533965245,
+          29.845971563981042,
+          30.865061611374404,
+          28.969129541864138
+        ],
+        "latency_us": [
+          1075.875,
+          323.875,
+          295.166,
+          276.04200000000003,
+          445.33299999999997,
+          390.458,
+          639.25,
+          355.917,
+          313.83299999999997
+        ],
+        "throughput_us_p50": 29.485715639810426,
+        "throughput_us_p90": 31.25298862559242,
+        "latency_us_p50": 355.917,
+        "latency_us_p90": 726.575,
+        "download_ms": 0.299667,
+        "allocation_upload_ms": 0.992208,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "slowdown": 0.35222239844766995,
+      "valid": true
+    },
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 513,
+        "n": 257,
+        "k": 129
+      },
+      "name": "gemm_513x257x129",
+      "backend": "metal",
+      "block": [
+        8,
+        8,
+        16
+      ],
+      "timing_order": "torch_first",
+      "torch": {
+        "cold_call_ms": 3.798584,
+        "warmup_ms": 150.000625,
+        "repetitions": 497,
+        "throughput_us": [
+          37.1758893360161,
+          37.588951710261576,
+          39.33861368209255,
+          38.100603621730386,
+          37.93284708249497,
+          39.52967806841046,
+          38.45590140845071,
+          37.47023742454728,
+          37.99882494969819
+        ],
+        "latency_us": [
+          1526.667,
+          365.66700000000003,
+          222.0,
+          374.91600000000005,
+          296.708,
+          888.25,
+          316.667,
+          269.04200000000003,
+          266.25
+        ],
+        "throughput_us_p50": 37.99882494969819,
+        "throughput_us_p90": 39.37682655935613,
+        "latency_us_p50": 316.667,
+        "latency_us_p90": 1015.9334000000001,
+        "download_ms": 0.306708,
+        "allocation_upload_ms": 0.94225,
+        "device": "mps:0",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 2,
+        "cooperative_matrix": true,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "matrix_intrinsics": 2,
+        "runtime_init_ms": 18.383791,
+        "capture_ms": 0.057792,
+        "compile_ms": 55.133833,
+        "allocation_upload_ms": 1.533,
+        "cold_call_ms": 1.298,
+        "warmup_ms": 150.685375,
+        "download_ms": 0.370167,
+        "repetitions": 292,
+        "output_elements": 131841,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          66.3834178082,
+          69.1090205479,
+          67.5560787671,
+          66.635989726,
+          69.8177808219,
+          67.4310787671,
+          69.2490034247,
+          67.8170684932,
+          66.8066506849
+        ],
+        "latency_us": [
+          1255.459,
+          286.5,
+          323.25,
+          312.375,
+          280.166,
+          320.833,
+          773.791,
+          318.167,
+          285.041
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 67.5560787671,
+        "throughput_us_p90": 69.36275890414001,
+        "latency_us_p50": 318.167,
+        "latency_us_p90": 870.1246000000001
+      },
+      "slowdown": 1.7778465217418935,
+      "valid": true
+    }
+  ]
+}

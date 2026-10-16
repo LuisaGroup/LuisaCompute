@@ -1,0 +1,173 @@
+{
+  "status": "passed",
+  "plan_sha256": "5f70ed9261b10350c8fc5dd6ba73e8f74693c42826bc47b534037eda6fba3acf",
+  "audit_sha256": "29896fe147973aadfe9b2981a0b37ea8660b5f98f10e1d7f6289c4c282bbff83",
+  "protocol_tests": 22,
+  "native_selftest_checks": 24,
+  "preparations": 3,
+  "paired_replays": 6,
+  "external_commands": 11,
+  "visits": 72,
+  "samples": 504,
+  "comparisons": [
+    {
+      "case": "decode-mha-d64",
+      "variant": "online_neon",
+      "tile_us": 449.77928906249997,
+      "reference_us": 195.3186875,
+      "reference_over_tile": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.4350328341004892,
+          0.42629004796062003,
+          0.4436733309597424,
+          0.4341863840730417,
+          0.43672669554772764,
+          0.41675813118452393
+        ],
+        "median": 0.4346096090867655,
+        "minimum": 0.41675813118452393,
+        "maximum": 0.4436733309597424
+      },
+      "max_abs_error": 1.1751558123037752e-08
+    },
+    {
+      "case": "decode-mha-d64",
+      "variant": "dense_accelerate",
+      "tile_us": 446.0266953125,
+      "reference_us": 183.00390625,
+      "reference_over_tile": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.40646074991171066,
+          0.42351004804825865,
+          0.4055525570294622,
+          0.416596438088784,
+          0.40472445994008094,
+          0.40528764942813245
+        ],
+        "median": 0.4060066534705864,
+        "minimum": 0.40472445994008094,
+        "maximum": 0.42351004804825865
+      },
+      "max_abs_error": 1.1518727479383883e-08
+    },
+    {
+      "case": "decode-long-kv",
+      "variant": "online_neon",
+      "tile_us": 7316.9845000000005,
+      "reference_us": 3597.1666875,
+      "reference_over_tile": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.48687721178726645,
+          0.4891838298938445,
+          0.4882318541430506,
+          0.4878838766467117,
+          0.4888826752159252,
+          0.49500373752172594
+        ],
+        "median": 0.4885572646794879,
+        "minimum": 0.48687721178726645,
+        "maximum": 0.49500373752172594
+      },
+      "max_abs_error": 8.79794671658626e-09
+    },
+    {
+      "case": "decode-long-kv",
+      "variant": "dense_accelerate",
+      "tile_us": 7320.31775,
+      "reference_us": 2475.3515625,
+      "reference_over_tile": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.3374614256730261,
+          0.3384532349736346,
+          0.3387336886463539,
+          0.3374595631865854,
+          0.3381142381633132,
+          0.33746044514927803
+        ],
+        "median": 0.33778783191816963,
+        "minimum": 0.3374595631865854,
+        "maximum": 0.3387336886463539
+      },
+      "max_abs_error": 8.79794671658626e-09
+    },
+    {
+      "case": "prefill-q8",
+      "variant": "online_neon",
+      "tile_us": 437.6637421875,
+      "reference_us": 213.3728828125,
+      "reference_over_tile": {
+        "baseline": "tile",
+        "candidate": "online_neon",
+        "pairs": [
+          0.48704470235599523,
+          0.4819486329186257,
+          0.4885815798155072,
+          0.4877434591929528,
+          0.4922188568113873,
+          0.4872393998079066
+        ],
+        "median": 0.4874914295004297,
+        "minimum": 0.4819486329186257,
+        "maximum": 0.4922188568113873
+      },
+      "max_abs_error": 8.260829179734808e-08
+    },
+    {
+      "case": "prefill-q8",
+      "variant": "dense_accelerate",
+      "tile_us": 439.78612499999997,
+      "reference_us": 104.153564453125,
+      "reference_over_tile": {
+        "baseline": "tile",
+        "candidate": "dense_accelerate",
+        "pairs": [
+          0.234780699864962,
+          0.23529920299905233,
+          0.2369491619129992,
+          0.23808101380919797,
+          0.23733064688490718,
+          0.23677028636667757
+        ],
+        "median": 0.23685972413983838,
+        "minimum": 0.234780699864962,
+        "maximum": 0.23808101380919797
+      },
+      "max_abs_error": 1.602131468837406e-07
+    }
+  ],
+  "realizations": [
+    {
+      "case": "decode-mha-d64",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 16622018.000 (arithmetic 628034.000, memory 15993856.000, dispatch 128.000, imbalance 0.000), root order [0,2,1]; local_lanes=1; static_snapshot_bytes_per_worker=9216; static_snapshot_allocations=9; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=0; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=false; two_dimensional_mmas=0; requested_max_unrolled_mma_terms=0; rolled_mmas=0; mma_unroll_cost=unmodeled; native_mma_vector_width=4; native_mmas=2; native_output_mmas=1; native_contraction_mmas=1; native_mma_cost=unmodeled; native_copy_vector_width=4; native_copies=3; native_copy_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=1; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=1; contiguous_private_writes=16; private_workspace_bytes=73728; full_packet_specializations=1; full_packet_cloned_instructions=4460; full_packet_simplification_requested=true; full_packet_specialization_decision=simplified_selected; full_packet_source_instructions=4460; full_packet_candidate_instructions=2168; full_packet_simplification_rounds=3; fast_math=false; ordered_reduction=false; strict_mma=false",
+      "workspace_bytes": 73728,
+      "abi": 0
+    },
+    {
+      "case": "decode-long-kv",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=39, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 272241752.000 (arithmetic 9565144.000, memory 262676480.000, dispatch 128.000, imbalance 0.000), root order [0,2,1]; local_lanes=1; static_snapshot_bytes_per_worker=19200; static_snapshot_allocations=11; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=0; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=false; two_dimensional_mmas=0; requested_max_unrolled_mma_terms=8; rolled_mmas=0; mma_unroll_cost=unmodeled; native_mma_vector_width=4; native_mmas=2; native_output_mmas=1; native_contraction_mmas=1; native_mma_cost=unmodeled; native_copy_vector_width=4; native_copies=3; native_copy_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=3; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=4; contiguous_private_writes=19; private_workspace_bytes=153600; full_packet_specializations=1; full_packet_cloned_instructions=2608; full_packet_simplification_requested=true; full_packet_specialization_decision=simplified_selected; full_packet_source_instructions=2608; full_packet_candidate_instructions=1524; full_packet_simplification_rounds=3; fast_math=false; ordered_reduction=false; strict_mma=false",
+      "workspace_bytes": 153600,
+      "abi": 0
+    },
+    {
+      "case": "prefill-q8",
+      "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 10 CPU workers; ordered CPU pipeline; Schedule blocks=93, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 14898188.000 (arithmetic 947084.000, memory 13950976.000, dispatch 128.000, imbalance 0.000), root order [0,1,2]; local_lanes=1; static_snapshot_bytes_per_worker=14768; static_snapshot_allocations=18; snapshot_budget=2097152; rejected_candidates=0; blocks_per_task=0; task_dispatch_cost=0.000; worker_activation_cost=0.000; custom_cost_policy=false; max_unrolled_tile_elements=64; max_unrolled_region_work=4096; requested_mma_output_block=4; blocked_mmas=0; mma_blocking_cost=unmodeled; requested_mma_2d_blocking=true; two_dimensional_mmas=0; requested_max_unrolled_mma_terms=0; rolled_mmas=0; mma_unroll_cost=unmodeled; native_mma_vector_width=4; native_mmas=2; native_output_mmas=1; native_contraction_mmas=1; native_mma_cost=unmodeled; native_copy_vector_width=4; native_copies=3; native_copy_cost=unmodeled; unordered_reduction_partitions=4; load_reduction_fusion=false; fused_reduction_loads=0; elided_load_snapshots=0; interleaved_private_arrays=8; map_fusion=false; deferred_maps=0; expression_reduction_fusion=false; fused_reduction_expressions=0; elided_expression_snapshots=0; pointwise_fusion=false; fused_pointwise_regions=0; fused_pointwise_loads=0; fused_pointwise_stores=0; pointwise_alias_checks=0; contiguous_private_reads=17; contiguous_private_writes=52; private_workspace_bytes=118144; full_packet_specializations=1; full_packet_cloned_instructions=4146; full_packet_simplification_requested=true; full_packet_specialization_decision=simplified_selected; full_packet_source_instructions=4146; full_packet_candidate_instructions=2425; full_packet_simplification_rounds=3; fast_math=false; ordered_reduction=false; strict_mma=false",
+      "workspace_bytes": 118144,
+      "abi": 0
+    }
+  ],
+  "limitations": [
+    "Supplemental cohort independent of the parent thirty paired comparisons. Do not splice timings, use historical medians as fresh baselines, or multiply speedups across cohorts.",
+    "FP32 inputs/outputs; no reduced precision. online_neon has an explicit four-lane QK tree; dense_accelerate permits BLAS reassociation/FMA and dense score materialization. These are handwritten references, not proven strict-MMA compiler rewrites.",
+    "Common unchanged C++ timer; complete native entry, launch resets/block traversal and BLAS-internal packing/allocations included; Python, Runtime dispatch, JIT, caller allocations/copies and validation excluded.",
+    "Request OMP/OPENBLAS/VECLIB thread count 1; additionally require same-thread BLASSetThreading return 0 and BLASGetThreading mode 1 before/after visits. API acknowledgement is not independent internal-worker profiling.",
+    "No Torch/MPS/GPU comparison or multithread Runtime claim. Background user/OS activity remains uncontrolled. Guard/input validation is at helper checkpoints, not every inner timed invocation. No universal FP32 overflow or all-masked-row claim."
+  ]
+}

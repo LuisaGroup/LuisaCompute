@@ -6,6 +6,26 @@
 #include "default_binary_io.h"
 
 namespace luisa::compute {
+
+// Cache/shader names arrive as narrow text and are fed either straight into
+// filesystem::path or into `path / string_view`. Both go through the ANSI code
+// page and throw std::system_error on bytes it cannot represent, which is fatal
+// here because the library is built without C++ exceptions. Decode through
+// path_from_narrow() instead: an undecodable name becomes an empty path, which
+// the callers below already treat as "no such file".
+[[nodiscard]] static luisa::filesystem::path binary_io_narrow_path(luisa::string_view name) noexcept {
+    luisa::filesystem::path result;
+    if (!path_from_narrow(name, result)) [[unlikely]] {
+        LUISA_WARNING("File path '{}' cannot be represented in the ANSI code page.", name);
+    }
+    return result;
+}
+
+[[nodiscard]] static luisa::filesystem::path binary_io_join_narrow(const luisa::filesystem::path &base,
+                                                         luisa::string_view name) noexcept {
+    return base / binary_io_narrow_path(name);
+}
+
 class LMDBBinaryStream final : public BinaryStream {
     std::byte const *_begin;
     std::byte const *_ptr;
@@ -33,20 +53,27 @@ public:
 };
 
 class LockedBinaryFileStream : public BinaryStream {
-
 private:
     BinaryFileStream _stream;
     DefaultBinaryIO const *_binary_io;
     DefaultBinaryIO::MapIndex _idx;
 
 public:
-    explicit LockedBinaryFileStream(DefaultBinaryIO const *binary_io, ::FILE *file, size_t length, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept
-        : _stream{file, length},
+    // The path constructor opens the file *inside luisa-core*, and every later
+    // fread/fclose happens there too. That matters because each of these modules
+    // statically links its own MSVC CRT: a FILE* created in a backend is only an
+    // index into that backend's descriptor table, so handing one over to core makes
+    // core seek/read a descriptor it does not own. The UCRT rejects it with an
+    // invalid-parameter fastfail (0xC0000409, hit by any shader-cache read that
+    // actually found an entry) and reports a bogus length in release builds.
+    LockedBinaryFileStream(DefaultBinaryIO const *binary_io, const luisa::string &path, DefaultBinaryIO::MapIndex &&idx) noexcept
+        : _stream{path},
           _binary_io{binary_io},
           _idx{idx} {}
     ~LockedBinaryFileStream() noexcept override {
         _binary_io->_unlock(_idx, false);
     }
+    [[nodiscard]] bool valid() const noexcept { return _stream.valid(); }
     [[nodiscard]] size_t length() const noexcept override { return _stream.length(); }
     [[nodiscard]] size_t pos() const noexcept override { return _stream.pos(); }
     void read(luisa::span<std::byte> dst) noexcept override {
@@ -56,28 +83,31 @@ public:
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::_read(luisa::string const &file_path) const noexcept {
     auto idx = _lock(file_path, false);
-    auto file = std::fopen(file_path.c_str(), "rb");
-    if (file) {
-        auto length = luisa::detail::get_c_file_length(file);
-        if (length == 0) [[unlikely]] {
-            _unlock(idx, false);
-            return nullptr;
-        }
-        return luisa::make_unique<LockedBinaryFileStream>(this, file, length, file_path, std::move(idx));
-    } else {
-        _unlock(idx, false);
-        LUISA_VERBOSE("Read file {} failed.", file_path);
-        return nullptr;
-    }
+    // The stream opens the file itself, and its destructor releases the read lock,
+    // so returning early below unwinds everything the previous code did by hand.
+    auto stream = luisa::make_unique<LockedBinaryFileStream>(this, file_path, std::move(idx));
+    // The stream opens the file itself, and its destructor releases the read lock,
+    // so returning early below unwinds everything the previous code did by hand.
+    // BinaryFileStream's constructor already reports a failed open.
+    if (!stream->valid() || stream->length() == 0u) [[unlikely]] { return nullptr; }
+    return stream;
 }
 
 DefaultBinaryIO::MapIndex DefaultBinaryIO::_lock(luisa::string const &name, bool is_write) const noexcept {
     MapIndex iter;
     FileMutex *ptr;
-    auto abs_path = luisa::filesystem::absolute(name).string();
+    // `name` is produced by luisa::to_string(path) (ANSI code page bytes), so
+    // decode it back with path_from_narrow() and keep the lookup key non-throwing.
+    auto abs_path = luisa::filesystem::path{};
+    if (!path_from_narrow(name, abs_path)) [[unlikely]] {
+        LUISA_WARNING("File path '{}' cannot be represented in the ANSI code page.", name);
+    }
+    std::error_code ec;
+    auto abs = luisa::filesystem::absolute(abs_path, ec);
+    auto abs_key = ec ? name : luisa::to_string(abs);
     {
         std::lock_guard lck{_global_mtx};
-        iter = _mutex_map.emplace(abs_path);
+        iter = _mutex_map.emplace(abs_key);
         ptr = &iter.value();
         ptr->ref_count++;
     }
@@ -103,10 +133,10 @@ void DefaultBinaryIO::_unlock(MapIndex const &idx, bool is_write) const noexcept
 }
 
 void DefaultBinaryIO::_write(const luisa::string &file_path, luisa::span<std::byte const> data) const noexcept {
-    auto folder = luisa::filesystem::path{file_path}.parent_path();
+    auto folder = binary_io_narrow_path(file_path).parent_path();
     std::error_code ec;
     luisa::filesystem::create_directories(folder, ec);
-    if (ec) { LUISA_WARNING("Create directory {} failed.", folder.string()); }
+    if (ec) { LUISA_WARNING("Create directory {} failed.", luisa::to_string(folder)); }
     auto idx = _lock(file_path, true);
     if (auto f = fopen(file_path.c_str(), "wb")) [[likely]] {
         fwrite(data.data(), data.size(), 1, f);
@@ -120,11 +150,29 @@ void DefaultBinaryIO::_write(const luisa::string &file_path, luisa::span<std::by
 DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, bool headless, bool use_lmdb) noexcept
     : _ctx(std::move(ctx)),
       _headless(headless),
-      _use_lmdb(use_lmdb) {
+      _use_lmdb{
+#if defined(LUISA_PLATFORM_IOS)
+          false
+#else
+          use_lmdb
+#endif
+      } {
+#if defined(LUISA_PLATFORM_IOS)
+    if (use_lmdb) {
+        LUISA_WARNING_WITH_LOCATION(
+            "LMDB is unavailable in the iOS application sandbox; "
+            "using the file-backed shader cache instead.");
+    }
+#endif
+    // Always resolve the cache/data directories so headless contexts can still
+    // perform compile-only shader I/O (bytecode is written on demand). Only
+    // create the directories and open LMDB when not in headless mode.
+    _cache_dir = _ctx.data_directory() / ".cache"sv;
+    _data_dir = _ctx.data_directory() / ".data"sv;
     if (!headless) {
-        _cache_dir = _ctx.create_runtime_subdir(".cache"sv);
-        _data_dir = _ctx.create_runtime_subdir(".data"sv);
-        if (use_lmdb) {
+        _cache_dir = _ctx.create_data_subdir(".cache"sv);
+        _data_dir = _ctx.create_data_subdir(".data"sv);
+        if (_use_lmdb) {
             _data_lmdb.create(_data_dir, std::max<size_t>(126ull, std::thread::hardware_concurrency() * 2));
             _cache_lmdb.create(_cache_dir, std::max<size_t>(126ull, std::thread::hardware_concurrency() * 2));
         }
@@ -141,11 +189,11 @@ DefaultBinaryIO::~DefaultBinaryIO() noexcept {
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::string_view name) const noexcept {
-    std::filesystem::path local_path{name};
+    auto local_path = binary_io_narrow_path(name);
     if (local_path.is_absolute()) {
         return _read(luisa::to_string(name));
     }
-    auto file_path = luisa::to_string(_ctx.data_directory() / name);
+    auto file_path = luisa::to_string(binary_io_join_narrow(_ctx.data_directory(), name));
     return _read(file_path);
 }
 
@@ -155,11 +203,11 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_cache(luisa::string
         if (r.empty()) return {};
         return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
     } else {
-        std::filesystem::path local_path{name};
+        auto local_path = binary_io_narrow_path(name);
         if (local_path.is_absolute()) {
             return _read(luisa::to_string(name));
         }
-        auto file_path = luisa::to_string(_cache_dir / name);
+        auto file_path = luisa::to_string(binary_io_join_narrow(_cache_dir, name));
         return _read(file_path);
     }
 }
@@ -170,39 +218,39 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::str
         if (r.empty()) return {};
         return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
     } else {
-        std::filesystem::path local_path{name};
+        auto local_path = binary_io_narrow_path(name);
         if (local_path.is_absolute()) {
             return _read(luisa::to_string(name));
         }
-        auto file_path = luisa::to_string(_data_dir / name);
+        auto file_path = luisa::to_string(binary_io_join_narrow(_data_dir, name));
         return _read(file_path);
     }
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_source(luisa::string_view name) const noexcept {
-    std::filesystem::path local_path{name};
+    auto local_path = binary_io_narrow_path(name);
     if (local_path.is_absolute()) { return _read(luisa::to_string(name)); }
-    return _read(luisa::to_string(_cache_dir / name));
+    return _read(luisa::to_string(binary_io_join_narrow(_cache_dir, name)));
 }
 
 luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
-    std::filesystem::path local_path{name};
+    auto local_path = binary_io_narrow_path(name);
     if (local_path.is_absolute()) {
         _write(luisa::to_string(name), data);
         return local_path;
     }
-    auto file_path = _ctx.data_directory() / name;
+    auto file_path = binary_io_join_narrow(_ctx.data_directory(), name);
     _write(luisa::to_string(file_path), data);
     return file_path;
 }
 
 luisa::filesystem::path DefaultBinaryIO::write_shader_source(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
-    std::filesystem::path local_path{name};
+    auto local_path = binary_io_narrow_path(name);
     if (local_path.is_absolute()) {
         _write(luisa::to_string(name), data);
         return local_path;
     }
-    auto file_path = _cache_dir / name;
+    auto file_path = binary_io_join_narrow(_cache_dir, name);
     _write(luisa::to_string(file_path), data);
     return file_path;
 }
@@ -210,14 +258,14 @@ luisa::filesystem::path DefaultBinaryIO::write_shader_source(luisa::string_view 
 luisa::filesystem::path DefaultBinaryIO::write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     if (_use_lmdb) {
         _cache_lmdb->write(name, data);
-        return _cache_dir / name;
+        return binary_io_join_narrow(_cache_dir, name);
     } else {
-        std::filesystem::path local_path{name};
+        auto local_path = binary_io_narrow_path(name);
         if (local_path.is_absolute()) {
             _write(luisa::to_string(name), data);
             return local_path;
         }
-        auto file_path = _cache_dir / name;
+        auto file_path = binary_io_join_narrow(_cache_dir, name);
         _write(luisa::to_string(file_path), data);
         return file_path;
     }
@@ -226,14 +274,14 @@ luisa::filesystem::path DefaultBinaryIO::write_shader_cache(luisa::string_view n
 luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     if (_use_lmdb) {
         _data_lmdb->write(name, data);
-        return _data_dir / name;
+        return binary_io_join_narrow(_data_dir, name);
     } else {
-        std::filesystem::path local_path{name};
+        auto local_path = binary_io_narrow_path(name);
         if (local_path.is_absolute()) {
             _write(luisa::to_string(name), data);
             return local_path;
         }
-        auto file_path = _data_dir / name;
+        auto file_path = binary_io_join_narrow(_data_dir, name);
         _write(luisa::to_string(file_path), data);
         return file_path;
     }
@@ -241,16 +289,43 @@ luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_vie
 
 void DefaultBinaryIO::clear_shader_cache() const noexcept {
     std::lock_guard lck{_global_mtx};
+    std::error_code ec;
+    // The cache directory may not exist yet: headless contexts deliberately
+    // skip directory creation in the constructor, and the adapter-mismatch
+    // path of a cold cache is exactly where this is called. Everything below
+    // must stay noexcept — an exception escaping this function terminates
+    // the process.
+    luisa::filesystem::create_directories(_cache_dir, ec);
+    if (ec) [[unlikely]] {
+        LUISA_WARNING(
+            "Failed to create shader cache directory '{}': {}.",
+            to_string(_cache_dir), ec.message());
+        return;
+    }
     if (_use_lmdb) {
         _cache_lmdb.destroy();
     }
-    std::error_code ec;
-    for (auto &&dir : std::filesystem::directory_iterator(_cache_dir)) {
-        std::filesystem::remove_all(dir, ec);
+    // Entries can appear or vanish while we iterate: another process may be
+    // clearing or populating the same shared cache directory concurrently
+    // (e.g. multiple headless compiler processes started together on a cold
+    // cache). A leftover entry is only stale cache data, so degrade every
+    // failure to a warning and keep going.
+    luisa::filesystem::directory_iterator iter{_cache_dir, ec};
+    luisa::filesystem::directory_iterator end;
+    while (!ec && iter != end) {
+        luisa::filesystem::remove_all(iter->path(), ec);
         if (ec) [[unlikely]] {
-            LUISA_ERROR(
-                "Failed to remove dir '{}': {}.",
-                to_string(dir), ec.message());
+            LUISA_WARNING(
+                "Failed to remove '{}': {}.",
+                to_string(iter->path()), ec.message());
+            ec.clear();
+        }
+        iter.increment(ec);
+        if (ec) [[unlikely]] {
+            LUISA_WARNING(
+                "Failed to iterate shader cache directory '{}': {}.",
+                to_string(_cache_dir), ec.message());
+            break;
         }
     }
     if (_use_lmdb) {

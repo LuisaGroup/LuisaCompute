@@ -12,6 +12,8 @@
 #include <luisa/dsl/var.h>
 #include <luisa/dsl/resource.h>
 #include <luisa/dsl/stmt.h>
+#include <luisa/ast/function_builder_debugger.h>
+#include <luisa/core/stl/functional.h>
 
 namespace luisa::compute {
 
@@ -416,7 +418,7 @@ template<class T>
 class CpuCallable {
 
 public:
-    using Func = std::function<void(T &)>;
+    using Func = luisa::function<void(T &)>;
 
 private:
     luisa::shared_ptr<Func> _func;
@@ -624,6 +626,7 @@ namespace detail {
 
 struct CallableOutliner {
     luisa::string _name;
+    bool _requires_noinline{false};
     template<typename F>
     void operator%(F &&body) && noexcept;
 };
@@ -646,6 +649,21 @@ template<typename S>
     comment(std::forward<S>(s));
     CallableOutliner out{};
     out._name = name;
+    return out;
+}
+template<typename S>
+[[nodiscard]] inline auto outliner_noinline_with_comment(S &&s) noexcept {
+    comment(std::forward<S>(s));
+    CallableOutliner out{};
+    out._requires_noinline = true;
+    return out;
+}
+template<typename S>
+[[nodiscard]] inline auto outliner_noinline_with_comment(luisa::string_view name, S &&s) noexcept {
+    comment(std::forward<S>(s));
+    CallableOutliner out{};
+    out._name = name;
+    out._requires_noinline = true;
     return out;
 }
 }// namespace detail
@@ -704,13 +722,29 @@ Lambda(S &&, F &&) -> Lambda<detail::canonical_signature_t<std::remove_cvref_t<F
 namespace detail {
 template<typename F>
 inline void CallableOutliner::operator%(F &&body) && noexcept {
-    if (_name.empty())
-        return Callable{std::forward<F>(body)}();
-    else {
-        Callable c{std::forward<F>(body)};
-        c.set_name(_name);
-        return c();
-    }
+    Callable c{[&body, requires_noinline = _requires_noinline]() noexcept {
+        if (requires_noinline) {
+            FunctionBuilder::current()->mark_noinline();
+        }
+        body();
+    }};
+    if (!_name.empty()) { c.set_name(_name); }
+    c();
 }
 }// namespace detail
+
+/// @brief Rewrites a kernel with the debug-function generator so that
+/// operations that can fail at runtime print a diagnostic (device_log) and
+/// stop the thread. See luisa::compute::detail::DebugKernelOptions and
+/// luisa::compute::detail::debug_function for the check switches.
+///
+/// Example:
+/// \code{.cpp}
+/// Kernel2D dbg = add_debug_checks(my_kernel);
+/// \endcode
+template<size_t N, typename... Args>
+[[nodiscard]] auto add_debug_checks(Kernel<N, Args...> kernel) noexcept {
+    return Kernel<N, Args...>{
+        detail::debug_function(*kernel.function())};
+}
 }// namespace luisa::compute

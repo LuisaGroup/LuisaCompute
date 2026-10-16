@@ -10,6 +10,7 @@
 #include <hip/hip_runtime.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/sampler.h>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::hip {
 
@@ -98,9 +99,9 @@ public:
     [[nodiscard]] auto dimension() const noexcept { return static_cast<uint>(_dimension); }
     [[nodiscard]] auto is_mipmapped() const noexcept { return _levels > 1u; }
     [[nodiscard]] HIPSurface binding(uint32_t level) const noexcept;
-    void create_texture_objects(std::span<hipTextureObject_t> objects, Sampler s) const noexcept;
-    void copy_image_descriptors(std::span<HIPImageDescriptor> descriptors) const noexcept;
-    void copy_sampler_descriptors(std::span<HIPSamplerDescriptor> descriptors) const noexcept;
+    void create_texture_objects(luisa::span<hipTextureObject_t> objects, Sampler s) const noexcept;
+    void copy_image_descriptors(luisa::span<HIPImageDescriptor> descriptors) const noexcept;
+    void copy_sampler_descriptors(luisa::span<HIPSamplerDescriptor> descriptors) const noexcept;
 
 private:
     void _initialize_direct_descriptor() noexcept;

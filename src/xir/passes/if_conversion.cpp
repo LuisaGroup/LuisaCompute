@@ -2,11 +2,15 @@
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/core/logging.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/phi.h>
+
+#include <algorithm>
+#include <limits>
 
 #include "helpers.h"
 
@@ -14,30 +18,188 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-// Tunable: cap on instructions hoisted per side. Speculation always executes
-// both branches, so converting a large body trades a branch for a lot of work
-// that may go unused. 16 keeps the diamond cheap relative to typical kernel
-// hot spots.
-static constexpr size_t kIfConversionInstructionCap = 16u;
-
-[[nodiscard]] static bool is_speculation_safe(Instruction *inst) noexcept {
-    auto info = get_memory_info(inst);
-    if (!info.is_pure()) return false;
-    // Numeric casts can be undefined for verifier-valid values (notably an
-    // out-of-range float-to-integer conversion). Only representation-
-    // preserving bit casts are total on an untaken arm.
-    if (inst->isa<CastInst>()) {
-        return static_cast<CastInst *>(inst)->op() ==
-               CastOp::BITWISE_CAST;
+[[nodiscard]] static bool is_total_static_extract(
+    const ArithmeticInst *extract) noexcept {
+    if (extract == nullptr ||
+        extract->op() != ArithmeticOp::EXTRACT ||
+        extract->operand_count() < 2u ||
+        extract->operand(0u) == nullptr) {
+        return false;
     }
-    if (!inst->isa<ArithmeticInst>()) { return false; }
-    return is_arithmetic_op_safe_to_speculate(
-        static_cast<ArithmeticInst *>(inst)->op());
+    auto *current = extract->operand(0u)->type();
+    for (auto i = size_t{1u}; i < extract->operand_count(); i++) {
+        auto index = uint64_t{0u};
+        if (current == nullptr ||
+            !try_decode_constant_nonnegative_integer(
+                extract->operand(i), index)) {
+            return false;
+        }
+        switch (current->tag()) {
+            case Type::Tag::ARRAY:
+            case Type::Tag::VECTOR:
+                if (index >= current->dimension()) { return false; }
+                current = current->element();
+                break;
+            case Type::Tag::MATRIX:
+                if (index >= current->dimension()) { return false; }
+                current = Type::vector(
+                    current->element(), current->dimension());
+                break;
+            case Type::Tag::STRUCTURE:
+                if (index >= current->members().size()) { return false; }
+                current = current->members()[index];
+                break;
+            default: return false;
+        }
+    }
+    return current == extract->type();
 }
 
-[[nodiscard]] static bool can_rewrite_phis(BasicBlock *merge,
-                                           BasicBlock *t_block,
-                                           BasicBlock *f_block) noexcept {
+[[nodiscard]] static bool is_speculation_safe(
+    Instruction *inst,
+    const IfConversionOptions &options) noexcept {
+    auto info = get_memory_info(inst);
+    if (!info.is_pure()) return false;
+    // Float-to-integer conversion can produce poison for verifier-valid NaN
+    // or out-of-range inputs. Every other verifier-valid scalar/vector static
+    // cast is total, including the integer-to-float step conversion commonly
+    // found in predicated coordinate updates.
+    if (inst->isa<CastInst>()) {
+        auto *cast = static_cast<CastInst *>(inst);
+        if (cast->op() == CastOp::BITWISE_CAST) { return true; }
+        if (cast->op() != CastOp::STATIC_CAST) { return false; }
+        auto *source = cast->value() == nullptr ?
+                           nullptr :
+                           cast->value()->type();
+        auto *target = cast->type();
+        if (source == nullptr || target == nullptr) { return false; }
+        auto source_is_float =
+            source->is_float_or_float_vector();
+        auto target_is_integer =
+            target->is_int_or_int_vector() ||
+            target->is_uint_or_uint_vector();
+        return !(source_is_float && target_is_integer);
+    }
+    if (!inst->isa<ArithmeticInst>()) { return false; }
+    auto *arithmetic = static_cast<ArithmeticInst *>(inst);
+    auto op = arithmetic->op();
+    if (op == ArithmeticOp::EXTRACT) {
+        return options.allow_speculative_static_extract &&
+               is_total_static_extract(arithmetic);
+    }
+    if (op == ArithmeticOp::BINARY_DIV) {
+        // Floating division is non-trapping on the supported XIR targets:
+        // a zero divisor produces an IEEE Inf/NaN value. Keep it opt-in so
+        // target-independent callers do not unexpectedly speculate a costly
+        // operation. Integer division may trap or form poison.
+        auto *type = arithmetic->type();
+        return options.allow_speculative_float_division &&
+               type != nullptr && type->is_float_or_float_vector();
+    }
+    return is_arithmetic_op_safe_to_speculate(op);
+}
+
+[[nodiscard]] static size_t register_units(
+    const Type *type) noexcept {
+    if (type == nullptr) { return 0u; }
+    return std::max<size_t>(
+        1u, (type->size() + sizeof(uint32_t) - 1u) /
+                sizeof(uint32_t));
+}
+
+[[nodiscard]] static size_t arithmetic_latency_cost(
+    ArithmeticOp op) noexcept {
+    switch (op) {
+        case ArithmeticOp::ACOS:
+        case ArithmeticOp::ACOSH:
+        case ArithmeticOp::ASIN:
+        case ArithmeticOp::ASINH:
+        case ArithmeticOp::ATAN:
+        case ArithmeticOp::ATAN2:
+        case ArithmeticOp::ATANH:
+        case ArithmeticOp::COS:
+        case ArithmeticOp::COSH:
+        case ArithmeticOp::SIN:
+        case ArithmeticOp::SINH:
+        case ArithmeticOp::TAN:
+        case ArithmeticOp::TANH:
+        case ArithmeticOp::EXP:
+        case ArithmeticOp::EXP2:
+        case ArithmeticOp::EXP10:
+        case ArithmeticOp::LOG:
+        case ArithmeticOp::LOG2:
+        case ArithmeticOp::LOG10:
+        case ArithmeticOp::POW:
+        case ArithmeticOp::POW_INT:
+            return 16u;
+        case ArithmeticOp::SQRT:
+        case ArithmeticOp::RSQRT:
+        case ArithmeticOp::NORMALIZE:
+        case ArithmeticOp::BINARY_DIV:
+        case ArithmeticOp::MATRIX_COMP_DIV:
+        case ArithmeticOp::MATRIX_DETERMINANT:
+        case ArithmeticOp::MATRIX_INVERSE:
+            return 8u;
+        case ArithmeticOp::CLAMP:
+        case ArithmeticOp::LERP:
+        case ArithmeticOp::SMOOTHSTEP:
+        case ArithmeticOp::CROSS:
+        case ArithmeticOp::DOT:
+        case ArithmeticOp::LENGTH:
+        case ArithmeticOp::LENGTH_SQUARED:
+        case ArithmeticOp::FACEFORWARD:
+        case ArithmeticOp::REFLECT:
+        case ArithmeticOp::REDUCE_SUM:
+        case ArithmeticOp::REDUCE_PRODUCT:
+        case ArithmeticOp::REDUCE_MIN:
+        case ArithmeticOp::REDUCE_MAX:
+        case ArithmeticOp::OUTER_PRODUCT:
+        case ArithmeticOp::MATRIX_LINALG_MUL:
+            return 4u;
+        case ArithmeticOp::SATURATE:
+        case ArithmeticOp::STEP:
+        case ArithmeticOp::FMA:
+        case ArithmeticOp::MATRIX_COMP_NEG:
+        case ArithmeticOp::MATRIX_COMP_ADD:
+        case ArithmeticOp::MATRIX_COMP_SUB:
+        case ArithmeticOp::MATRIX_COMP_MUL:
+        case ArithmeticOp::MATRIX_TRANSPOSE:
+            return 2u;
+        default: return 1u;
+    }
+}
+
+[[nodiscard]] static size_t instruction_cost(
+    const Instruction *instruction) noexcept {
+    auto units = register_units(instruction->type());
+    for (auto *operand_use : instruction->operand_uses()) {
+        auto *operand = operand_use->value();
+        units = std::max(
+            units, register_units(
+                       operand == nullptr ? nullptr : operand->type()));
+    }
+    auto latency = instruction->isa<ArithmeticInst>() ?
+                       arithmetic_latency_cost(
+                           static_cast<const ArithmeticInst *>(instruction)
+                               ->op()) :
+                       1u;
+    if (units != 0u &&
+        latency > std::numeric_limits<size_t>::max() / units) {
+        return std::numeric_limits<size_t>::max();
+    }
+    return latency * units;
+}
+
+[[nodiscard]] static size_t saturating_add(
+    size_t lhs, size_t rhs) noexcept {
+    auto maximum = std::numeric_limits<size_t>::max();
+    return lhs > maximum - rhs ? maximum : lhs + rhs;
+}
+
+[[nodiscard]] static bool can_rewrite_phis(
+    BasicBlock *merge, BasicBlock *t_block,
+    BasicBlock *f_block, size_t &live_out_units) noexcept {
+    live_out_units = 0u;
     for (auto *inst : merge->instructions()) {
         if (!inst->isa<PhiInst>()) { continue; }
         auto *phi = static_cast<PhiInst *>(inst);
@@ -50,6 +212,20 @@ static constexpr size_t kIfConversionInstructionCap = 16u;
             false_count += incoming.block == f_block;
         }
         if (true_count != 1u || false_count != 1u) { return false; }
+        Value *true_value = nullptr;
+        Value *false_value = nullptr;
+        for (auto i = 0u; i < phi->incoming_count(); i++) {
+            auto incoming = phi->incoming(i);
+            if (incoming.block == t_block) {
+                true_value = incoming.value;
+            } else if (incoming.block == f_block) {
+                false_value = incoming.value;
+            }
+        }
+        if (true_value != false_value) {
+            live_out_units = saturating_add(
+                live_out_units, register_units(phi->type()));
+        }
     }
     return true;
 }
@@ -75,7 +251,9 @@ static constexpr size_t kIfConversionInstructionCap = 16u;
 // speculation-safe non-terminator instructions, and a plain `br M`
 // terminator. nullptr means this side is not eligible.
 [[nodiscard]] static BasicBlock *eligible_side(BasicBlock *side, BasicBlock *b,
-                                               size_t &out_inst_count) noexcept {
+                                               const IfConversionOptions &options,
+                                               size_t &out_inst_count,
+                                               size_t &out_cost) noexcept {
     if (side == nullptr) return nullptr;
     // The side block itself is deleted. Unlike its instructions, block-local
     // metadata has no unique owner after both arms are merged into `b`.
@@ -92,12 +270,17 @@ static constexpr size_t kIfConversionInstructionCap = 16u;
     auto m = br->target_block();
     if (m == nullptr) return nullptr;
     size_t inst_count = 0;
+    size_t cost = 0u;
     for (auto inst : side->instructions()) {
         if (inst == term) continue;
-        if (!is_speculation_safe(inst)) return nullptr;
-        if (++inst_count > kIfConversionInstructionCap) return nullptr;
+        if (!is_speculation_safe(inst, options)) return nullptr;
+        if (++inst_count > options.max_arm_instruction_count) {
+            return nullptr;
+        }
+        cost = saturating_add(cost, instruction_cost(inst));
     }
     out_inst_count = inst_count;
+    out_cost = cost;
     return m;
 }
 
@@ -118,8 +301,10 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
         Value *f_val = nullptr;
         for (size_t i = 0; i < phi->incoming_count(); ++i) {
             auto inc = phi->incoming(i);
-            if (inc.block == t_block) t_val = inc.value;
-            else if (inc.block == f_block) f_val = inc.value;
+            if (inc.block == t_block)
+                t_val = inc.value;
+            else if (inc.block == f_block)
+                f_val = inc.value;
         }
         if (t_val == nullptr || f_val == nullptr) continue;
         Value *merged = nullptr;
@@ -142,7 +327,9 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
     return replaced;
 }
 
-[[nodiscard]] static bool try_convert_diamond(BasicBlock *b, IfConversionInfo &info) noexcept {
+[[nodiscard]] static bool try_convert_diamond(
+    BasicBlock *b, IfConversionInfo &info,
+    const IfConversionOptions &options) noexcept {
     if (!b->is_terminated()) return false;
     auto term = b->terminator();
     // Skip structured terminators; destructure_cfg lowers IF/LOOP into plain
@@ -154,17 +341,46 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
     auto f_block = cond_br->false_block();
     if (t_block == nullptr || f_block == nullptr) return false;
     if (t_block == f_block) return false;
+    auto cond = cond_br->condition();
+    if (cond == nullptr || cond->type() == nullptr ||
+        !cond->type()->is_bool()) {
+        return false;
+    }
+    if (options.candidate_filter != nullptr &&
+        !options.candidate_filter(
+            static_cast<const ConditionalBranchInst *>(cond_br),
+            options.candidate_filter_context)) {
+        return false;
+    }
     size_t t_count = 0;
     size_t f_count = 0;
-    auto t_merge = eligible_side(t_block, b, t_count);
+    size_t t_cost = 0u;
+    size_t f_cost = 0u;
+    auto t_merge = eligible_side(
+        t_block, b, options, t_count, t_cost);
     if (t_merge == nullptr) return false;
-    auto f_merge = eligible_side(f_block, b, f_count);
+    auto f_merge = eligible_side(
+        f_block, b, options, f_count, f_cost);
     if (f_merge == nullptr) return false;
     if (t_merge != f_merge) return false;
     auto merge = t_merge;
-    auto cond = cond_br->condition();
-    if (cond == nullptr || cond->type() == nullptr || !cond->type()->is_bool()) { return false; }
-    if (!can_rewrite_phis(merge, t_block, f_block)) { return false; }
+    if (saturating_add(t_count, f_count) >
+        options.max_total_instruction_count) {
+        return false;
+    }
+    auto live_out_units = size_t{0u};
+    if (!can_rewrite_phis(
+            merge, t_block, f_block, live_out_units)) {
+        return false;
+    }
+    if (live_out_units > options.max_live_out_register_units) {
+        return false;
+    }
+    auto speculation_cost = saturating_add(
+        saturating_add(t_cost, f_cost), live_out_units);
+    if (speculation_cost > options.max_speculation_cost) {
+        return false;
+    }
     auto clone_metadata = [](const MetadataListMixin &source,
                              MetadataListMixin &target) noexcept {
         for (auto *metadata : source.metadata_list()) {
@@ -204,7 +420,9 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
     return true;
 }
 
-static void run_if_conversion_on_function(Function *function, IfConversionInfo &info) noexcept {
+static void run_if_conversion_on_function(
+    Function *function, IfConversionInfo &info,
+    const IfConversionOptions &options) noexcept {
     if (function == nullptr || !function->is_definition()) return;
     auto def = function->definition();
     if (def == nullptr || def->body_block() == nullptr) return;
@@ -222,7 +440,9 @@ static void run_if_conversion_on_function(Function *function, IfConversionInfo &
         BasicBlock *converted = nullptr;
         def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
             if (converted != nullptr) return;
-            if (try_convert_diamond(block, info)) converted = block;
+            if (try_convert_diamond(block, info, options)) {
+                converted = block;
+            }
         });
         if (converted == nullptr) break;
     }
@@ -231,12 +451,23 @@ static void run_if_conversion_on_function(Function *function, IfConversionInfo &
 }// namespace detail
 
 IfConversionInfo if_conversion_pass_run_on_function(Function *function) noexcept {
+    return if_conversion_pass_run_on_function(function, {});
+}
+
+IfConversionInfo if_conversion_pass_run_on_function(
+    Function *function, IfConversionOptions options) noexcept {
     IfConversionInfo info;
-    detail::run_if_conversion_on_function(function, info);
+    detail::run_if_conversion_on_function(function, info, options);
     return info;
 }
 
 IfConversionInfo if_conversion_pass_run_on_module(Module *module, PassReport *report) noexcept {
+    return if_conversion_pass_run_on_module(module, {}, report);
+}
+
+IfConversionInfo if_conversion_pass_run_on_module(
+    Module *module, IfConversionOptions options,
+    PassReport *report) noexcept {
     IfConversionInfo info;
     auto set_report = [&]() noexcept {
         if (report == nullptr) { return; }
@@ -264,7 +495,8 @@ IfConversionInfo if_conversion_pass_run_on_module(Module *module, PassReport *re
         return info;
     }
     for (auto *function : module->function_list()) {
-        detail::run_if_conversion_on_function(function, info);
+        detail::run_if_conversion_on_function(
+            function, info, options);
     }
     set_report();
     return info;

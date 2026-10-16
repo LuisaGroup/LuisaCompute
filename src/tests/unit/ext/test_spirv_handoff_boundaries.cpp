@@ -22,6 +22,8 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 #include "spirv_codegen/atomic_buffer_plan.h"
 #include "spirv_codegen/atomic_target_contract.h"
@@ -42,7 +44,7 @@ namespace {
 [[nodiscard]] bool has_instruction_diagnostic(
     const lc::spirv::SpirvXIRDialectValidationResult &validation,
     const Instruction *instruction,
-    std::string_view needle) noexcept {
+    luisa::string_view needle) noexcept {
     for (auto &&diagnostic : validation.diagnostics) {
         if (diagnostic.instruction == instruction &&
             diagnostic.message.find(needle) != luisa::string::npos) {
@@ -68,7 +70,7 @@ void set_environment_variable(const char *name,
 class ScopedEnvironmentVariable {
 private:
     const char *_name;
-    std::optional<std::string> _previous;
+    luisa::optional<std::string> _previous;
 
 public:
     ScopedEnvironmentVariable(const char *name,
@@ -137,6 +139,21 @@ public:
             glsl450_imports.contains(words[offset + 3u]) &&
             words[offset + 4u] ==
                 static_cast<uint32_t>(GLSLstd450Sqrt)) {
+            return true;
+        }
+        offset += word_count;
+    }
+    return false;
+}
+
+[[nodiscard]] bool has_spirv_opcode(
+    const std::vector<uint32_t> &words, spv::Op opcode) {
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        auto word_count = static_cast<size_t>(words[offset] >> 16u);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            return false;
+        }
+        if ((words[offset] & 0xffffu) == static_cast<uint32_t>(opcode)) {
             return true;
         }
         offset += word_count;
@@ -389,6 +406,158 @@ int main(int argc, char *argv[]) {
             compiled.required_target_features,
             lc::spirv::target_feature::shader_float64));
         expect(sqrt != nullptr);
+    };
+
+    "spirv_cooperative_vector_workgroup_access_emits_nv_load_store"_test = [] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        Module module;
+        auto *kernel = module.create_kernel();
+        XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        constexpr auto n = 8u;
+        auto *shared = builder.alloca_shared(
+            Type::array(Type::of<float>(), n));
+        auto *index = module.create_constant_zero(
+            Type::of<uint32_t>());
+        const float one = 1.0f;
+        auto *one_constant = module.create_constant(
+            Type::of<float>(), &one);
+        auto *splat = builder.call(
+            Type::cooperative_vector(Type::of<float>(), n),
+            ResourceReadOp::COOPERATIVE_VECTOR_SPLAT,
+            {one_constant});
+        builder.call(
+            ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE,
+            {shared, index, splat});
+        auto *loaded = builder.call(
+            Type::cooperative_vector(Type::of<float>(), n),
+            ResourceReadOp::COOPERATIVE_VECTOR_WORKGROUP_LOAD,
+            {shared, index});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded())
+            << "cooperative-vector workgroup access fixture must be valid "
+               "generic XIR";
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(&module)
+                   .succeeded())
+            << "cooperative-vector workgroup load/store must pass the native "
+               "SPIR-V dialect handoff";
+        Kernel1D ast_kernel = []() noexcept {};
+        kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_kernel.function()->function(), &module,
+            ShaderOption{.enable_cache = false},
+            {.cooperative_vector = true});
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        std::string diagnostics;
+        tools.SetMessageConsumer(
+            [&diagnostics](spv_message_level_t, const char *,
+                           const spv_position_t &,
+                           const char *message) {
+                if (!diagnostics.empty()) {
+                    diagnostics.push_back('\n');
+                }
+                diagnostics.append(message);
+            });
+        expect(tools.Validate(compiled.spv_bin.data(),
+                              compiled.spv_bin.size()))
+            << "cooperative-vector workgroup access exact-XIR output failed "
+               "Vulkan 1.2 validation: "
+            << diagnostics;
+        expect(splat != nullptr);
+        expect(loaded != nullptr);
+        expect(has_spirv_opcode(
+                  compiled.spv_bin,
+                  spv::Op::OpCooperativeVectorStoreNV))
+            << "cooperative-vector workgroup store must emit "
+               "OpCooperativeVectorStoreNV on the Workgroup allocation";
+        expect(has_spirv_opcode(
+                  compiled.spv_bin,
+                  spv::Op::OpCooperativeVectorLoadNV))
+            << "cooperative-vector workgroup load must emit "
+               "OpCooperativeVectorLoadNV on the Workgroup allocation";
+        expect(eq(
+            compiled.required_target_features,
+            lc::spirv::target_feature::cooperative_vector));
+    };
+
+    "spirv_cooperative_outer_product_accumulate_emits_nv_instruction"_test = [] {
+        ScopedEnvironmentVariable disable_spirv_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_spirv_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *matrix_buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<void>()));
+        XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        constexpr auto n = 8u;
+        const float one = 1.0f;
+        auto *one_constant = module.create_constant(
+            Type::of<float>(), &one);
+        auto *vector_type =
+            Type::cooperative_vector(Type::of<float>(), n);
+        auto *a = builder.call(
+            vector_type, ResourceReadOp::COOPERATIVE_VECTOR_SPLAT,
+            {one_constant});
+        auto *b = builder.call(
+            vector_type, ResourceReadOp::COOPERATIVE_VECTOR_SPLAT,
+            {one_constant});
+        auto *offset = module.create_constant_zero(
+            Type::of<uint32_t>());
+        auto interpretation =
+            static_cast<uint32_t>(CoopRefVecType::FLOAT32);
+        auto *interp = module.create_constant(
+            Type::of<uint32_t>(), &interpretation);
+        auto *outer = builder.call(
+            ResourceWriteOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,
+            {matrix_buffer, offset, a, b, interp});
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded())
+            << "cooperative outer-product accumulate fixture must be valid "
+               "generic XIR";
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(&module)
+                   .succeeded())
+            << "cooperative outer-product accumulate must pass the native "
+               "SPIR-V dialect handoff";
+        Kernel1D ast_kernel = [](ByteBufferVar) noexcept {};
+        kernel->set_block_size(
+            ast_kernel.function()->function().block_size());
+        auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_kernel.function()->function(), &module,
+            ShaderOption{.enable_cache = false},
+            {.cooperative_vector = true});
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        std::string diagnostics;
+        tools.SetMessageConsumer(
+            [&diagnostics](spv_message_level_t, const char *,
+                           const spv_position_t &,
+                           const char *message) {
+                if (!diagnostics.empty()) {
+                    diagnostics.push_back('\n');
+                }
+                diagnostics.append(message);
+            });
+        expect(tools.Validate(compiled.spv_bin.data(),
+                              compiled.spv_bin.size()))
+            << "cooperative outer-product accumulate exact-XIR output failed "
+               "Vulkan 1.2 validation: "
+            << diagnostics;
+        expect(outer != nullptr);
+        expect(has_spirv_opcode(
+                  compiled.spv_bin,
+                  spv::Op::OpCooperativeVectorOuterProductAccumulateNV))
+            << "cooperative outer-product accumulate must emit "
+               "OpCooperativeVectorOuterProductAccumulateNV";
+        expect(eq(
+            compiled.required_target_features,
+            lc::spirv::target_feature::cooperative_vector));
     };
 
     "spirv_sampler_constant_range_is_a_backend_only_boundary"_test = [] {

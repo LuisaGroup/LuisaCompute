@@ -10,6 +10,7 @@
 
 #include <luisa/core/binary_io.h>
 #include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #if defined(LUISA_XIR_TO_SPIRV) || defined(LUISA_AST_LLVM_TO_SPIRV)
 #include <spirv-tools/libspirv.hpp>
@@ -129,9 +130,9 @@ public:
 
 [[nodiscard]] std::vector<uint32_t> assemble_shader_module(
     lc::vk::detail::ShaderArtifactSpirvStage stage,
-    std::string_view extra_capabilities = {}) {
+    luisa::string_view extra_capabilities = {}) {
 #if defined(LUISA_XIR_TO_SPIRV) || defined(LUISA_AST_LLVM_TO_SPIRV)
-    auto execution_model = std::string_view{};
+    auto execution_model = luisa::string_view{};
     auto execution_modes = std::string{};
     switch (stage) {
         case lc::vk::detail::ShaderArtifactSpirvStage::COMPUTE:
@@ -296,6 +297,59 @@ make_raster_semantic_header() {
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
+
+    "vk_native_bindless_metadata_is_an_exact_optional_argument_role"_test = [] {
+        using namespace lc::vk;
+        using namespace lc::vk::detail;
+        using lc::hlsl::Property;
+        using lc::hlsl::ShaderVariableType;
+        constexpr auto unbounded =
+            std::numeric_limits<uint32_t>::max();
+        auto bindless_argument = SavedArgument{};
+        bindless_argument.tag =
+            luisa::compute::Type::Tag::BINDLESS_ARRAY;
+        bindless_argument.var_usage = luisa::compute::Usage::READ_WRITE;
+        bindless_argument.set_native_bindless_roles(
+            lc::spirv::kernel_argument_role::none);
+        constexpr std::array typed_properties{
+            Property{ShaderVariableType::StructuredBuffer, 0u, 0u, 1u},
+            Property{ShaderVariableType::SPIRVIndirectDispatch, 0u, 1u, 1u},
+            Property{ShaderVariableType::SamplerHeap, 1u, 0u,
+                     descriptor_interface_sampler_count},
+            Property{ShaderVariableType::SRVBufferHeap, 2u, 0u,
+                     unbounded}};
+        constexpr std::array mixed_properties{
+            Property{ShaderVariableType::StructuredBuffer, 0u, 0u, 1u},
+            Property{ShaderVariableType::SPIRVBindlessBufferMetadata,
+                     0u, 1u, 1u},
+            Property{ShaderVariableType::SPIRVIndirectDispatch, 0u, 2u, 1u},
+            Property{ShaderVariableType::SamplerHeap, 1u, 0u,
+                     descriptor_interface_sampler_count},
+            Property{ShaderVariableType::SRVBufferHeap, 2u, 0u,
+                     unbounded}};
+        auto request = [&](auto &&properties) noexcept {
+            return ShaderInterfaceRequest{
+                .properties = properties,
+                .arguments = luisa::span{&bindless_argument, 1u},
+                .stage_mask = DescriptorInterfaceStageMask::COMPUTE,
+                .dialect = ShaderCodegenDialect::XIR_SPIRV,
+                .use_buffer_bindless = true};
+        };
+
+        auto typed = plan_shader_interface(
+            request(luisa::span{typed_properties}));
+        expect(static_cast<bool>(typed))
+            << shader_interface_error_name(typed.error);
+        expect(eq(typed.resource_binding_count, 1u));
+        expect(eq(typed.local_binding_count, 2u));
+
+        auto mixed = plan_shader_interface(
+            request(luisa::span{mixed_properties}));
+        expect(static_cast<bool>(mixed))
+            << shader_interface_error_name(mixed.error);
+        expect(eq(mixed.resource_binding_count, 2u));
+        expect(eq(mixed.local_binding_count, 3u));
+    };
 
     "vk_shader_binary_sizes_are_overflow_checked"_test = [] {
         uint64_t value = 0u;
@@ -465,7 +519,7 @@ int main(int argc, char *argv[]) {
                "little-endian field order";
         expect(eq(shader_semantic_header_byte_size, 200u));
 
-        auto rejects = [&](std::string_view field, auto mutate) {
+        auto rejects = [&](luisa::string_view field, auto mutate) {
             auto tampered = header;
             mutate(tampered);
             expect(!valid_shader_semantic_header(tampered))
@@ -517,7 +571,7 @@ int main(int argc, char *argv[]) {
                "little-endian field order";
         expect(eq(raster_semantic_header_byte_size, 184u));
 
-        auto rejects = [&](std::string_view field, auto mutate) {
+        auto rejects = [&](luisa::string_view field, auto mutate) {
             auto tampered = header;
             mutate(tampered);
             expect(!valid_raster_semantic_header(tampered))
@@ -585,7 +639,7 @@ int main(int argc, char *argv[]) {
         constexpr std::array valid{
             'x', '=', '\0', 'u', 'i', 'n', 't', '\0',
             'y', '\0', 'f', 'l', 'o', 'a', 't', '\0'};
-        std::vector<std::pair<std::string_view, std::string_view>> records;
+        std::vector<std::pair<luisa::string_view, luisa::string_view>> records;
         auto accepted = lc::vk::detail::for_each_printer_record(
             luisa::span{valid}, 2u,
             [&](auto name, auto type) { records.emplace_back(name, type); });

@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "started": 1789373193.6694999,
+  "finished": 1789373194.206992,
+  "logical_files": 3360,
+  "unique_blobs": 992,
+  "full11_source_files": 26,
+  "full9_source_files": 23,
+  "captures": 22,
+  "prepares": 22,
+  "native_tile_pairs": 22,
+  "native_rows_pairs": 8,
+  "native_tile_visits": 264,
+  "native_rows_visits": 96,
+  "total_raw_samples": 1800,
+  "complete_final_outputs_rechecked": 360,
+  "full_output_fp64": true,
+  "all_ratios_recomputed": true,
+  "native_execution": false,
+  "reads_current_root_selected_or_raw": false,
+  "boundary": "Guards/input unchanged and actual scratch validation are original native receipts; their unpersisted bytes cannot be rerun offline. All saved final outputs and scratch FP64 references reread.",
+  "manifest_sha256": "625287cc3b2bda0e0b9968183cffdc210810e7bcc194af90763a9191bf238089"
+}

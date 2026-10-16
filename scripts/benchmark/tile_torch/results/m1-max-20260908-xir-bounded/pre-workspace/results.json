@@ -1,0 +1,3824 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-08T04:09:38.597309+00:00",
+    "backend": "cpu",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "git_revision": "3b96c263d7eb2492820f2b67b2f4f31be095ea08",
+    "torch_version": "2.14.0",
+    "torch_git_version": "08187d9e0fba026dc8217405802ab5381dc88d90",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "rounds": 2,
+    "samples": 7,
+    "sample_ms": 30,
+    "warmup_ms": 100,
+    "requested_threads": 8,
+    "removed_environment": {},
+    "artifacts_sha256": {
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir": "7a1ede1619a6015a62f9da4a23f80c86b9a4ca6a33c33011fd3d9adca3a6d15b",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libSPIRV.16.3.0.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libglslang-default-resource-limits.16.3.0.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libglslang.16.3.0.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-ast.dylib": "3593c30c2c40059772688aaa0512f51e8e7b9dd84a659dedabeeef4f5d447190",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-backend-metal.so": "292c088e42be06f6324bf733a43bfe00a47698d6789ef45461b6c2c6b3dfeb63",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-backend-simd.so": "a22fb23374a33d5f1b4f43470d3d4855c542810c3f1ae3922d5046ce58461d70",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-benchmark-metal-timing.dylib": "989657bf3419937efd8de38e17681574ee73f28455cc2548184818f589cf7ae8",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-core.dylib": "55f31daf2e618e78bfa9e4686c47e6d7cb4a8f3727e54c97952d719e69f663b4",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-coro.dylib": "9b6b2ed9528c537b3236d3f2e1a9e0dcbe68e501a0ca5da7b9c47b19a88f65b3",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-dsl.dylib": "192fa9ea1ee2c49caf241ca79b93c776490c553ecc215046e8e245ec2158b7a5",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-osl.dylib": "d6f0121521dd0f25dc5fc1c37afdca6dff8f0280a1da85450da36449a0261fb1",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-runtime.dylib": "97165ca9efb0a1ee57eee076fd145bc0a95f373f578cd595dd1c0613cabcb4ac",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-tile-bridge-tirx.dylib": "de6a123adaf2a678e1e74bfd29f0c87789b71df94229c2728b00434b3704fd99",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-tile-bridge-xir.dylib": "de9a44a54ab45c7264db9d0981e22b037965b826de6c65dafe05adf456e6f32f",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-tile.dylib": "634878d1d9d5d27ca5a3b585916f2f602718cb2d1b327abde37ea6c9a29283e2",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-validation-layer.so": "1b791d7f116d07b095ff13925bf7e475c1eebb7ba02424f3411aa9b02f37f7eb",
+      "/private/tmp/luisa-xir-bounded.kADecq/candidate/libluisa-xir.dylib": "91fbf5814302f48263f0618798e5ec8cd3d24fdecdd19b62f49a551bb5812925"
+    },
+    "source_sha256": {
+      "src/tests/common/tile_llm_test_utils.h": "180afeeda467f9463bcda87b66f2e39610c30f860e261d5d035aaef5820f3227",
+      "src/tests/common/tile_llm_benchmark.h": "726c1f044d35d5d0e8fe212056a8ee7340f8f8399a3ee2cf11441115b2ec8ab8",
+      "scripts/benchmark/tile_torch/compare_llm.py": "f46167880df84b65558c3eebd7bf231941adad08803e81e2be89a23993619beb",
+      "scripts/benchmark/tile_torch/run.py": "d3552ac3b6723caa5694bed3c287b4f9ef2ea617e944ec00787a46181bec2389"
+    },
+    "comparison": "FP32 same exported inputs; warmed E2E excludes compile/upload; GPU control uses uninstrumented command-buffer intervals, not isolated kernel time",
+    "baseline": null,
+    "reduction_tree": false,
+    "requested_group_threads": 0,
+    "requested_input_views": false,
+    "attention_qk": "mma",
+    "selection": "fixed capture; source unordered-tree policy; recorded candidate/group/input-view constraints; no timing-based tuning",
+    "artifacts_unchanged": true
+  },
+  "results": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        1537
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,1537",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-9p93c0ih/rmsnorm-17x1537-r0-native.f32"
+      ],
+      "source": "rmsnorm-17x1537-r0-native.ll",
+      "source_sha256": "71a744b4f0e01efbdf5806683f55cf2fe1f39642933a6a9d9f57079e5563c1a4",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          1537
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            1537
+          ],
+          [
+            1,
+            1537
+          ],
+          [
+            1,
+            1537
+          ]
+        ],
+        "output_shape": [
+          17,
+          1537
+        ],
+        "fixture_ms": 0.262584,
+        "runtime_init_ms": 11.614666,
+        "compile_ms": 34.033959,
+        "allocation_upload_ms": 0.020042,
+        "cold_call_ms": 0.082375,
+        "warmup_ms": 100.3945,
+        "repetitions": 484,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=31, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 1263551.000 (arithmetic 73785.000, memory 1189638.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 26129,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.98030471915e-07
+        },
+        "throughput_us": [
+          63.9799421488,
+          63.6123450413,
+          64.4079710744,
+          64.1406694215,
+          63.4337107438,
+          63.422607438,
+          69.5935785124
+        ],
+        "latency_us": [
+          68.25,
+          64.292,
+          64.875,
+          64.958,
+          64,
+          64.25,
+          65.667
+        ],
+        "throughput_us_p50": 63.9799421488,
+        "throughput_us_p90": 66.4822140496,
+        "latency_us_p50": 64.875,
+        "latency_us_p90": 66.7002
+      },
+      "correctness": {
+        "elements": 26129,
+        "max_abs_error": 3.980304719153338e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c0fc50cc9389d599dc436825eaca4212936aeeadc91e8a6466a17ee89f8c1be3",
+        "24112648bf1ef25e25f212e87dd6101f15517f30da96c4811ca3613e3fe91d59",
+        "6d8a5243d9c116c26c57cb21476e027155f9572d3946a1ea1c86b0feb5012ad8"
+      ],
+      "output_sha256": "8e8f0d2e9a125124773b31ad2fb9733f9e373ce2882897459af9ce84f6f67c85"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        1537
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.027666,
+        "warmup_ms": 100.061875,
+        "repetitions": 1528,
+        "throughput_us": [
+          19.14774214659686,
+          18.12148232984293,
+          18.20620615183246,
+          17.851439790575917,
+          18.20391557591623,
+          17.699689136125656,
+          17.940281413612567
+        ],
+        "latency_us": [
+          20.458000000000002,
+          18.583,
+          17.958,
+          18.334,
+          17.458000000000002,
+          18.584,
+          18.125
+        ],
+        "throughput_us_p50": 18.12148232984293,
+        "throughput_us_p90": 18.58282054973822,
+        "latency_us_p50": 18.334,
+        "latency_us_p90": 19.3336,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 26129,
+          "max_abs_error": 2.5566714834113213e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 26129,
+        "max_abs_error": 2.5566714834113213e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c0fc50cc9389d599dc436825eaca4212936aeeadc91e8a6466a17ee89f8c1be3",
+        "24112648bf1ef25e25f212e87dd6101f15517f30da96c4811ca3613e3fe91d59",
+        "6d8a5243d9c116c26c57cb21476e027155f9572d3946a1ea1c86b0feb5012ad8"
+      ],
+      "output_sha256": "53b476d9de1f2c55a58172269f695c50629fdd0db57b4df567b38273b6915a7d"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        1537
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.02125,
+        "warmup_ms": 100.0885,
+        "repetitions": 1496,
+        "throughput_us": [
+          18.00704612299465,
+          18.54439639037433,
+          18.738274064171122,
+          18.226827540106953,
+          17.726966577540107,
+          18.709336229946523,
+          18.721451871657756
+        ],
+        "latency_us": [
+          19.5,
+          17.833000000000002,
+          17.375,
+          17.458000000000002,
+          17.416999999999998,
+          17.541,
+          17.958
+        ],
+        "throughput_us_p50": 18.54439639037433,
+        "throughput_us_p90": 18.728180748663103,
+        "latency_us_p50": 17.541,
+        "latency_us_p90": 18.5748,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 26129,
+          "max_abs_error": 2.5566714834113213e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 26129,
+        "max_abs_error": 2.5566714834113213e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c0fc50cc9389d599dc436825eaca4212936aeeadc91e8a6466a17ee89f8c1be3",
+        "24112648bf1ef25e25f212e87dd6101f15517f30da96c4811ca3613e3fe91d59",
+        "6d8a5243d9c116c26c57cb21476e027155f9572d3946a1ea1c86b0feb5012ad8"
+      ],
+      "output_sha256": "53b476d9de1f2c55a58172269f695c50629fdd0db57b4df567b38273b6915a7d"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        1537
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,1537",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-9p93c0ih/rmsnorm-17x1537-r1-native.f32"
+      ],
+      "source": "rmsnorm-17x1537-r1-native.ll",
+      "source_sha256": "71a744b4f0e01efbdf5806683f55cf2fe1f39642933a6a9d9f57079e5563c1a4",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          17,
+          1537
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            1537
+          ],
+          [
+            1,
+            1537
+          ],
+          [
+            1,
+            1537
+          ]
+        ],
+        "output_shape": [
+          17,
+          1537
+        ],
+        "fixture_ms": 0.268125,
+        "runtime_init_ms": 11.320542,
+        "compile_ms": 33.984333,
+        "allocation_upload_ms": 0.020416,
+        "cold_call_ms": 0.07775,
+        "warmup_ms": 100.348125,
+        "repetitions": 484,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=31, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 1263551.000 (arithmetic 73785.000, memory 1189638.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 26129,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.98030471915e-07
+        },
+        "throughput_us": [
+          63.2058367769,
+          64.038911157,
+          63.0521694215,
+          63.4563533058,
+          62.8981570248,
+          63.0229855372,
+          63.1194049587
+        ],
+        "latency_us": [
+          66.625,
+          63.75,
+          63.792,
+          63.75,
+          63.834,
+          63.833,
+          63.75
+        ],
+        "throughput_us_p50": 63.1194049587,
+        "throughput_us_p90": 63.68937644628,
+        "latency_us_p50": 63.792,
+        "latency_us_p90": 64.9504
+      },
+      "correctness": {
+        "elements": 26129,
+        "max_abs_error": 3.980304719153338e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c0fc50cc9389d599dc436825eaca4212936aeeadc91e8a6466a17ee89f8c1be3",
+        "24112648bf1ef25e25f212e87dd6101f15517f30da96c4811ca3613e3fe91d59",
+        "6d8a5243d9c116c26c57cb21476e027155f9572d3946a1ea1c86b0feb5012ad8"
+      ],
+      "output_sha256": "8e8f0d2e9a125124773b31ad2fb9733f9e373ce2882897459af9ce84f6f67c85"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-oh88b9e0/rmsnorm-1024x4096-r0-native.f32"
+      ],
+      "source": "rmsnorm-1024x4096-r0-native.ll",
+      "source_sha256": "67d519ce93694fd02cc3ae73085b70633e697ec53367a99ed106c35a023bc33e",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            4096
+          ],
+          [
+            1,
+            4096
+          ],
+          [
+            1,
+            4096
+          ]
+        ],
+        "output_shape": [
+          1024,
+          4096
+        ],
+        "fixture_ms": 32.293125,
+        "runtime_init_ms": 11.856083,
+        "compile_ms": 167.79825,
+        "allocation_upload_ms": 5.302084,
+        "cold_call_ms": 2.065834,
+        "warmup_ms": 107.235667,
+        "repetitions": 16,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=29, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 9502896.000 (arithmetic 1048624.000, memory 8454144.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4194304,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 8.2408983948e-07
+        },
+        "throughput_us": [
+          1897.263,
+          1940.56775,
+          1948.1119375,
+          1909.6640625,
+          1862.7056875,
+          1886.59375,
+          1903.8515625
+        ],
+        "latency_us": [
+          1932.333,
+          1876.292,
+          1952.417,
+          1915.291,
+          1907.417,
+          1684.167,
+          2215.208
+        ],
+        "throughput_us_p50": 1903.8515625,
+        "throughput_us_p90": 1943.585425,
+        "latency_us_p50": 1915.291,
+        "latency_us_p90": 2057.5334000000003
+      },
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 8.240898459188628e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "output_sha256": "b3170d1d702484ac6f84db17781be97dd64ac7f3083fa3d004acc5aee4fe42c7"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 3.027625,
+        "warmup_ms": 105.224167,
+        "repetitions": 27,
+        "throughput_us": [
+          1156.6944444444443,
+          1237.9475185185186,
+          1186.5617407407406,
+          1221.8672962962964,
+          1189.756148148148,
+          1199.7824074074076,
+          1188.5401111111112
+        ],
+        "latency_us": [
+          1231.166,
+          1118.792,
+          1195.708,
+          1364.333,
+          1150.334,
+          1228.625,
+          1195.6670000000001
+        ],
+        "throughput_us_p50": 1189.756148148148,
+        "throughput_us_p90": 1228.2993851851852,
+        "latency_us_p50": 1195.708,
+        "latency_us_p90": 1284.4328,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4194304,
+          "max_abs_error": 3.0245854309995934e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 3.0245854309995934e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "output_sha256": "f129127cd5445dd12bc247ebae5011e8abd607df2ccbced523f8761f61b86a84"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 1.204,
+        "warmup_ms": 107.10375,
+        "repetitions": 23,
+        "throughput_us": [
+          1187.8768260869565,
+          1189.6050869565217,
+          1199.2210434782608,
+          1212.2536521739132,
+          1102.5561739130435,
+          1107.9945652173913,
+          1151.6775217391303
+        ],
+        "latency_us": [
+          1220.167,
+          1362.625,
+          1189.667,
+          1128.125,
+          1156.75,
+          1063.7920000000001,
+          1248.667
+        ],
+        "throughput_us_p50": 1187.8768260869565,
+        "throughput_us_p90": 1204.4340869565217,
+        "latency_us_p50": 1189.667,
+        "latency_us_p90": 1294.2502,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4194304,
+          "max_abs_error": 3.0245854309995934e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 3.0245854309995934e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "output_sha256": "f129127cd5445dd12bc247ebae5011e8abd607df2ccbced523f8761f61b86a84"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-oh88b9e0/rmsnorm-1024x4096-r1-native.f32"
+      ],
+      "source": "rmsnorm-1024x4096-r1-native.ll",
+      "source_sha256": "67d519ce93694fd02cc3ae73085b70633e697ec53367a99ed106c35a023bc33e",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rmsnorm",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            4096
+          ],
+          [
+            1,
+            4096
+          ],
+          [
+            1,
+            4096
+          ]
+        ],
+        "output_shape": [
+          1024,
+          4096
+        ],
+        "fixture_ms": 32.559625,
+        "runtime_init_ms": 10.958041,
+        "compile_ms": 161.114959,
+        "allocation_upload_ms": 4.48075,
+        "cold_call_ms": 1.892791,
+        "warmup_ms": 110.134291,
+        "repetitions": 15,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=29, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 9502896.000 (arithmetic 1048624.000, memory 8454144.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4194304,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 8.2408983948e-07
+        },
+        "throughput_us": [
+          2009.74166667,
+          1885.9722,
+          1865.50553333,
+          1878.7444,
+          1904.8528,
+          1819.56666667,
+          1956.78886667
+        ],
+        "latency_us": [
+          1850.667,
+          1930.625,
+          1953.333,
+          1875.583,
+          1857.5,
+          1962.459,
+          2277.458
+        ],
+        "throughput_us_p50": 1885.9722,
+        "throughput_us_p90": 1977.96998667,
+        "latency_us_p50": 1930.625,
+        "latency_us_p90": 2088.4586000000004
+      },
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 8.240898459188628e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "output_sha256": "b3170d1d702484ac6f84db17781be97dd64ac7f3083fa3d004acc5aee4fe42c7"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        16384
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,16384",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-3ksm5c7e/rmsnorm-64x16384-r0-native.f32"
+      ],
+      "source": "rmsnorm-64x16384-r0-native.ll",
+      "source_sha256": "a7a4b257331aeabff7c83bec6a3742d0d1fe64eeea58290be44adf3973d51f73",
+      "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'rmsnorm', '64,16384', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-3ksm5c7e/rmsnorm-64x16384-r0-native.f32']' died with <Signals.SIGSEGV: 11>."
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        16384
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.431,
+        "warmup_ms": 101.9865,
+        "repetitions": 76,
+        "throughput_us": [
+          381.8114078947368,
+          382.73957894736844,
+          381.0230263157895,
+          380.9166710526316,
+          382.7066842105263,
+          340.04494736842105,
+          352.3717105263158
+        ],
+        "latency_us": [
+          291.75,
+          298.5,
+          278.41700000000003,
+          333.916,
+          328.042,
+          340.41700000000003,
+          277.167
+        ],
+        "throughput_us_p50": 381.0230263157895,
+        "throughput_us_p90": 382.7198421052632,
+        "latency_us_p50": 298.5,
+        "latency_us_p90": 336.51640000000003,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 1048576,
+          "max_abs_error": 2.8150548292416033e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 1048576,
+        "max_abs_error": 2.8150548292416033e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "f2a4466ac6634214aed4406d4c58f2641e2f3ef081190035b58c821e582bb51c",
+        "c58f29de2c50f764c64a12cc49c99fba04a8f4b01991c4f979ce646d5e795d80",
+        "d80ce3aef5a486a9765230a28c409336c755f63d3d8cfda5d6b5c2200a70aa48"
+      ],
+      "output_sha256": "2af6c41d44eb108cb529902bb8a30266f37a03b2ecff4f3e224953678da8ab23"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        16384
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.465792,
+        "warmup_ms": 101.585167,
+        "repetitions": 78,
+        "throughput_us": [
+          379.5630384615385,
+          404.1623846153846,
+          390.0437948717949,
+          392.6121794871795,
+          365.85897435897436,
+          337.02456410256406,
+          352.93964102564104
+        ],
+        "latency_us": [
+          300.625,
+          431.166,
+          393.291,
+          376.79200000000003,
+          368.875,
+          370.75,
+          322.167
+        ],
+        "throughput_us_p50": 379.5630384615385,
+        "throughput_us_p90": 397.23226153846156,
+        "latency_us_p50": 370.75,
+        "latency_us_p90": 408.44100000000003,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 1048576,
+          "max_abs_error": 2.8150548292416033e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 1048576,
+        "max_abs_error": 2.8150548292416033e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "f2a4466ac6634214aed4406d4c58f2641e2f3ef081190035b58c821e582bb51c",
+        "c58f29de2c50f764c64a12cc49c99fba04a8f4b01991c4f979ce646d5e795d80",
+        "d80ce3aef5a486a9765230a28c409336c755f63d3d8cfda5d6b5c2200a70aa48"
+      ],
+      "output_sha256": "2af6c41d44eb108cb529902bb8a30266f37a03b2ecff4f3e224953678da8ab23"
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        16384
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,16384",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-3ksm5c7e/rmsnorm-64x16384-r1-native.f32"
+      ],
+      "source": "rmsnorm-64x16384-r1-native.ll",
+      "source_sha256": "a7a4b257331aeabff7c83bec6a3742d0d1fe64eeea58290be44adf3973d51f73",
+      "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'rmsnorm', '64,16384', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-3ksm5c7e/rmsnorm-64x16384-r1-native.f32']' died with <Signals.SIGSEGV: 11>."
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "layernorm",
+        "64,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-c6e4e9g2/layernorm-64x4096-r0-native.f32"
+      ],
+      "source": "layernorm-64x4096-r0-native.ll",
+      "source_sha256": "1fc2e1e15cc4527b355e942425e04cc38451c5b50547b7f3834eaf064d4f21dd",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            4096
+          ],
+          [
+            1,
+            4096
+          ],
+          [
+            1,
+            4096
+          ]
+        ],
+        "output_shape": [
+          64,
+          4096
+        ],
+        "fixture_ms": 2.129834,
+        "runtime_init_ms": 11.233625,
+        "compile_ms": 49.636375,
+        "allocation_upload_ms": 0.2205,
+        "cold_call_ms": 0.866041,
+        "warmup_ms": 102.511,
+        "repetitions": 40,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=54, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 3948688.000 (arithmetic 507920.000, memory 3440640.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 262144,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 7.86010472709e-07
+        },
+        "throughput_us": [
+          745.4323,
+          757.3073,
+          715.771875,
+          744.7646,
+          737.02915,
+          744.953125,
+          719.608325
+        ],
+        "latency_us": [
+          672.5,
+          717.875,
+          744.833,
+          666.166,
+          719.042,
+          712.625,
+          786.667
+        ],
+        "throughput_us_p50": 744.7646,
+        "throughput_us_p90": 750.1823,
+        "latency_us_p50": 717.875,
+        "latency_us_p90": 761.5666
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 7.860104744850105e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "output_sha256": "0099b9a64788589326218e88a6455eaf1c99ff1b7d9e61e57a037bc2e15a489c"
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.109875,
+        "warmup_ms": 100.612791,
+        "repetitions": 322,
+        "throughput_us": [
+          78.69642857142857,
+          84.60623913043477,
+          85.85753105590062,
+          86.11439130434782,
+          86.65786645962733,
+          87.87965838509317,
+          87.74663354037266
+        ],
+        "latency_us": [
+          109.625,
+          96.375,
+          83.833,
+          89.334,
+          86.75,
+          79.334,
+          72.292
+        ],
+        "throughput_us_p50": 86.11439130434782,
+        "throughput_us_p90": 87.79984347826085,
+        "latency_us_p50": 86.75,
+        "latency_us_p90": 101.67500000000001,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 262144,
+          "max_abs_error": 4.428723761051856e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 4.428723761051856e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "output_sha256": "04b296ff8af3a5d031ddb266d8605297e1945532810542acba6b95d5fcda1d7b"
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.112834,
+        "warmup_ms": 100.235125,
+        "repetitions": 353,
+        "throughput_us": [
+          87.11118980169972,
+          86.10965439093484,
+          86.61992351274789,
+          85.91359773371104,
+          89.57117563739376,
+          91.39105382436261,
+          82.7116373937677
+        ],
+        "latency_us": [
+          76.708,
+          70.66600000000001,
+          83.958,
+          80.417,
+          66.834,
+          81.292,
+          77.541
+        ],
+        "throughput_us_p50": 86.61992351274789,
+        "throughput_us_p90": 90.29912691218131,
+        "latency_us_p50": 77.541,
+        "latency_us_p90": 82.3584,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 262144,
+          "max_abs_error": 4.428723761051856e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 4.428723761051856e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "output_sha256": "04b296ff8af3a5d031ddb266d8605297e1945532810542acba6b95d5fcda1d7b"
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "layernorm",
+        "64,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-c6e4e9g2/layernorm-64x4096-r1-native.f32"
+      ],
+      "source": "layernorm-64x4096-r1-native.ll",
+      "source_sha256": "1fc2e1e15cc4527b355e942425e04cc38451c5b50547b7f3834eaf064d4f21dd",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "layernorm",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            4096
+          ],
+          [
+            1,
+            4096
+          ],
+          [
+            1,
+            4096
+          ]
+        ],
+        "output_shape": [
+          64,
+          4096
+        ],
+        "fixture_ms": 2.051208,
+        "runtime_init_ms": 10.924875,
+        "compile_ms": 47.712791,
+        "allocation_upload_ms": 0.241041,
+        "cold_call_ms": 0.751,
+        "warmup_ms": 102.557042,
+        "repetitions": 43,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=54, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 3948688.000 (arithmetic 507920.000, memory 3440640.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 262144,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 7.86010472709e-07
+        },
+        "throughput_us": [
+          715.624023256,
+          714.167627907,
+          708.014534884,
+          719.680232558,
+          707.313,
+          701.349813953,
+          724.410860465
+        ],
+        "latency_us": [
+          749.917,
+          745.917,
+          695.125,
+          760.125,
+          755.541,
+          773.25,
+          780.292
+        ],
+        "throughput_us_p50": 714.167627907,
+        "throughput_us_p90": 721.5724837207999,
+        "latency_us_p50": 755.541,
+        "latency_us_p90": 776.0668000000001
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 7.860104744850105e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "bbaa55dd898e521ef69165b0d412e385a52db59ef05a4d5f94c3bc614da3609c",
+        "6694390bef6a9b3d53c7cdbf693723bb18990681e859f805e6ee81de1ef33e50"
+      ],
+      "output_sha256": "0099b9a64788589326218e88a6455eaf1c99ff1b7d9e61e57a037bc2e15a489c"
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "layernorm",
+        "17,16384",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ia23zg8q/layernorm-17x16384-r0-native.f32"
+      ],
+      "source": "layernorm-17x16384-r0-native.ll",
+      "source_sha256": "ca7e5f749e3c8074b3dc7239af2f4f01af9957806c0878cc6e9ed5e0593cb155",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "layernorm",
+        "dimensions": [
+          17,
+          16384
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            16384
+          ],
+          [
+            1,
+            16384
+          ],
+          [
+            1,
+            16384
+          ]
+        ],
+        "output_shape": [
+          17,
+          16384
+        ],
+        "fixture_ms": 2.160916,
+        "runtime_init_ms": 11.86575,
+        "compile_ms": 49.2595,
+        "allocation_upload_ms": 0.39875,
+        "cold_call_ms": 1.784875,
+        "warmup_ms": 111.081291,
+        "repetitions": 19,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=54, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 22167692.000 (arithmetic 1523724.000, memory 20643840.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 278528,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 9.76451826951e-07
+        },
+        "throughput_us": [
+          1542.67763158,
+          1598.30921053,
+          1552.58331579,
+          1526.23463158,
+          1510.32894737,
+          1528.65568421,
+          1509.69078947
+        ],
+        "latency_us": [
+          1504.084,
+          1503.792,
+          1653.166,
+          1613.333,
+          1597.875,
+          1503.708,
+          1476.25
+        ],
+        "throughput_us_p50": 1528.65568421,
+        "throughput_us_p90": 1570.8736736859998,
+        "latency_us_p50": 1504.084,
+        "latency_us_p90": 1629.2662
+      },
+      "correctness": {
+        "elements": 278528,
+        "max_abs_error": 9.7645182606243e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c7189067fe3aa3fe603e8cedd4919c19b76b78957108763a0149691242099bea",
+        "c58f29de2c50f764c64a12cc49c99fba04a8f4b01991c4f979ce646d5e795d80",
+        "d80ce3aef5a486a9765230a28c409336c755f63d3d8cfda5d6b5c2200a70aa48"
+      ],
+      "output_sha256": "542f0a4d83334ff5880513b9e8331b2a83380be992e728a88831bb0504655ff0"
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.111291,
+        "warmup_ms": 100.3875,
+        "repetitions": 380,
+        "throughput_us": [
+          92.47127368421052,
+          89.32390263157895,
+          87.84407894736842,
+          86.80646842105263,
+          87.13969210526318,
+          87.76929736842105,
+          86.08892631578946
+        ],
+        "latency_us": [
+          78.125,
+          80.541,
+          76.333,
+          81.25,
+          73.25,
+          80.708,
+          87.125
+        ],
+        "throughput_us_p50": 87.76929736842105,
+        "throughput_us_p90": 90.58285105263157,
+        "latency_us_p50": 80.541,
+        "latency_us_p90": 83.60000000000001,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 278528,
+          "max_abs_error": 3.984441403481753e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 278528,
+        "max_abs_error": 3.984441403481753e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c7189067fe3aa3fe603e8cedd4919c19b76b78957108763a0149691242099bea",
+        "c58f29de2c50f764c64a12cc49c99fba04a8f4b01991c4f979ce646d5e795d80",
+        "d80ce3aef5a486a9765230a28c409336c755f63d3d8cfda5d6b5c2200a70aa48"
+      ],
+      "output_sha256": "870cab10850fb425c213ffd1fd6521bdff74ca17db8b5de30e039f267966f9e2"
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.120292,
+        "warmup_ms": 100.253042,
+        "repetitions": 354,
+        "throughput_us": [
+          86.48411016949153,
+          85.50541525423728,
+          85.9180790960452,
+          91.8372175141243,
+          88.53601694915254,
+          86.81509039548023,
+          88.92831920903954
+        ],
+        "latency_us": [
+          79.542,
+          120.458,
+          98.333,
+          80.834,
+          91.459,
+          106.083,
+          99.667
+        ],
+        "throughput_us_p50": 86.81509039548023,
+        "throughput_us_p90": 90.09187853107345,
+        "latency_us_p50": 98.333,
+        "latency_us_p90": 111.833,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 278528,
+          "max_abs_error": 3.984441403481753e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 278528,
+        "max_abs_error": 3.984441403481753e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c7189067fe3aa3fe603e8cedd4919c19b76b78957108763a0149691242099bea",
+        "c58f29de2c50f764c64a12cc49c99fba04a8f4b01991c4f979ce646d5e795d80",
+        "d80ce3aef5a486a9765230a28c409336c755f63d3d8cfda5d6b5c2200a70aa48"
+      ],
+      "output_sha256": "870cab10850fb425c213ffd1fd6521bdff74ca17db8b5de30e039f267966f9e2"
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "layernorm",
+        "17,16384",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ia23zg8q/layernorm-17x16384-r1-native.f32"
+      ],
+      "source": "layernorm-17x16384-r1-native.ll",
+      "source_sha256": "ca7e5f749e3c8074b3dc7239af2f4f01af9957806c0878cc6e9ed5e0593cb155",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "layernorm",
+        "dimensions": [
+          17,
+          16384
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            17,
+            16384
+          ],
+          [
+            1,
+            16384
+          ],
+          [
+            1,
+            16384
+          ]
+        ],
+        "output_shape": [
+          17,
+          16384
+        ],
+        "fixture_ms": 2.186042,
+        "runtime_init_ms": 11.353917,
+        "compile_ms": 47.838083,
+        "allocation_upload_ms": 0.344,
+        "cold_call_ms": 1.586292,
+        "warmup_ms": 110.419125,
+        "repetitions": 18,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=54, direct CFG=true, contiguous reads=0, broadcasts=2; exact search 6 candidates, uncalibrated cost 22167692.000 (arithmetic 1523724.000, memory 20643840.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 278528,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 9.76451826951e-07
+        },
+        "throughput_us": [
+          1515.24072222,
+          1526.27544444,
+          1501.94672222,
+          1522.10183333,
+          1541.39583333,
+          1536.78933333,
+          1524.23383333
+        ],
+        "latency_us": [
+          1639.667,
+          1649.625,
+          1509.333,
+          1494.334,
+          1543.334,
+          1538.084,
+          1499.292
+        ],
+        "throughput_us_p50": 1524.23383333,
+        "throughput_us_p90": 1538.63193333,
+        "latency_us_p50": 1538.084,
+        "latency_us_p90": 1643.6502
+      },
+      "correctness": {
+        "elements": 278528,
+        "max_abs_error": 9.7645182606243e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c7189067fe3aa3fe603e8cedd4919c19b76b78957108763a0149691242099bea",
+        "c58f29de2c50f764c64a12cc49c99fba04a8f4b01991c4f979ce646d5e795d80",
+        "d80ce3aef5a486a9765230a28c409336c755f63d3d8cfda5d6b5c2200a70aa48"
+      ],
+      "output_sha256": "542f0a4d83334ff5880513b9e8331b2a83380be992e728a88831bb0504655ff0"
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "64,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ud3vxcro/masked_softmax-64x4096-r0-native.f32"
+      ],
+      "source": "masked_softmax-64x4096-r0-native.ll",
+      "source_sha256": "16d922fbd973ce88fe460c380da661f51c04e431a2bb3dd9603362e71b155233",
+      "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'masked_softmax', '64,4096', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ud3vxcro/masked_softmax-64x4096-r0-native.f32']' died with <Signals.SIGSEGV: 11>."
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.245875,
+        "warmup_ms": 100.717125,
+        "repetitions": 106,
+        "throughput_us": [
+          251.36634905660375,
+          248.50235849056602,
+          246.316820754717,
+          243.8195754716981,
+          249.8117169811321,
+          243.32665094339623,
+          246.76179245283018
+        ],
+        "latency_us": [
+          233.83300000000003,
+          250.166,
+          252.042,
+          232.709,
+          221.917,
+          267.45799999999997,
+          210.917
+        ],
+        "throughput_us_p50": 246.76179245283018,
+        "throughput_us_p90": 250.43356981132075,
+        "latency_us_p50": 233.83300000000003,
+        "latency_us_p90": 258.2084,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 262144,
+          "max_abs_error": 3.543622573154437e-08,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 3.543622573154437e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "d5f58ea7c209a0c62a22d5dac8bd6b1b0c44c332e24cb145c7e47dbd34ce7c94",
+        "9f49be8b8fd223a784eeaa79d8b8a84390cbcefac05719faeee4b8e812e621b6"
+      ],
+      "output_sha256": "8670e79e0a606b327635db81493299a9c1576c2db2e49ae2288ed0bd34f7e01b"
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.2775,
+        "warmup_ms": 100.28475,
+        "repetitions": 129,
+        "throughput_us": [
+          252.1065891472868,
+          247.66311627906978,
+          250.96769767441862,
+          244.5125968992248,
+          245.58268992248063,
+          252.2112403100775,
+          246.84141085271318
+        ],
+        "latency_us": [
+          275.375,
+          235.916,
+          263.5,
+          218.20899999999997,
+          229.416,
+          250.208,
+          333.125
+        ],
+        "throughput_us_p50": 247.66311627906978,
+        "throughput_us_p90": 252.14844961240308,
+        "latency_us_p50": 250.208,
+        "latency_us_p90": 298.475,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 262144,
+          "max_abs_error": 3.543622573154437e-08,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 3.543622573154437e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "d5f58ea7c209a0c62a22d5dac8bd6b1b0c44c332e24cb145c7e47dbd34ce7c94",
+        "9f49be8b8fd223a784eeaa79d8b8a84390cbcefac05719faeee4b8e812e621b6"
+      ],
+      "output_sha256": "8670e79e0a606b327635db81493299a9c1576c2db2e49ae2288ed0bd34f7e01b"
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "64,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ud3vxcro/masked_softmax-64x4096-r1-native.f32"
+      ],
+      "source": "masked_softmax-64x4096-r1-native.ll",
+      "source_sha256": "16d922fbd973ce88fe460c380da661f51c04e431a2bb3dd9603362e71b155233",
+      "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'masked_softmax', '64,4096', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-ud3vxcro/masked_softmax-64x4096-r1-native.f32']' died with <Signals.SIGSEGV: 11>."
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "17,16384",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-a4gqizzs/masked_softmax-17x16384-r0-native.f32"
+      ],
+      "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'masked_softmax', '17,16384', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-a4gqizzs/masked_softmax-17x16384-r0-native.f32']' returned non-zero exit status 2."
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.30525,
+        "warmup_ms": 101.212917,
+        "repetitions": 117,
+        "throughput_us": [
+          256.5324102564103,
+          258.04700854700855,
+          250.61858974358975,
+          253.56089743589743,
+          261.409547008547,
+          250.79523076923078,
+          267.13105128205126
+        ],
+        "latency_us": [
+          255.41599999999997,
+          341.0,
+          269.584,
+          330.792,
+          466.083,
+          461.083,
+          330.583
+        ],
+        "throughput_us_p50": 256.5324102564103,
+        "throughput_us_p90": 263.6981487179487,
+        "latency_us_p50": 330.792,
+        "latency_us_p90": 463.083,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 278528,
+          "max_abs_error": 2.798675102777537e-08,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 278528,
+        "max_abs_error": 2.798675102777537e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c7189067fe3aa3fe603e8cedd4919c19b76b78957108763a0149691242099bea",
+        "0bab559c3063092c2d886e03046c8fbfa7028eec132e1bd3d950a78d3df54c0c",
+        "9aa298badc43b4eed0285047188dc697d30f0d9670516439b7b548be5ef68960"
+      ],
+      "output_sha256": "6c61774c336918be899e4dc8d86fdb4bd3315032d3a19ce17425c4114b764e46"
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.296292,
+        "warmup_ms": 101.53625,
+        "repetitions": 123,
+        "throughput_us": [
+          245.51660162601627,
+          237.12431707317074,
+          242.83130081300814,
+          262.6212764227642,
+          248.7039349593496,
+          257.06232520325204,
+          290.0372601626016
+        ],
+        "latency_us": [
+          258.209,
+          313.583,
+          259.667,
+          238.25,
+          212.166,
+          280.41700000000003,
+          248.875
+        ],
+        "throughput_us_p50": 248.7039349593496,
+        "throughput_us_p90": 273.5876699186992,
+        "latency_us_p50": 258.209,
+        "latency_us_p90": 293.68340000000006,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 278528,
+          "max_abs_error": 2.798675102777537e-08,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 278528,
+        "max_abs_error": 2.798675102777537e-08,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "c7189067fe3aa3fe603e8cedd4919c19b76b78957108763a0149691242099bea",
+        "0bab559c3063092c2d886e03046c8fbfa7028eec132e1bd3d950a78d3df54c0c",
+        "9aa298badc43b4eed0285047188dc697d30f0d9670516439b7b548be5ef68960"
+      ],
+      "output_sha256": "6c61774c336918be899e4dc8d86fdb4bd3315032d3a19ce17425c4114b764e46"
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "masked_softmax",
+        "17,16384",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-a4gqizzs/masked_softmax-17x16384-r1-native.f32"
+      ],
+      "error": "Command '['/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir', 'llm', 'masked_softmax', '17,16384', '1', '1', '7', '30', '100', '/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-a4gqizzs/masked_softmax-17x16384-r1-native.f32']' returned non-zero exit status 2."
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "1024,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-y_7ym06h/swiglu-1024x4096-r0-native.f32"
+      ],
+      "source": "swiglu-1024x4096-r0-native.ll",
+      "source_sha256": "c6ea2736a4ce71f83eefe8c7a26bcf6c3aa1f53d25e18ba280d17c10822b5f30",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "swiglu",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            4096
+          ],
+          [
+            1024,
+            4096
+          ],
+          [
+            1024,
+            4096
+          ]
+        ],
+        "output_shape": [
+          1024,
+          4096
+        ],
+        "fixture_ms": 70.652167,
+        "runtime_init_ms": 11.200333,
+        "compile_ms": 134.040958,
+        "allocation_upload_ms": 7.383958,
+        "cold_call_ms": 3.972917,
+        "warmup_ms": 109.207542,
+        "repetitions": 8,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 8716416.000 (arithmetic 327680.000, memory 8388608.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4194304,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.26737583597e-07
+        },
+        "throughput_us": [
+          3415.60425,
+          3514.901,
+          3352.130125,
+          3376.578125,
+          3374.177125,
+          3336.598875,
+          3351.375
+        ],
+        "latency_us": [
+          3577.25,
+          3198.208,
+          3168.916,
+          3461.958,
+          3466.208,
+          3786.584,
+          3386.25
+        ],
+        "throughput_us_p50": 3374.177125,
+        "throughput_us_p90": 3455.3229499999998,
+        "latency_us_p50": 3461.958,
+        "latency_us_p90": 3660.9836
+      },
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "01cd94b7f88552c503c8ca5817e29f648104f180a2563099afb20d739bc56617",
+        "6940c645ddedec92f5910e7db14d0dc6d06a1219415603d539a65a301c750df9"
+      ],
+      "output_sha256": "4d44bb669ebbc7050375b165ebac200e03b51f23e0805dd2348dc8324c3422e5"
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 1.743875,
+        "warmup_ms": 103.313875,
+        "repetitions": 19,
+        "throughput_us": [
+          1600.8113684210527,
+          1579.146947368421,
+          1616.7236842105262,
+          1656.1622631578946,
+          1667.1184210526317,
+          1615.807,
+          1618.4144736842106
+        ],
+        "latency_us": [
+          1634.042,
+          1582.6670000000001,
+          1737.6670000000001,
+          1753.917,
+          1701.834,
+          1603.833,
+          1542.75
+        ],
+        "throughput_us_p50": 1616.7236842105262,
+        "throughput_us_p90": 1660.5447263157894,
+        "latency_us_p50": 1634.042,
+        "latency_us_p90": 1744.1670000000001,
+        "expression": "preallocated_aten_silu_out_then_mul_out",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4194304,
+          "max_abs_error": 2.267375835973695e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "01cd94b7f88552c503c8ca5817e29f648104f180a2563099afb20d739bc56617",
+        "6940c645ddedec92f5910e7db14d0dc6d06a1219415603d539a65a301c750df9"
+      ],
+      "output_sha256": "479c473095cc7b8984523759d5067d61a18e0bf1a023a0a37046ea3ed73d8b9e"
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 1.565125,
+        "warmup_ms": 103.946458,
+        "repetitions": 17,
+        "throughput_us": [
+          1723.524529411765,
+          1707.7598235294117,
+          1599.752411764706,
+          1663.6887647058822,
+          1651.1617647058824,
+          1604.4804117647059,
+          1637.465705882353
+        ],
+        "latency_us": [
+          1582.125,
+          1597.458,
+          1581.0420000000001,
+          1422.0410000000002,
+          1616.792,
+          1576.4579999999999,
+          1449.583
+        ],
+        "throughput_us_p50": 1651.1617647058824,
+        "throughput_us_p90": 1714.065705882353,
+        "latency_us_p50": 1581.0420000000001,
+        "latency_us_p90": 1605.1916,
+        "expression": "preallocated_aten_silu_out_then_mul_out",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4194304,
+          "max_abs_error": 2.267375835973695e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "01cd94b7f88552c503c8ca5817e29f648104f180a2563099afb20d739bc56617",
+        "6940c645ddedec92f5910e7db14d0dc6d06a1219415603d539a65a301c750df9"
+      ],
+      "output_sha256": "479c473095cc7b8984523759d5067d61a18e0bf1a023a0a37046ea3ed73d8b9e"
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "swiglu",
+        "1024,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-y_7ym06h/swiglu-1024x4096-r1-native.f32"
+      ],
+      "source": "swiglu-1024x4096-r1-native.ll",
+      "source_sha256": "c6ea2736a4ce71f83eefe8c7a26bcf6c3aa1f53d25e18ba280d17c10822b5f30",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "swiglu",
+        "dimensions": [
+          1024,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            1024,
+            4096
+          ],
+          [
+            1024,
+            4096
+          ],
+          [
+            1024,
+            4096
+          ]
+        ],
+        "output_shape": [
+          1024,
+          4096
+        ],
+        "fixture_ms": 71.509917,
+        "runtime_init_ms": 11.249209,
+        "compile_ms": 136.262416,
+        "allocation_upload_ms": 6.83425,
+        "cold_call_ms": 3.696458,
+        "warmup_ms": 111.041792,
+        "repetitions": 8,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 128 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 8716416.000 (arithmetic 327680.000, memory 8388608.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4194304,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.26737583597e-07
+        },
+        "throughput_us": [
+          3466.567625,
+          3338.859375,
+          3389.140625,
+          3440.041625,
+          3347.224,
+          3574.765625,
+          3458.520875
+        ],
+        "latency_us": [
+          3416.375,
+          3048.208,
+          3436.834,
+          3419.583,
+          3849.333,
+          3478.208,
+          3399.5
+        ],
+        "throughput_us_p50": 3440.041625,
+        "throughput_us_p90": 3509.846825,
+        "latency_us_p50": 3419.583,
+        "latency_us_p90": 3626.6580000000004
+      },
+      "correctness": {
+        "elements": 4194304,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "801640eeab20b4148b10d40123e8dc0e60e16dba2774ce0ae5d315e3fc8b1ebc",
+        "01cd94b7f88552c503c8ca5817e29f648104f180a2563099afb20d739bc56617",
+        "6940c645ddedec92f5910e7db14d0dc6d06a1219415603d539a65a301c750df9"
+      ],
+      "output_sha256": "4d44bb669ebbc7050375b165ebac200e03b51f23e0805dd2348dc8324c3422e5"
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        64,
+        1537
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "gelu_residual",
+        "64,1537",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-o1709lla/gelu_residual-64x1537-r0-native.f32"
+      ],
+      "source": "gelu_residual-64x1537-r0-native.ll",
+      "source_sha256": "6471d48f23776d2c42d53d1668db9fea62c8294a1c5b311331ac54848ff9e8c2",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "gelu_residual",
+        "dimensions": [
+          64,
+          1537
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            1537
+          ],
+          [
+            64,
+            1537
+          ],
+          [
+            64,
+            1537
+          ]
+        ],
+        "output_shape": [
+          64,
+          1537
+        ],
+        "fixture_ms": 1.881459,
+        "runtime_init_ms": 11.175208,
+        "compile_ms": 30.027917,
+        "allocation_upload_ms": 0.252208,
+        "cold_call_ms": 0.368458,
+        "warmup_ms": 100.650708,
+        "repetitions": 92,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 1143656.000 (arithmetic 61480.000, memory 1082048.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 98368,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.3307994185e-07
+        },
+        "throughput_us": [
+          322.255891304,
+          341.669380435,
+          324.134065217,
+          325.85098913,
+          322.403532609,
+          329.747282609,
+          326.291217391
+        ],
+        "latency_us": [
+          310.125,
+          299.625,
+          331.875,
+          313.334,
+          333.916,
+          334.417,
+          378.833
+        ],
+        "throughput_us_p50": 325.85098913,
+        "throughput_us_p90": 334.51612173940003,
+        "latency_us_p50": 331.875,
+        "latency_us_p90": 352.1834
+      },
+      "correctness": {
+        "elements": 98368,
+        "max_abs_error": 3.3307994140585606e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "99552712ddefb1086da7326debe5e620039038545991d56da81ff76a2672578e",
+        "a7fef5af034cd4c303599273530f8ab8ebf2a81b23948baeea761641a61dfe6e",
+        "933527845014114335fc70558c876431a4f94f9505b2aba020d8a9e1e65f0f8d"
+      ],
+      "output_sha256": "62546854cf2b7c207a525763406349176dc4c27b5b2ce0604974ad6d2fdd7037"
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        64,
+        1537
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.2235,
+        "warmup_ms": 101.656,
+        "repetitions": 124,
+        "throughput_us": [
+          217.5094112903226,
+          215.21942741935484,
+          222.05745967741936,
+          218.24899193548387,
+          219.63676612903225,
+          215.86458870967743,
+          218.81317741935484
+        ],
+        "latency_us": [
+          230.542,
+          215.792,
+          232.0,
+          203.91699999999997,
+          258.25,
+          258.75,
+          209.375
+        ],
+        "throughput_us_p50": 218.24899193548387,
+        "throughput_us_p90": 220.6050435483871,
+        "latency_us_p50": 230.542,
+        "latency_us_p90": 258.45,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 98368,
+          "max_abs_error": 2.594270291922385e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 98368,
+        "max_abs_error": 2.594270291922385e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "99552712ddefb1086da7326debe5e620039038545991d56da81ff76a2672578e",
+        "a7fef5af034cd4c303599273530f8ab8ebf2a81b23948baeea761641a61dfe6e",
+        "933527845014114335fc70558c876431a4f94f9505b2aba020d8a9e1e65f0f8d"
+      ],
+      "output_sha256": "fae2478c1446d3c4c0b16482445a2e4fdeaa862ca299b0a34e443469a605a4e0"
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        64,
+        1537
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.228709,
+        "warmup_ms": 100.686583,
+        "repetitions": 126,
+        "throughput_us": [
+          217.3161349206349,
+          219.8640873015873,
+          219.9666031746032,
+          220.64748412698415,
+          216.5968888888889,
+          221.61938095238096,
+          215.36673015873015
+        ],
+        "latency_us": [
+          237.792,
+          243.375,
+          228.458,
+          230.541,
+          209.375,
+          233.75,
+          208.083
+        ],
+        "throughput_us_p50": 219.8640873015873,
+        "throughput_us_p90": 221.03624285714287,
+        "latency_us_p50": 230.541,
+        "latency_us_p90": 240.0252,
+        "expression": "functional_eager_intermediate_and_output_allocations_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 98368,
+          "max_abs_error": 2.594270291922385e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 98368,
+        "max_abs_error": 2.594270291922385e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "99552712ddefb1086da7326debe5e620039038545991d56da81ff76a2672578e",
+        "a7fef5af034cd4c303599273530f8ab8ebf2a81b23948baeea761641a61dfe6e",
+        "933527845014114335fc70558c876431a4f94f9505b2aba020d8a9e1e65f0f8d"
+      ],
+      "output_sha256": "fae2478c1446d3c4c0b16482445a2e4fdeaa862ca299b0a34e443469a605a4e0"
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        64,
+        1537
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "gelu_residual",
+        "64,1537",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-o1709lla/gelu_residual-64x1537-r1-native.f32"
+      ],
+      "source": "gelu_residual-64x1537-r1-native.ll",
+      "source_sha256": "6471d48f23776d2c42d53d1668db9fea62c8294a1c5b311331ac54848ff9e8c2",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "gelu_residual",
+        "dimensions": [
+          64,
+          1537
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            1537
+          ],
+          [
+            64,
+            1537
+          ],
+          [
+            64,
+            1537
+          ]
+        ],
+        "output_shape": [
+          64,
+          1537
+        ],
+        "fixture_ms": 1.905375,
+        "runtime_init_ms": 11.573125,
+        "compile_ms": 27.95425,
+        "allocation_upload_ms": 0.334125,
+        "cold_call_ms": 0.335625,
+        "warmup_ms": 101.195209,
+        "repetitions": 98,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 1143656.000 (arithmetic 61480.000, memory 1082048.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 98368,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 3.3307994185e-07
+        },
+        "throughput_us": [
+          325.671346939,
+          325.550163265,
+          322.025510204,
+          322.778908163,
+          322.711734694,
+          323.284438776,
+          325.416663265
+        ],
+        "latency_us": [
+          340.416,
+          367.417,
+          360.083,
+          334.458,
+          326.375,
+          301.375,
+          314.416
+        ],
+        "throughput_us_p50": 323.284438776,
+        "throughput_us_p90": 325.5986367346,
+        "latency_us_p50": 334.458,
+        "latency_us_p90": 363.0166
+      },
+      "correctness": {
+        "elements": 98368,
+        "max_abs_error": 3.3307994140585606e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "99552712ddefb1086da7326debe5e620039038545991d56da81ff76a2672578e",
+        "a7fef5af034cd4c303599273530f8ab8ebf2a81b23948baeea761641a61dfe6e",
+        "933527845014114335fc70558c876431a4f94f9505b2aba020d8a9e1e65f0f8d"
+      ],
+      "output_sha256": "62546854cf2b7c207a525763406349176dc4c27b5b2ce0604974ad6d2fdd7037"
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "rope",
+        "64,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-1fy5yi_p/rope-64x4096-r0-native.f32"
+      ],
+      "source": "rope-64x4096-r0-native.ll",
+      "source_sha256": "18e6418b1f4e45e249fbe542f4d0ff1780682447799bb6d2e263cce67abd6872",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rope",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            4096
+          ],
+          [
+            64,
+            2048
+          ],
+          [
+            64,
+            2048
+          ]
+        ],
+        "output_shape": [
+          64,
+          4096
+        ],
+        "fixture_ms": 2.860667,
+        "runtime_init_ms": 11.591292,
+        "compile_ms": 81.737542,
+        "allocation_upload_ms": 0.341625,
+        "cold_call_ms": 0.449584,
+        "warmup_ms": 102.042334,
+        "repetitions": 70,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=19, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 2408576.000 (arithmetic 49152.000, memory 2359296.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 262144,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.36326400227e-07
+        },
+        "throughput_us": [
+          413.977371429,
+          416.195842857,
+          414.0887,
+          430.578571429,
+          411.8244,
+          414.902985714,
+          419.100585714
+        ],
+        "latency_us": [
+          431.541,
+          441.125,
+          411,
+          431.375,
+          437.417,
+          439.292,
+          405.875
+        ],
+        "throughput_us_p50": 414.902985714,
+        "throughput_us_p90": 423.69178,
+        "latency_us_p50": 431.541,
+        "latency_us_p90": 440.0252
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 2.363264002269716e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "76fd67471b857aa4731dc6f59e8b42249fa4c4bf7e101218b156d4c4de4c28fc",
+        "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+      ],
+      "output_sha256": "4b6d30a96b4b4776be7116287a1f62ac4d91eab7b188c3cb1e596c398350c242"
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.421291,
+        "warmup_ms": 102.795583,
+        "repetitions": 87,
+        "throughput_us": [
+          357.11445977011493,
+          388.6542183908046,
+          401.2547816091954,
+          421.96025287356315,
+          461.73850574712645,
+          311.28687356321836,
+          312.5608275862069
+        ],
+        "latency_us": [
+          322.542,
+          382.5,
+          344.33399999999995,
+          333.125,
+          407.75,
+          825.1659999999999,
+          398.125
+        ],
+        "throughput_us_p50": 388.6542183908046,
+        "throughput_us_p90": 437.8715540229885,
+        "latency_us_p50": 382.5,
+        "latency_us_p90": 574.7164000000001,
+        "expression": "preallocated_split_half_rope_six_out_ops",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 262144,
+          "max_abs_error": 2.363264002269716e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 2.363264002269716e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "76fd67471b857aa4731dc6f59e8b42249fa4c4bf7e101218b156d4c4de4c28fc",
+        "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+      ],
+      "output_sha256": "4b6d30a96b4b4776be7116287a1f62ac4d91eab7b188c3cb1e596c398350c242"
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.354958,
+        "warmup_ms": 102.435917,
+        "repetitions": 74,
+        "throughput_us": [
+          325.6418918918919,
+          333.87331081081084,
+          359.09852702702705,
+          324.1075405405406,
+          376.03547297297297,
+          354.2122702702703,
+          366.57149999999996
+        ],
+        "latency_us": [
+          418.58299999999997,
+          339.0,
+          324.958,
+          337.167,
+          364.833,
+          310.58299999999997,
+          297.916
+        ],
+        "throughput_us_p50": 354.2122702702703,
+        "throughput_us_p90": 370.35708918918914,
+        "latency_us_p50": 337.167,
+        "latency_us_p90": 386.333,
+        "expression": "preallocated_split_half_rope_six_out_ops",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 262144,
+          "max_abs_error": 2.363264002269716e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 2.363264002269716e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "76fd67471b857aa4731dc6f59e8b42249fa4c4bf7e101218b156d4c4de4c28fc",
+        "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+      ],
+      "output_sha256": "4b6d30a96b4b4776be7116287a1f62ac4d91eab7b188c3cb1e596c398350c242"
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "rope",
+        "64,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-1fy5yi_p/rope-64x4096-r1-native.f32"
+      ],
+      "source": "rope-64x4096-r1-native.ll",
+      "source_sha256": "18e6418b1f4e45e249fbe542f4d0ff1780682447799bb6d2e263cce67abd6872",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "rope",
+        "dimensions": [
+          64,
+          4096
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "not_applicable",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          1,
+          1
+        ],
+        "input_shapes": [
+          [
+            64,
+            4096
+          ],
+          [
+            64,
+            2048
+          ],
+          [
+            64,
+            2048
+          ]
+        ],
+        "output_shape": [
+          64,
+          4096
+        ],
+        "fixture_ms": 2.994959,
+        "runtime_init_ms": 11.853375,
+        "compile_ms": 86.940625,
+        "allocation_upload_ms": 0.348459,
+        "cold_call_ms": 0.457292,
+        "warmup_ms": 100.178166,
+        "repetitions": 68,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=19, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 6 candidates, uncalibrated cost 2408576.000 (arithmetic 49152.000, memory 2359296.000, dispatch 128.000, imbalance 0.000), root order [0]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 262144,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.36326400227e-07
+        },
+        "throughput_us": [
+          420.042279412,
+          430.321073529,
+          418.40625,
+          427.174029412,
+          425.582102941,
+          421.855382353,
+          423.696691176
+        ],
+        "latency_us": [
+          435.917,
+          425.5,
+          463.167,
+          440.459,
+          422.542,
+          423.917,
+          406.5
+        ],
+        "throughput_us_p50": 423.696691176,
+        "throughput_us_p90": 428.4328470588,
+        "latency_us_p50": 425.5,
+        "latency_us_p90": 449.5422
+      },
+      "correctness": {
+        "elements": 262144,
+        "max_abs_error": 2.363264002269716e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "6e25aafd454395b8f93026f28cdec71afa650492bbc4cb387824dabfedf024c3",
+        "76fd67471b857aa4731dc6f59e8b42249fa4c4bf7e101218b156d4c4de4c28fc",
+        "743c1c97b837451062adf161d6346b7d9bb5ca43e0103d6bc874eeeeaa6a90b7"
+      ],
+      "output_sha256": "4b6d30a96b4b4776be7116287a1f62ac4d91eab7b188c3cb1e596c398350c242"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        2,
+        4,
+        2,
+        16,
+        32,
+        32,
+        32
+      ],
+      "round": 0,
+      "path": "native",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "attention",
+        "2,4,2,16,32,32,32",
+        "4",
+        "8",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-0e_9w_8u/attention-2x4x2x16x32x32x32-r0-native.f32"
+      ],
+      "source": "attention-2x4x2x16x32x32x32-r0-native.ll",
+      "source_sha256": "ead54cead35631dd0f711efe891935821133c38afd3a292d23819ba0ea176f57",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "attention",
+        "dimensions": [
+          2,
+          4,
+          2,
+          16,
+          32,
+          32,
+          32
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "mma",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          4,
+          8
+        ],
+        "input_shapes": [
+          [
+            2,
+            4,
+            16,
+            32
+          ],
+          [
+            2,
+            2,
+            32,
+            32
+          ],
+          [
+            2,
+            2,
+            32,
+            32
+          ]
+        ],
+        "output_shape": [
+          2,
+          4,
+          16,
+          32
+        ],
+        "fixture_ms": 0.516625,
+        "runtime_init_ms": 10.314375,
+        "compile_ms": 7677.220834,
+        "allocation_upload_ms": 0.024541,
+        "cold_call_ms": 0.321042,
+        "warmup_ms": 101.7875,
+        "repetitions": 127,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=68, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 36 candidates, uncalibrated cost 3337048.000 (arithmetic 90328.000, memory 3246592.000, dispatch 128.000, imbalance 0.000), root order [0,1,2]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4096,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.14993031433e-07
+        },
+        "throughput_us": [
+          234.715551181,
+          234.759188976,
+          237.26115748,
+          233.096456693,
+          239.912401575,
+          238.503614173,
+          236.715220472
+        ],
+        "latency_us": [
+          229.125,
+          228.459,
+          227.958,
+          228.125,
+          227.792,
+          228.25,
+          228.125
+        ],
+        "throughput_us_p50": 236.715220472,
+        "throughput_us_p90": 239.0671291338,
+        "latency_us_p50": 228.125,
+        "latency_us_p90": 228.7254
+      },
+      "correctness": {
+        "elements": 4096,
+        "max_abs_error": 2.1499303143324155e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "e9bdb7906c885e279d4f8ac4272d03bad062af88e9c571e693ed0802a57e9c99",
+        "8c46e78847ba858d97df46a56e8d1476cb9bf21b61b0c79f084ade0cefbdd2ad",
+        "04923d4021320a5ead7e15e19761b077703f8394302c1a34126621e9165bd620"
+      ],
+      "output_sha256": "68b6db374795fab16ad0770ec5f5d43b4e6be47de5da143c930a6511292ac4c1"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        2,
+        4,
+        2,
+        16,
+        32,
+        32,
+        32
+      ],
+      "round": 0,
+      "path": "torch",
+      "order": [
+        "native",
+        "torch"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.068542,
+        "warmup_ms": 100.034958,
+        "repetitions": 514,
+        "throughput_us": [
+          55.46157587548638,
+          58.53380350194553,
+          58.68960700389105,
+          60.03104863813229,
+          64.05617704280155,
+          62.886348249027236,
+          63.225276264591436
+        ],
+        "latency_us": [
+          64.833,
+          81.25,
+          53.083,
+          55.083,
+          48.584,
+          51.875,
+          54.833
+        ],
+        "throughput_us_p50": 60.03104863813229,
+        "throughput_us_p90": 63.557636575875485,
+        "latency_us_p50": 54.833,
+        "latency_us_p90": 71.3998,
+        "expression": "functional_sdpa_explicit_bottom_right_causal_mask_output_allocation_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4096,
+          "max_abs_error": 2.5060266174714574e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4096,
+        "max_abs_error": 2.5060266174714574e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "e9bdb7906c885e279d4f8ac4272d03bad062af88e9c571e693ed0802a57e9c99",
+        "8c46e78847ba858d97df46a56e8d1476cb9bf21b61b0c79f084ade0cefbdd2ad",
+        "04923d4021320a5ead7e15e19761b077703f8394302c1a34126621e9165bd620"
+      ],
+      "output_sha256": "ed53d64f8190b689578ec6085141355e8eb59141c09e2743ac646fa341b78e3d"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        2,
+        4,
+        2,
+        16,
+        32,
+        32,
+        32
+      ],
+      "round": 1,
+      "path": "torch",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "measurement": {
+        "cold_call_ms": 0.108542,
+        "warmup_ms": 100.334083,
+        "repetitions": 492,
+        "throughput_us": [
+          66.29920325203251,
+          62.5064349593496,
+          67.70909552845528,
+          62.23280894308943,
+          63.41869918699187,
+          62.36373780487805,
+          57.68165650406504
+        ],
+        "latency_us": [
+          86.75,
+          56.041000000000004,
+          46.875,
+          55.625,
+          49.25,
+          51.75,
+          51.708
+        ],
+        "throughput_us_p50": 62.5064349593496,
+        "throughput_us_p90": 66.86316016260162,
+        "latency_us_p50": 51.75,
+        "latency_us_p90": 68.32460000000002,
+        "expression": "functional_sdpa_explicit_bottom_right_causal_mask_output_allocation_included",
+        "precision": "fp32",
+        "fast_math_policy": "torch_default",
+        "pre_timing_correctness": {
+          "elements": 4096,
+          "max_abs_error": 2.5060266174714574e-07,
+          "atol": 5e-05,
+          "rtol": 5e-05
+        }
+      },
+      "correctness": {
+        "elements": 4096,
+        "max_abs_error": 2.5060266174714574e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "e9bdb7906c885e279d4f8ac4272d03bad062af88e9c571e693ed0802a57e9c99",
+        "8c46e78847ba858d97df46a56e8d1476cb9bf21b61b0c79f084ade0cefbdd2ad",
+        "04923d4021320a5ead7e15e19761b077703f8394302c1a34126621e9165bd620"
+      ],
+      "output_sha256": "ed53d64f8190b689578ec6085141355e8eb59141c09e2743ac646fa341b78e3d"
+    },
+    {
+      "operation": "attention",
+      "dimensions": [
+        2,
+        4,
+        2,
+        16,
+        32,
+        32,
+        32
+      ],
+      "round": 1,
+      "path": "native",
+      "order": [
+        "torch",
+        "native"
+      ],
+      "valid": true,
+      "command": [
+        "/private/tmp/luisa-xir-bounded.kADecq/candidate/benchmark_tile_xir",
+        "llm",
+        "attention",
+        "2,4,2,16,32,32,32",
+        "4",
+        "8",
+        "7",
+        "30",
+        "100",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-llm-0e_9w_8u/attention-2x4x2x16x32x32x32-r1-native.f32"
+      ],
+      "source": "attention-2x4x2x16x32x32x32-r1-native.ll",
+      "source_sha256": "ead54cead35631dd0f711efe891935821133c38afd3a292d23819ba0ea176f57",
+      "measurement": {
+        "implementation": "tile_xir_simd",
+        "backend": "cpu",
+        "precision": "fp32",
+        "fast_math": false,
+        "relaxed_precision": false,
+        "runtime": "luisa",
+        "timing": "synchronized_host_wall",
+        "batch_policy": "one_runtime_command_list_per_batch",
+        "operation": "attention",
+        "dimensions": [
+          2,
+          4,
+          2,
+          16,
+          32,
+          32,
+          32
+        ],
+        "reduction_tree": false,
+        "requested_input_views": false,
+        "attention_qk": "mma",
+        "source_reduction_policy": "unordered_tree",
+        "reduction_candidate_setting": "not_applicable",
+        "requested_group_threads": 0,
+        "attention_block": [
+          4,
+          8
+        ],
+        "input_shapes": [
+          [
+            2,
+            4,
+            16,
+            32
+          ],
+          [
+            2,
+            2,
+            32,
+            32
+          ],
+          [
+            2,
+            2,
+            32,
+            32
+          ]
+        ],
+        "output_shape": [
+          2,
+          4,
+          16,
+          32
+        ],
+        "fixture_ms": 0.5835,
+        "runtime_init_ms": 11.053458,
+        "compile_ms": 7725.086833,
+        "allocation_upload_ms": 0.028917,
+        "cold_call_ms": 0.340791,
+        "warmup_ms": 101.656959,
+        "repetitions": 131,
+        "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=68, direct CFG=true, contiguous reads=0, broadcasts=0; exact search 36 candidates, uncalibrated cost 3337048.000 (arithmetic 90328.000, memory 3246592.000, dispatch 128.000, imbalance 0.000), root order [0,1,2]; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; fast_math=false; ordered_reduction=false",
+        "correctness": {
+          "checks": 2,
+          "elements_per_check": 4096,
+          "guard_elements_per_check": 34,
+          "atol": 5e-05,
+          "rtol": 5e-05,
+          "max_abs_error": 2.14993031433e-07
+        },
+        "throughput_us": [
+          235.294534351,
+          235.474557252,
+          234.214053435,
+          233.741412214,
+          236.214374046,
+          233.254458015,
+          234.490778626
+        ],
+        "latency_us": [
+          288.625,
+          237.875,
+          238.5,
+          236.167,
+          235.291,
+          234.959,
+          235.209
+        ],
+        "throughput_us_p50": 234.490778626,
+        "throughput_us_p90": 235.7704839696,
+        "latency_us_p50": 236.167,
+        "latency_us_p90": 258.55
+      },
+      "correctness": {
+        "elements": 4096,
+        "max_abs_error": 2.1499303143324155e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      },
+      "input_sha256": [
+        "e9bdb7906c885e279d4f8ac4272d03bad062af88e9c571e693ed0802a57e9c99",
+        "8c46e78847ba858d97df46a56e8d1476cb9bf21b61b0c79f084ade0cefbdd2ad",
+        "04923d4021320a5ead7e15e19761b077703f8394302c1a34126621e9165bd620"
+      ],
+      "output_sha256": "68b6db374795fab16ad0770ec5f5d43b4e6be47de5da143c930a6511292ac4c1"
+    }
+  ],
+  "summary": [
+    {
+      "operation": "attention",
+      "dimensions": [
+        2,
+        4,
+        2,
+        16,
+        32,
+        32,
+        32
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 235.602999549,
+          "torch": 61.26874179874095
+        },
+        "paired_native_over_torch_median": 3.847339680362432,
+        "min_ratio": 3.751466209495048,
+        "max_ratio": 3.9432131512298163,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 232.14600000000002,
+          "torch": 53.2915
+        },
+        "paired_native_over_torch_median": 4.361986582007326,
+        "min_ratio": 4.160359637444604,
+        "max_ratio": 4.563613526570048,
+        "slower_rounds": 2
+      }
+    },
+    {
+      "operation": "gelu_residual",
+      "dimensions": [
+        64,
+        1537
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 324.567713953,
+          "torch": 219.05653961853557
+        },
+        "paired_native_over_torch_median": 1.4817035653530723,
+        "min_ratio": 1.470383102323351,
+        "max_ratio": 1.4930240283827938,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 333.16650000000004,
+          "torch": 230.54149999999998
+        },
+        "paired_native_over_torch_median": 1.4451476319993635,
+        "min_ratio": 1.4395424694849528,
+        "max_ratio": 1.4507527945137744,
+        "slower_rounds": 2
+      }
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 1526.44475877,
+          "torch": 87.29219388195064
+        },
+        "paired_native_over_torch_median": 17.486996338232263,
+        "min_ratio": 17.41674742812744,
+        "max_ratio": 17.557245248337086,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 1521.084,
+          "torch": 89.437
+        },
+        "paired_native_over_torch_median": 17.158173574105867,
+        "min_ratio": 15.64158522571263,
+        "max_ratio": 18.6747619224991,
+        "slower_rounds": 2
+      }
+    },
+    {
+      "operation": "layernorm",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 729.4661139535,
+          "torch": 86.36715740854785
+        },
+        "paired_native_over_torch_median": 8.446696146998804,
+        "min_ratio": 8.244842513649827,
+        "max_ratio": 8.648549780347778,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 736.7080000000001,
+          "torch": 82.1455
+        },
+        "paired_native_over_torch_median": 9.009488751641921,
+        "min_ratio": 8.27521613832853,
+        "max_ratio": 9.743761364955315,
+        "slower_rounds": 2
+      }
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        17,
+        16384
+      ],
+      "complete": false
+    },
+    {
+      "operation": "masked_softmax",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "complete": false
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        1537
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 63.54967355375,
+          "torch": 18.332939360108632
+        },
+        "paired_native_over_torch_median": 3.467152295096591,
+        "min_ratio": 3.403691531931598,
+        "max_ratio": 3.530613058261584,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 64.3335,
+          "torch": 17.9375
+        },
+        "paired_native_over_torch_median": 3.587622239362946,
+        "min_ratio": 3.538507690629432,
+        "max_ratio": 3.6367367880964596,
+        "slower_rounds": 2
+      }
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        16384
+      ],
+      "complete": false
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 1894.91188125,
+          "torch": 1188.8164871175522
+        },
+        "paired_native_over_torch_median": 1.5939432364592439,
+        "min_ratio": 1.587683300643783,
+        "max_ratio": 1.6002031722747048,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 1922.958,
+          "torch": 1192.6875
+        },
+        "paired_native_over_torch_median": 1.6123165122099148,
+        "min_ratio": 1.6018049557249763,
+        "max_ratio": 1.6228280686948533,
+        "slower_rounds": 2
+      }
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        64,
+        4096
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 419.299838445,
+          "torch": 371.4332443305375
+        },
+        "paired_native_over_torch_median": 1.1318518160843836,
+        "min_ratio": 1.0675375850334947,
+        "max_ratio": 1.1961660471352724,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 428.52049999999997,
+          "torch": 359.83349999999996
+        },
+        "paired_native_over_torch_median": 1.1950988324340583,
+        "min_ratio": 1.1282117647058822,
+        "max_ratio": 1.2619859001622342,
+        "slower_rounds": 2
+      }
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "complete": true,
+      "throughput_us_p50": {
+        "median_us": {
+          "native": 3407.109375,
+          "torch": 1633.9427244582043
+        },
+        "paired_native_over_torch_median": 2.0852265248713113,
+        "min_ratio": 2.083406785774722,
+        "max_ratio": 2.0870462639679013,
+        "slower_rounds": 2
+      },
+      "latency_us_p50": {
+        "median_us": {
+          "native": 3440.7705,
+          "torch": 1607.542
+        },
+        "paired_native_over_torch_median": 2.1407567651195736,
+        "min_ratio": 2.118646889125249,
+        "max_ratio": 2.162866641113898,
+        "slower_rounds": 2
+      }
+    }
+  ]
+}

@@ -9,6 +9,7 @@
 #include <hip/hip_runtime.h>
 #include <hiprt/hiprt.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
 
@@ -34,6 +35,9 @@ private:
     luisa::unique_ptr<HIPPinnedMemoryExt> _pinned_memory_ext{nullptr};
     mutable std::mutex _motion_mesh_builtin_mutex;
     mutable luisa::unique_ptr<HIPMotionMeshBuiltin> _motion_mesh_builtin{nullptr};
+    std::mutex _shader_module_retirement_mutex;
+    luisa::vector<hipModule_t> _retired_shader_modules;
+    bool _hiprt_build_completed{false};
 
     template<typename F>
     decltype(auto) with_device(F &&f) const noexcept;
@@ -50,13 +54,15 @@ public:
     [[nodiscard]] hiprtContext hiprt_context() const noexcept;
     [[nodiscard]] hiprtGlobalStackBuffer hiprt_global_stack_buffer() const noexcept;
     [[nodiscard]] HIPMotionMeshBuiltin &motion_mesh_builtin() const noexcept;
+    void retire_shader_module(hipModule_t module) noexcept;
+    void notify_hiprt_build_completed() noexcept;
     [[nodiscard]] hipUUID_t device_uuid() const noexcept;
     [[nodiscard]] hipUUID_t device_uuid_for_vulkan() const noexcept;
     [[nodiscard]] void *native_handle() const noexcept override;
     [[nodiscard]] uint compute_warp_size() const noexcept override;
+    [[nodiscard]] size_t compute_max_shared_memory_size() const noexcept override;
     [[nodiscard]] uint64_t memory_granularity() const noexcept override;
     [[nodiscard]] BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
-    [[nodiscard]] BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, void *external_native_handle, bool simultaneous_access, bool allow_raster_target) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
@@ -70,7 +76,6 @@ public:
     void destroy_swapchain(uint64_t handle) noexcept override;
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
     [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
     [[nodiscard]] ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<Type const *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;
@@ -88,7 +93,6 @@ public:
     void destroy_accel(uint64_t handle) noexcept override;
     void set_name(Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
     void set_stream_log_callback(uint64_t stream_handle, const StreamLogCallback &callback) noexcept override;
-    [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_curve(const AccelOption &option) noexcept override;
     void destroy_curve(uint64_t handle) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_motion_instance(const AccelMotionOption &option) noexcept override;

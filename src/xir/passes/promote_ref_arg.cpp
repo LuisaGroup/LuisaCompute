@@ -22,6 +22,10 @@ namespace detail {
     if (f == nullptr || f->body_block() == nullptr) { return false; }
     // we may not process non-callable functions as their signatures might be imported/exported
     if (!f->isa<CallableFunction>()) { return false; }
+    // A root callable has no call site at which to materialize the snapshot,
+    // and its signature may be consumed outside this module. Rewriting it is
+    // both unprofitable and outside this pass's closed-world proof.
+    if (f->use_list().empty()) { return false; }
     // if the function has a signature constraint, we cannot modify its signature
     if (f->find_metadata<SignatureConstraintMD>() != nullptr) { return false; }
     // otherwise, we check if all users of the callable are CallInst (non-call instructions
@@ -56,31 +60,72 @@ static void traverse_call_graph_post_order(Function *f, const CallGraph &call_gr
     }
 }
 
-[[nodiscard]] static bool is_pointer_readonly(Value *p) noexcept {
-    for (auto &&use : p->use_list()) {
-        if (auto user = use->user()) {
-            LUISA_DEBUG_ASSERT(user->isa<Instruction>(), "Invalid user.");
+// Effects and snapshot legality are separate proofs. A leaf's reference may
+// remain unpromoted because its actuals are unknown caller references, while
+// still being read-only through every nested use. Propagate that read-only
+// fact without assuming that distinct reference formals cannot alias.
+class ReadonlyPointerAnalysis {
+private:
+    enum class State { visiting, readonly, may_write };
+    luisa::unordered_map<Value *, State> _states;
+
+    [[nodiscard]] bool call_use_is_readonly(CallInst *call, Use *use) noexcept {
+        if (call->operand_count() == 0u) { return false; }
+        auto *callee_value = call->operand(CallInst::operand_index_callee);
+        if (callee_value == nullptr || !callee_value->isa<Function>()) { return false; }
+        auto *callee = static_cast<Function *>(callee_value)->definition();
+        if (callee == nullptr || callee->body_block() == nullptr ||
+            call->argument_count() != callee->arguments().count_size()) {
+            return false;
+        }
+        auto index = size_t{0u};
+        for (auto *argument : callee->arguments()) {
+            if (call->argument_uses()[index] == use) {
+                return argument->is_reference() && is_readonly(argument);
+            }
+            ++index;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool check_uses(Value *pointer) noexcept {
+        for (auto *use : pointer->use_list()) {
+            auto *user = use->user();
+            if (user == nullptr) { continue; }
+            if (!user->isa<Instruction>()) { return false; }
             switch (static_cast<Instruction *>(user)->derived_instruction_tag()) {
-                case DerivedInstructionTag::LOAD: [[fallthrough]];
-                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: /* fine to check the next user */ break;
+                case DerivedInstructionTag::LOAD:
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: break;
                 case DerivedInstructionTag::GEP: {
-                    auto gep = static_cast<GEPInst *>(user);
-                    LUISA_DEBUG_ASSERT(gep->base() == p, "Invalid GEP base.");
-                    // if the pointer is used as the GEP base, we need to recursively check if
-                    // the resulting element pointer is readonly
-                    if (!is_pointer_readonly(gep)) { return false; }
+                    auto *gep = static_cast<GEPInst *>(user);
+                    if (gep->base() != pointer || !is_readonly(gep)) { return false; }
                     break;
                 }
-                default: {
-                    // be conservative and assume that the pointer is not readonly for other instructions
-                    return false;
+                case DerivedInstructionTag::CALL: {
+                    if (!call_use_is_readonly(static_cast<CallInst *>(user), use)) {
+                        return false;
+                    }
+                    break;
                 }
+                default: return false;
             }
         }
+        return true;
     }
-    // all uses of the pointer are either read-only
-    return true;
-}
+
+public:
+    [[nodiscard]] bool is_readonly(Value *pointer) noexcept {
+        if (auto it = _states.find(pointer); it != _states.end()) {
+            // An unresolved recursive effect remains conservative; do not
+            // manufacture a read-only fixed point for a recursive SCC.
+            return it->second == State::readonly;
+        }
+        _states.emplace(pointer, State::visiting);
+        auto readonly = check_uses(pointer);
+        _states[pointer] = readonly ? State::readonly : State::may_write;
+        return readonly;
+    }
+};
 
 [[nodiscard]] static Argument *promote_ref_arg(CallableFunction *f, Argument *arg) noexcept {
     // create a new value argument
@@ -109,9 +154,9 @@ struct PromotedArg {
     size_t index;
 };
 
-[[nodiscard]] static bool all_call_sites_are_thread_local(
-    CallableFunction *f,
-    luisa::span<const PromotedArg> promoted_args) noexcept {
+[[nodiscard]] static bool all_call_sites_prove_snapshot_safe(
+    CallableFunction *f, PromotedArg candidate,
+    luisa::span<const PromotedArg> writable_args) noexcept {
     for (auto &&use : f->use_list()) {
         auto *user = use->user();
         if (user == nullptr || !user->isa<CallInst>()) {
@@ -123,10 +168,18 @@ struct PromotedArg {
             call->argument_count() != f->arguments().count_size()) {
             return false;
         }
-        for (auto promoted : promoted_args) {
-            if (promoted.index >= call->argument_count() ||
-                trace_pointer_base_local_alloca_inst(
-                    call->argument(promoted.index)) == nullptr) {
+        if (candidate.index >= call->argument_count()) { return false; }
+        auto *candidate_root = trace_pointer_base_local_alloca_inst(
+            call->argument(candidate.index));
+        if (candidate_root == nullptr) { return false; }
+        for (auto writable : writable_args) {
+            if (writable.index >= call->argument_count()) { return false; }
+            auto *writable_root = trace_pointer_base_local_alloca_inst(
+                call->argument(writable.index));
+            // Distinct local allocas cannot alias. Unknown roots and GEPs of
+            // the same root remain conservative: a callee write may otherwise
+            // be observed by a later load through the candidate reference.
+            if (writable_root == nullptr || writable_root == candidate_root) {
                 return false;
             }
         }
@@ -135,40 +188,47 @@ struct PromotedArg {
 }
 
 static void promote_ref_args_in_function(CallableFunction *f, PromoteRefArgInfo &info) {
-    // A reference that is only read through its own SSA value is not
-    // necessarily immutable: another reference argument may alias it and be
-    // written by the callee. Loading the "readonly" argument at the call site
-    // would then snapshot the old value and change program semantics. Without
-    // a call-site-aware no-alias proof, only promote references when every
-    // reference argument in the callable is recursively readonly.
-    for (auto arg : f->arguments()) {
-        if (arg->is_reference() && !is_pointer_readonly(arg)) {
-            return;
-        }
-    }
-    // collect promotable reference arguments
-    luisa::fixed_vector<PromotedArg, 16> promoted_args;
+    // All effect queries precede this function's mutation. Discard the cache
+    // afterwards: signature promotion rewrites uses in callers and callees.
+    ReadonlyPointerAnalysis readonly;
+    // Collect recursively read-only candidates and references that may be
+    // written. A syntactically read-only reference is not immutable when a
+    // writable reference aliases it, so promotion additionally needs a
+    // call-site no-alias proof below.
+    luisa::fixed_vector<PromotedArg, 16> candidates;
+    luisa::fixed_vector<PromotedArg, 16> writable_args;
     {
         size_t index = 0;
         for (auto arg : f->arguments()) {
-            if (arg->is_reference() && !arg->type()->is_custom()) {
-                promoted_args.emplace_back(PromotedArg{
+            if (arg->is_reference()) {
+                auto ref = PromotedArg{
                     .arg = static_cast<ReferenceArgument *>(arg),
-                    .index = index,
-                });
+                    .index = index};
+                if (readonly.is_readonly(arg)) {
+                    if (!arg->type()->is_custom()) {
+                        candidates.emplace_back(ref);
+                    }
+                } else {
+                    writable_args.emplace_back(ref);
+                }
             }
             index++;
         }
     }
-    if (promoted_args.empty()) { return; }
+    if (candidates.empty()) { return; }
     // Promotion snapshots a reference once at the call site. This is only
     // equivalent for thread-local storage: a shared/reference actual may be
-    // changed by another invocation across a barrier while the callee is
-    // executing, even when this callee itself is read-only. Preflight every
-    // call before changing either the signature or any call instruction.
-    if (!all_call_sites_are_thread_local(f, promoted_args)) {
-        return;
+    // changed by another invocation across a barrier. If the callable also
+    // writes through reference arguments, every call site must additionally
+    // prove that their local-allocation roots differ from the candidate root.
+    // Preflight all candidates before changing either signatures or calls.
+    luisa::fixed_vector<PromotedArg, 16> promoted_args;
+    for (auto candidate : candidates) {
+        if (all_call_sites_prove_snapshot_safe(f, candidate, writable_args)) {
+            promoted_args.emplace_back(candidate);
+        }
     }
+    if (promoted_args.empty()) { return; }
     // record the number of promoted reference arguments
     info.promoted_ref_arg_count += promoted_args.size();
     // promote the reference arguments

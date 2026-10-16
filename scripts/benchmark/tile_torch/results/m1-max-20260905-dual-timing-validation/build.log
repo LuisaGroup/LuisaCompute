@@ -1,0 +1,65 @@
+[0/2] Re-checking globbed directories...
+[1/29] Embedding metal built-in sources...
+[2/24] Building OBJCXX object src/tests/CMakeFiles/luisa-benchmark-metal-timing.dir/common/metal_benchmark_timing.mm.o
+[3/24] Linking OBJCXX shared library bin/libluisa-benchmark-metal-timing.dylib
+[4/24] Building OBJCXX object src/tests/CMakeFiles/test_tile_metal_timing.dir/unit/tile/test_metal_timing.mm.o
+[5/24] Linking OBJCXX executable bin/test_tile_metal_timing
+[6/24] Building CXX object src/tile/bridge/tirx/CMakeFiles/luisa-compute-tile-bridge-tirx.dir/cooperative.cpp.o
+[7/24] Linking CXX shared library bin/libluisa-tile-bridge-tirx.dylib
+[8/24] Linking CXX shared module bin/libluisa-backend-metal.so
+[9/24] Linking CXX executable bin/test_tile_tirx_memory
+[10/24] Linking CXX executable bin/test_tile_native_runtime
+[11/24] Linking CXX executable bin/test_tile_tirx
+[12/24] Linking CXX executable bin/test_tile_tirx_cooperative
+[13/24] Linking CXX executable bin/test_tile_tirx_values
+[14/24] Linking CXX executable bin/test_tile_tirx_pipeline
+[15/24] Linking CXX executable bin/test_tile_tirx_execution
+[16/24] Linking CXX executable bin/test_tile_tirx_poc_neural
+[17/24] Linking CXX executable bin/test_tile_tirx_matrix
+[18/24] Linking CXX executable bin/test_tile_tirx_planner
+[19/24] Linking CXX executable bin/test_tile_tirx_poc
+[20/24] Linking CXX executable bin/test_tile_tirx_poc_algorithms
+[21/24] Linking CXX executable bin/test_tile_tirx_targets
+[22/24] Building CXX object src/tests/CMakeFiles/benchmark_tile_tirx.dir/benchmark/benchmark_tile_tirx.cpp.o
+In file included from /Users/mike/CLionProjects/luisa/src/tests/benchmark/benchmark_tile_tirx.cpp:4:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:20:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:65: warning: 'denorm_present' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+In file included from /Users/mike/CLionProjects/luisa/src/tests/benchmark/benchmark_tile_tirx.cpp:4:
+In file included from /Users/mike/CLionProjects/luisa/src/tests/./common/tile_tirx_test_utils.h:20:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/bridge/tirx/lower.h:10:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/tile/ir.h:8:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/managed_ilist.h:4:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/concepts.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_types.h:7:
+In file included from /Users/mike/CLionProjects/luisa/include/luisa/core/basic_traits.h:9:
+/Users/mike/CLionProjects/luisa/src/ext/half/include/half.hpp:2391:33: warning: 'float_denorm_style' is deprecated [-Wdeprecated-declarations]
+ 2391 |     static HALF_CONSTEXPR_CONST float_denorm_style has_denorm = denorm_present;
+      |                                 ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/limits:130:6: note: 'float_denorm_style' has been explicitly marked deprecated here
+  130 | enum _LIBCPP_DEPRECATED_IN_CXX23 float_denorm_style {
+      |      ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:593:41: note: expanded from macro '_LIBCPP_DEPRECATED_IN_CXX23'
+  593 | #    define _LIBCPP_DEPRECATED_IN_CXX23 _LIBCPP_DEPRECATED
+      |                                         ^
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__config:554:49: note: expanded from macro '_LIBCPP_DEPRECATED'
+  554 | #      define _LIBCPP_DEPRECATED __attribute__((__deprecated__))
+      |                                                 ^
+2 warnings generated.
+[23/24] Linking CXX executable bin/benchmark_tile_tirx

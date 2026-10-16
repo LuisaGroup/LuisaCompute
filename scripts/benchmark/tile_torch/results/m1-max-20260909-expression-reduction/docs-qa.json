@@ -1,0 +1,86 @@
+{
+  "passed": true,
+  "browser": "153.0.8010.36",
+  "receipts": [
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "expression-producers-join-their-first-reduction-traversal",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "35 Tile CTests",
+        "79 XIR/SIMD CTests",
+        "No new performance claim is accepted",
+        "96 visits"
+      ],
+      "screenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/expression-producers-join-their-first-reduction-traversal-1280.png",
+      "fullScreenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/expression-producers-join-their-first-reduction-traversal-1280-full.png"
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "first-consumer-fusion-preserves-the-snapshot-contract",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "enable_expression_reduction_fusion",
+        "default-disabled",
+        "No reciprocal rewrite"
+      ],
+      "screenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/first-consumer-fusion-preserves-the-snapshot-contract-1280.png",
+      "fullScreenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/first-consumer-fusion-preserves-the-snapshot-contract-1280-full.png"
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "results-by-route",
+      "width": 1280,
+      "pageWidth": 1280,
+      "required": [
+        "expression/reduction fusion checkpoint",
+        "not",
+        "speedup claim"
+      ],
+      "screenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/results-by-route-1280.png",
+      "fullScreenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/results-by-route-1280-full.png"
+    },
+    {
+      "file": "source/performance/tile/validation.html",
+      "id": "expression-producers-join-their-first-reduction-traversal",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "35 Tile CTests",
+        "79 XIR/SIMD CTests",
+        "No new performance claim is accepted",
+        "96 visits"
+      ],
+      "screenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/expression-producers-join-their-first-reduction-traversal-390.png",
+      "fullScreenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/expression-producers-join-their-first-reduction-traversal-390-full.png"
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "first-consumer-fusion-preserves-the-snapshot-contract",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "enable_expression_reduction_fusion",
+        "default-disabled",
+        "No reciprocal rewrite"
+      ],
+      "screenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/first-consumer-fusion-preserves-the-snapshot-contract-390.png",
+      "fullScreenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/first-consumer-fusion-preserves-the-snapshot-contract-390-full.png"
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "id": "results-by-route",
+      "width": 390,
+      "pageWidth": 390,
+      "required": [
+        "expression/reduction fusion checkpoint",
+        "not",
+        "speedup claim"
+      ],
+      "screenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/results-by-route-390.png",
+      "fullScreenshot": "/private/tmp/luisa-expression-fusion.qXgTbC/docs-qa-v2/results-by-route-390-full.png"
+    }
+  ]
+}

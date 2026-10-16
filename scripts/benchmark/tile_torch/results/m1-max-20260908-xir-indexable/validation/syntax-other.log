@@ -1,0 +1,42 @@
+Warning: The parameter 'indices' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 71, col 43
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 75, col 60
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 89, col 48
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 91, col 69
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 108, col 42
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 113, col 77
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 115, col 46
+Warning: Narrowing conversion from 'size_t' (aka 'unsigned long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 123, col 54
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 125, col 54
+Warning: Narrowing conversion from 'uint64_t' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 131, col 46
+Warning: 'emplace_back' is called inside a loop; consider pre-allocating the container capacity before the loop (fix available) [performance-inefficient-vector-operation] at line 189, col 42
+Warning: Narrowing conversion from 'unsigned long long' to 'double' [cppcoreguidelines-narrowing-conversions] at line 204, col 64
+Warning: Narrowing conversion from 'R' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 204, col 54
+Warning: Narrowing conversion from 'unsigned long long' to 'double' [cppcoreguidelines-narrowing-conversions] at line 205, col 56
+Warning: Narrowing conversion from 'R' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 205, col 46
+Warning: Narrowing conversion from 'R' (aka 'unsigned long long') to 'double' [cppcoreguidelines-narrowing-conversions] at line 206, col 64
+Warning: Narrowing conversion from 'unsigned long long' to 'double' [cppcoreguidelines-narrowing-conversions] at line 208, col 89
+------------------------------------------------------------
+Total: 0 error(s), 17 warning(s)
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 21, col 89
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 21, col 117
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 60, col 87
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 60, col 115
+Warning: The parameter 'out' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 106, col 78
+Warning: The parameter 'out' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 120, col 77
+------------------------------------------------------------
+Total: 0 error(s), 6 warning(s)
+Warning: Narrowing conversion from 'int' to 'float' [cppcoreguidelines-narrowing-conversions] at line 84, col 105
+Warning: Narrowing conversion from 'int' to 'float' [cppcoreguidelines-narrowing-conversions] at line 85, col 105
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 127, col 77
+Warning: The parameter 'B' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 127, col 101
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 169, col 74
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 169, col 102
+Warning: The parameter 'A' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 217, col 84
+Warning: The parameter 'B' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 217, col 108
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 238, col 87
+Warning: The parameter 'alias' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 239, col 81
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 239, col 109
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 308, col 84
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 308, col 112
+------------------------------------------------------------
+Total: 0 error(s), 13 warning(s)

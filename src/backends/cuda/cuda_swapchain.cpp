@@ -45,6 +45,7 @@ private:
     VulkanSwapchain _base;
     uint2 _size;
     uint _current_frame{0u};
+    bool _has_presented_frame{false};
     spin_mutex _present_mutex;
     spin_mutex _name_mutex;
     luisa::string _name;
@@ -56,6 +57,9 @@ private:
     VkDeviceSize _image_memory_size{};
     VkImageView _image_view{nullptr};
     luisa::vector<VkSemaphore> _semaphores{};
+    VkSemaphore _released_semaphore{};
+    VkCommandBuffer _acquire_image_command{};
+    VkCommandBuffer _release_image_command{};
 
 private:
     [[nodiscard]] auto _find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties) noexcept {
@@ -137,8 +141,7 @@ private:
         LUISA_CHECK_VULKAN(vkBindImageMemory(_base.device(), _image, _image_memory, 0));
     }
 
-    void _transition_image_layout(VkImageLayout old_layout,
-                                  VkImageLayout new_layout) noexcept {
+    void _initialize_image_ownership() noexcept {
 
         // create a single-use command buffer
         VkCommandBufferAllocateInfo alloc_info{};
@@ -155,11 +158,11 @@ private:
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         LUISA_CHECK_VULKAN(vkBeginCommandBuffer(command_buffer, &begin_info));
 
-        // transition image layout
+        // Initialize the image on the graphics queue before releasing it to CUDA.
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = old_layout;
-        barrier.newLayout = new_layout;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = _image;
@@ -169,23 +172,14 @@ private:
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
 
-        VkPipelineStageFlags src_stage;
-        VkPipelineStageFlags dst_stage;
-
-        if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED) {
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = 0;
-            src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        } else if (new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-            barrier.srcAccessMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-            dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        } else {
-            LUISA_ERROR_WITH_LOCATION("Unsupported layout transition.");
-        }
-        vkCmdPipelineBarrier(command_buffer, src_stage, dst_stage,
+        vkCmdPipelineBarrier(command_buffer,
+                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+        barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = _base.queue_family_index();
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+        vkCmdPipelineBarrier(command_buffer,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                              0, 0, nullptr, 0, nullptr, 1, &barrier);
 
         // end recording
@@ -201,6 +195,42 @@ private:
 
         // free command buffer
         vkFreeCommandBuffers(_base.device(), _base.command_pool(), 1, &command_buffer);
+    }
+
+    [[nodiscard]] VkCommandBuffer _create_image_handoff_command(bool acquire) noexcept {
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool = _base.command_pool();
+        alloc_info.commandBufferCount = 1u;
+        VkCommandBuffer command_buffer{};
+        LUISA_CHECK_VULKAN(vkAllocateCommandBuffers(_base.device(), &alloc_info, &command_buffer));
+
+        VkCommandBufferBeginInfo begin_info{};
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        // The semaphore chain serializes image accesses, but a later frame can
+        // submit these immutable command buffers while an earlier one is pending.
+        begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+        LUISA_CHECK_VULKAN(vkBeginCommandBuffer(command_buffer, &begin_info));
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = acquire ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.newLayout = acquire ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = acquire ? VK_QUEUE_FAMILY_EXTERNAL : _base.queue_family_index();
+        barrier.dstQueueFamilyIndex = acquire ? _base.queue_family_index() : VK_QUEUE_FAMILY_EXTERNAL;
+        barrier.srcAccessMask = acquire ? 0u : VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = acquire ? VK_ACCESS_SHADER_READ_BIT : 0u;
+        barrier.image = _image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.levelCount = 1u;
+        barrier.subresourceRange.layerCount = 1u;
+        vkCmdPipelineBarrier(command_buffer,
+                             acquire ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             acquire ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+        LUISA_CHECK_VULKAN(vkEndCommandBuffer(command_buffer));
+        return command_buffer;
     }
 
     void _create_image_view() noexcept {
@@ -239,6 +269,7 @@ private:
         for (uint32_t i = 0u; i < n; i++) {
             LUISA_CHECK_VULKAN(vkCreateSemaphore(device, &semaphore_info, nullptr, &_semaphores[i]));
         }
+        LUISA_CHECK_VULKAN(vkCreateSemaphore(device, &semaphore_info, nullptr, &_released_semaphore));
     }
 
 private:
@@ -247,6 +278,7 @@ private:
     CUmipmappedArray _cuda_ext_image_mipmapped_array{};
     CUarray _cuda_ext_image_array{};
     luisa::vector<CUexternalSemaphore> _cuda_ext_semaphores;
+    CUexternalSemaphore _cuda_released_semaphore{};
 
 private:
     void _cuda_import_image() noexcept {
@@ -373,8 +405,9 @@ private:
     void _initialize() noexcept {
         // vulkan objects
         _create_image();
-        _transition_image_layout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        _transition_image_layout(VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        _initialize_image_ownership();
+        _acquire_image_command = _create_image_handoff_command(true);
+        _release_image_command = _create_image_handoff_command(false);
         _create_image_view();
         _create_semaphores();
         // cuda objects
@@ -384,26 +417,32 @@ private:
         for (auto i = 0u; i < n; i++) {
             _cuda_import_semaphore(_semaphores[i], _cuda_ext_semaphores[i]);
         }
+        _cuda_import_semaphore(_released_semaphore, _cuda_released_semaphore);
     }
 
     void _cleanup() noexcept {
         auto device = _base.device();
-        auto n = _base.back_buffer_count();
-        // cuda objects
+        // Finish both APIs' accesses before releasing their shared mappings and
+        // synchronization objects. The external memory must outlive its mapping.
         LUISA_CHECK_CUDA(cuCtxSynchronize());
-        LUISA_CHECK_CUDA(cuDestroyExternalMemory(_cuda_ext_image_memory));
-        LUISA_CHECK_CUDA(cuMipmappedArrayDestroy(_cuda_ext_image_mipmapped_array));
-        for (auto i = 0u; i < n; i++) {
-            LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(_cuda_ext_semaphores[i]));
-        }
-        // vulkan objects
         LUISA_CHECK_VULKAN(vkDeviceWaitIdle(device));
+        // cuda objects
+        LUISA_CHECK_CUDA(cuMipmappedArrayDestroy(_cuda_ext_image_mipmapped_array));
+        LUISA_CHECK_CUDA(cuDestroyExternalMemory(_cuda_ext_image_memory));
+        for (auto semaphore : _cuda_ext_semaphores) {
+            LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(semaphore));
+        }
+        LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(_cuda_released_semaphore));
+        // vulkan objects
+        vkFreeCommandBuffers(device, _base.command_pool(), 1u, &_acquire_image_command);
+        vkFreeCommandBuffers(device, _base.command_pool(), 1u, &_release_image_command);
         vkDestroyImageView(device, _image_view, nullptr);
         vkDestroyImage(device, _image, nullptr);
         vkFreeMemory(device, _image_memory, nullptr);
-        for (auto i = 0u; i < n; i++) {
-            vkDestroySemaphore(device, _semaphores[i], nullptr);
+        for (auto semaphore : _semaphores) {
+            vkDestroySemaphore(device, semaphore, nullptr);
         }
+        vkDestroySemaphore(device, _released_semaphore, nullptr);
     }
 
 public:
@@ -425,18 +464,25 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 
     void present(CUstream stream, CUarray image) noexcept {
-        LUISA_ASSERT(_current_frame < _semaphores.size(), "Invalid frame index.");
         auto name = [this] {
             std::scoped_lock lock{_name_mutex};
             return _name;
         }();
 
         std::scoped_lock lock{_present_mutex};
+        LUISA_ASSERT(_current_frame < _semaphores.size(), "Invalid frame index.");
 
         if (!name.empty()) { nvtxRangePushA(luisa::format("{}::present", name).c_str()); }
 
         // wait for the frame to be ready
         _base.wait_for_fence();
+        // All frames share one imported image. Waiting for this frame's Vulkan
+        // fence alone does not protect it from the previous frame's sampling.
+        if (_has_presented_frame) {
+            CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS wait_params{};
+            LUISA_CHECK_CUDA(cuWaitExternalSemaphoresAsync(
+                &_cuda_released_semaphore, &wait_params, 1u, stream));
+        }
 
         // copy image to swapchain image
         if (!name.empty()) { nvtxRangePushA("copy"); }
@@ -461,12 +507,33 @@ public:
 
         // present
         if (!name.empty()) { nvtxRangePushA(luisa::format("present", name).c_str()); }
-        _base.present(_semaphores[_current_frame], nullptr, _image_view,
+        // Consume CUDA's signal independently of present: swapchain recreation
+        // can return before the base submits a draw. The two queue submissions
+        // still pair every ready signal and ownership handoff on that path.
+        VkPipelineStageFlags ready_stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        VkSubmitInfo ready_submit{};
+        ready_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        ready_submit.waitSemaphoreCount = 1u;
+        ready_submit.pWaitSemaphores = &_semaphores[_current_frame];
+        ready_submit.pWaitDstStageMask = &ready_stage;
+        ready_submit.commandBufferCount = 1u;
+        ready_submit.pCommandBuffers = &_acquire_image_command;
+        LUISA_CHECK_VULKAN(vkQueueSubmit(_base.queue(), 1u, &ready_submit, nullptr));
+        _base.present(nullptr, nullptr, _image_view,
                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        VkSubmitInfo released_submit{};
+        released_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        released_submit.commandBufferCount = 1u;
+        released_submit.pCommandBuffers = &_release_image_command;
+        released_submit.signalSemaphoreCount = 1u;
+        released_submit.pSignalSemaphores = &_released_semaphore;
+        LUISA_CHECK_VULKAN(vkQueueSubmit(_base.queue(), 1u, &released_submit, nullptr));
+        _has_presented_frame = true;
         if (!name.empty()) { nvtxRangePop(); }
 
-        // update current frame index
-        _current_frame = (_current_frame + 1u) % _base.back_buffer_count();
+        // These semaphores belong to the shared import, not to base swapchain
+        // images, whose count may change during recreation.
+        _current_frame = (_current_frame + 1u) % _semaphores.size();
 
         if (!name.empty()) { nvtxRangePop(); }
     }

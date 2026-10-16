@@ -25,6 +25,21 @@ public:
     explicit CudaGraphInstance(CudaGraphExt *ext, ResourceCreationInfo const &resource_info) noexcept
         : _ext{ext}, _resource_info{resource_info} {}
     ~CudaGraphInstance() noexcept;
+    CudaGraphInstance(CudaGraphInstance &&another) noexcept
+        : _ext{another._ext}, _resource_info{another._resource_info} {
+        another._resource_info.invalidate();
+    }
+    CudaGraphInstance &operator=(CudaGraphInstance &&rhs) noexcept {
+        if (this != &rhs) {
+            this->~CudaGraphInstance();
+            _ext = rhs._ext;
+            _resource_info = rhs._resource_info;
+            rhs._resource_info.invalidate();
+        }
+        return *this;
+    }
+    CudaGraphInstance(CudaGraphInstance const &) noexcept = delete;
+    CudaGraphInstance &operator=(CudaGraphInstance const &) noexcept = delete;
     [[nodiscard]] ResourceCreationInfo release() noexcept;
     [[nodiscard]] ResourceCreationInfo const &handle() const noexcept { return _resource_info; }
 };
@@ -36,6 +51,21 @@ public:
     explicit CudaGraphExecInstance(CudaGraphExt *ext, ResourceCreationInfo const &resource_info) noexcept
         : _ext{ext}, _resource_info{resource_info} {}
     ~CudaGraphExecInstance() noexcept;
+    CudaGraphExecInstance(CudaGraphExecInstance &&another) noexcept
+        : _ext{another._ext}, _resource_info{another._resource_info} {
+        another._resource_info.invalidate();
+    }
+    CudaGraphExecInstance &operator=(CudaGraphExecInstance &&rhs) noexcept {
+        if (this != &rhs) {
+            this->~CudaGraphExecInstance();
+            _ext = rhs._ext;
+            _resource_info = rhs._resource_info;
+            rhs._resource_info.invalidate();
+        }
+        return *this;
+    }
+    CudaGraphExecInstance(CudaGraphExecInstance const &) noexcept = delete;
+    CudaGraphExecInstance &operator=(CudaGraphExecInstance const &) noexcept = delete;
     [[nodiscard]] ResourceCreationInfo release() noexcept;
     [[nodiscard]] ResourceCreationInfo const &handle() const noexcept { return _resource_info; }
 };
@@ -58,7 +88,8 @@ public:
 
     // -- Lifecycle --
 
-    /// Capture a CommandList into a CUDA graph via stream capture.
+    /// Build a dependency DAG from a CommandList. Plain CUDA compute and
+    /// direct-buffer Tile kernels preserve their respective launch ABIs.
     [[nodiscard]] virtual ResourceCreationInfo _create_graph(CommandList &&cmdlist) noexcept = 0;
     [[nodiscard]] CudaGraphInstance create_graph(CommandList &&cmdlist) {
         return CudaGraphInstance{this, _create_graph(std::move(cmdlist))};
@@ -108,6 +139,8 @@ public:
 
     // -- Individual node update (faster when few nodes change) --
     // Nodes indexed by position in the original CommandList.
+    // Tile kernel nodes require update(CommandList); the raw kernel-node
+    // update has no Tile buffer mapping and returns false for those nodes.
 
     [[nodiscard]] virtual bool update_kernel_node(
         GraphExecHandle exec, size_t node_index,

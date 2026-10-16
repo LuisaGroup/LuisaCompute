@@ -150,7 +150,15 @@ void EnhancedBarrierTrackerBackup::UpdateResourceState(Resource const *resPtr, R
         bool emplace = true;
         auto uav_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE | D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         if (before_state != after_state) {
-            if ((before_state & uav_state) != 0 && (before_state & uav_state) != 0) {
+            // Leaving a UAV/RTAS state: only the previous state matters here.
+            // Legacy transition barriers cannot be used on resources in the
+            // raytracing-acceleration-structure state (see the check below),
+            // so a UAV barrier is emitted instead and the resource is dropped
+            // to COMMON, relying on implicit state promotion for the next
+            // access. This UAV barrier is also the only synchronization
+            // between BLAS builds and dependent TLAS builds on this path and
+            // must be preserved.
+            if ((before_state & uav_state) != 0) {
                 D3D12_RESOURCE_BARRIER extra_barrier{};
                 extra_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
                 extra_barrier.UAV.pResource = resPtr->GetResource();

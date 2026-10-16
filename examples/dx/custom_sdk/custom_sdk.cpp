@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
 
     stream << kernel().dispatch(N) << synchronize();
     std::vector<uint> result(N);
-    stream << buffer.copy_to(result.data()) << synchronize();
+    stream << buffer.copy_to(luisa::span{result}) << synchronize();
 
     bool ok = true;
     for (auto i = 0u; i < N && ok; i++) {

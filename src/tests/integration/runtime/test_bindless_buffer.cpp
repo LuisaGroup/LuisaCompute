@@ -70,7 +70,7 @@ void test_bindless_buffer(Device &device) {
         stream << s(0.0f).dispatch(resolution.x, resolution.y)
                << device_image1.copy_to(luisa::span{pixels})
                << synchronize();
-        auto output_path = std::filesystem::path{opts.output_dir} / "test_bindless_buffer.png";
+        auto output_path = luisa::filesystem::path{opts.output_dir} / "test_bindless_buffer.png";
         auto saved = stbi_write_png(output_path.string().c_str(),
                                     resolution.x, resolution.y, 4,
                                     pixels.data(), resolution.x * 4u);

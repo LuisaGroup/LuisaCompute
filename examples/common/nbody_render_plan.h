@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <luisa/core/stl/memory.h>
 
 namespace luisa::ref {
 
@@ -27,7 +28,7 @@ struct NBodyWinnerEncoding {
         // bit patterns. Replacing the low mantissa bits with the particle
         // index gives atomic-min a stable index tie-break without requiring
         // 64-bit buffer atomics.
-        auto depth_bits = std::bit_cast<uint32_t>(distance);
+        auto depth_bits = luisa::bit_cast<uint32_t>(distance);
         return (depth_bits & kDepthMask) | particle_index;
     }
 

@@ -197,6 +197,21 @@ public:
                   Compression algorithm,
                   CompressionQuality quality,
                   vector<std::byte> &result) noexcept override;
+    [[nodiscard]] bool supports_compression(Compression algorithm) const noexcept override {
+        if (algorithm == Compression::None) { return true; }
+#ifdef LUISA_COMPUTE_ENABLE_NVCOMP
+        switch (algorithm) {
+            case Compression::GDeflate:
+            case Compression::Cascaded:
+            case Compression::LZ4:
+            case Compression::Snappy:
+            case Compression::Bitcomp:
+            case Compression::ANS: return true;
+            default: break;
+        }
+#endif
+        return false;
+    }
 
 protected:
     [[nodiscard]] DeviceInterface *device() const noexcept override { return _device; }

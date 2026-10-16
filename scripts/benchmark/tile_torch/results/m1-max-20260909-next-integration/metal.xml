@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="2"
+	failures="1"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="1"
+	timestamp="2026-09-09T12:10:01"
+	>
+	<testcase name="test_metal_shared_ptr" classname="test_metal_shared_ptr" time="0.402835" status="run">
+		<properties>
+			<property name="cmake_labels" value="unit;unit_ext;unit_metal"/>
+		</properties>
+		<system-out>[NON-XML-CHAR-0x1B][32mSuite 'global': all tests passed[NON-XML-CHAR-0x1B][0m (14 asserts in 4 tests)
+</system-out>
+	</testcase>
+	<testcase name="test_metal_local_codegen" classname="test_metal_local_codegen" time="1.12475" status="fail">
+		<failure message="SEGFAULT"/>
+		<properties>
+			<property name="cmake_labels" value="integration;integration_metal"/>
+		</properties>
+		<system-out>[2026-09-09 12:10:01.918] [console] [info] Created context for program 'test_metal_codegen_regressions'.
+[2026-09-09 12:10:01.919] [console] [info] Runtime directory: /private/tmp/luisa-next-checkpoint.J7yODi/build/bin.
+[2026-09-09 12:10:01.964] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-backend-metal.so' in 44.240167 ms.
+[2026-09-09 12:10:02.060] [console] [info] Created Metal device 'Apple M1 Max' at index 0.
+[2026-09-09 12:10:02.060] [console] [info] Test device backend: metal.
+!!!!!!! Segfault encountered !!!!!!!
+  File "&lt;unknown&gt;", line 0, in TVMFFISegFaultHandler(int)
+  File "&lt;unknown&gt;", line 0, in main
+
+</system-out>
+	</testcase>
+</testsuite>

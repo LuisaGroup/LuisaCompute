@@ -8,6 +8,7 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/core/stl/string.h>
 
 #include "cuda_texture.h"
 #include "cuda_codegen_ast.h"
@@ -631,6 +632,15 @@ void CUDACodegenAST::visit(const UnaryExpr *expr) {
 }
 
 void CUDACodegenAST::visit(const BinaryExpr *expr) {
+    if (expr->op() == BinaryOp::MOD &&
+        expr->type()->is_float_or_float_vector()) {
+        _scratch << "lc_fmod(";
+        expr->lhs()->accept(*this);
+        _scratch << ", ";
+        expr->rhs()->accept(*this);
+        _scratch << ")";
+        return;
+    }
     _scratch << "(";
     expr->lhs()->accept(*this);
     switch (expr->op()) {
@@ -659,7 +669,7 @@ void CUDACodegenAST::visit(const BinaryExpr *expr) {
 
 void CUDACodegenAST::visit(const MemberExpr *expr) {
     if (expr->is_swizzle()) {
-        static constexpr std::string_view xyzw[]{"x", "y", "z", "w"};
+        static constexpr luisa::string_view xyzw[]{"x", "y", "z", "w"};
         if (auto ss = expr->swizzle_size(); ss == 1u) {
             expr->self()->accept(*this);
             _scratch << ".";
@@ -1053,28 +1063,37 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ">";
             break;
         }
+        case CallOp::UNDEFINED: {
+            // Zero is a legal concrete refinement for direct AST codegen.
+            _scratch << "lc_zero<";
+            _emit_type_name(expr->type());
+            _scratch << ">";
+            break;
+        }
         case CallOp::ONE: {
             _scratch << "lc_one<";
             _emit_type_name(expr->type());
             _scratch << ">";
             break;
         }
-        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
-        case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << "lc_accel_instance_user_id"; break;
-        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: _scratch << "lc_accel_instance_visibility_mask"; break;
-        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
-        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
-        case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
-        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << "lc_accel_set_instance_user_id"; break;
-        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << "lc_accel_trace_closest"; break;
-        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << "lc_accel_trace_any"; break;
+        case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << (_fallback_rtx ? "lc_fallback_instance_transform" : "lc_accel_instance_transform"); break;
+        case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << (_fallback_rtx ? "lc_fallback_instance_user_id" : "lc_accel_instance_user_id"); break;
+        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: _scratch << (_fallback_rtx ? "lc_fallback_instance_visibility" : "lc_accel_instance_visibility"); break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_transform" : "lc_accel_set_instance_transform"); break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_visibility" : "lc_accel_set_instance_visibility"); break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_opacity" : "lc_accel_set_instance_opacity"); break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: _scratch << (_fallback_rtx ? "lc_fallback_set_instance_user_id" : "lc_accel_set_instance_user_id"); break;
+        case CallOp::RAY_TRACING_TRACE_CLOSEST: _scratch << (_fallback_rtx ? "lc_fallback_trace_closest" : "lc_accel_trace_closest"); break;
+        case CallOp::RAY_TRACING_TRACE_ANY: _scratch << (_fallback_rtx ? "lc_fallback_trace_any" : "lc_accel_trace_any"); break;
         case CallOp::RAY_TRACING_QUERY_ALL: _scratch << "lc_accel_query_all"; break;
         case CallOp::RAY_TRACING_QUERY_ANY: _scratch << "lc_accel_query_any"; break;
+        case CallOp::ACCEL_SIZE: _scratch << (_fallback_rtx ? "lc_fallback_accel_instance_count" : "lc_accel_instance_count"); break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR: _scratch << "lc_accel_trace_closest_motion_blur"; break;
         case CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR: _scratch << "lc_accel_trace_any_motion_blur"; break;
         case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR: _scratch << "lc_accel_query_all_motion_blur"; break;
         case CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: _scratch << "lc_accel_query_any_motion_blur"; break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY: _scratch << "LC_RAY_QUERY_WORLD_RAY"; break;
+        case CallOp::RAY_QUERY_OBJECT_SPACE_RAY: _scratch << "LC_RAY_QUERY_OBJECT_RAY"; break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_PROCEDURAL_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT: _scratch << "LC_RAY_QUERY_TRIANGLE_CANDIDATE_HIT"; break;
         case CallOp::RAY_QUERY_COMMITTED_HIT: _scratch << "lc_ray_query_committed_hit"; break;
@@ -1215,6 +1234,52 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ")";
         }
             return;
+        // Future cooperative-vector element-wise operations (native IR operators
+        // reserved for backend implementation — TODO: implement in CUDA AST codegen).
+        case CallOp::COOPERATIVE_VECTOR_DOT:
+        case CallOp::COOPERATIVE_VECTOR_ABS:
+        case CallOp::COOPERATIVE_VECTOR_SIGN:
+        case CallOp::COOPERATIVE_VECTOR_FLOOR:
+        case CallOp::COOPERATIVE_VECTOR_CEIL:
+        case CallOp::COOPERATIVE_VECTOR_FRACT:
+        case CallOp::COOPERATIVE_VECTOR_TRUNC:
+        case CallOp::COOPERATIVE_VECTOR_ROUND:
+        case CallOp::COOPERATIVE_VECTOR_RINT:
+        case CallOp::COOPERATIVE_VECTOR_SQRT:
+        case CallOp::COOPERATIVE_VECTOR_RSQRT:
+        case CallOp::COOPERATIVE_VECTOR_EXP2:
+        case CallOp::COOPERATIVE_VECTOR_EXP10:
+        case CallOp::COOPERATIVE_VECTOR_LOG2:
+        case CallOp::COOPERATIVE_VECTOR_LOG10:
+        case CallOp::COOPERATIVE_VECTOR_SATURATE:
+        case CallOp::COOPERATIVE_VECTOR_ISINF:
+        case CallOp::COOPERATIVE_VECTOR_ISNAN:
+        case CallOp::COOPERATIVE_VECTOR_SIN:
+        case CallOp::COOPERATIVE_VECTOR_COS:
+        case CallOp::COOPERATIVE_VECTOR_TAN:
+        case CallOp::COOPERATIVE_VECTOR_ASIN:
+        case CallOp::COOPERATIVE_VECTOR_ACOS:
+        case CallOp::COOPERATIVE_VECTOR_SINH:
+        case CallOp::COOPERATIVE_VECTOR_COSH:
+        case CallOp::COOPERATIVE_VECTOR_ASINH:
+        case CallOp::COOPERATIVE_VECTOR_ACOSH:
+        case CallOp::COOPERATIVE_VECTOR_ATANH:
+        case CallOp::COOPERATIVE_VECTOR_MIX:
+        case CallOp::COOPERATIVE_VECTOR_LERP:
+        case CallOp::COOPERATIVE_VECTOR_POW:
+        case CallOp::COOPERATIVE_VECTOR_STEP:
+        case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case CallOp::COOPERATIVE_VECTOR_ADD:
+        case CallOp::COOPERATIVE_VECTOR_SUB:
+        case CallOp::COOPERATIVE_VECTOR_MUL:
+        case CallOp::COOPERATIVE_VECTOR_DIV:
+        case CallOp::COOPERATIVE_VECTOR_LESS:
+        case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_GREATER:
+        case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+            LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the CUDA AST backend yet.");
         // not supported
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL: [[fallthrough]];
         case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD: [[fallthrough]];
@@ -1237,19 +1302,41 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER:
+            LUISA_NOT_IMPLEMENTED(
+                "Explicit-sampler texture sampling is not implemented in the "
+                "CUDA AST codegen yet.");
         case CallOp::ASYNC_COPY: {
-            // Emit: lc_pipeline_memcpy_async(dst, src, num * elem_bytes)
-            // AST args: [scope, dst, src, elem_bytes, num, stride, event]
-            _scratch << "lc_pipeline_memcpy_async(";
-            args[1]->accept(*this);  // dst (shared memory pointer)
-            _scratch << ", ";
-            args[2]->accept(*this);  // src (global memory pointer)
+            // Emit: lc_pipeline_memcpy_async(&dst, (void*)src, num * elem_bytes)
+            // AST args: [scope, dst_lvalue, src_addr, elem_bytes, num, stride, event]
+            // dst is an lvalue of the shared-memory destination; taking its
+            // address directly (&shared[i]) keeps the shared-memory provenance
+            // visible to NVVM/NVRTC, which is required for cp.async. src is a
+            // 64-bit device address of the global source.
+            luisa::fixed_vector<const Expression *, 8> chain;
+            {
+                luisa::fixed_vector<const Expression *, 8> reversed;
+                const Expression *cur = args[1];
+                while (cur->tag() == Expression::Tag::ACCESS) {
+                    auto acc = static_cast<const AccessExpr *>(cur);
+                    reversed.emplace_back(acc->index());
+                    cur = acc->range();
+                }
+                chain.emplace_back(cur);
+                for (auto it = reversed.rbegin();
+                     it != reversed.rend(); ++it) {
+                    chain.emplace_back(*it);
+                }
+            }
+            _scratch << "lc_pipeline_memcpy_async(&";
+            _emit_access_chain(chain);  // &(s2[i]) shared destination
+            _scratch << ", (void*)";
+            args[2]->accept(*this);     // src (global memory address)
             _scratch << ", ";
             // size = num * elem_bytes
-            args[4]->accept(*this);  // num
+            args[4]->accept(*this);     // num
             _scratch << " * ";
-            args[3]->accept(*this);  // elem_bytes
+            args[3]->accept(*this);     // elem_bytes
             _scratch << ")";
             return;
         }
@@ -1451,9 +1538,11 @@ void CUDACodegenAST::visit(const SwitchStmt *stmt) {
 }
 
 void CUDACodegenAST::visit(const SwitchCaseStmt *stmt) {
-    _scratch << "case ";
-    stmt->expression()->accept(*this);
-    _scratch << ": ";
+    for (auto expression : stmt->expressions()) {
+        _scratch << "case ";
+        expression->accept(*this);
+        _scratch << ": ";
+    }
     stmt->body()->accept(*this);
     if (std::none_of(stmt->body()->statements().begin(),
                      stmt->body()->statements().end(),
@@ -1473,6 +1562,7 @@ void CUDACodegenAST::visit(const SwitchDefaultStmt *stmt) {
 }
 
 void CUDACodegenAST::visit(const AssignStmt *stmt) {
+    if (is_local_undefined_lifetime_seed(stmt)) { return; }
     stmt->lhs()->accept(*this);
     _scratch << " = ";
     stmt->rhs()->accept(*this);
@@ -1480,6 +1570,14 @@ void CUDACodegenAST::visit(const AssignStmt *stmt) {
 }
 
 void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
+    if (_fallback_rtx) {
+        // `emit()` already rejects a function that uses ray queries; this is the
+        // belt-and-braces guard so that no path can lower one into a fallback
+        // shader.
+        LUISA_ERROR_WITH_LOCATION(
+            "Ray queries are not supported by the CUDA software ray-tracing "
+            "fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     _ray_query_lowering->lower(stmt);
 }
 
@@ -1493,9 +1591,49 @@ void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
 void CUDACodegenAST::emit(Function f, luisa::string_view device_lib, luisa::string_view native_include) {
 
     _requires_printing = f.requires_printing();
-    _requires_optix = f.requires_raytracing();
+    // In fallback mode the kernel is an ordinary CUDA kernel that calls into the
+    // software traversal (`cuda_device_fallback_rtx.h`): no OptiX header, no
+    // `__raygen__main`.  The operations the fallback does not implement are
+    // rejected here, before a single line is emitted, so a fallback kernel can
+    // never silently call into a missing (or wrong) symbol.
+    _requires_optix = f.requires_raytracing() && !_fallback_rtx;
 
-    if (f.requires_raytracing()) {
+    if (_fallback_rtx && f.requires_raytracing()) {
+        auto ops = f.propagated_builtin_callables();
+        auto unsupported = [&](auto op) noexcept { return ops.test(op); };
+        if (unsupported(CallOp::RAY_TRACING_QUERY_ALL) ||
+            unsupported(CallOp::RAY_TRACING_QUERY_ANY) ||
+            unsupported(CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR) ||
+            unsupported(CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR) ||
+            ops.uses_ray_query()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Ray queries are not supported by the CUDA software ray-tracing "
+                "fallback (DeviceConfigExt::use_fallback_rtx()).  Use "
+                "Accel::intersect() / Accel::intersect_any(), or disable the fallback.");
+        }
+        if (unsupported(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR) ||
+            unsupported(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR) ||
+            unsupported(CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX) ||
+            unsupported(CallOp::RAY_TRACING_INSTANCE_MOTION_SRT) ||
+            unsupported(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX) ||
+            unsupported(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT)) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Motion blur is not supported by the CUDA software ray-tracing "
+                "fallback (DeviceConfigExt::use_fallback_rtx()).");
+        }
+        if (f.required_curve_bases().any()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Curves are not supported by the CUDA software ray-tracing "
+                "fallback (DeviceConfigExt::use_fallback_rtx()).");
+        }
+        if (f.use_cooperative_operations() || ops.uses_cooperative()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Cooperative vectors are not supported by the CUDA software "
+                "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+        }
+    }
+
+    if (_requires_optix) {
         _scratch << "#define LUISA_ENABLE_OPTIX\n";
         if (f.required_curve_bases().any()) {
             _scratch << "#define LUISA_ENABLE_OPTIX_CURVE\n";
@@ -1558,7 +1696,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
         }
         _scratch << "\n  alignas(16) lc_uint4 ls_kid;";
         _scratch << "\n};\n\n";
-        if (f.requires_raytracing()) {
+        if (_requires_optix) {
             _scratch << "extern \"C\" __constant__ Params params;\n\n";
         }
     }
@@ -1595,7 +1733,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     // signature
     if (f.tag() == Function::Tag::KERNEL) {
         _scratch << "extern \"C\" __global__ void "
-                 << (f.requires_raytracing() ?
+                 << (_requires_optix ?
                          "__raygen__main" :
                          "kernel_main");
     } else if (f.tag() == Function::Tag::CALLABLE) {
@@ -1611,7 +1749,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     }
     _scratch << "(";
     if (f.tag() == Function::Tag::KERNEL) {
-        if (!f.requires_raytracing()) {
+        if (!_requires_optix) {
             _scratch << "const Params params";
         }
         _scratch << ") {";
@@ -1660,7 +1798,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
     // emit built-in variables
     if (f.tag() == Function::Tag::KERNEL) {
         _emit_builtin_variables();
-        if (!f.requires_raytracing()) {
+        if (!_requires_optix) {
             _scratch << "\n  if (lc_any(did >= ls)) { return; }";
         }
     }
@@ -1672,7 +1810,7 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
 
     if (_allow_indirect_dispatch) {
         // generate meta-function that launches the kernel with dynamic parallelism
-        if (f.tag() == Function::Tag::KERNEL && !f.requires_raytracing()) {
+        if (f.tag() == Function::Tag::KERNEL && !_requires_optix) {
             _scratch << "extern \"C\" __global__ void kernel_launcher(Params params, const LCIndirectBuffer indirect) {\n"
                      << "  auto i = blockIdx.x * blockDim.x + threadIdx.x;\n"
                      << "  auto n = min(indirect.header()->size, indirect.capacity - indirect.offset);\n"
@@ -1928,6 +2066,13 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
         case Type::Tag::FLOAT64: _scratch << (hack_float_to_int ? "lc_ulong" : "lc_double"); break;
         case Type::Tag::INT8: _scratch << "lc_byte"; break;
         case Type::Tag::UINT8: _scratch << "lc_ubyte"; break;
+        // FP8 / I4 / FP4 have no CUDA scalar type.  Placeholder: map to
+        // byte storage so the type switch is exhaustive.  Standalone
+        // sub-byte typed buffers are not yet exercised on CUDA.
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
+        case Type::Tag::FP4_E2M1: _scratch << "lc_ubyte"; break;
+        case Type::Tag::INT4: _scratch << "lc_byte"; break;
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;
@@ -2053,7 +2198,11 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
-            _scratch << "const LCAccel ";
+            // Software ray tracing replaces the OptiX traversable handle with
+            // the fallback's heap argument (cuda_builtin/
+            // cuda_device_fallback_rtx.h), which carries the bindless heap the
+            // traversal resolves its regions through.
+            _scratch << (_fallback_rtx ? "const LCFallbackAccel " : "const LCAccel ");
             _emit_variable_name(v);
             break;
         default:
@@ -2330,10 +2479,13 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
         "CudaCodegen: GpuCustomOpExpr is not supported in CUDA backend.");
 }
 
-CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noexcept
+CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect,
+                               bool fallback_rtx) noexcept
     : _scratch{scratch},
       _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)},
       _allow_indirect_dispatch{allow_indirect},
+      _fallback_rtx{fallback_rtx},
+
       _ray_type{Type::of<Ray>()},
       _triangle_hit_type{Type::of<TriangleHit>()},
       _procedural_hit_type{Type::of<ProceduralHit>()},

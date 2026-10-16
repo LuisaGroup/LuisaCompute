@@ -43,7 +43,15 @@ struct SpirvPointerLegalizationInfo {
     size_t blocking_function_count{0u};
     size_t destructured_blocking_function_count{0u};
     size_t destructured_switch_count{0u};
+    size_t pruned_unreachable_callable_count{0u};
     size_t remaining_pointer_call_count{0u};
+    size_t argument_usage_analysis_count{0u};
+    size_t indexed_call_site_count{0u};
+    size_t argument_usage_structural_closure_count{0u};
+    size_t argument_usage_instruction_scan_count{0u};
+    size_t argument_usage_call_dependency_count{0u};
+    size_t argument_usage_worklist_pop_count{0u};
+    size_t argument_usage_dependency_visit_count{0u};
     luisa::compute::xir::InlineInfo inline_info;
     luisa::string diagnostic;
 

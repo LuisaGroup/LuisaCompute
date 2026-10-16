@@ -1,0 +1,34 @@
+metal gemm_4096x4096x4096 ...
+  JIT trial 1/15: block=(32, 64, 128), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 469248.000 score units
+  JIT trial 2/15: block=(32, 64, 512), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 436224.000 score units
+  JIT trial 3/15: block=(32, 64, 4096), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 426080.000 score units
+  JIT trial 4/15: block=(64, 64, 128), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 453888.000 score units
+  JIT trial 5/15: block=(64, 64, 512), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 423168.000 score units
+  JIT trial 6/15: block=(64, 64, 4096), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 413696.000 score units
+  JIT trial 7/15: block=(128, 32, 128), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 461056.000 score units
+  JIT trial 8/15: block=(128, 32, 512), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 423424.000 score units
+  JIT trial 9/15: block=(128, 32, 4096), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 411936.000 score units
+  JIT trial 10/15: block=(128, 64, 128), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 450816.000 score units
+  JIT trial 11/15: block=(128, 64, 512), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 417792.000 score units
+  JIT trial 12/15: block=(128, 64, 4096), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 407648.000 score units
+  JIT trial 13/15: block=(64, 128, 128), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 454912.000 score units
+  JIT trial 14/15: block=(64, 128, 512), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 421888.000 score units
+  JIT trial 15/15: block=(64, 128, 4096), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False
+    validated; native model 411744.000 score units
+  Selected block=(128, 64, 4096), window=1, threads=auto, copy_batch=1, shared_tiles=preserve, row_packing=auto, unroll=1, lane_elements=1, input_cache=False; fresh validation/timing
+  validated; native 24759.042 us, torch 22027.708 us, ratio 1.12x
+Results: /Users/mike/CLionProjects/luisa/scripts/benchmark/tile_torch/results/m1-max-20260906-realized-work/selection/4096x4096x4096-reference/results.md

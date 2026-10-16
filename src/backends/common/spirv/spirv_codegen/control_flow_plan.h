@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/memory.h>
@@ -18,6 +19,7 @@ class LoopInst;
 class PhiInst;
 class SimpleLoopInst;
 class SwitchInst;
+class ConditionalBranchInst;
 }// namespace luisa::compute::xir
 
 namespace lc::spirv {
@@ -297,6 +299,13 @@ private:
         luisa::unordered_set<const luisa::compute::xir::BasicBlock *>>
         _merge_scopes;
     luisa::unordered_map<const luisa::compute::xir::Instruction *, Target> _edge_targets;
+    // Raw conditional branches are either canonical Loop.prepare terminators
+    // or direct parent-construct boundary guards. Both have two independently
+    // resolved physical targets and deliberately emit no OpSelectionMerge.
+    luisa::unordered_map<
+        const luisa::compute::xir::ConditionalBranchInst *,
+        std::array<Target, 2u>>
+        _conditional_branch_targets;
     luisa::unordered_map<const luisa::compute::xir::Instruction *, size_t>
         _nested_selection_rotation_inner_indices;
     luisa::unordered_map<const luisa::compute::xir::Instruction *, Target>
@@ -359,6 +368,8 @@ public:
     [[nodiscard]] const PhiPlan &phi_plan(const luisa::compute::xir::PhiInst *instruction) const noexcept;
     [[nodiscard]] const LoopRegion *loop_with_prepare(const luisa::compute::xir::BasicBlock *prepare) const noexcept;
     [[nodiscard]] Target edge_target(const luisa::compute::xir::Instruction *instruction) const noexcept;
+    [[nodiscard]] const std::array<Target, 2u> &conditional_branch_targets(
+        const luisa::compute::xir::ConditionalBranchInst *instruction) const noexcept;
 };
 
 }// namespace lc::spirv

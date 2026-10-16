@@ -1,0 +1,38 @@
+Test project /tmp/luisa-reduction-checkpoint.gQUERp/build
+    Start 54: test_tile_xir
+1/3 Test #54: test_tile_xir ....................   Passed    0.94 sec
+    Start 55: test_tile_xir_runtime
+2/3 Test #55: test_tile_xir_runtime ............***Failed   26.65 sec
+[2026-09-08 11:50:33.616] [console] [info] Created context for program 'test_tile_xir_runtime'.
+[2026-09-08 11:50:33.617] [console] [info] Runtime directory: /private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin.
+[2026-09-08 11:50:34.030] [console] [info] Loaded dynamic module '/private/tmp/luisa-reduction-checkpoint.gQUERp/build/bin/libluisa-backend-simd.so' in 412.64775 ms.
+[2026-09-08 11:50:34.030] [console] [info] Test device backend: simd.
+
+Running test "tile_xir_runtime_elementwise_reductions_softmax"... [31mFAILED
+[0min: /tmp/luisa-reduction-checkpoint.gQUERp/source/src/tests/unit/tile/bridge/test_xir_runtime.cpp:163[31m - test condition:  [false[31m][0m
+
+
+===============================================================================
+Suite global
+tests:   8 | [31m1 failed[0m
+asserts: 926 | 7 passed | [31m1 failed[0m
+
+
+    Start 56: test_tile_xir_llm
+3/3 Test #56: test_tile_xir_llm ................   Passed   37.03 sec
+
+67% tests passed, 1 tests failed out of 3
+
+Label Time Summary:
+integration             =  63.68 sec*proc (2 tests)
+integration_simd        =  63.68 sec*proc (2 tests)
+integration_tile_xir    =  63.68 sec*proc (2 tests)
+unit                    =   0.94 sec*proc (1 test)
+unit_tile               =   0.94 sec*proc (1 test)
+unit_tile_xir           =   0.94 sec*proc (1 test)
+
+Total Test time (real) =  64.62 sec
+
+The following tests FAILED:
+	 55 - test_tile_xir_runtime (Failed)                    integration integration_simd integration_tile_xir
+Errors while running CTest

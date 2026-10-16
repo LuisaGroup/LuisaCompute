@@ -22,6 +22,10 @@ luisa::string serialize_metal_shader_metadata(const MetalShaderMetadata &metadat
             case Usage::READ_WRITE: result.append("READ_WRITE "); break;
         }
     }
+    result.append(luisa::format("ARGUMENT_SAMPLED {} ", metadata.argument_sampled.size()));
+    for (auto sampled : metadata.argument_sampled) {
+        result.append(sampled ? "1 " : "0 ");
+    }
     result.append(luisa::format("FORMAT_TYPES {} ", metadata.format_types.size()));
     for (auto &&[fmt, type] : metadata.format_types) {
         for (auto c : fmt) { result.append(luisa::format("{:02x}", static_cast<uint>(c))); }
@@ -76,6 +80,7 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
     luisa::optional<uint3> block_size;
     luisa::optional<luisa::vector<luisa::string>> argument_types;
     luisa::optional<luisa::vector<Usage>> argument_usages;
+    luisa::optional<luisa::vector<uint8_t>> argument_sampled;
     luisa::optional<luisa::vector<std::pair<luisa::string, luisa::string>>> format_types;
 
     for (;;) {
@@ -222,6 +227,30 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
                 }
             }
             argument_usages.emplace(std::move(usages));
+        } else if (token == "ARGUMENT_SAMPLED") {
+            if (argument_sampled.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate sampled argument flags in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = parse_number(read_token());
+            if (!x.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid sampled argument flag count in shader metadata.");
+                return luisa::nullopt;
+            }
+            luisa::vector<uint8_t> sampled;
+            sampled.reserve(x.value());
+            for (auto i = 0ull; i < x.value(); i++) {
+                auto flag = parse_number(read_token());
+                if (!flag.has_value() || flag.value() > 1u) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Invalid sampled argument flag in shader metadata.");
+                    return luisa::nullopt;
+                }
+                sampled.emplace_back(static_cast<uint8_t>(flag.value()));
+            }
+            argument_sampled.emplace(std::move(sampled));
         } else if (token == "FORMAT_TYPES") {
             if (format_types.has_value()) {
                 LUISA_WARNING_WITH_LOCATION(
@@ -308,14 +337,13 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
             "Missing argument usages in shader metadata.");
         return luisa::nullopt;
     }
-    if (argument_types->size() != argument_usages->size()) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Argument types and usages mismatch in shader metadata.");
-        return luisa::nullopt;
+    if (!argument_sampled.has_value()) {
+        argument_sampled.emplace(argument_types->size(), uint8_t{0u});
     }
-    if (argument_types->size() != argument_usages->size()) {
+    if (argument_types->size() != argument_usages->size() ||
+        argument_types->size() != argument_sampled->size()) {
         LUISA_WARNING_WITH_LOCATION(
-            "Argument count mismatch in shader metadata.");
+            "Argument metadata count mismatch.");
         return luisa::nullopt;
     }
     if (!format_types.has_value()) {
@@ -329,6 +357,7 @@ luisa::optional<MetalShaderMetadata> deserialize_metal_shader_metadata(luisa::st
         .block_size = block_size.value(),
         .argument_types = std::move(argument_types.value()),
         .argument_usages = std::move(argument_usages.value()),
+        .argument_sampled = std::move(argument_sampled.value()),
         .format_types = std::move(format_types.value())};
 }
 

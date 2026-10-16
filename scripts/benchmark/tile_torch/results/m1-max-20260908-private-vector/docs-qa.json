@@ -1,0 +1,68 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "simd-local-distribution-and-private-layout-are-separate-decisions",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-xir-contiguous.plPTgi/docs-qa/simd-local-distribution-and-private-layout-are-separate-decisions-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [
+        [
+          5,
+          5
+        ]
+      ],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "common-slot-private-accesses-preserve-the-scalar-allocation-base",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-xir-contiguous.plPTgi/docs-qa/common-slot-private-accesses-preserve-the-scalar-allocation-base-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "simd-local-distribution-and-private-layout-are-separate-decisions",
+      "width": 390,
+      "screenshot": "/tmp/luisa-xir-contiguous.plPTgi/docs-qa/simd-local-distribution-and-private-layout-are-separate-decisions-390.png",
+      "scrolledScreenshot": "/tmp/luisa-xir-contiguous.plPTgi/docs-qa/simd-local-distribution-and-private-layout-are-separate-decisions-390-right.png",
+      "scrolls": [
+        {
+          "element": "TABLE",
+          "maximum": 247,
+          "reached": 247
+        }
+      ],
+      "tables": [
+        [
+          5,
+          5
+        ]
+      ],
+      "pageWidth": 390
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "common-slot-private-accesses-preserve-the-scalar-allocation-base",
+      "width": 390,
+      "screenshot": "/tmp/luisa-xir-contiguous.plPTgi/docs-qa/common-slot-private-accesses-preserve-the-scalar-allocation-base-390.png",
+      "scrolledScreenshot": "/tmp/luisa-xir-contiguous.plPTgi/docs-qa/common-slot-private-accesses-preserve-the-scalar-allocation-base-390-right.png",
+      "scrolls": [
+        {
+          "element": "PRE",
+          "maximum": 143,
+          "reached": 143
+        }
+      ],
+      "tables": [],
+      "pageWidth": 390
+    }
+  ]
+}

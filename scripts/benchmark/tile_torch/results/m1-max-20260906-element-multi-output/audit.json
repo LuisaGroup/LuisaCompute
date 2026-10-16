@@ -1,0 +1,581 @@
+{
+  "passed": true,
+  "graph_comparisons": 96,
+  "complete_value_derivative_pairs": 192,
+  "complete_output_planes": 384,
+  "frozen_artifacts": 23,
+  "unique_generated_sources": 12,
+  "findings": [
+    {
+      "name": "sigmoid_pair_1x127",
+      "host_throughput": {
+        "reference_us": 112.06242444349999,
+        "candidate_us": 2.9650736689299997,
+        "torch_us": 14.39571703318097,
+        "paired_reference_over_candidate": 37.34361954094821,
+        "speedup_range": [
+          35.81884712538471,
+          38.687064725474364
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.2080933177785736,
+        "torch_ratio_range": [
+          0.19272473937015797,
+          0.22090229086400115
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_throughput": {
+        "reference_us": 96.58821682023438,
+        "candidate_us": 2.0175780264296876,
+        "torch_us": 6.523112006107112,
+        "paired_reference_over_candidate": 48.13781566465107,
+        "speedup_range": [
+          38.86927131357513,
+          56.44485022058099
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.3089735536438408,
+        "torch_ratio_range": [
+          0.30319357175655864,
+          0.3751241462985338
+        ],
+        "torch_slower_rounds": 0
+      },
+      "host_latency": {
+        "reference_us": 355.958,
+        "candidate_us": 217.2505,
+        "torch_us": 251.1045,
+        "paired_reference_over_candidate": 1.7338510757324477,
+        "speedup_range": [
+          1.5224130891914078,
+          1.8674208691527303
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.8345619677903537,
+        "torch_ratio_range": [
+          0.7290004777554182,
+          0.9763364281813217
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_latency": {
+        "reference_us": 113.041693112,
+        "candidate_us": 4.1666789911699995,
+        "torch_us": 9.187497198581696,
+        "paired_reference_over_candidate": 25.29011127154352,
+        "speedup_range": [
+          23.68922202791008,
+          39.24970896388546
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.46296056758890913,
+        "torch_ratio_range": [
+          0.4115242661516889,
+          0.481779773653872
+        ],
+        "torch_slower_rounds": 0
+      }
+    },
+    {
+      "name": "sigmoid_pair_37x1537",
+      "host_throughput": {
+        "reference_us": 256.7902616455,
+        "candidate_us": 5.1047303876050005,
+        "torch_us": 18.901668268341734,
+        "paired_reference_over_candidate": 50.21670742219233,
+        "speedup_range": [
+          48.207438293253034,
+          52.432277959648495
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.2717181652432534,
+        "torch_ratio_range": [
+          0.2595389013802001,
+          0.27658417989654
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_throughput": {
+        "reference_us": 252.64746182109377,
+        "candidate_us": 3.5455732358984373,
+        "torch_us": 9.802734439290361,
+        "paired_reference_over_candidate": 71.25724159405685,
+        "speedup_range": [
+          69.69204831328877,
+          72.01459964271999
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.361991211936571,
+        "torch_ratio_range": [
+          0.2660156048825623,
+          0.3723396434526243
+        ],
+        "torch_slower_rounds": 0
+      },
+      "host_latency": {
+        "reference_us": 517.771,
+        "candidate_us": 258.271,
+        "torch_us": 258.791,
+        "paired_reference_over_candidate": 2.0057312623132635,
+        "speedup_range": [
+          1.7742123767881688,
+          2.4275855401274358
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.9930841767939025,
+        "torch_ratio_range": [
+          0.8234063201310122,
+          1.139164034987592
+        ],
+        "torch_slower_rounds": 3
+      },
+      "gpu_latency": {
+        "reference_us": 242.70833819199999,
+        "candidate_us": 7.187511073425,
+        "torch_us": 13.249984476715326,
+        "paired_reference_over_candidate": 35.91666214699619,
+        "speedup_range": [
+          32.120702667031644,
+          38.7270995481724
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.5189286794278064,
+        "torch_ratio_range": [
+          0.44637998056373607,
+          0.5746033013133477
+        ],
+        "torch_slower_rounds": 0
+      }
+    },
+    {
+      "name": "sigmoid_pair_1024x4096",
+      "host_throughput": {
+        "reference_us": 368.0478268055,
+        "candidate_us": 129.78473281650002,
+        "torch_us": 307.37413617308994,
+        "paired_reference_over_candidate": 2.852347588039896,
+        "speedup_range": [
+          2.715641325982818,
+          3.1807237412675198
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.41822682006227896,
+        "torch_ratio_range": [
+          0.3953569593311346,
+          0.4519468074292097
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_throughput": {
+        "reference_us": 366.747070984375,
+        "candidate_us": 105.31868474570312,
+        "torch_us": 288.5843096009921,
+        "paired_reference_over_candidate": 3.5034800630420393,
+        "speedup_range": [
+          2.7599845285354747,
+          3.7258690968286903
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.36494181292986266,
+        "torch_ratio_range": [
+          0.34278028826681256,
+          0.45502765419318886
+        ],
+        "torch_slower_rounds": 0
+      },
+      "host_latency": {
+        "reference_us": 644.813,
+        "candidate_us": 399.22900000000004,
+        "torch_us": 543.9585,
+        "paired_reference_over_candidate": 1.64156471104087,
+        "speedup_range": [
+          1.448586373247785,
+          1.7329721656483368
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.7292639662748749,
+        "torch_ratio_range": [
+          0.600571460257092,
+          0.8132493851451058
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_latency": {
+        "reference_us": 363.2291627585,
+        "candidate_us": 108.249980258,
+        "torch_us": 250.7083409000188,
+        "paired_reference_over_candidate": 3.330583442859882,
+        "speedup_range": [
+          2.958213435547759,
+          3.5288144914477035
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.4603097408695224,
+        "torch_ratio_range": [
+          0.4039344562634148,
+          0.5109171696821546
+        ],
+        "torch_slower_rounds": 0
+      }
+    },
+    {
+      "name": "sigmoid_pair_4096x4096",
+      "host_throughput": {
+        "reference_us": 1638.98495425,
+        "candidate_us": 696.19498912,
+        "torch_us": 1797.0529154411765,
+        "paired_reference_over_candidate": 2.355990935260939,
+        "speedup_range": [
+          2.2995385073947983,
+          2.4262375761000654
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.3924308084475049,
+        "torch_ratio_range": [
+          0.36743626578429306,
+          0.3987027974486695
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_throughput": {
+        "reference_us": 1566.6226843472223,
+        "candidate_us": 679.0598546061508,
+        "torch_us": 1712.9705896984565,
+        "paired_reference_over_candidate": 2.2984961156524006,
+        "speedup_range": [
+          2.2002743931614996,
+          2.3884480509215673
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.39929868297553717,
+        "torch_ratio_range": [
+          0.3866686817291257,
+          0.41582625817957436
+        ],
+        "torch_slower_rounds": 0
+      },
+      "host_latency": {
+        "reference_us": 1861.854,
+        "candidate_us": 876.9580000000001,
+        "torch_us": 1772.0,
+        "paired_reference_over_candidate": 2.1576270524760104,
+        "speedup_range": [
+          1.7445546265781229,
+          2.2800949898638865
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.5002075635173462,
+        "torch_ratio_range": [
+          0.3566776983025515,
+          0.5349682148142928
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_latency": {
+        "reference_us": 1564.645848705,
+        "candidate_us": 582.624983508,
+        "torch_us": 1552.6458446402103,
+        "paired_reference_over_candidate": 2.627446302430093,
+        "speedup_range": [
+          1.4326626689071753,
+          2.769973556663353
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.3726202838625078,
+        "torch_ratio_range": [
+          0.34587464521141226,
+          0.7543344377633635
+        ],
+        "torch_slower_rounds": 0
+      }
+    },
+    {
+      "name": "gelu_pair_1x127",
+      "host_throughput": {
+        "reference_us": 126.604383168,
+        "candidate_us": 4.237971156775,
+        "torch_us": 11.070002460458062,
+        "paired_reference_over_candidate": 29.70067402324334,
+        "speedup_range": [
+          28.451283891950162,
+          29.948175030210407
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.3904574105718499,
+        "torch_ratio_range": [
+          0.37420577946266514,
+          0.40211182936069323
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_throughput": {
+        "reference_us": 124.77539075914063,
+        "candidate_us": 3.01562477034375,
+        "torch_us": 4.414062459545676,
+        "paired_reference_over_candidate": 41.27930926496373,
+        "speedup_range": [
+          20.282590719409516,
+          43.10119192163531
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.6835185533928807,
+        "torch_ratio_range": [
+          0.603496141506148,
+          1.3980194458685167
+        ],
+        "torch_slower_rounds": 1
+      },
+      "host_latency": {
+        "reference_us": 372.22900000000004,
+        "candidate_us": 254.6455,
+        "torch_us": 303.5415,
+        "paired_reference_over_candidate": 1.5183461783740022,
+        "speedup_range": [
+          1.148294460321982,
+          1.6359253724147906
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.8582315903708972,
+        "torch_ratio_range": [
+          0.7262319474835887,
+          1.125680075548289
+        ],
+        "torch_slower_rounds": 2
+      },
+      "gpu_latency": {
+        "reference_us": 114.479189506,
+        "candidate_us": 5.958339897915,
+        "torch_us": 7.2083494160324335,
+        "paired_reference_over_candidate": 19.60712860221637,
+        "speedup_range": [
+          18.99986418316084,
+          20.340035762845904
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.8392830381834231,
+        "torch_ratio_range": [
+          0.7179465136433222,
+          0.8622838643834956
+        ],
+        "torch_slower_rounds": 0
+      }
+    },
+    {
+      "name": "gelu_pair_37x1537",
+      "host_throughput": {
+        "reference_us": 286.03545394699995,
+        "candidate_us": 9.232810272945,
+        "torch_us": 14.459942555828096,
+        "paired_reference_over_candidate": 30.997658080072526,
+        "speedup_range": [
+          29.848947811330827,
+          31.281580547824525
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.6445452191643108,
+        "torch_ratio_range": [
+          0.6040979513496652,
+          0.6636280586152817
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_throughput": {
+        "reference_us": 279.6777353070313,
+        "candidate_us": 6.468423634945312,
+        "torch_us": 6.792643034714274,
+        "paired_reference_over_candidate": 43.27747708998176,
+        "speedup_range": [
+          43.04356185707837,
+          43.741277219631684
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.9517257384119598,
+        "torch_ratio_range": [
+          0.9441099723980939,
+          0.9562296722950037
+        ],
+        "torch_slower_rounds": 0
+      },
+      "host_latency": {
+        "reference_us": 517.375,
+        "candidate_us": 264.4585,
+        "torch_us": 257.584,
+        "paired_reference_over_candidate": 1.9292916101681694,
+        "speedup_range": [
+          1.7641737326483162,
+          2.2271793567966554
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 1.023783863275516,
+        "torch_ratio_range": [
+          0.8815708714578435,
+          1.0621254502811561
+        ],
+        "torch_slower_rounds": 3
+      },
+      "gpu_latency": {
+        "reference_us": 269.6666342675,
+        "candidate_us": 9.708339348440001,
+        "torch_us": 9.68750100582838,
+        "paired_reference_over_candidate": 28.621546609906982,
+        "speedup_range": [
+          23.153847334678687,
+          34.098688154961735
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.9956669509004503,
+        "torch_ratio_range": [
+          0.8246213029474138,
+          1.176724553208868
+        ],
+        "torch_slower_rounds": 3
+      }
+    },
+    {
+      "name": "gelu_pair_1024x4096",
+      "host_throughput": {
+        "reference_us": 465.5221827115,
+        "candidate_us": 126.3739754465,
+        "torch_us": 226.33437564911924,
+        "paired_reference_over_candidate": 3.678396175391396,
+        "speedup_range": [
+          3.304490923836821,
+          3.761420667004415
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.5891919060113873,
+        "torch_ratio_range": [
+          0.5206287022611176,
+          0.5926644120664004
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_throughput": {
+        "reference_us": 451.5460252532762,
+        "candidate_us": 105.54427171882813,
+        "torch_us": 197.51757781705237,
+        "paired_reference_over_candidate": 4.2321774612618706,
+        "speedup_range": [
+          3.854606235374046,
+          4.3907530252810005
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.5300782050662005,
+        "torch_ratio_range": [
+          0.5256197779963501,
+          0.5733805556591822
+        ],
+        "torch_slower_rounds": 0
+      },
+      "host_latency": {
+        "reference_us": 674.6665,
+        "candidate_us": 407.22950000000003,
+        "torch_us": 472.8335,
+        "paired_reference_over_candidate": 1.6382568217518663,
+        "speedup_range": [
+          1.617226368159204,
+          1.901650393769545
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.8434080599812424,
+        "torch_ratio_range": [
+          0.7056891030270119,
+          0.9585389221556886
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_latency": {
+        "reference_us": 426.395854447,
+        "candidate_us": 133.9791633655,
+        "torch_us": 200.27082064189017,
+        "paired_reference_over_candidate": 3.0728278794541284,
+        "speedup_range": [
+          1.5993686559611735,
+          4.5752597238646215
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.6614611331542868,
+        "torch_ratio_range": [
+          0.4685987782139612,
+          1.3137703441955872
+        ],
+        "torch_slower_rounds": 1
+      }
+    },
+    {
+      "name": "gelu_pair_4096x4096",
+      "host_throughput": {
+        "reference_us": 2117.143254765,
+        "candidate_us": 700.9256138395,
+        "torch_us": 1281.7708333333335,
+        "paired_reference_over_candidate": 3.007497678888475,
+        "speedup_range": [
+          2.780502896745555,
+          3.185135717214497
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.5592802613137203,
+        "torch_ratio_range": [
+          0.5154803137755776,
+          0.5875178055955225
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_throughput": {
+        "reference_us": 2045.4836319142858,
+        "candidate_us": 677.8761128256522,
+        "torch_us": 1227.0669643154863,
+        "paired_reference_over_candidate": 3.0249174906112573,
+        "speedup_range": [
+          2.920827578091799,
+          3.133308755643143
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.5563504295469561,
+        "torch_ratio_range": [
+          0.5187091897252125,
+          0.5799339514155146
+        ],
+        "torch_slower_rounds": 0
+      },
+      "host_latency": {
+        "reference_us": 2388.3545,
+        "candidate_us": 855.9585,
+        "torch_us": 1416.8125,
+        "paired_reference_over_candidate": 2.773807464929246,
+        "speedup_range": [
+          1.8816497488935224,
+          3.074804893920444
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.6214611035746866,
+        "torch_ratio_range": [
+          0.5456880802912092,
+          0.7437733662280989
+        ],
+        "torch_slower_rounds": 0
+      },
+      "gpu_latency": {
+        "reference_us": 1984.2916517499998,
+        "candidate_us": 596.999976551,
+        "torch_us": 1029.5208485331386,
+        "paired_reference_over_candidate": 3.2310841041627727,
+        "speedup_range": [
+          2.2113066980413447,
+          3.638120523863067
+        ],
+        "candidate_slower_rounds": 0,
+        "paired_candidate_over_torch": 0.6105425994753868,
+        "torch_ratio_range": [
+          0.43054328373995365,
+          0.8388092438366184
+        ],
+        "torch_slower_rounds": 0
+      }
+    }
+  ],
+  "interpretation": "paired medians and min-max ranges, not confidence intervals; eager Torch",
+  "adversarial_checks": 8,
+  "local_artifacts_rechecked": true
+}

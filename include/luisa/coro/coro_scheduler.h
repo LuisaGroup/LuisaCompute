@@ -4,8 +4,12 @@
 
 #pragma once
 
+#include <cstdlib>
+#include <type_traits>
+
 #include <luisa/core/basic_types.h>
 #include <luisa/core/concepts.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/functional.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
@@ -17,14 +21,43 @@ class CoroScheduler;
 
 namespace detail {
 
+// A scheduler expands one logical coroutine into several physical shaders.
+// Every generated shader must inherit the caller's compilation semantics
+// (fast-math, debug information, register limits, driver optimization, ...).
+// A user-provided AOT name must additionally be made unique per stage; an
+// empty name stays empty so ordinary hash-based shader caching remains active.
+[[nodiscard]] inline ShaderOption coro_scheduler_shader_option(
+    const ShaderOption &base,
+    luisa::string_view stage) noexcept {
+    auto result = base;
+    if (!result.name.empty()) {
+        result.name = luisa::format("{}_{}", result.name, stage);
+    }
+    return result;
+}
+
+// ShaderOption::name selects the AOT/cache identity and therefore cannot be
+// used merely to make scheduler stages visible in backend profilers. Apply a
+// runtime resource label after compilation instead. Keep this diagnostic-only
+// so ordinary scheduler dispatches do not pay backend encoder-label overhead.
+template<typename Shader>
+[[nodiscard]] inline Shader coro_scheduler_label_shader(
+    Shader shader, luisa::string_view stage) noexcept {
+    if (std::getenv("LUISA_CORO_SHADER_MAP") != nullptr) {
+        shader.set_name(stage);
+    }
+    return shader;
+}
+
 template<typename... Args>
 class CoroSchedulerInvoke;
 
 /// Dispatch object returned by CoroSchedulerInvoke::dispatch().
 /// Move-only; holds the concrete dispatch logic.  The primary usage is
 ///   auto disp = scheduler(args...).dispatch(size);
-///   disp(stream);          // explicit stream submission
-/// For single-command schedulers, `stream << disp` also works.
+///   stream << disp;
+/// Direct invocation with `disp(stream)` remains available for scheduler
+/// implementations that need explicit submission.
 class CoroSchedulerDispatch : public concepts::Noncopyable {
 
 private:
@@ -51,8 +84,17 @@ class CoroSchedulerInvoke : public concepts::Noncopyable {
 
 private:
     using Scheduler = CoroScheduler<Args...>;
+    template<typename T>
+    using InvocationArgument = compute::detail::prototype_to_shader_invocation_t<T>;
+    // Lazy dispatch owns ordinary scalar/aggregate snapshots. Move-only
+    // resources such as Accel retain the invocation API's reference lifetime.
+    template<typename T>
+    using StoredArgument = std::conditional_t<
+        std::is_copy_constructible_v<std::decay_t<InvocationArgument<T>>>,
+        std::decay_t<InvocationArgument<T>>,
+        InvocationArgument<T>>;
     Scheduler *_scheduler;
-    std::tuple<compute::detail::prototype_to_shader_invocation_t<Args>...> _args;
+    std::tuple<StoredArgument<Args>...> _args;
 
 private:
     friend Scheduler;
@@ -103,7 +145,7 @@ public:
     /// Binds coroutine arguments. Returns an invoker on which
     /// `.dispatch(size)` is called, yielding a `CoroSchedulerDispatch`
     /// that can be submitted to a stream:
-    ///   scheduler(args...).dispatch(size)(stream);
+    ///   stream << scheduler(args...).dispatch(size);
     [[nodiscard]] auto operator()(
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
         return detail::CoroSchedulerInvoke<Args...>{this, args...};

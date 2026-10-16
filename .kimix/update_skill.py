@@ -162,7 +162,7 @@ make minimal changes
    - Module hierarchy.
    - Custom CMake functions: `luisa_compute_add_backend`, `luisa_compute_install`, `luisa_compute_add_executable`, `luisa_compute_add_test`, `luisa_compute_add_example`, `luisa_example_pair_link`.
    - Backend plugin build rules and output/RPATH behavior.
-   - Rust integration via `src/rust/CMakeLists.txt`.
+   - XIR target integration and backend linkage.
    - Third-party extension pattern under `src/ext/<lib>/`.
 3. **Identify outdated information, missing examples, broken links, or gaps.** Compare against the actual CMake files in the project (e.g., `CMakeLists.txt`, `src/*/CMakeLists.txt`, `scripts/agent_windows_cmake.py`) where needed.
 4. **Update `SKILL.md` and any bundled resources** if needed. Keep changes minimal and focused on documentation accuracy.
@@ -401,7 +401,7 @@ clear_default_context()
 prompt("""# Skill Update Prompt: ir_pipeline
 
 **Skill Path:** `D:/compute/.agents/skills/ir_pipeline/SKILL.md`
-**Skill Description:** Legacy IR and XIR compiler pipeline, AST lowering, SSA IR, and optimization passes.
+**Skill Description:** XIR compiler pipeline, AST lowering, SSA representation, and optimization passes.
 
 ## Guideline
 
@@ -415,8 +415,8 @@ Review and update the `ir_pipeline` skill so it remains accurate, complete, and 
 
 1. **Read the current skill** at `D:/compute/.agents/skills/ir_pipeline/SKILL.md`. Do not modify it yet.
 2. **Review for correctness and completeness:**
-   - Verify the comparison between legacy IR and XIR still matches the current codebase.
-   - Confirm pipeline flow, file paths (`src/ir/`, `src/xir/`, `src/rust/luisa_compute_ir/`, `include/luisa/xir/`, etc.), and class names are still accurate.
+   - Verify the AST-to-XIR and XIR-to-AST pipeline against the current codebase.
+   - Confirm pipeline flow, file paths (`src/xir/`, `include/luisa/xir/`, etc.), and class names are still accurate.
    - Check expression/statement mapping tables against `src/xir/translators/ast2xir.cpp`.
    - Validate the XIR value hierarchy and instruction-set descriptions against the current headers.
    - Confirm the optimization pass list under `src/xir/passes/` is complete and filenames/purposes are correct.
@@ -674,55 +674,6 @@ Review and update the `project_structure` skill for the LuisaCompute repository.
 - Keep the prompt concise but specific enough to be actionable.
 """)
 
-# rust_workspace update prompt
-clear_default_context()
-prompt("""# Skill Update Prompt: `rust_workspace`
-
-- **Skill name:** `rust_workspace`
-- **Original skill path:** `D:/compute/.agents/skills/rust_workspace/SKILL.md`
-- **Scope:** Review and, if necessary, update the skill documentation and any bundled resources so it stays correct, complete, and aligned with current project practices.
-- **Constraint:** Do not modify files outside the skill directory except to run verification. Do not change the original `SKILL.md` unless updates are required; if changes are made, preserve the original structure and intent as much as possible.
-
-## Guideline
-
-make minimal changes
-
-## Task
-
-1. **Read the current skill** at `D:/compute/.agents/skills/rust_workspace/SKILL.md` and inspect any linked files or resources under `D:/compute/.agents/skills/rust_workspace/`.
-
-2. **Review for quality and currency:**
-   - Correctness of crate names, paths, and dependency graph under `src/rust/`.
-   - Accuracy of IR data structures, transforms, backend responsibilities, and FFI conventions.
-   - Completeness: missing crates, recent compiler transforms, backend features, or build/CI details.
-   - Examples: are code snippets up-to-date and do they compile against the current code base?
-   - Links: any broken or stale references to files, headers, or external documentation.
-   - Gaps: common workflows (e.g., adding a transform, exposing a new FFI function, running Rust tests, debugging cbindgen output) that should be covered.
-
-3. **Update the skill:**
-   - Edit `D:/compute/.agents/skills/rust_workspace/SKILL.md` directly with fixes and additions.
-   - Add or update bundled resources in the skill directory if examples, diagrams, or scripts are needed.
-   - Keep the same general format (front matter, sections, tables, code blocks) unless a reorganization clearly improves clarity.
-   - Make minimal, purposeful changes; do not rewrite for style alone.
-
-4. **Run domain-relevant verification:**
-   - `cd D:/compute/src/rust && cargo check` (with relevant features such as `cpu`, `remote` if applicable).
-   - `cargo test` for the workspace, or for the crates the skill describes.
-   - `cargo fmt --check` and `cargo clippy` (resolve or document any new warnings tied to the skill's content).
-   - Verify `cbindgen` headers are still generated correctly if the skill mentions FFI header generation.
-   - If the skill references C++ integration, build the relevant CMake target(s) and confirm no regressions.
-
-5. **Confirm no regressions:** ensure builds, tests, and lints pass after any changes. If a check fails and cannot be fixed as part of this update, document the failure and the reason.
-
-6. **Summarize changes:** produce a short changelog covering what was updated, added, removed, or verified, and note any remaining issues.
-
-## Output
-
-- Updated `D:/compute/.agents/skills/rust_workspace/SKILL.md` (if changes were needed).
-- Any supporting resources under `D:/compute/.agents/skills/rust_workspace/`.
-- A summary of changes and verification results.
-""")
-
 # skill-creator update prompt
 clear_default_context()
 prompt("""# Update Prompt: skill-creator
@@ -859,7 +810,7 @@ make minimal changes
 
 The `test` skill documents how LuisaCompute tests are authored, organized, built, and run. It covers:
 
-- Test directory layout under `src/tests/` (`unit/core/`, `unit/ext/`, `unit/ast/`, `unit/dsl/`, `unit/runtime/`, `unit/xir/`, `integration/runtime/`, `integration/ir/`, `common/`, `python/`, `cxx_shaders/`).
+- Test directory layout under `src/tests/` (`unit/core/`, `unit/ext/`, `unit/ast/`, `unit/dsl/`, `unit/runtime/`, `unit/xir/`, `integration/runtime/`, `integration/xir/`, `common/`, `python/`, `cxx_shaders/`).
 - Adding tests via CMake (`luisa_compute_add_test`) and xmake (`test_proj`).
 - Mirroring `examples/` as test executables with `MIRROR_AS_TEST`.
 - C++ test templates for no-device unit tests and device-needed tests.
@@ -882,7 +833,7 @@ The `test` skill documents how LuisaCompute tests are authored, organized, built
    - Missing helper functions or changed `test_device.h` APIs.
    - New assertion patterns, DSL features, or XIR conventions not reflected.
    - Broken or stale links (e.g., Boost.UT URL, internal paths).
-   - Missing guidance for Python tests, Rust IR tests, or GUI-dependent tests.
+   - Missing guidance for Python tests, XIR tests, or GUI-dependent tests.
    - Inconsistent examples or contradictory style advice.
 4. **Update the skill**:
    - Edit `D:/compute/.agents/skills/test/SKILL.md` directly.
@@ -1088,4 +1039,3 @@ When finished, report:
 - The full path of the updated skill: `D:/compute/.agents/skills/yyjson/SKILL.md`
 - A brief summary of what the prompt covers and which areas, if any, were updated.
 """)
-

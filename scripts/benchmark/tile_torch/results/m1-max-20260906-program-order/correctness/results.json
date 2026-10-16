@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "started_at": "2026-09-06T16:01:34.085118+00:00",
+    "phase": "check",
+    "loader": "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin:/private/tmp/luisa-tvm-mpp.VaKmzx/build/lib",
+    "removed_environment": {
+      "MTL_DEBUG_LAYER": null,
+      "MTL_SHADER_VALIDATION": null,
+      "LUISA_ENABLE_VALIDATION": null,
+      "DYLD_PRINT_LIBRARIES": null,
+      "LUISA_TILE_BENCH_DUMP_SOURCE": null,
+      "PYTORCH_MPS_FAST_MATH": null,
+      "PYTORCH_MPS_PREFER_METAL": null,
+      "PYTORCH_ENABLE_MPS_FALLBACK": null
+    },
+    "build": {
+      "command": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build",
+        "--parallel",
+        "8"
+      ],
+      "exit_code": 1
+    }
+  },
+  "results": []
+}

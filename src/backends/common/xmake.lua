@@ -2,6 +2,15 @@ if has_config("lc_vk_backend") or has_config("lc_dx_backend") then
     includes("hlsl")
 end
 
+-- The software ray-tracing fallback (src/backends/common/rtx) is what a backend
+-- without hardware ray tracing - or one the user asked to run in fallback mode -
+-- builds its acceleration structures with, so it is built whenever at least one
+-- of those backends is.
+if has_config("lc_cuda_backend") or has_config("lc_dx_backend") or
+   has_config("lc_vk_backend") then
+    includes("rtx")
+end
+
 -- Both SPIR-V code generators are Vulkan-only. Key their targets on the
 -- backend as well as the codegen option so a DX-only/test configuration cannot
 -- create dangling dependencies on lc-spirv or lc-spirv-llvm.
@@ -35,18 +44,6 @@ if has_config("lc_cuda_backend") then
             target:add("files", path.join(os.scriptdir(), "moltenvk_surface.mm"))
         end
     end)
-    target_end()
-end
-
-if has_config("lc_toy_c_backend") then
-    target("lc-clanguage-codegen")
-    set_basename("luisa-clanguage-codegen")
-    _config_project({
-        project_kind = "static"
-    })
-    add_deps("lc-core", "lc-runtime", "lc-vstl")
-    add_files("c_codegen/*.cpp", "hlsl/string_builder.cpp")
-    lc_set_pcxxheader("c_codegen/lc_ccodegen_pch.h")
     target_end()
 end
 

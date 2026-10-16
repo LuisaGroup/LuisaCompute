@@ -5,10 +5,6 @@
 #include <luisa/core/stl/functional.h>
 #include <luisa/runtime/rhi/command.h>
 
-#ifdef LUISA_ENABLE_API
-#include <luisa/api/common.h>
-#endif
-
 namespace lc::validation {
 class Device;
 }// namespace lc::validation

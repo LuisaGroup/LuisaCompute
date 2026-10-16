@@ -1,0 +1,397 @@
+{
+  "status": "passed",
+  "output_pairs": 65,
+  "checks": [
+    {
+      "cohort": "smoke",
+      "case": "topk-1x7x3-descending",
+      "route": "xir-simd",
+      "elements": 3
+    },
+    {
+      "cohort": "smoke",
+      "case": "topk-1x7x3-descending",
+      "route": "xir-metal4",
+      "elements": 3
+    },
+    {
+      "cohort": "smoke",
+      "case": "topk-1x7x3-descending",
+      "route": "tirx-metal",
+      "elements": 3
+    },
+    {
+      "cohort": "smoke",
+      "case": "topk-1x7x3-descending",
+      "route": "torch-cpu",
+      "elements": 3
+    },
+    {
+      "cohort": "smoke",
+      "case": "topk-1x7x3-descending",
+      "route": "torch-mps",
+      "elements": 3
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-ascending",
+      "route": "xir-simd",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-ascending",
+      "route": "xir-metal4",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-ascending",
+      "route": "tirx-metal",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-ascending",
+      "route": "torch-cpu",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-ascending",
+      "route": "torch-mps",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-descending",
+      "route": "xir-simd",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-descending",
+      "route": "xir-metal4",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-descending",
+      "route": "tirx-metal",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-descending",
+      "route": "torch-cpu",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-1x31x1-descending",
+      "route": "torch-mps",
+      "elements": 1
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-ascending",
+      "route": "xir-simd",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-ascending",
+      "route": "xir-metal4",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-ascending",
+      "route": "tirx-metal",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-ascending",
+      "route": "torch-cpu",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-ascending",
+      "route": "torch-mps",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-descending",
+      "route": "xir-simd",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-descending",
+      "route": "xir-metal4",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-descending",
+      "route": "tirx-metal",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-descending",
+      "route": "torch-cpu",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x65x8-descending",
+      "route": "torch-mps",
+      "elements": 136
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-ascending",
+      "route": "xir-simd",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-ascending",
+      "route": "xir-metal4",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-ascending",
+      "route": "tirx-metal",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-ascending",
+      "route": "torch-cpu",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-ascending",
+      "route": "torch-mps",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-descending",
+      "route": "xir-simd",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-descending",
+      "route": "xir-metal4",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-descending",
+      "route": "tirx-metal",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-descending",
+      "route": "torch-cpu",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-128x257x16-descending",
+      "route": "torch-mps",
+      "elements": 2048
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-ascending",
+      "route": "xir-simd",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-ascending",
+      "route": "xir-metal4",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-ascending",
+      "route": "tirx-metal",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-ascending",
+      "route": "torch-cpu",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-ascending",
+      "route": "torch-mps",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-descending",
+      "route": "xir-simd",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-descending",
+      "route": "xir-metal4",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-descending",
+      "route": "tirx-metal",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-descending",
+      "route": "torch-cpu",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "topk-17x1025x1024-descending",
+      "route": "torch-mps",
+      "elements": 17408
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-ascending",
+      "route": "xir-simd",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-ascending",
+      "route": "xir-metal4",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-ascending",
+      "route": "tirx-metal",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-ascending",
+      "route": "torch-cpu",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-ascending",
+      "route": "torch-mps",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-descending",
+      "route": "xir-simd",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-descending",
+      "route": "xir-metal4",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-descending",
+      "route": "tirx-metal",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-descending",
+      "route": "torch-cpu",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x65x65-descending",
+      "route": "torch-mps",
+      "elements": 1105
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-ascending",
+      "route": "xir-simd",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-ascending",
+      "route": "xir-metal4",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-ascending",
+      "route": "tirx-metal",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-ascending",
+      "route": "torch-cpu",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-ascending",
+      "route": "torch-mps",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-descending",
+      "route": "xir-simd",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-descending",
+      "route": "xir-metal4",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-descending",
+      "route": "tirx-metal",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-descending",
+      "route": "torch-cpu",
+      "elements": 17425
+    },
+    {
+      "cohort": "matrix",
+      "case": "sort-17x1025x1025-descending",
+      "route": "torch-mps",
+      "elements": 17425
+    }
+  ],
+  "scope": "Full retained inputs/values/indices, payload hashes and host medians. GPU schemas were validated by the frozen driver, not independently re-audited here. Runtime guards are execution receipts only; no native execution or performance claim."
+}

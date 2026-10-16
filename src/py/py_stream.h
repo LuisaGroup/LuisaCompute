@@ -29,7 +29,7 @@ public:
         luisa::unordered_map<void*, luisa::move_only_function<void(void*, Stream&)>> before_commit_tasks;
         CommandList buffer;
         vstd::vector<Disposer> uploadDisposer;
-        // vstd::vector<Disposer> readbackDisposer;
+        vstd::vector<Disposer> readbackDisposer;
         Data(Device &device, bool support_window) noexcept;
         void execute() noexcept;
         void sync() noexcept;
@@ -51,6 +51,16 @@ public:
         requires(!std::is_reference_v<T>)
     void add_upload(T t) noexcept {
         auto &disp = _data->uploadDisposer.emplace_back();
+        disp.ptr = vengine_malloc(sizeof(T));
+        new (disp.ptr) T(std::move(t));
+        disp.dtor = [](void *ptr) {
+            std::destroy_at(static_cast<T *>(ptr));
+        };
+    }
+    template<typename T>
+        requires(!std::is_reference_v<T>)
+    void add_readback(T t) noexcept {
+        auto &disp = _data->readbackDisposer.emplace_back();
         disp.ptr = vengine_malloc(sizeof(T));
         new (disp.ptr) T(std::move(t));
         disp.dtor = [](void *ptr) {

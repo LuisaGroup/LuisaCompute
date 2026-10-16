@@ -22,7 +22,9 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 20 all
           sudo apt-get -y install build-essential wget uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          # llvm.sh adds a versioned snapshot source. The packages are installed now,
+          # so remove it before later actions run apt-get update again.
+          sudo sed -i '/apt\.llvm\.org/d' /etc/apt/sources.list.d/*.list
       - name: "Setup XMake"
         uses: xmake-io/github-action-setup-xmake@v1
       - name: "Setup CUDA"
@@ -66,8 +68,6 @@ jobs:
         with:
           cuda: 12.8.1
           sub-packages: '[ "cudart", "nvrtc", "nvrtc_dev", "nvjitlink", "nvcc", "nvtx" ]'
-      - name: "Setup Rust"
-        uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
       - name: "Setup Vulkan"
         uses: johnnynunez/setup-vulkan-sdk@v1
         with:

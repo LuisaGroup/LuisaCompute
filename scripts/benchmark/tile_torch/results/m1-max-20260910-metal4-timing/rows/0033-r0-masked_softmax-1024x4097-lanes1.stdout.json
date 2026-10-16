@@ -1,0 +1,13 @@
+[2026-09-10 11:28:02.838] [console] [error] XIR realization exceeds its local snapshot storage budget
+     0 [0x0001029ef54c]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_fail(std::__1::basic_string_view<char, std::__1::char_traits<char>>) + 248
+     1 [0x000102a0a624]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_allocate(luisa::compute::tile::Type const&) + 368
+     2 [0x000102a0c63c]: libluisa-tile-bridge-xir.dylib :: void luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_emit_tile<luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&)::'lambda'(luisa::compute::xir::Value*)&>(luisa::compute::tile::Value const*, luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&)::'lambda'(luisa::compute::xir::Value*)&) + 548
+     3 [0x0001029f0924]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&) + 3216
+     4 [0x000102a14024]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_region(luisa::compute::tile::Block const&) + 344
+     5 [0x0001029f3eb4]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::(anonymous namespace)::Lowerer::_operation(luisa::compute::tile::Operation const&) + 16928
+     6 [0x0001029eeedc]: libluisa-tile-bridge-xir.dylib :: luisa::compute::tile::bridge::xir::lower(luisa::compute::tile::Function const&, luisa::compute::tile::bridge::xir::LowerOptions const&) + 1796
+     7 [0x00010c517318]: libluisa-backend-metal4.so :: luisa::compute::metal::MetalDevice::create_tile_kernel(luisa::compute::ShaderOption const&, luisa::compute::tile::Function const&, luisa::compute::tile::CompileOptions const&, luisa::compute::tile::KernelMetadata&) + 1420
+     8 [0x000102874f0c]: benchmark_tile_xir :: luisa::compute::tile::compile(luisa::compute::Device&, luisa::compute::tile::Kernel const&, luisa::compute::tile::CompileOptions const&, luisa::compute::ShaderOption const&) + 608
+     9 [0x0001028723c4]: benchmark_tile_xir :: luisa::test::tile_llm::benchmark(int, char**, std::__1::basic_string_view<char, std::__1::char_traits<char>>, luisa::compute::tile::CompileOptions const&, bool, bool, bool) + 1972
+    10 [0x0001028713f8]: benchmark_tile_xir :: main + 7928
+    11 [0x0001861804e4]: dyld :: start + 6992

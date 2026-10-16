@@ -1,5 +1,307 @@
 add_library(luisa-compute-ext INTERFACE)
 
+if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
+        LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR)
+    # LLVMConfig exports its own CRT choice. Do not let it change the
+    # directory default inherited by the remaining third-party targets.
+    set(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED FALSE)
+    if (DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        set(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED TRUE)
+        set(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME "${CMAKE_MSVC_RUNTIME_LIBRARY}")
+    endif ()
+    find_package(LLVM CONFIG REQUIRED)
+    if (LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "${LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME}")
+    else ()
+        unset(CMAKE_MSVC_RUNTIME_LIBRARY)
+    endif ()
+    unset(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME_WAS_DEFINED)
+    unset(LUISA_LLVM_DOWNGRADE_MSVC_RUNTIME)
+    if (NOT (LLVM_VERSION_MAJOR EQUAL 22 OR LLVM_VERSION_MAJOR EQUAL 23))
+        message(FATAL_ERROR
+                "The in-tree llvm-downgrade sources require LLVM 22 or 23, "
+                "but LLVM ${LLVM_PACKAGE_VERSION} was found. Point LLVM_DIR at LLVM 22 or 23.")
+    endif ()
+    # LLVM may have been configured on a generic Unix host while targeting
+    # iOS, in which case its exported LLVMSupport target carries a standalone
+    # librt dependency. iOS provides those APIs from libSystem and has no
+    # librt archive, so remove the invalid dependency before this static
+    # target captures LLVM's transitive link interface.
+    if (CMAKE_SYSTEM_NAME STREQUAL "iOS" AND TARGET LLVMSupport)
+        get_target_property(_luisa_llvm_support_link_libraries
+                LLVMSupport INTERFACE_LINK_LIBRARIES)
+        if (_luisa_llvm_support_link_libraries)
+            list(FILTER _luisa_llvm_support_link_libraries
+                    EXCLUDE REGEX "^rt$")
+            set_property(TARGET LLVMSupport PROPERTY
+                    INTERFACE_LINK_LIBRARIES
+                    "${_luisa_llvm_support_link_libraries}")
+        endif ()
+    endif ()
+
+    set(LUISA_LLVM_DOWNGRADE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade")
+    set(LUISA_LLVM_DOWNGRADE_PATCH
+            "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade-llvm22-air.patch")
+    set(LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT
+            "4244e2a1ec56dd9c714755453ba840a48a0b5ee5")
+    set(LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT
+            "fb1144a70631e27bae3cdba193d89c28f4e54e75a28a9d1788244b0f856d3edc")
+    if (NOT EXISTS "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src/BitcodeWriter140.cpp")
+        message(FATAL_ERROR
+                "The llvm-downgrade submodule is missing. Run "
+                "'git submodule update --init src/ext/llvm-downgrade'.")
+    endif ()
+
+    file(GLOB_RECURSE LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS CONFIGURE_DEPENDS
+            LIST_DIRECTORIES false
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/CMakeLists.txt"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/LICENSE.TXT"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/README.md"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/common/*"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/include/*"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src/*"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/test/*"
+            "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/tools/*")
+    list(SORT LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${LUISA_LLVM_DOWNGRADE_PATCH}"
+            ${LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS})
+
+    find_package(Git REQUIRED)
+    if (EXISTS "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/.git")
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${GIT_EXECUTABLE}" -C "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
+                rev-parse --verify HEAD
+                RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_HEAD_RESULT
+                OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_HEAD
+                ERROR_VARIABLE LUISA_LLVM_DOWNGRADE_HEAD_ERROR
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if (NOT LUISA_LLVM_DOWNGRADE_HEAD_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "Failed to inspect the llvm-downgrade submodule revision.\n"
+                    "${LUISA_LLVM_DOWNGRADE_HEAD_ERROR}")
+        endif ()
+        if (NOT LUISA_LLVM_DOWNGRADE_HEAD STREQUAL
+                LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT)
+            message(FATAL_ERROR
+                    "The llvm-downgrade submodule is at "
+                    "${LUISA_LLVM_DOWNGRADE_HEAD}, but LuisaCompute requires "
+                    "${LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT}.")
+        endif ()
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${GIT_EXECUTABLE}" -C "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
+                status --porcelain=v1 --untracked-files=all
+                RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_STATUS_RESULT
+                OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_STATUS
+                ERROR_VARIABLE LUISA_LLVM_DOWNGRADE_STATUS_ERROR
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if (NOT LUISA_LLVM_DOWNGRADE_STATUS_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "Failed to inspect the llvm-downgrade submodule status.\n"
+                    "${LUISA_LLVM_DOWNGRADE_STATUS_ERROR}")
+        endif ()
+        if (NOT LUISA_LLVM_DOWNGRADE_STATUS STREQUAL "")
+            message(FATAL_ERROR
+                    "The llvm-downgrade submodule must be pristine. Found:\n"
+                    "${LUISA_LLVM_DOWNGRADE_STATUS}")
+        endif ()
+    endif ()
+
+    set(LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT
+            "base:${LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT}\n")
+    foreach (LUISA_LLVM_DOWNGRADE_INPUT IN LISTS
+            LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS)
+        file(RELATIVE_PATH LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
+                "${LUISA_LLVM_DOWNGRADE_INPUT}")
+        # Git may check these text sources out as CRLF on Windows. Validate
+        # their canonical contents, then prepare the same LF mirror everywhere.
+        file(READ "${LUISA_LLVM_DOWNGRADE_INPUT}" LUISA_LLVM_DOWNGRADE_INPUT_TEXT)
+        string(REPLACE "\r\n" "\n" LUISA_LLVM_DOWNGRADE_INPUT_TEXT
+                "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
+        string(SHA256 LUISA_LLVM_DOWNGRADE_INPUT_SHA256
+                "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
+        string(APPEND LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT
+                "${LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE}:"
+                "${LUISA_LLVM_DOWNGRADE_INPUT_SHA256}\n")
+    endforeach ()
+    string(SHA256 LUISA_LLVM_DOWNGRADE_SOURCE_FINGERPRINT
+            "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT}")
+    if (NOT LUISA_LLVM_DOWNGRADE_SOURCE_FINGERPRINT STREQUAL
+            LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT)
+        message(FATAL_ERROR
+                "The llvm-downgrade source contents do not match pinned commit "
+                "${LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT}. Expected source "
+                "fingerprint ${LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT}, "
+                "found ${LUISA_LLVM_DOWNGRADE_SOURCE_FINGERPRINT}.")
+    endif ()
+    file(READ "${LUISA_LLVM_DOWNGRADE_PATCH}" LUISA_LLVM_DOWNGRADE_PATCH_TEXT)
+    string(REPLACE "\r\n" "\n" LUISA_LLVM_DOWNGRADE_PATCH_TEXT
+            "${LUISA_LLVM_DOWNGRADE_PATCH_TEXT}")
+    string(SHA256 LUISA_LLVM_DOWNGRADE_PATCH_SHA256
+            "${LUISA_LLVM_DOWNGRADE_PATCH_TEXT}")
+    string(APPEND LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT
+            "overlay:${LUISA_LLVM_DOWNGRADE_PATCH_SHA256}\n")
+    string(SHA256 LUISA_LLVM_DOWNGRADE_FINGERPRINT
+            "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_INPUT}")
+
+    # Keep the pinned third-party checkout pristine. The LLVM 22/23 and AIR typed-
+    # pointer extensions live in the parent repository as a reviewable patch,
+    # which is applied to a disposable copy in the build tree. Reuse a matching
+    # mirror so ordinary reconfiguration does not invalidate its object files.
+    set(LUISA_LLVM_DOWNGRADE_DIR
+            "${CMAKE_CURRENT_BINARY_DIR}/llvm-downgrade-llvm${LLVM_VERSION_MAJOR}-air")
+    set(LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE
+            "${LUISA_LLVM_DOWNGRADE_DIR}/.luisa-source-fingerprint")
+    set(LUISA_LLVM_DOWNGRADE_REFRESH_MIRROR ON)
+    if (EXISTS "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE}")
+        file(READ "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE}"
+                LUISA_LLVM_DOWNGRADE_CACHED_FINGERPRINT)
+        string(STRIP "${LUISA_LLVM_DOWNGRADE_CACHED_FINGERPRINT}"
+                LUISA_LLVM_DOWNGRADE_CACHED_FINGERPRINT)
+        if (LUISA_LLVM_DOWNGRADE_CACHED_FINGERPRINT STREQUAL
+                LUISA_LLVM_DOWNGRADE_FINGERPRINT)
+            set(LUISA_LLVM_DOWNGRADE_REFRESH_MIRROR OFF)
+        endif ()
+    endif ()
+    if (LUISA_LLVM_DOWNGRADE_REFRESH_MIRROR)
+        file(REMOVE_RECURSE "${LUISA_LLVM_DOWNGRADE_DIR}")
+        file(MAKE_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}")
+        file(COPY
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/CMakeLists.txt"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/LICENSE.TXT"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/README.md"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/common"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/include"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/test"
+                "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/tools"
+                DESTINATION "${LUISA_LLVM_DOWNGRADE_DIR}")
+        foreach (LUISA_LLVM_DOWNGRADE_INPUT IN LISTS
+                LUISA_LLVM_DOWNGRADE_MIRROR_INPUTS)
+            file(RELATIVE_PATH LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE
+                    "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}"
+                    "${LUISA_LLVM_DOWNGRADE_INPUT}")
+            file(READ "${LUISA_LLVM_DOWNGRADE_INPUT}" LUISA_LLVM_DOWNGRADE_INPUT_TEXT)
+            string(REPLACE "\r\n" "\n" LUISA_LLVM_DOWNGRADE_INPUT_TEXT
+                    "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
+            file(WRITE "${LUISA_LLVM_DOWNGRADE_DIR}/${LUISA_LLVM_DOWNGRADE_INPUT_RELATIVE}"
+                    "${LUISA_LLVM_DOWNGRADE_INPUT_TEXT}")
+        endforeach ()
+        set(LUISA_LLVM_DOWNGRADE_MIRROR_PATCH
+                "${LUISA_LLVM_DOWNGRADE_DIR}/.luisa-llvm22-23-air.patch")
+        file(WRITE "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
+                "${LUISA_LLVM_DOWNGRADE_PATCH_TEXT}")
+        set(LUISA_LLVM_DOWNGRADE_GIT_ENV
+                "GIT_CEILING_DIRECTORIES=${CMAKE_CURRENT_BINARY_DIR}")
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${LUISA_LLVM_DOWNGRADE_GIT_ENV}"
+                "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --check --whitespace=nowarn
+                "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
+                WORKING_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}"
+                RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_RESULT
+                OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_OUTPUT
+                ERROR_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_CHECK_ERROR)
+        if (NOT LUISA_LLVM_DOWNGRADE_PATCH_CHECK_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "The LuisaCompute llvm-downgrade patch no longer applies to "
+                    "the pinned submodule.\n"
+                    "${LUISA_LLVM_DOWNGRADE_PATCH_CHECK_OUTPUT}"
+                    "${LUISA_LLVM_DOWNGRADE_PATCH_CHECK_ERROR}")
+        endif ()
+        execute_process(
+                COMMAND "${CMAKE_COMMAND}" -E env
+                --unset=GIT_DIR --unset=GIT_WORK_TREE
+                "${LUISA_LLVM_DOWNGRADE_GIT_ENV}"
+                "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --whitespace=nowarn
+                "${LUISA_LLVM_DOWNGRADE_MIRROR_PATCH}"
+                WORKING_DIRECTORY "${LUISA_LLVM_DOWNGRADE_DIR}"
+                RESULT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_RESULT
+                OUTPUT_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_OUTPUT
+                ERROR_VARIABLE LUISA_LLVM_DOWNGRADE_PATCH_ERROR)
+        if (NOT LUISA_LLVM_DOWNGRADE_PATCH_RESULT EQUAL 0)
+            message(FATAL_ERROR
+                    "Failed to prepare the patched llvm-downgrade sources.\n"
+                    "${LUISA_LLVM_DOWNGRADE_PATCH_OUTPUT}"
+                    "${LUISA_LLVM_DOWNGRADE_PATCH_ERROR}")
+        endif ()
+        file(WRITE "${LUISA_LLVM_DOWNGRADE_FINGERPRINT_FILE}"
+                "${LUISA_LLVM_DOWNGRADE_FINGERPRINT}\n")
+    endif ()
+
+    add_library(luisa-compute-ext-llvm-downgrade STATIC
+            llvm_downgrade.h
+            ${LUISA_LLVM_DOWNGRADE_DIR}/common/legacy_opts.cpp
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/PointerRewriter.cpp
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src/PointerRewriter.h)
+    if (APPLE AND LUISA_COMPUTE_ENABLE_METAL4)
+        target_sources(luisa-compute-ext-llvm-downgrade PRIVATE
+                llvm_downgrade.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/BitcodeWriter140.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ModuleRewriter140.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator140.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator140.h)
+        target_compile_definitions(luisa-compute-ext-llvm-downgrade PRIVATE LLVMDG_HAS_140=1)
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR)
+        target_sources(luisa-compute-ext-llvm-downgrade PRIVATE
+                llvm_downgrade70.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/BitcodeWriter70.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ModuleRewriter70.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator70.cpp
+                ${LUISA_LLVM_DOWNGRADE_DIR}/src/ValueEnumerator70.h)
+    endif ()
+    # The embedding wrappers deliberately preserve the pre-C-API fatal-error
+    # contract: do not let upstream writer exceptions escape their boundaries.
+    target_compile_definitions(luisa-compute-ext-llvm-downgrade PRIVATE
+            LLVMDG_ABORT_ON_ERROR=1)
+    target_include_directories(luisa-compute-ext-llvm-downgrade
+            BEFORE PRIVATE ${LUISA_LLVM_DOWNGRADE_DIR}/include)
+    target_include_directories(luisa-compute-ext-llvm-downgrade
+            PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${LUISA_LLVM_DOWNGRADE_DIR}/src
+            ${LUISA_LLVM_DOWNGRADE_DIR}/common
+            ${LLVM_INCLUDE_DIRS})
+    separate_arguments(LUISA_LLVM_DOWNGRADE_DEFINITIONS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+    target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE
+            ${LUISA_LLVM_DOWNGRADE_DEFINITIONS})
+    if (MSVC)
+        target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE
+                "/FI${LUISA_LLVM_DOWNGRADE_DIR}/common/LegacyOpts.h")
+    else ()
+        target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE
+                -include ${LUISA_LLVM_DOWNGRADE_DIR}/common/LegacyOpts.h)
+    endif ()
+    if (NOT LLVM_ENABLE_RTTI)
+        if (MSVC)
+            target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE /GR-)
+        else ()
+            target_compile_options(luisa-compute-ext-llvm-downgrade PRIVATE -fno-rtti)
+        endif ()
+    endif ()
+    target_compile_features(luisa-compute-ext-llvm-downgrade PUBLIC cxx_std_20)
+    set_target_properties(luisa-compute-ext-llvm-downgrade PROPERTIES
+            POSITION_INDEPENDENT_CODE ON
+            FOLDER ext
+            OUTPUT_NAME luisa-ext-llvm-downgrade)
+    if (LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
+        # Share LLVM state with the AIR emitter and other linked consumers.
+        set(LUISA_LLVM_DOWNGRADE_LIBS LLVM)
+    else ()
+        llvm_map_components_to_libnames(LUISA_LLVM_DOWNGRADE_LIBS
+                bitwriter core support transformutils)
+    endif ()
+    target_link_libraries(luisa-compute-ext-llvm-downgrade
+            PRIVATE ${LUISA_LLVM_DOWNGRADE_LIBS})
+endif ()
+
 find_package(Threads REQUIRED)
 target_link_libraries(luisa-compute-ext INTERFACE Threads::Threads)
 
@@ -33,6 +335,20 @@ function(luisa_compute_install_extension target)
     endif ()
 endfunction()
 
+# include/luisa/core/stl/map.h publicly includes <fc/btree.h>. Keep the bundled
+# header-only dependency on the same transitive interface as the other core
+# STL dependencies so every CMake consumer sees it in both build and install
+# trees. The upstream BTree project is intentionally not added as a CMake
+# subdirectory: its standalone build config enables tests and mutates the
+# enclosing project, while Luisa only consumes its public headers.
+add_library(luisa-compute-ext-btree INTERFACE)
+target_include_directories(luisa-compute-ext-btree INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/BTree/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
+target_link_libraries(luisa-compute-ext INTERFACE luisa-compute-ext-btree)
+luisa_compute_install_extension(luisa-compute-ext-btree
+        INCLUDE BTree/include/fc)
+
 if (LUISA_COMPUTE_USE_SYSTEM_SPDLOG)
     find_package(spdlog REQUIRED)
     target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog_header_only)
@@ -56,6 +372,8 @@ else ()
             FMT_EXCEPTIONS=0
             FMT_HEADER_ONLY=1
             FMT_USE_NOEXCEPT=1)
+    target_include_directories(spdlog_header_only INTERFACE
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     set_target_properties(spdlog PROPERTIES EXCLUDE_FROM_ALL ON)
     target_link_libraries(luisa-compute-ext INTERFACE spdlog::spdlog_header_only)
     luisa_compute_install_extension(spdlog_header_only INCLUDE spdlog/include/spdlog)
@@ -73,7 +391,12 @@ if (LUISA_COMPUTE_USE_SYSTEM_XXHASH)
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_XXHASH=1)
 else ()
     add_library(xxhash INTERFACE)
-    target_include_directories(xxhash INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>)
+    # NOTE: the bundled submodule directory is src/ext/xxHash (mixed case, as
+    # upstream names it); keep the casing in sync here and in src/core/xmake.lua
+    # or case-sensitive platforms (Linux, macOS) cannot find <xxhash.h>.
+    target_include_directories(xxhash INTERFACE
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/xxHash>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext/xxHash>)
     target_compile_definitions(xxhash INTERFACE XXH_INLINE_ALL)
     set_target_properties(xxhash PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
@@ -92,16 +415,22 @@ if (LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM)
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_MAGIC_ENUM=1)
 else ()
     add_library(magic_enum INTERFACE)
-    target_include_directories(magic_enum INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>)
+    target_include_directories(magic_enum INTERFACE
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
     luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include/magic_enum)
 endif ()
 
 # glfw
-if (LUISA_COMPUTE_ENABLE_GUI)
+if (LUISA_COMPUTE_ENABLE_GUI AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     if (LUISA_COMPUTE_USE_SYSTEM_GLFW)
         find_package(glfw3 REQUIRED)
-        target_link_libraries(luisa-compute-ext INTERFACE glfw)
+        if (TARGET glfw)
+            target_link_libraries(luisa-compute-ext INTERFACE glfw)
+        else ()
+            target_link_libraries(luisa-compute-ext INTERFACE glfw3::glfw)
+        endif ()
         target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_GLFW=1)
     else ()
         if (UNIX AND NOT APPLE)
@@ -114,8 +443,10 @@ if (LUISA_COMPUTE_ENABLE_GUI)
         set(GLFW_LIBRARY_TYPE SHARED CACHE STRING "" FORCE)
         add_subdirectory(glfw)
         set_target_properties(glfw PROPERTIES OUTPUT_NAME luisa-ext-glfw)
+        target_include_directories(glfw INTERFACE
+                $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
         target_link_libraries(luisa-compute-ext INTERFACE glfw)
-        luisa_compute_install_extension(glfw)
+        luisa_compute_install_extension(glfw INCLUDE glfw/include/GLFW)
     endif ()
 endif ()
 
@@ -123,6 +454,10 @@ if (LUISA_COMPUTE_USE_SYSTEM_STL)
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_STL=1)
 else ()
     add_subdirectory(EASTL)
+    target_include_directories(EASTL-interface INTERFACE
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
+    target_include_directories(EABase INTERFACE
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     set_target_properties(EASTL-object PROPERTIES UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
     target_link_libraries(luisa-compute-ext INTERFACE EASTL-interface)
     luisa_compute_install_extension(EASTL-interface INCLUDE EASTL/include/EASTL)
@@ -140,7 +475,12 @@ endif ()
 if (LUISA_COMPUTE_USE_SYSTEM_REPROC)
     find_package(reproc REQUIRED)
     find_package(reproc++ REQUIRED)
-    target_link_libraries(luisa-compute-ext INTERFACE reproc reproc++)
+    if (TARGET reproc::reproc AND TARGET reproc::reproc++)
+        target_link_libraries(luisa-compute-ext INTERFACE
+                reproc::reproc reproc::reproc++)
+    else ()
+        target_link_libraries(luisa-compute-ext INTERFACE reproc reproc++)
+    endif ()
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_REPROC=1)
 else ()
     set(REPROC_DEVELOP OFF CACHE BOOL "" FORCE)
@@ -164,7 +504,8 @@ else ()
     target_compile_definitions(reproc-interface INTERFACE REPROC_SHARED REPROCXX_SHARED)
     target_include_directories(reproc-interface INTERFACE
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc/include>
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc++/include>)
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc++/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_link_libraries(luisa-compute-ext INTERFACE reproc-interface)
     install(TARGETS reproc-interface EXPORT LuisaComputeTargets)
 
@@ -212,7 +553,8 @@ if (LUISA_COMPUTE_USE_SYSTEM_MARL)
 else ()
     add_library(luisa-compute-ext-marl-interface INTERFACE)
     target_include_directories(luisa-compute-ext-marl-interface INTERFACE
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/marl/include>)
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/marl/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
     target_compile_definitions(luisa-compute-ext-marl-interface INTERFACE MARL_DLL=1)
     target_link_libraries(luisa-compute-ext INTERFACE luisa-compute-ext-marl-interface)
     luisa_compute_install_extension(luisa-compute-ext-marl-interface INCLUDE marl/include/marl)
@@ -240,7 +582,6 @@ else ()
     if (UNIX AND NOT APPLE)
         set_target_properties(luisa-compute-ext-marl PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endif ()
-    install(TARGETS luisa-compute-ext-marl EXPORT LuisaComputeTargets)
 endif ()
 
 # lmdb
@@ -255,28 +596,32 @@ if (LUISA_COMPUTE_USE_SYSTEM_LMDB)
     endif ()
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_LMDB=1)
 else ()
-    add_library(luisa-compute-ext-lmdb OBJECT
+    # A STATIC (rather than OBJECT) archive so that consumers of the
+    # luisa-compute-vstl OBJECT library inherit the mdb/midl objects on their
+    # link lines: CMake never propagates object files through
+    # object-library -> object-library links, which left plain vstl consumers
+    # (e.g. fallback_rtx_selfcheck on Windows) with unresolved mdb_* symbols.
+    add_library(luisa-compute-ext-lmdb STATIC
             liblmdb/mdb.c liblmdb/lmdb.h
             liblmdb/midl.c liblmdb/midl.h)
     target_include_directories(luisa-compute-ext-lmdb PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/liblmdb>)
-    if (UNIX AND NOT APPLE)
-        set_target_properties(luisa-compute-ext-lmdb PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    endif ()
+    set_target_properties(luisa-compute-ext-lmdb PROPERTIES POSITION_INDEPENDENT_CODE ON)
     if (WIN32)
         target_compile_options(luisa-compute-ext-lmdb PRIVATE "-UWIN32_LEAN_AND_MEAN")
     endif ()
     set_target_properties(luisa-compute-ext-lmdb PROPERTIES
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             OUTPUT_NAME luisa-ext-lmdb)
-    install(TARGETS luisa-compute-ext-lmdb EXPORT LuisaComputeTargets)
 endif ()
 
 # TODO: support system half and stb
 
 # half
 add_library(half INTERFACE)
-target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/half/include>)
+target_include_directories(half INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/half/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
 target_link_libraries(luisa-compute-ext INTERFACE half)
 luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20.0)
@@ -288,6 +633,8 @@ endif ()
 
 # stb
 add_subdirectory(stb)
+target_include_directories(luisa-compute-ext-stb-interface INTERFACE
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
 target_link_libraries(luisa-compute-ext INTERFACE luisa-compute-ext-stb-interface)
 
 luisa_compute_install_extension(luisa-compute-ext-stb-interface HEADER_FILES
@@ -297,22 +644,62 @@ luisa_compute_install_extension(luisa-compute-ext-stb-interface HEADER_FILES
         HEADER_DESTINATION stb)
 
 # glslang
-set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+# Vulkan's backend-private compute kernels are compiled to SPIR-V during the
+# build. Use the bundled, version-pinned glslang executable so those artifacts
+# are reproducible and never need to be checked into the source tree.
+set(ENABLE_GLSLANG_BINARIES ${LUISA_COMPUTE_ENABLE_VULKAN} CACHE BOOL "" FORCE)
 set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
-set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL ${LUISA_COMPUTE_ENABLE_VULKAN} CACHE BOOL "" FORCE)
 set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
 set(ALLOW_EXTERNAL_SPIRV_TOOLS OFF CACHE BOOL "" FORCE)
+set(LUISA_VSTL ON CACHE BOOL "" FORCE)
+# LuisaCompute uses glslang's private spv::Builder API, whose implementation
+# also depends on non-exported frontend helpers. Keep the bundled compiler in
+# a single static archive instead of duplicating its SPIR-V sources next to a
+# shared glslang library. Scope this choice to the dependency; core/runtime and
+# backend libraries retain the project's BUILD_SHARED_LIBS setting.
+set(_luisa_glslang_build_shared_libs ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF)
 add_subdirectory(glslang)
-target_link_libraries(luisa-compute-ext INTERFACE glslang)
-install(TARGETS glslang EXPORT LuisaComputeTargets)
+set(BUILD_SHARED_LIBS ${_luisa_glslang_build_shared_libs})
+unset(_luisa_glslang_build_shared_libs)
+set_target_properties(glslang PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# glslang's package payload.
+# `glslang` must be part of the export set because the static luisa-compute-spirv
+# library links it with a PUBLIC (interface) dependency. Its private sibling
+# libraries are static too, so their code is included in the Vulkan module and
+# standalone executables rather than installed as separate runtime libraries.
+install(TARGETS glslang EXPORT LuisaComputeTargets
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+# spvIR.h's spv::Instruction inherits vstd::IOperatorNewBase, so the glslang
+# target (which compiles the SPIRV sources) needs the luisa/EASTL headers, a
+# link dependency on the luisa core allocator its class-specific operators
+# call, and C++20 for the vstd headers.
+# The previous `luisa-compute-ext INTERFACE glslang` edge had to go for the
+# same reason: luisa-compute-core links luisa-compute-ext, so that edge made
+# core weakly depend on glslang, which now depends back on core -- a
+# shared-library cycle CMake refuses to generate. Nothing relied on the
+# transitive edge: every real glslang consumer links it explicitly
+# (luisa-compute-backend-vk, luisa-compute-spirv, test_native_shader_reflection).
+if (TARGET glslang AND LUISA_VSTL)
+        # NOTE: plain signature (no PRIVATE/INTERFACE keyword) to match the
+        # upstream glslang CMakeLists (e.g. Threads::Threads below), which uses
+        # the plain form -- CMake rejects mixing the two on the same target.
+        target_link_libraries(glslang luisa-compute-include luisa-compute-core)
+        if (NOT LUISA_COMPUTE_USE_SYSTEM_STL)
+                target_link_libraries(glslang EASTL-interface)
+        endif ()
+        set_property(TARGET glslang PROPERTY CXX_STANDARD 20)
+endif ()
 
 if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV OR
-        LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV)
+if (LUISA_COMPUTE_ENABLE_VULKAN)
 # SPIRV-Tools
 set(SPIRV-Headers_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers CACHE PATH "" FORCE)
 set(SPIRV_HEADER_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers/include CACHE PATH "" FORCE)
@@ -346,11 +733,10 @@ endif ()
 
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
 
-if (LUISA_COMPUTE_ENABLE_CPU OR
-    LUISA_COMPUTE_ENABLE_VULKAN OR
+if (LUISA_COMPUTE_ENABLE_VULKAN OR
     LUISA_COMPUTE_ENABLE_CUDA OR
-    LUISA_COMPUTE_ENABLE_REMOTE OR
     LUISA_COMPUTE_ENABLE_FALLBACK OR
-    LUISA_COMPUTE_ENABLE_HIP)
+    LUISA_COMPUTE_ENABLE_HIP OR
+    (LUISA_COMPUTE_ENABLE_SIMD AND LUISA_COMPUTE_ENABLE_GUI AND NOT APPLE))
     add_subdirectory(volk)
 endif ()

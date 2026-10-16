@@ -1,0 +1,198 @@
+{
+  "schema": 1,
+  "backend": "cuda",
+  "lowering": "native",
+  "operation": "softmax",
+  "precision": "fp16",
+  "seed": 20261003,
+  "pattern": "random",
+  "dimensions": [
+    1024,
+    512
+  ],
+  "tile": [
+    1,
+    512,
+    1
+  ],
+  "fast_math": true,
+  "graph_batch": 100,
+  "status": "passed",
+  "realization": "CUDA Tile C++ -> NVRTC Tile IR -> tileiras -> cubin; no cache; typed buffers; direct-buffer ABI; block=(1,1,1); elementwise-fp32-approx-ftz-rsqrt-v2; collective-work-v1: programs=1024, elementwork=4608, read-bytes=1024, write-bytes=1024, tile-live-bytes=6656, largest-tile=512; collective=kind2:width512:independent1; collective=kind0:width512:independent1",
+  "native_alignment": [
+    {
+      "stage": 0,
+      "requested": false,
+      "eligible_buffer_mask": 0,
+      "final_argument_mod16": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected_selected_entry": "luisa_tile_main"
+    }
+  ],
+  "native_alignment_evidence": "actual command BufferView offsets plus CUDA native buffer base modulo 16; expected host selection, not device trace",
+  "native_streaming": [
+    {
+      "stage": 0,
+      "chunk_requested": 0,
+      "available": false,
+      "input_slot": 0,
+      "output_slot": 0,
+      "input_bytes": 0,
+      "output_bytes": 0,
+      "static_ranges_disjoint": false,
+      "expected_selected_entry": "luisa_tile_main"
+    }
+  ],
+  "native_streaming_evidence": "actual command BufferView pointers and proved static touched ranges; expected shared live/graph host selection, not device trace",
+  "native_program_partition": [
+    {
+      "stage": 0,
+      "rows_requested": 0,
+      "available": false,
+      "input_slot": 0,
+      "output_slot": 0,
+      "input_bytes": 0,
+      "output_bytes": 0,
+      "original_rows": 0,
+      "grid_x": 0,
+      "original_grid_x": 0,
+      "static_ranges_disjoint": false,
+      "original_grid": [
+        1024,
+        1,
+        1
+      ],
+      "expected_selected_grid": [
+        1024,
+        1,
+        1
+      ],
+      "expected_selected_entry": "luisa_tile_main"
+    }
+  ],
+  "native_program_partition_evidence": "actual command BufferView pointers and proved static ranges; expected shared host entry/grid selection, not device trace",
+  "timing_scope": "C++ command construction, submission, execution and final synchronization",
+  "device_timing_scope": "CUDA event stream span after command construction; may include host submission starvation; not isolated kernel time",
+  "graph_timing_scope": "R complete graph replays per sample; all stages included; event stream span and synchronized host wall divided by graph_batch*R; complete-operation throughput; hazard DAG may overlap independent stages across calls and host submission may starve GPU",
+  "fixture_ms": 17.5446,
+  "runtime_ms": 1209.8134,
+  "compile_ms": 1198.8201,
+  "allocation_upload_ms": 6.2885,
+  "cold_ms": 0.084,
+  "warmup_actual_ms": 500.0634,
+  "samples": 7,
+  "sample_target_ms": 100,
+  "repetitions": 6369,
+  "host_wall_us": [
+    14.599371957921182,
+    14.231998743915844,
+    14.450667294708746,
+    14.459145862772806,
+    14.395839221227822,
+    14.243005181347149,
+    13.701805620976605
+  ],
+  "host_wall_p50_us": 14.395839221227822,
+  "single_sync_us": [
+    51.6,
+    18,
+    15.9,
+    16.299999999999997,
+    53.699999999999996,
+    17,
+    15.4
+  ],
+  "cuda_event_stream_span_us": [
+    12.9930146130948,
+    13.711053360423781,
+    13.250582445395912,
+    13.807198824997055,
+    13.763948818787167,
+    13.764752606466626,
+    13.159099188942534
+  ],
+  "event_instrumented_host_wall_us": [
+    13.238294865756005,
+    13.973826346365207,
+    13.491301617208354,
+    14.065489087768881,
+    14.009232218558644,
+    14.002857591458627,
+    13.406217616580312
+  ],
+  "graph_build_ms": 0.7834,
+  "graph_protocol": "adaptive_replay_span_v2",
+  "graph_replays_per_sample": 192,
+  "graph_operations_per_sample": 19200,
+  "graph_sample_target_ms": 100,
+  "graph_replay_cap": 65536,
+  "graph_operation_cap": 10000000,
+  "graph_calibration_target_reached": true,
+  "graph_prime_event_ms": 0.5956159830093384,
+  "graph_prime_host_ms": 0.6445,
+  "graph_warmup_replays": 963,
+  "graph_warmup_actual_ms": 500.1128,
+  "graph_calibration": [
+    {
+      "replays": 1,
+      "event_span_ms": 0.5232639908790588,
+      "host_wall_ms": 0.5505
+    },
+    {
+      "replays": 192,
+      "event_span_ms": 98.34188842773438,
+      "host_wall_ms": 98.3613
+    }
+  ],
+  "graph_event_span_ms": [
+    98.7330551147461,
+    98.83853149414062,
+    98.83955383300781,
+    100.64486694335938,
+    100.58035278320312,
+    100.68172454833984,
+    99.47853088378906
+  ],
+  "graph_host_span_ms": [
+    98.7758,
+    98.9101,
+    98.8897,
+    100.7057,
+    100.6158,
+    100.7224,
+    99.5207
+  ],
+  "graph_stage_dispatches_per_sample": 19200,
+  "graph_host_wall_us_per_op": [
+    5.144572916666667,
+    5.151567708333333,
+    5.150505208333334,
+    5.245088541666666,
+    5.2404062499999995,
+    5.245958333333333,
+    5.183369791666667
+  ],
+  "graph_event_stream_span_us_per_op": [
+    5.142346620559692,
+    5.147840181986491,
+    5.14789342880249,
+    5.241920153299968,
+    5.238560040791829,
+    5.243839820226033,
+    5.181173483530681
+  ],
+  "correctness": {
+    "checks": 4,
+    "elements_per_check": 524288,
+    "errors": 0,
+    "max_abs_error": 1.9076365436916654e-06,
+    "max_error_over_bound": 0.03653813196393164,
+    "inputs_unchanged": true,
+    "guards_unchanged": true,
+    "all_outputs_finite": true
+  }
+}

@@ -122,7 +122,6 @@ public:
     [[nodiscard]] uint compute_warp_size() const noexcept override;
     [[nodiscard]] uint64_t memory_granularity() const noexcept override;
     [[nodiscard]] BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory /* nullptr if not imported from external memory */) noexcept override;
-    [[nodiscard]] BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory /* nullptr if not imported from external memory */) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
 
     // texture
@@ -153,8 +152,6 @@ public:
 
     // kernel
     [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
-    [[nodiscard]] ShaderCreationInfo create_shader(const ShaderOption &option, const ir_v2::KernelModule &kernel) noexcept override;
     [[nodiscard]] ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

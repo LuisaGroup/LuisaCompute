@@ -1,0 +1,105 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/index.html",
+      "sectionId": "current-conclusion",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/current-conclusion-1280.png",
+      "pageWidth": 1280,
+      "viewport": 1280,
+      "tables": []
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "sectionId": "closed-matrix-epilogues-general-legality-mixed-profitability",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/closed-matrix-epilogues-general-legality-mixed-profitability-1280.png",
+      "pageWidth": 1280,
+      "viewport": 1280,
+      "tables": [
+        {
+          "rows": 13,
+          "columns": 7,
+          "width": 696.46875,
+          "scrollWidth": 696,
+          "containerWidth": 696
+        }
+      ]
+    },
+    {
+      "file": "source/internals/tile/matrix.html",
+      "sectionId": "scalar-epilogues-use-the-same-element-owner",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/scalar-epilogues-use-the-same-element-owner-1280.png",
+      "pageWidth": 1280,
+      "viewport": 1280,
+      "tables": []
+    },
+    {
+      "file": "source/performance/tile/validation.html",
+      "sectionId": "closed-matrix-epilogues-positive-and-fail-closed-coverage",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/closed-matrix-epilogues-positive-and-fail-closed-coverage-1280.png",
+      "pageWidth": 1280,
+      "viewport": 1280,
+      "tables": []
+    },
+    {
+      "file": "source/performance/tile/index.html",
+      "sectionId": "current-conclusion",
+      "width": 390,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/current-conclusion-390.png",
+      "pageWidth": 390,
+      "viewport": 390,
+      "tables": []
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "sectionId": "closed-matrix-epilogues-general-legality-mixed-profitability",
+      "width": 390,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/closed-matrix-epilogues-general-legality-mixed-profitability-390.png",
+      "pageWidth": 390,
+      "viewport": 390,
+      "tables": [
+        {
+          "rows": 13,
+          "columns": 7,
+          "width": 672.765625,
+          "scrollWidth": 673,
+          "containerWidth": 338
+        }
+      ]
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "sectionId": "closed-matrix-epilogues-general-legality-mixed-profitability",
+      "width": 390,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/closed-matrix-epilogues-general-legality-mixed-profitability-390-right.png",
+      "scrolled": {
+        "offset": 335,
+        "lastColumnRight": 363.140625,
+        "containerRight": 364.125
+      }
+    },
+    {
+      "file": "source/internals/tile/matrix.html",
+      "sectionId": "scalar-epilogues-use-the-same-element-owner",
+      "width": 390,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/scalar-epilogues-use-the-same-element-owner-390.png",
+      "pageWidth": 390,
+      "viewport": 390,
+      "tables": []
+    },
+    {
+      "file": "source/performance/tile/validation.html",
+      "sectionId": "closed-matrix-epilogues-positive-and-fail-closed-coverage",
+      "width": 390,
+      "screenshot": "/tmp/luisa-fragment-structural.EiMrID/closed-matrix-epilogues-positive-and-fail-closed-coverage-390.png",
+      "pageWidth": 390,
+      "viewport": 390,
+      "tables": []
+    }
+  ]
+}

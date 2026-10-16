@@ -1,0 +1,74 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "simd-local-distribution-and-private-layout-are-separate-decisions",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-load-reduction.5Rhilw/docs-qa-final/simd-local-distribution-and-private-layout-are-separate-decisions-1280.png",
+      "scrolledScreenshot": "/tmp/luisa-load-reduction.5Rhilw/docs-qa-final/simd-local-distribution-and-private-layout-are-separate-decisions-1280-right.png",
+      "scrolls": [
+        {
+          "element": "TABLE",
+          "maximum": 21,
+          "reached": 21
+        }
+      ],
+      "tables": [
+        [
+          5,
+          6
+        ]
+      ],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "first-consumer-fusion-preserves-the-snapshot-contract",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-load-reduction.5Rhilw/docs-qa-final/first-consumer-fusion-preserves-the-snapshot-contract-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "simd-local-distribution-and-private-layout-are-separate-decisions",
+      "width": 390,
+      "screenshot": "/tmp/luisa-load-reduction.5Rhilw/docs-qa-final/simd-local-distribution-and-private-layout-are-separate-decisions-390.png",
+      "scrolledScreenshot": "/tmp/luisa-load-reduction.5Rhilw/docs-qa-final/simd-local-distribution-and-private-layout-are-separate-decisions-390-right.png",
+      "scrolls": [
+        {
+          "element": "TABLE",
+          "maximum": 379,
+          "reached": 379
+        }
+      ],
+      "tables": [
+        [
+          5,
+          6
+        ]
+      ],
+      "pageWidth": 390
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "first-consumer-fusion-preserves-the-snapshot-contract",
+      "width": 390,
+      "screenshot": "/tmp/luisa-load-reduction.5Rhilw/docs-qa-final/first-consumer-fusion-preserves-the-snapshot-contract-390.png",
+      "scrolledScreenshot": "/tmp/luisa-load-reduction.5Rhilw/docs-qa-final/first-consumer-fusion-preserves-the-snapshot-contract-390-right.png",
+      "scrolls": [
+        {
+          "element": "PRE",
+          "maximum": 187,
+          "reached": 187
+        }
+      ],
+      "tables": [],
+      "pageWidth": 390
+    }
+  ]
+}

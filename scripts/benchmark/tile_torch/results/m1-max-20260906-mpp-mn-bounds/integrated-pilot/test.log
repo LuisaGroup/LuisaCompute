@@ -1,0 +1,62 @@
+
+Running "tile_matrix_shapes_transposes_and_pipeline_versions"... SKIPPED
+
+Running "tile_matrix_math_policy_and_participant_gates"... SKIPPED
+
+Running "tile_matrix_exact_threads_use_actual_target_limit"... SKIPPED
+
+Running "tile_matrix_mpp_memory_inputs_and_nonzero_accumulator"... SKIPPED
+
+Running "tile_matrix_mpp_typed_contract_and_rejections"... SKIPPED
+
+Running "tile_matrix_mpp_readonly_view_proofs"... SKIPPED
+
+Running "tile_matrix_mpp_bounded_k_views"... SKIPPED
+
+Running "tile_matrix_mpp_bounded_mn_semantics"... SKIPPED
+
+Running "tile_matrix_mpp_bounded_mn_views"... SKIPPED
+
+Running "tile_matrix_mpp_independent_subgroups_and_sync_boundaries"... SKIPPED
+
+Running "tile_matrix_stale_marker_does_not_tensorize"... SKIPPED
+
+Running "tile_matrix_literal_initial_and_zero_contraction"... SKIPPED
+
+Running "tile_matrix_worker_local_is_not_a_collective"... SKIPPED
+
+Running "tile_matrix_mixed_conversion_keeps_reference_types"... SKIPPED
+
+Running "tile_cpu_matrix_vectors_and_scalar_tails"... SKIPPED
+
+Running "tile_cpu_stack_storage"... SKIPPED
+
+Running "tile_cpu_readonly_view_gemm"... SKIPPED
+
+Running "tile_cpu_readonly_view_proofs"... SKIPPED
+
+Running "tile_cpu_readonly_view_aliases"... SKIPPED
+
+Running "tile_cpu_cartesian_packing"... SKIPPED
+
+Running "tile_cpu_cartesian_transformed_domains"... SKIPPED
+
+Running "tile_cpu_matrix_preserves_k_order"... SKIPPED
+
+Running "tile_matrix_planner_emits_reused_fragments"... SKIPPED
+
+Running "tile_matrix_late_prefetch_resources_and_tails"... SKIPPED
+
+Running "tile_matrix_late_prefetch_rejects_global_mutation"... SKIPPED
+
+Running "tile_matrix_observed_carry_cannot_be_promoted"... SKIPPED
+
+Running "tile_matrix_direct_output_and_observation_guards"... SKIPPED
+
+Running "tile_matrix_carry_operand_alias_must_not_be_promoted"... SKIPPED
+
+Running "tile_matrix_interrupted_yield_must_not_update_carry"... SKIPPED
+
+Running "tile_cpu_whole_gemm_library_realization"... SKIPPED
+Suite 'global': all tests passed (0 asserts in 30 tests)
+30 tests skipped

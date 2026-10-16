@@ -125,7 +125,7 @@ public:
         wxApp::OnInit();
 
         if (argc <= 1) {
-            LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal",
+            LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, metal, vk, hip, fallback",
                        GetAppDisplayName().c_str().AsChar());
             return false;
         }

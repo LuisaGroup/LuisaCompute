@@ -8,6 +8,7 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             hlsl_header_fallback.bytes
             raytracing_header.bytes
             raytracing_motion_header.bytes
+            fallback_rtx_header.bytes
             tex2d_bindless.bytes
             tex3d_bindless.bytes
             compute_quad.bytes
@@ -17,21 +18,28 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             resource_size.bytes
             accel_header.bytes
             copy_sign.bytes
-            bindless_common.bytes
-            auto_diff.bytes
+              bindless_common.bytes
+              auto_diff.bytes
             reduce.bytes
             bindless_upload.bytes
-            bindless_upload_vk.bytes
             accel_process.bytes
-            accel_process_vk.bytes
             accel_process_vk_motion.bytes
             accel_process_vk.dxil
             load_bdls.dxil
             load_bdls_vk.dxil
             set_accel4.dxil
+            bc6_encode_block
+            bc6_header
+            bc6_trymode_g10cs
+            bc6_trymode_le10cs
             bc6_encodeblock.dxil
             bc6_trymodeg10.dxil
             bc6_trymodele10.dxil
+            bc7_encode_block
+            bc7_header
+            bc7_trymode_02cs
+            bc7_trymode_137cs
+            bc7_trymode_456cs
             bc7_encodeblock.dxil
             bc7_trymode02.dxil
             bc7_trymode137.dxil

@@ -1,0 +1,70 @@
+{
+  "passed": true,
+  "browser": "153.0.8010.36",
+  "receipts": [
+    {
+      "file": "results.html",
+      "id": "native-row-entries-expose-both-broader-wins-and-remaining-gaps",
+      "width": 1280,
+      "tables": [
+        [
+          7,
+          4
+        ]
+      ],
+      "pageWidth": 1280,
+      "screenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/native-row-entries-expose-both-broader-wins-and-remaining-gaps-1280.png",
+      "fullScreenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/native-row-entries-expose-both-broader-wins-and-remaining-gaps-1280-full.png",
+      "rightScreenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/native-row-entries-expose-both-broader-wins-and-remaining-gaps-1280-right.png",
+      "scrolls": [
+        {
+          "maximum": 150,
+          "reached": 150
+        }
+      ]
+    },
+    {
+      "file": "index.html",
+      "id": "results-by-route",
+      "width": 1280,
+      "tables": [],
+      "pageWidth": 1280,
+      "screenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/results-by-route-1280.png",
+      "fullScreenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/results-by-route-1280-full.png",
+      "rightScreenshot": null,
+      "scrolls": []
+    },
+    {
+      "file": "results.html",
+      "id": "native-row-entries-expose-both-broader-wins-and-remaining-gaps",
+      "width": 390,
+      "tables": [
+        [
+          7,
+          4
+        ]
+      ],
+      "pageWidth": 390,
+      "screenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/native-row-entries-expose-both-broader-wins-and-remaining-gaps-390.png",
+      "fullScreenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/native-row-entries-expose-both-broader-wins-and-remaining-gaps-390-full.png",
+      "rightScreenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/native-row-entries-expose-both-broader-wins-and-remaining-gaps-390-right.png",
+      "scrolls": [
+        {
+          "maximum": 508,
+          "reached": 508
+        }
+      ]
+    },
+    {
+      "file": "index.html",
+      "id": "results-by-route",
+      "width": 390,
+      "tables": [],
+      "pageWidth": 390,
+      "screenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/results-by-route-390.png",
+      "fullScreenshot": "/tmp/luisa-native-rows.LuX3yX/docs-visual/results-by-route-390-full.png",
+      "rightScreenshot": null,
+      "scrolls": []
+    }
+  ]
+}

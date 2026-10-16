@@ -4,6 +4,23 @@
 
 namespace luisa::compute {
 
+namespace {
+
+struct DeferredResourceReferences {
+    vstd::vector<uint64> handles;
+
+    explicit DeferredResourceReferences(vstd::vector<uint64> &&handles) noexcept
+        : handles{std::move(handles)} {}
+    DeferredResourceReferences(DeferredResourceReferences &&) noexcept = default;
+    ~DeferredResourceReferences() noexcept {
+        if (auto ref = RefCounter::current.get()) {
+            for (auto handle : handles) { ref->DeRef(handle); }
+        }
+    }
+};
+
+}// namespace
+
 uint64 ManagedCollector::Allocate() noexcept {
     if (!handlePool.empty()) {
         auto ite = handlePool.back();
@@ -21,12 +38,14 @@ ManagedCollector::ManagedCollector(size_t objPerEle) noexcept : objPerEle(objPer
 
 ManagedCollector::~ManagedCollector() noexcept {
     auto ref = RefCounter::current.get();
-    if (ref)
+    if (ref) {
         for (auto &&i : handles) {
             if (i != invalid_resource_handle) {
                 ref->DeRef(i);
             }
         }
+        for (auto handle : deferredDisposeList) { ref->DeRef(handle); }
+    }
 }
 
 void ManagedCollector::InRef(size_t element, vstd::span<uint64> handles) noexcept {
@@ -74,11 +93,11 @@ void ManagedCollector::DeRef(size_t element) noexcept {
 }
 
 void ManagedCollector::AfterExecuteStream(PyStream &stream) noexcept {
-    stream.delegates.emplace_back([lst = std::move(deferredDisposeList)] {
-        for (auto &&i : lst) {
-            RefCounter::current->DeRef(i);
-        }
-    });
+    // Resource disposers may synchronize the default stream. Release them on
+    // the caller after synchronization, never in the stream's own callback.
+    if (!deferredDisposeList.empty()) {
+        stream.add_readback(DeferredResourceReferences{std::move(deferredDisposeList)});
+    }
 }
 
 }// namespace luisa::compute

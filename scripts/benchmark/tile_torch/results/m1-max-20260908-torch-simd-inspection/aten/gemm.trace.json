@@ -1,0 +1,147 @@
+ {
+    "schemaVersion": 1,
+    "deviceProperties": [],
+    
+      "trace_id": "7DB6541F09404249A2E20D4DDA1B23FD",
+      "record_shapes": 1,
+      "host_name": "MikedeMacBook-Pro.local",
+    "displayTimeUnit": "ms",
+    "baseTimeNanoseconds": 1782967788000000000,
+    "traceEvents": [
+    
+  {
+    "ph": "M",
+    "name": "thread_name",
+    "ts": 5865356250488.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "name": "thread 11143494 ()"
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_sort_index",
+    "ts": 5865356250488.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "sort_index": 11143494
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_name",
+    "ts": 5865356250488.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "name": "thread 11143494 ()"
+    }
+  },
+  {
+    "ph": "M",
+    "name": "thread_sort_index",
+    "ts": 5865356250488.000,
+    "pid": 42228,
+    "tid": 11143494,
+    "args": {
+      "sort_index": 11143494
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::mm",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865356250574.149,
+    "dur": 959.245
+    ,
+    "args": {
+      "External id": 2049,"Fwd thread id": 0, "Sequence number": 0, "Concrete Inputs": ["", ""], "Record function id": 0, "Input type": ["float", "float"], "Input Strides": [[1024, 1], [1024, 1]], "Input Dims": [[1024, 1024], [1024, 1024]], "Ev Idx": 0
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::resolve_conj",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865356250577.273,
+    "dur": 0.375
+    ,
+    "args": {
+      "External id": 2050,"Concrete Inputs": [""], "Record function id": 0, "Input type": ["float"], "Input Strides": [[1024, 1]], "Input Dims": [[1024, 1024]], "Ev Idx": 1
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::resolve_conj",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865356250578.231,
+    "dur": 0.042
+    ,
+    "args": {
+      "External id": 2051,"Concrete Inputs": [""], "Record function id": 0, "Input type": ["float"], "Input Strides": [[1024, 1]], "Input Dims": [[1024, 1024]], "Ev Idx": 2
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "cpu_op",
+    "name": "aten::resolve_conj",
+    "pid": 42228,
+    "tid": 11143494,
+    "ts": 5865356250578.481,
+    "dur": 0.042
+    ,
+    "args": {
+      "External id": 2052,"Concrete Inputs": [""], "Record function id": 0, "Input type": ["float"], "Input Strides": [[1024, 1]], "Input Dims": [[1024, 1024]], "Ev Idx": 3
+    }
+  },
+  {
+    "ph": "X",
+    "cat": "Trace",
+    "name": "PyTorch Profiler (0)",
+    "pid": "Spans",
+    "tid": "PyTorch Profiler",
+    "ts": 5865356250423.000,
+    "dur": 1122.000
+    ,
+    "args": {
+      "Op count": 0
+    }
+  },
+  {
+    "ph": "M",
+    "name": "process_sort_index",
+    "ts": 5865356250423.000,
+    "pid": "Spans",
+    "tid": 0,
+    "args": {
+      "sort_index": 536870912
+    }
+  },
+  {
+    "ph": "i",
+    
+    "s": "g",
+    "name": "Iteration Start: PyTorch Profiler",
+    "pid": "Traces",
+    "tid": "Trace PyTorch Profiler",
+    "ts": 5865356250423.000
+    
+  },
+  {
+    "ph": "i",
+    
+    "s": "g",
+    "name": "Record Window End",
+    "pid": "",
+    "tid": "",
+    "ts": 5865356251603.000
+    
+  }
+  ],"traceName": "/tmp/luisa-torch-simd.IxI6kn/torch-run/gemm.trace.json" }

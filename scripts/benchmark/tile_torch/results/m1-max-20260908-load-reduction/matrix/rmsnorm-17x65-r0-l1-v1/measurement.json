@@ -1,0 +1,77 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "rmsnorm",
+  "dimensions": [
+    17,
+    65
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      17,
+      65
+    ],
+    [
+      1,
+      65
+    ],
+    [
+      1,
+      65
+    ]
+  ],
+  "output_shape": [
+    17,
+    65
+  ],
+  "fixture_ms": 0.084708,
+  "runtime_init_ms": 11.195375,
+  "compile_ms": 27.318208,
+  "allocation_upload_ms": 0.005375,
+  "cold_call_ms": 0.015041,
+  "warmup_ms": 75.009625,
+  "repetitions": 14124,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=0, broadcasts=1; exact search 6 candidates, uncalibrated cost 41087.000 (arithmetic 3129.000, memory 37830.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=1; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; load_reduction_fusion=true; fused_reduction_loads=1; elided_load_snapshots=0; interleaved_private_arrays=2; contiguous_private_reads=2; contiguous_private_writes=10; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 1105,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 2.10599948147e-07
+  },
+  "throughput_us": [
+    1.32526486831,
+    1.32332965166,
+    1.3225626593,
+    1.32600828377,
+    1.32454212688,
+    1.32515278958,
+    1.3134469697
+  ],
+  "latency_us": [
+    4.834,
+    1.458,
+    1.417,
+    1.375,
+    1.375,
+    1.375,
+    1.334
+  ]
+}

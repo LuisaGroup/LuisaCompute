@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "description": "Five distinct op/shape/dtype workloads: BF16 row1 width8192 whole/BD256/1024, plus tail controls and feature tiles. Strict math, unchanged complete FP64/storage-quantized oracle. No performance claim.",
+  "cases": [
+    {
+      "id": "feature-swiglu-1x8192-bf16-bd8192",
+      "operation": "swiglu",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        8192,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "feature-swiglu-1x8192-bf16-bd256",
+      "operation": "swiglu",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "feature-swiglu-1x8192-bf16-bd1024",
+      "operation": "swiglu",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "feature-rope-1x8192-bf16-bd4096",
+      "operation": "rope",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "feature-rope-1x8192-bf16-bd256",
+      "operation": "rope",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "feature-rope-1x8192-bf16-bd1024",
+      "operation": "rope",
+      "dimensions": [
+        1,
+        8192
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "feature-swiglu-3x65-fp32-bd128",
+      "operation": "swiglu",
+      "dimensions": [
+        3,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "feature-swiglu-3x65-fp32-bd32",
+      "operation": "swiglu",
+      "dimensions": [
+        3,
+        65
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "feature-gelu_residual-3x65-fp16-bd128",
+      "operation": "gelu_residual",
+      "dimensions": [
+        3,
+        65
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "feature-gelu_residual-3x65-fp16-bd32",
+      "operation": "gelu_residual",
+      "dimensions": [
+        3,
+        65
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "feature-rope-3x130-bf16-bd128",
+      "operation": "rope",
+      "dimensions": [
+        3,
+        130
+      ],
+      "tile": [
+        1,
+        128,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    },
+    {
+      "id": "feature-rope-3x130-bf16-bd32",
+      "operation": "rope",
+      "dimensions": [
+        3,
+        130
+      ],
+      "tile": [
+        1,
+        32,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false
+    }
+  ]
+}

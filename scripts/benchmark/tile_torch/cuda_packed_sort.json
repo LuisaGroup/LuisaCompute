@@ -1,0 +1,272 @@
+{
+  "schema": 1,
+  "description": "Explicit packed_fp32 versus unchanged full_sort_prefix on identical stable non-NaN packets. Use --ranking-contract stable; FP16/BF16 are exactly promoted to FP32 before sorting and rounded back only for storage. Includes original-index ties and logical tails. No performance claim is implied.",
+  "cases": [
+    {
+      "id": "packed-opt-in-sort-16x1024x1024-fp32-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        16,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "packed-opt-in-sort-16x1024x1024-fp32-packed_fp32",
+      "operation": "sort",
+      "dimensions": [
+        16,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "packed_fp32"
+    },
+    {
+      "id": "packed-opt-in-sort-128x1024x1024-fp32-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        128,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "packed-opt-in-sort-128x1024x1024-fp32-packed_fp32",
+      "operation": "sort",
+      "dimensions": [
+        128,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "packed_fp32"
+    },
+    {
+      "id": "packed-opt-in-sort-4x4096x4096-fp32-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        4096,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "packed-opt-in-sort-4x4096x4096-fp32-packed_fp32",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        4096,
+        4096
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "packed_fp32"
+    },
+    {
+      "id": "packed-opt-in-sort-4x1537x1537-fp32-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        1537,
+        1537
+      ],
+      "tile": [
+        1,
+        2048,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "packed-opt-in-sort-4x1537x1537-fp32-packed_fp32",
+      "operation": "sort",
+      "dimensions": [
+        4,
+        1537,
+        1537
+      ],
+      "tile": [
+        1,
+        2048,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "packed_fp32"
+    },
+    {
+      "id": "packed-opt-in-sort-16x1024x1024-fp16-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        16,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "packed-opt-in-sort-16x1024x1024-fp16-packed_fp32",
+      "operation": "sort",
+      "dimensions": [
+        16,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "packed_fp32"
+    },
+    {
+      "id": "packed-opt-in-sort-16x1024x1024-bf16-full_sort_prefix",
+      "operation": "sort",
+      "dimensions": [
+        16,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "packed-opt-in-sort-16x1024x1024-bf16-packed_fp32",
+      "operation": "sort",
+      "dimensions": [
+        16,
+        1024,
+        1024
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "packed_fp32"
+    },
+    {
+      "id": "packed-opt-in-topk-4x1024x7-fp32-full_sort_prefix",
+      "operation": "topk",
+      "dimensions": [
+        4,
+        1024,
+        7
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "full_sort_prefix"
+    },
+    {
+      "id": "packed-opt-in-topk-4x1024x7-fp32-packed_fp32",
+      "operation": "topk",
+      "dimensions": [
+        4,
+        1024,
+        7
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "adversarial",
+      "fast_math": false,
+      "ranking_algorithm": "packed_fp32"
+    }
+  ]
+}

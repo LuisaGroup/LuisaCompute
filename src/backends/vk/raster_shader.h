@@ -57,6 +57,9 @@ private:
     static BinaryBlob _make_pipeline_key(
         luisa::compute::MeshFormat const &mesh_format,
         RasterState const &state,
+        luisa::span<Argument::Texture const> rtv_textures,
+        Argument::Texture dsv_texture,
+        luisa::span<uint const> strides,
         VkPipelineVertexInputStateCreateInfo &vertex_input_create_info);
 public:
     RasterShader(
@@ -77,7 +80,8 @@ public:
         luisa::span<Argument::Texture const> rtv_textures,
         Argument::Texture dsv_textures,
         luisa::compute::MeshFormat const &mesh_format,
-        RasterState const &state);
+        RasterState const &state,
+        luisa::span<uint const> strides);
     static VkRenderPass create_render_pass(
         Device *device,
         RasterState const &state,

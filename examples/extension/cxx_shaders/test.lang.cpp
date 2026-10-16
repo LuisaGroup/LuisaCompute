@@ -538,7 +538,7 @@ export auto TestVector() {
     // query
     const auto Origin = float3(0.f, 0.f, 0.f);
     const auto Direction = float3(1.f, 0.f, 0.f);
-    auto query = accel.query_all(Ray(Origin, Direction));
+    auto query = accel.query(Ray(Origin, Direction));
     while (query.proceed()) {
         if (query.is_triangle_candidate()) {
             auto hit = query.triangle_candidate();

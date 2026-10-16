@@ -26,6 +26,8 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/core/stl/memory.h>
+#include <luisa/core/stl/optional.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -156,7 +158,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [-c <reference.png>]. <backend>: cuda, dx, metal, vk, hip, fallback", argv[0]);
         exit(1);
     }
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
@@ -302,8 +304,11 @@ int main(int argc, char *argv[]) {
         // Accumulate particle contributions
         Var color = make_float3(0.0f);
 
-        // Draw the documented 1/256 subset for performance.
-        for (uint sample_index = 0u; sample_index < rendered_particle_count; sample_index++) {
+        // Draw the documented 1/256 subset for performance. Keep this as a
+        // device loop: a host loop would clone the body 256 times into the
+        // recorded AST and make CPU-backend JIT optimization prohibitively
+        // expensive.
+        $for (sample_index, rendered_particle_count) {
             auto i = sample_index * render_particle_stride;
             Var p = particle_buf.read(i);
 
@@ -351,7 +356,7 @@ int main(int argc, char *argv[]) {
                 // Additive blending
                 color += particle_color * intensity * 0.5f;
             };
-        }
+        };
 
         // Tone mapping and output
         color = min(color, 1.0f);
@@ -364,10 +369,10 @@ int main(int argc, char *argv[]) {
 
     // Setup window and swapchain
 #if ENABLE_DISPLAY
-    std::unique_ptr<Window> window;
-    std::optional<Swapchain> swap_chain;
+    luisa::unique_ptr<Window> window;
+    luisa::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("Fire Simulation", make_uint2(width, height));
+        window = luisa::make_unique<Window>("Fire Simulation", make_uint2(width, height));
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{

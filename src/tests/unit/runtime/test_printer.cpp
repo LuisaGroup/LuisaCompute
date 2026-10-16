@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include <luisa/luisa-compute.h>
+#include <luisa/core/stl/algorithm.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -65,7 +66,7 @@ void test_printer(Device &device) {
         std::scoped_lock lock{captured->mutex};
         messages = captured->messages;
     }
-    std::sort(messages.begin(), messages.end());
+    luisa::sort(messages.begin(), messages.end());
 
     expect(static_cast<bool>(messages.size() == 5u))
         << "four scalar messages and one composite message must reach the callback";
@@ -78,7 +79,7 @@ void test_printer(Device &device) {
 
     auto composite = std::find_if(
         messages.begin(), messages.end(), [](auto &&message) noexcept {
-            return std::string_view{message}.starts_with("printer-composite ");
+            return luisa::string_view{message}.starts_with("printer-composite ");
         });
     expect(static_cast<bool>(composite != messages.end()))
         << "the composite printer message must reach the callback";

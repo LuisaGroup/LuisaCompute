@@ -1,0 +1,44 @@
+{
+  "_comment": "KimiX custom configuration file. Place this file at <work_dir>/.kimix/config.json to customize tool behavior for your workspace.",
+  "_comment_protected_write_paths": "List of directories and files that EditFile and WriteFile are blocked from modifying. Supports absolute paths and paths relative to the working directory. Glob patterns are NOT supported — use exact paths or directory paths.",
+  "protected_write_paths": [
+    "config.json",
+    ".kimix/config.json"
+  ],
+  "_comment_forbidden_commands": "List of command prefixes that the Run tool will reject. Supports fuzzy prefix matching — e.g., 'git commit' blocks 'git commit -m msg', 'git push' blocks 'git push origin main'. Use this to prevent destructive or autonomous operations.",
+  "forbidden_commands": [
+    "git push",
+    "git rebase",
+    "git merge",
+    "rm -rf /",
+    "rm -rf /*",
+    "sudo",
+    "su -",
+    "passwd",
+    "mkfs",
+    "dd if=",
+    "curl",
+    "wget"
+  ],
+  "_comment_server": "Nested session-server sub-processes spawned by the Kimix session SDK (see kimi-agent/docs/session_server_rpc.md §8). The client allocates a free TCP port and substitutes <address>/<port>/<session_id> into cmd/args before the spawn, so the child binds exactly what it is handed. 'scripts/kimix_lsp.py' is the C++ LSP bridge: it indexes .vscode/compile_commands.json (per-file defines + include dirs) and, when clangd is on PATH, returns syntax diagnostics for read/write/edit tool calls. Paths are relative to the session work dir; keep them relative so this stays cross-platform.",
+  "server": [
+    {
+      "cmd": "python",
+      "args": [
+        "scripts/kimix_lsp.py",
+        "--network",
+        "tcp",
+        "--host",
+        "<address>",
+        "--port",
+        "<port>",
+        "--root",
+        ".",
+        "--stop-file",
+        ".kimix/stop.flag"
+      ],
+      "cwd": ".",
+      "network": "tcp"
+    }
+  ]
+}

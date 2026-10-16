@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "mode": {
+    "type": "offline",
+    "frames": 1
+  },
+  "config": {
+    "default_language": "hlsl",
+    "output_dir": "native_shader_output"
+  },
+  "shaders": [
+    {
+      "name": "add",
+      "language": "hlsl",
+      "source": "StructuredBuffer<float> src : register(t0);\nRWStructuredBuffer<float> dst : register(u0);\ncbuffer Params : register(b0) { float c; };\n[numthreads(32, 1, 1)]\nvoid CSMain(uint3 tid : SV_DispatchThreadID) {\n    dst[tid.x] = src[tid.x] + c;\n}",
+      "source_type": "code",
+      "entry_point": "CSMain",
+      "push_constant_size": 4,
+      "block_size": [
+        32,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "add",
+      "language": "glsl",
+      "source": "#version 450\nlayout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;\nlayout(set = 0, binding = 0) readonly buffer A { float a[]; } src;\nlayout(set = 0, binding = 1) buffer B { float b[]; } dst;\nlayout(push_constant) uniform Push { float c; } params;\nvoid main() {\n    uint i = gl_GlobalInvocationID.x;\n    dst.b[i] = src.a[i] + params.c;\n}",
+      "source_type": "code",
+      "entry_point": "main",
+      "push_constant_size": 4,
+      "block_size": [
+        32,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "add",
+      "language": "cuda_nvrtc",
+      "source": "extern \"C\" __global__ void add(const float *src, float *dst, float c) {\n    auto i = blockIdx.x * blockDim.x + threadIdx.x;\n    dst[i] = src[i] + c;\n}",
+      "source_type": "code",
+      "entry_point": "add",
+      "push_constant_size": 4,
+      "block_size": [
+        32,
+        1,
+        1
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "name": "src",
+      "type": "buffer",
+      "element": "float",
+      "count": 32,
+      "input": {
+        "inline": {
+          "hex": "000000000000803f0000004000004040000080400000a0400000c0400000e0400000004100001041000020410000304100004041000050410000604100007041000080410000884100009041000098410000a0410000a8410000b0410000b8410000c0410000c8410000d0410000d8410000e0410000e8410000f0410000f841"
+        }
+      }
+    },
+    {
+      "name": "dst",
+      "type": "buffer",
+      "element": "float",
+      "count": 32
+    }
+  ],
+  "workflow": [
+    {
+      "cmd": "log",
+      "message": "dst[i] = src[i] + 10 with 32 floats"
+    },
+    {
+      "cmd": "native_dispatch",
+      "shader": "add",
+      "dispatch": [
+        32,
+        1,
+        1
+      ],
+      "bindings": [
+        {
+          "index": 0,
+          "resource": "src",
+          "usage": "read"
+        },
+        {
+          "index": 1,
+          "resource": "dst",
+          "usage": "write"
+        }
+      ],
+      "uniforms": [
+        {
+          "type": "float32",
+          "value": 10.0
+        }
+      ]
+    },
+    {
+      "cmd": "buffer_download",
+      "resource": "dst",
+      "output": {
+        "file": "simple_add.bin",
+        "format": "raw",
+        "overwrite": true
+      },
+      "verify": {
+        "kind": "linear",
+        "source": "src",
+        "k": 1.0,
+        "c": 10.0
+      }
+    }
+  ]
+}

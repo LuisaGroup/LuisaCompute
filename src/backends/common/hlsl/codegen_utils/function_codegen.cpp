@@ -11,20 +11,14 @@
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
 
-// External declaration for shared variable from hlsl_codegen_util.cpp
-extern bool shown_buffer_warning;
 
 namespace lc::hlsl {
-
-#ifdef LUISA_ENABLE_IR
-// Defined in entry_points.cpp — collects gradient variables from a function body.
-void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept;
-#endif
 
 namespace {
 
 [[nodiscard]] bool is_validation_resource(Type const *type) noexcept {
-    return type->is_buffer() || type->is_bindless_array();
+    return type->is_buffer() || type->is_bindless_array() ||
+           type->is_accel();
 }
 
 [[nodiscard]] bool usage_reads(Usage usage) noexcept {
@@ -97,6 +91,21 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
                     }
                     GetTemplateName();
                     data << ' ' << varName << "Inst,"sv;
+                    if (opt->fallback_rtx) {
+                        // Software ray tracing: the tree's region base is part of
+                        // the acceleration view's frame of reference, so a
+                        // callable takes it as a plain parameter and forwards it
+                        // to whatever it calls (fallback_rtx_header.bytes).
+                        data << "uint "sv << varName << "Base,"sv;
+                    }
+                    // The host-injected instance count for ACCEL_SIZE, exactly
+                    // like the buffer validation bounds above.
+                    if (opt->enable_debug_info &&
+                        is_validation_resource(i.type())) {
+                        data << ",uint "sv;
+                        print_validation_bound_name(data, i);
+                        data << ',';
+                    }
                 } else {
                     GetTypeName(i.type(), usage);
                     data << ' ';
@@ -149,7 +158,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         args.back()->accept(vis);
     };
     auto PrintTypedBindlessBufferIndex = [&](Expression const *array,
-                                              Expression const *slot) {
+                                             Expression const *slot) {
         str << "_TYPED_BUFFER_INDEX(";
         array->accept(vis);
         str << ',';
@@ -157,8 +166,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         str << ')';
     };
     auto PrintTypedBindlessBufferOffset = [&](Expression const *array,
-                                               Expression const *slot,
-                                               Expression const *offset) {
+                                              Expression const *slot,
+                                              Expression const *offset) {
         str << "(_TYPED_BUFFER_BIAS(";
         array->accept(vis);
         str << ',';
@@ -189,6 +198,41 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             variable.uid(), vis.f.hash());
         str << "_Global[0]._validate_"sv;
         vstd::to_string(iter->second, str);
+    };
+    // Software ray tracing: the fallback entry points of
+    // fallback_rtx_header.bytes take the acceleration view, the ray, the mask,
+    // the instance view and the tree's region base, in that order.  The base is
+    // the global (or parameter, inside a callable) named `<accel variable>Base`:
+    // on the SPIR-V route the global is a field of the push-constant block
+    // (`dsp_c.<accel variable>Base`, see entry_points.cpp), on DX a cbuffer the
+    // command encoder writes through its root constants.  A callable receives
+    // the base as a parameter and only forwards it.
+    auto PrintFallbackAccelBase = [&](Expression const *accel) {
+        if (opt->isSpirv && vis.f.tag() == Function::Tag::KERNEL) {
+            str << "dsp_c."sv;
+        }
+        accel->accept(vis);
+        str << "Base"sv;
+    };
+    auto PrintFallbackTraceArgs = [&](size_t mask_index) {
+        args[0u]->accept(vis);// accel
+        str << ',';
+        args[1u]->accept(vis);// ray
+        str << ',';
+        args[mask_index]->accept(vis);// mask
+        str << ',';
+        args[0u]->accept(vis);
+        str << "Inst,"sv;
+        PrintFallbackAccelBase(args[0u]);
+    };
+    auto ReportFallbackUnsupported = [&](luisa::string_view what) {
+        LUISA_ERROR(
+            "{} is not available on the software ray-tracing fallback "
+            "(DeviceConfigExt::use_fallback_rtx()): the fallback implements "
+            "closest-hit and any-hit tracing over triangle meshes only.  Run on a "
+            "device with hardware ray tracing (and leave use_fallback_rtx() "
+            "false), or rewrite the shader without {}.",
+            what, what);
     };
     auto PrintValidationBoundArgument = [&](Expression const *resource) {
         if (opt->enable_debug_info) {
@@ -270,6 +314,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                         }
                         i->accept(vis);
                         str << "Inst"sv;
+                        if (opt->fallback_rtx) {
+                            // The callee's acceleration view carries its own
+                            // region base (see GetFunctionDecl).
+                            str << ',';
+                            PrintFallbackAccelBase(i);
+                        }
                     } else {
                         // globallycoherent propagated
                         if (i->type()->is_buffer() && i->tag() == Expression::Tag::REF && iter) {
@@ -408,13 +458,29 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "isnan"sv;
             break;
         case CallOp::ACOS:
-            str << "acos"sv;
+            if (opt->isSpirv &&
+                !opt->enable_fast_math &&
+                (expr->type()->is_float32() ||
+                 (expr->type()->is_vector() &&
+                  expr->type()->element()->is_float32()))) {
+                str << "_lc_strict_acos"sv;
+            } else {
+                str << "acos"sv;
+            }
             break;
         case CallOp::ACOSH:
             str << "_acosh"sv;
             break;
         case CallOp::ASIN:
-            str << "asin"sv;
+            if (opt->isSpirv &&
+                !opt->enable_fast_math &&
+                (expr->type()->is_float32() ||
+                 (expr->type()->is_vector() &&
+                  expr->type()->element()->is_float32()))) {
+                str << "_lc_strict_asin"sv;
+            } else {
+                str << "asin"sv;
+            }
             break;
         case CallOp::ASINH:
             str << "_asinh"sv;
@@ -620,6 +686,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::BUFFER_READ: {
             bool aliasStruct = TypeIsAliased(expr->type());
+            // Scalar bool is stored as a 1-byte uint8_t (see GetTypeName BUFFER path);
+            // convert the loaded byte back into a shader bool.
+            bool elem_is_bool = !aliasStruct && args[0]->type()->element()->is_bool();
+            if (elem_is_bool) {
+                str << '(';
+            }
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
@@ -641,13 +713,20 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             if (aliasStruct) {
                 str << ')';
             }
+            if (elem_is_bool) {
+                str << " != 0)"sv;
+            }
             return;
         }
         case CallOp::BUFFER_VOLATILE_READ: {
             mark_coherent(args[0]);
             bool aliasStruct = TypeIsAliased(expr->type());
+            bool elem_is_bool = !aliasStruct && args[0]->type()->element()->is_bool();
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
+                str << '(';
+            }
+            if (elem_is_bool) {
                 str << '(';
             }
             str << "_volatile_bfread"sv;
@@ -658,12 +737,20 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << "Mat";
             }
             str << '<';
-            GetTypeName(*expr->type(), str, Usage::NONE);
+            // Read the raw 1-byte storage and compare against zero so the result is
+            // a shader bool; the buffer element itself is uint8_t, not bool.
+            if (elem_is_bool) {
+                str << "uint8_t"sv;
+            } else {
+                GetTypeName(*expr->type(), str, Usage::NONE);
+            }
             str << ">(";
             PrintArgs();
             // Note: volatile reads use template functions (not macros), so we skip the debug vid
             str << ')';
-            if (aliasStruct) {
+            if (elem_is_bool) {
+                str << " != 0)"sv;
+            } else if (aliasStruct) {
                 str << ')';
             }
             return;
@@ -703,6 +790,12 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << '(';
                 args.back()->accept(vis);
                 str << ')';
+            } else if (elem->is_bool()) {
+                // Store the shader bool into the 1-byte uint8_t element; any non-zero
+                // value normalises to 0/1 so BUFFER_READ's `!= 0` round-trips it.
+                str << "uint8_t("sv;
+                args.back()->accept(vis);
+                str << " != 0)"sv;
             } else {
                 args.back()->accept(vis);
             }
@@ -714,12 +807,47 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::BUFFER_SIZE: {
-            if (!shown_buffer_warning) {
-                LUISA_WARNING_WITH_LOCATION("CallOp::BUFFER_SIZE is broken on dx!"sv);
-                shown_buffer_warning = true;
+            // Element counts are host-injected through the validation slots
+            // (GetDimensions is unavailable on the raw-pointer bindings this
+            // codegen can emit); see resource_size.bytes.
+            str << "_bfsize("sv;
+            args[0]->accept(vis);
+            str << ',';
+            if (opt->enable_debug_info &&
+                is_validation_resource(args[0]->type())) {
+                PrintValidationBound(args[0]);
+            } else {
+                str << "0xFFFFFFFFu"sv;
             }
-            str << "_bfsize"sv;
-        } break;
+            str << ')';
+        } return;
+        case CallOp::BYTE_BUFFER_SIZE: {
+            str << "_bytebfsize("sv;
+            args[0]->accept(vis);
+            str << ',';
+            if (opt->enable_debug_info &&
+                is_validation_resource(args[0]->type())) {
+                PrintValidationBound(args[0]);
+            } else {
+                str << "0xFFFFFFFFu"sv;
+            }
+            str << ')';
+        } return;
+        case CallOp::ACCEL_SIZE: {
+            // Hardware TLASes do not expose their instance count to device
+            // code (and write-only acceleration arguments do not even declare
+            // a TLAS view), so the count is host-injected through the
+            // validation slots for both the hardware and the software
+            // fallback paths; the encoders fill it from the TLAS descriptor
+            // count / the fallback binding's instance count.
+            str << "_AccelSize("sv;
+            if (opt->enable_debug_info) {
+                PrintValidationBound(args[0]);
+            } else {
+                str << "0xFFFFFFFFu"sv;
+            }
+            str << ')';
+        } return;
         case CallOp::BYTE_BUFFER_VOLATILE_READ: {
             mark_coherent(args[0]);
             bool aliasStruct = TypeIsAliased(expr->type());
@@ -905,19 +1033,31 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 return;
             }
         } break;
-        case CallOp::BYTE_BUFFER_SIZE: {
-            str << "_bytebfsize"sv;
-        } break;
         case CallOp::TEXTURE_SIZE: {
             str << "_texsize"sv;
         } break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
+            if (opt->fallback_rtx) {
+                str << "_FallbackTraceClosest("sv;
+                PrintFallbackTraceArgs(2u);
+                str << ')';
+                return;
+            }
             str << "_TraceClosest"sv;
             break;
         case CallOp::RAY_TRACING_TRACE_ANY:
+            if (opt->fallback_rtx) {
+                str << "_FallbackTraceAny("sv;
+                PrintFallbackTraceArgs(2u);
+                str << ')';
+                return;
+            }
             str << "_TraceAny"sv;
             break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR: {
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR"sv);
+            }
             // Motion blur trace: args are (accel, ray, time, mask)
             if (opt->isRayTracing) {
                 str << "_TraceClosestMotion("sv;
@@ -953,18 +1093,36 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         //     args[3]->accept(vis);// mask (skip time at index 2)
         //     str << ')';
         //     return;
+        case CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_TRACE_ANY_MOTION_BLUR"sv);
+            }
+            LUISA_ERROR("RAY_TRACING_TRACE_ANY_MOTION_BLUR not supported.");
+            break;
         case CallOp::RAY_TRACING_QUERY_ALL:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_QUERY_ALL"sv);
+            }
             str << "_QueryAll("sv;
             PrintArgs();
             return;
         case CallOp::RAY_TRACING_QUERY_ANY:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_QUERY_ANY"sv);
+            }
             str << "_QueryAny("sv;
             PrintArgs();
             return;
         case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_QUERY_ALL_MOTION_BLUR"sv);
+            }
             LUISA_ERROR("RAY_TRACING_QUERY_ALL_MOTION_BLUR not supported.");
             break;
         case CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR:
+            if (opt->fallback_rtx) {
+                ReportFallbackUnsupported("RAY_TRACING_QUERY_ANY_MOTION_BLUR"sv);
+            }
             LUISA_ERROR("RAY_TRACING_QUERY_ANY_MOTION_BLUR not supported.");
             break;
         case CallOp::BINDLESS_BUFFER_SIZE: {
@@ -1631,7 +1789,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: {
-            str << "_InstMatrix("sv;
+            str << (opt->fallback_rtx ? "_FallbackInstMatrix("sv : "_InstMatrix("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);
@@ -1639,7 +1797,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_INSTANCE_USER_ID: {
-            str << "_InstId("sv;
+            str << (opt->fallback_rtx ? "_FallbackInstId("sv : "_InstId("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);
@@ -1647,7 +1805,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: {
-            str << "_InstVis("sv;
+            str << (opt->fallback_rtx ? "_FallbackInstVis("sv : "_InstVis("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             args[1]->accept(vis);
@@ -1655,7 +1813,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: {
-            str << "_SetAccelTransform("sv;
+            str << (opt->fallback_rtx ? "_FallbackSetAccelTransform("sv : "_SetAccelTransform("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -1663,7 +1821,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: {
-            str << "_SetAccelVis("sv;
+            str << (opt->fallback_rtx ? "_FallbackSetAccelVis("sv : "_SetAccelVis("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -1671,7 +1829,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: {
-            str << "_SetAccelOpaque("sv;
+            str << (opt->fallback_rtx ? "_FallbackSetAccelOpaque("sv : "_SetAccelOpaque("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -1679,7 +1837,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::RAY_TRACING_SET_INSTANCE_USER_ID: {
-            str << "_SetUserId("sv;
+            str << (opt->fallback_rtx ? "_FallbackSetUserId("sv : "_SetUserId("sv);
             args[0]->accept(vis);
             str << "Inst,"sv;
             PrintArgs(1);
@@ -1694,6 +1852,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         } break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
             str << "_RayQueryGetWorldRay<"sv;
+            GetTypeName(*expr->type(), str, Usage::NONE, false);
+            str << ',';
+            GetTypeName(*args[0]->type(), str, Usage::NONE, false);
+            str << '>';
+            break;
+        case CallOp::RAY_QUERY_OBJECT_SPACE_RAY:
+            str << "_RayQueryGetObjectRay<"sv;
             GetTypeName(*expr->type(), str, Usage::NONE, false);
             str << ',';
             GetTypeName(*args[0]->type(), str, Usage::NONE, false);
@@ -1734,6 +1899,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ".CandidateType()!=CANDIDATE_NON_OPAQUE_TRIANGLE)"sv;
             return;
         case CallOp::ZERO: {
+            str << "_zero("sv;
+            GetTypeName(*expr->type(), str, Usage::READ, true);
+            str << ')';
+            return;
+        }
+        case CallOp::UNDEFINED: {
+            // Zero is a legal concrete refinement for direct AST codegen.
             str << "_zero("sv;
             GetTypeName(*expr->type(), str, Usage::READ, true);
             str << ')';
@@ -1974,6 +2146,52 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             GetTypeName(*args[0]->type(), str, args[0]->usage());
             str << '>';
         } break;
+        // Future cooperative-vector element-wise operations (native IR operators
+        // reserved for backend implementation — TODO: implement in HLSL codegen).
+        case CallOp::COOPERATIVE_VECTOR_DOT:
+        case CallOp::COOPERATIVE_VECTOR_ABS:
+        case CallOp::COOPERATIVE_VECTOR_SIGN:
+        case CallOp::COOPERATIVE_VECTOR_FLOOR:
+        case CallOp::COOPERATIVE_VECTOR_CEIL:
+        case CallOp::COOPERATIVE_VECTOR_FRACT:
+        case CallOp::COOPERATIVE_VECTOR_TRUNC:
+        case CallOp::COOPERATIVE_VECTOR_ROUND:
+        case CallOp::COOPERATIVE_VECTOR_RINT:
+        case CallOp::COOPERATIVE_VECTOR_SQRT:
+        case CallOp::COOPERATIVE_VECTOR_RSQRT:
+        case CallOp::COOPERATIVE_VECTOR_EXP2:
+        case CallOp::COOPERATIVE_VECTOR_EXP10:
+        case CallOp::COOPERATIVE_VECTOR_LOG2:
+        case CallOp::COOPERATIVE_VECTOR_LOG10:
+        case CallOp::COOPERATIVE_VECTOR_SATURATE:
+        case CallOp::COOPERATIVE_VECTOR_ISINF:
+        case CallOp::COOPERATIVE_VECTOR_ISNAN:
+        case CallOp::COOPERATIVE_VECTOR_SIN:
+        case CallOp::COOPERATIVE_VECTOR_COS:
+        case CallOp::COOPERATIVE_VECTOR_TAN:
+        case CallOp::COOPERATIVE_VECTOR_ASIN:
+        case CallOp::COOPERATIVE_VECTOR_ACOS:
+        case CallOp::COOPERATIVE_VECTOR_SINH:
+        case CallOp::COOPERATIVE_VECTOR_COSH:
+        case CallOp::COOPERATIVE_VECTOR_ASINH:
+        case CallOp::COOPERATIVE_VECTOR_ACOSH:
+        case CallOp::COOPERATIVE_VECTOR_ATANH:
+        case CallOp::COOPERATIVE_VECTOR_MIX:
+        case CallOp::COOPERATIVE_VECTOR_LERP:
+        case CallOp::COOPERATIVE_VECTOR_POW:
+        case CallOp::COOPERATIVE_VECTOR_STEP:
+        case CallOp::COOPERATIVE_VECTOR_SMOOTHSTEP:
+        case CallOp::COOPERATIVE_VECTOR_ADD:
+        case CallOp::COOPERATIVE_VECTOR_SUB:
+        case CallOp::COOPERATIVE_VECTOR_MUL:
+        case CallOp::COOPERATIVE_VECTOR_DIV:
+        case CallOp::COOPERATIVE_VECTOR_LESS:
+        case CallOp::COOPERATIVE_VECTOR_LESS_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_GREATER:
+        case CallOp::COOPERATIVE_VECTOR_GREATER_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_EQUAL:
+        case CallOp::COOPERATIVE_VECTOR_NOT_EQUAL:
+            LUISA_NOT_IMPLEMENTED("Cooperative-vector element-wise operations are not implemented in the HLSL backend yet.");
         case CallOp::COOPERATIVE_MUL_ADD: {
             auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
             str << "dx::linalg::CoopMulAdd<";
@@ -2087,7 +2305,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     }
                 }
                 if (!found) { str << "0/*no buf*/;"; }
-            } else { str << "0/*null*/;"; }
+            } else {
+                str << "0/*null*/;";
+            }
             str << "}";
             return;
         }
@@ -2187,18 +2407,10 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> grad_vars;
-    glob_variables_with_grad(vert, grad_vars);
-#endif
     {
         StringStateVisitor vis(vert, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-            grad_vars,
-#endif
-            vert);
+        vis.VisitFunction(vert);
     }
     result << "}\n"sv;
 }
@@ -2206,6 +2418,7 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
 void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty) {
     opt->isPixelShader = true;
     opt->pixelUseBarycentric = false;
+    opt->pixelUseFrontFacing = false;
     auto resetPixelShaderKey = vstd::scope_exit([&] { opt->isPixelShader = false; });
     CodegenFunction(pixel, result, cBufferNonEmpty, false);
     vstd::StringBuilder retName;
@@ -2214,7 +2427,7 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
     auto set_depth = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH);
     auto set_depth_lequal = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
     auto set_depth_gequal = pixel.propagated_builtin_callables().test(CallOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL);
-    result << retName << " pixel(v2p p,uint primId,float3 bary"sv;
+    result << retName << " pixel(v2p p,uint primId,float3 bary,bool front_facing"sv;
     if (set_depth) {
         result << ",out float _z_depth"sv;
     }
@@ -2237,23 +2450,18 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
         opt->arguments.try_emplace(i.uid(), idx);
         ++idx;
     }
-#ifdef LUISA_ENABLE_IR
-    vstd::unordered_set<Variable> grad_vars;
-    glob_variables_with_grad(pixel, grad_vars);
-#endif
     {
         StringStateVisitor vis(pixel, result, this);
         vis.sharedVariables = &opt->sharedVariable;
-        vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-            grad_vars,
-#endif
-            pixel);
+        vis.VisitFunction(pixel);
     }
     result << "\n}\nvoid main(v2p p"sv;
     result << ",uint primId:SV_PrimitiveID"sv;
     if (opt->pixelUseBarycentric) {
         result << ",float3 bary:SV_Barycentrics"sv;
+    }
+    if (opt->pixelUseFrontFacing) {
+        result << ",bool front_facing:SV_IsFrontFace"sv;
     }
     if (set_depth) {
         result << ",out float _z_depth:SV_Depth"sv;
@@ -2269,6 +2477,11 @@ void CodegenUtility::CodegenPixel(Function pixel, vstd::StringBuilder &result, b
             result << ",bary"sv;
         } else {
             result << ",float3(0,0,0)"sv;
+        }
+        if (opt->pixelUseFrontFacing) {
+            result << ",front_facing"sv;
+        } else {
+            result << ",false"sv;
         }
         if (set_depth) {
             result << ",_z_depth"sv;

@@ -10,7 +10,12 @@
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/metadata/strided_mma.h>
+#include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/special_register.h>
+#include <luisa/xir/translators/xir_interchange.h>
+#include <luisa/xir/undefined.h>
 #include <luisa/xir/verifier.h>
 
 using namespace luisa;
@@ -39,6 +44,152 @@ namespace {
 }// namespace
 
 void reg_xir_verifier() {
+    "xir_verifier_contiguous_copy_required_semantics"_test = [] {
+        for (auto variant = 0u; variant < 16u; variant++) {
+            Module module;
+            auto kernel = module.create_kernel();
+            auto argument = kernel->create_value_argument(Type::of<float>());
+            auto body = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto storage = builder.alloca_local(Type::of<float>());
+            builder.return_void();
+            auto callable = module.create_callable(nullptr);
+            builder.set_insertion_point(callable->create_body_block());
+            builder.return_void();
+            auto external = module.create_external_function(nullptr);
+            (void)external->create_resource_argument(Type::buffer(Type::of<float>()));
+            (void)external->create_value_argument(Type::of<uint64_t>());
+            (void)external->create_reference_argument(Type::array(Type::of<float>(), 8u));
+            MetadataListMixin *owner = external;
+            switch (variant) {
+                case 0u: owner = &module; break;
+                case 1u: owner = module.create_constant_zero(Type::of<float>()); break;
+                case 2u: owner = module.create_undefined(Type::of<float>()); break;
+                case 3u: owner = module.create_dispatch_id(); break;
+                case 4u: owner = kernel; break;
+                case 5u: owner = callable; break;
+                case 6u: owner = argument; break;
+                case 7u: owner = body; break;
+                case 8u: owner = storage; break;
+                case 9u: owner = external->create_basic_block(); break;
+                default: break;
+            }
+            auto metadata = owner->create_metadata<ContiguousCopyMD>();
+            metadata->descriptor = {5u, 4u};
+            if (variant == 10u) { metadata->descriptor.element_count = 0u; }
+            if (variant == 11u) { metadata->descriptor.vector_width = 0u; }
+            if (variant == 12u) { metadata->descriptor.element_count = uint64_t{1u} << 61u; }
+            if (variant == 13u) { owner->metadata_list().push_front(metadata->clone()); }
+            if (variant == 14u) {
+                owner->create_metadata<StridedMmaMD>()->descriptor = {
+                    .output_extents = {1u}, .lhs_output_strides = {0u}, .rhs_output_strides = {0u}, .contraction_extent = 1u, .vector_width = 4u};
+            }
+            auto valid = variant == 15u;
+            auto result = xir_verify_module(&module);
+            expect(result.succeeded() == valid) << variant;
+            auto text = xir_to_interchange_text(&module);
+            auto bitcode = xir_to_bitcode(&module);
+            expect(text.succeeded() == valid) << variant;
+            expect(bitcode.succeeded() == valid) << variant;
+            if (!valid) {
+                expect(!result.errors.empty()) << variant;
+                expect(text.text.empty()) << variant;
+                expect(bitcode.bitcode.empty()) << variant;
+            }
+        }
+    };
+
+    "xir_verifier_strided_mma_required_metadata_placement"_test = [] {
+        for (auto variant = 0u; variant < 10u; variant++) {
+            Module module;
+            auto kernel = module.create_kernel();
+            auto argument = kernel->create_value_argument(Type::of<float>());
+            auto body = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto storage = builder.alloca_local(Type::of<float>());
+            builder.return_void();
+            auto callable = module.create_callable(nullptr);
+            builder.set_insertion_point(callable->create_body_block());
+            builder.return_void();
+            MetadataListMixin *owner = nullptr;
+            switch (variant) {
+                case 0u: owner = &module; break;
+                case 1u: owner = module.create_constant_zero(Type::of<float>()); break;
+                case 2u: owner = module.create_undefined(Type::of<float>()); break;
+                case 3u: owner = module.create_dispatch_id(); break;
+                case 4u: owner = kernel; break;
+                case 5u: owner = callable; break;
+                case 6u: owner = argument; break;
+                case 7u: owner = body; break;
+                case 8u: owner = storage; break;
+                case 9u: {
+                    auto external = module.create_external_function(nullptr);
+                    owner = external->create_basic_block();
+                    break;
+                }
+            }
+            auto &d = owner->create_metadata<StridedMmaMD>()->descriptor;
+            d = {.output_extents = {1u, 5u},
+                 .lhs_output_strides = {0u, 0u},
+                 .rhs_output_strides = {0u, 1u},
+                 .contraction_extent = 9u,
+                 .lhs_contraction_stride = 1u,
+                 .rhs_contraction_stride = 5u,
+                 .vector_width = 4u};
+            expect(is_valid_strided_mma_descriptor(d));
+            auto result = xir_verify_module(&module);
+            expect(!result.succeeded()) << variant;
+            auto found = false;
+            for (auto &&error : result.errors) {
+                found |= error.message == "Strided-MMA metadata is only valid on an external function.";
+            }
+            expect(found) << variant;
+            auto text = xir_to_interchange_text(&module);
+            expect(!text.succeeded()) << variant;
+            expect(text.text.empty()) << variant;
+            auto bitcode = xir_to_bitcode(&module);
+            expect(!bitcode.succeeded()) << variant;
+            expect(bitcode.bitcode.empty()) << variant;
+        }
+    };
+
+    "xir_verifier_strided_mma_external_descriptor_contract"_test = [] {
+        for (auto k : {0u, 9u}) {
+            Module module;
+            auto external = module.create_external_function(nullptr);
+            for (auto i = 0u; i < 4u; i++) {
+                (void)external->create_reference_argument(Type::array(Type::of<float>(), 64u));
+            }
+            auto metadata = external->create_metadata<StridedMmaMD>();
+            metadata->descriptor = {
+                .output_extents = {1u, 5u},
+                .lhs_output_strides = {0u, 0u},
+                .rhs_output_strides = {0u, 1u},
+                .contraction_extent = k,
+                .lhs_contraction_stride = 1u,
+                .rhs_contraction_stride = 5u,
+                .vector_width = 4u};
+            // An unused declaration retains required semantics; target
+            // capability and call provenance are checked by backend preflight.
+            expect(xir_verify_function(external).succeeded());
+            expect(xir_verify_module(&module).succeeded());
+            metadata->descriptor.lhs_output_strides.pop_back();
+            auto invalid = xir_verify_function(external);
+            expect(!invalid.succeeded());
+            expect(has_verification_error(invalid, nullptr, nullptr,
+                                          "Strided-MMA metadata has an invalid descriptor."));
+            metadata->descriptor.lhs_output_strides.emplace_back(0u);
+            expect(xir_verify_function(external).succeeded());
+            external->metadata_list().push_front(metadata->clone());
+            auto duplicate = xir_verify_function(external);
+            expect(!duplicate.succeeded());
+            expect(has_verification_error(duplicate, nullptr, nullptr,
+                                          "Strided-MMA metadata must occur at most once per external function."));
+        }
+    };
+
     "xir_verifier_accepts_valid_module"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
@@ -68,7 +219,7 @@ void reg_xir_verifier() {
         expect(!xir_verify_functions(selected).succeeded());
     };
 
-    "xir_verifier_use_list_membership_is_linear_in_fanout"_test = [] {
+    "xir_verifier_use_list_membership_is_constant_in_fanout"_test = [] {
         Module module;
         auto *kernel = module.create_kernel();
         auto *body = kernel->create_body_block();
@@ -96,22 +247,26 @@ void reg_xir_verifier() {
 
         auto result = xir_verify_module(&module);
         expect(result.succeeded());
+        expect(result.statistics.instruction_tag_queries ==
+               fanout + 2u)
+            << "the verifier must classify each instruction exactly once";
         expect(
-            result.statistics.use_list_membership_queries ==
+            result.statistics.use_list_owner_checks ==
             fanout * 2u + 2u);
         expect(
-            result.statistics.distinct_use_lists_scanned == 2u);
-        expect(
-            result.statistics.use_list_entries_scanned ==
-            result.statistics.use_list_membership_queries)
-            << "each referenced use-list must be materialized once, not "
-               "rescanned for every operand";
+            result.statistics.use_list_membership_traversal_steps == 0u)
+            << "exact membership must use the intrusive owner identity, not "
+               "walk any fraction of the high-fanout list";
+        expect(one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
 
         // Caching the exact Use-node identities must preserve the verifier's
         // linkage semantics: a non-null operand detached from its Value's
         // use-list remains invalid.
         auto detached =
             first_fanout->operand_use(0u)->remove_self();
+        expect(!one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
         auto invalid = xir_verify_module(&module);
         expect(!invalid.succeeded());
         expect(has_verification_error(
@@ -119,6 +274,8 @@ void reg_xir_verifier() {
             "Operand use-list linkage is inconsistent."));
 
         zero->use_list().push_front(std::move(detached));
+        expect(!one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(zero->use_list().contains(first_fanout->operand_use(0u)));
         auto wrong_owner = xir_verify_module(&module);
         expect(!wrong_owner.succeeded());
         expect(has_verification_error(
@@ -127,7 +284,68 @@ void reg_xir_verifier() {
         detached =
             first_fanout->operand_use(0u)->remove_self();
         one->use_list().push_front(std::move(detached));
+        expect(one->use_list().contains(first_fanout->operand_use(0u)));
+        expect(!zero->use_list().contains(first_fanout->operand_use(0u)));
         expect(xir_verify_module(&module).succeeded());
+    };
+
+    "xir_verifier_dominance_storage_is_sparse_in_cfg_size"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *condition =
+            kernel->create_value_argument(Type::of<bool>());
+        auto *current = kernel->create_body_block();
+        auto *one =
+            module.create_constant_one(Type::of<int32_t>());
+        XIRBuilder builder;
+
+        // A long diamond chain is deliberately large enough that the old
+        // per-block set of all dominators required quadratic storage. The
+        // numbered sparse representation must retain only the CFG edges and
+        // one idom edge per block.
+        constexpr auto diamond_count = size_t{2048u};
+        for (auto i = size_t{0u}; i < diamond_count; ++i) {
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *merge = kernel->create_basic_block();
+
+            builder.set_insertion_point(current);
+            auto *dominating_value = builder.call(
+                Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+                {one, one});
+            builder.cond_br(condition, left, right);
+            builder.set_insertion_point(left);
+            builder.br(merge);
+            builder.set_insertion_point(right);
+            builder.br(merge);
+            builder.set_insertion_point(merge);
+            builder.call(
+                Type::of<int32_t>(), ArithmeticOp::BINARY_ADD,
+                {dominating_value, one});
+            current = merge;
+        }
+        builder.return_void();
+
+        auto result = xir_verify_module(&module);
+        expect(result.succeeded());
+        constexpr auto expected_blocks =
+            size_t{1u} + diamond_count * 3u;
+        constexpr auto expected_cfg_edges = diamond_count * 4u;
+        expect(
+            result.statistics.dominance_tree_nodes ==
+            expected_blocks);
+        expect(
+            result.statistics.dominance_tree_edges ==
+            expected_blocks - 1u);
+        expect(
+            result.statistics.dominance_cfg_edges ==
+            expected_cfg_edges);
+        expect(
+            result.statistics.dominance_fixed_point_iterations <= 3u)
+            << "reverse-postorder CHK should converge in a constant number "
+               "of sweeps on a diamond chain";
+        expect(
+            result.statistics.dominance_queries >= diamond_count);
     };
 
     "xir_verifier_accepts_valid_type_and_category_paths"_test = [] {
@@ -277,13 +495,18 @@ void reg_xir_verifier() {
         for (auto size : {
                  luisa::make_uint3(32u, 1u, 1u),
                  luisa::make_uint3(32u, 2u, 1u),
+                 luisa::make_uint3(8u, 4u, 3u),
                  luisa::make_uint3(1024u, 1u, 1u)}) {
             expect(KernelFunction::is_valid_block_size(size));
         }
         for (auto size : {
-                 luisa::make_uint3(0u, 32u, 1u),
+                 luisa::make_uint3(1u, 1u, 1u),
+                 luisa::make_uint3(4u, 1u, 1u),
+                 luisa::make_uint3(8u, 1u, 1u),
                  luisa::make_uint3(31u, 1u, 1u),
                  luisa::make_uint3(33u, 1u, 1u),
+                 luisa::make_uint3(0u, 32u, 1u),
+                 luisa::make_uint3(33u, 32u, 1u),
                  luisa::make_uint3(1025u, 1u, 1u),
                  luisa::make_uint3(0x80000001u, 32u, 1u),
                  luisa::make_uint3(0xffffffffu, 0xffffffffu, 0xffffffffu)}) {
@@ -343,6 +566,30 @@ void reg_xir_verifier() {
         kernel->create_body_block();
         auto result = xir_verify_module(&module);
         expect(!result.succeeded());
+    };
+
+    "xir_verifier_sanitizes_cross_function_cfg_edges_before_dominance"_test = [] {
+        Module module;
+        auto *source = module.create_kernel();
+        auto *source_body = source->create_body_block();
+        auto *foreign = module.create_kernel();
+        auto *foreign_body = foreign->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(source_body);
+        auto *invalid_branch = builder.br(foreign_body);
+        builder.set_insertion_point(foreign_body);
+        builder.return_void();
+
+        // The malformed edge is diagnosed, but it must never enter the
+        // numbered dominance CFG of either function.
+        auto result = xir_verify_module(&module);
+        expect(!result.succeeded());
+        expect(has_verification_error(
+            result, source_body, invalid_branch,
+            "Branch has an invalid target."));
+        expect(result.statistics.dominance_tree_nodes == 2u);
+        expect(result.statistics.dominance_tree_edges == 0u);
+        expect(result.statistics.dominance_cfg_edges == 0u);
     };
 
     "xir_verifier_rejects_use_before_definition"_test = [] {
@@ -786,14 +1033,6 @@ void reg_xir_verifier() {
         auto *body = callable->create_body_block();
         XIRBuilder builder;
         builder.set_insertion_point(body);
-        auto negative_index_value = int32_t{-1};
-        auto out_of_range_index_value = uint32_t{2u};
-        auto *negative_index = module.create_constant(
-            int_type, &negative_index_value);
-        auto *out_of_range_index = module.create_constant(
-            uint_type, &out_of_range_index_value);
-        auto *zero_index = module.create_constant_zero(uint_type);
-
         luisa::vector<ArithmeticInst *> malformed;
         malformed.emplace_back(builder.call(
             int_type, ArithmeticOp::SATURATE, {int_value}));
@@ -820,19 +1059,10 @@ void reg_xir_verifier() {
         malformed.emplace_back(builder.call(
             float2_type, ArithmeticOp::SHUFFLE, {float2_value, index}));
         malformed.emplace_back(builder.call(
-            float2_type, ArithmeticOp::SHUFFLE,
-            {float2_value, out_of_range_index, zero_index}));
-        malformed.emplace_back(builder.call(
             float_type, ArithmeticOp::EXTRACT, {array_value, index}));
-        malformed.emplace_back(builder.call(
-            int_type, ArithmeticOp::EXTRACT,
-            {array_value, negative_index}));
         malformed.emplace_back(builder.call(
             array_type, ArithmeticOp::INSERT,
             {array_value, float_value, index}));
-        malformed.emplace_back(builder.call(
-            array_type, ArithmeticOp::INSERT,
-            {array_value, int_value, out_of_range_index}));
         auto *wrong_arity = builder.call(
             float_type, ArithmeticOp::SATURATE, {float_value});
         wrong_arity->add_operand(float_value);
@@ -1439,6 +1669,43 @@ void reg_xir_verifier() {
                 result, body, call,
                 "Call argument type or value category is invalid."));
         }
+    };
+
+    "xir_verifier_accepts_homogeneous_indices_outside_static_bounds"_test = [] {
+        Module module;
+        auto *int_type = Type::of<int32_t>();
+        auto *uint_type = Type::of<uint32_t>();
+        auto *array_type = Type::array(int_type, 2u);
+        auto *vector_type = Type::vector(int_type, 2u);
+        uint32_t upper_bound_value = 2u;
+        int32_t negative_value = -1;
+        auto *upper_bound =
+            module.create_constant(uint_type, &upper_bound_value);
+        auto *negative = module.create_constant(int_type, &negative_value);
+        auto *callable = module.create_callable(nullptr);
+        auto *vector = callable->create_value_argument(vector_type);
+        auto *body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *array = builder.alloca_local(array_type);
+        auto *past_end = builder.gep(int_type, array, {upper_bound});
+        auto *before_begin = builder.gep(int_type, array, {negative});
+        auto *extract = builder.call(
+            int_type, ArithmeticOp::EXTRACT, {vector, upper_bound});
+        auto *insert = builder.call(
+            vector_type, ArithmeticOp::INSERT,
+            {vector, module.create_constant_zero(int_type), negative});
+        auto *shuffle = builder.call(
+            vector_type, ArithmeticOp::SHUFFLE,
+            {vector, negative, upper_bound});
+        builder.return_void();
+
+        expect(past_end != nullptr);
+        expect(before_begin != nullptr);
+        expect(extract != nullptr);
+        expect(insert != nullptr);
+        expect(shuffle != nullptr);
+        expect(xir_verify_module(&module).succeeded());
     };
 
     "xir_verifier_rejects_invalid_gep_type_paths"_test = [] {

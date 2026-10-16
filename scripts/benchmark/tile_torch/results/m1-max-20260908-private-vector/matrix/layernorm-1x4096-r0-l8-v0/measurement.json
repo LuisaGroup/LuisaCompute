@@ -1,0 +1,77 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "layernorm",
+  "dimensions": [
+    1,
+    4096
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      1,
+      4096
+    ],
+    [
+      1,
+      4096
+    ],
+    [
+      1,
+      4096
+    ]
+  ],
+  "output_shape": [
+    1,
+    4096
+  ],
+  "fixture_ms": 0.135333,
+  "runtime_init_ms": 11.002584,
+  "compile_ms": 50.453875,
+  "allocation_upload_ms": 0.014041,
+  "cold_call_ms": 0.030334,
+  "warmup_ms": 75.07075,
+  "repetitions": 1509,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 32 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=22, direct CFG=true, contiguous reads=3, broadcasts=0; exact search 6 candidates, uncalibrated cost 110228.000 (arithmetic 15892.000, memory 94208.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=8; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=4; contiguous_private_reads=0; contiguous_private_writes=0; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 4096,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 2.66728241272e-07
+  },
+  "throughput_us": [
+    13.1443836978,
+    13.1054227966,
+    13.1122153744,
+    13.109758118,
+    13.1340563287,
+    13.109702452,
+    13.126297548
+  ],
+  "latency_us": [
+    13.583,
+    13.208,
+    13.209,
+    13.167,
+    13.167,
+    13.167,
+    13.333
+  ]
+}

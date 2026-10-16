@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "narrow1024-fp16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow1024-fp16-tile128x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        128,
+        64,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow1024-fp16-tile64x128x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        128,
+        32
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow1024-fp16-tile64x64x64",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        64
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow1024-bf16-tile64x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow1024-bf16-tile128x64x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        128,
+        64,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow1024-bf16-tile64x128x32",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        128,
+        32
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    },
+    {
+      "id": "narrow1024-bf16-tile64x64x64",
+      "operation": "gemm",
+      "dimensions": [
+        1024,
+        1024,
+        1024
+      ],
+      "tile": [
+        64,
+        64,
+        64
+      ],
+      "precision": "bf16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ]
+}

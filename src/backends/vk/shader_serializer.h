@@ -111,7 +111,8 @@ public:
         vstd::string_view file_name,
         SerdeType serde_type,
         BinaryIO const *bin_io,
-        uint32_t push_constant_size = 32u);
+        uint32_t push_constant_size = 32u,
+        bool enable_driver_optimization = true);
     static RasterDeserResult try_deser_raster(
         Device *device,
         // invalid md5 for AOT

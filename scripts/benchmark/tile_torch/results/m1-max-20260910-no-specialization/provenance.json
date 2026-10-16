@@ -1,0 +1,95 @@
+{
+  "format": "native-no-specialization-checkpoint-v1",
+  "frozen_unix": 1789030432.788233,
+  "raw_root": "/private/tmp/luisa-pointwise-no-specialization.whVpcS",
+  "raw_user_spelling": "/tmp/luisa-pointwise-no-specialization.whVpcS",
+  "inventory_sha256": "4236fb81d7ea5c822b14d17be42987526e23d93a7243c5807af75c1507bc05da",
+  "raw_capture": "/private/tmp/luisa-pointwise-no-specialization.whVpcS/capture/manifest.json",
+  "raw_replay": "/private/tmp/luisa-pointwise-no-specialization.whVpcS/replay/results.json",
+  "raw_audit": "/private/tmp/luisa-pointwise-no-specialization.whVpcS/audit.json",
+  "selected_cases": [
+    "rope-17x66",
+    "rope-1024x4098",
+    "layernorm-17x65",
+    "layernorm-1024x4097",
+    "swiglu-17x65",
+    "swiglu-1024x4097"
+  ],
+  "captured_cases": 6,
+  "native_timed_visits": 108,
+  "native_output_checks": 18,
+  "identity_checks": 373,
+  "rejected_mutations": [
+    "missing_visit",
+    "wrong_median",
+    "wrong_ratio",
+    "failed_guard",
+    "wrong_oracle",
+    "verification_only",
+    "wrong_order",
+    "failed_status",
+    "wrong_summary",
+    "duplicate_visit",
+    "boolean_sample"
+  ],
+  "audit_status": "passed",
+  "source_root": "/private/tmp/luisa-next-integration.roZbN8/source",
+  "binary": "/private/tmp/luisa-next-integration.roZbN8/build/bin/benchmark_tile_xir",
+  "baseline_manifest": "/private/tmp/luisa-native-rows.LuX3yX/prepared-v2/manifest.json",
+  "full_build_gate": {
+    "log": "/private/tmp/luisa-pointwise-native.WEtcvZ/full-build-rope-test-final.log",
+    "external_attestation": true,
+    "limitation": "Caller completed the configured full build before capture; log hash alone does not prove binary/source correspondence."
+  },
+  "fixed_environment": {
+    "LUISA_SIMD_WARP_WIDTH": "8",
+    "LUISA_SIMD_WORKER_COUNT": "1",
+    "LUISA_TILE_BENCH_XIR_BACKEND": "simd",
+    "LUISA_TILE_BENCH_XIR_LOCAL_LANES": "8",
+    "LUISA_TILE_BENCH_XIR_BLOCK_SIZE": "32",
+    "LUISA_TILE_BENCH_XIR_BLOCKS_PER_TASK": "0",
+    "LUISA_TILE_BENCH_XIR_SEARCH_TASK_GRAIN": "0",
+    "LUISA_SIMD_DISABLE_LOAD_REDUCTION_FUSION": "1",
+    "LUISA_SIMD_DISABLE_EXPRESSION_REDUCTION_FUSION": "1",
+    "LUISA_SIMD_DISABLE_MAP_FUSION": "1",
+    "LUISA_SIMD_DISABLE_LINEAR_1D_BLOCK_COALESCING": "1",
+    "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+    "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+    "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "LUISA_SIMD_DISABLE_FULL_PACKET_SPECIALIZATION": "1"
+  },
+  "comparison": "Only pointwise fusion off/on within this independent no-specialization cohort is a paired causal comparison. Both sides disable full-packet specialization. Do not compare against earlier specialization-enabled cohorts as a paired single-variable experiment.",
+  "timing_scope": "Fixed-candidate, one-host-thread native-entry host-wall replay under recorded desktop background load. Capture Runtime timing is not comparative. Not a default-planner result, quiet-machine claim or global parity claim. Original Inductor same-cohort visits are retained as baseline observations.",
+  "raw_json_policy": "Original JSON bytes preserved without rewriting paths, hashes, sources, metadata or results.",
+  "runner_freeze": "Seven supplemental runner/auditor/test source copies were frozen before canonical runner changes; five capture/replay runner identities match the manifests. Actual capture/replay runner-sources directories are also retained.",
+  "included": "Actual emitted LLVM, ORC object and assembly, linked entry dylib, Inductor source/wrapper/library, ABI header/helper dylib, logs, frozen runners, fixture source and referenced full-build log.",
+  "excluded": {
+    "tensor_files": 90,
+    "tensor_bytes": 654797568,
+    "tensor_hash_policy": "Recorded hashes are copied from original artifact maps without re-reading tensor bytes during archival.",
+    "other": [
+      "full compiler source tree",
+      "whole build binary closure",
+      "external LLVM/Torch/TVM installation",
+      "Doxygen XML"
+    ]
+  },
+  "replayability": {
+    "self_contained": false,
+    "tensor_payloads_persistently_archived": false,
+    "limitation": "The original raw inputs/expected/output arrays and external dependencies are required to replay or independently repeat the full tensor audit. The audit actually re-read outputs at audit time; archive verification does not repeat numerical validation. Runtime/workspace guards were checked during execution and were not retained.",
+    "regeneration": "The archived validation/tile_llm_test_utils.h and runners/compare_llm.py identify fixture/oracle rules. Regenerated inputs must match original input SHA256 values; different host float/libm evaluation is not assumed bit-identical. New capture/replay/audit is a new experiment and cannot restore original missing output bytes."
+  },
+  "verification": {
+    "tar_members": 287,
+    "compressed_json_streams": 2,
+    "raw_audit_copied": true,
+    "source_members_rehashed_before_after": true,
+    "byte_identity_passed": true
+  },
+  "ownership": "notes.md and other root-authored reporting files are outside this inventory; no kernels, builds, benchmarks or tests were executed by the archiver."
+}

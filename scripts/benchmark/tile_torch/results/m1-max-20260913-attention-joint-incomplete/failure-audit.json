@@ -1,0 +1,72 @@
+{
+  "audit_status": "incomplete_evidence_consistent",
+  "experiment_status": "incomplete",
+  "performance_comparison_status": "NotRun",
+  "successful_captures": 26,
+  "failed_captures": 1,
+  "not_run_captures": 3,
+  "completed_replays": 0,
+  "competitive_visits": 0,
+  "competitive_samples": 0,
+  "capture_receipts_checked": 27,
+  "all_command_receipts_checked": 183,
+  "failure": {
+    "label": "decode-mha-d64-m0-c4",
+    "status": "Error",
+    "returncode": -9,
+    "timeout_s": 180,
+    "observed_elapsed_s": 180.04970908164978,
+    "source_ir_written": false,
+    "output_written": false
+  },
+  "successful_labels": [
+    "decode-mha-d64-m0-c0",
+    "decode-gqa-d80-m0-c0",
+    "decode-gqa-d80-m0-c4",
+    "decode-gqa-d80-m4-c0",
+    "decode-gqa-d80-m4-c4",
+    "decode-gqa-d80-m4-c4-simplified",
+    "decode-long-kv-m0-c0",
+    "decode-long-kv-m0-c4",
+    "decode-long-kv-m4-c0",
+    "decode-long-kv-m4-c4",
+    "decode-long-kv-m4-c4-simplified",
+    "prefill-q4-m0-c0",
+    "prefill-q4-m0-c4",
+    "prefill-q4-m4-c0",
+    "prefill-q4-m4-c4",
+    "prefill-q4-m4-c4-simplified",
+    "prefill-q8-m0-c0",
+    "prefill-q8-m0-c4",
+    "prefill-q8-m4-c0",
+    "prefill-q8-m4-c4",
+    "prefill-q8-m4-c4-simplified",
+    "batch-gqa-q4-m0-c0",
+    "batch-gqa-q4-m0-c4",
+    "batch-gqa-q4-m4-c0",
+    "batch-gqa-q4-m4-c4",
+    "batch-gqa-q4-m4-c4-simplified"
+  ],
+  "not_run_labels": [
+    "decode-mha-d64-m4-c0",
+    "decode-mha-d64-m4-c4",
+    "decode-mha-d64-m4-c4-simplified"
+  ],
+  "source_members_checked": 554,
+  "source_archive_sha256": "be9e21f01b100d9667507c17d632030ba066f06489723dacdbe40f1c3f51cace",
+  "plan_sha256": "75982cf10152cd879d3e44dbf8041e5827141e5990a2b1bbda62757d71f4487c",
+  "provenance_sha256": "298d257459aaaed7a1a485fdb7df11660dd24bb9409b9aee5d5ff225c71de97e",
+  "sample_sha256": "e96caea45f14b0a3efb2a8fbe1a2068a95fbe3a8857c0bbad35e2b67d1ba46bb",
+  "selected_gates": {
+    "build": "full-build-2.json",
+    "tests": "regression-2.json",
+    "tests_passed": 11
+  },
+  "limitations": [
+    "No native execution, benchmark rerun, new FP64 numerical recomputation, or timing comparison in this failure audit.",
+    "Successful capture correctness summaries are preserved producer/driver receipts, not a complete-cohort audit pass.",
+    "Capture logs contain diagnostic synchronized Runtime timings; no paired native replay was run.",
+    "The 180-second limit covers assembly-copy codegen followed by ORC codegen; it does not establish a single production JIT duration.",
+    "Source archive is the selected export, not all HEAD files or a loader-closure/reproducible-build attestation."
+  ]
+}

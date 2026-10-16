@@ -17,6 +17,7 @@
 #include <dxgi.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
 #ifdef UNICODE
 using lcdx_pchar = LPCWSTR;
 #else
@@ -3276,7 +3277,7 @@ struct com_deleter {
     }
 };
 template<typename T>
-using ComUniquePtr = std::unique_ptr<T, com_deleter<T>>;
+using ComUniquePtr = luisa::unique_ptr<T, com_deleter<T>>;
 template<typename T>
 ComUniquePtr<T> create_comptr(
     vstd::function<HRESULT(T **)> const &func) {

@@ -8,6 +8,7 @@
 #include <Shader/ComputeShader.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
+#include <luisa/core/stl/algorithm.h>
 #ifdef LUISA_DX_SDK
 extern "C" extern const uint32_t D3D12SDKVersion = D3D12_PREVIEW_SDK_VERSION;
 
@@ -99,12 +100,16 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
     using Microsoft::WRL::ComPtr;
     size_t index{std::numeric_limits<size_t>::max()};
     bool use_runtime = true;
+    bool headless = false;
     bool use_lmdb = false;
     bool use_experimental = false;
     if (settings) {
         index = settings->device_index;
-        // auto select
-        use_runtime = !settings->headless;
+        // The DX backend always needs a real D3D12 device for compute and
+        // shader AOT compilation, even when the caller requests headless mode.
+        // Headless only affects surface/swapchain-less operation and the
+        // file-IO layer, not device creation.
+        headless = settings->headless;
         use_lmdb = settings->use_lmdb;
         max_allocator_count = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         file_io = settings->binary_io;
@@ -114,6 +119,10 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             use_experimental = device_settings->UseExperimental();
         }
     }
+    // The settings extension seeds the runtime command-reorder switch. It can
+    // still be flipped later through CommandReorderExt, and
+    // LUISA_DISABLE_COMMAND_REORDER=1 wins over both.
+    _command_reorder.seed(device_settings ? device_settings->EnableCommandReorder() : true);
 #ifndef LC_NO_HLSL_BUILTIN
     if (!device_settings || device_settings->LoadDXC()) {
         std::lock_guard lck(g_dxc_mutex);
@@ -124,7 +133,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
     }
 #endif
     if (file_io == nullptr) {
-        ser_visitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), !use_runtime, use_lmdb);
+        ser_visitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), headless, use_lmdb);
         file_io = ser_visitor.get();
     }
     if (use_runtime) {
@@ -427,7 +436,7 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
         if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
             vstd::wstring s{desc.Description};
             auto &ss = r.emplace_back(s.size(), '\0');
-            std::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
+            luisa::transform(s.cbegin(), s.cend(), ss.begin(), [](auto c) noexcept { return static_cast<char>(c); });
         }
     }
 }

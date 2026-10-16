@@ -1398,4 +1398,13 @@ struct FunctionTable {
 // API
 [[nodiscard]] const FunctionTable &api() noexcept;
 
+// Whether the hardware ray-tracing path is usable on this machine, i.e.
+// whether `nvoptix` can be found *and* its function table can be queried for
+// this ABI version.  This is the capability check the backends consult
+// before they decide to use the software fallback: unlike `api()`, it never
+// reports an error and never aborts, it just answers the question.  The
+// answer is computed once and cached; every OptiX call goes through `api()`,
+// which performs the same lookup and fails loudly if the table is missing.
+[[nodiscard]] bool available() noexcept;
+
 } // namespace luisa::compute::optix

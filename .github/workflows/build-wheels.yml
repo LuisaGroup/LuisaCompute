@@ -13,6 +13,7 @@ on:
 env:
   CIBW_ARCHS: auto64
   CIBW_BUILD_VERBOSITY: 2
+  CIBW_VERSION: 4.3.1
 
 jobs:
   build-linux:
@@ -22,7 +23,6 @@ jobs:
         include:
           - os: ubuntu-24.04
             arch: x86_64
-            # CIBW uses CentOS 7, which does not support CUDA 12
 #          - os: ubuntu-24.04-arm
 #            arch: aarch64
     name: ${{ matrix.os }} / ${{ matrix.arch }}
@@ -33,19 +33,101 @@ jobs:
           submodules: recursive
       - name: "Build Wheels"
         env:
-          CIBW_BUILD: \*manylinux\*
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
-          CIBW_MANYLINUX_AARCH_64_IMAGE: manylinux_2_28
           CIBW_BEFORE_ALL: "./scripts/cibw_install_deps.sh"
-          CIBW_REPAIR_WHEEL_COMMAND: "auditwheel show {wheel} && auditwheel repair -w {dest_dir} {wheel} --exclude libcuda.so.1 --exclude libvulkan.so.1"
+          # The bundled DXC requires glibc 2.34. Keep building the other
+          # libraries on the older baseline, then advertise the actual ABI.
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel show {wheel} && auditwheel repair --plat manylinux_2_34_x86_64 -w {dest_dir} {wheel} --exclude libcuda.so.1 --exclude libvulkan.so.1"
+          # These wheels cannot run inside the glibc 2.28 build container.
+          # Exercise each installed wheel on Ubuntu below instead.
+          CIBW_TEST_SKIP: '*'
         run: |
-          python -m pip install -U cibuildwheel
+          python -m pip install cibuildwheel==${{ env.CIBW_VERSION }}
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}-${{ matrix.arch }}
           path: ./wheelhouse/*.whl
+          if-no-files-found: error
+
+  test-linux-wheels:
+    name: Linux wheel / Python ${{ matrix.python-version }}
+    needs: build-linux
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13', '3.14', '3.15']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-ubuntu-24.04-x86_64
+          path: wheelhouse
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: "Test installed Linux wheel"
+        run: |
+          python -m venv .wheel-test
+          source .wheel-test/bin/activate
+          python -m pip install --upgrade pip
+          LUISA_WHEEL_PYTHON_TAG="$(python -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"
+          python -m pip install wheelhouse/*-"${LUISA_WHEEL_PYTHON_TAG}"-"${LUISA_WHEEL_PYTHON_TAG}"-manylinux_2_34_x86_64.whl
+          python scripts/test_wheel.py
+
+  test-cpu-wheel:
+    name: Python 3.15 / CPU wheel lifetimes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+      - name: "Install CPU wheel dependencies"
+        run: |
+          sudo apt-get update
+          wget https://apt.llvm.org/llvm.sh -O /tmp/luisa-wheel-llvm.sh
+          chmod +x /tmp/luisa-wheel-llvm.sh
+          sudo /tmp/luisa-wheel-llvm.sh 20
+          sudo apt-get -y install clang-20 llvm-20-dev cmake ninja-build uuid-dev libembree-dev libx11-dev libxinerama-dev libxcursor-dev libxi-dev libxrandr-dev
+      - name: "Build CPU regression wheel"
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: '2'
+          CMAKE_ARGS: >-
+            -DCMAKE_C_COMPILER=clang-20
+            -DCMAKE_CXX_COMPILER=clang++-20
+            -DLLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm
+            -DLUISA_COMPUTE_ENABLE_PACKAGE_DISTRIBUTION=OFF
+            -DLUISA_COMPUTE_ENABLE_FALLBACK=ON
+            -DLUISA_COMPUTE_ENABLE_GUI=ON
+            -DLUISA_COMPUTE_ENABLE_CUDA=OFF
+            -DLUISA_COMPUTE_ENABLE_DX=OFF
+            -DLUISA_COMPUTE_ENABLE_METAL=OFF
+            -DLUISA_COMPUTE_ENABLE_METAL4=OFF
+            -DLUISA_COMPUTE_ENABLE_HIP=OFF
+            -DLUISA_COMPUTE_ENABLE_VULKAN=OFF
+            -DLUISA_COMPUTE_ENABLE_VK_XIR_SPIRV=OFF
+            -DLUISA_COMPUTE_ENABLE_SIMD=OFF
+            -DLUISA_COMPUTE_ENABLE_REMOTE=OFF
+            -DLUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES=OFF
+        run: |
+          python -m pip install --upgrade build
+          python -m build --wheel --outdir cpu-wheelhouse
+      - name: "Test installed CPU wheel and asynchronous lifetimes"
+        timeout-minutes: 5
+        env:
+          PYTHONFAULTHANDLER: '1'
+        run: |
+          python -m venv .cpu-wheel-test
+          source .cpu-wheel-test/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install cpu-wheelhouse/*.whl
+          python scripts/test_wheel.py --backend fallback
 
   build-macos:
     strategy:
@@ -66,16 +148,15 @@ jobs:
         run: |
           export CC=/opt/homebrew/opt/llvm/bin/clang
           export CXX=/opt/homebrew/opt/llvm/bin/clang++
-          python3 -m pip install -U cibuildwheel --break-system-packages
-          for dep_target in {14..${{ matrix.os }}}; do
-            export MACOSX_DEPLOYMENT_TARGET=${dep_target}.0
-            python3 -m cibuildwheel --output-dir wheelhouse
-          done
+          export MACOSX_DEPLOYMENT_TARGET=14.0
+          python3 -m pip install cibuildwheel==${{ env.CIBW_VERSION }} --break-system-packages
+          python3 -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v4
         with:
           name: wheels-macOS-${{ matrix.os }}
           path: ./wheelhouse/*.whl
+          if-no-files-found: error
 
   build-windows:
     name: windows-2025
@@ -105,11 +186,19 @@ jobs:
           arch: x64
       - name: "Build Wheels"
         shell: cmd
+        env:
+          # Resolve the DLLs already installed under luisa/dylibs, and inspect
+          # dynamically loaded backends and compiler helpers for dependencies.
+          # GPU drivers and the Vulkan loader remain supplied by the host.
+          # D3D12 and DirectComposition are Windows 10+ inbox graphics libraries;
+          # delvewheel's default x64 system DLL list predates them.
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: 'delvewheel repair --ignore-existing --analyze-existing --analyze-existing-exes --exclude "nvcuda.dll;vulkan-1.dll;d3d12.dll;dcomp.dll" -w {dest_dir} -v {wheel}'
         run: |
-          python -m pip install -U cibuildwheel
+          python -m pip install cibuildwheel==${{ env.CIBW_VERSION }}
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v4
         with:
           name: wheels-windows
           path: ./wheelhouse/*.whl
+          if-no-files-found: error

@@ -1,0 +1,336 @@
+#define _LC_FB_HEADER_U4 4u
+#define _LC_FB_NODE_U4 2u
+#define _LC_FB_BLAS_RECORD_U4 2u
+#define _LC_FB_INSTANCE_U4 8u
+#define _LC_FB_I_TO_OBJECT 0u
+#define _LC_FB_I_TO_WORLD 3u
+#define _LC_FB_I_MISC 6u
+#define _LC_FB_IM_BLAS_INDEX 0u
+#define _LC_FB_IM_VISIBILITY 1u
+#define _LC_FB_IM_USER_ID 2u
+#define _LC_FB_IM_FLAGS 3u
+
+#define _LC_FB_BM_TRIANGLE_COUNT 0u
+#define _LC_FB_BM_FLAGS 1u
+#define _LC_FB_BM_HEAP_SLOT 2u
+
+#define _LC_FB_HEAP_NULL_SLOT 0u
+#define _LC_FB_HEAP_TLAS_SLOT 1u
+#define _LC_FB_HEAP_FIRST_BLAS_SLOT 2u
+#define _LC_FB_INSTANCE_FLAG_DISABLE_FACE_CULLING 1u
+#define _LC_FB_INSTANCE_FLAG_FLIP_FACING 2u
+#define _LC_FB_INSTANCE_FLAG_DISABLE_ANY_HIT 4u
+#define _LC_FB_INSTANCE_FLAG_ENFORCE_ANY_HIT 8u
+#define _LC_FB_INSTANCE_FLAG_OPAQUE 16u
+#define _LC_FB_INVALID_OFFSET 0xFFFFFFFFu
+#define _LC_FB_STACK_SIZE 64u
+
+#define _LC_FB_HEAP_READ(heap, slot, index) \
+    _READ_BUFFER(heap, slot, (index), 16u, uint4, bdls)
+
+float _LCFbAsFloat(uint u) { return asfloat(u); }
+uint _LCFbAsUint(float f) { return asuint(f); }
+float2 _LCFbFloat2Of(uint4 v) { return float2(asfloat(v.x), asfloat(v.y)); }
+float3 _LCFbFloat3Of(uint4 v) { return float3(asfloat(v.x), asfloat(v.y), asfloat(v.z)); }
+float4 _LCFbFloat4Of(uint4 v) { return float4(asfloat(v.x), asfloat(v.y), asfloat(v.z), asfloat(v.w)); }
+uint4 _LCFbUint4Of(float4 v) { return uint4(asuint(v.x), asuint(v.y), asuint(v.z), asuint(v.w)); }
+
+struct _LCFbRegion {
+    uint base;
+    uint node_base;
+    uint blas_table_base;
+    uint index_base;
+    uint vertex_base;
+    uint root;
+    uint flags;
+};
+
+_LCFbRegion _LCFbRegionOf(StructuredBuffer<uint> heap, uint slot) {
+    uint4 h0 = _LC_FB_HEAP_READ(heap, slot, 0u);
+    uint4 h1 = _LC_FB_HEAP_READ(heap, slot, 1u);
+    uint4 h2 = _LC_FB_HEAP_READ(heap, slot, 2u);
+    _LCFbRegion region;
+    region.base = h0.x;
+    region.node_base = h0.y;
+    region.blas_table_base = h1.x;
+    region.index_base = h1.z;
+    region.vertex_base = h2.x;
+    region.root = h2.z;
+    region.flags = h2.w;
+    return region;
+}
+
+float _LCFbReciprocalLane(float x) {
+    return 1.0f / (abs(x) < 1.0e-20f ? 1.0e-20f : x);
+}
+
+float3 _LCFbSafeReciprocal(float3 d) {
+    return float3(_LCFbReciprocalLane(d.x),
+                  _LCFbReciprocalLane(d.y),
+                  _LCFbReciprocalLane(d.z));
+}
+
+bool _LCFbAabbTest(float3 lo, float3 hi, float3 origin, float3 inv_dir,
+                   float t_min, float t_max) {
+    float3 t0 = (lo - origin) * inv_dir;
+    float3 t1 = (hi - origin) * inv_dir;
+    float3 near_t = min(t0, t1);
+    float3 far_t = max(t0, t1);
+    float t_near = max(max(near_t.x, near_t.y), max(near_t.z, t_min));
+    float t_far = min(min(far_t.x, far_t.y), min(far_t.z, t_max));
+    return t_near <= t_far;
+}
+
+bool _LCFbTriangleTest(float3 v0, float3 v1, float3 v2,
+                       float3 origin, float3 direction,
+                       float t_min, float t_max,
+                       out float t_out, out float2 bary_out) {
+    float3 e1 = v1 - v0;
+    float3 e2 = v2 - v0;
+    float3 pv = cross(direction, e2);
+    float det = dot(e1, pv);
+    float inv_det = 1.0f / det;
+    float3 tv = origin - v0;
+    float u = dot(tv, pv) * inv_det;
+    float3 qv = cross(tv, e1);
+    float v = dot(direction, qv) * inv_det;
+    float t = dot(e2, qv) * inv_det;
+    bool hit = (abs(det) > 1.0e-12f) && (u >= 0.0f) && (v >= 0.0f) &&
+               (u + v <= 1.0f) && (t >= t_min) && (t <= t_max);
+    if (!hit) {
+        t_out = t;
+        bary_out = float2(0.0f, 0.0f);
+        return false;
+    }
+    t_out = t;
+    bary_out = float2(u, v);
+    return true;
+}
+
+bool _LCFbWalkBlas(StructuredBuffer<uint> heap, uint slot, uint instance,
+                   float3 origin, float3 direction, float t_min,
+                   inout float t_best, inout uint prim_best, inout float2 bary_best) {
+    bool improved = false;
+    _LCFbRegion region = _LCFbRegionOf(heap, slot);
+    uint base = region.base;
+    float3 inv_dir = _LCFbSafeReciprocal(direction);
+    uint stack[_LC_FB_STACK_SIZE];
+    uint size = 1u;
+    stack[0u] = region.root;
+    while (size != 0u) {
+        size = size - 1u;
+        uint handle = stack[size];
+        uint4 node_lo = _LC_FB_HEAP_READ(heap, slot, handle - base);
+        uint4 node_hi = _LC_FB_HEAP_READ(heap, slot, handle - base + 1u);
+        float3 lo = _LCFbFloat3Of(node_lo);
+        float3 hi = _LCFbFloat3Of(node_hi);
+        if (!_LCFbAabbTest(lo, hi, origin, inv_dir, t_min, t_best)) { continue; }
+        uint left = node_lo.w;
+        if (left == _LC_FB_INVALID_OFFSET) {
+            uint prim = node_hi.w;
+            uint4 index = _LC_FB_HEAP_READ(heap, slot, region.index_base - base + prim);
+            float3 v0 = _LCFbFloat3Of(_LC_FB_HEAP_READ(heap, slot, region.vertex_base - base + index.x));
+            float3 v1 = _LCFbFloat3Of(_LC_FB_HEAP_READ(heap, slot, region.vertex_base - base + index.y));
+            float3 v2 = _LCFbFloat3Of(_LC_FB_HEAP_READ(heap, slot, region.vertex_base - base + index.z));
+            float t;
+            float2 bary;
+            if (_LCFbTriangleTest(v0, v1, v2, origin, direction, t_min, t_best, t, bary)) {
+                t_best = t;
+                bary_best = bary;
+                prim_best = prim;
+                improved = true;
+            }
+        } else {
+            if (size + 2u < _LC_FB_STACK_SIZE) {
+                stack[size] = left;
+                size = size + 1u;
+                stack[size] = node_hi.w;
+                size = size + 1u;
+            }
+        }
+    }
+    return improved;
+}
+
+template<typename I>
+void _LCFbWalkTlas(StructuredBuffer<uint> heap, I inst, uint accel_slot, uint mask,
+                   float3 origin, float3 direction, float t_min,
+                   inout float t_best, inout uint inst_best, inout uint prim_best,
+                   inout float2 bary_best) {
+    _LCFbRegion region = _LCFbRegionOf(heap, accel_slot);
+    uint base = region.base;
+    float3 inv_dir = _LCFbSafeReciprocal(direction);
+    float4 o4 = float4(origin.x, origin.y, origin.z, 1.0f);
+    float4 d4 = float4(direction.x, direction.y, direction.z, 0.0f);
+    uint stack[_LC_FB_STACK_SIZE];
+    uint size = 1u;
+    stack[0u] = region.root;
+    while (size != 0u) {
+        size = size - 1u;
+        uint handle = stack[size];
+        uint4 node_lo = _LC_FB_HEAP_READ(heap, accel_slot, handle - base);
+        uint4 node_hi = _LC_FB_HEAP_READ(heap, accel_slot, handle - base + 1u);
+        float3 lo = _LCFbFloat3Of(node_lo);
+        float3 hi = _LCFbFloat3Of(node_hi);
+        if (!_LCFbAabbTest(lo, hi, origin, inv_dir, t_min, t_best)) { continue; }
+        uint left = node_lo.w;
+        if (left == _LC_FB_INVALID_OFFSET) {
+            uint instance = node_hi.w;
+            uint record_base = _LC_FB_INSTANCE_U4 * instance;
+            uint4 misc = inst[record_base + _LC_FB_I_MISC];
+            if ((mask & misc.y) == 0u) { continue; }
+            uint blas_index = misc.x;
+            uint row = region.blas_table_base - base + _LC_FB_BLAS_RECORD_U4 * blas_index;
+            uint4 metadata = _LC_FB_HEAP_READ(heap, accel_slot, row + 1u);
+            uint blas_slot = metadata[_LC_FB_BM_HEAP_SLOT];
+            if (blas_slot == _LC_FB_HEAP_NULL_SLOT) { continue; }
+            uint4 to_object_0 = inst[record_base + _LC_FB_I_TO_OBJECT + 0u];
+            uint4 to_object_1 = inst[record_base + _LC_FB_I_TO_OBJECT + 1u];
+            uint4 to_object_2 = inst[record_base + _LC_FB_I_TO_OBJECT + 2u];
+            float4 o0 = _LCFbFloat4Of(to_object_0);
+            float4 o1 = _LCFbFloat4Of(to_object_1);
+            float4 o2 = _LCFbFloat4Of(to_object_2);
+            float3 object_origin = float3(dot(o4, o0), dot(o4, o1), dot(o4, o2));
+            float3 object_dir = float3(dot(d4, o0), dot(d4, o1), dot(d4, o2));
+            float t_instance = t_best;
+            uint prim_instance = prim_best;
+            float2 bary_instance = bary_best;
+            if (_LCFbWalkBlas(heap, blas_slot, instance, object_origin, object_dir,
+                              t_min, t_instance, prim_instance, bary_instance)) {
+                t_best = t_instance;
+                prim_best = prim_instance;
+                bary_best = bary_instance;
+                inst_best = instance;
+            }
+        } else {
+            if (size + 2u < _LC_FB_STACK_SIZE) {
+                stack[size] = left;
+                size = size + 1u;
+                stack[size] = node_hi.w;
+                size = size + 1u;
+            }
+        }
+    }
+}
+
+template<typename R, typename I>
+_Hit1 _FallbackTraceClosest(StructuredBuffer<uint> heap, R rayDesc, uint mask,
+                            I inst, uint accelBase) {
+    _Hit1 hit = (_Hit1)0;
+    hit.v0 = _LC_FB_INVALID_OFFSET;
+    hit.v1 = _LC_FB_INVALID_OFFSET;
+    hit.v2 = float2(0.0f, 0.0f);
+    hit.v3 = rayDesc.v3;
+    float3 origin = float3(rayDesc.v0.v[0], rayDesc.v0.v[1], rayDesc.v0.v[2]);
+    float3 direction = float3(rayDesc.v2.v[0], rayDesc.v2.v[1], rayDesc.v2.v[2]);
+    float t_best = rayDesc.v3;
+    uint inst_best = _LC_FB_INVALID_OFFSET;
+    uint prim_best = _LC_FB_INVALID_OFFSET;
+    float2 bary_best = float2(0.0f, 0.0f);
+    _LCFbWalkTlas(heap, inst, accelBase, mask, origin, direction, rayDesc.v1,
+                  t_best, inst_best, prim_best, bary_best);
+    if (inst_best != _LC_FB_INVALID_OFFSET) {
+        hit.v0 = inst_best;
+        hit.v1 = prim_best;
+        hit.v2 = bary_best;
+        hit.v3 = t_best;
+    }
+    return hit;
+}
+
+template<typename R, typename I>
+bool _FallbackTraceAny(StructuredBuffer<uint> heap, R rayDesc, uint mask,
+                       I inst, uint accelBase) {
+    float3 origin = float3(rayDesc.v0.v[0], rayDesc.v0.v[1], rayDesc.v0.v[2]);
+    float3 direction = float3(rayDesc.v2.v[0], rayDesc.v2.v[1], rayDesc.v2.v[2]);
+    float t_best = rayDesc.v3;
+    uint inst_best = _LC_FB_INVALID_OFFSET;
+    uint prim_best = _LC_FB_INVALID_OFFSET;
+    float2 bary_best = float2(0.0f, 0.0f);
+    _LCFbWalkTlas(heap, inst, accelBase, mask, origin, direction, rayDesc.v1,
+                  t_best, inst_best, prim_best, bary_best);
+    return inst_best != _LC_FB_INVALID_OFFSET;
+}
+
+template<typename I>
+float4x4 _FallbackInstMatrix(I inst, uint index) {
+    uint record_base = _LC_FB_INSTANCE_U4 * index;
+    float4 w0 = _LCFbFloat4Of(inst[record_base + _LC_FB_I_TO_WORLD + 0u]);
+    float4 w1 = _LCFbFloat4Of(inst[record_base + _LC_FB_I_TO_WORLD + 1u]);
+    float4 w2 = _LCFbFloat4Of(inst[record_base + _LC_FB_I_TO_WORLD + 2u]);
+    return float4x4(float4(w0.x, w1.x, w2.x, 0.0f),
+                    float4(w0.y, w1.y, w2.y, 0.0f),
+                    float4(w0.z, w1.z, w2.z, 0.0f),
+                    float4(w0.w, w1.w, w2.w, 1.0f));
+}
+
+template<typename I>
+uint _FallbackInstId(I inst, uint index) {
+    return inst[_LC_FB_INSTANCE_U4 * index + _LC_FB_I_MISC][_LC_FB_IM_USER_ID];
+}
+
+template<typename I>
+uint _FallbackInstVis(I inst, uint index) {
+    return inst[_LC_FB_INSTANCE_U4 * index + _LC_FB_I_MISC][_LC_FB_IM_VISIBILITY];
+}
+
+void _FallbackSetAccelTransform(RWStructuredBuffer<uint4> inst, uint index, float4x4 m) {
+    uint record_base = _LC_FB_INSTANCE_U4 * index;
+    float4 w0 = float4(m[0][0], m[1][0], m[2][0], m[3][0]);
+    float4 w1 = float4(m[0][1], m[1][1], m[2][1], m[3][1]);
+    float4 w2 = float4(m[0][2], m[1][2], m[2][2], m[3][2]);
+    inst[record_base + _LC_FB_I_TO_WORLD + 0u] = _LCFbUint4Of(w0);
+    inst[record_base + _LC_FB_I_TO_WORLD + 1u] = _LCFbUint4Of(w1);
+    inst[record_base + _LC_FB_I_TO_WORLD + 2u] = _LCFbUint4Of(w2);
+    float a00 = w0.x, a01 = w0.y, a02 = w0.z, t0 = w0.w;
+    float a10 = w1.x, a11 = w1.y, a12 = w1.z, t1 = w1.w;
+    float a20 = w2.x, a21 = w2.y, a22 = w2.z, t2 = w2.w;
+    float c00 = a11 * a22 - a12 * a21;
+    float c01 = a12 * a20 - a10 * a22;
+    float c02 = a10 * a21 - a11 * a20;
+    float det = a00 * c00 + a01 * c01 + a02 * c02;
+    if (abs(det) > 1.0e-20f) {
+        float inv_det = 1.0f / det;
+        float i00 = c00 * inv_det;
+        float i01 = (a02 * a21 - a01 * a22) * inv_det;
+        float i02 = (a01 * a12 - a02 * a11) * inv_det;
+        float i10 = c01 * inv_det;
+        float i11 = (a00 * a22 - a02 * a20) * inv_det;
+        float i12 = (a02 * a10 - a00 * a12) * inv_det;
+        float i20 = c02 * inv_det;
+        float i21 = (a01 * a20 - a00 * a21) * inv_det;
+        float i22 = (a00 * a11 - a01 * a10) * inv_det;
+        float4 o0 = float4(i00, i01, i02, -(i00 * t0 + i01 * t1 + i02 * t2));
+        float4 o1 = float4(i10, i11, i12, -(i10 * t0 + i11 * t1 + i12 * t2));
+        float4 o2 = float4(i20, i21, i22, -(i20 * t0 + i21 * t1 + i22 * t2));
+        inst[record_base + _LC_FB_I_TO_OBJECT + 0u] = _LCFbUint4Of(o0);
+        inst[record_base + _LC_FB_I_TO_OBJECT + 1u] = _LCFbUint4Of(o1);
+        inst[record_base + _LC_FB_I_TO_OBJECT + 2u] = _LCFbUint4Of(o2);
+    }
+}
+
+void _FallbackSetAccelVis(RWStructuredBuffer<uint4> inst, uint index, uint mask) {
+    uint slot = _LC_FB_INSTANCE_U4 * index + _LC_FB_I_MISC;
+    uint4 misc = inst[slot];
+    misc[_LC_FB_IM_VISIBILITY] = mask & 0xffu;
+    inst[slot] = misc;
+}
+
+void _FallbackSetAccelOpaque(RWStructuredBuffer<uint4> inst, uint index, bool opaque) {
+    uint slot = _LC_FB_INSTANCE_U4 * index + _LC_FB_I_MISC;
+    uint4 misc = inst[slot];
+    uint flags = misc[_LC_FB_IM_FLAGS];
+    if ((flags & _LC_FB_INSTANCE_FLAG_DISABLE_FACE_CULLING) != 0u) {
+        flags = flags & ~(_LC_FB_INSTANCE_FLAG_DISABLE_ANY_HIT | _LC_FB_INSTANCE_FLAG_ENFORCE_ANY_HIT);
+        flags = flags | (opaque ? _LC_FB_INSTANCE_FLAG_DISABLE_ANY_HIT : _LC_FB_INSTANCE_FLAG_ENFORCE_ANY_HIT);
+        misc[_LC_FB_IM_FLAGS] = flags;
+        inst[slot] = misc;
+    }
+}
+
+void _FallbackSetUserId(RWStructuredBuffer<uint4> inst, uint index, uint id) {
+    uint slot = _LC_FB_INSTANCE_U4 * index + _LC_FB_I_MISC;
+    uint4 misc = inst[slot];
+    misc[_LC_FB_IM_USER_ID] = id;
+    inst[slot] = misc;
+}

@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "compute_capability": 89,
+  "sm_count": 24,
+  "warp_size": 32,
+  "max_resident_warps_per_sm": 48,
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "driver_version": "617.14",
+  "cuda_driver_api_version": 13040,
+  "toolkit_version": "13.4",
+  "tool_receipts": [
+    {
+      "path": "${CUDA}/tileiras.exe",
+      "sha256": "01803afa2f18b66bd89549f4490e22636bb9046365adfbc7f2057e98c57e41cb",
+      "bytes": 81990768
+    },
+    {
+      "path": "${CUDA}/nvrtc64_130_0.dll",
+      "sha256": "c92027e5eae58b6f272cafb438bf59b55deb02bd326b183956e84e0a180dbd14",
+      "bytes": 106038896
+    }
+  ],
+  "budget_scope": "Device maximum resident threads / warp size; reference capacity, not kernel occupancy.",
+  "raw_device_facts": {
+    "path": ".deps/oct02-collective-device-facts.json",
+    "sha256": "7e46e3f26ec51dc79aa68e82346cbc256e5dfdd269bea7ac673dcd3c32b991d1",
+    "bytes": 1724
+  },
+  "provenance_scope": "sanitized declared device facts from the original device query, not new device execution"
+}

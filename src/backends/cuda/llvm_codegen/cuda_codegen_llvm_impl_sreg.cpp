@@ -83,6 +83,13 @@ llvm::Value *CUDACodegenLLVMImpl::_read_dispatch_size(IB &, const FunctionContex
     return func_ctx.llvm_dispatch_size;
 }
 
+llvm::Value *CUDACodegenLLVMImpl::_read_optix_launch_size(IB &b) noexcept {
+    auto x = b.CreateCall(_get_inline_asm("call ($0), _optix_get_launch_dimension_x, ();", "=r", false), {});
+    auto y = b.CreateCall(_get_inline_asm("call ($0), _optix_get_launch_dimension_y, ();", "=r", false), {});
+    auto z = b.CreateCall(_get_inline_asm("call ($0), _optix_get_launch_dimension_z, ();", "=r", false), {});
+    return _create_llvm_vector(b, {x, y, z});
+}
+
 llvm::Value *CUDACodegenLLVMImpl::_read_dispatch_id(IB &b, const FunctionContext &func_ctx) noexcept {
     if (_rt_analysis.uses_ray_tracing) {
         // asm("call (%0), _optix_get_launch_index_$axis, ();" : "=r"(out) : );

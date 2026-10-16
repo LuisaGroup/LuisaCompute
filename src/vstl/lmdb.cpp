@@ -1,6 +1,7 @@
 #include <luisa/vstl/lmdb.hpp>
 #include <lmdb.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/filesystem.h>
 
 namespace vstd {
 
@@ -14,7 +15,7 @@ namespace vstd {
     } while (false)
 
 LMDB::LMDB(
-    std::filesystem::path const &db_dir,
+    luisa::filesystem::path const &db_dir,
     size_t max_reader,
     size_t map_size) noexcept
     : _path(luisa::to_string(db_dir)),
@@ -22,8 +23,8 @@ LMDB::LMDB(
     LUISA_CHECK_LMDB_ERROR(mdb_env_create(&_env));
     LUISA_CHECK_LMDB_ERROR(mdb_env_set_maxreaders(_env, max_reader));
     LUISA_CHECK_LMDB_ERROR(mdb_env_set_mapsize(_env, _map_size));
-    if (!std::filesystem::exists(db_dir)) {
-        std::filesystem::create_directories(db_dir);
+    if (!luisa::filesystem::exists(db_dir)) {
+        luisa::filesystem::create_directories(db_dir);
     }
     LUISA_CHECK_LMDB_ERROR(mdb_env_open(_env, _path.c_str(), MDB_NORDAHEAD, 0664));
     MDB_txn *txn;
@@ -91,12 +92,12 @@ void LMDB::_dispose() noexcept {
         _env = nullptr;
     }
 }
-void LMDB::copy_to(std::filesystem::path const &path) const noexcept {
-    if (!std::filesystem::exists(path)) {
-        std::filesystem::create_directories(path);
+void LMDB::copy_to(luisa::filesystem::path const &path) const noexcept {
+    if (!luisa::filesystem::exists(path)) {
+        luisa::filesystem::create_directories(path);
     } else {
-        std::filesystem::remove_all(path);
-        std::filesystem::create_directories(path);
+        luisa::filesystem::remove_all(path);
+        luisa::filesystem::create_directories(path);
     }
     LUISA_CHECK_LMDB_ERROR(mdb_env_copy2(_env, luisa::to_string(path).c_str(), MDB_CP_COMPACT));
 }

@@ -1,0 +1,438 @@
+{
+  "schema": 1,
+  "description": "Explicit embedding schedules: BR1/4/8 ordered uniform-ID rows and separate feature widths; complete original storage-bit oracle, no performance claim.",
+  "cases": [
+    {
+      "id": "serial-embedding-v4096-d64-t512-fp32-br1-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "precision": "fp32",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d64-t512-fp32-br4-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        4,
+        64,
+        1
+      ],
+      "precision": "fp32",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d64-t512-fp32-br8-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        8,
+        64,
+        1
+      ],
+      "precision": "fp32",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d64-t512-fp16-br1-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d64-t512-fp16-br4-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        4,
+        64,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d64-t512-fp16-br8-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        8,
+        64,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d64-t512-bf16-br1-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        1,
+        64,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d64-t512-bf16-br4-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        4,
+        64,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d64-t512-bf16-br8-bd64",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        64,
+        512
+      ],
+      "tile": [
+        8,
+        64,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "random",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-fp32-br1-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "precision": "fp32",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-fp32-br4-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        4,
+        256,
+        1
+      ],
+      "precision": "fp32",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-fp32-br8-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        8,
+        256,
+        1
+      ],
+      "precision": "fp32",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-fp16-br1-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-fp16-br4-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        4,
+        256,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-fp16-br8-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        8,
+        256,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-bf16-br1-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        256,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-bf16-br4-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        4,
+        256,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "serial-embedding-v4096-d4096-t512-bf16-br8-bd256",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        8,
+        256,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "wide-feature-embedding-v4096-d4096-t512-fp32-br1-bd1024",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp32",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "wide-feature-embedding-v4096-d4096-t512-fp32-br1-bd4096",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp32",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "wide-feature-embedding-v4096-d4096-t512-fp16-br1-bd1024",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "wide-feature-embedding-v4096-d4096-t512-fp16-br1-bd4096",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "fp16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "wide-feature-embedding-v4096-d4096-t512-bf16-br1-bd1024",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        1024,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    },
+    {
+      "id": "wide-feature-embedding-v4096-d4096-t512-bf16-br1-bd4096",
+      "operation": "embedding",
+      "dimensions": [
+        4096,
+        4096,
+        512
+      ],
+      "tile": [
+        1,
+        4096,
+        1
+      ],
+      "precision": "bf16",
+      "pattern": "adversarial",
+      "seed": 20261001,
+      "fast_math": false
+    }
+  ]
+}

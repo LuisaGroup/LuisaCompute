@@ -1,0 +1,111 @@
+diff --git a/src/backend/metal/codegen/codegen_metal.cc b/src/backend/metal/codegen/codegen_metal.cc
+index ede52adf0..10ed89648 100644
+--- a/src/backend/metal/codegen/codegen_metal.cc
++++ b/src/backend/metal/codegen/codegen_metal.cc
+@@ -153,7 +153,9 @@ void CodeGenMetal::CollectCooperativeTensors(const PrimFunc& f) {
+       }
+     } else if (call->op.same_as(builtin::cooperative_tensor_load()) ||
+                call->op.same_as(builtin::cooperative_tensor_store())) {
+-      TVM_FFI_ICHECK_EQ(call->args.size(), 11);
++      TVM_FFI_ICHECK(call->args.size() == 11 ||
++                     (call->op.same_as(builtin::cooperative_tensor_store()) &&
++                      call->args.size() == 13));
+       TVM_FFI_ICHECK_EQ(CooperativeConstant(call->args[10], "operand role"), 2)
+           << "This Metal MPP realization only materializes destination tensors";
+       int64_t m = CooperativeConstant(call->args[7], "M");
+@@ -217,7 +219,8 @@ void CodeGenMetal::PrintCooperativeCall(const CallNode* op, std::ostream& os) {
+   size_t ordinary_count = fill ? 5 : (load || store || multiply ? 11 : 13);
+   bool bounded_k = !fill && !load && !store && op->args.size() == ordinary_count + 1;
+   bool bounded_mnk = !fill && !load && !store && op->args.size() == ordinary_count + 3;
+-  TVM_FFI_ICHECK(op->args.size() == ordinary_count || bounded_k || bounded_mnk);
++  bool bounded_store = store && op->args.size() == ordinary_count + 2;
++  TVM_FFI_ICHECK(op->args.size() == ordinary_count || bounded_k || bounded_mnk || bounded_store);
+   std::string d = CooperativeTensorRef(op->args[0], op->args[1]);
+   const auto& info = cooperative_tensors_.at(GetSimdgroupBufferVar(op->args[0]).get());
+   if (fill) {
+@@ -230,7 +233,56 @@ void CodeGenMetal::PrintCooperativeCall(const CallNode* op, std::ostream& os) {
+        << ".get_capacity(); ++" << i << ") { if (" << d << ".is_valid_element(" << i << ")) " << d
+        << '[' << i << "] = " << value << "; } }";
+   } else if (load || store) {
+-    if (CooperativeBoolean(op->args[6])) {
++    if (bounded_store) {
++      // Logical destination prefixes are independent of the MMA's input
++      // rectangles. Never infer a mask from padded input dimensions.
++      auto extent = [&](size_t index, int64_t nominal) {
++        Expr value = op->args[index];
++        TVM_FFI_ICHECK(value->ty == PrimType::Int(32) || value->ty == PrimType::Int(64))
++            << "Metal MPP bounded store requires scalar signed integer extents";
++        if (const auto* literal = value.as<IntImmNode>()) {
++          TVM_FFI_ICHECK(literal->value >= 0 && literal->value <= nominal)
++              << "Metal MPP bounded store extent must be between zero and nominal extent";
++        }
++        return value;
++      };
++      Expr rows = extent(ordinary_count, info.m);
++      Expr columns = extent(ordinary_count + 1, info.n);
++      auto checked = [](const Expr& value) {
++        const auto* literal = value.as<IntImmNode>();
++        return literal ? std::max(int64_t{1}, literal->value) : int64_t{1};
++      };
++      bool transpose = CooperativeBoolean(op->args[6]);
++      CheckCooperativeMemory(op->args[2], op->args[3], checked(rows), checked(columns),
++                             transpose);
++      std::string rm = name_supply_->FreshName("mpp_store_rows");
++      std::string cn = name_supply_->FreshName("mpp_store_columns");
++      std::string p = name_supply_->FreshName("mpp_memory");
++      std::string i = name_supply_->FreshName("mpp_element");
++      std::string xy = name_supply_->FreshName("mpp_coordinate");
++      std::string pointer = PrintExpr(op->args[2]);
++      std::string stride = PrintExpr(op->args[3]);
++      os << "{ const int " << rm << " = int(" << PrintExpr(rows) << "); const int " << cn
++         << " = int(" << PrintExpr(columns) << "); ";
++      bool bulk = !transpose && CooperativeConstant(op->args[3], "leading stride") >= info.n;
++      if (bulk) {
++        // Keep the original static interior transfer; edge lanes use only
++        // public cooperative coordinates, never an assumed fragment layout.
++        os << "if (" << rm << " == " << info.m << " && " << cn << " == " << info.n << ") { "
++           << d << ".store("
++           << CooperativeMemoryView(op->args[2], op->args[3], info.m, info.n, false)
++           << "); } else { ";
++      }
++      os << "auto " << p << " = " << pointer << ";\n#pragma unroll\nfor (uint " << i << " = 0; "
++         << i << " < " << d << ".get_capacity(); ++" << i << ") { if (" << d
++         << ".is_valid_element(" << i << ")) { auto " << xy << " = " << d
++         << ".get_multidimensional_index(" << i << "); if (" << xy << "[1] < " << rm << " && "
++         << xy << "[0] < " << cn << ") " << p << "[" << xy << (transpose ? "[0] * " : "[1] * ")
++         << stride << " + " << xy << (transpose ? "[1]" : "[0]") << "] = " << d << "[" << i
++         << "]; } } ";
++      if (bulk) os << "} ";
++      os << "}";
++    } else if (CooperativeBoolean(op->args[6])) {
+       // MPP's inline tensor transfer path does not preserve a nonunit inner
+       // stride on the validated SDK. Map the opaque destination distribution
+       // through its public coordinates, independently of memory orientation.
+@@ -915,6 +967,7 @@ void RegisterMetalCodegen() {
+   refl::GlobalDef().def("target.metal.mpp_memory_contract_version", []() { return 2; });
+   refl::GlobalDef().def("target.metal.mpp_bounded_k_contract_version", []() { return 1; });
+   refl::GlobalDef().def("target.metal.mpp_bounded_mnk_contract_version", []() { return 1; });
++  refl::GlobalDef().def("target.metal.mpp_bounded_store_contract_version", []() { return 1; });
+ }
+ }  // namespace codegen
+ }  // namespace tvm
+diff --git a/include/tvm/tirx/builtin.h b/include/tvm/tirx/builtin.h
+index ca25dbc6d..6a0a7ff4c 100644
+--- a/include/tvm/tirx/builtin.h
++++ b/include/tvm/tirx/builtin.h
+@@ -587,5 +587,15 @@ TVM_DLL const Op& cooperative_tensor_load();
+  *                               int mma_M, int mma_N, int mma_K,
+  *                               int operand_role);
+  * operand_role: 0=left(A), 1=right(B), 2=destination(C)
++ *
++ * The optional Metal MPP bounded-store-v1 extension appends scalar signed
++ * Int32/Int64 actual_rows, actual_columns. Only the prefix rectangle
++ * [0, actual_rows) x [0, actual_columns) is written; all other destination
++ * memory is untouched. Each extent must be between zero and its nominal
++ * extent. The FP32 destination pointer and positive leading stride must fit
++ * that rectangle (with transpose applied), and the pointer must remain valid
++ * even for an empty rectangle. Dynamic bounds and uniform complete-subgroup
++ * participation are caller preconditions. The source cooperative tensor's
++ * nominal shape/layout is unchanged. Loads keep the original 11-argument ABI.
+  */
+ TVM_DLL const Op& cooperative_tensor_store();

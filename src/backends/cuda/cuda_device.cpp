@@ -8,6 +8,7 @@
 #include <luisa/core/binary_io.h>
 #include <luisa/core/string_scratch.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/hash.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/dispatch_buffer.h>
@@ -16,55 +17,61 @@
 #include <luisa/backends/ext/cuda/cuda_config_ext.h>
 #endif
 
-#ifdef LUISA_ENABLE_IR
-#include <luisa/ir/ir2ast.h>
-#include <luisa/ir/ast2ir.h>
-#include <luisa/ir/transform.h>
-#endif
-
 #ifdef LUISA_ENABLE_XIR
 
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2text.h>
+#include <luisa/xir/debug_printer.h>
 #include <luisa/xir/instructions/print.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/local_load_elimination.h>
 #include <luisa/xir/passes/mem2reg.h>
-#include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
-#include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
+#include <luisa/xir/passes/reconstruct_ray_query_loop.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
-#include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
-#include "cuda_codegen_xir.h"
+#include "native_shader_ext.h"
 
 namespace luisa::compute::cuda {
 namespace {
-[[nodiscard]] bool _xir_pass_enabled(const char *name) noexcept {
-    if (auto env = getenv(name)) { return std::string_view{env} == "1"; }
-    return false;
+namespace cuda_device_detail {
+[[nodiscard]] bool _xir_pass_enabled(const char *name, bool default_value) noexcept {
+    if (auto env = getenv(name)) { return luisa::string_view{env} == "1"; }
+    return default_value;
 }
-const bool LUISA_XIR_NORMALIZE_CFG = _xir_pass_enabled("LUISA_XIR_NORMALIZE_CFG");
-const bool LUISA_XIR_RESTRUCTURE_CFG = _xir_pass_enabled("LUISA_XIR_RESTRUCTURE_CFG");
-const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMINATE_EARLY_RETURN");
+// LLVM consumes plain CFG and PHIs directly after shared ray-query lowering.
+const bool LUISA_XIR_NORMALIZE_CFG = _xir_pass_enabled("LUISA_XIR_NORMALIZE_CFG", true);
+const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMINATE_EARLY_RETURN", false);
+}  // namespace cuda_device_detail
 }// namespace
 }// namespace luisa::compute::cuda
 
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
+#include <llvm/Config/llvm-config.h>
 #include "llvm_codegen/cuda_codegen_llvm.h"
+#include "llvm_codegen/cuda_codegen_llvm_device_bitcode.h"
 namespace luisa::compute::cuda {
 namespace {
+namespace cuda_device_detail_4 {
 const bool LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN = [] {
     if (auto env = getenv("LUISA_EXPERIMENTAL_LLVM_CODEGEN")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
+}  // namespace cuda_device_detail_4
 }
 }// namespace luisa::compute::cuda
 #endif
@@ -72,17 +79,11 @@ const bool LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN = [] {
 namespace luisa::compute::cuda {
 
 namespace {
+namespace cuda_device_detail {
 
 const bool LUISA_SHOULD_DUMP_XIR = [] {
     if (auto env = getenv("LUISA_DUMP_XIR")) {
-        return std::string_view{env} == "1";
-    }
-    return false;
-}();
-
-const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
-    if (auto env = getenv("LUISA_EXPERIMENTAL_XIR_CODEGEN")) {
-        return std::string_view{env} == "1";
+        return luisa::string_view{env} == "1";
     }
     return false;
 }();
@@ -91,19 +92,83 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
                          const xir::XIRVerificationOptions &options = {}) noexcept {
     auto verification = xir::xir_verify_module(module, options);
     if (!verification.succeeded()) {
+        if (LUISA_SHOULD_DUMP_XIR) {
+            auto module_name = module->name().value_or("unnamed");
+            auto dump_dir = getenv("LUISA_DUMP_XIR_DIR");
+            // LUISA_DUMP_XIR_DIR is a narrow (ANSI code page) environment value and
+            // the dump file names are built from the module name: decode both with
+            // path_from_narrow() instead of letting path's implicit narrow
+            // conversion throw - this function is noexcept.
+            auto narrow_path = [](luisa::string_view text) noexcept {
+                luisa::filesystem::path result;
+                static_cast<void>(luisa::path_from_narrow(text, result));
+                return result;
+            };
+            luisa::filesystem::path dump_path;
+            if (!luisa::path_from_narrow(dump_dir == nullptr ? luisa::string_view{"."} : luisa::string_view{dump_dir}, dump_path)) [[unlikely]] {
+                LUISA_WARNING_WITH_LOCATION(
+                    "XIR dump directory '{}' cannot be represented in the ANSI code page.",
+                    dump_dir);
+                return;
+            }
+            auto stem = luisa::format("{}.invalid", module_name);
+            {
+                std::ofstream f{dump_path / narrow_path(luisa::format("{}.errors.txt", stem))};
+                f << "stage: " << stage << '\n';
+                for (size_t i = 0u; i < verification.errors.size(); i++) {
+                    auto &&error = verification.errors[i];
+                    f << '[' << i << "] " << error.message << '\n';
+                    if (error.instruction != nullptr) {
+                        luisa::string instruction;
+                        xir::XIRDebugPrinter::global().reset();
+                        xir::XIRDebugPrinter::global().emit_instruction(
+                            instruction, error.instruction);
+                        f << instruction << '\n';
+                    }
+                }
+                f.flush();
+            }
+            {
+                                  std::ofstream f{dump_path / narrow_path(luisa::format("{}.xir", stem))};
+                f << xir::xir_to_text_translate(module, true);
+                f.flush();
+            }
+        }
         LUISA_ERROR_WITH_LOCATION(
             "Invalid XIR at CUDA {}: {} ({} error(s) total).",
             stage, verification.errors.front().message, verification.errors.size());
     }
 }
 
-[[nodiscard]] auto luisa_cuda_backend_translate_ast_to_xir(Function kernel, const ShaderOption &option, bool lower_rq = true) noexcept {
+[[nodiscard]] auto luisa_cuda_backend_translate_ast_to_xir(Function kernel, const ShaderOption &option) noexcept {
     Clock translate_clk;
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
     if (!option.name.empty()) { xir_module->set_location(option.name); }
     verify_xir_or_error(xir_module.get(), "AST translation");
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
+
+    auto inline_ray_query_info =
+        xir::reconstruct_ray_query_loop_pass_run_on_module(
+            xir_module.get());
+    if (!inline_ray_query_info.succeeded()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "CUDA XIR rejected {} malformed explicit ray-query loop(s).",
+            inline_ray_query_info.error_count);
+    }
+    verify_xir_or_error(xir_module.get(), "explicit ray-query reconstruction");
+
+    if (kernel.requires_autodiff()) {
+        auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
+        auto autodiff_info = xir::autodiff_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE(
+            "CUDA XIR AutoDiff lowering: inlined {} call(s), transformed {} "
+            "scope(s), removed {} instruction(s).",
+            inline_info.inlined_call_count,
+            autodiff_info.transformed_scope_count,
+            autodiff_info.removed_instruction_count);
+        verify_xir_or_error(xir_module.get(), "AutoDiff lowering");
+    }
 
     // dump for debugging
     if (LUISA_SHOULD_DUMP_XIR) {
@@ -156,21 +221,21 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
     xir::PassPipeline cfg;
-    if (lower_rq) {
-        cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
-            if (!i.succeeded()) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "CUDA XIR ray-query lowering rejected {} loop(s).",
-                    i.error_count);
-            }
-            return i.lowered_loop_count > 0u;
-        });
-        cfg.add("reg2mem", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::reg2mem_pass_run_on_module(m, &r);
-            return i.changed();
-        });
-    }
+    auto normalize_ray_queries = [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::lower_ray_query_to_pipeline_pass_run_on_module(
+            m, &r, {.coalesce_query_storage = true});
+        if (!i.succeeded()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "CUDA XIR ray-query lowering rejected {} loop(s).",
+                i.error_count);
+        }
+        if (i.lowered_loop_count > 0u) { return true; }
+        for (auto &&entry : r.entries()) {
+            if (entry.key == "coalesced_query_alloca" && entry.value != 0u) { return true; }
+        }
+        return false;
+    };
+    cfg.add("lower-ray-query-to-pipeline", normalize_ray_queries);
     if (LUISA_XIR_NORMALIZE_CFG) {
         cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
@@ -185,22 +250,16 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
             auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
             return i.changed();
         });
-        if (LUISA_XIR_RESTRUCTURE_CFG) {
-            cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
-                if (!i.succeeded()) {
-                    LUISA_ERROR_WITH_LOCATION(
-                        "CUDA XIR restructuring failed (irreducible={}, unstructured={}, invalid={}, iteration_limit={}).",
-                        i.irreducible_region_count, i.unstructured_branch_count,
-                        i.invalid_construct_count, i.iteration_limit_count);
-                }
-                return i.changed();
-            });
-        }
+        // CFG simplification can expose sequential query lifetimes in one
+        // block. Reuse the shared normalization pass's idempotent storage proof.
+        cfg.add("compact-ray-query-state", normalize_ray_queries);
     }
+    cfg.add("fast-math-simplify", [fast_math = option.enable_fast_math](xir::Module *m, xir::PassReport &r) {
+        auto info = xir::fast_math_simplify_pass_run_on_module(m, {.enable_fast_math = fast_math}, &r);
+        return info.changed();
+    });
     auto cfg_stats = cfg.run(xir_module.get());
-    verify_xir_or_error(xir_module.get(), "codegen handoff",
-                        {.require_no_phi = lower_rq});
+    verify_xir_or_error(xir_module.get(), "codegen handoff");
     cfg_stats.log("CUDA backend CFG normalization");
 
     // dump for debugging
@@ -212,6 +271,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
     return xir_module;
 }
 
+}  // namespace cuda_device_detail
 }
 
 }// namespace luisa::compute::cuda
@@ -259,23 +319,78 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
 #ifndef NDEBUG
 #define LUISA_CUDA_DUMP_SOURCE 1
 #else
+// Deliberately not moved into a file-local `cuda_device_detail` namespace like
+// its neighbours: in debug builds the same spelling is a macro (see above), so a
+// qualified `cuda_device_detail::LUISA_CUDA_DUMP_SOURCE` would expand to the
+// macro inside the qualified name.
 static const bool LUISA_CUDA_DUMP_SOURCE = [] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) return false;
-    return std::string_view{env} == "1";
+    return luisa::string_view{env} == "1";
 }();
 #endif
 
+namespace cuda_device_detail_5 {
 static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = [] {
     // read env LUISA_OPTIX_VALIDATION
     auto env = std::getenv("LUISA_OPTIX_VALIDATION");
     if (env == nullptr) return false;
-    return std::string_view{env} == "1";
+    return luisa::string_view{env} == "1";
 }();
 
+}  // namespace cuda_device_detail_5
 namespace luisa::compute::cuda {
 
+// Experimental serializer: opt in separately from LLVM code generation.
+namespace cuda_device_detail_3 {
+static const bool cuda_llvm_optix_ir_requested = [] {
+    auto value = std::getenv("LUISA_CUDA_LLVM_OPTIX_IR");
+    return value != nullptr && luisa::string_view{value} == "1";
+}();
+
+}  // namespace cuda_device_detail_3
+#if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
+// Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
+// Revision 21 shares equivalent zero-capture hardware ray-query callbacks.
+namespace cuda_device_detail_2 {
+static constexpr uint64_t cuda_llvm_cache_revision = 21u;
+
+[[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
+                                                   uint32_t cuda_arch) noexcept {
+    static const auto libdevice_hash = luisa::hash64(
+        luisa_compute_cuda_libdevice_10,
+        static_cast<size_t>(luisa_compute_cuda_libdevice_10_size),
+        luisa::hash64_default_seed);
+    auto texture_storage_hash = luisa::hash64_default_seed;
+    for (auto i = 0u; i < kernel.bound_arguments().size(); i++) {
+        if (auto binding = luisa::get_if<Function::TextureBinding>(&kernel.bound_arguments()[i])) {
+            // LLVM specializes captured texture loads/stores for their storage
+            // format. Runtime handles are not part of the compiled identity.
+            auto storage = reinterpret_cast<const CUDATexture *>(binding->handle)->storage();
+            texture_storage_hash = luisa::hash_combine(
+                {i, static_cast<uint64_t>(storage)}, texture_storage_hash);
+        }
+    }
+    return luisa::hash_combine({
+        cuda_llvm_cache_revision,
+        kernel.hash(),
+        luisa::hash_value(luisa::string_view{LLVM_VERSION_STRING}),
+        libdevice_hash,
+        cuda_arch,
+        optix::VERSION,
+        option.enable_fast_math,
+        option.enable_debug_info,
+        std::clamp(option.max_registers, 0u, 255u),
+        luisa::hash_value(option.name),
+        cuda_device_detail::LUISA_XIR_NORMALIZE_CFG,
+        cuda_device_detail::LUISA_XIR_ELIMINATE_EARLY_RETURN,
+        texture_storage_hash});
+}
+}  // namespace cuda_device_detail_2
+#endif
+
+namespace cuda_device_detail_2 {
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
     switch (format) {
         case PixelFormat::R8SInt: return CU_AD_FORMAT_SIGNED_INT8;
@@ -321,6 +436,7 @@ namespace luisa::compute::cuda {
                               luisa::to_underlying(format));
 }
 
+}  // namespace cuda_device_detail_2
 CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
                        const BinaryIO *io, bool use_lmdb,
                        luisa::unique_ptr<DeviceConfigExt> device_config_ext,
@@ -328,6 +444,28 @@ CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
     : DeviceInterface{std::move(ctx)},
       _handle{device_id}, _io{io},
       _device_config_ext{std::move(device_config_ext)} {
+    // decide once whether ray tracing is answered by the software fallback:
+    // the user may force it through the DeviceConfigExt, and a machine whose
+    // OptiX runtime cannot be loaded has no hardware path at all.
+    _use_fallback_rtx = [this] {
+        if (_device_config_ext != nullptr) {
+            if (static_cast<CUDADeviceConfigExt *>(_device_config_ext.get())
+                    ->use_fallback_rtx()) {
+                return true;
+            }
+        }
+        // `LUISA_CUDA_FALLBACK_RTX=1` forces the fallback for testing (the
+        // examples cannot hand a DeviceConfigExt to create_device()); the
+        // supported surface stays `DeviceConfigExt::use_fallback_rtx()`.
+        if (auto env = std::getenv("LUISA_CUDA_FALLBACK_RTX")) {
+            return luisa::string_view{env} == "1";
+        }
+        return !optix::available();
+    }();
+    if (_use_fallback_rtx) {
+        LUISA_INFO("CUDA ray tracing uses the software fallback "
+                   "(OptiX is not initialised).");
+    }
     // provide a default binary IO
     if (_io == nullptr) {
         _default_io = luisa::make_unique<DefaultBinaryIO>(context(), false, use_lmdb);
@@ -443,6 +581,13 @@ CUDADevice::~CUDADevice() noexcept {
     });
 }
 
+lc::fallback_rtx::FallbackRtxDevice *CUDADevice::fallback_rtx() noexcept {
+    if (!_use_fallback_rtx) { return nullptr; }
+    std::scoped_lock lock{_fallback_rtx_mutex};
+    if (_fallback_rtx == nullptr) { _fallback_rtx = luisa::make_unique<lc::fallback_rtx::FallbackRtxDevice>(this); }
+    return _fallback_rtx.get();
+}
+
 CUDAEventManager *CUDADevice::event_manager() const noexcept {
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     std::scoped_lock lock{_event_manager_mutex};
@@ -500,17 +645,6 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element,
     return info;
 }
 
-BufferCreationInfo CUDADevice::create_buffer(const ir::CArc<ir::Type> *element,
-                                             size_t elem_count,
-                                             void *external_memory) noexcept {
-#ifdef LUISA_ENABLE_IR
-    auto type = IR2AST::get_type(element->get());
-    return create_buffer(type, elem_count, external_memory);
-#else
-    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
-#endif
-}
-
 void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     with_handle([buffer = reinterpret_cast<CUDABufferBase *>(handle)] {
         delete_with_allocator(buffer);
@@ -523,7 +657,7 @@ ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimensi
                                                 bool allow_raster_target) noexcept {
     LUISA_ASSERT(external_native_handle == nullptr, "Not implemented.");
     auto p = with_handle([=] {
-        auto array_format = cuda_array_format(format);
+        auto array_format = cuda_device_detail_2::cuda_array_format(format);
         auto channels = pixel_format_channel_count(format);
         CUDA_ARRAY3D_DESCRIPTOR array_desc{};
         array_desc.Width = width;
@@ -665,7 +799,7 @@ parse_shader_metadata(luisa::string_view data,
     if (!data.starts_with(metadata_prefix)) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to parse shader metadata for '{}': "
-            "PTX source does not start with metadata prefix.",
+            "Sidecar does not start with metadata prefix.",
             name);
         return luisa::nullopt;
     }
@@ -682,14 +816,12 @@ parse_shader_metadata(luisa::string_view data,
 }
 
 template<bool allow_update_expected_metadata>
-[[nodiscard]] inline luisa::vector<std::byte> load_shader_ptx(
+[[nodiscard]] inline luisa::vector<std::byte> load_shader_code(
     BinaryStream *metadata_stream,
     BinaryStream *ptx_stream,
     luisa::string_view name,
     bool warn_not_found,
-    std::conditional_t<allow_update_expected_metadata,
-                       CUDAShaderMetadata,
-                       const CUDAShaderMetadata> &expected_metadata) noexcept {
+    CUDAShaderMetadata &expected_metadata) noexcept {
 
     // check if the stream is valid
     if (ptx_stream == nullptr || ptx_stream->length() == 0u ||
@@ -731,15 +863,21 @@ template<bool allow_update_expected_metadata>
             name);
         return {};
     }
+    if (!cuda_shader_code_matches_format(ptx_data, metadata->code_format)) {
+        LUISA_WARNING_WITH_LOCATION("Shader '{}' has a code format that does not match its metadata.", name);
+        return {};
+    }
     // update the empty fields in metadata
     if constexpr (allow_update_expected_metadata) {
         if (expected_metadata.checksum == 0u) { expected_metadata.checksum = metadata->checksum; }
         if (expected_metadata.curve_bases.none()) { expected_metadata.curve_bases = metadata->curve_bases; }
         if (expected_metadata.kind == CUDAShaderMetadata::Kind::UNKNOWN) { expected_metadata.kind = metadata->kind; }
+        expected_metadata.code_format = metadata->code_format;
         expected_metadata.enable_debug = metadata->enable_debug;
         expected_metadata.requires_trace_closest = metadata->requires_trace_closest;
         expected_metadata.requires_trace_any = metadata->requires_trace_any;
         expected_metadata.requires_ray_query = metadata->requires_ray_query;
+        expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
         expected_metadata.requires_printing = metadata->requires_printing;
         expected_metadata.requires_motion_blur = metadata->requires_motion_blur;
         if (expected_metadata.max_register_count == 0u) { expected_metadata.max_register_count = metadata->max_register_count; }
@@ -748,16 +886,24 @@ template<bool allow_update_expected_metadata>
         if (expected_metadata.argument_usages.empty()) { expected_metadata.argument_usages = metadata->argument_usages; }
         if (expected_metadata.format_types.empty()) { expected_metadata.format_types = metadata->format_types; }
     }
+    // Lazy LLVM codegen cannot know the optimized payload capacity yet.
+    // Adopt it only after all other cached fields have matched; a rejected
+    // cache entry must leave the unknown sentinel intact for generation.
+    auto candidate_metadata = expected_metadata;
+    if (candidate_metadata.ray_query_payload_count == 0u) {
+        candidate_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
+    }
     // examine the metadata
-    if (*metadata != expected_metadata) {
+    if (*metadata != candidate_metadata) {
         LUISA_WARNING_WITH_LOCATION(
             "Shader '{}' is found in cache, but its metadata '{}' do not match the expected '{}'. "
             "This may be caused by a mismatch between the shader source and the cached binary. "
             "The shader will be recompiled.",
             name, serialize_cuda_shader_metadata(*metadata),
-            serialize_cuda_shader_metadata(expected_metadata));
+            serialize_cuda_shader_metadata(candidate_metadata));
         return {};
     }
+    expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
     // return the ptx string
     return ptx_data;
 }
@@ -765,16 +911,21 @@ template<bool allow_update_expected_metadata>
 ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
                                                        const string &source, const ShaderOption &option,
                                                        luisa::span<const char *const> nvrtc_options,
-                                                       const CUDAShaderMetadata &expected_metadata,
+                                                       CUDAShaderMetadata expected_metadata,
                                                        luisa::vector<ShaderDispatchCommand::Argument> bound_arguments,
-                                                       luisa::function<luisa::string()> generate_ptx) noexcept {
+                                                       luisa::function<luisa::string(CUDAShaderMetadata &)> generate_ptx) noexcept {
 
-    // generate a default name if not specified
+    // Binary OptiX IR has a separate cache namespace and sidecar format.
+    auto optix_ir = expected_metadata.code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR;
+    auto extension = optix_ir ? ".optixir"sv : ".ptx"sv;
     auto uses_user_path = !name.empty();
-    if (!uses_user_path) { name = luisa::format("kernel_{:016x}.ptx",
-                                                expected_metadata.checksum); }
-    if (!name.ends_with(".ptx") &&
-        !name.ends_with(".PTX")) { name.append(".ptx"); }
+    if (!uses_user_path) {
+        name = generate_ptx ?
+                   luisa::format("kernel_{:016x}.llvm-v21{}", expected_metadata.checksum, extension) :
+                   luisa::format("kernel_{:016x}.ptx", expected_metadata.checksum);
+    }
+    if (!name.ends_with(".ptx") && !name.ends_with(".PTX") &&
+        !name.ends_with(".optixir") && !name.ends_with(".OPTIXIR")) { name.append(extension); }
     auto metadata_name = luisa::format("{}.metadata", name);
 
     // try disk cache
@@ -788,7 +939,7 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
             ptx_stream = _io->read_shader_cache(name);
             metadata_stream = _io->read_shader_cache(metadata_name);
         }
-        return load_shader_ptx<false>(
+        return load_shader_code<false>(
             metadata_stream.get(), ptx_stream.get(),
             name, false, expected_metadata);
     }();
@@ -811,17 +962,23 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
         }
     };
 
-    // LLVM codegen is deliberately lazy: cached PTX must be checked before
+    // LLVM codegen is deliberately lazy: cached code must be checked before
     // translating AST to XIR and running the LLVM optimization pipeline.
     if (ptx.empty() && generate_ptx) {
-        luisa::string generated = generate_ptx();
-        if (!generated.empty()) {
-            ptx.assign(
-                reinterpret_cast<const std::byte *>(generated.data()),
-                reinterpret_cast<const std::byte *>(generated.data()) +
-                    generated.size() + 1u);
-            write_cache(luisa::span{ptx.data(), ptx.size()});
+        luisa::string generated = generate_ptx(expected_metadata);
+        LUISA_ASSERT(expected_metadata.ray_query_payload_count >= 2u &&
+                         expected_metadata.ray_query_payload_count <= 32u,
+                     "CUDA LLVM code generation did not resolve its ray-query payload count.");
+        if (generated.empty()) {
+            LUISA_ERROR_WITH_LOCATION("CUDA LLVM code generation returned empty code for '{}'.", name);
         }
+        ptx.assign(
+            reinterpret_cast<const std::byte *>(generated.data()),
+            reinterpret_cast<const std::byte *>(generated.data()) +
+                generated.size() + (optix_ir ? 0u : 1u));
+        LUISA_ASSERT(cuda_shader_code_matches_format(ptx, expected_metadata.code_format),
+                     "CUDA LLVM code format does not match the requested shader format.");
+        write_cache(luisa::span{ptx.data(), ptx.size()});
     }
 
     // compile if not found in cache
@@ -832,11 +989,11 @@ ShaderCreationInfo CUDADevice::_load_or_compile_shader(luisa::string name,
             auto src_name = luisa::format("{}.cu", name);
             if (uses_user_path) {
                 src_dump_path = _io->write_shader_bytecode(src_name, src_data);
-            } else if (option.enable_cache) {
+            } else {
                 src_dump_path = _io->write_shader_source(src_name, src_data);
             }
         }
-        luisa::string src_filename{src_dump_path.string()};
+                  luisa::string src_filename{luisa::to_string(src_dump_path)};
         ptx = _compiler->compile(source, src_filename, nvrtc_options, &expected_metadata);
         if (!ptx.empty()) {
             luisa::span ptx_data{
@@ -874,66 +1031,74 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     if (kernel.allowed_warp_size().value_or(32) != 32) [[unlikely]] {
         LUISA_ERROR("CUDA backend only support warp size 32.");
     }
-    if (kernel.propagated_builtin_callables().test(CallOp::BACKWARD)) {
-#ifdef LUISA_ENABLE_IR
-        auto ir = AST2IR::build_kernel(kernel);
-        ir->get()->module.flags |= ir::ModuleFlags_REQUIRES_REV_AD_TRANSFORM;
-        transform_ir_kernel_module_auto(ir->get());
-        return create_shader(option, ir->get());
-#else
-        LUISA_ERROR_WITH_LOCATION("Please enable IR for autodiff support");
-#endif
-    }
-
     // codegen
     StringScratch scratch;
-    luisa::function<luisa::string()> generate_ptx;
-    auto print_formats = [&] {
-#ifdef LUISA_ENABLE_XIR
-#ifdef LUISA_COMPUTE_ENABLE_LLVM
-        if (LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN) {
-            generate_ptx = [this, &kernel, &option] {
-                auto xir_module =
-                    luisa_cuda_backend_translate_ast_to_xir(
-                        kernel, option, false);
-                CUDACodegenLLVMConfig config{
-                    .source_file = option.name,
-                    .bindings = kernel.bound_arguments(),
-                    .block_size = {
-                        kernel.block_size().x,
-                        kernel.block_size().y,
-                        kernel.block_size().z},
-                    .cuda_arch = _handle.compute_capability(),
-                    .enable_fast_math = option.enable_fast_math,
-                    .enable_debug_info = option.enable_debug_info,
-                };
-                return luisa_compute_cuda_codegen_llvm(
-                    *xir_module, config);
+    luisa::function<luisa::string(CUDAShaderMetadata &)> generate_ptx;
+    bool uses_cuda_printf = false;
+    auto code_format = CUDAShaderMetadata::CodeFormat::PTX;
+#if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
+    if (cuda_device_detail_4::LUISA_USE_EXPERIMENTAL_LLVM_CODEGEN || kernel.requires_autodiff()) {
+        // LLVM lowers PrintInst to CUDA's device-side vprintf ABI. It neither
+        // emits CUDA source nor adds the legacy LCPrintBuffer argument.
+        uses_cuda_printf = true;
+        if (_use_fallback_rtx && kernel.requires_raytracing()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "CUDA LLVM code generation does not support software ray tracing. "
+                "Disable the CUDA fallback (DeviceConfigExt::use_fallback_rtx()).");
+        }
+        if (!option.native_include.empty()) {
+            LUISA_ERROR_WITH_LOCATION("CUDA LLVM code generation does not support native_include CUDA source.");
+        }
+        if (cuda_device_detail_3::cuda_llvm_optix_ir_requested && kernel.requires_raytracing()) {
+#if defined(LUISA_COMPUTE_ENABLE_CUDA_OPTIX_IR)
+            code_format = CUDAShaderMetadata::CodeFormat::OPTIX_IR;
+#else
+            LUISA_ERROR_WITH_LOCATION("LUISA_CUDA_LLVM_OPTIX_IR=1 requires configuring LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR=ON.");
+#endif
+        }
+        generate_ptx = [this, &kernel, &option, code_format](CUDAShaderMetadata &generated_metadata) {
+            auto xir_module = cuda_device_detail::luisa_cuda_backend_translate_ast_to_xir(kernel, option);
+            CUDACodegenLLVMConfig config{
+                .source_file = option.name,
+                .bindings = kernel.bound_arguments(),
+                .block_size = {
+                    kernel.block_size().x,
+                    kernel.block_size().y,
+                    kernel.block_size().z},
+                .cuda_arch = _handle.compute_capability(),
+                .enable_fast_math = option.enable_fast_math,
+                .enable_debug_info = option.enable_debug_info,
+                .requires_ray_tracing = kernel.requires_raytracing(),
+                .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
+                .output_format = code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR ?
+                                     CUDACodegenLLVMConfig::OutputFormat::OPTIX_IR :
+                                     CUDACodegenLLVMConfig::OutputFormat::PTX,
             };
-            // Keep emitting the canonical NVRTC source below. Its source and
-            // options define the existing CUDA shader cache identity.
-        }
+            auto result = luisa_compute_cuda_codegen_llvm(*xir_module, config);
+            generated_metadata.ray_query_payload_count = result.ray_query_payload_count;
+            return std::move(result.code);
+        };
+    }
 #endif
-        if (LUISA_USE_EXPERIMENTAL_XIR_CODEGEN) {
-            auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option);
-            Clock clk;
-            CUDACodegenXIR codegen{scratch, !_cudadevrt_library.empty()};
-            StringScratch s;
-            codegen.emit(xir_module.get(), kernel.bound_arguments(),
-                         compiler()->device_library(), option.native_include);
-            LUISA_INFO("CUDA Codegen XIR generated source in {} ms.", clk.toc());
-            // dump for debugging
-            {
-                auto filename = luisa::format("kernel.{:016x}.cu", kernel.hash());
-                std::ofstream f{filename.c_str()};
-                f << scratch.string();
-            }
-            return std::move(codegen).move_print_formats();
+    if (kernel.requires_autodiff() && !generate_ptx) {
+        LUISA_ERROR_WITH_LOCATION(
+            "CUDA autodiff requires LLVM code generation. Build with "
+            "LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN=ON (CMake) "
+            "or a non-empty lc_llvm_path (xmake).");
+    }
+    auto print_formats = [&]() -> luisa::vector<std::pair<luisa::string, const Type *>> {
+        if (generate_ptx) { return {}; }
+        // Software traversal is part of the AST/NVRTC device library only.
+        luisa::string fallback_device_lib;
+        auto device_lib = _compiler->device_library();
+        if (_use_fallback_rtx) {
+            fallback_device_lib.append(device_lib);
+            fallback_device_lib.append(_compiler->fallback_rtx_device_library());
+            device_lib = fallback_device_lib;
         }
-#endif
         Clock clk;
-        CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
-        codegen.emit(kernel, _compiler->device_library(), option.native_include);
+        CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx};
+        codegen.emit(kernel, device_lib, option.native_include);
         LUISA_VERBOSE("Generated CUDA source in {} ms.", clk.toc());
         return std::move(codegen).move_print_formats();
     }();
@@ -988,10 +1153,11 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
     };
 
-    // We can safely turn on the minimal mode if using optix
+    // We can safely turn on the minimal mode if using optix; the fallback is
+    // plain CUDA, so it must not get this option.
     if (_compiler->nvrtc_version() >= 120400 &&
         _handle.driver_version() >= 12040 &&
-        kernel.requires_raytracing()) {
+        kernel.requires_raytracing() && !_use_fallback_rtx) {
         nvrtc_options.emplace_back("-minimal");
     }
 
@@ -1029,46 +1195,58 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         nvrtc_options.emplace_back("-use_fast_math");
     }
 
-    // FIXME: OptiX IR disabled due to many internal compiler errors
-    // TODO: use OptiX IR for ray tracing shaders
-    //  if (kernel.requires_raytracing()) {
-    //      nvrtc_options.emplace_back("--optix-ir");
-    //  }
-
-    // compute hash
-    auto src_hash = CUDACompiler::compute_hash(scratch.string(), nvrtc_options);
+    // LLVM identity is independent of CUDA source and can be checked before
+    // AST-to-XIR translation. Only the NVRTC route hashes emitted CUDA source.
+    auto src_hash = [&] {
+#if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
+        if (generate_ptx) {
+            auto hash = cuda_device_detail_2::cuda_llvm_shader_hash(kernel, option, _handle.compute_capability());
+            // OptiX IR revision 10 preserves LLVM 23 attributes/vector splats
+            // and carries fast-math FTZ in the container compilation options.
+            return code_format == CUDAShaderMetadata::CodeFormat::OPTIX_IR ?
+                       luisa::hash_combine({static_cast<uint64_t>(code_format), 10u}, hash) : hash;
+        }
+#endif
+        return CUDACompiler::compute_hash(scratch.string(), nvrtc_options);
+    }();
 
     // create metadata
     CUDAShaderMetadata metadata{
         .checksum = src_hash,
         .curve_bases = kernel.required_curve_bases(),
-        .kind = kernel.requires_raytracing() ?
+        // A raytracing kernel compiled in fallback mode is an ordinary compute
+        // kernel: it is launched as `kernel_main` with the same argument buffer
+        // and must not be handed to OptiX (CUDAShaderOptiX).
+        .kind = kernel.requires_raytracing() && !_use_fallback_rtx ?
                     CUDAShaderMetadata::Kind::RAY_TRACING :
                     CUDAShaderMetadata::Kind::COMPUTE,
+        .code_format = code_format,
         .enable_debug = option.enable_debug_info,
         .requires_trace_closest = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
                                   kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR),
         .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY) ||
                               kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
-        .requires_printing = kernel.requires_printing(),
+        .ray_query_payload_count = generate_ptx && kernel.propagated_builtin_callables().uses_ray_query() ? 0u : 2u,
+        .requires_printing = kernel.requires_printing() && !uses_cuda_printf,
         .requires_motion_blur = kernel.requires_motion_blur(),
         .max_register_count = std::clamp(option.max_registers, 0u, 255u),
         .block_size = kernel.block_size(),
         .argument_types = [kernel] {
             luisa::vector<luisa::string> types;
             types.reserve(kernel.arguments().size());
-            std::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(types),
+            luisa::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(types),
                            [](auto &&arg) noexcept { return luisa::string{arg.type()->description()}; });
             return types; }(),
         .argument_usages = [kernel] {
             luisa::vector<Usage> usages;
             usages.reserve(kernel.arguments().size());
-            std::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(usages),
+            luisa::transform(kernel.arguments().begin(), kernel.arguments().end(), std::back_inserter(usages),
                            [kernel](auto &&arg) noexcept { return kernel.variable_usage(arg.uid()); });
             return usages; }(),
-        .format_types = [&fmt = print_formats] {
+        .format_types = [&fmt = print_formats, uses_cuda_printf] {
             luisa::vector<std::pair<luisa::string, luisa::string>> t;
+            if (uses_cuda_printf) { return t; }
             t.reserve(fmt.size());
             for (auto &&[name, type] : fmt) {
                 t.emplace_back(name, type->description());
@@ -1081,24 +1259,21 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                                    std::move(generate_ptx));
 }
 
-ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept {
-#ifdef LUISA_ENABLE_IR
-    Clock clk;
-    auto function = IR2AST::build(kernel);
-    LUISA_VERBOSE("IR2AST done in {} ms.", clk.toc());
-    return create_shader(option, function->function());
-#else
-    LUISA_ERROR_WITH_LOCATION("CUDA device does not support creating shader from IR types.");
-    return {};
-#endif
-}
-
 ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
                                            luisa::span<const Type *const> arg_types) noexcept {
 
     luisa::string name{name_in};
-    if (!name.ends_with(".ptx") &&
-        !name.ends_with(".PTX")) { name.append(".ptx"); }
+    if (!name.ends_with(".ptx") && !name.ends_with(".PTX") &&
+        !name.ends_with(".optixir") && !name.ends_with(".OPTIXIR")) {
+        // Preserve legacy extensionless loads. Explicit extensions disambiguate
+        // when both compiled artifacts exist under the same user-chosen name.
+        auto ptx_name = luisa::format("{}.ptx", name);
+        if (auto stream = _io->read_shader_bytecode(ptx_name); stream != nullptr) {
+            name = std::move(ptx_name);
+        } else {
+            name.append(".optixir");
+        }
+    }
     auto metadata_name = luisa::format("{}.metadata", name);
 
     // prepare (incomplete) metadata
@@ -1110,7 +1285,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
         .argument_types = [arg_types] {
             luisa::vector<luisa::string> types;
             types.reserve(arg_types.size());
-            std::transform(arg_types.begin(), arg_types.end(), std::back_inserter(types),
+            luisa::transform(arg_types.begin(), arg_types.end(), std::back_inserter(types),
                            [](auto &&arg) noexcept { return luisa::string{arg->description()}; });
             return types; }(),
     };
@@ -1119,10 +1294,22 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
     auto ptx = [&] {
         auto metadata_stream = _io->read_shader_bytecode(metadata_name);
         auto ptx_stream = _io->read_shader_bytecode(name);
-        return load_shader_ptx<true>(metadata_stream.get(), ptx_stream.get(), name, true, metadata);
+        return load_shader_code<true>(metadata_stream.get(), ptx_stream.get(), name, true, metadata);
     }();
     if (ptx.empty()) {
         LUISA_WARNING_WITH_LOCATION("Failed to load shader bytecode from {}.", name);
+        return ShaderCreationInfo::make_invalid();
+    }
+
+    // Tile PTX artifacts use the same sidecar convention but are created and
+    // owned by create_tile_kernel (a direct static cuLaunchKernel entry with
+    // reordered buffer bindings). The generic loader has no Tile loader yet,
+    // so a colliding name must fail closed instead of pretending it is a DSL
+    // kernel_main module.
+    if (metadata.kind == CUDAShaderMetadata::Kind::TILE) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Shader '{}' is a Tile artifact; generic Tile bytecode loading is not implemented yet.",
+            name);
         return ShaderCreationInfo::make_invalid();
     }
 
@@ -1204,6 +1391,13 @@ void CUDADevice::synchronize_event(uint64_t handle, uint64_t value) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        // The fallback hands out the handle of its own bottom-level structure;
+        // the backend adds nothing, so `destroy_mesh` / the instance
+        // modifications carry the same value straight back to it.
+        auto blas = fallback_rtx()->create_blas(option);
+        return {.handle = blas, .native_handle = nullptr};
+    }
     auto mesh_handle = with_handle([&option] {
         return new_with_allocator<CUDAMesh>(option);
     });
@@ -1212,13 +1406,21 @@ ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept
 }
 
 void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
-    with_handle([=] {
-        auto mesh = reinterpret_cast<CUDAMesh *>(handle);
+    if (_use_fallback_rtx) {
+        fallback_rtx()->destroy_blas(handle);
+        return;
+    }
+    with_handle([mesh = reinterpret_cast<CUDAMesh *>(handle)] {
         delete_with_allocator(mesh);
     });
 }
 
 ResourceCreationInfo CUDADevice::create_curve(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Curves are not supported by the CUDA software ray-tracing "
+            "fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto curve_handle = with_handle([&option] {
         return new_with_allocator<CUDACurve>(option);
     });
@@ -1234,6 +1436,11 @@ void CUDADevice::destroy_curve(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_procedural_primitive(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Procedural primitives are not supported by the CUDA software "
+            "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto primitive_handle = with_handle([&option] {
         return new_with_allocator<CUDAProceduralPrimitive>(option);
     });
@@ -1249,6 +1456,11 @@ void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_motion_instance(const AccelMotionOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Motion instances are not supported by the CUDA software "
+            "ray-tracing fallback (DeviceConfigExt::use_fallback_rtx()).");
+    }
     auto instance_handle = with_handle([this, &option] {
         return new_with_allocator<CUDAMotionInstance>(this, option);
     });
@@ -1264,6 +1476,10 @@ void CUDADevice::destroy_motion_instance(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx) {
+        auto accel = fallback_rtx()->create_accel(option);
+        return {.handle = accel, .native_handle = nullptr};
+    }
     auto accel_handle = with_handle([&option] {
         return new_with_allocator<CUDAAccel>(option);
     });
@@ -1272,6 +1488,10 @@ ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcep
 }
 
 void CUDADevice::destroy_accel(uint64_t handle) noexcept {
+    if (_use_fallback_rtx) {
+        fallback_rtx()->destroy_accel(handle);
+        return;
+    }
     with_handle([accel = reinterpret_cast<CUDAAccel *>(handle)] {
         delete_with_allocator(accel);
     });
@@ -1324,6 +1544,7 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
         if (_external_ext == nullptr) { _external_ext = luisa::make_unique<CUDAExternalExtImpl>(this); }
         return _external_ext.get();
     }
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(NativeShader, _native_shader_ext)
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(TexCompress, _tex_comp_ext)
 #endif
@@ -1422,15 +1643,23 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
     LUISA_CHECK_CUDA(cuDevicePrimaryCtxRetain(&_context, _device));
 }
 
-CUDADevice::Handle::~Handle() noexcept {
-    if (_optix_context) {
-        LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
+    CUDADevice::Handle::~Handle() noexcept {
+        if (_optix_context) {
+            LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
+        }
+        // ContextGuard leaves this context bound to the calling thread (that is
+        // what keeps consecutive submissions from switching contexts), so drop it
+        // here: releasing a context that is still bound would leave this thread
+        // pointing at a deinitialized context.
+        CUcontext bound = nullptr;
+        if (cuCtxGetCurrent(&bound) == CUDA_SUCCESS && bound == _context) {
+            LUISA_CHECK_CUDA(cuCtxSetCurrent(nullptr));
+        }
+        LUISA_CHECK_CUDA(cuDevicePrimaryCtxRelease(_device));
+        LUISA_VERBOSE("Destroyed CUDA device: {}.", name());
     }
-    LUISA_CHECK_CUDA(cuDevicePrimaryCtxRelease(_device));
-    LUISA_VERBOSE("Destroyed CUDA device: {}.", name());
-}
 
-std::string_view CUDADevice::Handle::name() const noexcept {
+luisa::string_view CUDADevice::Handle::name() const noexcept {
     static constexpr auto device_name_length = 1024u;
     static thread_local char device_name[device_name_length];
     LUISA_CHECK_CUDA(cuDeviceGetName(device_name, device_name_length, _device));
@@ -1442,7 +1671,7 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
     if (_optix_context == nullptr) [[unlikely]] {
         optix::DeviceContextOptions optix_options{};
         optix_options.logCallbackLevel = 4u;
-        if (LUISA_CUDA_ENABLE_OPTIX_VALIDATION) {
+        if (::cuda_device_detail_5::LUISA_CUDA_ENABLE_OPTIX_VALIDATION) {
             LUISA_WARNING("OptiX validation is enabled. This may cause significant performance degradation.");
             // Disable due to too much overhead
             optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;

@@ -24,6 +24,12 @@ enum struct CustomCommandUUID : uint32_t {
     CUDA_CUSTOM_COMMAND_BEGIN = 0x0400u,
     CUDA_LCUB_COMMAND = CUDA_CUSTOM_COMMAND_BEGIN,
 
+    VK_CUDA_CUSTOM_COMMAND_BEGIN = 0x0500u,
+    VK_CUDA_LAUNCH_KERNEL = VK_CUDA_CUSTOM_COMMAND_BEGIN,
+
+    NATIVE_SHADER_EXT_BEGIN = 0x0600u,
+    NATIVE_SHADER_DISPATCH = NATIVE_SHADER_EXT_BEGIN,
+
     REGISTERED_END = 0xffffu,
 };
 
@@ -39,6 +45,8 @@ namespace luisa {
         case compute::CustomCommandUUID::DSTORAGE_READ: return "DSTORAGE_READ";
         case compute::CustomCommandUUID::DENOISER_DENOISE: return "DENOISER_DENOISE";
         case compute::CustomCommandUUID::CUDA_LCUB_COMMAND: return "CUDA_LCUB_COMMAND";
+        case compute::CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL: return "VK_CUDA_LAUNCH_KERNEL";
+        case compute::CustomCommandUUID::NATIVE_SHADER_DISPATCH: return "NATIVE_SHADER_DISPATCH";
         default: break;
     }
     return "UNKNOWN";

@@ -1,3 +1,5 @@
+#include <memory>
+
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
@@ -14,6 +16,7 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/memory.h>
 
 #include "fallback_buffer.h"
 #include "fallback_texture.h"
@@ -163,9 +166,11 @@ public:
             options.UnsafeFPMath = true;
             options.ApproxFuncFPMath = true;
 #endif
+#if LLVM_VERSION_MAJOR <= 22
             options.NoInfsFPMath = true;
             options.NoNaNsFPMath = true;
             options.NoSignedZerosFPMath = true;
+#endif
             options.NoTrappingFPMath = true;
             options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
             options.EnableIPRA = false;// true causes crash

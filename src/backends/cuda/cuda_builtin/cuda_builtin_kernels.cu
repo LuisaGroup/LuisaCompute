@@ -66,13 +66,15 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
         constexpr auto update_flag_curve_cubic_bspline = 1u << 10u;
         constexpr auto update_flag_curve_catmull_rom = 1u << 11u;
         constexpr auto update_flag_curve_bezier = 1u << 12u;
+        constexpr auto update_flag_curve_vertex_motion = 1u << 13u;
         constexpr auto update_flag_opaque = update_flag_opaque_on | update_flag_opaque_off;
 
         auto m = mods[tid];
         auto p = instances[m.index].property;
-        p.sbt_offset = 0u;
         if (m.flags & update_flag_primitive) {
             p.traversable = m.primitive;
+            p.sbt_offset = 0u;
+            p.flags &= ~INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
             if (m.flags & update_flag_procedural) {
                 p.flags |= INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
             } else if (m.flags & update_flag_curve_piecewise_linear) {
@@ -86,16 +88,18 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
             } else {// triangle
                 p.flags |= INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
             }
+            if (m.flags & update_flag_curve_vertex_motion) {
+                p.sbt_offset += 10u;
+            }
         }
         if (m.flags & update_flag_visibility) { p.mask = m.vis_mask; }
         if (m.flags & update_flag_opaque) {
-            if (p.flags & INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING) {
-                p.flags &= ~(INSTANCE_FLAG_DISABLE_ANYHIT |
-                             INSTANCE_FLAG_ENFORCE_ANYHIT);
-                p.flags |= (m.flags & update_flag_opaque_on) ?
-                               INSTANCE_FLAG_DISABLE_ANYHIT :
-                               INSTANCE_FLAG_ENFORCE_ANYHIT;
-            }
+            // Opacity applies to every surface type, including curves.
+            p.flags &= ~(INSTANCE_FLAG_DISABLE_ANYHIT |
+                         INSTANCE_FLAG_ENFORCE_ANYHIT);
+            p.flags |= (m.flags & update_flag_opaque_on) ?
+                           INSTANCE_FLAG_DISABLE_ANYHIT :
+                           INSTANCE_FLAG_ENFORCE_ANYHIT;
         }
         if (m.flags & update_flag_user_id) {
             p.user_id = m.user_id;

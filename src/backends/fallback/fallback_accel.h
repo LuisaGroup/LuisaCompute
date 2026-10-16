@@ -27,15 +27,12 @@ class alignas(16) FallbackAccel {
 public:
     using Instance = api::AccelInstance;
     static_assert(sizeof(Instance) == 64u);
-
-    struct alignas(16) View {
-        RTCScene scene{};
-        Instance *instances{};
-    };
+    using View = api::AccelView;
 
 private:
     RTCScene _handle{};
     luisa::vector<Instance> _instances;
+    Instance *_instance_data{};
     luisa::vector<RTCGeometry> _geometries;
 
 public:
@@ -43,7 +40,9 @@ public:
     FallbackAccel(RTCDevice device, const AccelOption &option) noexcept;
     ~FallbackAccel() noexcept;
     void build(luisa::unique_ptr<AccelBuildCommand> cmd) noexcept;
-    [[nodiscard]] auto view() noexcept { return View{_handle, _instances.data()}; }
+    [[nodiscard]] auto view() noexcept {
+        return View{_handle, &_instance_data};
+    }
 };
 
 using FallbackAccelView = FallbackAccel::View;

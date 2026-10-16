@@ -1,0 +1,81 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "ragged-control-flow-is-a-realization-cost-not-extra-tile-work",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-ragged-cfg.pbUI2k/docs-visual/ragged-control-flow-is-a-realization-cost-not-extra-tile-work-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [
+        [
+          5,
+          6
+        ],
+        [
+          7,
+          4
+        ]
+      ],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "ragged-memory-regions-and-cohort-equal-counted-headers",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-ragged-cfg.pbUI2k/docs-visual/ragged-memory-regions-and-cohort-equal-counted-headers-1280.png",
+      "scrolledScreenshot": null,
+      "scrolls": [],
+      "tables": [],
+      "pageWidth": 1280
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "id": "ragged-control-flow-is-a-realization-cost-not-extra-tile-work",
+      "width": 390,
+      "screenshot": "/tmp/luisa-ragged-cfg.pbUI2k/docs-visual/ragged-control-flow-is-a-realization-cost-not-extra-tile-work-390.png",
+      "scrolledScreenshot": "/tmp/luisa-ragged-cfg.pbUI2k/docs-visual/ragged-control-flow-is-a-realization-cost-not-extra-tile-work-390-right.png",
+      "scrolls": [
+        {
+          "element": "TABLE",
+          "maximum": 350,
+          "reached": 350
+        },
+        {
+          "element": "TABLE",
+          "maximum": 65,
+          "reached": 65
+        }
+      ],
+      "tables": [
+        [
+          5,
+          6
+        ],
+        [
+          7,
+          4
+        ]
+      ],
+      "pageWidth": 390
+    },
+    {
+      "file": "source/internals/tile/xir.html",
+      "id": "ragged-memory-regions-and-cohort-equal-counted-headers",
+      "width": 390,
+      "screenshot": "/tmp/luisa-ragged-cfg.pbUI2k/docs-visual/ragged-memory-regions-and-cohort-equal-counted-headers-390.png",
+      "scrolledScreenshot": "/tmp/luisa-ragged-cfg.pbUI2k/docs-visual/ragged-memory-regions-and-cohort-equal-counted-headers-390-right.png",
+      "scrolls": [
+        {
+          "element": "PRE",
+          "maximum": 244,
+          "reached": 244
+        }
+      ],
+      "tables": [],
+      "pageWidth": 390
+    }
+  ]
+}

@@ -157,10 +157,17 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     auto cuda_stream = encoder.stream()->handle();// the worker stream has to be pinned for dependencies
     auto instance_count = command->instance_count();
     LUISA_ASSERT(instance_count > 0u, "Instance count must be greater than 0.");
+    // instance count reported by `Accel::size` (ResourceQueryOp::ACCEL_SIZE)
+    _instance_count = static_cast<uint32_t>(instance_count);
     if (auto size = instance_count * sizeof(optix::Instance); _instance_buffer_size < size) {
         auto old_instance_buffer = _instance_buffer;
         auto new_instance_buffer_size = next_pow2(size);
         LUISA_CHECK_CUDA(cuMemAllocAsync(&_instance_buffer, new_instance_buffer_size, cuda_stream));
+        // Instance updates read-modify-write flags and leave padding untouched.
+        // Initialize only the new capacity; the old prefix is copied below.
+        LUISA_CHECK_CUDA(cuMemsetD8Async(
+            _instance_buffer + _instance_buffer_size, 0u,
+            new_instance_buffer_size - _instance_buffer_size, cuda_stream));
         if (old_instance_buffer) {
             LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(
                 _instance_buffer, old_instance_buffer, _instance_buffer_size, cuda_stream));
@@ -188,6 +195,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                     static constexpr auto mod_flag_curve_cubic_bspline = 1u << 10u;
                     static constexpr auto mod_flag_curve_catmull_rom = 1u << 11u;
                     static constexpr auto mod_flag_curve_bezier = 1u << 12u;
+                    static constexpr auto mod_flag_curve_vertex_motion = 1u << 13u;
                     auto prim = reinterpret_cast<const CUDAPrimitiveBase *>(m.primitive);
                     _primitives[m.index] = prim;
                     auto handle = prim->handle();
@@ -198,6 +206,9 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                             m.flags |= mod_flag_procedural;
                         } else if (p->tag() == CUDAPrimitive::Tag::CURVE) {
                             auto curve = static_cast<const CUDACurve *>(p);
+                            if (curve->motion_keyframe_count() > 1u) {
+                                m.flags |= mod_flag_curve_vertex_motion;
+                            }
                             switch (auto basis = curve->basis()) {
                                 case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE:
                                     m.flags |= mod_flag_curve_cubic_bspline;
@@ -334,7 +345,7 @@ CUdeviceptr CUDAAccel::instance_buffer() const noexcept {
 
 CUDAAccel::Binding CUDAAccel::binding() const noexcept {
     std::scoped_lock lock{_mutex};
-    return Binding{_handle, _instance_buffer};
+    return Binding{_handle, _instance_buffer, _instance_count};
 }
 
 }// namespace luisa::compute::cuda

@@ -1,0 +1,77 @@
+{
+  "implementation": "tile_xir_simd",
+  "backend": "cpu",
+  "precision": "fp32",
+  "fast_math": false,
+  "relaxed_precision": false,
+  "runtime": "luisa",
+  "timing": "synchronized_host_wall",
+  "batch_policy": "one_runtime_command_list_per_batch",
+  "operation": "swiglu",
+  "dimensions": [
+    1024,
+    4096
+  ],
+  "reduction_tree": false,
+  "requested_input_views": false,
+  "attention_qk": "not_applicable",
+  "source_reduction_policy": "unordered_tree",
+  "reduction_candidate_setting": "not_applicable",
+  "requested_group_threads": 0,
+  "attention_block": [
+    1,
+    1
+  ],
+  "input_shapes": [
+    [
+      1024,
+      4096
+    ],
+    [
+      1024,
+      4096
+    ],
+    [
+      1024,
+      4096
+    ]
+  ],
+  "output_shape": [
+    1024,
+    4096
+  ],
+  "fixture_ms": 68.837083,
+  "runtime_init_ms": 10.670459,
+  "compile_ms": 36.845459,
+  "allocation_upload_ms": 7.033625,
+  "cold_call_ms": 1.735709,
+  "warmup_ms": 76.343542,
+  "repetitions": 15,
+  "realization": "TileIR -> XIR SSA -> SIMD Schedule -> LLVM; W8, 1024 workers/block, 8 CPU workers; ordered CPU pipeline; Schedule blocks=10, direct CFG=true, contiguous reads=2, broadcasts=0; exact search 6 candidates, uncalibrated cost 5963904.000 (arithmetic 327680.000, memory 5636096.000, dispatch 128.000, imbalance 0.000), root order [0]; local_lanes=8; max_unrolled_tile_elements=64; unordered_reduction_partitions=4; interleaved_private_arrays=2; contiguous_private_reads=0; contiguous_private_writes=0; private_workspace_bytes=0; fast_math=false; ordered_reduction=false",
+  "correctness": {
+    "checks": 2,
+    "elements_per_check": 4194304,
+    "guard_elements_per_check": 34,
+    "atol": 5e-05,
+    "rtol": 5e-05,
+    "max_abs_error": 2.26737583597e-07
+  },
+  "throughput_us": [
+    1355.975,
+    1354.75553333,
+    1359.93606667,
+    1359.81113333,
+    1346.68053333,
+    1349.99446667,
+    1368.6694
+  ],
+  "latency_us": [
+    1326.291,
+    1327.208,
+    1323.083,
+    1436.292,
+    1314.25,
+    1384.291,
+    1329.5
+  ]
+}

@@ -3,6 +3,8 @@
 #include <luisa/runtime/device.h>
 #include <DXRuntime/Device.h>
 #include <DXRuntime/UpdateTileTracker.h>
+#include <luisa/backends/ext/command_reorder_ext.h>
+#include "../../common/rtx/fallback_rtx.h"
 namespace lc::dx {
 using namespace luisa;
 using namespace luisa::compute;
@@ -24,9 +26,68 @@ class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
             }
         }
     };
+    // Runtime command-reorder control, implemented over the native device's
+    // switch. It lives as long as the device does, so `extension()` can hand out
+    // its address without registering a factory.
+    class CommandReorderExtImpl final : public CommandReorderExt {
+        LCDevice *_device;
+
+    public:
+        explicit CommandReorderExtImpl(LCDevice *device) noexcept : _device{device} {}
+        [[nodiscard]] bool command_reorder_enabled() const noexcept override {
+            return _device->native_device.command_reorder_enabled();
+        }
+        void set_command_reorder_enabled(bool enabled) noexcept override {
+            _device->native_device.command_reorder_switch().set_enabled(enabled);
+        }
+    } _command_reorder_ext{this};
+
+    // ---- software (fallback) ray tracing --------------------------------
+    // `_use_fallback_rtx` is decided once, in the constructor: the user may
+    // force the fallback through `DirectXDeviceConfigExt::use_fallback_rtx()`,
+    // and a device that reports no DXR support (or has no ID3D12Device5) has no
+    // hardware path at all.  `_fallback_rtx` is created lazily on the first
+    // acceleration-structure request, so a device that does not use the fallback
+    // never allocates anything for it.  Everything below is inert when
+    // `_use_fallback_rtx` is false: no allocation, no dispatch and no change to
+    // the generated shaders or the descriptors.
+    bool _use_fallback_rtx{false};
 
 public:
+    // The hardware path needs the ID3D12Device5 interfaces every
+    // acceleration-structure call goes through, and a device whose DXR tier the
+    // backend's own `BottomAccel` / `TopAccel` accept (tier 1.1 or better; a
+    // lower tier makes them refuse to build).  Anything else falls back to the
+    // software BVH.
+    [[nodiscard]] bool hardware_raytracing_available() const noexcept {
+        return native_device.device != nullptr &&
+               native_device.feature_check.raytracing_supported();
+    }
+    // Whether this device answers ray tracing with the software fallback.
+    [[nodiscard]] bool use_fallback_rtx() const noexcept { return _use_fallback_rtx; }
+    // The fallback device, or `nullptr` when the hardware path is in use.  It is
+    // created on first use (see the comment above).
+    [[nodiscard]] lc::fallback_rtx::FallbackRtxDevice *fallback_rtx() noexcept;
+    // Whether `handle` belongs to the fallback, i.e. whether an
+    // acceleration-structure command must be routed here instead of into
+    // `BottomAccel` / `TopAccel`.
+    [[nodiscard]] bool owns_fallback_blas(uint64_t handle) noexcept {
+        auto fallback = fallback_rtx();
+        return fallback != nullptr && fallback->owns_blas(handle);
+    }
+    [[nodiscard]] bool owns_fallback_accel(uint64_t handle) noexcept {
+        auto fallback = fallback_rtx();
+        return fallback != nullptr && fallback->owns_accel(handle);
+    }
+
+public:
+public:
     Device native_device;
+    // Declared *after* `native_device`, and therefore destroyed before it: the
+    // fallback owns buffers and shaders of that device, so it must not outlive
+    // it.
+    mutable std::mutex _fallback_rtx_mutex;
+    mutable luisa::unique_ptr<lc::fallback_rtx::FallbackRtxDevice> _fallback_rtx;
     std::mutex ext_mtx;
     vstd::unordered_map<vstd::string, Ext> exts;
     //std::numeric_limits<size_t>::max();
@@ -35,7 +96,6 @@ public:
     void *native_handle() const noexcept override;
     // buffer
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     // texture
     ResourceCreationInfo create_texture(
@@ -60,7 +120,9 @@ public:
                                  const StreamLogCallback &callback) noexcept override;
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
-    ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;
+    ShaderCreationInfo create_tile_kernel(const ShaderOption &option, const tile::Function &kernel,
+                                          const tile::CompileOptions &tile_options,
+                                          tile::KernelMetadata &metadata) noexcept override;
     ShaderCreationInfo load_shader(vstd::string_view file_name, vstd::span<Type const *const> types) noexcept override;
     Usage shader_argument_usage(uint64_t handle, size_t index) noexcept override;
     void destroy_shader(uint64_t handle) noexcept override;

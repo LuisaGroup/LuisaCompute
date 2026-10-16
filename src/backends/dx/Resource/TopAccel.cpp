@@ -41,8 +41,25 @@ void TopAccel::UpdateMesh(
     MeshHandle *handle) {
     auto instIndex = handle->accelIndex;
     LUISA_ASSUME(allInstance[instIndex].handle == handle);
-    setMap[instIndex] = handle;
+    // Queue a refresh of the instance's BLAS address. Storing the stable
+    // BottomAccel instead of the pooled MeshHandle keeps the entry valid even
+    // if the handle is later destroyed/recycled before the next TLAS build.
+    QueueRefresh(instIndex, handle->mesh);
     requireBuild = true;
+}
+void TopAccel::QueueRefresh(size_t index, BottomAccel *mesh) noexcept {
+    auto &pending = allInstance[index].refresh;
+    if (pending == nullptr) {
+        ++pendingRefreshCount;
+    }
+    pending = mesh;
+}
+void TopAccel::DropRefresh(size_t index, BottomAccel *mesh) noexcept {
+    auto &pending = allInstance[index].refresh;
+    if (pending == mesh) {
+        pending = nullptr;
+        --pendingRefreshCount;
+    }
 }
 void TopAccel::SetMesh(BottomAccel *mesh, uint64 index) {
     auto &&inst = allInstance[index].handle;
@@ -107,6 +124,11 @@ bool TopAccel::GenerateNewBuffer(
 void TopAccel::ResizeAllInstance(size_t size) {
     if (size < allInstance.size()) {
         for (auto &i : vstd::ptr_range(allInstance.data() + size, allInstance.data() + allInstance.size())) {
+            // Pending refreshes of removed slots vanish with the Instance
+            // structs themselves (resize below); keep the counter in sync.
+            if (i.refresh != nullptr) {
+                --pendingRefreshCount;
+            }
             if (!i.handle) continue;
             i.handle->mesh->RemoveAccelRef(i.handle);
         }
@@ -134,30 +156,38 @@ void TopAccel::PreProcessInst(
     if (GenerateNewBuffer(
             "tlas-instance-buffer",
             tracker, builder, instBuffer, instanceByteCount, true,
-            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
+            D3D12_RESOURCE_STATE_COMMON)) {
         input.InstanceDescs = instBuffer->GetAddress();
+    }
+    if (!setDesc.empty()) {
+        tracker.Record(
+            BufferView(instBuffer.get(), 0, instBuffer->GetByteSize()),
+            EnhancedBarrierTracker::Usage::ComputeUAV);
     }
 }
 void TopAccel::ProcessSetMap() {
-    if (setMap.size() != 0) {
+    if (pendingRefreshCount != 0) {
         update = false;
-        setDesc.reserve(setDesc.size() + setMap.size());
-        for (auto &&i : setMap) {
-            if (i.first >= allInstance.size()) continue;
+        setDesc.reserve(setDesc.size() + pendingRefreshCount);
+        for (auto index = 0u; index < allInstance.size(); index++) {
+            auto mesh = allInstance[index].refresh;
+            if (mesh == nullptr) continue;
             auto &mod = setDesc.emplace_back();
             std::memset(&mod, 0, sizeof(PackedModifier));
-            mod.index = i.first;
+            mod.index = index;
             mod.flags = AccelBuildCommand::Modification::flag_primitive;
-            mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
+            mod.primitive = mesh->GetAccelBuffer()->GetAddress();
+            allInstance[index].refresh = nullptr;
+            --pendingRefreshCount;
         }
-        setMap.clear();
     }
 }
 
 void TopAccel::ProcessSetDesc(EnhancedBarrierTracker &tracker) {
 
     for (auto &&m : setDesc) {
-        auto ite = setMap.find(m.index);
+        auto mod_index = m.index;// bitfield: copy before reuse
+        auto &pending = allInstance[mod_index].refresh;
 #ifndef NDEBUG
         if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
             if (m.user_id >= (1u << 24u)) [[unlikely]] {
@@ -170,18 +200,21 @@ void TopAccel::ProcessSetDesc(EnhancedBarrierTracker &tracker) {
 #endif
         bool updateMesh = (m.flags & AccelBuildCommand::Modification::flag_primitive);
 
-        if (ite != setMap.end()) {
+        if (pending != nullptr) {
             if (!updateMesh) {
-                m.primitive = reinterpret_cast<uint64_t>(ite->second->mesh);
+                m.primitive = reinterpret_cast<uint64_t>(pending);
                 m.flags |= AccelBuildCommand::Modification::flag_primitive;
                 updateMesh = true;
             }
-            setMap.erase(ite);
+            // A modification touching this slot (explicit or folded) consumes
+            // or overrides any pending refresh for it.
+            pending = nullptr;
+            --pendingRefreshCount;
         }
         if (updateMesh) {
             auto mesh = reinterpret_cast<BottomAccel *>(m.primitive);
             tracker.Record(mesh->GetAccelBuffer(), EnhancedBarrierTracker::Usage::AccelInstanceBuffer);
-            SetMesh(mesh, m.index);
+            SetMesh(mesh, mod_index);
             m.primitive = mesh->GetAccelBuffer()->GetAddress();
             update = false;
         }
@@ -280,7 +313,7 @@ void TopAccel::Build(
         auto cs = device->set_accel_kernel.get(device);
         auto size = setDesc.size();
         auto size_bytes = luisa::size_bytes(setDesc);
-        auto setBuffer = alloc->get_temp_upload_buffer(size_bytes);
+        auto setBuffer = alloc->get_temp_upload_buffer(size_bytes, 16);
         auto cbuffer = alloc->get_temp_upload_buffer(sizeof(size_t), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
         struct CBuffer {
             uint dsp;

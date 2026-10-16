@@ -15,6 +15,7 @@
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
+#include <algorithm>
 #include <cmath>
 
 using namespace luisa;
@@ -28,13 +29,14 @@ void test_warp_prefix_scan(Device &device) {
     auto warp_size = device.compute_warp_size();
     constexpr auto warp_count = 4u;
     auto element_count = warp_size * warp_count;
+    auto block_threads = std::max(32u, warp_size * 2u);
     luisa::vector<float> output(element_count, -1.0f);
     auto output_buffer = device.create_buffer<float>(element_count);
 
     // Only even lanes participate. warp_prefix_sum is exclusive, so an active
     // lane 2 * n must observe n preceding active values of 0.5.
-    Kernel1D kernel = [warp_size](BufferFloat output) noexcept {
-        set_block_size(warp_size * 2u, 1u, 1u);
+    Kernel1D kernel = [warp_size, block_threads](BufferFloat output) noexcept {
+        set_block_size(block_threads, 1u, 1u);
         set_warp_size(warp_size);
         auto index = dispatch_x();
         // Only threads with even indices execute the scan

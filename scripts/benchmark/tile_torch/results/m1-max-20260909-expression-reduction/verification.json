@@ -1,0 +1,180 @@
+{
+  "started_unix": 1788930222.573621,
+  "source_snapshot_sha256": "904593a910fe450a52e86e2ff6c80249c2bf2ed23880a39c9da0eb22ec895596",
+  "source_commit": "2634be45d21bc8b2678104dadea99a5a0595d7c4",
+  "runs": [
+    {
+      "name": "full-build-gate",
+      "command": [
+        "cmake",
+        "--build",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build",
+        "--parallel",
+        "8"
+      ],
+      "environment": {},
+      "started_unix": 1788930222.5752268,
+      "exit_code": 0,
+      "finished_unix": 1788930222.676964,
+      "log": "full-build-gate.log",
+      "log_sha256": "62787fccc98ad7bf29801a9439ddcfeec21bcc3619acefa63a76bfe707b73e91"
+    },
+    {
+      "name": "ctest-tile",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build",
+        "--output-on-failure",
+        "--timeout",
+        "240",
+        "-j",
+        "1",
+        "-R",
+        "^test_tile_",
+        "--output-junit",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/tile.xml"
+      ],
+      "environment": {},
+      "started_unix": 1788930222.67733,
+      "exit_code": 0,
+      "finished_unix": 1788930521.017524,
+      "log": "ctest-tile.log",
+      "log_sha256": "88cb1000567d92f0ad6fc5e4dcd1b31dfb7d5d34f5e688b146f60fe3a28f95bb",
+      "tests": 35,
+      "failures": 0,
+      "skipped": 0,
+      "junit": "tile.xml"
+    },
+    {
+      "name": "ctest-xir-simd",
+      "command": [
+        "ctest",
+        "--test-dir",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build",
+        "--output-on-failure",
+        "--timeout",
+        "240",
+        "-j",
+        "1",
+        "-L",
+        "unit_xir|unit_simd",
+        "--output-junit",
+        "/private/tmp/luisa-expression-fusion.qXgTbC/xir-simd.xml"
+      ],
+      "environment": {},
+      "started_unix": 1788930521.0186172,
+      "exit_code": 0,
+      "finished_unix": 1788930603.734533,
+      "log": "ctest-xir-simd.log",
+      "log_sha256": "bc62a3f1ba494c05cfffb746fd01d505fb32a9af8e8687fb917cedf7ee8e6ec5",
+      "tests": 79,
+      "failures": 0,
+      "skipped": 0,
+      "junit": "xir-simd.xml"
+    },
+    {
+      "name": "expressions-w1",
+      "command": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions*"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "1",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930603.7357461,
+      "exit_code": 0,
+      "finished_unix": 1788930603.784993,
+      "log": "expressions-w1.log",
+      "log_sha256": "fe0b3a8531976821e0ab240cede1756c6cbf28d7131af4d7152a43f34261d3b7"
+    },
+    {
+      "name": "expressions-w2",
+      "command": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions*"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "2",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930603.785434,
+      "exit_code": 0,
+      "finished_unix": 1788930603.8302898,
+      "log": "expressions-w2.log",
+      "log_sha256": "7011c45ad73d8145960c8e890209fc938b5f11e860a3e926d4b4cd9cc2dc85eb"
+    },
+    {
+      "name": "expressions-w4",
+      "command": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions*"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "4",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930603.830736,
+      "exit_code": 0,
+      "finished_unix": 1788930603.872556,
+      "log": "expressions-w4.log",
+      "log_sha256": "b215272cd639e7d79881880ae86b42667abd365dfc062e334911925b30b7baa9"
+    },
+    {
+      "name": "expressions-w8",
+      "command": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions*"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "8",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930603.872975,
+      "exit_code": 0,
+      "finished_unix": 1788930603.9141288,
+      "log": "expressions-w8.log",
+      "log_sha256": "b8a2f4d5a7049c0f5370895d933acbf5078b4370ae60cd6c3732a871a9e93278"
+    },
+    {
+      "name": "expressions-w16",
+      "command": [
+        "/private/tmp/luisa-expression-fusion.qXgTbC/build/bin/test_tile_xir_runtime",
+        "simd",
+        "tile_xir_runtime_fused_expressions*"
+      ],
+      "environment": {
+        "LUISA_SIMD_WARP_WIDTH": "16",
+        "LUISA_SIMD_WORKER_COUNT": "1",
+        "LUISA_SIMD_ENABLE_FULL_PACKET_SPECIALIZATION": "1",
+        "LUISA_SIMD_ENABLE_PREDICATED_MEMORY_EFFECTS": "1",
+        "LUISA_SIMD_ENABLE_COHORT_PRIVATE_ACCESS": "1"
+      },
+      "started_unix": 1788930603.9145741,
+      "exit_code": 0,
+      "finished_unix": 1788930603.955879,
+      "log": "expressions-w16.log",
+      "log_sha256": "22a2b9e0b39e557d95793d869a31afc6460cc5c4a9491be132ebdac2627b0d2a"
+    }
+  ],
+  "timing_not_comparative": true,
+  "finished_unix": 1788930603.956291,
+  "passed": true
+}

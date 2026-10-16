@@ -1,0 +1,1287 @@
+{
+  "schema": "luisa.torch2.export",
+  "version": 1,
+  "producer": "torch.export",
+  "ir": "core-aten",
+  "model": "SequenceRNN",
+  "inputs": [
+    {
+      "name": "x",
+      "shape": [
+        32,
+        8,
+        1
+      ],
+      "dtype": "float32",
+      "kind": "user_input"
+    }
+  ],
+  "params": [
+    {
+      "name": "p_w_ih",
+      "shape": [
+        1,
+        16
+      ],
+      "dtype": "float32",
+      "data_base64": "pIaPvouhzz9CzBXAd64DwD3ktD5VkOk/jSmbvy3hyz8IrVk9sZKVPq4X3b8IPMQ9ycztv4ipt74qWwTAzzASQA=="
+    },
+    {
+      "name": "p_w_hh",
+      "shape": [
+        16,
+        16
+      ],
+      "dtype": "float32",
+      "data_base64": "Y0Qzv37UMT0aaXu+fotmPtUWNj9LGHo+20cyvwYWlDv0lsK9eyO9vzSCIr7CVvG9orEZPxgogT5Hzii+31SAPdgEmb2eoJQ+oqXGvqCBGL/YBZQ9Pc2uPu9lxT5VTXs+qBDCPXa0Ij4VjMg8IuwOPi/sBj81d4s/96ciPtZKAD9waKk+6e9wvw9IIT/ugK8+52gSvpGMor+bq3o/F2FTv1RL8r7AwoM+mzoXPkLVqz64woS/urGjv1DxLD5sfeG9CHq1ubQBTL/gggk/qOjkPpOCWr7yzge+WKYPvzLWKr4qCSg+0GIlv41G+r78Ru28oBknv3TH77/qbtK+h4GVvsBpRD1iVJy+8HLsPiOXxz7p2Ic/AipkPrd4c74e4SS9SFmiPV0Fnr14CiQ+6puEvc9dGD8+3a6+Fvp4vlTKB783/Zo+O9lTPmmkibwaUZQ+twuau86Fyj4oXQq+sej7Pg92/b7kz6A9bRcKPkn3lj0RIYI/kjaJvSmZiz0Fh4g+7ukRvqhspjvmJ8k+F7PFu1TSDL/VtRO/6KB1P2qaITwXqnE/+uHiPj4jzD5jNlu/zxcNP8DGXD6Fkj2+ziUivZPeAr7Vh/4+G02TvlOjd75QiVO+KOTJPsLh1r6PwJC/oHdiPykG2j63x58+aDeAP/2zvL5HyWY9yRfevSi87j3ReaA/nj8Xvx7JC776viw/ZrCEvm1Jur6rf+w+N1gXv23iqr+log0/OwTRPgAbHD/SEki/Dc/OvQa5IT9dvZE+xMwfP1LU4rw6cgC/9GxiPU0/4D2tIUC9qjbJvlZunbyp/bW9C/sfvzf/Bz+j4Xc9LWgmP7uIJT9LEPg+IRI0vk/Nyj7XnMe+o+FivjtxAD+fTj6/3rHSvq0D2r2FDFU+uycDvp6XeL2F6c890C7KvsX5+T4YtgW/halHPljEhz1jHa2+PghMPgFP0rwZv4M+c+CEPkeelL38Q64+D3qVP7j1T7/FHNm/cn4RvoNryL8Gi5g+Lh2YPqvw673eu+q8g4TgPv2xL78ODgk+UoCEPuJ5ej6W5Du+oF+bv6b2kD6GA+U+IvCrPzVVID7UmAM/w5dzPLXAfb44Bis/nQTOPtRzpb6Tmzu+XrtwPWBqO7+GAko9Me0bPxgYH7/Cc64+jvnYPx455b2rS6k9m55ev6KjMT/dcHy/ZilbvR2uKT6Dnvq8EddRvpDHLb6VHvE+ML9Mvr4QRD5tr7m+iC6ivAK4kr4WuG6+xMKsOrz5mL5COQY/nxikvoV+Cb+iVLg+3hwuPxnJrj+QGs2+WeBkv4fWS767TbQ9SHtmvtOfKT+Jyw2/Fe9JvJ1QHj6Sy6G+IpdPP8USjj9Exug+FVHnvg=="
+    },
+    {
+      "name": "p_b_ih",
+      "shape": [
+        16
+      ],
+      "dtype": "float32",
+      "data_base64": "56eQvlAzJL6ANfc9hviBPQamwT+p+Yo9w9aAPI75gLxGAlg8kk28vUOh2z2HPuC9McEKP2nInT6wIIa9Oqwavg=="
+    },
+    {
+      "name": "p_b_hh",
+      "shape": [
+        16
+      ],
+      "dtype": "float32",
+      "data_base64": "C6DTvbXkZr4otN49iOe9Pq+0rz/KdGY+5I1FvCZFd75cYTY+y+7gvU3P0j7JIMm+CunCPsUrFT4+cuS9ZRgrvg=="
+    },
+    {
+      "name": "p_fc_w",
+      "shape": [
+        16,
+        2
+      ],
+      "dtype": "float32",
+      "data_base64": "7Q+yvTevID4skU6/VgonP6Fn5j/YO/q/I0cQPxn7374r/iC+A8zbPvo8d787bZQ/4hx8P1V7hb+0mVC/u09PP2Csyj1hRNY9OSMKvoCfn72x15w+i1TWvjOAsrybutq8wRpHvmZpoD40RgS/OIgtPwZeqD5P68u+ftL3vsP3GT8="
+    },
+    {
+      "name": "p_fc_b",
+      "shape": [
+        2
+      ],
+      "dtype": "float32",
+      "data_base64": "WFlzvn0kLT8="
+    }
+  ],
+  "nodes": [
+    {
+      "name": "full",
+      "op": "call_function",
+      "target": "aten.full",
+      "args": [
+        [
+          32,
+          16
+        ],
+        0
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "select",
+      "op": "call_function",
+      "target": "aten.select",
+      "args": [
+        {
+          "type": "node",
+          "name": "x"
+        },
+        1,
+        0
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        1
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "select"
+        },
+        {
+          "type": "node",
+          "name": "p_w_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm"
+        },
+        {
+          "type": "node",
+          "name": "p_b_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_1",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "full"
+        },
+        {
+          "type": "node",
+          "name": "p_w_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_1",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add"
+        },
+        {
+          "type": "node",
+          "name": "mm_1"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_2",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_1"
+        },
+        {
+          "type": "node",
+          "name": "p_b_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "tanh",
+      "op": "call_function",
+      "target": "aten.tanh",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_2"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "select_1",
+      "op": "call_function",
+      "target": "aten.select",
+      "args": [
+        {
+          "type": "node",
+          "name": "x"
+        },
+        1,
+        1
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        1
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_2",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "select_1"
+        },
+        {
+          "type": "node",
+          "name": "p_w_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_3",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm_2"
+        },
+        {
+          "type": "node",
+          "name": "p_b_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_3",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "tanh"
+        },
+        {
+          "type": "node",
+          "name": "p_w_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_4",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_3"
+        },
+        {
+          "type": "node",
+          "name": "mm_3"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_5",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_4"
+        },
+        {
+          "type": "node",
+          "name": "p_b_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "tanh_1",
+      "op": "call_function",
+      "target": "aten.tanh",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_5"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "select_2",
+      "op": "call_function",
+      "target": "aten.select",
+      "args": [
+        {
+          "type": "node",
+          "name": "x"
+        },
+        1,
+        2
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        1
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_4",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "select_2"
+        },
+        {
+          "type": "node",
+          "name": "p_w_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_6",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm_4"
+        },
+        {
+          "type": "node",
+          "name": "p_b_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_5",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "tanh_1"
+        },
+        {
+          "type": "node",
+          "name": "p_w_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_7",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_6"
+        },
+        {
+          "type": "node",
+          "name": "mm_5"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_8",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_7"
+        },
+        {
+          "type": "node",
+          "name": "p_b_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "tanh_2",
+      "op": "call_function",
+      "target": "aten.tanh",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_8"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "select_3",
+      "op": "call_function",
+      "target": "aten.select",
+      "args": [
+        {
+          "type": "node",
+          "name": "x"
+        },
+        1,
+        3
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        1
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_6",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "select_3"
+        },
+        {
+          "type": "node",
+          "name": "p_w_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_9",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm_6"
+        },
+        {
+          "type": "node",
+          "name": "p_b_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_7",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "tanh_2"
+        },
+        {
+          "type": "node",
+          "name": "p_w_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_10",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_9"
+        },
+        {
+          "type": "node",
+          "name": "mm_7"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_11",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_10"
+        },
+        {
+          "type": "node",
+          "name": "p_b_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "tanh_3",
+      "op": "call_function",
+      "target": "aten.tanh",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_11"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "select_4",
+      "op": "call_function",
+      "target": "aten.select",
+      "args": [
+        {
+          "type": "node",
+          "name": "x"
+        },
+        1,
+        4
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        1
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_8",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "select_4"
+        },
+        {
+          "type": "node",
+          "name": "p_w_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_12",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm_8"
+        },
+        {
+          "type": "node",
+          "name": "p_b_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_9",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "tanh_3"
+        },
+        {
+          "type": "node",
+          "name": "p_w_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_13",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_12"
+        },
+        {
+          "type": "node",
+          "name": "mm_9"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_14",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_13"
+        },
+        {
+          "type": "node",
+          "name": "p_b_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "tanh_4",
+      "op": "call_function",
+      "target": "aten.tanh",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_14"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "select_5",
+      "op": "call_function",
+      "target": "aten.select",
+      "args": [
+        {
+          "type": "node",
+          "name": "x"
+        },
+        1,
+        5
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        1
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_10",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "select_5"
+        },
+        {
+          "type": "node",
+          "name": "p_w_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_15",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm_10"
+        },
+        {
+          "type": "node",
+          "name": "p_b_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_11",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "tanh_4"
+        },
+        {
+          "type": "node",
+          "name": "p_w_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_16",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_15"
+        },
+        {
+          "type": "node",
+          "name": "mm_11"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_17",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_16"
+        },
+        {
+          "type": "node",
+          "name": "p_b_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "tanh_5",
+      "op": "call_function",
+      "target": "aten.tanh",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_17"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "select_6",
+      "op": "call_function",
+      "target": "aten.select",
+      "args": [
+        {
+          "type": "node",
+          "name": "x"
+        },
+        1,
+        6
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        1
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_12",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "select_6"
+        },
+        {
+          "type": "node",
+          "name": "p_w_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_18",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm_12"
+        },
+        {
+          "type": "node",
+          "name": "p_b_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_13",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "tanh_5"
+        },
+        {
+          "type": "node",
+          "name": "p_w_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_19",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_18"
+        },
+        {
+          "type": "node",
+          "name": "mm_13"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_20",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_19"
+        },
+        {
+          "type": "node",
+          "name": "p_b_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "tanh_6",
+      "op": "call_function",
+      "target": "aten.tanh",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_20"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "select_7",
+      "op": "call_function",
+      "target": "aten.select",
+      "args": [
+        {
+          "type": "node",
+          "name": "x"
+        },
+        1,
+        7
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        1
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_14",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "select_7"
+        },
+        {
+          "type": "node",
+          "name": "p_w_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_21",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm_14"
+        },
+        {
+          "type": "node",
+          "name": "p_b_ih"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_15",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "tanh_6"
+        },
+        {
+          "type": "node",
+          "name": "p_w_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_22",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_21"
+        },
+        {
+          "type": "node",
+          "name": "mm_15"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_23",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_22"
+        },
+        {
+          "type": "node",
+          "name": "p_b_hh"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "tanh_7",
+      "op": "call_function",
+      "target": "aten.tanh",
+      "args": [
+        {
+          "type": "node",
+          "name": "add_23"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        16
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "mm_16",
+      "op": "call_function",
+      "target": "aten.mm",
+      "args": [
+        {
+          "type": "node",
+          "name": "tanh_7"
+        },
+        {
+          "type": "node",
+          "name": "p_fc_w"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        2
+      ],
+      "out_dtype": "float32"
+    },
+    {
+      "name": "add_24",
+      "op": "call_function",
+      "target": "aten.add",
+      "args": [
+        {
+          "type": "node",
+          "name": "mm_16"
+        },
+        {
+          "type": "node",
+          "name": "p_fc_b"
+        }
+      ],
+      "kwargs": [],
+      "out_shape": [
+        32,
+        2
+      ],
+      "out_dtype": "float32"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "add_24",
+      "shape": [
+        32,
+        2
+      ],
+      "dtype": "float32"
+    }
+  ],
+  "labels": {
+    "data_base64": "AQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQAAAAAAAAABAAAAAAAAAA==",
+    "shape": [
+      32
+    ],
+    "dtype": "int64"
+  },
+  "reference": {
+    "inputs": {
+      "x": "AACAPwAAAAAAAIA/AACAPwAAAAAAAIA/AAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAIA/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAPwAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAgD8AAIA/AACAPwAAgD8AAIA/AACAPwAAgD8AAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAgD8AAIA/AACAPwAAgD8AAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAAAAAAIA/AACAPwAAgD8AAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAIA/AACAPwAAgD8AAAAAAACAPwAAgD8AAIA/AACAPwAAgD8AAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAACAPwAAgD8AAAAAAACAPwAAgD8AAIA/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAACAPwAAgD8AAIA/AACAPwAAgD8AAAAAAACAPwAAAAAAAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAgD8AAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAgD8AAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAIA/AACAPwAAgD8AAAAAAAAAAAAAgD8AAAAAAACAPwAAAAAAAIA/AACAPwAAgD8AAAAAAACAPwAAAAAAAIA/AAAAAAAAgD8AAAAAAACAPw=="
+    },
+    "outputs": {
+      "add_24": "vOXwwAvfEkH1S7PAAS7kQEWK78C3nBFBBuWvwK+vwUC/hqPAhj7UQHH3y7/f7hZAd9nFQNTWycCfHsfAUJjhQP5k0MAlF+VAboYVv5umA0BUCBHALRcgQJZNVsAaS3VAbkvwwFxNEUEv/6Y/uVldvxSO7sC1xQxBxO57QJOdbsAStu/AaVMOQRVJssC5KdFA9mq1wKnc6UCqM9jAmPsDQfHf8MBtABJBFZSnwElOvkB0ZvLApyQJQWHohsCBrZ9ADV5+v7hu1j/MrD1AO3wqwPPdlcDGCbpA7U/MQMYSt8BxCLXA0MTTQM4z0sBSGexAcIDwwOQMDkGyZ+TALZ8JQQ=="
+    }
+  }
+}

@@ -4,13 +4,14 @@
 
 #include <luisa/vstl/config.h>
 #include <luisa/vstl/meta_lib.h>
+#include <luisa/core/stl/string.h>
 
 using namespace std::literals;
 
 namespace vstd {
 template<>
-struct hash<std::string_view> {
-    inline size_t operator()(const std::string_view &str) const noexcept {
+struct hash<luisa::string_view> {
+    inline size_t operator()(const luisa::string_view &str) const noexcept {
         return Hash::binary_hash(str.data(), str.size());
     }
 };

@@ -15,6 +15,9 @@
 #include <stb/stb_image.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::test {
 
@@ -98,13 +101,13 @@ struct ReferenceCompareResult {
 
 inline ReferenceCompareResult compare_with_reference_file(
     const uint8_t *rendered, int width, int height, int channels,
-    const std::filesystem::path &ref_path,
+    const luisa::filesystem::path &ref_path,
     double threshold = DEFAULT_PSNR_THRESHOLD) {
 
     if (rendered == nullptr || width <= 0 || height <= 0 || channels <= 0 || !std::isfinite(threshold)) {
         return {false, 0.0, "invalid rendered image or comparison threshold"};
     }
-    if (!std::filesystem::exists(ref_path)) {
+    if (!luisa::filesystem::exists(ref_path)) {
         return {false, 0.0, "reference file does not exist: " + ref_path.string()};
     }
     int ref_w = 0, ref_h = 0, ref_c = 0;
@@ -144,22 +147,22 @@ inline ReferenceCompareResult compare_with_reference_file(
     return result;
 }
 
-inline std::optional<std::filesystem::path> parse_compare_arg(int argc, const char *const *argv) {
+inline luisa::optional<luisa::filesystem::path> parse_compare_arg(int argc, const char *const *argv) {
     for (int i = 1; i + 1 < argc; ++i) {
         if (!argv[i] || !argv[i + 1]) break;
-        std::string_view a{argv[i]};
+        luisa::string_view a{argv[i]};
         if (a == "--compare" || a == "-c") {
-            return std::filesystem::path{argv[i + 1]};
+            return luisa::filesystem::path{argv[i + 1]};
         }
     }
-    return std::nullopt;
+    return luisa::nullopt;
 }
 
 struct ImageTestOptions {
     bool offline{false};
     std::string output_dir{"."};
-    std::optional<std::filesystem::path> compare_path;
-    std::optional<std::filesystem::path> input_path;
+    luisa::optional<luisa::filesystem::path> compare_path;
+    luisa::optional<luisa::filesystem::path> input_path;
 
     static ImageTestOptions parse(int argc, const char *const *argv) {
         ImageTestOptions opts;
@@ -171,10 +174,10 @@ struct ImageTestOptions {
             } else if (arg == "--output-dir" && i + 1 < argc) {
                 opts.output_dir = argv[++i];
             } else if ((arg == "--compare" || arg == "-c") && i + 1 < argc) {
-                opts.compare_path = std::filesystem::path{argv[++i]};
+                opts.compare_path = luisa::filesystem::path{argv[++i]};
                 opts.offline = true;
             } else if (arg == "--input" && i + 1 < argc) {
-                opts.input_path = std::filesystem::path{argv[++i]};
+                opts.input_path = luisa::filesystem::path{argv[++i]};
             }
         }
         return opts;

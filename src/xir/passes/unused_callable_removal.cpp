@@ -33,7 +33,7 @@ UnusedCallableRemovalInfo unused_callable_removal_pass_run_on_module(Module *mod
     luisa::unordered_set<Function *> reachable;
     if (module != nullptr) {
         for (auto f : module->function_list()) {
-            if (f->isa<KernelFunction>()) {
+            if (f->isa<KernelFunction>() || f->isa<RasterStageFunction>()) {
                 detail::collect_reachable_callables(f, reachable);
             }
         }

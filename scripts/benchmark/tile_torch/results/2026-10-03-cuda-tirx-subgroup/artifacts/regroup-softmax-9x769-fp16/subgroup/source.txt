@@ -1,0 +1,494 @@
+
+static __device__ __forceinline__ float __luisa_tile_cuda_reduce_add(float a, float b) {
+    float result;
+    asm("add.rn.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
+    return result;
+}
+static __device__ __forceinline__ float __luisa_tile_cuda_reduce_min(float a, float b) {
+    float result;
+    asm("min.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
+    return result;
+}
+static __device__ __forceinline__ float __luisa_tile_cuda_reduce_max(float a, float b) {
+    float result;
+    asm("max.f32 %0, %1, %2;" : "=f"(result) : "f"(a), "f"(b));
+    return result;
+}
+// The planner proves complete 32-lane participation at every call. Tail input
+// lanes contribute the original identity; a partial active mask is forbidden.
+// XOR butterflies return the total to every lane, as later epilogues require.
+static __device__ __forceinline__ float __luisa_tile_cuda_warp_sum(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_add(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+}
+static __device__ __forceinline__ float __luisa_tile_cuda_warp_min(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_min(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+}
+static __device__ __forceinline__ float __luisa_tile_cuda_warp_max(float value) {
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        value = __luisa_tile_cuda_reduce_max(value, __shfl_xor_sync(0xffffffffu, value, offset, 32));
+    }
+    return value;
+}
+
+#ifdef __CUDACC_RTC__
+  #include <cuda/std/cstdint>
+  using cuda::std::uint8_t;
+  using cuda::std::uint16_t;
+  using cuda::std::uint32_t;
+  using cuda::std::uint64_t;
+  using cuda::std::int8_t;
+  using cuda::std::int16_t;
+  using cuda::std::int32_t;
+  using cuda::std::int64_t;
+
+  #include <cuda/std/type_traits>
+  namespace std {
+    using cuda::std::is_same;
+    using cuda::std::is_same_v;
+    using cuda::std::is_integral;
+    using cuda::std::is_signed;
+    using cuda::std::is_unsigned;
+    using cuda::std::is_floating_point;
+    using cuda::std::enable_if;
+    using cuda::std::conditional;
+  }
+
+  // NVRTC uses asm/volatile instead of __asm__/__volatile__ (gcc extension).
+  #ifndef __asm__
+  #define __asm__ asm
+  #endif
+  #ifndef __volatile__
+  #define __volatile__ volatile
+  #endif
+#else
+  #include <cstdint>
+  #include <type_traits>
+  #include <cuda.h>
+#endif
+
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 530)
+#include <cuda_fp16.h>
+__device__ half max(half a, half b)
+{
+  return __hgt(__half(a), __half(b)) ? a : b;
+}
+__device__ half min(half a, half b)
+{
+  return __hlt(__half(a), __half(b)) ? a : b;
+}
+#endif // __CUDA_ARCH__ >= 530
+
+// Pack two half values.
+static inline __device__ __host__ unsigned
+__pack_half2(const half x, const half y) {
+  unsigned v0 = *((unsigned short *)&x);
+  unsigned v1 = *((unsigned short *)&y);
+  return (v1 << 16) | v0;
+}
+
+#define CUDA_UNSUPPORTED_HALF_MATH_BINARY(HALF_MATH_NAME, FP32_MATH_NAME) \
+static inline __device__ __host__ half HALF_MATH_NAME(half x, half y) {   \
+  float tmp_x = __half2float(x);                                          \
+  float tmp_y = __half2float(y);                                          \
+  float result = FP32_MATH_NAME(tmp_x, tmp_y);                            \
+  return __float2half(result);                                            \
+}
+
+#define CUDA_UNSUPPORTED_HALF_MATH_UNARY(HALF_MATH_NAME, FP32_MATH_NAME) \
+static inline __device__ __host__ half HALF_MATH_NAME(half x) {          \
+  float tmp_x = __half2float(x);                                         \
+  float result = FP32_MATH_NAME(tmp_x);                                  \
+  return __float2half(result);                                           \
+}
+
+// Some fp16 math functions are not supported in cuda_fp16.h,
+// so we define them here to make sure the generated CUDA code
+// is valid.
+#if defined(__CUDA_ARCH__)
+#if (__CUDA_ARCH__ >= 530)
+CUDA_UNSUPPORTED_HALF_MATH_BINARY(hpow, powf)
+#if ((__CUDACC_VER_MAJOR__ < 12) || ((__CUDACC_VER_MAJOR__ == 12) && (__CUDACC_VER_MINOR__ < 8)))
+CUDA_UNSUPPORTED_HALF_MATH_UNARY(htanh, tanhf)
+#endif
+CUDA_UNSUPPORTED_HALF_MATH_UNARY(htan, tanf)
+CUDA_UNSUPPORTED_HALF_MATH_UNARY(hatan, atanf)
+CUDA_UNSUPPORTED_HALF_MATH_UNARY(herf, erf)
+#else
+CUDA_UNSUPPORTED_HALF_MATH_UNARY(hexp, exp)
+#endif
+#endif
+
+#undef CUDA_UNSUPPORTED_HALF_MATH_BINARY
+#undef CUDA_UNSUPPORTED_HALF_MATH_UNARY
+
+template <typename T, typename TVec2>
+struct __align__(8) half4_bfloat164 {
+  T x, y, z, w;
+  __host__ __device__ half4_bfloat164() : x(T(0)), y(T(0)), z(T(0)), w(T(0)) {}
+  __host__ __device__ half4_bfloat164(T x, T y, T z, T w) : x(x), y(y), z(z), w(w) {}
+
+};
+
+using half4 = half4_bfloat164<__half, __half2>;
+__host__ __device__ half4 make_half4(__half x, __half y, __half z, __half w) {
+    return half4(x, y, z, w);
+}
+
+#include <math_constants.h>
+
+#if (((__CUDACC_VER_MAJOR__ == 11) && (__CUDACC_VER_MINOR__ >= 4)) || \
+     (__CUDACC_VER_MAJOR__ > 11))
+#define TVM_ENABLE_L2_PREFETCH 1
+#else
+#define TVM_ENABLE_L2_PREFETCH 0
+#endif
+
+#ifdef _WIN32
+  using uint = unsigned int;
+  using uchar = unsigned char;
+  using ushort = unsigned short;
+  using int64_t = long long;
+  using uint64_t = unsigned long long;
+#else
+  #define uint unsigned int
+  #define uchar unsigned char
+  #define ushort unsigned short
+#endif
+extern "C" __global__ void __launch_bounds__(128) workload_rows_kernel(half* __restrict__ arg0_ptr, half* __restrict__ arg3_ptr);
+extern "C" __global__ void __launch_bounds__(128) workload_rows_kernel(half* __restrict__ arg0_ptr, half* __restrict__ arg3_ptr) {
+  __shared__ alignas(64) float parallel_0_subgroup_partials_0_ptr[4];
+  __shared__ alignas(64) float parallel_0_subgroup_partials_1_ptr[4];
+  alignas(64) int64_t tile_storage_3_ptr[1024];
+  int cse_v1 = (((int)threadIdx.x) & 63);
+  int cse_v12 = ((((int)threadIdx.x) & 63) * 8);
+  for (int tile_i_4_subgroup_chunk = 0; tile_i_4_subgroup_chunk < 2; ++tile_i_4_subgroup_chunk) {
+    int cse_v24 = ((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8));
+    int64_t cse_v32 = ((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8));
+    tile_storage_3_ptr[((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8))] = ((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8));
+    tile_storage_3_ptr[(((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 1)] = (((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8)) + (int64_t)1);
+    tile_storage_3_ptr[(((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 2)] = (((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8)) + (int64_t)2);
+    tile_storage_3_ptr[(((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 3)] = (((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8)) + (int64_t)3);
+    tile_storage_3_ptr[(((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 4)] = (((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8)) + (int64_t)4);
+    tile_storage_3_ptr[(((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 5)] = (((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8)) + (int64_t)5);
+    tile_storage_3_ptr[(((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 6)] = (((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8)) + (int64_t)6);
+    tile_storage_3_ptr[(((tile_i_4_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 7)] = (((((int64_t)tile_i_4_subgroup_chunk) * (int64_t)512) + ((((int64_t)((int)threadIdx.x)) & (int64_t)63) * (int64_t)8)) + (int64_t)7);
+  }
+  alignas(64) bool tile_storage_5_ptr[1024];
+  for (int tile_i_6_subgroup_chunk = 0; tile_i_6_subgroup_chunk < 2; ++tile_i_6_subgroup_chunk) {
+    int cse_v25 = ((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8));
+    tile_storage_5_ptr[((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8))] = (tile_storage_3_ptr[((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8))] < (int64_t)769);
+    int cse_v33 = (((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 1);
+    tile_storage_5_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 1)] = (tile_storage_3_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 1)] < (int64_t)769);
+    int cse_v34 = (((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 2);
+    tile_storage_5_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 2)] = (tile_storage_3_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 2)] < (int64_t)769);
+    int cse_v35 = (((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 3);
+    tile_storage_5_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 3)] = (tile_storage_3_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 3)] < (int64_t)769);
+    int cse_v36 = (((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 4);
+    tile_storage_5_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 4)] = (tile_storage_3_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 4)] < (int64_t)769);
+    int cse_v37 = (((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 5);
+    tile_storage_5_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 5)] = (tile_storage_3_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 5)] < (int64_t)769);
+    int cse_v38 = (((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 6);
+    tile_storage_5_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 6)] = (tile_storage_3_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 6)] < (int64_t)769);
+    int cse_v39 = (((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 7);
+    tile_storage_5_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 7)] = (tile_storage_3_ptr[(((tile_i_6_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 7)] < (int64_t)769);
+  }
+  alignas(64) float tile_storage_7_worker_stripe_ptr[16];
+  int cse_v3 = (((int)threadIdx.x) >> 6);
+  int cse_v13 = ((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6));
+  int cse_v14 = ((((int)threadIdx.x) & 63) >> 5);
+  int cse_v15 = ((((int)threadIdx.x) & 63) * 4);
+  int cse_v16 = ((((int)threadIdx.x) & 63) * 2);
+  for (int tile_i_8_subgroup_chunk = 0; tile_i_8_subgroup_chunk < 2; ++tile_i_8_subgroup_chunk) {
+    int cse_v2 = (tile_i_8_subgroup_chunk * 512);
+    int cse_v4 = (tile_i_8_subgroup_chunk * 8);
+    int cse_v26 = ((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8));
+    int cse_v41 = (((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8));
+    float condval;
+    if (tile_storage_5_ptr[((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8))]) {
+      half condval_1;
+      if ((((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) < 769)) {
+        condval_1 = arg0_ptr[(((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8))];
+      } else {
+        condval_1 = __float2half_rn(0x0.0000000000000p+0f/*0.000000e+00*/);
+      }
+      condval = ((float)condval_1);
+    } else {
+      condval = -0x1.93e5940000000p+99f/*-1.000000e+30*/;
+    }
+    tile_storage_7_worker_stripe_ptr[(tile_i_8_subgroup_chunk * 8)] = condval;
+    float condval_2;
+    if (tile_storage_5_ptr[(((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 1)]) {
+      half condval_3;
+      if ((((tile_i_8_subgroup_chunk * 2) + ((((int)threadIdx.x) & 63) >> 5)) < 3)) {
+        condval_3 = arg0_ptr[((((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 1)];
+      } else {
+        condval_3 = __float2half_rn(0x0.0000000000000p+0f/*0.000000e+00*/);
+      }
+      condval_2 = ((float)condval_3);
+    } else {
+      condval_2 = -0x1.93e5940000000p+99f/*-1.000000e+30*/;
+    }
+    tile_storage_7_worker_stripe_ptr[((tile_i_8_subgroup_chunk * 8) + 1)] = condval_2;
+    float condval_4;
+    if (tile_storage_5_ptr[(((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 2)]) {
+      half condval_5;
+      if ((((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) < 767)) {
+        condval_5 = arg0_ptr[((((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 2)];
+      } else {
+        condval_5 = __float2half_rn(0x0.0000000000000p+0f/*0.000000e+00*/);
+      }
+      condval_4 = ((float)condval_5);
+    } else {
+      condval_4 = -0x1.93e5940000000p+99f/*-1.000000e+30*/;
+    }
+    tile_storage_7_worker_stripe_ptr[((tile_i_8_subgroup_chunk * 8) + 2)] = condval_4;
+    int cse_v27 = ((tile_i_8_subgroup_chunk * 256) + ((((int)threadIdx.x) & 63) * 4));
+    float condval_6;
+    if (tile_storage_5_ptr[(((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 3)]) {
+      half condval_7;
+      if ((((tile_i_8_subgroup_chunk * 256) + ((((int)threadIdx.x) & 63) * 4)) < 383)) {
+        condval_7 = arg0_ptr[((((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 3)];
+      } else {
+        condval_7 = __float2half_rn(0x0.0000000000000p+0f/*0.000000e+00*/);
+      }
+      condval_6 = ((float)condval_7);
+    } else {
+      condval_6 = -0x1.93e5940000000p+99f/*-1.000000e+30*/;
+    }
+    tile_storage_7_worker_stripe_ptr[((tile_i_8_subgroup_chunk * 8) + 3)] = condval_6;
+    float condval_8;
+    if (tile_storage_5_ptr[(((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 4)]) {
+      half condval_9;
+      if ((((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) < 765)) {
+        condval_9 = arg0_ptr[((((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 4)];
+      } else {
+        condval_9 = __float2half_rn(0x0.0000000000000p+0f/*0.000000e+00*/);
+      }
+      condval_8 = ((float)condval_9);
+    } else {
+      condval_8 = -0x1.93e5940000000p+99f/*-1.000000e+30*/;
+    }
+    tile_storage_7_worker_stripe_ptr[((tile_i_8_subgroup_chunk * 8) + 4)] = condval_8;
+    float condval_10;
+    if (tile_storage_5_ptr[(((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 5)]) {
+      half condval_11;
+      if ((((tile_i_8_subgroup_chunk * 128) + ((((int)threadIdx.x) & 63) * 2)) < 191)) {
+        condval_11 = arg0_ptr[((((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 5)];
+      } else {
+        condval_11 = __float2half_rn(0x0.0000000000000p+0f/*0.000000e+00*/);
+      }
+      condval_10 = ((float)condval_11);
+    } else {
+      condval_10 = -0x1.93e5940000000p+99f/*-1.000000e+30*/;
+    }
+    tile_storage_7_worker_stripe_ptr[((tile_i_8_subgroup_chunk * 8) + 5)] = condval_10;
+    float condval_12;
+    if (tile_storage_5_ptr[(((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 6)]) {
+      half condval_13;
+      if ((((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) < 763)) {
+        condval_13 = arg0_ptr[((((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 6)];
+      } else {
+        condval_13 = __float2half_rn(0x0.0000000000000p+0f/*0.000000e+00*/);
+      }
+      condval_12 = ((float)condval_13);
+    } else {
+      condval_12 = -0x1.93e5940000000p+99f/*-1.000000e+30*/;
+    }
+    tile_storage_7_worker_stripe_ptr[((tile_i_8_subgroup_chunk * 8) + 6)] = condval_12;
+    float condval_14;
+    if (tile_storage_5_ptr[(((tile_i_8_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 7)]) {
+      half condval_15;
+      if ((((tile_i_8_subgroup_chunk * 256) + ((((int)threadIdx.x) & 63) * 4)) < 381)) {
+        condval_15 = arg0_ptr[((((min(((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)), 8) * 769) + (tile_i_8_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 7)];
+      } else {
+        condval_15 = __float2half_rn(0x0.0000000000000p+0f/*0.000000e+00*/);
+      }
+      condval_14 = ((float)condval_15);
+    } else {
+      condval_14 = -0x1.93e5940000000p+99f/*-1.000000e+30*/;
+    }
+    tile_storage_7_worker_stripe_ptr[((tile_i_8_subgroup_chunk * 8) + 7)] = condval_14;
+  }
+  alignas(64) float tile_storage_10_ptr[1];
+  alignas(64) float tile_storage_12_ptr[1];
+  tile_storage_12_ptr[0] = -CUDART_INF_F;
+  for (int n_13_0_subgroup_chunk = 0; n_13_0_subgroup_chunk < 2; ++n_13_0_subgroup_chunk) {
+    int cse_v5 = (n_13_0_subgroup_chunk * 8);
+    tile_storage_12_ptr[0] = __luisa_tile_cuda_reduce_max(tile_storage_12_ptr[0], tile_storage_7_worker_stripe_ptr[(n_13_0_subgroup_chunk * 8)]);
+    tile_storage_12_ptr[0] = __luisa_tile_cuda_reduce_max(tile_storage_12_ptr[0], tile_storage_7_worker_stripe_ptr[((n_13_0_subgroup_chunk * 8) + 1)]);
+    tile_storage_12_ptr[0] = __luisa_tile_cuda_reduce_max(tile_storage_12_ptr[0], tile_storage_7_worker_stripe_ptr[((n_13_0_subgroup_chunk * 8) + 2)]);
+    tile_storage_12_ptr[0] = __luisa_tile_cuda_reduce_max(tile_storage_12_ptr[0], tile_storage_7_worker_stripe_ptr[((n_13_0_subgroup_chunk * 8) + 3)]);
+    tile_storage_12_ptr[0] = __luisa_tile_cuda_reduce_max(tile_storage_12_ptr[0], tile_storage_7_worker_stripe_ptr[((n_13_0_subgroup_chunk * 8) + 4)]);
+    tile_storage_12_ptr[0] = __luisa_tile_cuda_reduce_max(tile_storage_12_ptr[0], tile_storage_7_worker_stripe_ptr[((n_13_0_subgroup_chunk * 8) + 5)]);
+    tile_storage_12_ptr[0] = __luisa_tile_cuda_reduce_max(tile_storage_12_ptr[0], tile_storage_7_worker_stripe_ptr[((n_13_0_subgroup_chunk * 8) + 6)]);
+    tile_storage_12_ptr[0] = __luisa_tile_cuda_reduce_max(tile_storage_12_ptr[0], tile_storage_7_worker_stripe_ptr[((n_13_0_subgroup_chunk * 8) + 7)]);
+  }
+  tile_storage_12_ptr[0] = __luisa_tile_cuda_warp_max(tile_storage_12_ptr[0]);
+  int cse_v6 = (((int)threadIdx.x) & 31);
+  int cse_v7 = (((int)threadIdx.x) >> 5);
+  if ((((int)threadIdx.x) % 32) == 0) {
+    parallel_0_subgroup_partials_0_ptr[(((int)threadIdx.x) >> 5)] = tile_storage_12_ptr[0];
+  }
+  __syncthreads();
+  int cse_v28 = (((((int)threadIdx.x) >> 6) * 2) + (((int)threadIdx.x) & 31));
+  float condval_16;
+  if (((((int)threadIdx.x) & 31) < 2)) {
+    condval_16 = parallel_0_subgroup_partials_0_ptr[(((((int)threadIdx.x) >> 6) * 2) + (((int)threadIdx.x) & 31))];
+  } else {
+    condval_16 = -CUDART_INF_F;
+  }
+  tile_storage_12_ptr[0] = __luisa_tile_cuda_warp_max(condval_16);
+  tile_storage_10_ptr[0] = tile_storage_12_ptr[0];
+  alignas(64) float tile_storage_14_worker_stripe_ptr[16];
+  for (int tile_i_15_subgroup_chunk = 0; tile_i_15_subgroup_chunk < 2; ++tile_i_15_subgroup_chunk) {
+    int cse_v8 = (tile_i_15_subgroup_chunk * 8);
+    int cse_v29 = ((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8));
+    float condval_17;
+    if (tile_storage_5_ptr[((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8))]) {
+      condval_17 = expf((tile_storage_7_worker_stripe_ptr[(tile_i_15_subgroup_chunk * 8)] - tile_storage_10_ptr[0]));
+    } else {
+      condval_17 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+    }
+    tile_storage_14_worker_stripe_ptr[(tile_i_15_subgroup_chunk * 8)] = condval_17;
+    int cse_v17 = ((tile_i_15_subgroup_chunk * 8) + 1);
+    float condval_18;
+    if (tile_storage_5_ptr[(((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 1)]) {
+      condval_18 = expf((tile_storage_7_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 1)] - tile_storage_10_ptr[0]));
+    } else {
+      condval_18 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+    }
+    tile_storage_14_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 1)] = condval_18;
+    int cse_v18 = ((tile_i_15_subgroup_chunk * 8) + 2);
+    float condval_19;
+    if (tile_storage_5_ptr[(((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 2)]) {
+      condval_19 = expf((tile_storage_7_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 2)] - tile_storage_10_ptr[0]));
+    } else {
+      condval_19 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+    }
+    tile_storage_14_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 2)] = condval_19;
+    int cse_v19 = ((tile_i_15_subgroup_chunk * 8) + 3);
+    float condval_20;
+    if (tile_storage_5_ptr[(((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 3)]) {
+      condval_20 = expf((tile_storage_7_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 3)] - tile_storage_10_ptr[0]));
+    } else {
+      condval_20 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+    }
+    tile_storage_14_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 3)] = condval_20;
+    int cse_v20 = ((tile_i_15_subgroup_chunk * 8) + 4);
+    float condval_21;
+    if (tile_storage_5_ptr[(((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 4)]) {
+      condval_21 = expf((tile_storage_7_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 4)] - tile_storage_10_ptr[0]));
+    } else {
+      condval_21 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+    }
+    tile_storage_14_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 4)] = condval_21;
+    int cse_v21 = ((tile_i_15_subgroup_chunk * 8) + 5);
+    float condval_22;
+    if (tile_storage_5_ptr[(((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 5)]) {
+      condval_22 = expf((tile_storage_7_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 5)] - tile_storage_10_ptr[0]));
+    } else {
+      condval_22 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+    }
+    tile_storage_14_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 5)] = condval_22;
+    int cse_v22 = ((tile_i_15_subgroup_chunk * 8) + 6);
+    float condval_23;
+    if (tile_storage_5_ptr[(((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 6)]) {
+      condval_23 = expf((tile_storage_7_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 6)] - tile_storage_10_ptr[0]));
+    } else {
+      condval_23 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+    }
+    tile_storage_14_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 6)] = condval_23;
+    int cse_v23 = ((tile_i_15_subgroup_chunk * 8) + 7);
+    float condval_24;
+    if (tile_storage_5_ptr[(((tile_i_15_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) + 7)]) {
+      condval_24 = expf((tile_storage_7_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 7)] - tile_storage_10_ptr[0]));
+    } else {
+      condval_24 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+    }
+    tile_storage_14_worker_stripe_ptr[((tile_i_15_subgroup_chunk * 8) + 7)] = condval_24;
+  }
+  alignas(64) float tile_storage_17_ptr[1];
+  alignas(64) float tile_storage_19_ptr[1];
+  tile_storage_19_ptr[0] = 0x0.0000000000000p+0f/*0.000000e+00*/;
+  for (int n_31_0_subgroup_chunk = 0; n_31_0_subgroup_chunk < 2; ++n_31_0_subgroup_chunk) {
+    int cse_v9 = (n_31_0_subgroup_chunk * 8);
+    tile_storage_19_ptr[0] = __luisa_tile_cuda_reduce_add(tile_storage_19_ptr[0], tile_storage_14_worker_stripe_ptr[(n_31_0_subgroup_chunk * 8)]);
+    tile_storage_19_ptr[0] = __luisa_tile_cuda_reduce_add(tile_storage_19_ptr[0], tile_storage_14_worker_stripe_ptr[((n_31_0_subgroup_chunk * 8) + 1)]);
+    tile_storage_19_ptr[0] = __luisa_tile_cuda_reduce_add(tile_storage_19_ptr[0], tile_storage_14_worker_stripe_ptr[((n_31_0_subgroup_chunk * 8) + 2)]);
+    tile_storage_19_ptr[0] = __luisa_tile_cuda_reduce_add(tile_storage_19_ptr[0], tile_storage_14_worker_stripe_ptr[((n_31_0_subgroup_chunk * 8) + 3)]);
+    tile_storage_19_ptr[0] = __luisa_tile_cuda_reduce_add(tile_storage_19_ptr[0], tile_storage_14_worker_stripe_ptr[((n_31_0_subgroup_chunk * 8) + 4)]);
+    tile_storage_19_ptr[0] = __luisa_tile_cuda_reduce_add(tile_storage_19_ptr[0], tile_storage_14_worker_stripe_ptr[((n_31_0_subgroup_chunk * 8) + 5)]);
+    tile_storage_19_ptr[0] = __luisa_tile_cuda_reduce_add(tile_storage_19_ptr[0], tile_storage_14_worker_stripe_ptr[((n_31_0_subgroup_chunk * 8) + 6)]);
+    tile_storage_19_ptr[0] = __luisa_tile_cuda_reduce_add(tile_storage_19_ptr[0], tile_storage_14_worker_stripe_ptr[((n_31_0_subgroup_chunk * 8) + 7)]);
+  }
+  tile_storage_19_ptr[0] = __luisa_tile_cuda_warp_sum(tile_storage_19_ptr[0]);
+  if ((((int)threadIdx.x) % 32) == 0) {
+    parallel_0_subgroup_partials_1_ptr[(((int)threadIdx.x) >> 5)] = tile_storage_19_ptr[0];
+  }
+  __syncthreads();
+  float condval_25;
+  if (((((int)threadIdx.x) & 31) < 2)) {
+    condval_25 = parallel_0_subgroup_partials_1_ptr[(((((int)threadIdx.x) >> 6) * 2) + (((int)threadIdx.x) & 31))];
+  } else {
+    condval_25 = 0x0.0000000000000p+0f/*0.000000e+00*/;
+  }
+  tile_storage_19_ptr[0] = __luisa_tile_cuda_warp_sum(condval_25);
+  tile_storage_17_ptr[0] = tile_storage_19_ptr[0];
+  for (int tile_i_21_subgroup_chunk = 0; tile_i_21_subgroup_chunk < 2; ++tile_i_21_subgroup_chunk) {
+    int cse_v10 = (tile_i_21_subgroup_chunk * 512);
+    int cse_v11 = (tile_i_21_subgroup_chunk * 8);
+    int cse_v30 = ((tile_i_21_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8));
+    int cse_v40 = ((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8));
+    if (((tile_i_21_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) < 769) {
+      if (((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)) < 9) {
+        arg3_ptr[((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8))] = ((half)(tile_storage_14_worker_stripe_ptr[(tile_i_21_subgroup_chunk * 8)] / tile_storage_17_ptr[0]));
+      }
+    }
+    if (((tile_i_21_subgroup_chunk * 2) + ((((int)threadIdx.x) & 63) >> 5)) < 3) {
+      if (((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)) < 9) {
+        arg3_ptr[(((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 1)] = ((half)(tile_storage_14_worker_stripe_ptr[((tile_i_21_subgroup_chunk * 8) + 1)] / tile_storage_17_ptr[0]));
+      }
+    }
+    if (((tile_i_21_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) < 767) {
+      if (((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)) < 9) {
+        arg3_ptr[(((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 2)] = ((half)(tile_storage_14_worker_stripe_ptr[((tile_i_21_subgroup_chunk * 8) + 2)] / tile_storage_17_ptr[0]));
+      }
+    }
+    int cse_v31 = ((tile_i_21_subgroup_chunk * 256) + ((((int)threadIdx.x) & 63) * 4));
+    if (((tile_i_21_subgroup_chunk * 256) + ((((int)threadIdx.x) & 63) * 4)) < 383) {
+      if (((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)) < 9) {
+        arg3_ptr[(((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 3)] = ((half)(tile_storage_14_worker_stripe_ptr[((tile_i_21_subgroup_chunk * 8) + 3)] / tile_storage_17_ptr[0]));
+      }
+    }
+    if (((tile_i_21_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) < 765) {
+      if (((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)) < 9) {
+        arg3_ptr[(((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 4)] = ((half)(tile_storage_14_worker_stripe_ptr[((tile_i_21_subgroup_chunk * 8) + 4)] / tile_storage_17_ptr[0]));
+      }
+    }
+    if (((tile_i_21_subgroup_chunk * 128) + ((((int)threadIdx.x) & 63) * 2)) < 191) {
+      if (((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)) < 9) {
+        arg3_ptr[(((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 5)] = ((half)(tile_storage_14_worker_stripe_ptr[((tile_i_21_subgroup_chunk * 8) + 5)] / tile_storage_17_ptr[0]));
+      }
+    }
+    if (((tile_i_21_subgroup_chunk * 512) + ((((int)threadIdx.x) & 63) * 8)) < 763) {
+      if (((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)) < 9) {
+        arg3_ptr[(((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 6)] = ((half)(tile_storage_14_worker_stripe_ptr[((tile_i_21_subgroup_chunk * 8) + 6)] / tile_storage_17_ptr[0]));
+      }
+    }
+    if (((tile_i_21_subgroup_chunk * 256) + ((((int)threadIdx.x) & 63) * 4)) < 381) {
+      if (((((int)blockIdx.x) * 2) + (((int)threadIdx.x) >> 6)) < 9) {
+        arg3_ptr[(((((((int)blockIdx.x) * 1538) + ((((int)threadIdx.x) >> 6) * 769)) + (tile_i_21_subgroup_chunk * 512)) + ((((int)threadIdx.x) & 63) * 8)) + 7)] = ((half)(tile_storage_14_worker_stripe_ptr[((tile_i_21_subgroup_chunk * 8) + 7)] / tile_storage_17_ptr[0]));
+      }
+    }
+  }
+}
+

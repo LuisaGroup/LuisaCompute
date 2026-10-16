@@ -14,7 +14,7 @@ using namespace luisa::compute;
 
 namespace {
 
-[[nodiscard]] bool is_indirect_dispatch_type(
+[[nodiscard]] bool is_indirect_dispatch_arg_type(
     const Type *type) noexcept {
     return type != nullptr && type->is_custom() &&
            type->description() == "LC_IndirectDispatchBuffer";
@@ -24,7 +24,7 @@ namespace {
     const xir::Argument *argument) noexcept {
     return argument != nullptr &&
            (argument->is_resource() ||
-            is_indirect_dispatch_type(argument->type()));
+            is_indirect_dispatch_arg_type(argument->type()));
 }
 
 }// namespace

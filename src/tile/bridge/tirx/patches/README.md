@@ -1,0 +1,568 @@
+# Optional TVM fixes and extensions
+
+## Pointer values during storage legalization
+
+`pointer-storage-legalize-v1.patch` fixes a shared FP8/BF16 storage legalization
+bug in Apache TVM `46bc8c6a38e41b55fbc41f796e77773cb7b4f887`. TIRx permits
+reinterpreting a typed pointer as a signed or unsigned 64-bit integer, but the
+storage pass previously required every primitive-result reinterpret operand
+to be a `PrimExpr`. A legal pointer `Var` or `address_of` call consequently
+failed with `Cannot treat type ... as type ir.Expr`. CUDA device compilation
+runs these storage passes even for an FP16 kernel, so this also prevented
+runtime address-alignment guards from compiling.
+
+The fix visits pointer operands through the existing general expression
+mutator. It preserves the integer result and recursively remaps the pointer,
+buffer and storage element type. Primitive bit reinterpretation and numeric
+conversion keep their existing behavior. It does not add a Tile operation,
+promise buffer alignment, or enable vectorization by itself.
+
+Apply to the pinned TVM checkout and rebuild the configured TVM compiler:
+
+```sh
+git -C src/ext/tvm apply ../../tile/bridge/tirx/patches/pointer-storage-legalize-v1.patch
+cmake --build <tvm-build-directory> --target tvm_compiler --parallel 8
+```
+
+Pass an absolute patch path if applying from a different working directory.
+Select the rebuilt compiler and its matching runtime when building/running
+Luisa. CMake does not patch the dependency automatically. This patch is
+independent of the Metal extensions below and is unnecessary for kernels
+without pointer-to-integer reinterpretation.
+
+The patch adds 12 parameterized regressions to the existing BF16 test file.
+They cover both storage passes, signed/unsigned integer results, unchanged
+FP16 pointers, BF16/FP8 storage remapping, direct pointers and `address_of`
+children, shared scope and idempotence. With the matching TVM Python/FFI
+environment, run:
+
+```sh
+python -m pytest src/ext/tvm/tests/python/tirx-transform/test_tir_transform_bf16_legalize.py -k test_storage_legalize_pointer_to_integer_reinterpret -q
+```
+
+Local MSVC validation used equivalent C++ pass-only cases: all 12 passed
+(36 structural checks), while the original compiler reproduced the type
+error. The Python tests have been syntax-checked but were not run in that
+environment. The Luisa CUDA host, planner and runtime suites passed with the
+rebuilt compiler; a guarded FP16 output also passed CUDA memory checking.
+
+## CUDA wide scalar broadcasts
+
+`cuda-wide-broadcast-v1.patch` fixes CUDA source generation for the existing
+six- and eight-lane `float32`, `int16`, `uint16`, `int32` and `uint32` vector
+types in Apache TVM `46bc8c6a38e41b55fbc41f796e77773cb7b4f887`. Their CUDA
+representation packs two logical elements into each physical component.
+Previously, `Broadcast` passed six or eight scalar arguments to a constructor
+with only three or four components; a `float32x8` broadcast could therefore
+emit an invalid eight-argument `make_ulonglong4` call.
+
+The fix evaluates the scalar once in its existing statement scope and fills
+every logical lane through the code generator's existing packed-element
+accessor, as wide ramps already do. It adds no arithmetic or numeric
+conversion. The earlier FP16/BF16/FP8/FP4 branches and ordinary small vectors
+remain unchanged. This is a source-generation fix, not an alignment promise
+or an instruction-width or performance guarantee. It does not enable a
+vectorization option or add a Tile primitive.
+
+This patch is independent of `pointer-storage-legalize-v1.patch`; apply either
+or both as required, then rebuild the configured TVM compiler:
+
+```sh
+git -C src/ext/tvm apply ../../tile/bridge/tirx/patches/cuda-wide-broadcast-v1.patch
+cmake --build <tvm-build-directory> --target tvm_compiler --parallel 8
+```
+
+The patch adds ten source-only regressions to the existing CUDA codegen test
+file. Each broadcasts a guarded dynamic buffer read, checks that it remains
+a single read inside the guard, and checks complete packed-lane assignments.
+With a matching TVM Python/FFI environment:
+
+```sh
+python -m pytest src/ext/tvm/tests/python/tirx/codegen/test_codegen_cuda.py -k test_cuda_packed_broadcast_source -q
+```
+
+The tests call the source builder directly with
+`TVM_COMPILE_FORCE_FALLBACK=1`, which returns before the CUDA runtime factory,
+and exclude a source-postprocessing callback. They do not run LLVM JIT,
+NVRTC, nvcc or a GPU kernel. The Python tests have been syntax-checked but
+were not run in the local environment. Equivalent MSVC C++ source-only tests
+passed all ten cases; the same executable loaded against the original DLL
+failed all ten source-shape checks. Both runs recorded the loaded DLL paths.
+
+With the rebuilt compiler, Luisa's CUDA host suite passed 989 assertions in
+15 tests and its CUDA Tile runtime suite passed 2,184,696 assertions in 12
+tests. FP16 eight-element integration passed strict/fast math, aligned and
+misaligned views, inactive rows and CUDA memory checking. These integration
+checks are separate from the source-only regressions and establish no
+performance guarantee.
+
+## CUDA Select condition temporaries
+
+`cuda-select-condition-type-v1.patch` fixes CUDA source generation for an
+existing vector `Select` in Apache TVM
+`46bc8c6a38e41b55fbc41f796e77773cb7b4f887`. When the boolean condition requires
+a new SSA temporary, the CUDA emitter previously declared it with the
+Select result's type. A dynamic Bool2 broadcast selecting UInt32 values could
+therefore emit `uint2 mask = make_ushort2(...)`. A condition already emitted as
+an identifier can hide the defect.
+
+The one-line fix passes the condition's own type to the existing SSA helper.
+Bool2/4 retain their existing `ushort2/4` representation and per-lane boolean
+selection. Arm expressions, scalar Select, statement guards and numeric
+operations are unchanged. Bool8 remains unsupported by the CUDA type printer;
+this patch adds no packed-mask representation, Tile operation, BF16 rounding
+policy, memory speculation permission or vectorization default.
+
+The patch is independent of the pointer-storage and wide-broadcast patches:
+
+```sh
+git -C src/ext/tvm apply ../../tile/bridge/tirx/patches/cuda-select-condition-type-v1.patch
+cmake --build <tvm-build-directory> --target tvm_compiler --parallel 8
+```
+
+Use the rebuilt TVM compiler and its matching runtime. CMake does not patch
+the dependency automatically. Five source-only regressions cover UInt32 and
+Float32 results with Bool2/4 masks, preservation of the enclosing statement
+guard, and the existing Bool8 rejection:
+
+```sh
+TVM_COMPILE_FORCE_FALLBACK=1 python -m pytest src/ext/tvm/tests/python/tirx/codegen/test_codegen_cuda.py -k test_cuda_select_condition_ -q
+```
+
+Set the environment variable before launching Python (use the corresponding
+syntax on Windows). The tests call `target.build.cuda` directly, force its
+source fallback and reject a source-postprocessing callback. They inspect
+CUDA text without NVRTC, a CUDA context, LLVM JIT or a device launch. They
+verify source types and scope; they do not establish BF16 numerical behavior,
+generated instruction widths or a performance benefit.
+
+The patch applies independently to the pinned source, and the Python additions
+parse successfully; the Python suite was not run in the local environment.
+An equivalent MSVC C++ source-only diagnostic used the same executable with
+the old and rebuilt compiler DLLs, recording their loaded paths. The old
+compiler failed all four positive type checks; the rebuilt compiler passed
+all four. Both retained the Bool8 rejection. The full configured TVM build
+passed. These checks do not compile or execute the generated CUDA.
+
+## Ordered reduction arithmetic
+
+`metal-precise-math-v1.patch` is independent of the MPP extensions below. It
+supports the same pinned TVM commit as the MPP memory extension and preserves a typed IRModule attribute,
+`tirx.metal.precise_math`, through native code generation, module serialization
+and final `MTLCompileOptions`. The stock TVM Metal runtime unconditionally sets
+`fastMathEnabled = YES`, which can reassociate even a serial FP32 fold.
+
+The extension advertises version 1 of both
+`target.metal.precise_math_contract_version` and
+`runtime.metal.precise_math_contract_version`. The bridge checks both before
+compiling an ordered reduction for **TVM Runtime**. A missing half fails with
+an explicit diagnostic; it does not quietly produce a relaxed fold. The
+serialized source payload format `metal_precise` selects fast math off on load.
+Legacy `metal`/`metallib` payloads keep their existing behavior. The old global
+`tvm_callback_metal_compile` ABI cannot carry this requirement, so combining it
+with precise compilation is rejected rather than replacing a user's callback.
+
+Luisa Runtime's `compile_device` path does **not** need this patch: it returns
+`DeviceArtifact::requires_precise_math` beside the unchanged generated MSL, and
+the Metal backend applies that requirement to its own compiler options. SIMD
+likewise disables global fast math if any reduction has an ordered policy.
+This conservative whole-kernel setting does not prevent another explicitly
+unordered reduction from using a legal collective. It is not a cross-device
+bitwise-determinism guarantee or a complete NaN/denormal/accuracy policy.
+
+Apply the patch to a pinned checkout, build the entire TVM configuration, then
+reconfigure/rebuild Luisa against that compiler **and** runtime. CMake does not
+modify a user's TVM checkout. To validate, run the TIRx CPU/Metal values and
+execution tests plus the native Runtime and XIR/SIMD tests after a full build.
+Unpatched TVM tests check the explicit rejection; the patched tests execute
+adversarial cancellation, multidimensional folds, empty domains and nonzero seeds.
+
+## MPP memory extension
+
+`metal-mpp-memory-v2.patch` is an experimental, native C++ TVM codegen extension,
+against Apache TVM commit `c7b458e946bc4266915da582457476bdcd9705ae`. Its pinned
+tvm-ffi submodule is `12dbf053b3d9ba4ebd9da3123b1aeca79cf74229`. This is not a
+Python source bridge and does not call Luisa's native MPP emitter.
+
+Normal TIRx SIMD-group lowering still works with an unpatched TVM installation.
+Opting into `bridge::tirx::CompileOptions::metal_mpp` requires the native registry
+capability `target.metal.mpp_memory_contract_version() == 2`; an absent or
+incompatible capability is a compilation error. CMake does not fetch, patch,
+or replace TVM automatically. Keep the patched compiler in a separate build.
+
+The extension initially supports FP32, one complete 32-lane SIMD group per MPP
+operation, static 8-multiple M/N/K, positive constant leading strides, and
+global/shared A/B views. At least one of local M/N must be a multiple of 16;
+an 8×8 subgroup rectangle is rejected. K is static in the IR but represented
+by MPP's dynamic-K descriptor, including K=8 and K=24. Only destination
+cooperative tensors are materialized.
+Their statically indexed collections become separate opaque MSL variables,
+because cooperative tensors cannot be C++ array elements. Shape/role/stride and
+fragment-index mismatches fail closed. Existing owning A/B cooperative-tensor
+operations are not implemented by this patch.
+
+The two additional intrinsics read their memory inputs **at the MMA call**.
+`cooperative_tensor_multiply_accumulate_from_memory` implements
+`D = A * B + C`, including distinct C/D fragments and nonzero C;
+`cooperative_tensor_multiply_from_memory` implements overwriting
+`D = A * B` and does not read the previous D. Their descriptors explicitly
+select `multiply_accumulate` and `multiply`, respectively, with relaxed
+precision disabled. A cooperative-tensor allocation cannot mix the two modes;
+inconsistent contracts fail closed.
+
+The Tile bridge emits the overwriting form only after the existing MMA matcher
+has established relaxed/reassociable arithmetic and either (a) a standalone
+MMA has a literal positive-zero initializer, or (b) a closed direct-output
+accumulator recurrence has exactly one iteration and a literal positive-zero
+initializer. It therefore removes both the zero-fill loop and the C input from
+canonical full-K GEMM. Negative zero, nonzero/literal or memory C, multiple K
+iterations, escaped/observed carry state, and unproved direct output retain
+multiply-accumulate. The caller still supplies uniform subgroup participation,
+valid memory ranges, and synchronization; the bridge derives these from group,
+ownership, bounds, and recurrence proofs. Dynamic fragment indices, partial
+subgroups, and arbitrary pointer/layout expressions are not supported.
+
+Column-major A/B become physical row-major tensor views with transpose flags
+in the MPP descriptor. The validated SDK did not correctly implement the same
+operation by simply exchanging inline-tensor strides. Column-major C/D
+transfers instead compose the cooperative tensor's public per-lane coordinates
+with the memory leading stride. Row-major C/D keep MPP's bulk load/store.
+Thus memory orientation does not redefine the execution distribution. Each
+materialized fragment currently requires one consistent M/N/K and A/B layout
+contract across its MMA uses; incompatible uses are rejected.
+
+The MPP option searches the existing exact rectangular distribution family with
+`MatrixCostBasis::METAL_MPP_MEMORY`: MPP-specific relative-work features and
+backend-overridable coefficients. `GroupPlan::cost` is not a time prediction
+or measured register usage, and the earlier small-shape calibration does not
+establish large-shape accuracy. Late worker-private prefetching is disabled for this realization.
+Ordered/rejected MMA patterns still retain their semantic reference expansion.
+An otherwise matched MMA with a nonrectangular plan is rejected, not silently
+passed off as an MPP kernel.
+
+`CompileOptions::forward_readonly_tile_loads` is a separate, default-off option
+also used by non-MPP paths. Before pipeline/resource planning, the bridge can forward
+compiler-local snapshots to immutable parameter views. It requires the caller's
+`noalias` contract, audits the entire function for writes/escapes/unknown effects,
+matches a complete independent-element copy, proves its guard and indices with
+native TIRx simplification, and checks all consumers are dominated and in bounds.
+Proof inputs reject memory-derived indices and call expressions: immutable
+contents alone do not establish immutable addresses. Unproved tails, mutable
+inputs, aliases and manual memory retain their snapshots.
+Manual memory is marked even without a resource constraint. The matrix matcher
+accepts only explicitly authorized input identities; `global` alone grants no
+alias permission. Writable accumulators still require owned storage.
+
+This makes a full-K memory-input MPP candidate possible without allocating full-K
+A/B shared tiles. It does not establish profitability or replace the MPP cost
+policy. The patch also fixes a TVM `PointerValueTypeRewrite` bug exposed by
+these large global strides: an address modular coefficient must not overflow the
+signed 16-bit lane encoding. Unrepresentable vectorization hints conservatively
+remain scalar, rather than turning into accidental scalable-vector types.
+
+## Build in isolation
+
+### Optional bounded-K extension
+
+Apply `metal-mpp-bounded-k-v1.patch` **after** the v2 patch. It retains the
+original v2 ABI and separately advertises
+`target.metal.mpp_bounded_k_contract_version() == 1`. An installation without
+this capability keeps the strict, fully-in-bounds forwarding behavior.
+
+The memory multiply and multiply-accumulate calls may append one signed
+scalar integer `actual_k` (12 or 14 arguments respectively). Their nominal
+static M/N/K and destination layout contracts do not change. The caller
+must prove `0 < actual_k <= K`, uniform participation, immutable inputs, and
+valid full M×actual_k / actual_k×N memory rectangles at the supplied pointers.
+Strides must fit those **actual** rectangles. Dynamic values are caller
+preconditions, not runtime assertions; malformed literal extents, scalar
+types and known leading strides are rejected before launching.
+
+The code generator builds inline tensors with a dynamic K extent while M/N
+remain static. Transposes still belong to the descriptor. No extra buffer,
+CPU fallback, padding copy, precision reduction or Python source is involved.
+The bridge only omits a common zero×zero suffix: it proves canonical zero
+padding, equal actual A/B K lengths, nonnegative origins, positive lengths, unit-stride
+logical projections and fully in-bounds M/N under enclosing execution domains.
+It commits guarded forwarding only if every reassociable MMA still receives
+a verified atom plan; otherwise it retries the unchanged strict path. M/N
+tails, extra masks, nonzero fills and mismatched reduction intervals therefore
+retain snapshots. Accumulator lifetime, overwrite/accumulate mode, stage
+ordering and synchronization continue to use the existing proofs.
+
+This removes the nominal A/B shared allocation from eligible K-tail programs.
+The cost model still charges nominal K work conservatively; it is not a new
+calibration or a claim that the selected schedule beats MPS.
+
+### Optional bounded-M/N/K extension
+
+Apply `metal-mpp-bounded-mnk-v1.patch` **after both patches above**. It retains
+their ABIs and separately advertises
+`target.metal.mpp_bounded_mnk_contract_version() == 1`. The multiply and
+multiply-accumulate calls may append three scalar signed Int32/Int64 values
+`actual_m, actual_n, actual_k` (14 or 16 arguments respectively). The caller
+proves `0 <= actual_m <= M`, `0 <= actual_n <= N`, and `0 < actual_k <= K`.
+Actual rectangles and positive leading strides must fit the supplied memory;
+literal violations and wrong scalar types fail before launch. Dynamic values
+remain caller preconditions. Uniform participation and the nominal destination
+shape/fragment contract do not change.
+
+Nonempty inputs become dynamic-extent inline tensors. M/N padding remains
+observable arithmetic, including `0 * Inf`/NaN, not permission to drop nominal
+output elements. The validated M1 Max/SDK probe did **not** treat a zero-extent
+inline tensor as an empty operand. The emitter therefore handles a wholly
+empty operand separately: it visits the nominal cooperative output, reads
+only valid elements of the other operand, classifies FP32 bits, and preserves
+NaN and signed-zero accumulation. It never constructs an empty MPP tensor or
+reads an absent input. Lanes own rows/columns of the remaining operand and
+shuffle their classifications to the cooperative output's public coordinates.
+Collectives execute outside divergent output-validity predicates. Complete
+interior rectangles retain static M/N tensor views. This is subgroup work,
+not a CPU fallback, input staging allocation, or reduced-precision path.
+
+The bridge proves canonical positive-zero rectangles from affine projections
+under ancestor loop domains, then composes their lengths with subgroup origins.
+Empty subgroup rectangles use a valid base pointer. Unit projections determine
+transpose orientation even when a physical extent is one. Missing capability,
+extra masks, nonzero fills, unequal K intervals or failed ownership proofs
+retain the transactional snapshot path. The extension adds no DSL entity or
+new execution-distribution family. Forwarding stays default-off; nominal cost
+features are conservative and do not model empty-rectangle scans or measured
+profitability.
+
+### Optional bounded-output extension
+
+Apply `metal-mpp-bounded-store-v1.patch` after the three extensions above. It
+separately advertises `target.metal.mpp_bounded_store_contract_version() == 1`.
+The original 11-argument `cooperative_tensor_store` ABI is unchanged; a store
+may append signed scalar Int32/Int64 `actual_rows, actual_columns`. Loads
+still require exactly 11 arguments. The destination tensor keeps its nominal
+M/N/K, role, fragment identity and execution distribution. Both extents must
+be between zero and the corresponding nominal extent. Literal violations,
+wrong scalar types and incompatible known leading strides fail before launch.
+Dynamic extents, valid pointers/rectangles and uniform complete-subgroup
+participation remain caller preconditions, not runtime bounds assertions.
+
+Only that logical prefix rectangle is written. Full row-major interiors keep
+the static bulk MPP store; edges and column-major destinations compose MPP's
+public cooperative coordinates with the physical leading stride. Neither
+opaque lane layout nor an empty inline tensor is assumed. Empty outputs use
+a valid base pointer and leave every destination element untouched.
+
+The bridge proves the output bounds independently of A/B padding. It requires
+a closed, unobserved accumulator, a nonnegative affine unit projection and
+equivalence between the sink guard and the physical bounds under the ancestor
+execution domain. Permuted/reassociated conjunctions are matched in both
+directions; an unmatched mask is not dropped. Logical valid lengths are then
+composed with subgroup origins. A padded input element can still yield an
+observable output initializer/NaN, so input lengths cannot substitute for
+these output lengths. Manual memory, observed carry state, negative origins,
+extra masks and missing capability retain the previous output realization.
+Other resources, including a snapshot of the old output, retain their lifetime
+and original store order.
+
+This enlarges the existing planner's legal direct-output family, including
+its derived shared-storage release and one-shot overwrite mode. It adds no
+DSL entity, operator-name/size rule, solver or cost coefficient. The current
+model does not separately price bounded coordinate stores or edge fractions;
+removing a temporary is not by itself a performance guarantee.
+
+### Optional fragment-element extension
+
+Apply `metal-mpp-element-v1.patch` after the four extensions above. The
+separate `target.metal.mpp_element_contract_version() == 1` capability
+exposes destination-fragment capacity, local-element validity, scalar loads
+and scalar stores as typed native TIRx operations. The fragment ordinal is
+constant; the local element ordinal is Int32. These are **thread-local
+ordinals, not matrix coordinates**. The existing declaration/MMA/transfer
+contract determines the cooperative layout. A caller must initialize the
+fragment and guard accesses by capacity and `is_valid_element`.
+
+Capacity/validity are pure queries, loads read state, and stores have opaque
+write effects. Scalar arithmetic and bindings remain ordinary, transformable
+TIRx IR. No named activation, serialized expression, Python callback, or
+guessed lane-to-matrix layout is introduced. Wrong scalar types, negative
+literal local indices, undeclared fragments and invalid fragment ordinals
+fail compilation; dynamic bounds remain caller preconditions.
+
+With `PlannerOptions::fuse_matrix_epilogues` (default off), the bridge admits
+a closed, same-owner scalar DAG between the accumulator
+and its sole global sink. Literals, ordinary scalar operations and calls
+with a pure effect contract compose; compiler-owned materializations become
+scalar bindings rather than repeated tile loads. Every load must refer to
+the same logical `(row, column)` of the carry or a dominating DAG producer.
+The whole group is audited for other observations and escapes. Manual
+memory, unmarked producers, neighbor/transposed reads, resource operands,
+free variables and extra consumers conservatively retain the previous path.
+Output bounds, layout and store position still use the bounded-output proof.
+
+Planner candidates release the proved additional DAG storage only when
+direct output is selected. Producer/sink arithmetic remains charged through
+the existing independent-element proxy; this does not claim calibrated
+instruction counts or actual register pressure. No new coefficient or
+operator/shape table is fitted. Missing capability preserves the old path.
+
+### Optional narrow memory-input extension
+
+`metal-mpp-narrow-input-v1.patch` adds the separate capability
+`target.metal.mpp_narrow_input_contract_version() == 1`. It was tested against
+TVM commit `46bc8c6a38e41b55fbc41f796e77773cb7b4f887` after the preceding MPP
+extensions and typed-pointer BF16 legalization fixes were ported to that
+revision. Its `src/backend/metal/codegen` paths target that newer TVM layout;
+it is not an unqualified patch for the original pinned revision above.
+
+Matching FP16/FP16 or BF16/BF16 A/B memory inputs retain their true typed
+tensor views, while destination cooperative fragments and accumulation remain
+FP32. Mixed A/B types, arbitrary UInt16 pointers, and narrow destination
+fragment transfers fail closed. Existing shape, stride, distribution, bounds,
+and recurrence proofs still apply; the extension does not enable ordered
+reference expansions to use MPP.
+
+BF16 storage legalization keeps its UInt16 host/device buffer ABI. Only the
+memory operands of the two cooperative matrix intrinsics that were originally
+typed BF16 acquire an explicit BF16 pointer projection after legalization.
+The empty bounded-M/N case classifies FP16/BF16 raw bits for infinity, NaN,
+and signed zero, preserving the existing FP32 destination semantics without
+reading a missing operand or treating arbitrary UInt16 memory as BF16.
+
+Build the patched TVM compiler before rebuilding Luisa. The bridge checks the
+new capability before requesting narrow MPP, and an older compiler rejects
+that explicit request. Actual MPP source emission and full output validation
+remain required before a narrow-input benchmark qualifies as an MPP result.
+
+### Commands
+
+Use a clean checkout at the pinned commit; initialize its `3rdparty/tvm-ffi`
+submodule recursively. Set these paths to separate, task-owned directories:
+
+```sh
+TVM_SRC=/path/to/tvm
+TVM_BUILD=/path/to/tvm-mpp-build
+LUISA_SRC=/path/to/LuisaCompute
+LUISA_BUILD=/path/to/luisa-mpp-build
+
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-memory-v2.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-memory-v2.patch"
+# Optional: enable proved zero-padded K suffixes without nominal shared tiles.
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-k-v1.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-k-v1.patch"
+# Optional: also enable proved M/N edges, including empty subgroup rectangles.
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-mnk-v1.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-mnk-v1.patch"
+# Optional: store proved output prefixes without a shared accumulator sink.
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-store-v1.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-bounded-store-v1.patch"
+# Optional: compose closed scalar DAGs directly in MPP output fragments.
+git -C "$TVM_SRC" apply --check "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-element-v1.patch"
+git -C "$TVM_SRC" apply "$LUISA_SRC/src/tile/bridge/tirx/patches/metal-mpp-element-v1.patch"
+
+cmake -S "$TVM_SRC" -B "$TVM_BUILD" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DUSE_LLVM=/opt/homebrew/opt/llvm@21/bin/llvm-config \
+  -DUSE_METAL=ON -DUSE_MLIR=OFF -DUSE_RPC=OFF -DUSE_Z3=OFF -DUSE_GTEST=OFF
+cmake --build "$TVM_BUILD" --parallel 8
+
+cmake -S "$LUISA_SRC" -B "$LUISA_BUILD" -G Ninja \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DLUISA_COMPUTE_ENABLE_METAL=ON -DLUISA_COMPUTE_ENABLE_METAL4=OFF \
+  -DLUISA_COMPUTE_ENABLE_CUDA=OFF -DLUISA_COMPUTE_ENABLE_VULKAN=OFF \
+  -DLUISA_COMPUTE_ENABLE_HIP=OFF -DLUISA_COMPUTE_ENABLE_FALLBACK=OFF \
+  -DLUISA_COMPUTE_ENABLE_GUI=OFF -DLUISA_COMPUTE_ENABLE_SIMD=OFF \
+  -DLUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF -DLUISA_COMPUTE_DOWNLOAD_OIDN=OFF \
+  -DLUISA_COMPUTE_BUILD_TESTS=ON -DLUISA_COMPUTE_ENABLE_TILE_TIRX_BRIDGE=ON \
+  -DLUISA_COMPUTE_TVM_INCLUDE_DIR="$TVM_SRC/include" \
+  -DLUISA_COMPUTE_TVM_LIBRARY_DIR="$TVM_BUILD/lib" \
+  -DLUISA_COMPUTE_TVM_FFI_INCLUDE_DIR="$TVM_SRC/3rdparty/tvm-ffi/include" \
+  -DLUISA_COMPUTE_TVM_FFI_LIBRARY_DIR="$TVM_BUILD/lib"
+cmake --build "$LUISA_BUILD" --parallel 8
+```
+
+This configuration requires the Metal 4 SDK/toolchain and macOS/iOS 26 at
+runtime for MPP. It does not enable Luisa's separate Metal4 backend. Both the
+existing TVM Runtime and Luisa's ordinary Metal Runtime can launch the resulting
+TIRx MPP code. `DeviceArtifact::requires_metal4` comes from typed allocations;
+the backend validates OS/device capability and includes language version in
+the compiler cache key. No shader-source rewriting is involved.
+
+## Validation and comparison
+
+After a **full build**, run `test_tile_tirx_matrix_metal` and
+`test_tile_native_runtime`. The former covers nonzero C, literal fills,
+positive-zero one-shot multiply selection and multi-iteration fallback,
+transposes, pipeline versions, ragged tiles, multiple K iterations, direct
+global views, all sixteen A/B/C/D layout combinations, distinct C/D fragments,
+large full-K strides, manual memory with/without placement, mutable inputs and
+address indices, address escape, and malformed intrinsic rejection. The
+latter covers Luisa buffer offsets, guards, resource ownership, and aliases.
+The unpatched build checks that the explicit MPP request is rejected.
+
+The optional bounded-output tests additionally cover full, partial and empty
+store prefixes, nonzero offsets, narrow physical strides, transposed output,
+NaN/Inf/signed zero and malformed typed ABI. High-level checks preserve
+initializers, output padding, old-output snapshots, manual/observed carry and
+the arbitrary-mask/negative-origin fallback. A current bridge linked with a
+compiler lacking bounded-store-v1 retains the old output path. The
+[fixed-schedule evidence](../../../../../scripts/benchmark/tile_torch/results/m1-max-20260906-mpp-bounded-store/notes.md)
+separates legal storage removal from measured profitability and records the
+remaining Torch/MPS gaps; it does not promote new default tuning parameters.
+
+`benchmark_tile_tirx` accepts `mpp` in its matrix-mode argument. It records
+separate static SIMD-group/MPP call counts and the planner's cost basis. Use
+`compare_lowerings.py --tirx-mpp` to add this path beside native MPP, independent
+TIRx SIMD-group, handwritten MPP, direct MPS, and Torch. Pass each externally
+linked TVM compiler/runtime/FFI library through `--compiler-artifact` so it is
+fingerprinted before and after timing. Six paths require twelve rounds for
+balanced ordering. Full output validation precedes accepting every timing row.
+
+The v2 balanced replay covers eight square, rectangular, and ragged FP32 GEMMs,
+seven independent implementations, fourteen position-balanced rounds, and
+784/784 complete FP64-oracle-valid outputs. With the previously frozen plan,
+1024³ TIRx MPP views improved from 291.736 us under v1 to 273.996 us under v2,
+versus Torch 284.805 us, MPS 272.694 us, and handwritten MPP 266.476 us in the
+same v2 replay. This closes the Torch gap and leaves a 0.40% paired MPS gap for
+that frozen 64x64 plan. A separately reported 128x32 exploratory plan reached
+270.66 us with conservative barriers and about 264.5 us with proved fence
+elision, demonstrating that remaining schedule selection belongs in the MPP
+cost model/solver rather than a shape-specific lowering rule. See the
+[complete v2 table](../../../../../scripts/benchmark/tile_torch/results/m1-max-20260905-mpp-multiply-v2/results.md)
+and its raw artifact-fingerprinted evidence. These are synchronized host-wall
+batched times, not GPU-event times or a universal performance claim.
+
+`benchmark_tile_tirx` also accepts `mpp-views`. Search this family with
+`run.py --matrix-realization mpp-views --cooperative-matrix --execution-scope group
+--backends metal --operations gemm` and the existing explicit JIT candidate lists.
+Then supply its frozen report to `compare_lowerings.py --tirx-mpp
+--tirx-view-plan path/to/results.json`. This adds a seventh path without replacing
+either TIRx control; fourteen rounds balance the comparison. Its geometry may
+differ, so do not call it a same-schedule ablation.
+
+The [recorded seven-path replay](../../../../../scripts/benchmark/tile_torch/results/m1-max-20260904-tirx-views/notes.md)
+keeps all 784 valid complete outputs, rejected search candidates, frozen
+schedules and artifact fingerprints, including the remaining MPS gap.
+
+Keep native and TIRx schedules independently recorded. Do not infer a speedup
+from compilation success, compare GPU-event time with host-wall time, or call
+an analytic MPP cost a measured time.
+
+## CUDA device-artifact codegen decision (no patch required)
+
+The CUDA Tile route uses Apache TVM's ordinary CUDA C code generator
+(`target.build.cuda`, `InspectSource("cuda")`) to produce `DeviceArtifact`
+`Format::CUDA_SOURCE`, which the CUDA backend compiles to PTX with its existing
+standalone-NVRTC pipeline. A `target.build.nvptx` target is also accepted by
+`compile_device()` as `Format::PTX` (direct PTX text, no NVRTC). Standard TVM
+already ships these builders, so no source patch under this directory is
+required for the reference (no cooperative matrix/vector) realization. If a
+  pinned TVMx build lacks `target.build.cuda`, `compile_device()` reports a
+  missing-builder error instead of silently falling back; revisit this directory
+  only if such a fork becomes the configured tree.
+
+  Reference-route invariants on CUDA/NVPTX:
+  - the mapper keeps every generated block warp aligned: partial
+    worker/elementwise domains are rounded up to the 32-thread warp and an
+    unaligned per-block cap is rounded down (Metal/LLVM mappings unchanged);
+  - the CUDA backend persists a successfully patched old-driver PTX back to the
+    tile cache and exposes a test-only `LUISA_CUDA_TILE_FORCE_UNSUPPORTED_PTX=1`
+    knob that simulates the first-probe unsupported-version path; and
+  - `Format::PTX` is final NVPTX text that the backend cannot recompile for
+    another architecture, so load failures name the `.target` request and
+    recommend the `cuda` (CUDA C source) target.

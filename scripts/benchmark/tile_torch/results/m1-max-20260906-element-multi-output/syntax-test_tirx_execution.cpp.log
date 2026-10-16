@@ -1,0 +1,59 @@
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 43, col 95
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 44, col 89
+Warning: The parameter 'x' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 88, col 90
+Warning: The parameter 'y' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 88, col 114
+Warning: The parameter 'x' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 128, col 79
+Warning: The parameter 'x' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 148, col 94
+Warning: The parameter 'y' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 148, col 118
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 216, col 98
+Warning: The parameter 'first' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 217, col 92
+Warning: The parameter 'second' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 218, col 92
+Warning: The parameter 'third' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 219, col 92
+Warning: Passing result of std::move() as a const reference argument; no move will actually happen (fix available) [performance-move-const-arg] at line 414, col 25
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 456, col 99
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 457, col 93
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 487, col 79
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 488, col 73
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 512, col 80
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 513, col 74
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 542, col 86
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 543, col 80
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 582, col 92
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 583, col 86
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 596, col 91
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 597, col 85
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 614, col 94
+Warning: The parameter 'parameters' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 615, col 94
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 616, col 88
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 640, col 98
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 641, col 92
+Warning: The parameter 'logits' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 658, col 97
+Warning: The parameter 'labels' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 659, col 99
+Warning: The parameter 'losses' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 660, col 91
+Warning: The parameter 'logits' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 681, col 105
+Warning: The parameter 'labels' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 682, col 107
+Warning: The parameter 'losses' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 683, col 99
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 709, col 91
+Warning: The parameter 'minima' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 710, col 85
+Warning: The parameter 'maxima' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 711, col 85
+Hint: Function 'reduction_cost' should be marked [[nodiscard]] (fix available) [modernize-use-nodiscard] at line 905, col 9
+Hint: Function 'reduction_cost' should be marked [[nodiscard]] (fix available) [modernize-use-nodiscard] at line 930, col 9
+Warning: Either cast from 'unsigned int' to 'int64_t' (aka 'long long') is ineffective, or there is loss of precision before the conversion [bugprone-misplaced-widening-cast] at line 983, col 27
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1033, col 101
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1033, col 129
+Warning: Either cast from 'unsigned int' to 'int64_t' (aka 'long long') is ineffective, or there is loss of precision before the conversion [bugprone-misplaced-widening-cast] at line 1249, col 27
+Warning: The parameter 'x' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1301, col 83
+Warning: The parameter 'y' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1301, col 107
+Warning: The parameter 'x' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1342, col 92
+Warning: The parameter 'y' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1342, col 116
+Warning: Narrowing conversion from 'unsigned long long' to 'double' [cppcoreguidelines-narrowing-conversions] at line 1412, col 66
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1766, col 83
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1767, col 77
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1872, col 91
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1894, col 92
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1895, col 86
+Warning: The parameter 'input' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1945, col 89
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 1946, col 83
+Warning: The parameter 'output' is copied for each invocation but only used as a const reference; consider making it a const reference (fix available) [performance-unnecessary-value-param] at line 2000, col 76
+------------------------------------------------------------
+Total: 0 error(s), 55 warning(s)

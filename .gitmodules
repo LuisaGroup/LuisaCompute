@@ -15,7 +15,7 @@
 	url = https://github.com/LuisaGroup/EASTL.git
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
-	url = https://github.com/LuisaGroup/pybind11.git
+	url = https://github.com/pybind/pybind11.git
 [submodule "src/ext/magic_enum"]
 	path = src/ext/magic_enum
 	url = https://github.com/Neargye/magic_enum
@@ -44,3 +44,9 @@
 [submodule "src/ext/spirv-headers"]
 	path = src/ext/spirv-headers
 	url = https://github.com/KhronosGroup/SPIRV-Headers.git
+[submodule "src/ext/llvm-downgrade"]
+	path = src/ext/llvm-downgrade
+	url = https://github.com/JuliaLLVM/llvm-downgrade.git
+[submodule "src/ext/tvm"]
+	path = src/ext/tvm
+	url = https://github.com/apache/tvm

@@ -1,0 +1,31 @@
+{
+  "attempts": [
+    {
+      "kind": "local offline audit",
+      "command": ["/tmp/luisa-metal-attention-recovery.5MPxs3/venv/bin/python", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/audit.py", "/tmp/luisa-metal-block-mapping.eI6JXf", "--helpers-dir", "scripts/benchmark/tile_torch", "--output", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/audit-1.json"],
+      "exit_code": 1,
+      "error": "ValueError: unexpected command: attention-small-q4-0-block0",
+      "cause": "Audit compared the recorded /private/tmp output path with its /tmp alias without normalizing the macOS alias. No raw evidence or benchmark scripts were changed; audit-1.json was not created.",
+      "resolution": "Normalize only the lexical /private/tmp/ prefix to /tmp/ during argv comparison, retaining exact validation of all other tokens."
+    },
+    {
+      "kind": "local offline audit after lexical path correction",
+      "command": ["/tmp/luisa-metal-attention-recovery.5MPxs3/venv/bin/python", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/audit.py", "/tmp/luisa-metal-block-mapping.eI6JXf", "--helpers-dir", "scripts/benchmark/tile_torch", "--output", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/audit-1.json"],
+      "exit_code": 0,
+      "stdout": "{\"status\": \"passed\", \"visits\": 48, \"tensor_receipts\": 192, \"metric_sample_values\": 864}",
+      "audit_sha256": "ec4cd5dd6078753af337fed2f70bcbe1f5945bcd721c18f86f9466f8488f7c8d",
+      "result_sha256": "c907463c207a94b2cf42e3ed08570b7ce9f4077692bbfcfdfbf20ae0b49a1cf3",
+      "boundary": "No native execution, rebuild, recapture or timing. Receipt records the observed offline command exit/output; no invented process timestamps."
+    },
+    {
+      "kind": "portable offline audit of a fresh extraction",
+      "command": ["/tmp/luisa-metal-attention-recovery.5MPxs3/venv/bin/python", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/audit.py", "/tmp/luisa-metal-block-portable.vyzCDa", "--inventory", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/package-inventory.json", "--output", "scripts/benchmark/tile_torch/results/m1-max-20260914-metal-block-mapping/audit-portable.json"],
+      "exit_code": 0,
+      "stdout": "{\"status\": \"passed\", \"visits\": 48, \"tensor_receipts\": 192, \"metric_sample_values\": 864}",
+      "audit_sha256": "ec4cd5dd6078753af337fed2f70bcbe1f5945bcd721c18f86f9466f8488f7c8d",
+      "result_sha256": "c907463c207a94b2cf42e3ed08570b7ce9f4077692bbfcfdfbf20ae0b49a1cf3",
+      "byte_identical_to_local_audit": true,
+      "boundary": "All 828 extracted members checked against inventory. Tensor/source/helper paths remapped inside extraction; no original live binaries, selected sources or tensors accessed, and no native execution. Python interpreter and NumPy are audit dependencies, not packaged loader closure."
+    }
+  ]
+}

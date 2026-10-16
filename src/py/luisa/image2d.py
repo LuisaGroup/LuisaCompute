@@ -159,7 +159,7 @@ class Image2D:
         dlcmd = lcapi.TextureDownloadCommand.create(self.handle, self.storage, 0,
                                                     lcapi.uint3(self.width, self.height, 1), arr)
         stream.add(dlcmd)
-        # stream.add_readback_buffer(arr)
+        stream.add_readback_buffer(arr)
         if sync:
             stream.synchronize()
 

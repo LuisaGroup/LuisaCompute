@@ -1,0 +1,415 @@
+
+Running "tile_matrix_shapes_transposes_and_pipeline_versions"... SKIPPED
+
+Running "tile_matrix_math_policy_and_participant_gates"... SKIPPED
+
+Running "tile_matrix_exact_threads_use_actual_target_limit"... SKIPPED
+
+Running "tile_matrix_mpp_memory_inputs_and_nonzero_accumulator"... SKIPPED
+
+Running "tile_matrix_mpp_typed_contract_and_rejections"... SKIPPED
+
+Running "tile_matrix_mpp_readonly_view_proofs"... SKIPPED
+
+Running "tile_matrix_mpp_bounded_k_views"... SKIPPED
+
+Running "tile_matrix_mpp_bounded_mn_semantics"... SKIPPED
+
+Running "tile_matrix_mpp_bounded_store_contract"... SKIPPED
+
+Running "tile_matrix_mpp_bounded_mn_views"... SKIPPED
+
+Running "tile_matrix_mpp_independent_subgroups_and_sync_boundaries"... SKIPPED
+
+Running "tile_matrix_stale_marker_does_not_tensorize"... SKIPPED
+
+Running "tile_matrix_literal_initial_and_zero_contraction"... SKIPPED
+
+Running "tile_matrix_worker_local_is_not_a_collective"... SKIPPED
+
+Running "tile_matrix_mixed_conversion_keeps_reference_types"... SKIPPED
+
+Running "tile_cpu_matrix_vectors_and_scalar_tails"... SKIPPED
+
+Running "tile_cpu_stack_storage"... SKIPPED
+
+Running "tile_cpu_readonly_view_gemm"... SKIPPED
+
+Running "tile_cpu_readonly_view_proofs"... SKIPPED
+
+Running "tile_cpu_readonly_view_aliases"... SKIPPED
+
+Running "tile_cpu_cartesian_packing"... SKIPPED
+
+Running "tile_cpu_cartesian_transformed_domains"... SKIPPED
+
+Running "tile_cpu_matrix_preserves_k_order"... SKIPPED
+
+Running "tile_matrix_planner_emits_reused_fragments"... SKIPPED
+
+Running "tile_matrix_late_prefetch_resources_and_tails"... SKIPPED
+
+Running "tile_matrix_late_prefetch_rejects_global_mutation"... SKIPPED
+
+Running "tile_matrix_observed_carry_cannot_be_promoted"... SKIPPED
+
+Running "tile_matrix_direct_output_and_observation_guards"... SKIPPED
+
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2060 - test condition:  [1536 == 0]
+
+ 32x48x24, block=16x24x8, offset=0,0 transpose=false history=true observed=false pin=false mask=false direct=true // Function: matrix_direct_output_kernel
+#include <metal_stdlib>
+using namespace metal;
+
+union __TVMArgUnion {
+ int v_int[2];
+};
+
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
+kernel void matrix_direct_output_kernel(  device float* arg0_ptr [[ buffer(0) ]],
+  device float* arg1_ptr [[ buffer(1) ]],
+  device float* arg2_ptr [[ buffer(2) ]],
+  device float* arg3_ptr [[ buffer(3) ]],
+  uint blockIdx [[threadgroup_position_in_grid]],
+  uint threadIdx [[thread_position_in_threadgroup]]
+) {
+  constexpr auto mpp_descriptor = mpp::tensor_ops::matmul2d_descriptor(16, 8, mpp::tensor_ops::dynamic_length_v<int>, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate);
+  using mpp_operation = mpp::tensor_ops::matmul2d<mpp_descriptor, execution_simdgroups<1>>;
+  using mpp_tensor = mpp_operation::cooperative_tensor_destination_t<mpp_operation::cooperative_tensor_left_input_t<float, float, float>, mpp_operation::cooperative_tensor_right_input_t<float, float, float>, float>;
+  mpp_tensor tile_i_10_mpp_c_fragment;
+  {
+#pragma unroll
+for (uint mpp_element = 0; mpp_element < tile_i_10_mpp_c_fragment.get_capacity(); ++mpp_element) { if (tile_i_10_mpp_c_fragment.is_valid_element(mpp_element)) tile_i_10_mpp_c_fragment[mpp_element] = 3.750000e-01f; } };
+  int cse_v1 = (((int)blockIdx) >> 1);
+  int cse_v3 = ((((int)blockIdx) & 1) * 24);
+  int cse_v4 = ((((int)threadIdx) >> 5) * 8);
+  for (int pipeline_6 = 0; pipeline_6 < 3; ++pipeline_6) {
+    { auto mpp_left = tensor<device float, extents<int, 8, 16>, tensor_inline>((&(arg0_ptr[(((((int)blockIdx) >> 1) * 384) + (pipeline_6 * 8))])), extents<int, 8, 16>{}, array<int, 2>{1, 24}); auto mpp_right = tensor<device float, extents<int, 8, 8>, tensor_inline>((&(arg1_ptr[(((pipeline_6 * 384) + ((((int)blockIdx) & 1) * 24)) + ((((int)threadIdx) >> 5) * 8))])), extents<int, 8, 8>{}, array<int, 2>{1, 48}); mpp_operation{}.run(mpp_left, mpp_right, tile_i_10_mpp_c_fragment); };
+    metal::threadgroup_barrier(metal::mem_flags(2));
+  }
+  threadgroup float tile_storage_15_shared[384];
+  int cse_v2 = (((int)threadIdx) % 24);
+  int cse_v5 = ((((int)blockIdx) >> 1) * 768);
+  int cse_v6 = ((((int)threadIdx) / 24) * 48);
+  for (int tile_i_16_chunk = 0; tile_i_16_chunk < 4; ++tile_i_16_chunk) {
+    tile_storage_15_shared[((tile_i_16_chunk * 96) + ((int)threadIdx))] = arg2_ptr[((((((((int)blockIdx) >> 1) * 768) + (tile_i_16_chunk * 192)) + ((((int)threadIdx) / 24) * 48)) + ((((int)blockIdx) & 1) * 24)) + (((int)threadIdx) % 24))];
+  }
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  for (int tile_i_18_chunk = 0; tile_i_18_chunk < 4; ++tile_i_18_chunk) {
+    arg3_ptr[((((((((int)blockIdx) >> 1) * 768) + (tile_i_18_chunk * 192)) + ((((int)threadIdx) / 24) * 48)) + ((((int)blockIdx) & 1) * 24)) + (((int)threadIdx) % 24))] = tile_storage_15_shared[((tile_i_18_chunk * 96) + ((int)threadIdx))];
+  }
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  tile_i_10_mpp_c_fragment.store(tensor<device float, extents<int, 8, 16>, tensor_inline>((&(arg2_ptr[((((((int)blockIdx) >> 1) * 768) + ((((int)blockIdx) & 1) * 24)) + ((((int)threadIdx) >> 5) * 8))])), extents<int, 8, 16>{}, array<int, 2>{1, 48}));
+  metal::threadgroup_barrier(metal::mem_flags(2));
+}
+
+
+
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2060 - test condition:  [1536 == 0] 32x48x24, block=16x24x8, offset=0,0 transpose=false history=true observed=false pin=false mask=false direct=true // Function: matrix_direct_output_kernel
+#include <metal_stdlib>
+using namespace metal;
+
+union __TVMArgUnion {
+ int v_int[2];
+};
+
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
+kernel void matrix_direct_output_kernel(  device float* arg0_ptr [[ buffer(0) ]],
+  device float* arg1_ptr [[ buffer(1) ]],
+  device float* arg2_ptr [[ buffer(2) ]],
+  device float* arg3_ptr [[ buffer(3) ]],
+  uint blockIdx [[threadgroup_position_in_grid]],
+  uint threadIdx [[thread_position_in_threadgroup]]
+) {
+  constexpr auto mpp_descriptor = mpp::tensor_ops::matmul2d_descriptor(16, 8, mpp::tensor_ops::dynamic_length_v<int>, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate);
+  using mpp_operation = mpp::tensor_ops::matmul2d<mpp_descriptor, execution_simdgroups<1>>;
+  using mpp_tensor = mpp_operation::cooperative_tensor_destination_t<mpp_operation::cooperative_tensor_left_input_t<float, float, float>, mpp_operation::cooperative_tensor_right_input_t<float, float, float>, float>;
+  mpp_tensor tile_i_10_mpp_c_fragment;
+  {
+#pragma unroll
+for (uint mpp_element = 0; mpp_element < tile_i_10_mpp_c_fragment.get_capacity(); ++mpp_element) { if (tile_i_10_mpp_c_fragment.is_valid_element(mpp_element)) tile_i_10_mpp_c_fragment[mpp_element] = 3.750000e-01f; } };
+  int cse_v1 = (((int)blockIdx) >> 1);
+  int cse_v3 = ((((int)blockIdx) & 1) * 24);
+  int cse_v4 = ((((int)threadIdx) >> 5) * 8);
+  for (int pipeline_6 = 0; pipeline_6 < 3; ++pipeline_6) {
+    { auto mpp_left = tensor<device float, extents<int, 8, 16>, tensor_inline>((&(arg0_ptr[(((((int)blockIdx) >> 1) * 384) + (pipeline_6 * 8))])), extents<int, 8, 16>{}, array<int, 2>{1, 24}); auto mpp_right = tensor<device float, extents<int, 8, 8>, tensor_inline>((&(arg1_ptr[(((pipeline_6 * 384) + ((((int)blockIdx) & 1) * 24)) + ((((int)threadIdx) >> 5) * 8))])), extents<int, 8, 8>{}, array<int, 2>{1, 48}); mpp_operation{}.run(mpp_left, mpp_right, tile_i_10_mpp_c_fragment); };
+    metal::threadgroup_barrier(metal::mem_flags(2));
+  }
+  threadgroup float tile_storage_15_shared[384];
+  int cse_v2 = (((int)threadIdx) % 24);
+  int cse_v5 = ((((int)blockIdx) >> 1) * 768);
+  int cse_v6 = ((((int)threadIdx) / 24) * 48);
+  for (int tile_i_16_chunk = 0; tile_i_16_chunk < 4; ++tile_i_16_chunk) {
+    tile_storage_15_shared[((tile_i_16_chunk * 96) + ((int)threadIdx))] = arg2_ptr[((((((((int)blockIdx) >> 1) * 768) + (tile_i_16_chunk * 192)) + ((((int)threadIdx) / 24) * 48)) + ((((int)blockIdx) & 1) * 24)) + (((int)threadIdx) % 24))];
+  }
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  for (int tile_i_18_chunk = 0; tile_i_18_chunk < 4; ++tile_i_18_chunk) {
+    arg3_ptr[((((((((int)blockIdx) >> 1) * 768) + (tile_i_18_chunk * 192)) + ((((int)threadIdx) / 24) * 48)) + ((((int)blockIdx) & 1) * 24)) + (((int)threadIdx) % 24))] = tile_storage_15_shared[((tile_i_18_chunk * 96) + ((int)threadIdx))];
+  }
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  tile_i_10_mpp_c_fragment.store(tensor<device float, extents<int, 8, 16>, tensor_inline>((&(arg2_ptr[((((((int)blockIdx) >> 1) * 768) + ((((int)blockIdx) & 1) * 24)) + ((((int)threadIdx) >> 5) * 8))])), extents<int, 8, 16>{}, array<int, 2>{1, 48}));
+  metal::threadgroup_barrier(metal::mem_flags(2));
+}
+
+
+FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2046 - test condition:  [false == true]
+
+ 37x37x21, block=32x32x16, offset=1,3 transpose=true history=false observed=false pin=false mask=false direct=true # from tvm.script import tirx as T
+# from tvm.tirx.layout import Axis
+
+@T.prim_func(private=True)
+def main(arg0: T.Buffer((T.int64(37), T.int64(21)), "float32", layout=None), arg1: T.Buffer((T.int64(21), T.int64(37)), "float32", layout=None), arg2: T.Buffer((T.int64(43), T.int64(43)), "float32", layout=None), arg3: T.Buffer((T.int64(43), T.int64(43)), "float32", layout=None)):
+    for parallel_0 in T.serial(T.int64(4), annotations={"luisa.tile.execution_scope": "group", "luisa.tile.logical_parallel": T.int64(0)}):
+        tile_storage_0 = T.alloc_local((T.int64(32), T.int64(32)), layout=None)
+        for tile_i_1 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+            for tile_i_2 in range(T.int64(32)):
+                tile_storage_0[tile_i_1, tile_i_2] = T.float32(0.375)
+        for pipeline_6 in T.serial(T.int64(2), annotations={"luisa.tile.pipeline": T.int64(6), "luisa.tile.pipeline_interval": T.int64(1), "luisa.tile.pipeline_window": T.int64(1)}):
+            tile_storage_3 = T.alloc_local((T.int64(32), T.int64(16)), layout=None)
+            tile_storage_6 = T.alloc_local((T.int64(16), T.int64(32)), layout=None)
+            tile_storage_9 = T.alloc_local((T.int64(32), T.int64(32)), layout=None)
+            with T.attr("load", "luisa.tile.pipeline_stage", T.int64(0)):
+                for tile_i_4 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+                    for tile_i_5 in range(T.int64(16)):
+                        tile_storage_3[tile_i_4, tile_i_5] = T.if_then_else(parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + tile_i_4 >= T.int64(0) and parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + tile_i_4 < T.int64(37) and pipeline_6 % T.int64(2) * T.int64(16) + tile_i_5 >= T.int64(0) and pipeline_6 % T.int64(2) * T.int64(16) + tile_i_5 < T.int64(21), arg0[parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + tile_i_4, pipeline_6 % T.int64(2) * T.int64(16) + tile_i_5], T.float32(0.0))
+                for tile_i_7 in T.serial(T.int64(16), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+                    for tile_i_8 in range(T.int64(32)):
+                        tile_storage_6[tile_i_7, tile_i_8] = T.if_then_else(pipeline_6 % T.int64(2) * T.int64(16) + tile_i_7 >= T.int64(0) and pipeline_6 % T.int64(2) * T.int64(16) + tile_i_7 < T.int64(21) and parallel_0 % T.int64(2) * T.int64(32) + tile_i_8 >= T.int64(0) and parallel_0 % T.int64(2) * T.int64(32) + tile_i_8 < T.int64(37), arg1[pipeline_6 % T.int64(2) * T.int64(16) + tile_i_7, parallel_0 % T.int64(2) * T.int64(32) + tile_i_8], T.float32(0.0))
+            with T.attr("compute", "luisa.tile.pipeline_stage", T.int64(1)):
+                for tile_i_10 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2), "luisa.tile.mma": 1}):
+                    for tile_i_11 in range(T.int64(32)):
+                        tile_storage_9[tile_i_10, tile_i_11] = tile_storage_0[tile_i_10, tile_i_11]
+                        for tile_i_12 in range(T.int64(16)):
+                            tile_storage_9[tile_i_10, tile_i_11] = tile_storage_9[tile_i_10, tile_i_11] + tile_storage_3[tile_i_10, tile_i_12] * tile_storage_6[tile_i_12, tile_i_11]
+                for tile_i_13 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+                    for tile_i_14 in range(T.int64(32)):
+                        tile_storage_0[tile_i_13, tile_i_14] = tile_storage_9[tile_i_13, tile_i_14]
+        for tile_i_15 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+            for tile_i_16 in range(T.int64(32)):
+                if parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + T.int64(1) + tile_i_15 >= T.int64(0) and parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + T.int64(1) + tile_i_15 < T.int64(43) and parallel_0 % T.int64(2) * T.int64(32) + T.int64(3) + tile_i_16 >= T.int64(0) and parallel_0 % T.int64(2) * T.int64(32) + T.int64(3) + tile_i_16 < T.int64(43):
+                    arg2[parallel_0 % T.int64(2) * T.int64(32) + T.int64(3) + tile_i_16, parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + T.int64(1) + tile_i_15] = tile_storage_0[tile_i_15, tile_i_16]
+Running test "tile_matrix_mpp_bounded_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2060 - test condition:  [1536 == 0] 32x48x24, block=16x24x8, offset=0,0 transpose=false history=true observed=false pin=false mask=false direct=true // Function: matrix_direct_output_kernel
+#include <metal_stdlib>
+using namespace metal;
+
+union __TVMArgUnion {
+ int v_int[2];
+};
+
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
+kernel void matrix_direct_output_kernel(  device float* arg0_ptr [[ buffer(0) ]],
+  device float* arg1_ptr [[ buffer(1) ]],
+  device float* arg2_ptr [[ buffer(2) ]],
+  device float* arg3_ptr [[ buffer(3) ]],
+  uint blockIdx [[threadgroup_position_in_grid]],
+  uint threadIdx [[thread_position_in_threadgroup]]
+) {
+  constexpr auto mpp_descriptor = mpp::tensor_ops::matmul2d_descriptor(16, 8, mpp::tensor_ops::dynamic_length_v<int>, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate);
+  using mpp_operation = mpp::tensor_ops::matmul2d<mpp_descriptor, execution_simdgroups<1>>;
+  using mpp_tensor = mpp_operation::cooperative_tensor_destination_t<mpp_operation::cooperative_tensor_left_input_t<float, float, float>, mpp_operation::cooperative_tensor_right_input_t<float, float, float>, float>;
+  mpp_tensor tile_i_10_mpp_c_fragment;
+  {
+#pragma unroll
+for (uint mpp_element = 0; mpp_element < tile_i_10_mpp_c_fragment.get_capacity(); ++mpp_element) { if (tile_i_10_mpp_c_fragment.is_valid_element(mpp_element)) tile_i_10_mpp_c_fragment[mpp_element] = 3.750000e-01f; } };
+  int cse_v1 = (((int)blockIdx) >> 1);
+  int cse_v3 = ((((int)blockIdx) & 1) * 24);
+  int cse_v4 = ((((int)threadIdx) >> 5) * 8);
+  for (int pipeline_6 = 0; pipeline_6 < 3; ++pipeline_6) {
+    { auto mpp_left = tensor<device float, extents<int, 8, 16>, tensor_inline>((&(arg0_ptr[(((((int)blockIdx) >> 1) * 384) + (pipeline_6 * 8))])), extents<int, 8, 16>{}, array<int, 2>{1, 24}); auto mpp_right = tensor<device float, extents<int, 8, 8>, tensor_inline>((&(arg1_ptr[(((pipeline_6 * 384) + ((((int)blockIdx) & 1) * 24)) + ((((int)threadIdx) >> 5) * 8))])), extents<int, 8, 8>{}, array<int, 2>{1, 48}); mpp_operation{}.run(mpp_left, mpp_right, tile_i_10_mpp_c_fragment); };
+    metal::threadgroup_barrier(metal::mem_flags(2));
+  }
+  threadgroup float tile_storage_15_shared[384];
+  int cse_v2 = (((int)threadIdx) % 24);
+  int cse_v5 = ((((int)blockIdx) >> 1) * 768);
+  int cse_v6 = ((((int)threadIdx) / 24) * 48);
+  for (int tile_i_16_chunk = 0; tile_i_16_chunk < 4; ++tile_i_16_chunk) {
+    tile_storage_15_shared[((tile_i_16_chunk * 96) + ((int)threadIdx))] = arg2_ptr[((((((((int)blockIdx) >> 1) * 768) + (tile_i_16_chunk * 192)) + ((((int)threadIdx) / 24) * 48)) + ((((int)blockIdx) & 1) * 24)) + (((int)threadIdx) % 24))];
+  }
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  for (int tile_i_18_chunk = 0; tile_i_18_chunk < 4; ++tile_i_18_chunk) {
+    arg3_ptr[((((((((int)blockIdx) >> 1) * 768) + (tile_i_18_chunk * 192)) + ((((int)threadIdx) / 24) * 48)) + ((((int)blockIdx) & 1) * 24)) + (((int)threadIdx) % 24))] = tile_storage_15_shared[((tile_i_18_chunk * 96) + ((int)threadIdx))];
+  }
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  tile_i_10_mpp_c_fragment.store(tensor<device float, extents<int, 8, 16>, tensor_inline>((&(arg2_ptr[((((((int)blockIdx) >> 1) * 768) + ((((int)blockIdx) & 1) * 24)) + ((((int)threadIdx) >> 5) * 8))])), extents<int, 8, 16>{}, array<int, 2>{1, 48}));
+  metal::threadgroup_barrier(metal::mem_flags(2));
+}
+
+
+FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2046 - test condition:  [false == true] 37x37x21, block=32x32x16, offset=1,3 transpose=true history=false observed=false pin=false mask=false direct=true # from tvm.script import tirx as T
+# from tvm.tirx.layout import Axis
+
+@T.prim_func(private=True)
+def main(arg0: T.Buffer((T.int64(37), T.int64(21)), "float32", layout=None), arg1: T.Buffer((T.int64(21), T.int64(37)), "float32", layout=None), arg2: T.Buffer((T.int64(43), T.int64(43)), "float32", layout=None), arg3: T.Buffer((T.int64(43), T.int64(43)), "float32", layout=None)):
+    for parallel_0 in T.serial(T.int64(4), annotations={"luisa.tile.execution_scope": "group", "luisa.tile.logical_parallel": T.int64(0)}):
+        tile_storage_0 = T.alloc_local((T.int64(32), T.int64(32)), layout=None)
+        for tile_i_1 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+            for tile_i_2 in range(T.int64(32)):
+                tile_storage_0[tile_i_1, tile_i_2] = T.float32(0.375)
+        for pipeline_6 in T.serial(T.int64(2), annotations={"luisa.tile.pipeline": T.int64(6), "luisa.tile.pipeline_interval": T.int64(1), "luisa.tile.pipeline_window": T.int64(1)}):
+            tile_storage_3 = T.alloc_local((T.int64(32), T.int64(16)), layout=None)
+            tile_storage_6 = T.alloc_local((T.int64(16), T.int64(32)), layout=None)
+            tile_storage_9 = T.alloc_local((T.int64(32), T.int64(32)), layout=None)
+            with T.attr("load", "luisa.tile.pipeline_stage", T.int64(0)):
+                for tile_i_4 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+                    for tile_i_5 in range(T.int64(16)):
+                        tile_storage_3[tile_i_4, tile_i_5] = T.if_then_else(parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + tile_i_4 >= T.int64(0) and parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + tile_i_4 < T.int64(37) and pipeline_6 % T.int64(2) * T.int64(16) + tile_i_5 >= T.int64(0) and pipeline_6 % T.int64(2) * T.int64(16) + tile_i_5 < T.int64(21), arg0[parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + tile_i_4, pipeline_6 % T.int64(2) * T.int64(16) + tile_i_5], T.float32(0.0))
+                for tile_i_7 in T.serial(T.int64(16), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+                    for tile_i_8 in range(T.int64(32)):
+                        tile_storage_6[tile_i_7, tile_i_8] = T.if_then_else(pipeline_6 % T.int64(2) * T.int64(16) + tile_i_7 >= T.int64(0) and pipeline_6 % T.int64(2) * T.int64(16) + tile_i_7 < T.int64(21) and parallel_0 % T.int64(2) * T.int64(32) + tile_i_8 >= T.int64(0) and parallel_0 % T.int64(2) * T.int64(32) + tile_i_8 < T.int64(37), arg1[pipeline_6 % T.int64(2) * T.int64(16) + tile_i_7, parallel_0 % T.int64(2) * T.int64(32) + tile_i_8], T.float32(0.0))
+            with T.attr("compute", "luisa.tile.pipeline_stage", T.int64(1)):
+                for tile_i_10 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2), "luisa.tile.mma": 1}):
+                    for tile_i_11 in range(T.int64(32)):
+                        tile_storage_9[tile_i_10, tile_i_11] = tile_storage_0[tile_i_10, tile_i_11]
+                        for tile_i_12 in range(T.int64(16)):
+                            tile_storage_9[tile_i_10, tile_i_11] = tile_storage_9[tile_i_10, tile_i_11] + tile_storage_3[tile_i_10, tile_i_12] * tile_storage_6[tile_i_12, tile_i_11]
+                for tile_i_13 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+                    for tile_i_14 in range(T.int64(32)):
+                        tile_storage_0[tile_i_13, tile_i_14] = tile_storage_9[tile_i_13, tile_i_14]
+        for tile_i_15 in T.serial(T.int64(32), annotations={"luisa.tile.independent_elements": T.int64(2)}):
+            for tile_i_16 in range(T.int64(32)):
+                if parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + T.int64(1) + tile_i_15 >= T.int64(0) and parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + T.int64(1) + tile_i_15 < T.int64(43) and parallel_0 % T.int64(2) * T.int64(32) + T.int64(3) + tile_i_16 >= T.int64(0) and parallel_0 % T.int64(2) * T.int64(32) + T.int64(3) + tile_i_16 < T.int64(43):
+                    arg2[parallel_0 % T.int64(2) * T.int64(32) + T.int64(3) + tile_i_16, parallel_0 // T.int64(2) % T.int64(2) * T.int64(32) + T.int64(1) + tile_i_15] = tile_storage_0[tile_i_15, tile_i_16]FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2060 - test condition:  [2048 == 0]
+
+ 17x19x7, block=16x32x16, offset=0,0 transpose=false history=true observed=false pin=false mask=false direct=true // Function: matrix_direct_output_kernel
+#include <metal_stdlib>
+using namespace metal;
+
+union __TVMArgUnion {
+ int v_int[2];
+};
+
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
+kernel void matrix_direct_output_kernel(  device float* arg0_ptr [[ buffer(0) ]],
+  device float* arg1_ptr [[ buffer(1) ]],
+  device float* arg2_ptr [[ buffer(2) ]],
+  device float* arg3_ptr [[ buffer(3) ]],
+  uint blockIdx [[threadgroup_position_in_grid]],
+  uint threadIdx [[thread_position_in_threadgroup]]
+) {
+  constexpr auto mpp_descriptor = mpp::tensor_ops::matmul2d_descriptor(8, 16, mpp::tensor_ops::dynamic_length_v<int>, false, false, false, mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate);
+  using mpp_operation = mpp::tensor_ops::matmul2d<mpp_descriptor, execution_simdgroups<1>>;
+  using mpp_tensor = mpp_operation::cooperative_tensor_destination_t<mpp_operation::cooperative_tensor_left_input_t<float, float, float>, mpp_operation::cooperative_tensor_right_input_t<float, float, float>, float>;
+  mpp_tensor tile_i_10_mpp_c_fragment;
+  {
+#pragma unroll
+for (uint mpp_element = 0; mpp_element < tile_i_10_mpp_c_fragment.get_capacity(); ++mpp_element) { if (tile_i_10_mpp_c_fragment.is_valid_element(mpp_element)) tile_i_10_mpp_c_fragment[mpp_element] = 3.750000e-01f; } };
+  long cse_v1 = (((long)blockIdx) * (long)16);
+  long cse_v7 = max((((long)blockIdx) * (long)16), (long)1);
+  long cse_v8 = ((((long)threadIdx) >> (long)6) * (long)8);
+  long cse_v10 = ((((long)blockIdx) * (long)16) + ((((long)threadIdx) >> (long)6) * (long)8));
+  long cse_v11 = (((((long)threadIdx) & (long)63) >> (long)5) * (long)16);
+  long cse_v12 = (((long)0 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8));
+  long cse_v14 = min((long)16, ((long)19 - (((((long)threadIdx) & (long)63) >> (long)5) * (long)16)));
+  long condval;
+  if (((long)-17 < (((long)0 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval = ((((long)blockIdx) * (long)16) + ((((long)threadIdx) >> (long)6) * (long)8));
+  } else {
+    condval = (long)0;
+  }
+  long condval_1;
+  if (((long)-17 < (((long)0 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_1 = (long)0;
+  } else {
+    condval_1 = (long)0;
+  }
+  long condval_2;
+  if (((long)-17 < (((long)0 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_2 = ((((long)blockIdx) * (long)16) + ((((long)threadIdx) >> (long)6) * (long)8));
+  } else {
+    condval_2 = (long)0;
+  }
+  long condval_3;
+  if (((long)-17 < (((long)0 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_3 = (long)0;
+  } else {
+    condval_3 = (long)0;
+  }
+  long condval_4;
+  if (((long)-17 < (((long)0 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_4 = ((((long)blockIdx) * (long)16) + ((((long)threadIdx) >> (long)6) * (long)8));
+  } else {
+    condval_4 = (long)0;
+  }
+  long condval_5;
+  if (((long)-17 < (((long)0 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_5 = (long)0;
+  } else {
+    condval_5 = (long)0;
+  }
+  { int mpp_actual_m = int(max((long)0, min((long)8, (((long)17 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8))))), mpp_actual_n = int(min((long)16, ((long)19 - (((((long)threadIdx) & (long)63) >> (long)5) * (long)16)))), mpp_actual_k = int(7); if (mpp_actual_m == 0 || mpp_actual_n == 0) { auto mpp_left_pointer = (&(arg0_ptr[((condval_2 * (long)7) + condval_3)])); auto mpp_right_pointer = (&(arg1_ptr[(((((long)threadIdx) & (long)63) >> (long)5) * (long)16)])); uint mpp_empty_lane = simd_prefix_exclusive_sum(1u); for (uint mpp_empty_chunk = 0; mpp_empty_chunk < 1; ++mpp_empty_chunk) { uint mpp_empty_outer = mpp_empty_chunk * 32u + mpp_empty_lane; uint mpp_owned_classification = 0u; if (mpp_empty_outer < uint(mpp_actual_m == 0 ? mpp_actual_n : mpp_actual_m)) { uint mpp_invalid_product = 0u, mpp_zero_sign = 0x80000000u; for (int mpp_empty_k = 0; mpp_empty_k < mpp_actual_k; ++mpp_empty_k) { uint mpp_operand_bits; if (mpp_actual_m == 0) mpp_operand_bits = as_type<uint>(mpp_right_pointer[ulong(mpp_empty_k) * 19 + mpp_empty_outer]); else mpp_operand_bits = as_type<uint>(mpp_left_pointer[ulong(mpp_empty_outer) * 7 + mpp_empty_k]); mpp_invalid_product |= (mpp_operand_bits & 0x7fffffffu) >= 0x7f800000u; mpp_zero_sign &= mpp_operand_bits; } mpp_owned_classification = mpp_invalid_product | mpp_zero_sign; }
+#pragma unroll
+for (uint mpp_empty_element = 0; mpp_empty_element < tile_i_10_mpp_c_fragment.get_capacity(); ++mpp_empty_element) { bool mpp_valid_output = tile_i_10_mpp_c_fragment.is_valid_element(mpp_empty_element); uint mpp_classification_source = 0u; if (mpp_valid_output) { auto mpp_empty_xy = tile_i_10_mpp_c_fragment.get_multidimensional_index(mpp_empty_element); mpp_classification_source = mpp_empty_xy[mpp_actual_m == 0 ? 0 : 1]; } uint mpp_selected_classification = simd_shuffle(mpp_owned_classification, mpp_classification_source & 31u); if (mpp_valid_output && mpp_classification_source / 32u == mpp_empty_chunk) { uint mpp_empty_bits = as_type<uint>(tile_i_10_mpp_c_fragment[mpp_empty_element]); if ((mpp_selected_classification & 1u) || (mpp_empty_bits & 0x7fffffffu) > 0x7f800000u) mpp_empty_bits = 0x7fc00000u; else if ((mpp_empty_bits & 0x7fffffffu) == 0u) mpp_empty_bits &= mpp_selected_classification; tile_i_10_mpp_c_fragment[mpp_empty_element] = as_type<float>(mpp_empty_bits); } } } } else if (mpp_actual_m == 8 && mpp_actual_n == 16) { auto mpp_left = tensor<device float, extents<int, dynamic_extent, 8>, tensor_inline>((&(arg0_ptr[((condval_4 * (long)7) + condval_5)])), extents<int, dynamic_extent, 8>{int(7)}, array<int, 2>{1, 7}); auto mpp_right = tensor<device float, extents<int, 16, dynamic_extent>, tensor_inline>((&(arg1_ptr[(((((long)threadIdx) & (long)63) >> (long)5) * (long)16)])), extents<int, 16, dynamic_extent>{int(7)}, array<int, 2>{1, 19}); mpp_operation{}.run(mpp_left, mpp_right, tile_i_10_mpp_c_fragment); } else { auto mpp_left = tensor<device float, extents<int, dynamic_extent, dynamic_extent>, tensor_inline>((&(arg0_ptr[((condval * (long)7) + condval_1)])), extents<int, dynamic_extent, dynamic_extent>{int(7), int(max((long)0, min((long)8, (((long)17 - max((((long)blockIdx) * (long)16), (long)1)) - ((((long)threadIdx) >> (long)6) * (long)8)))))}, array<int, 2>{1, 7}); auto mpp_right = tensor<device float, extents<int, dynamic_extent, dynamic_extent>, tensor_inline>((&(arg1_ptr[(((((long)threadIdx) & (long)63) >> (long)5) * (long)16)])), extents<int, dynamic_extent, dynamic_extent>{int(min((long)16, ((long)19 - (((((long)threadIdx) & (long)63) >> (long)5) * (long)16)))), int(7)}, array<int, 2>{1, 19}); mpp_operation{}.run(mpp_left, mpp_right, tile_i_10_mpp_c_fragment); } };
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  threadgroup float tile_storage_15_shared[512];
+  long cse_v3 = (((long)threadIdx) >> (long)5);
+  long cse_v4 = (((long)threadIdx) & (long)31);
+  long cse_v5 = (((long)blockIdx) * (long)304);
+  long cse_v9 = ((((long)threadIdx) >> (long)5) * (long)19);
+  for (int tile_i_16_chunk = 0; tile_i_16_chunk < 4; ++tile_i_16_chunk) {
+    long cse_v2 = ((long)tile_i_16_chunk);
+    float condval_6;
+    if ((((((((long)blockIdx) * (long)16) + (((long)tile_i_16_chunk) * (long)4)) + (((long)threadIdx) >> (long)5)) < (long)17) && ((((long)threadIdx) & (long)31) < (long)19))) {
+      condval_6 = arg2_ptr[((((((long)blockIdx) * (long)304) + (((long)tile_i_16_chunk) * (long)76)) + ((((long)threadIdx) >> (long)5) * (long)19)) + (((long)threadIdx) & (long)31))];
+    } else {
+      condval_6 = 0.000000e+00f;
+    }
+    tile_storage_15_shared[((((long)tile_i_16_chunk) * (long)128) + ((long)threadIdx))] = condval_6;
+  }
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  for (int tile_i_18_chunk = 0; tile_i_18_chunk < 4; ++tile_i_18_chunk) {
+    long cse_v6 = ((long)tile_i_18_chunk);
+    if (((((((long)blockIdx) * (long)16) + (((long)tile_i_18_chunk) * (long)4)) + (((long)threadIdx) >> (long)5)) < (long)17) && ((((long)threadIdx) & (long)31) < (long)19)) {
+      arg3_ptr[((((((long)blockIdx) * (long)304) + (((long)tile_i_18_chunk) * (long)76)) + ((((long)threadIdx) >> (long)5) * (long)19)) + (((long)threadIdx) & (long)31))] = tile_storage_15_shared[((((long)tile_i_18_chunk) * (long)128) + ((long)threadIdx))];
+    }
+  }
+  metal::threadgroup_barrier(metal::mem_flags(2));
+  long cse_v13 = (min((long)16, ((long)17 - (((long)blockIdx) * (long)16))) - ((((long)threadIdx) >> (long)6) * (long)8));
+  long condval_7;
+  if (((long)0 < (min((long)16, ((long)17 - (((long)blockIdx) * (long)16))) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_7 = ((((long)blockIdx) * (long)16) + ((((long)threadIdx) >> (long)6) * (long)8));
+  } else {
+    condval_7 = (long)0;
+  }
+  long condval_8;
+  if (((long)0 < (min((long)16, ((long)17 - (((long)blockIdx) * (long)16))) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_8 = (((((long)threadIdx) & (long)63) >> (long)5) * (long)16);
+  } else {
+    condval_8 = (long)0;
+  }
+  long condval_9;
+  if (((long)0 < (min((long)16, ((long)17 - (((long)blockIdx) * (long)16))) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_9 = ((((long)blockIdx) * (long)16) + ((((long)threadIdx) >> (long)6) * (long)8));
+  } else {
+    condval_9 = (long)0;
+  }
+  long condval_10;
+  if (((long)0 < (min((long)16, ((long)17 - (((long)blockIdx) * (long)16))) - ((((long)threadIdx) >> (long)6) * (long)8)))) {
+    condval_10 = (((((long)threadIdx) & (long)63) >> (long)5) * (long)16);
+  } else {
+    condval_10 = (long)0;
+  }
+  { const int mpp_store_rows = int(max((long)0, min((long)8, (min((long)16, ((long)17 - (((long)blockIdx) * (long)16))) - ((((long)threadIdx) >> (long)6) * (long)8))))); const int mpp_store_columns = int(min((long)16, ((long)19 - (((((long)threadIdx) & (long)63) >> (long)5) * (long)16)))); if (mpp_store_rows == 8 && mpp_store_columns == 16) { tile_i_10_mpp_c_fragment.store(tensor<device float, extents<int, 16, 8>, tensor_inline>((&(arg2_ptr[((condval_9 * (long)19) + condval_10)])), extents<int, 16, 8>{}, array<int, 2>{1, 19})); } else { auto mpp_memory = (&(arg2_ptr[((condval_7 * (long)19) + condval_8)]));
+#pragma unroll
+for (uint mpp_element_1 = 0; mpp_element_1 < tile_i_10_mpp_c_fragment.get_capacity(); ++mpp_element_1) { if (tile_i_10_mpp_c_fragment.is_valid_element(mpp_element_1)) { auto mpp_coordinate = tile_i_10_mpp_c_fragment.get_multidimensional_index(mpp_element_1); if (mpp_coordinate[1] < mpp_store_rows && mpp_coordinate[0] < mpp_store_columns) mpp_memory[mpp_coordinate[1] * 19 + mpp_coordinate[0]] = tile_i_10_mpp_c_fragment[mpp_element_1]; } } } };
+  metal::threadgroup_barrier(metal::mem_flags(2));
+}
+
+
+
+Running "tile_matrix_carry_operand_alias_must_not_be_promoted"... SKIPPED
+
+Running "tile_matrix_interrupted_yield_must_not_update_carry"... SKIPPED
+
+Running "tile_cpu_whole_gemm_library_realization"... SKIPPED
+
+===============================================================================
+Suite global
+tests:   32 | 3 failed
+asserts: 288 | 0 passed | 3 failed
+

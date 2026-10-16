@@ -1,0 +1,97 @@
+[
+  {
+    "path": ".",
+    "pinned_commit": "2cfc804932a014cd7a07eb3896166d53db32b3eb",
+    "checkout_commit": "2cfc804932a014cd7a07eb3896166d53db32b3eb"
+  },
+  {
+    "path": "./src/ext/EASTL",
+    "pinned_commit": "2103f669d7f7e1c9270baa651fe3435f1eae84d5",
+    "checkout_commit": "2103f669d7f7e1c9270baa651fe3435f1eae84d5"
+  },
+  {
+    "path": "./src/ext/EASTL/packages/EABase",
+    "pinned_commit": "486aa56ad39c4de8e65f9e150d03999c01a1afaf",
+    "checkout_commit": "486aa56ad39c4de8e65f9e150d03999c01a1afaf"
+  },
+  {
+    "path": "./src/ext/EASTL/packages/mimalloc",
+    "pinned_commit": "908ae17bcc05c3ca662c0ed9757da4d5a828aab0",
+    "checkout_commit": "908ae17bcc05c3ca662c0ed9757da4d5a828aab0"
+  },
+  {
+    "path": "./src/ext/HIPRT",
+    "pinned_commit": "c0969a8125756151fcb090e2f7e63f691fb0123c",
+    "checkout_commit": "c0969a8125756151fcb090e2f7e63f691fb0123c"
+  },
+  {
+    "path": "./src/ext/SPIRV-Tools",
+    "pinned_commit": "729b5171b4f4faaae7497c0e8fb6079d0587d51b",
+    "checkout_commit": "e3f2dff067d3486b8d59397322f8f3e6fa9020b4"
+  },
+  {
+    "path": "./src/ext/glfw",
+    "pinned_commit": "92dcf4ce74f2e2554a98fea09be7c705c17daa5a",
+    "checkout_commit": "92dcf4ce74f2e2554a98fea09be7c705c17daa5a"
+  },
+  {
+    "path": "./src/ext/glslang",
+    "pinned_commit": "19b5a9cc3cc51c83e59aa24d7b20c14e064825f4",
+    "checkout_commit": "19b5a9cc3cc51c83e59aa24d7b20c14e064825f4"
+  },
+  {
+    "path": "./src/ext/imgui",
+    "pinned_commit": "7e1b65d26d52e9dd199d889c148c72184de647b4",
+    "checkout_commit": "fd13a1e8923a0a7077b404fc36fd063b25a0c0b5"
+  },
+  {
+    "path": "./src/ext/llvm-downgrade",
+    "pinned_commit": "6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb",
+    "checkout_commit": "6ab0b538c9302bd44f1d2a02f8d064ba9c5f2efb"
+  },
+  {
+    "path": "./src/ext/magic_enum",
+    "pinned_commit": "be66674517474760bb98c238367544705212bce7",
+    "checkout_commit": "a99f69495f48e8dff89b14b40a233163248c38c4"
+  },
+  {
+    "path": "./src/ext/marl",
+    "pinned_commit": "4ed34cc722fce3522ef6c7c87384083480f11314",
+    "checkout_commit": "4ed34cc722fce3522ef6c7c87384083480f11314"
+  },
+  {
+    "path": "./src/ext/pybind11",
+    "pinned_commit": "5261e2d1e147f7251a03ae929b09a7f71afd867c",
+    "checkout_commit": "5261e2d1e147f7251a03ae929b09a7f71afd867c"
+  },
+  {
+    "path": "./src/ext/reproc",
+    "pinned_commit": "cd03ee4731a4283849cd5d0f5425926d60b3b540",
+    "checkout_commit": "cd03ee4731a4283849cd5d0f5425926d60b3b540"
+  },
+  {
+    "path": "./src/ext/spdlog",
+    "pinned_commit": "5713c799685d19c82350032cda4f12fedaf57426",
+    "checkout_commit": "5713c799685d19c82350032cda4f12fedaf57426"
+  },
+  {
+    "path": "./src/ext/spirv-headers",
+    "pinned_commit": "496543121ce6419f23d6fa5d7194ba66c36212d2",
+    "checkout_commit": "0d25db97cb9b8f725e4c95e4553001710e7fc39d"
+  },
+  {
+    "path": "./src/ext/stb/stb",
+    "pinned_commit": "2c980bb59875b0d32144a71867fbdebb2f77cd20",
+    "checkout_commit": "2c980bb59875b0d32144a71867fbdebb2f77cd20"
+  },
+  {
+    "path": "./src/ext/xxHash",
+    "pinned_commit": "c0b5ea995d66691734b1a79ad89e73a0d2fd5a53",
+    "checkout_commit": "c0b5ea995d66691734b1a79ad89e73a0d2fd5a53"
+  },
+  {
+    "path": "./src/ext/yyjson",
+    "pinned_commit": "43ce2ff2a29b136722eb98f83db226c8344ffc4d",
+    "checkout_commit": "db37a64d63d38a8ddea35aa811b1163831028490"
+  }
+]

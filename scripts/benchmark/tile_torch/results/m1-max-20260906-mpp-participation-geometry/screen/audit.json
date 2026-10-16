@@ -1,0 +1,1608 @@
+{
+  "passed": true,
+  "complete_outputs": 70,
+  "checked_elements": 1335054350,
+  "source_files": 60,
+  "use": "matched-geometry exploratory diagnostic, not TIRx or accepted performance",
+  "summary": [
+    {
+      "shape": [
+        512,
+        512,
+        512
+      ],
+      "group_rectangle": "128x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            47.7812498895,
+            56.5980171156
+          ],
+          "collective_us": [
+            48.6577921487,
+            64.2260802028
+          ],
+          "mps_us": [
+            49.2322530287,
+            61.5310113173
+          ],
+          "collective_independent": {
+            "median": 1.0765605272290752,
+            "minimum": 1.0183449001695666,
+            "maximum": 1.1347761542885837,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0183449001695666,
+              1.1347761542885837
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            49.6827009804,
+            57.6532379518
+          ],
+          "collective_us": [
+            50.9614701299,
+            65.3148148148
+          ],
+          "mps_us": [
+            51.4805802469,
+            63.9195267176
+          ],
+          "collective_independent": {
+            "median": 1.079314690379841,
+            "minimum": 1.0257387204050052,
+            "maximum": 1.1328906603546764,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0257387204050052,
+              1.1328906603546764
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            50.0417081639,
+            48.8749938086
+          ],
+          "collective_us": [
+            49.3749976158,
+            50.8750090376
+          ],
+          "mps_us": [
+            52.4583156221,
+            52.4583156221
+          ],
+          "collective_independent": {
+            "median": 1.0137989677818333,
+            "minimum": 0.9866769026765365,
+            "maximum": 1.0409210328871301,
+            "faster_rounds": 1,
+            "ratios": [
+              0.9866769026765365,
+              1.0409210328871301
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            385.791,
+            273.083
+          ],
+          "collective_us": [
+            276.375,
+            319.333
+          ],
+          "mps_us": [
+            318.834,
+            282.542
+          ],
+          "collective_independent": {
+            "median": 0.9428738624874116,
+            "minimum": 0.7163852967021004,
+            "maximum": 1.1693624282727229,
+            "faster_rounds": 1,
+            "ratios": [
+              0.7163852967021004,
+              1.1693624282727229
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        512,
+        512,
+        512
+      ],
+      "group_rectangle": "128x32",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            46.2466123675,
+            56.0148734057
+          ],
+          "collective_us": [
+            45.9931069341,
+            58.4451298762
+          ],
+          "mps_us": [
+            49.2322530287,
+            61.5310113173
+          ],
+          "collective_independent": {
+            "median": 1.0189521568795823,
+            "minimum": 0.9945183999341289,
+            "maximum": 1.0433859138250359,
+            "faster_rounds": 1,
+            "ratios": [
+              0.9945183999341289,
+              1.0433859138250359
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            47.1090785908,
+            59.1146632911
+          ],
+          "collective_us": [
+            46.8363185185,
+            59.5609298701
+          ],
+          "mps_us": [
+            51.4805802469,
+            63.9195267176
+          ],
+          "collective_independent": {
+            "median": 1.0008796003048595,
+            "minimum": 0.9942100316869015,
+            "maximum": 1.0075491689228175,
+            "faster_rounds": 1,
+            "ratios": [
+              0.9942100316869015,
+              1.0075491689228175
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            47.6666609757,
+            49.9582965858
+          ],
+          "collective_us": [
+            49.8750014231,
+            50.4166819155
+          ],
+          "mps_us": [
+            52.4583156221,
+            52.4583156221
+          ],
+          "collective_independent": {
+            "median": 1.0277520927881971,
+            "minimum": 1.0091753594703285,
+            "maximum": 1.046328826106066,
+            "faster_rounds": 0,
+            "ratios": [
+              1.046328826106066,
+              1.0091753594703285
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            287.333,
+            327.75
+          ],
+          "collective_us": [
+            261.875,
+            319.334
+          ],
+          "mps_us": [
+            318.834,
+            282.542
+          ],
+          "collective_independent": {
+            "median": 0.9428604304130357,
+            "minimum": 0.9113989691403354,
+            "maximum": 0.9743218916857361,
+            "faster_rounds": 2,
+            "ratios": [
+              0.9113989691403354,
+              0.9743218916857361
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        512,
+        512,
+        512
+      ],
+      "group_rectangle": "64x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            47.2695671874,
+            55.7116104625
+          ],
+          "collective_us": [
+            48.0469576485,
+            58.7251462513
+          ],
+          "mps_us": [
+            49.2322530287,
+            61.5310113173
+          ],
+          "collective_independent": {
+            "median": 1.0352687994156984,
+            "minimum": 1.0164458975902622,
+            "maximum": 1.0540917012411344,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0164458975902622,
+              1.0540917012411344
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            48.173801105,
+            59.0123258427
+          ],
+          "collective_us": [
+            48.9014550265,
+            61.0473947368
+          ],
+          "mps_us": [
+            51.4805802469,
+            63.9195267176
+          ],
+          "collective_independent": {
+            "median": 1.0247951265914956,
+            "minimum": 1.015104764515343,
+            "maximum": 1.0344854886676482,
+            "faster_rounds": 0,
+            "ratios": [
+              1.015104764515343,
+              1.0344854886676482
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            49.9582965858,
+            92.5000058487
+          ],
+          "collective_us": [
+            50.2083566971,
+            49.541646149
+          ],
+          "mps_us": [
+            52.4583156221,
+            52.4583156221
+          ],
+          "collective_independent": {
+            "median": 0.7702953534802978,
+            "minimum": 0.5355853299083468,
+            "maximum": 1.0050053770522487,
+            "faster_rounds": 1,
+            "ratios": [
+              1.0050053770522487,
+              0.5355853299083468
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            282.167,
+            420.708
+          ],
+          "collective_us": [
+            279.792,
+            265.084
+          ],
+          "mps_us": [
+            318.834,
+            282.542
+          ],
+          "collective_independent": {
+            "median": 0.8108366137864658,
+            "minimum": 0.6300902288523156,
+            "maximum": 0.9915829987206158,
+            "faster_rounds": 2,
+            "ratios": [
+              0.9915829987206158,
+              0.6300902288523156
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "group_rectangle": "128x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            21271.1666245,
+            21411.9583252
+          ],
+          "collective_us": [
+            22240.2499639,
+            23895.0000494
+          ],
+          "mps_us": [
+            20546.2499871,
+            20964.791649
+          ],
+          "collective_independent": {
+            "median": 1.0807618639007932,
+            "minimum": 1.045558542063406,
+            "maximum": 1.1159651857381805,
+            "faster_rounds": 0,
+            "ratios": [
+              1.045558542063406,
+              1.1159651857381805
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            21875.833,
+            21735.75
+          ],
+          "collective_us": [
+            22685.833,
+            24706.25
+          ],
+          "mps_us": [
+            21034.458,
+            21616.292
+          ],
+          "collective_independent": {
+            "median": 1.08684570636267,
+            "minimum": 1.037027161434264,
+            "maximum": 1.1366642512910758,
+            "faster_rounds": 0,
+            "ratios": [
+              1.037027161434264,
+              1.1366642512910758
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            21194.0833251,
+            21270.3333236
+          ],
+          "collective_us": [
+            22375.4999461,
+            24500.3749733
+          ],
+          "mps_us": [
+            23071.7083323,
+            21029.125026
+          ],
+          "collective_independent": {
+            "median": 1.10379970517157,
+            "minimum": 1.0557427562625865,
+            "maximum": 1.1518566540805537,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0557427562625865,
+              1.1518566540805537
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            21508.542,
+            22752
+          ],
+          "collective_us": [
+            22784.667,
+            24957.708
+          ],
+          "mps_us": [
+            23938.75,
+            21789.75
+          ],
+          "collective_independent": {
+            "median": 1.078138376946347,
+            "minimum": 1.0593310787872092,
+            "maximum": 1.0969456751054851,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0593310787872092,
+              1.0969456751054851
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "group_rectangle": "128x32",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            19213.2500233,
+            19905.0832889
+          ],
+          "collective_us": [
+            21395.583346,
+            21776.3750115
+          ],
+          "mps_us": [
+            20546.2499871,
+            20964.791649
+          ],
+          "collective_independent": {
+            "median": 1.1037977770362928,
+            "minimum": 1.0940107456693495,
+            "maximum": 1.113584808403236,
+            "faster_rounds": 0,
+            "ratios": [
+              1.113584808403236,
+              1.0940107456693495
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            19871.375,
+            20596.792
+          ],
+          "collective_us": [
+            22089.75,
+            22105.291
+          ],
+          "mps_us": [
+            21034.458,
+            21616.292
+          ],
+          "collective_independent": {
+            "median": 1.0924381129323448,
+            "minimum": 1.0732395122502572,
+            "maximum": 1.1116367136144327,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1116367136144327,
+              1.0732395122502572
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            19607.4583218,
+            19822.7916844
+          ],
+          "collective_us": [
+            21665.6250414,
+            21699.3333306
+          ],
+          "mps_us": [
+            23071.7083323,
+            21029.125026
+          ],
+          "collective_independent": {
+            "median": 1.099817211984897,
+            "minimum": 1.0946658612004074,
+            "maximum": 1.1049685627693868,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1049685627693868,
+              1.0946658612004074
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            20056.958,
+            20532.417
+          ],
+          "collective_us": [
+            22146.5,
+            22740.917
+          ],
+          "mps_us": [
+            23938.75,
+            21789.75
+          ],
+          "collective_independent": {
+            "median": 1.1058710114596573,
+            "minimum": 1.1041804046256667,
+            "maximum": 1.1075616182936476,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1041804046256667,
+              1.1075616182936476
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "group_rectangle": "64x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            21148.3749445,
+            21292.6666718
+          ],
+          "collective_us": [
+            23709.3750038,
+            23931.0833276
+          ],
+          "mps_us": [
+            20546.2499871,
+            20964.791649
+          ],
+          "collective_independent": {
+            "median": 1.1225043828172439,
+            "minimum": 1.1210967776966727,
+            "maximum": 1.1239119879378152,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1210967776966727,
+              1.1239119879378152
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            21560.25,
+            21752
+          ],
+          "collective_us": [
+            24564.25,
+            24553.958
+          ],
+          "mps_us": [
+            21034.458,
+            21616.292
+          ],
+          "collective_independent": {
+            "median": 1.1340721455430591,
+            "minimum": 1.1288138102243472,
+            "maximum": 1.139330480861771,
+            "faster_rounds": 0,
+            "ratios": [
+              1.139330480861771,
+              1.1288138102243472
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            21001.4999611,
+            21014.7083853
+          ],
+          "collective_us": [
+            24461.8750294,
+            23775.2500107
+          ],
+          "mps_us": [
+            23071.7083323,
+            21029.125026
+          ],
+          "collective_independent": {
+            "median": 1.1480651766655752,
+            "minimum": 1.1313623570113887,
+            "maximum": 1.1647679963197617,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1647679963197617,
+              1.1313623570113887
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            22588.334,
+            21515.541
+          ],
+          "collective_us": [
+            24915.542,
+            24485.833
+          ],
+          "mps_us": [
+            23938.75,
+            21789.75
+          ],
+          "collective_independent": {
+            "median": 1.1205401567457778,
+            "minimum": 1.1030269872935297,
+            "maximum": 1.1380533261980257,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1030269872935297,
+              1.1380533261980257
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "group_rectangle": "128x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            273916.541657,
+            279066.458344
+          ],
+          "collective_us": [
+            313038.541644,
+            311158.499971
+          ],
+          "mps_us": [
+            163583.583315,
+            165632.749966
+          ],
+          "collective_independent": {
+            "median": 1.1289111856118896,
+            "minimum": 1.1149978460952867,
+            "maximum": 1.1428245251284925,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1428245251284925,
+              1.1149978460952867
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            274157.542,
+            280354.666
+          ],
+          "collective_us": [
+            314030.333,
+            311420.208
+          ],
+          "mps_us": [
+            163933.959,
+            166102.167
+          ],
+          "collective_independent": {
+            "median": 1.128122760226388,
+            "minimum": 1.110808007739739,
+            "maximum": 1.145437512713037,
+            "faster_rounds": 0,
+            "ratios": [
+              1.145437512713037,
+              1.110808007739739
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            283386.374998,
+            277339.583321
+          ],
+          "collective_us": [
+            312021.124992,
+            308243.124979
+          ],
+          "mps_us": [
+            163703.25,
+            164469.916665
+          ],
+          "collective_independent": {
+            "median": 1.1062367178926698,
+            "minimum": 1.1010449073079187,
+            "maximum": 1.1114285284774206,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1010449073079187,
+              1.1114285284774206
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            283724.75,
+            277717.167
+          ],
+          "collective_us": [
+            312311.667,
+            308749.333
+          ],
+          "mps_us": [
+            164288.708,
+            166474.416
+          ],
+          "collective_independent": {
+            "median": 1.1062479945806927,
+            "minimum": 1.1007558099883779,
+            "maximum": 1.1117401791730073,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1007558099883779,
+              1.1117401791730073
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "group_rectangle": "128x32",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            391469.499969,
+            384951.124957
+          ],
+          "collective_us": [
+            323890.624975,
+            328678.541642
+          ],
+          "mps_us": [
+            163583.583315,
+            165632.749966
+          ],
+          "collective_independent": {
+            "median": 0.8405950889874731,
+            "minimum": 0.8273712894635431,
+            "maximum": 0.8538188885114032,
+            "faster_rounds": 2,
+            "ratios": [
+              0.8273712894635431,
+              0.8538188885114032
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            395091,
+            385332.958
+          ],
+          "collective_us": [
+            325083.625,
+            329179.333
+          ],
+          "mps_us": [
+            163933.959,
+            166102.167
+          ],
+          "collective_independent": {
+            "median": 0.8385397092316359,
+            "minimum": 0.8228069609279888,
+            "maximum": 0.854272457535283,
+            "faster_rounds": 2,
+            "ratios": [
+              0.8228069609279888,
+              0.854272457535283
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            384533.374978,
+            386373.166693
+          ],
+          "collective_us": [
+            323417.750013,
+            324924.124987
+          ],
+          "mps_us": [
+            163703.25,
+            164469.916665
+          ],
+          "collective_independent": {
+            "median": 0.8410124153753591,
+            "minimum": 0.8409593444804995,
+            "maximum": 0.8410654862702188,
+            "faster_rounds": 2,
+            "ratios": [
+              0.8410654862702188,
+              0.8409593444804995
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            385756.083,
+            386818.834
+          ],
+          "collective_us": [
+            323683.5,
+            326092.667
+          ],
+          "mps_us": [
+            164288.708,
+            166474.416
+          ],
+          "collective_independent": {
+            "median": 0.8410499334187147,
+            "minimum": 0.8390885180156705,
+            "maximum": 0.8430113488217589,
+            "faster_rounds": 2,
+            "ratios": [
+              0.8390885180156705,
+              0.8430113488217589
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        8192,
+        8192,
+        8192
+      ],
+      "group_rectangle": "64x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            472280.749993,
+            478031.250008
+          ],
+          "collective_us": [
+            480242.583319,
+            481088.375032
+          ],
+          "mps_us": [
+            163583.583315,
+            165632.749966
+          ],
+          "collective_independent": {
+            "median": 1.0116267522199465,
+            "minimum": 1.0063952409470067,
+            "maximum": 1.0168582634928864,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0168582634928864,
+              1.0063952409470067
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            472834.667,
+            478759.041
+          ],
+          "collective_us": [
+            480534.75,
+            481381.958
+          ],
+          "mps_us": [
+            163933.959,
+            166102.167
+          ],
+          "collective_independent": {
+            "median": 1.0108817559231402,
+            "minimum": 1.005478574346129,
+            "maximum": 1.0162849375001515,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0162849375001515,
+              1.005478574346129
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            464945.583313,
+            471654.04167
+          ],
+          "collective_us": [
+            484416.250023,
+            475951.250002
+          ],
+          "mps_us": [
+            163703.25,
+            164469.916665
+          ],
+          "collective_independent": {
+            "median": 1.0254941175685905,
+            "minimum": 1.0091109329134227,
+            "maximum": 1.0418773022237582,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0418773022237582,
+              1.0091109329134227
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            465821.417,
+            473483.917
+          ],
+          "collective_us": [
+            485102.791,
+            476460.584
+          ],
+          "mps_us": [
+            164288.708,
+            166474.416
+          ],
+          "collective_independent": {
+            "median": 1.0238394673337194,
+            "minimum": 1.0062867330718648,
+            "maximum": 1.041392201595574,
+            "faster_rounds": 0,
+            "ratios": [
+              1.041392201595574,
+              1.0062867330718648
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        256,
+        11008,
+        4096
+      ],
+      "group_rectangle": "128x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            6827.62499976,
+            6214.95832456
+          ],
+          "collective_us": [
+            6635.94443661,
+            6411.91665394
+          ],
+          "mps_us": [
+            3739.17500256,
+            3724.62499654
+          ],
+          "collective_independent": {
+            "median": 1.001808373645693,
+            "minimum": 0.9719257335959813,
+            "maximum": 1.0316910136954047,
+            "faster_rounds": 1,
+            "ratios": [
+              0.9719257335959813,
+              1.0316910136954047
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            7033.05566667,
+            6887.33333333
+          ],
+          "collective_us": [
+            6841.30566667,
+            6603.72233333
+          ],
+          "mps_us": [
+            3806.6666,
+            3857.25
+          ],
+          "collective_independent": {
+            "median": 0.9657786266810837,
+            "minimum": 0.9588213628883743,
+            "maximum": 0.9727358904737933,
+            "faster_rounds": 2,
+            "ratios": [
+              0.9727358904737933,
+              0.9588213628883743
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            6617.24997917,
+            7566.9583166
+          ],
+          "collective_us": [
+            6818.75000009,
+            5453.49996537
+          ],
+          "mps_us": [
+            3298.29170369,
+            3605.12500629
+          ],
+          "collective_independent": {
+            "median": 0.8755749041008705,
+            "minimum": 0.7206990890126083,
+            "maximum": 1.0304507191891328,
+            "faster_rounds": 1,
+            "ratios": [
+              1.0304507191891328,
+              0.7206990890126083
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            7796.875,
+            8094.209
+          ],
+          "collective_us": [
+            7175.708,
+            6030.833
+          ],
+          "mps_us": [
+            3818.458,
+            3893.458
+          ],
+          "collective_independent": {
+            "median": 0.8327056283549102,
+            "minimum": 0.7450799701366743,
+            "maximum": 0.9203312865731462,
+            "faster_rounds": 2,
+            "ratios": [
+              0.9203312865731462,
+              0.7450799701366743
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        256,
+        11008,
+        4096
+      ],
+      "group_rectangle": "128x32",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            6054.71874587,
+            5977.79167583
+          ],
+          "collective_us": [
+            6178.54167164,
+            6270.62500765
+          ],
+          "mps_us": [
+            3739.17500256,
+            3724.62499654
+          ],
+          "collective_independent": {
+            "median": 1.0347187616780742,
+            "minimum": 1.020450648653905,
+            "maximum": 1.0489868747022437,
+            "faster_rounds": 0,
+            "ratios": [
+              1.020450648653905,
+              1.0489868747022437
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            6177.03125,
+            6084.69433333
+          ],
+          "collective_us": [
+            6345.05533333,
+            6405.847
+          ],
+          "mps_us": [
+            3806.6666,
+            3857.25
+          ],
+          "collective_independent": {
+            "median": 1.039990920427701,
+            "minimum": 1.0272014300283814,
+            "maximum": 1.0527804108270205,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0272014300283814,
+              1.0527804108270205
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            6304.91663469,
+            6507.9999622
+          ],
+          "collective_us": [
+            6653.50002237,
+            6546.541641
+          ],
+          "mps_us": [
+            3298.29170369,
+            3605.12500629
+          ],
+          "collective_independent": {
+            "median": 1.0306048746330778,
+            "minimum": 1.005922200218786,
+            "maximum": 1.0552875490473697,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0552875490473697,
+              1.005922200218786
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            6805.416,
+            7124.541
+          ],
+          "collective_us": [
+            7186.125,
+            6957.584
+          ],
+          "mps_us": [
+            3818.458,
+            3893.458
+          ],
+          "collective_independent": {
+            "median": 1.0162539951947214,
+            "minimum": 0.9765659289489667,
+            "maximum": 1.0559420614404762,
+            "faster_rounds": 1,
+            "ratios": [
+              1.0559420614404762,
+              0.9765659289489667
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        256,
+        11008,
+        4096
+      ],
+      "group_rectangle": "64x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            7371.86109958,
+            7272.20831322
+          ],
+          "collective_us": [
+            6328.69444477,
+            6594.23610584
+          ],
+          "mps_us": [
+            3739.17500256,
+            3724.62499654
+          ],
+          "collective_independent": {
+            "median": 0.8826328079207348,
+            "minimum": 0.8584934468082378,
+            "maximum": 0.906772169033232,
+            "faster_rounds": 2,
+            "ratios": [
+              0.8584934468082378,
+              0.906772169033232
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            7512.875,
+            7424.292
+          ],
+          "collective_us": [
+            6487.236,
+            6728.31966667
+          ],
+          "mps_us": [
+            3806.6666,
+            3857.25
+          ],
+          "collective_independent": {
+            "median": 0.8848699510606878,
+            "minimum": 0.863482488394922,
+            "maximum": 0.9062574137264535,
+            "faster_rounds": 2,
+            "ratios": [
+              0.863482488394922,
+              0.9062574137264535
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            7467.99999615,
+            6640.25003789
+          ],
+          "collective_us": [
+            6967.5000268,
+            5543.62504045
+          ],
+          "mps_us": [
+            3298.29170369,
+            3605.12500629
+          ],
+          "collective_independent": {
+            "median": 0.8839162867919614,
+            "minimum": 0.8348518517853187,
+            "maximum": 0.9329807217986043,
+            "faster_rounds": 2,
+            "ratios": [
+              0.9329807217986043,
+              0.8348518517853187
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            8530.459,
+            7954.375
+          ],
+          "collective_us": [
+            7522.792,
+            6392.833
+          ],
+          "mps_us": [
+            3818.458,
+            3893.458
+          ],
+          "collective_independent": {
+            "median": 0.8427809452992867,
+            "minimum": 0.8036876561640606,
+            "maximum": 0.8818742344345128,
+            "faster_rounds": 2,
+            "ratios": [
+              0.8818742344345128,
+              0.8036876561640606
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "group_rectangle": "128x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            3592.13333577,
+            3567.87500205
+          ],
+          "collective_us": [
+            4413.18748926,
+            4233.17708191
+          ],
+          "mps_us": [
+            3546.94999987,
+            3499.12500242
+          ],
+          "collective_independent": {
+            "median": 1.207520092991029,
+            "minimum": 1.1864701200231893,
+            "maximum": 1.2285700659588688,
+            "faster_rounds": 0,
+            "ratios": [
+              1.2285700659588688,
+              1.1864701200231893
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            3694.9334,
+            3731.6416
+          ],
+          "collective_us": [
+            4636.59375,
+            4301.15625
+          ],
+          "mps_us": [
+            3650.2668,
+            3570.4082
+          ],
+          "collective_independent": {
+            "median": 1.2037347517606114,
+            "minimum": 1.1526177245960598,
+            "maximum": 1.2548517789251628,
+            "faster_rounds": 0,
+            "ratios": [
+              1.2548517789251628,
+              1.1526177245960598
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            2943.37497326,
+            3385.08334244
+          ],
+          "collective_us": [
+            4375.8333195,
+            4525.50000045
+          ],
+          "mps_us": [
+            2706.75000502,
+            3244.00002137
+          ],
+          "collective_independent": {
+            "median": 1.4117833804773001,
+            "minimum": 1.3368947061693248,
+            "maximum": 1.4866720547852756,
+            "faster_rounds": 0,
+            "ratios": [
+              1.4866720547852756,
+              1.3368947061693248
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            3619.5,
+            4655.333
+          ],
+          "collective_us": [
+            4827.625,
+            4834.375
+          ],
+          "mps_us": [
+            3277.292,
+            3528.209
+          ],
+          "collective_independent": {
+            "median": 1.1861209188668655,
+            "minimum": 1.038459547362133,
+            "maximum": 1.3337822903715983,
+            "faster_rounds": 0,
+            "ratios": [
+              1.3337822903715983,
+              1.038459547362133
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "group_rectangle": "128x32",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            3499.74999942,
+            3417.22499579
+          ],
+          "collective_us": [
+            3744.80000464,
+            3648.99167325
+          ],
+          "mps_us": [
+            3546.94999987,
+            3499.12500242
+          ],
+          "collective_independent": {
+            "median": 1.0689211774487835,
+            "minimum": 1.0678230663024926,
+            "maximum": 1.0700192885950743,
+            "faster_rounds": 0,
+            "ratios": [
+              1.0700192885950743,
+              1.0678230663024926
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            3563.9445,
+            3586.05
+          ],
+          "collective_us": [
+            3842.0332,
+            3733.3168
+          ],
+          "mps_us": [
+            3650.2668,
+            3570.4082
+          ],
+          "collective_independent": {
+            "median": 1.0595474624776813,
+            "minimum": 1.0410665774319934,
+            "maximum": 1.078028347523369,
+            "faster_rounds": 0,
+            "ratios": [
+              1.078028347523369,
+              1.0410665774319934
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            3525.16665589,
+            3234.95833436
+          ],
+          "collective_us": [
+            3185.99998718,
+            3609.83330756
+          ],
+          "mps_us": [
+            2706.75000502,
+            3244.00002137
+          ],
+          "collective_independent": {
+            "median": 1.0098347637664795,
+            "minimum": 0.9037870541118089,
+            "maximum": 1.1158824734211499,
+            "faster_rounds": 1,
+            "ratios": [
+              0.9037870541118089,
+              1.1158824734211499
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            3855.625,
+            3813.25
+          ],
+          "collective_us": [
+            3827.75,
+            3979.459
+          ],
+          "mps_us": [
+            3277.292,
+            3528.209
+          ],
+          "collective_independent": {
+            "median": 1.0181787659352164,
+            "minimum": 0.992770303128546,
+            "maximum": 1.0435872287418868,
+            "faster_rounds": 1,
+            "ratios": [
+              0.992770303128546,
+              1.0435872287418868
+            ]
+          }
+        }
+      }
+    },
+    {
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "group_rectangle": "64x64",
+      "metrics": {
+        "gpu_throughput": {
+          "independent_us": [
+            3482.90833645,
+            3492.1833314
+          ],
+          "collective_us": [
+            4296.2916632,
+            4293.78125409
+          ],
+          "mps_us": [
+            3546.94999987,
+            3499.12500242
+          ],
+          "collective_independent": {
+            "median": 1.2315381436371884,
+            "minimum": 1.2295406187534386,
+            "maximum": 1.2335356685209382,
+            "faster_rounds": 0,
+            "ratios": [
+              1.2335356685209382,
+              1.2295406187534386
+            ]
+          }
+        },
+        "e2e_throughput": {
+          "independent_us": [
+            3588.3084,
+            3565.6916
+          ],
+          "collective_us": [
+            4367.21875,
+            4406.625
+          ],
+          "mps_us": [
+            3650.2668,
+            3570.4082
+          ],
+          "collective_independent": {
+            "median": 1.2264545740421837,
+            "minimum": 1.2170689537164643,
+            "maximum": 1.2358401943679032,
+            "faster_rounds": 0,
+            "ratios": [
+              1.2170689537164643,
+              1.2358401943679032
+            ]
+          }
+        },
+        "gpu_latency": {
+          "independent_us": [
+            3589.99997843,
+            3505.16662002
+          ],
+          "collective_us": [
+            4182.62497988,
+            3837.24999847
+          ],
+          "mps_us": [
+            2706.75000502,
+            3244.00002137
+          ],
+          "collective_independent": {
+            "median": 1.1299088568379827,
+            "minimum": 1.0947411106089173,
+            "maximum": 1.165076603067048,
+            "faster_rounds": 0,
+            "ratios": [
+              1.165076603067048,
+              1.0947411106089173
+            ]
+          }
+        },
+        "e2e_latency": {
+          "independent_us": [
+            3947.5,
+            4309.208
+          ],
+          "collective_us": [
+            4512.625,
+            4455.166
+          ],
+          "mps_us": [
+            3277.292,
+            3528.209
+          ],
+          "collective_independent": {
+            "median": 1.0885157086576784,
+            "minimum": 1.0338711893229569,
+            "maximum": 1.1431602279924002,
+            "faster_rounds": 0,
+            "ratios": [
+              1.1431602279924002,
+              1.0338711893229569
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "input_sha256": "1498bb4e381c40927104054623eb0e52804e1198453c186efbf5f2446ed05c91",
+  "timing_auditor_sha256": "6352deaabd4c3bccd6de0ae19491b29f8bb692b976bca8f1496451bd3c8ddca8",
+  "rejected_mutations": [
+    "missing_row",
+    "duplicate_row",
+    "changed_artifact",
+    "partial_output",
+    "wrong_participation"
+  ]
+}

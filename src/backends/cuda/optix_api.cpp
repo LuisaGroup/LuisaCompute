@@ -2,6 +2,7 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
+#include <luisa/core/stl/memory.h>
 
 // The following code is from
 //   [Dr.JIT-Core](https://github.com/mitsuba-renderer/drjit-core) by Wenzel Jakob
@@ -66,7 +67,11 @@ namespace luisa::compute::optix {
         if (CM_Get_Device_ID_List_SizeA(&size, guid, flags))
             return nullptr;
 
-        std::unique_ptr<char[]> dev_names(new char[size]);
+        // Note: luisa::unique_ptr is eastl::unique_ptr; its default_delete for
+        // arrays expects the EASTL make_unique header layout and frees through
+        // the EASTL default allocator (mimalloc when EASTL_MIMALLOC_ENABLED).
+        // A raw `new char[]` would be freed with mi_free -> invalid pointer.
+        luisa::unique_ptr<char[]> dev_names = luisa::make_unique<char[]>(size);
         if (CM_Get_Device_ID_ListA(guid, dev_names.get(), size, flags))
             return nullptr;
 
@@ -83,7 +88,7 @@ namespace luisa::compute::optix {
             if (RegQueryValueExA(reg_key, driver_name, 0, 0, 0, &size))
                 continue;
 
-            std::unique_ptr<char[]> path(new char[size + suffix_len]);
+            luisa::unique_ptr<char[]> path = luisa::make_unique<char[]>(size + suffix_len);
             if (RegQueryValueExA(reg_key, driver_name, 0, 0, (LPBYTE)path.get(), &size))
                 continue;
 
@@ -157,15 +162,21 @@ namespace luisa::compute::optix {
     return handle;
 }
 
-[[nodiscard]] auto load_optix() noexcept {
-    auto handle = find_optix_library();
-    LUISA_ASSERT(handle != nullptr, "OptiX library could not be loaded.");
+[[nodiscard]] static bool query_function_table(void *handle, FunctionTable &table) noexcept {
+    if (handle == nullptr) { return false; }
     using QueryFunctionTable_t =
         Result (*)(uint32_t, uint32_t, void *, const void **, void *, size_t);
     auto optixQueryFunctionTable = reinterpret_cast<QueryFunctionTable_t>(
         dynamic_module_find_symbol(handle, "optixQueryFunctionTable"));
+    if (optixQueryFunctionTable == nullptr) { return false; }
+    return optixQueryFunctionTable(ABI_VERSION, 0, nullptr, nullptr, &table, sizeof(table)) == 0u;
+}
+
+[[nodiscard]] auto load_optix() noexcept {
+    auto handle = find_optix_library();
+    LUISA_ASSERT(handle != nullptr, "OptiX library could not be loaded.");
     FunctionTable t{};
-    if (optixQueryFunctionTable(ABI_VERSION, 0, nullptr, nullptr, &t, sizeof(t)) != 0u) {
+    if (!query_function_table(handle, t)) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load OptiX function table. "
             "You may need to update your driver.");
@@ -176,6 +187,17 @@ namespace luisa::compute::optix {
 [[nodiscard]] const FunctionTable &api() noexcept {
     static auto table = load_optix();
     return table;
+}
+
+[[nodiscard]] bool available() noexcept {
+    // The capability check of the hardware ray-tracing path: the OptiX runtime
+    // has to be present *and* answer for this ABI version.  Cached, and silent:
+    // a machine without a usable OptiX simply runs the software fallback.
+    static const auto result = []() noexcept {
+        FunctionTable t{};
+        return query_function_table(find_optix_library(), t);
+    }();
+    return result;
 }
 
 }// namespace luisa::compute::optix

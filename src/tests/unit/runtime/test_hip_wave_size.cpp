@@ -14,6 +14,7 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/core/stl/filesystem.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -82,22 +83,22 @@ void test_hip_wave_sizes(Device &device) noexcept {
     auto wave64 = device.compile(wave64_kernel);
     verify_wave_output(device, stream, wave64, 64u);
 
-    auto package_path = std::filesystem::absolute("test_hip_wave64_aot.bytes");
+    auto package_path = luisa::filesystem::absolute("test_hip_wave64_aot.bytes");
     auto package_name = luisa::string{package_path.string()};
     std::error_code error;
-    std::filesystem::remove(package_path, error);
+    luisa::filesystem::remove(package_path, error);
     [[maybe_unused]] auto compile_only = device.compile(
         wave64_kernel,
         ShaderOption{.compile_only = true, .name = package_name});
-    expect(std::filesystem::is_regular_file(package_path))
+    expect(luisa::filesystem::is_regular_file(package_path))
         << "HIP wave64 AOT package must be written";
 
     auto loaded_wave64 = device.load_shader<1, Buffer<uint4>>(package_name);
     verify_wave_output(device, stream, loaded_wave64, 64u);
 
     error.clear();
-    std::filesystem::remove(package_path, error);
-    expect(!error && !std::filesystem::exists(package_path))
+    luisa::filesystem::remove(package_path, error);
+    expect(!error && !luisa::filesystem::exists(package_path))
         << "HIP wave64 AOT package cleanup must succeed";
 }
 

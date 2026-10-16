@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="(empty)"
+	tests="1"
+	failures="0"
+	disabled="0"
+	skipped="0"
+	hostname=""
+	time="12"
+	timestamp="2026-09-09T12:20:18"
+	>
+	<testcase name="test_tile_xir_llm" classname="test_tile_xir_llm" time="12.6293" status="run">
+		<properties>
+			<property name="cmake_labels" value="integration;integration_simd;integration_tile_xir"/>
+		</properties>
+		<system-out>[2026-09-09 12:20:18.049] [console] [info] Created context for program 'test_tile_xir_llm'.
+[2026-09-09 12:20:18.049] [console] [info] Runtime directory: /private/tmp/luisa-next-checkpoint.J7yODi/build/bin.
+[2026-09-09 12:20:18.053] [console] [info] Loaded dynamic module '/private/tmp/luisa-next-checkpoint.J7yODi/build/bin/libluisa-backend-simd.so' in 3.1283339999999997 ms.
+[2026-09-09 12:20:18.053] [console] [info] Test device backend: simd.
+[2026-09-09 12:20:18.060] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-09 12:20:18.112] [console] [info] Checking llm_rows with 262144 output elements
+[2026-09-09 12:20:18.172] [console] [info] Checking llm_rows with 1048576 output elements
+[2026-09-09 12:20:18.224] [console] [info] Checking llm_rows with 119 output elements
+[2026-09-09 12:20:18.386] [console] [info] Checking llm_rows with 544 output elements
+[2026-09-09 12:20:18.658] [console] [info] Checking llm_rows with 1105 output elements
+[2026-09-09 12:20:18.756] [console] [info] Checki...
+[This part of the test output was removed since it exceeds the threshold of 1024 bytes.]
+</system-out>
+	</testcase>
+</testsuite>

@@ -8,7 +8,10 @@ on_load(function(target)
     local function rela(p)
         return path.normalize(path.join(os.scriptdir(), p))
     end
-    target:add("includedirs", rela("../../include"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"),
+    -- NOTE: the bundled submodule directory is src/ext/xxHash (mixed case, as
+    -- upstream names it); keep the casing in sync or case-sensitive platforms
+    -- (Linux/macOS) cannot find <xxhash.h>.
+    target:add("includedirs", rela("../../include"), rela("../ext/xxHash"), rela("../ext/magic_enum/include"),
         rela("../ext/half/include"), {
             public = true
         })
@@ -43,12 +46,19 @@ on_load(function(target)
     end
     target:add("defines", "LUISA_CORE_EXPORT_DLL")
     target:add("deps", "eastl")
+    target:add("deps", "btree")
     if has_config("lc_spdlog_use_xrepo") then
         target:add("packages", "spdlog")
     else
         target:add("deps", "spdlog")
     end
-    target:add("deps", "lc-check-winsdk")
+            target:add("deps", "lc-check-winsdk")
+        -- Optional guard for the unity (jumbo) build: fails when two files of one
+        -- batch declare the same file-local symbol. Needs Python with
+        -- tree-sitter/tree-sitter-cpp; see scripts/check_unity_build_conflicts.py.
+        if has_config("lc_check_unity_build") then
+            target:add("deps", "lc-check-unity-build")
+        end
     if has_config("spdlog_only_fmt") then -- Use no spdlog
         target:add("defines", "LUISA_CUSTOM_LOGGER", {
             public = true

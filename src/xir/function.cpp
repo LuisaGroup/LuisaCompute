@@ -71,6 +71,10 @@ BasicBlock *FunctionDefinition::create_body_block(bool overwrite_existing) noexc
     return new_block;
 }
 
+RasterStageFunction::RasterStageFunction(Module *parent_module, const Type *ret_type,
+                                         RasterStage stage) noexcept
+    : Super{parent_module, ret_type}, _stage{stage} {}
+
 namespace detail {
 
 void traverse_basic_block_pre_order(luisa::unordered_set<BasicBlock *> &visited, BasicBlock *block,

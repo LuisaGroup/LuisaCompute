@@ -1,0 +1,102 @@
+{
+  "passed": true,
+  "browser": "152.0.7977.76",
+  "receipts": [
+    {
+      "file": "source/performance/tile/results.html",
+      "sectionId": "whole-group-mpp-participation-is-not-uniformly-better",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-program-order-docs-final.D0Ft0W/whole-group-mpp-participation-is-not-uniformly-better-1280.png",
+      "pageWidth": 1280,
+      "viewport": 1280,
+      "tables": [
+        {
+          "rows": 6,
+          "columns": 4,
+          "width": 578.640625,
+          "scrollWidth": 696,
+          "containerWidth": 696
+        }
+      ]
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "sectionId": "generic-traversal-composes-with-k-but-is-not-a-universal-win",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-program-order-docs-final.D0Ft0W/generic-traversal-composes-with-k-but-is-not-a-universal-win-1280.png",
+      "pageWidth": 1280,
+      "viewport": 1280,
+      "tables": [
+        {
+          "rows": 7,
+          "columns": 4,
+          "width": 696.46875,
+          "scrollWidth": 696,
+          "containerWidth": 696
+        }
+      ]
+    },
+    {
+      "file": "source/internals/tile/planner.html",
+      "sectionId": "program-traversal-is-a-mapping-choice-not-a-memory-scope",
+      "width": 1280,
+      "screenshot": "/tmp/luisa-program-order-docs-final.D0Ft0W/program-traversal-is-a-mapping-choice-not-a-memory-scope-1280.png",
+      "pageWidth": 1280,
+      "viewport": 1280,
+      "tables": []
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "sectionId": "whole-group-mpp-participation-is-not-uniformly-better",
+      "width": 390,
+      "screenshot": "/tmp/luisa-program-order-docs-final.D0Ft0W/whole-group-mpp-participation-is-not-uniformly-better-390.png",
+      "pageWidth": 390,
+      "viewport": 390,
+      "tables": [
+        {
+          "rows": 6,
+          "columns": 4,
+          "width": 448.4375,
+          "scrollWidth": 448,
+          "containerWidth": 338
+        }
+      ]
+    },
+    {
+      "file": "source/performance/tile/results.html",
+      "sectionId": "generic-traversal-composes-with-k-but-is-not-a-universal-win",
+      "width": 390,
+      "screenshot": "/tmp/luisa-program-order-docs-final.D0Ft0W/generic-traversal-composes-with-k-but-is-not-a-universal-win-390.png",
+      "pageWidth": 390,
+      "viewport": 390,
+      "tables": [
+        {
+          "rows": 7,
+          "columns": 4,
+          "width": 456.78125,
+          "scrollWidth": 457,
+          "containerWidth": 338
+        }
+      ]
+    },
+    {
+      "file": "source/internals/tile/planner.html",
+      "sectionId": "program-traversal-is-a-mapping-choice-not-a-memory-scope",
+      "width": 390,
+      "screenshot": "/tmp/luisa-program-order-docs-final.D0Ft0W/program-traversal-is-a-mapping-choice-not-a-memory-scope-390.png",
+      "pageWidth": 390,
+      "viewport": 390,
+      "tables": []
+    }
+  ],
+  "visual_review": {
+    "passed": true,
+    "reviewed_screenshot_directory": "/tmp/luisa-program-order-docs-qa.22Dt6G",
+    "sections": 3,
+    "widths": [
+      1280,
+      390
+    ],
+    "scope": "The same rendered reader-facing sections were visually inspected before the compact receipt rerun; narrow tables and code scroll in their theme containers."
+  }
+}

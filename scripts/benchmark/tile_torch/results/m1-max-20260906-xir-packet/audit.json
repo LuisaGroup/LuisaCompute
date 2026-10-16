@@ -1,0 +1,326 @@
+{
+  "rows": 108,
+  "checked_elements": 29066094,
+  "artifacts": 38,
+  "report_sha256": "4214d3b9aef7cb3223ba227f5ad077f85bef12acbf6af59bbb97c053891d41a2",
+  "summary": [
+    {
+      "shape": [
+        32,
+        32,
+        32
+      ],
+      "max_abs_error": 0.0,
+      "metrics": {
+        "throughput_us": {
+          "median_us": {
+            "planned": 44.57557072035,
+            "baseline": 51.65204326505,
+            "torch": 0.9449404918796729
+          },
+          "planned_over_baseline": {
+            "median": 0.8569531307125107,
+            "min": 0.7988093920340337,
+            "max": 2.7676851047932414,
+            "slower_rounds": 1
+          },
+          "planned_over_torch": {
+            "median": 48.61384157655533,
+            "min": 40.925096127745825,
+            "max": 149.38642691955954,
+            "slower_rounds": 6
+          }
+        },
+        "latency_us": {
+          "median_us": {
+            "planned": 52.292,
+            "baseline": 54.1875,
+            "torch": 1.0
+          },
+          "planned_over_baseline": {
+            "median": 0.9877889594950334,
+            "min": 0.518748393257189,
+            "max": 3.6376988416988416,
+            "slower_rounds": 3
+          },
+          "planned_over_torch": {
+            "median": 49.82888888888889,
+            "min": 29.488517745302715,
+            "max": 235.541,
+            "slower_rounds": 6
+          }
+        }
+      },
+      "compile_ms": {
+        "planned": 27.44375,
+        "baseline": 41.101271
+      },
+      "identical_llvm_between_arms": false
+    },
+    {
+      "shape": [
+        128,
+        128,
+        128
+      ],
+      "max_abs_error": 0.0,
+      "metrics": {
+        "throughput_us": {
+          "median_us": {
+            "planned": 127.16699966,
+            "baseline": 293.3185075755,
+            "torch": 4.8766528980724875
+          },
+          "planned_over_baseline": {
+            "median": 0.4180547938108823,
+            "min": 0.389205531250014,
+            "max": 0.48722001464957077,
+            "slower_rounds": 0
+          },
+          "planned_over_torch": {
+            "median": 26.076969183414008,
+            "min": 24.337028988130225,
+            "max": 28.158879682408042,
+            "slower_rounds": 6
+          }
+        },
+        "latency_us": {
+          "median_us": {
+            "planned": 115.6665,
+            "baseline": 301.66650000000004,
+            "torch": 4.9795
+          },
+          "planned_over_baseline": {
+            "median": 0.40305192633113945,
+            "min": 0.3735687623201778,
+            "max": 0.4527771953906587,
+            "slower_rounds": 0
+          },
+          "planned_over_torch": {
+            "median": 23.42129264389344,
+            "min": 22.15173214631314,
+            "max": 27.559185319620894,
+            "slower_rounds": 6
+          }
+        }
+      },
+      "compile_ms": {
+        "planned": 25.325708499999998,
+        "baseline": 39.3590625
+      },
+      "identical_llvm_between_arms": false
+    },
+    {
+      "shape": [
+        512,
+        512,
+        512
+      ],
+      "max_abs_error": 0.0,
+      "metrics": {
+        "throughput_us": {
+          "median_us": {
+            "planned": 4309.97925,
+            "baseline": 13402.55175,
+            "torch": 153.48229136482178
+          },
+          "planned_over_baseline": {
+            "median": 0.3272280002055903,
+            "min": 0.3033521653603946,
+            "max": 0.6935014204112694,
+            "slower_rounds": 0
+          },
+          "planned_over_torch": {
+            "median": 29.091832255794888,
+            "min": 26.773101521686712,
+            "max": 56.67815630802283,
+            "slower_rounds": 6
+          }
+        },
+        "latency_us": {
+          "median_us": {
+            "planned": 4407.6875,
+            "baseline": 13165.4585,
+            "torch": 161.333
+          },
+          "planned_over_baseline": {
+            "median": 0.3406282831998847,
+            "min": 0.2997112305231565,
+            "max": 1.1179376022553735,
+            "slower_rounds": 1
+          },
+          "planned_over_torch": {
+            "median": 28.653189032390358,
+            "min": 24.71809843506217,
+            "max": 89.5182553557776,
+            "slower_rounds": 6
+          }
+        }
+      },
+      "compile_ms": {
+        "planned": 25.834208,
+        "baseline": 38.947542
+      },
+      "identical_llvm_between_arms": false
+    },
+    {
+      "shape": [
+        1024,
+        1024,
+        1024
+      ],
+      "max_abs_error": 0.0,
+      "metrics": {
+        "throughput_us": {
+          "median_us": {
+            "planned": 42322.1455,
+            "baseline": 111910.79149999999,
+            "torch": 1061.1933808823528
+          },
+          "planned_over_baseline": {
+            "median": 0.3834743471348582,
+            "min": 0.34649081725720704,
+            "max": 0.4038728546316989,
+            "slower_rounds": 0
+          },
+          "planned_over_torch": {
+            "median": 39.2832472679612,
+            "min": 33.56072684168375,
+            "max": 40.73590051720552,
+            "slower_rounds": 6
+          }
+        },
+        "latency_us": {
+          "median_us": {
+            "planned": 43121.896,
+            "baseline": 110617.2705,
+            "torch": 1115.3125
+          },
+          "planned_over_baseline": {
+            "median": 0.39203419553415914,
+            "min": 0.3781444692606089,
+            "max": 0.3995791245479853,
+            "slower_rounds": 0
+          },
+          "planned_over_torch": {
+            "median": 38.410094815762946,
+            "min": 31.356384241151776,
+            "max": 43.40783294853787,
+            "slower_rounds": 6
+          }
+        }
+      },
+      "compile_ms": {
+        "planned": 25.2024585,
+        "baseline": 39.3919585
+      },
+      "identical_llvm_between_arms": false
+    },
+    {
+      "shape": [
+        128,
+        2048,
+        512
+      ],
+      "max_abs_error": 0.0,
+      "metrics": {
+        "throughput_us": {
+          "median_us": {
+            "planned": 5859.132,
+            "baseline": 13639.375,
+            "torch": 164.90127942430703
+          },
+          "planned_over_baseline": {
+            "median": 0.43098710642879645,
+            "min": 0.406357813383022,
+            "max": 0.5003578903243872,
+            "slower_rounds": 0
+          },
+          "planned_over_torch": {
+            "median": 35.27434838900878,
+            "min": 33.857762605992534,
+            "max": 41.65924674176568,
+            "slower_rounds": 6
+          }
+        },
+        "latency_us": {
+          "median_us": {
+            "planned": 5823.2915,
+            "baseline": 13694.7915,
+            "torch": 161.1875
+          },
+          "planned_over_baseline": {
+            "median": 0.43016197231486253,
+            "min": 0.36718931546754635,
+            "max": 0.507218761568645,
+            "slower_rounds": 0
+          },
+          "planned_over_torch": {
+            "median": 38.30983554114413,
+            "min": 32.60763018502976,
+            "max": 44.21301951910915,
+            "slower_rounds": 6
+          }
+        }
+      },
+      "compile_ms": {
+        "planned": 24.1970625,
+        "baseline": 39.123896
+      },
+      "identical_llvm_between_arms": false
+    },
+    {
+      "shape": [
+        127,
+        193,
+        61
+      ],
+      "max_abs_error": 0.0,
+      "metrics": {
+        "throughput_us": {
+          "median_us": {
+            "planned": 253.839083615,
+            "baseline": 254.998572411,
+            "torch": 6.6522858202808415
+          },
+          "planned_over_baseline": {
+            "median": 0.9970038559894527,
+            "min": 0.8616589649557702,
+            "max": 1.1426040248303937,
+            "slower_rounds": 3
+          },
+          "planned_over_torch": {
+            "median": 38.84424566092769,
+            "min": 36.51174912881131,
+            "max": 44.3869587301322,
+            "slower_rounds": 6
+          }
+        },
+        "latency_us": {
+          "median_us": {
+            "planned": 269.5,
+            "baseline": 254.5415,
+            "torch": 6.4795
+          },
+          "planned_over_baseline": {
+            "median": 1.1123758064578873,
+            "min": 0.14602609647049292,
+            "max": 1.1193124368048535,
+            "slower_rounds": 5
+          },
+          "planned_over_torch": {
+            "median": 41.50806877038174,
+            "min": 40.29911751045053,
+            "max": 45.6997906265099,
+            "slower_rounds": 6
+          }
+        }
+      },
+      "compile_ms": {
+        "planned": 58.570375,
+        "baseline": 57.6896455
+      },
+      "identical_llvm_between_arms": true
+    }
+  ]
+}

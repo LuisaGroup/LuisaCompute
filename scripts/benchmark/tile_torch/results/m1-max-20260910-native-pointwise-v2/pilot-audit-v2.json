@@ -1,0 +1,369 @@
+{
+  "manifest_sha256": "a103f81abcef1303a4109d53094d87004ff10225e38044bf40d9847103daa20e",
+  "replay_sha256": "ccc3043ffa74e16ccd2c86df118ffa403d7eff51a2aaf920373f6b69a83c9480",
+  "auditor_sha256": "1828208ea0cc9c5e4683c58be935b32ab8662a036b4ba4f0ceafceb6636c9206",
+  "native_output_checks": [
+    {
+      "case": "rope-17x66",
+      "variant": "off",
+      "correctness": {
+        "elements": 1122,
+        "max_abs_error": 1.7592435597180156e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-17x66",
+      "variant": "on",
+      "correctness": {
+        "elements": 1122,
+        "max_abs_error": 1.7592435597180156e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-17x66",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 1122,
+        "max_abs_error": 1.7592435597180156e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-1024x4098",
+      "variant": "off",
+      "correctness": {
+        "elements": 4196352,
+        "max_abs_error": 2.3765414880472235e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-1024x4098",
+      "variant": "on",
+      "correctness": {
+        "elements": 4196352,
+        "max_abs_error": 2.3765414880472235e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "rope-1024x4098",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 4196352,
+        "max_abs_error": 2.3765414880472235e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-17x65",
+      "variant": "off",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-17x65",
+      "variant": "on",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-17x65",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 1105,
+        "max_abs_error": 1.7778814753732775e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-1024x4097",
+      "variant": "off",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-1024x4097",
+      "variant": "on",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    },
+    {
+      "case": "swiglu-1024x4097",
+      "variant": "inductor",
+      "correctness": {
+        "elements": 4195328,
+        "max_abs_error": 2.267375835973695e-07,
+        "atol": 5e-05,
+        "rtol": 5e-05
+      }
+    }
+  ],
+  "summaries": [
+    {
+      "operation": "rope",
+      "dimensions": [
+        17,
+        66
+      ],
+      "summary_us": {
+        "off": 0.14711475372314453,
+        "on": 0.25152317428588866,
+        "inductor": 0.11497751808166504
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 1.7076744368086316,
+          "minimum": 1.6897232372954973,
+          "maximum": 1.7163879741029482,
+          "wins": 0,
+          "rounds": [
+            1.7157913469085952,
+            1.7052883338723834,
+            1.6897232372954973,
+            1.7163879741029482,
+            1.700088058258684,
+            1.7100605397448798
+          ]
+        },
+        "on/inductor": {
+          "median": 2.182472048542701,
+          "minimum": 2.173644164100199,
+          "maximum": 2.196570819542455,
+          "wins": 0,
+          "rounds": [
+            2.183458005676203,
+            2.173644164100199,
+            2.181486091409199,
+            2.1858801901687386,
+            2.196570819542455,
+            2.1804508955366075
+          ]
+        },
+        "off/inductor": {
+          "median": 1.2748606982052375,
+          "minimum": 1.2725661599880544,
+          "maximum": 1.2920335560690273,
+          "wins": 0,
+          "rounds": [
+            1.2725661599880544,
+            1.2746490554851035,
+            1.2910315981099942,
+            1.2735350183930096,
+            1.2920335560690273,
+            1.2750723409253713
+          ]
+        }
+      }
+    },
+    {
+      "operation": "rope",
+      "dimensions": [
+        1024,
+        4098
+      ],
+      "summary_us": {
+        "off": 1461.130875,
+        "on": 988.434578125,
+        "inductor": 1117.134125
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.6268069080534183,
+          "minimum": 0.5595249453370981,
+          "maximum": 0.753694459271912,
+          "wins": 6,
+          "rounds": [
+            0.610411498185797,
+            0.753694459271912,
+            0.5756947956835278,
+            0.6633548951327842,
+            0.6432023179210397,
+            0.5595249453370981
+          ]
+        },
+        "on/inductor": {
+          "median": 0.8424584386569697,
+          "minimum": 0.8002162605203519,
+          "maximum": 0.9039485745615208,
+          "wins": 6,
+          "rounds": [
+            0.8128878362649102,
+            0.8595754751750645,
+            0.8253414021388749,
+            0.8841089112157046,
+            0.8002162605203519,
+            0.9039485745615208
+          ]
+        },
+        "off/inductor": {
+          "median": 1.3322444206308341,
+          "minimum": 1.1404826778286736,
+          "maximum": 1.6155643856359563,
+          "wins": 0,
+          "rounds": [
+            1.3317046593664976,
+            1.1404826778286736,
+            1.4336440216711346,
+            1.3327841818951707,
+            1.2441128370103098,
+            1.6155643856359563
+          ]
+        }
+      }
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        17,
+        65
+      ],
+      "summary_us": {
+        "off": 1.6593513488769531,
+        "on": 1.569163619995117,
+        "inductor": 1.3301429748535156
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.941225465908587,
+          "minimum": 0.9214783846954188,
+          "maximum": 1.00031240940169,
+          "wins": 5,
+          "rounds": [
+            1.00031240940169,
+            0.9332091003307663,
+            0.9336621761785469,
+            0.9803806548854149,
+            0.9487887556386272,
+            0.9214783846954188
+          ]
+        },
+        "on/inductor": {
+          "median": 1.1710367489445748,
+          "minimum": 1.0956884536125617,
+          "maximum": 1.2400118884709945,
+          "wins": 0,
+          "rounds": [
+            1.2400118884709945,
+            1.1831245671362365,
+            1.1381780399046304,
+            1.0956884536125617,
+            1.177434908765612,
+            1.1646385891235378
+          ]
+        },
+        "off/inductor": {
+          "median": 1.2403060184002717,
+          "minimum": 1.1176153345667799,
+          "maximum": 1.2678022178704538,
+          "wins": 0,
+          "rounds": [
+            1.2396246180857382,
+            1.2678022178704538,
+            1.2190469625353801,
+            1.1176153345667799,
+            1.2409874187148051,
+            1.2638805298818725
+          ]
+        }
+      }
+    },
+    {
+      "operation": "swiglu",
+      "dimensions": [
+        1024,
+        4097
+      ],
+      "summary_us": {
+        "off": 6039.8801875,
+        "on": 5265.6640625,
+        "inductor": 5013.83075
+      },
+      "paired_ratios": {
+        "on/off": {
+          "median": 0.8813886541453094,
+          "minimum": 0.795303752130147,
+          "maximum": 0.9508872112209079,
+          "wins": 6,
+          "rounds": [
+            0.9318998523545116,
+            0.9508872112209079,
+            0.893303715631918,
+            0.8485893484057613,
+            0.8694735926587008,
+            0.795303752130147
+          ]
+        },
+        "on/inductor": {
+          "median": 1.054105936741624,
+          "minimum": 1.0195764219486243,
+          "maximum": 1.147801827032963,
+          "wins": 0,
+          "rounds": [
+            1.089395126050555,
+            1.147801827032963,
+            1.0511213563182988,
+            1.0256800254572298,
+            1.057090517164949,
+            1.0195764219486243
+          ]
+        },
+        "off/inductor": {
+          "median": 1.2078867274223168,
+          "minimum": 1.1690045054713984,
+          "maximum": 1.2819962425900593,
+          "wins": 0,
+          "rounds": [
+            1.1690045054713984,
+            1.2070851447872806,
+            1.1766673953379243,
+            1.2086883100573529,
+            1.215782199816498,
+            1.2819962425900593
+          ]
+        }
+      }
+    }
+  ],
+  "identity_checks": 253,
+  "rejected_mutations": [
+    "missing_visit",
+    "wrong_median",
+    "wrong_ratio",
+    "failed_guard",
+    "wrong_oracle",
+    "verification_only",
+    "wrong_order",
+    "failed_status",
+    "wrong_summary",
+    "duplicate_visit",
+    "boolean_sample"
+  ],
+  "guard_caveat": "Guards were checked during replay; not retained for post-hoc reinspection.",
+  "status": "passed"
+}

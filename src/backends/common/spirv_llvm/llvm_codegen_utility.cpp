@@ -24,6 +24,7 @@
 #include <luisa/ast/variable.h>
 #include <luisa/ast/usage.h>
 #include <luisa/runtime/rhi/resource.h>
+#include <luisa/core/stl/optional.h>
 #ifdef alloca
 #undef alloca
 #endif
@@ -88,6 +89,12 @@ llvm::Type *LLVMCodegenUtility::ToLLVMType(Type const &type) {
         case Type::Tag::FLOAT8_E4M3:
         case Type::Tag::FLOAT8_E5M2:
             // No native LLVM type for 8-bit float; use i8
+            return _builder->getInt8Ty();
+        case Type::Tag::INT4:
+            // 4-bit sub-byte quantized; stored as i8 (lower nibble)
+            return _builder->getInt8Ty();
+        case Type::Tag::FP4_E2M1:
+            // 4-bit sub-byte quantized; stored as i8 (lower nibble)
             return _builder->getInt8Ty();
 
         // --- Vector types ---
@@ -720,8 +727,8 @@ void LLVMCodegenUtility::InitializeSPIRVModule() {
     llvm::TargetOptions opt;
     _target_machine.reset(target->createTargetMachine(
         llvm::Triple("spirv64-unknown-vulkan1.2"), "generic",
-        "", opt, std::optional<llvm::Reloc::Model>(llvm::Reloc::PIC_),
-        std::optional<llvm::CodeModel::Model>(llvm::CodeModel::Small),
+        "", opt, luisa::optional<llvm::Reloc::Model>(llvm::Reloc::PIC_),
+        luisa::optional<llvm::CodeModel::Model>(llvm::CodeModel::Small),
         llvm::CodeGenOptLevel::Default, false));
 
     if (!_target_machine) {

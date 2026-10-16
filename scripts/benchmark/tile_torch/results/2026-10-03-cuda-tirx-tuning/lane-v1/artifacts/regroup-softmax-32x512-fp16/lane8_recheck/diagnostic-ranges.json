@@ -1,0 +1,1 @@
+{"schema":1,"baseline_fixture_tile":[1,512,1],"actual_capture_tile":[1,512,1],"logical_rows":32,"width":512,"actual_final_ranges_disjoint":true,"live_input_slots":[0],"output_slot":3,"disjoint_checked_input_slots":[0,1,2],"minimum_host_bytes":[32768,32768,32768,32768],"final_host_pointers":[47328526464,47328559744,47328593024,47328626304]}

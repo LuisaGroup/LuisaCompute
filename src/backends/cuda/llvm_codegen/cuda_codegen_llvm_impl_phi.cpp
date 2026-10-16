@@ -20,8 +20,18 @@ void CUDACodegenLLVMImpl::_finalize_pending_phi_nodes(const FunctionContext &fun
             auto [value, block] = phi->incoming(i);
             if (!translated_blocks.contains(block)) { continue; }
             auto llvm_value = _get_llvm_value(b, func_ctx, value);
-            auto llvm_block = func_ctx.get_local_value<llvm::BasicBlock>(block);
-            llvm_phi->addIncoming(llvm_value, llvm_block);
+            auto exit = func_ctx.block_exits.find(block);
+            LUISA_ASSERT(exit != func_ctx.block_exits.end(), "Translated XIR block has no LLVM exit.");
+            auto llvm_block = exit->second;
+            // XIR has one incoming value per predecessor block. LLVM requires
+            // one per edge, including grouped switch labels and the default
+            // edge when they share a destination.
+            auto terminator = llvm_block->getTerminator();
+            for (auto successor = 0u; successor < terminator->getNumSuccessors(); successor++) {
+                if (terminator->getSuccessor(successor) == llvm_phi->getParent()) {
+                    llvm_phi->addIncoming(llvm_value, llvm_block);
+                }
+            }
         }
     }
 }

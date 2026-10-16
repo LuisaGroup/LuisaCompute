@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "rowblock-reduce_sum-128x65-fp32-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        128,
+        65
+      ],
+      "tile": [
+        4,
+        128,
+        1
+      ],
+      "precision": "fp32",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-reduce_sum-17x1024-fp16-br4",
+      "operation": "reduce_sum",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-scan-17x1024-fp16-br4",
+      "operation": "scan",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "cancellation",
+      "fast_math": false
+    },
+    {
+      "id": "rowblock-reduce_max-17x1024-fp16-br4",
+      "operation": "reduce_max",
+      "dimensions": [
+        17,
+        1024
+      ],
+      "tile": [
+        4,
+        1024,
+        1
+      ],
+      "precision": "fp16",
+      "seed": 20261001,
+      "pattern": "random",
+      "fast_math": false
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+
+Running test "tile_matrix_direct_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false]
+
+ Do not have a default for tirx.FloorMod
+Running test "tile_matrix_direct_output_and_observation_guards"... FAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false] Do not have a default for tirx.FloorModFAILED
+in: /Users/mike/CLionProjects/luisa/src/tests/unit/tile/bridge/test_tirx_matrix.cpp:2030 - test condition:  [false]
+
+ Do not have a default for tirx.FloorMod
+===============================================================================
+Suite global
+tests:   32 | 2 failed
+asserts: 3155 | 31 passed | 2 failed
+

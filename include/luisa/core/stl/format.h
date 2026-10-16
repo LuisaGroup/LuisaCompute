@@ -10,8 +10,10 @@
 #include <algorithm>// for std::copy
 
 #if LUISA_USE_SYSTEM_SPDLOG
+#include <spdlog/fmt/ranges.h>
 #include <spdlog/fmt/xchar.h>
 #else
+#include <spdlog/fmt/bundled/ranges.h>
 #include <spdlog/fmt/bundled/xchar.h>
 #endif
 
@@ -51,6 +53,14 @@ template<typename Format, typename... Args>
 };// namespace luisa
 
 namespace fmt {
+
+template<>
+struct formatter<luisa::half> : formatter<float> {
+    template<typename FormatContext>
+    auto format(luisa::half value, FormatContext &ctx) const {
+        return formatter<float>::format(static_cast<float>(value), ctx);
+    }
+};
 
 template<typename T, size_t N>
 struct formatter<luisa::Vector<T, N>> {

@@ -3,6 +3,7 @@
 //
 
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/core/stl/memory.h>
 
 #include "../cuda_buffer.h"
 #include "../cuda_texture.h"
@@ -51,13 +52,13 @@ CUDACodegenLLVMImpl::_get_llvm_type(const Type *type) noexcept {
     auto llvm_type_info = [this, type]() noexcept {
         if (type == nullptr) {
             auto llvm_void_type = llvm::Type::getVoidTy(_llvm_context);
-            return luisa::make_unique<LLVMTypeInfo>(llvm_void_type, llvm_void_type, luisa::vector<size_t>{});
+            return std::make_unique<LLVMTypeInfo>(llvm_void_type, llvm_void_type, luisa::vector<size_t>{});
         }
         auto make_llvm_type_info = [this](auto mem_t, auto reg_t, size_t s, size_t a,
                                           luisa::vector<size_t> member_indices = {},
                                           luisa::vector<size_t> member_offsets = {}) noexcept {
             detail::luisa_check_llvm_type_size_and_alignment(*_data_layout, mem_t, s, a);
-            return luisa::make_unique<LLVMTypeInfo>(mem_t, reg_t, std::move(member_indices), std::move(member_offsets));
+            return std::make_unique<LLVMTypeInfo>(mem_t, reg_t, std::move(member_indices), std::move(member_offsets));
         };
         switch (type->tag()) {
             case Type::Tag::BOOL: {
@@ -66,6 +67,15 @@ CUDACodegenLLVMImpl::_get_llvm_type(const Type *type) noexcept {
             }
             case Type::Tag::INT8: [[fallthrough]];
             case Type::Tag::UINT8: {
+                auto llvm_i8_type = llvm::Type::getInt8Ty(_llvm_context);
+                return make_llvm_type_info(llvm_i8_type, llvm_i8_type, sizeof(int8_t), alignof(int8_t));
+            }
+            // FP8 / I4 / FP4 placeholders: 8-bit storage (1 byte per element;
+            // sub-byte packing is handled in the tile lowering, not here).
+            case Type::Tag::FLOAT8_E4M3: [[fallthrough]];
+            case Type::Tag::FLOAT8_E5M2: [[fallthrough]];
+            case Type::Tag::INT4: [[fallthrough]];
+            case Type::Tag::FP4_E2M1: {
                 auto llvm_i8_type = llvm::Type::getInt8Ty(_llvm_context);
                 return make_llvm_type_info(llvm_i8_type, llvm_i8_type, sizeof(int8_t), alignof(int8_t));
             }
@@ -182,7 +192,9 @@ CUDACodegenLLVMImpl::_get_llvm_type(const Type *type) noexcept {
             case Type::Tag::CUSTOM: {
                 if (type == Type::of<RayQueryAll>() || type == Type::of<RayQueryAny>()) {
                     auto llvm_type = _get_llvm_ray_query_type();
-                    return make_llvm_type_info(llvm_type, llvm_type, sizeof(uint8_t), alignof(uint8_t));
+                    return make_llvm_type_info(llvm_type, llvm_type,
+                                               _data_layout->getTypeAllocSize(llvm_type).getFixedValue(),
+                                               _get_type_alignment(type));
                 }
                 LUISA_NOT_IMPLEMENTED("Custom type: {}.", type->description());
             }
@@ -223,7 +235,7 @@ const CUDACodegenLLVMImpl::KernelArgumentStruct *CUDACodegenLLVMImpl::_get_kerne
     auto llvm_i32x4_type = llvm::ArrayType::get(llvm::Type::getInt32Ty(_llvm_context), 4);
     llvm_arg_members.emplace_back(llvm_i32x4_type);
     auto llvm_arg_struct_type = llvm::StructType::create(_llvm_context, llvm_arg_members, "kernel.params.struct");
-    auto kernel_arg_struct = luisa::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
+    auto kernel_arg_struct = std::make_unique<KernelArgumentStruct>(KernelArgumentStruct{
         .llvm_type = llvm_arg_struct_type,
         .argument_indices = std::move(llvm_arg_member_indices),
         .dispatch_size_and_kernel_id_index = dispatch_size_and_kernel_id_index,
@@ -294,9 +306,19 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_bindless_array_slot_type() noexcept {
 
 llvm::Type *CUDACodegenLLVMImpl::_get_llvm_accel_type() noexcept {
     if (_llvm_accel_type == nullptr) {
+        auto llvm_i32_type = llvm::Type::getInt32Ty(_llvm_context);
         auto llvm_i64_type = llvm::Type::getInt64Ty(_llvm_context);
         auto llvm_ptr_type = llvm::PointerType::get(_llvm_context, nvptx_address_space_global);
-        _llvm_accel_type = llvm::StructType::get(_llvm_context, {llvm_i64_type, llvm_ptr_type}, false);
+        auto llvm_padding_type = llvm::ArrayType::get(llvm_i32_type, 3);
+        _llvm_accel_type = llvm::StructType::get(
+            _llvm_context,
+            {
+                llvm_i64_type,   // handle
+                llvm_ptr_type,   // instances
+                llvm_i32_type,   // instance_count
+                llvm_padding_type// padding
+            },
+            false);
         detail::luisa_check_llvm_type_size_and_alignment(
             *_data_layout, _llvm_accel_type,
             sizeof(CUDAAccel::Binding),
@@ -382,7 +404,24 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_committed_hit_type() noexcept {
 }
 
 llvm::Type *CUDACodegenLLVMImpl::_get_llvm_ray_query_type() noexcept {
-    return llvm::Type::getInt8Ty(_llvm_context);
+    if (_llvm_ray_query_type == nullptr) {
+        auto i32 = llvm::Type::getInt32Ty(_llvm_context);
+        auto f32 = llvm::Type::getFloatTy(_llvm_context);
+        auto i1 = llvm::Type::getInt1Ty(_llvm_context);
+        // The private query needs the traversal handle and the original
+        // instance-table pointer. Count and padding belong to the public binding.
+        auto accel_type = _get_llvm_accel_type();
+        auto query_accel_type = llvm::StructType::get(
+            _llvm_context,
+            {accel_type->getStructElementType(llvm_accel_type_handle_index),
+             accel_type->getStructElementType(llvm_accel_type_instances_index)}, false);
+        _llvm_ray_query_type = llvm::StructType::create(
+            _llvm_context,
+            {query_accel_type, _get_llvm_ray_type(), f32, i32,
+             _get_llvm_committed_hit_type(), i1, i1, llvm::Type::getInt8Ty(_llvm_context)},
+            "luisa.ray.query");
+    }
+    return _llvm_ray_query_type;
 }
 
 std::pair<llvm::Value *, const Type *>

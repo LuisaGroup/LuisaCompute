@@ -8,6 +8,46 @@ using namespace luisa;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+template<typename T, typename U>
+concept HasCeilDiv = requires(T n, U d) { luisa::ceil_div(n, d); };
+
+static_assert(ceil_div(0, 7) == 0);
+static_assert(ceil_div(16, 8) == 2);
+static_assert(ceil_div(17, 8) == 3);
+static_assert(ceil_div(-17, 8) == -2);
+static_assert(ceil_div(17, -8) == -2);
+static_assert(ceil_div(-17, -8) == 3);
+static_assert(ceil_div(std::numeric_limits<uint64_t>::max(), uint64_t{2}) == (uint64_t{1} << 63u));
+static_assert(ceil_div(std::numeric_limits<int64_t>::max(), int64_t{2}) == (int64_t{1} << 62u));
+static_assert(ceil_div(std::numeric_limits<int64_t>::min(), int64_t{1}) == std::numeric_limits<int64_t>::min());
+static_assert(std::is_same_v<decltype(ceil_div(uint64_t{17}, 8u)), uint64_t>);
+static_assert(std::is_same_v<decltype(ceil_div(uint8_t{17}, uint8_t{8})), int>);
+static_assert(!HasCeilDiv<float, int> && !HasCeilDiv<int, float>);
+static_assert(!HasCeilDiv<bool, unsigned> && !HasCeilDiv<unsigned, bool>);
+
+void test_ceil_div() {
+    // An independent real-valued oracle covers both signs and all remainders.
+    for (int n = -64; n <= 64; n++) {
+        for (int d = -16; d <= 16; d++) {
+            if (d != 0) {
+                expect(eq(ceil_div(n, d), static_cast<int>(std::ceil(static_cast<double>(n) / d))));
+            }
+        }
+    }
+    auto maximum = std::numeric_limits<uint64_t>::max();
+    expect(eq(ceil_div(maximum, uint64_t{1}), maximum));
+    expect(eq(ceil_div(maximum, maximum), uint64_t{1}));
+    expect(eq(ceil_div(uint64_t{0}, maximum), uint64_t{0}));
+    expect(eq(ceil_div(uint64_t{1}, maximum), uint64_t{1}));
+    expect(eq(ceil_div(maximum - 1u, uint64_t{2}), maximum / 2u));
+    expect(eq(ceil_div(maximum, uint64_t{3}), maximum / 3u));
+    expect(eq(ceil_div(uint64_t{513}, 64u), uint64_t{9}));
+    expect(eq(ceil_div(int64_t{513}, 64u), int64_t{9}));
+    expect(eq(ceil_div(uint8_t{255}, uint8_t{2}), 128));
+    expect(eq(ceil_div(std::numeric_limits<int64_t>::min(), int64_t{-2}), int64_t{1} << 62u));
+    expect(eq(ceil_div(std::numeric_limits<int64_t>::min(), int64_t{3}), std::numeric_limits<int64_t>::min() / 3));
+}
+
 // Helper for approximate equality check
 template<typename T>
 bool approx_eq(T a, T b, T epsilon = static_cast<T>(1e-5)) {
@@ -672,6 +712,7 @@ void test_boundary_values() {
 }
 
 static auto test_mathematics_registration = [] {
+    "test_ceil_div"_test = test_ceil_div;
     "test_next_pow2"_test = [] {
         LUISA_INFO("Testing next_pow2...");
         test_next_pow2();

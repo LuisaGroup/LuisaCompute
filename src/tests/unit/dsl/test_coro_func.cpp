@@ -122,6 +122,35 @@ void reg_coro_func() {
         expect(c.subroutine_count() >= 4u);
         expect(c.graph().node_count() >= 4u);
     };
+
+    "continuations_project_source_arguments_by_use"_test = [] {
+        auto c = Coroutine<void(Buffer<uint>, Buffer<uint>)>{
+            [](BufferUInt before, BufferUInt after) noexcept {
+                before.write(0u, 11u);
+                $suspend("between-independent-resources");
+                after.write(0u, 22u);
+            }};
+        auto lowered =
+            luisa::compute::detail::compile_coroutine_pipeline(
+                c.function_builder());
+        auto *continuation =
+            lowered.graph.node_by_name(
+                "between-independent-resources");
+        expect(continuation != nullptr);
+        expect(lowered.subroutines.size() == 2u);
+        expect(lowered.subroutine_source_argument_indices.size() ==
+               lowered.subroutines.size());
+        expect(lowered.subroutine_source_argument_indices[0u] ==
+               luisa::vector<size_t>{0u})
+            << "entry must retain only its first source resource";
+        expect(lowered.subroutine_source_argument_indices[continuation->index] ==
+               luisa::vector<size_t>{1u})
+            << "resume must retain only its second source resource";
+        expect(lowered.subroutines[0u]->arguments().size() == 2u);
+        expect(lowered.subroutines[continuation->index]
+                   ->arguments()
+                   .size() == 2u);
+    };
 }
 
 }// namespace

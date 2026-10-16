@@ -10,6 +10,8 @@ namespace luisa::compute {
 namespace detail {
 template<bool terminate_on_first>
 class RayQueryBase;
+template<bool terminate_on_first>
+class InlineRayQuery;
 }// namespace detail
 
 // RayQuery DSL module, see test_procedural.cpp as example
@@ -22,6 +24,8 @@ private:
 private:
     template<bool terminate_on_first>
     friend class detail::RayQueryBase;
+    template<bool terminate_on_first>
+    friend class detail::InlineRayQuery;
     explicit SurfaceCandidate(const Expression *query) noexcept
         : _query{query} {}
 
@@ -33,6 +37,9 @@ public:
 
 public:
     [[nodiscard]] Var<Ray> ray() const noexcept;
+    /// Returns the current candidate's instance-space ray. The direction is
+    /// deliberately not normalized, preserving the world-space ray parameter.
+    [[nodiscard]] Var<Ray> object_ray() const noexcept;
     [[nodiscard]] Var<TriangleHit> hit() const noexcept;
     void commit() const noexcept;
     void terminate() const noexcept;
@@ -49,6 +56,8 @@ private:
 private:
     template<bool terminate_on_first>
     friend class detail::RayQueryBase;
+    template<bool terminate_on_first>
+    friend class detail::InlineRayQuery;
     explicit ProceduralCandidate(const Expression *query) noexcept
         : _query{query} {}
 
@@ -60,12 +69,65 @@ public:
 
 public:
     [[nodiscard]] Var<Ray> ray() const noexcept;
+    /// Returns the current candidate's instance-space ray. The direction is
+    /// deliberately not normalized, preserving the world-space ray parameter.
+    [[nodiscard]] Var<Ray> object_ray() const noexcept;
     [[nodiscard]] Var<ProceduralHit> hit() const noexcept;
     void commit(Expr<float> distance) const noexcept;
     void terminate() const noexcept;
 };
 
 namespace detail {
+
+/// A low-level ray-query object for explicit traversal loops.
+///
+/// Unlike RayQueryProxy, constructing this object does not append a
+/// RayQueryStmt. The caller advances it explicitly with proceed(). This is
+/// useful when the candidate loop must remain explicit in the DSL. The
+/// portable control-flow form is `$while (query.proceed())` with an immediate
+/// if/else split on is_surface_candidate() or is_procedural_candidate() for the
+/// same query. The DSL retains the ordinary explicit guard and also records a
+/// non-semantic while-condition hint; AST-to-XIR may prove the complete shape
+/// transactionally and emit RayQueryLoopInst directly. Consumers that ignore
+/// or serialize away the hint still see the historical loop and can use the
+/// fail-closed XIR reconstruction pass. Payload outside the two candidate arms
+/// is deliberately rejected by structured lowering; use the higher-level
+/// traverse() builder when explicit traversal state is not required.
+template<bool terminate_on_first>
+class LUISA_DSL_API InlineRayQuery {
+
+private:
+    const RefExpr *_query{nullptr};
+
+private:
+    friend struct Expr<Accel>;
+    InlineRayQuery(const Expression *accel,
+                   const Expression *ray,
+                   const Expression *mask,
+                   CurveBasisSet curve_bases) noexcept;
+    InlineRayQuery(const Expression *accel,
+                   const Expression *ray,
+                   const Expression *time,
+                   const Expression *mask,
+                   CurveBasisSet curve_bases) noexcept;
+
+public:
+    InlineRayQuery(InlineRayQuery &&) noexcept = default;
+    InlineRayQuery(const InlineRayQuery &) noexcept = delete;
+    InlineRayQuery &operator=(InlineRayQuery &&) noexcept = delete;
+    InlineRayQuery &operator=(const InlineRayQuery &) noexcept = delete;
+
+public:
+    /// Advances traversal and returns true when a candidate was published.
+    [[nodiscard]] Expr<bool> proceed() const noexcept;
+    [[nodiscard]] Expr<bool> is_surface_candidate() const noexcept;
+    [[nodiscard]] Expr<bool> is_procedural_candidate() const noexcept;
+    [[nodiscard]] SurfaceCandidate surface_candidate() const noexcept;
+    [[nodiscard]] ProceduralCandidate procedural_candidate() const noexcept;
+    [[nodiscard]] Var<Ray> ray() const noexcept;
+    [[nodiscard]] Var<CommittedHit> committed_hit() const noexcept;
+    void terminate() const noexcept;
+};
 
 template<bool terminate_on_first>
 class RayQuerySurfaceProxy;
@@ -236,6 +298,8 @@ RayQueryBase<terminate_on_first> RayQuerySurfaceProxy<terminate_on_first>::on_su
 
 using RayQueryAny = detail::RayQueryProxy<true>;
 using RayQueryAll = detail::RayQueryProxy<false>;
+using InlineRayQueryAny = detail::InlineRayQuery<true>;
+using InlineRayQueryAll = detail::InlineRayQuery<false>;
 
 }// namespace luisa::compute
 

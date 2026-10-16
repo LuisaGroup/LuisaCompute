@@ -1,0 +1,125 @@
+{
+  "passed": true,
+  "use": "source/numerical compatibility, not performance",
+  "complete_outputs": 36,
+  "summary": [
+    {
+      "backend": "metal",
+      "operation": "gemm",
+      "shape": [
+        512,
+        512,
+        512
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gemm",
+      "shape": [
+        4096,
+        4096,
+        4096
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gemm",
+      "shape": [
+        2049,
+        4097,
+        1025
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "add",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "gelu_pair",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "metal",
+      "operation": "softmax",
+      "shape": [
+        37,
+        1537,
+        1
+      ],
+      "raw_identical": true,
+      "equivalent": true,
+      "tbaa_identities": 0
+    },
+    {
+      "backend": "cpu",
+      "operation": "add",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": false,
+      "equivalent": true,
+      "tbaa_identities": 5
+    },
+    {
+      "backend": "cpu",
+      "operation": "gelu_pair",
+      "shape": [
+        17,
+        257,
+        1
+      ],
+      "raw_identical": false,
+      "equivalent": true,
+      "tbaa_identities": 5
+    },
+    {
+      "backend": "cpu",
+      "operation": "softmax",
+      "shape": [
+        37,
+        1537,
+        1
+      ],
+      "raw_identical": false,
+      "equivalent": true,
+      "tbaa_identities": 10
+    }
+  ],
+  "raw_driver_passed": false,
+  "raw_failure_explanation": "Initial driver required raw CPU source equality; only bijective TBAA labels differ.",
+  "input_sha256": "ee5d633743877119e003bcd373a6f0f62584a61a5ead7e921cac64781637f0d1",
+  "timing_auditor_sha256": "6352deaabd4c3bccd6de0ae19491b29f8bb692b976bca8f1496451bd3c8ddca8",
+  "rejected_mutations": [
+    "missing_row",
+    "duplicate_row",
+    "changed_artifact",
+    "partial_output"
+  ]
+}

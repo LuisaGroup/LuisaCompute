@@ -1,0 +1,4712 @@
+{
+  "metadata": {
+    "timestamp": "2026-09-06T14:45:59.154637+00:00",
+    "cpu": "Apple M1 Max",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.7 (main, Sep  2 2025, 14:05:52) [Clang 20.1.4 ]",
+    "torch_version": "2.14.0",
+    "torch_config": "PyTorch built with:\n  - GCC 4.2\n  - C++ Version: 202002\n  - clang 21.0.0\n  - OpenMP 202011\n  - LAPACK is enabled (usually provided by MKL)\n  - NNPACK is enabled\n  - CPU capability usage: DEFAULT\n  - Build settings: BLAS_INFO=accelerate, BUILD_TYPE=Release, COMMIT_SHA=08187d9e0fba026dc8217405802ab5381dc88d90, CUDA_FLAGS= -DLIBCUDACXX_ENABLE_SIMPLIFIED_COMPLEX_OPERATIONS -Xfatbin -compress-all  -Wno-deprecated-gpu-targets --expt-extended-lambda -DCUB_WRAPPED_NAMESPACE=at_cuda_detail -DDISABLE_CUSPARSE_DEPRECATED -DCUDA_HAS_FP16=1 -D__CUDA_NO_HALF_OPERATORS__ -D__CUDA_NO_HALF_CONVERSIONS__ -D__CUDA_NO_HALF2_OPERATORS__ -D__CUDA_NO_BFLOAT16_CONVERSIONS__ -DC10_NODEPRECATED, CXX_COMPILER=/usr/bin/c++, CXX_FLAGS= -fvisibility-inlines-hidden -DUSE_PTHREADPOOL -DNDEBUG -DUSE_KINETO -DUSE_PYTORCH_QNNPACK -DAT_BUILD_ARM_VEC256_WITH_SLEEF -DUSE_PYTORCH_METAL_EXPORT -DSYMBOLICATE_MOBILE_DEBUG_HANDLE -DUSE_COREML_DELEGATE -O2 -fPIC -DC10_NODEPRECATED -Wall -Wextra -Werror=return-type -Werror=non-virtual-dtor -Werror=braced-scalar-init -Werror=range-loop-construct -Werror=bool-operation -Wnarrowing -Wno-missing-field-initializers -Wno-unknown-pragmas -Wno-unused-parameter -Wno-strict-overflow -Wno-strict-aliasing -Wvla-extension -Wsuggest-override -Wnewline-eof -Winconsistent-missing-override -Winconsistent-missing-destructor-override -Wno-pass-failed -Wno-error=old-style-cast -Wconstant-conversion -Qunused-arguments -faligned-new -fno-math-errno -fno-trapping-math -Werror=format -fclang-abi-compat=17 -DUSE_MPS -Wno-missing-braces, LAPACK_INFO=accelerate, TORCH_VERSION=2.14.0, USE_CUDA=OFF, USE_CUDNN=OFF, USE_CUSPARSELT=OFF, USE_EIGEN_FOR_BLAS=ON, USE_GFLAGS=OFF, USE_GLOG=OFF, USE_GLOO=ON, USE_HIPSPARSELT=OFF, USE_MKL=OFF, USE_MKLDNN=OFF, USE_MPI=OFF, USE_NCCL=OFF, USE_NNPACK=ON, USE_OPENMP=ON, USE_ROCM=OFF, USE_ROCM_KERNEL_ASSERT=OFF, USE_XCCL=OFF, USE_XPU=OFF, \n",
+    "threads": 8,
+    "thread_environment": {
+      "TVM_NUM_THREADS": "8",
+      "OMP_NUM_THREADS": "8",
+      "VECLIB_MAXIMUM_THREADS": "8"
+    },
+    "loader_environment": {
+      "DYLD_LIBRARY_PATH": "/private/tmp/luisa-mpp-realized-baseline.mbTNjX:/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin",
+      "DYLD_FALLBACK_LIBRARY_PATH": null,
+      "LD_LIBRARY_PATH": null
+    },
+    "git_revision": "71bd1d6a57b786296e79f201d20ccef2f4eecb89",
+    "worktree_dirty": true,
+    "native_binary": "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+    "native_sha256": "047c497b1dabc1969b136a78fab6da21457956826ceaef2abace4e7978d8fd6f",
+    "metal_device_timing": null,
+    "system_baseline": {
+      "binary": "/private/tmp/luisa-tvm-mpp.VaKmzx/luisa-build/bin/benchmark_tile_system",
+      "sha256": "3d6ec98f2ee4cdea36603052f83a4f8044cb31ad1ecde6254d63a4957dbb686a"
+    },
+    "adjacent_tile_library_sha256": {
+      "libluisa-tile-bridge-tirx.dylib": "35d041bd042a44614b32a666400d6b85d78a2693b78fae8b23e26f1ca1ad2ee0",
+      "libluisa-tile.dylib": "4b0b3cec0d41b3d36682b77b21743dbc95ee83f7926474a662ecf3a291664947"
+    },
+    "samples": 1,
+    "sample_ms": 1,
+    "warmup_ms": 1,
+    "execution_scope": "group",
+    "pipeline_window": 1,
+    "cooperative_matrix": true,
+    "matrix_realization": "mpp-views",
+    "metal_subgroup_reductions": false,
+    "reduction_programs_per_group": 0,
+    "element_grid": null,
+    "reduction_unroll": 1,
+    "reduction_lane_elements": 1,
+    "cache_reduction_inputs": false,
+    "reduction_cost_profile": "analytic",
+    "shared_tile_materialization": "preserve",
+    "vectorize": true,
+    "auto_vectorize": false,
+    "cpu_stack_bytes": 0,
+    "capture_sources": true,
+    "cpu_vector_lanes": 16,
+    "cpu_input_views": false,
+    "input_views": false,
+    "cpu_model": null,
+    "cpu_matrix_backend": "reference",
+    "cpu_math_backend": "reference",
+    "group_threads": 0,
+    "copy_batch": 1,
+    "gemm_tuning_candidates": [
+      {
+        "block": [
+          32,
+          64,
+          128
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          32,
+          64,
+          512
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          32,
+          64,
+          4096
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          64,
+          64,
+          128
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          64,
+          64,
+          512
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          64,
+          64,
+          4096
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          128,
+          32,
+          128
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          128,
+          32,
+          512
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          128,
+          64,
+          128
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          128,
+          64,
+          512
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          128,
+          64,
+          4096
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          64,
+          128,
+          128
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          64,
+          128,
+          512
+        ],
+        "pipeline_window": 1
+      },
+      {
+        "block": [
+          64,
+          128,
+          4096
+        ],
+        "pipeline_window": 1
+      }
+    ],
+    "joint_tuning_candidates": [
+      {
+        "block": [
+          32,
+          64,
+          128
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          32,
+          64,
+          512
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          32,
+          64,
+          4096
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          64,
+          64,
+          128
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          64,
+          64,
+          512
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          64,
+          64,
+          4096
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          128,
+          32,
+          128
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          128,
+          32,
+          512
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          128,
+          32,
+          4096
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          128,
+          64,
+          128
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          128,
+          64,
+          512
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          128,
+          64,
+          4096
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          64,
+          128,
+          128
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          64,
+          128,
+          512
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      },
+      {
+        "block": [
+          64,
+          128,
+          4096
+        ],
+        "pipeline_window": 1,
+        "group_threads": 0,
+        "copy_batch": 1,
+        "shared_tile_materialization": "preserve",
+        "reduction_programs_per_group": 0,
+        "reduction_unroll": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false
+      }
+    ],
+    "max_tuning_candidates": 256,
+    "tuning_metric": "model",
+    "quick": false,
+    "timing": "synchronized device-resident host wall time including dispatch"
+  },
+  "results": [
+    {
+      "case": {
+        "operation": "gemm",
+        "m": 4096,
+        "n": 4096,
+        "k": 4096
+      },
+      "name": "gemm_4096x4096x4096",
+      "backend": "metal",
+      "block": [
+        128,
+        64,
+        4096
+      ],
+      "timing_order": "native_then_torch_then_system",
+      "implementation_order": [
+        "native",
+        "torch",
+        "system"
+      ],
+      "native_command": [
+        "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+        "metal",
+        "gemm",
+        "4096",
+        "4096",
+        "4096",
+        "128",
+        "64",
+        "4096",
+        "1",
+        "1",
+        "1",
+        "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-nlzg0hng/output.f32",
+        "group",
+        "1",
+        "mpp-views",
+        "vectorize"
+      ],
+      "native_stderr": "",
+      "native_source_sha256": "3f207c7bc67e8c8d6cd2f979b22c50d2e304d4e8ab34147e0ccf8b45592042e4",
+      "native": {
+        "backend": "metal",
+        "operation": "gemm",
+        "execution_scope": "group",
+        "pipeline_window": 1,
+        "cooperative_matrix": true,
+        "metal_mpp": true,
+        "metal_subgroup_reductions": false,
+        "metal_max_threads": 1024,
+        "reduction_programs_per_group": 0,
+        "reduction_unroll_factor": 1,
+        "reduction_lane_elements": 1,
+        "cache_reduction_inputs": false,
+        "reduction_cost_profile": "analytic",
+        "fuse_gpu_elementwise": true,
+        "shared_tile_materialization": "preserve",
+        "forward_readonly_tile_loads": true,
+        "elide_independent_subgroup_barriers": false,
+        "vectorize": true,
+        "auto_vectorize": false,
+        "cpu_stack_bytes": 0,
+        "cpu_parallel_task_threshold": 64,
+        "cpu_vector_lanes": 16,
+        "max_reduction_striped_scalars_per_worker": 64,
+        "cpu_target_policy": "generic",
+        "cpu_model": "generic",
+        "cpu_matrix_backend": "reference",
+        "cpu_math_backend": "reference",
+        "planner_threads": 0,
+        "copy_batch": 1,
+        "matrix_intrinsics": 1,
+        "external_matrix_calls": 0,
+        "external_vector_math_calls": 0,
+        "simdgroup_intrinsics": 0,
+        "mpp_intrinsics": 1,
+        "runtime_init_ms": 19.169625,
+        "capture_ms": 0.060875,
+        "compile_ms": 32.821875,
+        "allocation_upload_ms": 37.422084,
+        "cold_call_ms": 36.095209,
+        "warmup_ms": 194.010875,
+        "download_ms": 9.403583,
+        "repetitions": 1,
+        "output_elements": 16777216,
+        "mma_operations": 1,
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "throughput_us": [
+          24759.042
+        ],
+        "latency_us": [
+          24311.834
+        ],
+        "execution_plans": [
+          {
+            "threads": 256,
+            "metal_mpp": true,
+            "cost_basis": "metal_mpp_memory_v2",
+            "programs": 2048,
+            "shared_memory_bytes": 0,
+            "optimized": true,
+            "candidates_considered": 151,
+            "candidates_rejected": 105,
+            "max_copy_batch": 1,
+            "batched_copy_operations": 0,
+            "prefetched_pipeline_loops": 0,
+            "prefetch_storage_scalars_per_lane": 0,
+            "reduction_subgroups_per_program": 0,
+            "reduction_programs_per_group": 0,
+            "reduction_unroll_factor": 1,
+            "reduction_lane_elements": 1,
+            "reduction_threadgroups": 0,
+            "reduction_scalar_rounds": 0,
+            "reduction_lane_utilization": 0,
+            "reduction_payload_accesses_known": false,
+            "reduction_payload_accesses_per_program": {
+              "global_read_bytes": 0,
+              "global_write_bytes": 0,
+              "private_read_bytes": 0,
+              "private_write_bytes": 0
+            },
+            "reduction_payload_accesses_per_worker": {
+              "global_read_bytes": 0,
+              "global_write_bytes": 0,
+              "private_read_bytes": 0,
+              "private_write_bytes": 0
+            },
+            "striped_storage_scalars_per_worker": 0,
+            "reduction_operations": 0,
+            "reduction_elements": 0,
+            "elementwise_elements_per_program": 0,
+            "elementwise_scalar_temporaries": 0,
+            "group_barrier_sites_before": 2,
+            "group_barrier_sites_after": 2,
+            "independent_subgroups": true,
+            "normalized_cost": 12739,
+            "normalized_kernel_cost": 407648,
+            "matrix_issues": 65536,
+            "shared_fragment_transfers": 0,
+            "direct_fragment_stores": 128,
+            "metal_mpp_operations": 8,
+            "memory_fragment_reads": 32768,
+            "lhs_footprint_fragments": 8192,
+            "rhs_footprint_fragments": 4096,
+            "accumulator_initializations": 0,
+            "tile_aspect_fragments": 128,
+            "local_row_aspect_issues": 0,
+            "local_column_aspect_issues": 0,
+            "independent_elements": 24576,
+            "fragment_scalars_per_lane": 32,
+            "concurrent_waves": 32,
+            "matrices": [
+              {
+                "subgroups_m": 4,
+                "subgroups_n": 2,
+                "atom_rows": 4,
+                "atom_columns": 4,
+                "persistent_accumulator": true,
+                "direct_accumulator_store": true
+              }
+            ]
+          }
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 24759.042,
+        "throughput_us_p90": 24759.042,
+        "latency_us_p50": 24311.834,
+        "latency_us_p90": 24311.834
+      },
+      "torch": {
+        "cold_call_ms": 27.329083,
+        "warmup_ms": 154.696042,
+        "repetitions": 1,
+        "throughput_us": [
+          22027.708
+        ],
+        "latency_us": [
+          19579.709000000003
+        ],
+        "throughput_us_p50": 22027.708,
+        "throughput_us_p90": 22027.708,
+        "latency_us_p50": 19579.709000000003,
+        "latency_us_p90": 19579.709000000003,
+        "download_ms": 2.816125,
+        "allocation_upload_ms": 19.716333,
+        "device": "mps:0",
+        "output_policy": "preallocated_out",
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        }
+      },
+      "system": {
+        "backend": "metal",
+        "implementation": "mps_matrix_multiplication",
+        "api_variant": "MPSKernelOptionsNone",
+        "operation": "gemm",
+        "dtype": "float32",
+        "layout": "compact_row_major",
+        "alpha": 1,
+        "beta": 0,
+        "transpose_left": false,
+        "transpose_right": false,
+        "m": 4096,
+        "n": 4096,
+        "k": 4096,
+        "row_bytes": [
+          16384,
+          16384,
+          16384
+        ],
+        "device": "Apple M1 Max",
+        "storage": "private",
+        "batch_policy": "one_command_buffer_per_batch",
+        "compiler": "21.0.0 (clang-2100.1.1.101)",
+        "setup_ms": 84.275292,
+        "cold_call_ms": 34.670458,
+        "warmup_ms": 166.907792,
+        "download_ms": 10.224208,
+        "repetitions": 1,
+        "throughput_us": [
+          22634.834
+        ],
+        "latency_us": [
+          21884.792
+        ],
+        "gpu_throughput_us": [
+          21025.6249993
+        ],
+        "gpu_latency_us": [
+          20763.8333668
+        ],
+        "correctness": {
+          "max_abs_error": 0.0,
+          "atol": 0.0001,
+          "rtol": 0.0001
+        },
+        "throughput_us_p50": 22634.834,
+        "throughput_us_p90": 22634.834,
+        "latency_us_p50": 21884.792,
+        "latency_us_p90": 21884.792
+      },
+      "slowdown": 1.123995378910961,
+      "system_slowdown": 1.0938468556915417,
+      "valid": true,
+      "tuning": {
+        "selection_wall_ms": 31462.067542,
+        "selection_metric": "sum_execution_plan_normalized_kernel_cost",
+        "reported_measurement": "fresh post-selection recapture/JIT and timing, not the search minimum",
+        "trials": [
+          {
+            "block": [
+              32,
+              64,
+              128
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                32,
+                64,
+                128
+              ],
+              "timing_order": "native_then_torch_then_system",
+              "implementation_order": [
+                "native",
+                "torch",
+                "system"
+              ],
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "32",
+                "64",
+                "128",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-92hpeopc/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "506de7dbb5ecb411e84a35972db8156196abc51f51737a506501f2ebc61f07c6",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 17.601917,
+                "capture_ms": 0.055833,
+                "compile_ms": 33.318292,
+                "allocation_upload_ms": 30.373125,
+                "cold_call_ms": 195.235625,
+                "warmup_ms": 197.663417,
+                "download_ms": 11.217875,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  25435.291
+                ],
+                "latency_us": [
+                  25455.666
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 64,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 8192,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 108,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 14664,
+                    "normalized_kernel_cost": 469248,
+                    "matrix_issues": 16384,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 32,
+                    "metal_mpp_operations": 64,
+                    "memory_fragment_reads": 8192,
+                    "lhs_footprint_fragments": 2048,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 32,
+                    "tile_aspect_fragments": 1024,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 69632,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 1,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 25435.291,
+                "throughput_us_p90": 25435.291,
+                "latency_us_p50": 25455.666,
+                "latency_us_p90": 25455.666
+              },
+              "torch": {
+                "cold_call_ms": 78.113333,
+                "warmup_ms": 155.017208,
+                "repetitions": 1,
+                "throughput_us": [
+                  20525.791999999998
+                ],
+                "latency_us": [
+                  20034.792
+                ],
+                "throughput_us_p50": 20525.791999999998,
+                "throughput_us_p90": 20525.791999999998,
+                "latency_us_p50": 20034.792,
+                "latency_us_p90": 20034.792,
+                "download_ms": 2.2625,
+                "allocation_upload_ms": 51.566833,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 85.659791,
+                "cold_call_ms": 34.80975,
+                "warmup_ms": 167.029334,
+                "download_ms": 9.124792,
+                "repetitions": 1,
+                "throughput_us": [
+                  22146.417
+                ],
+                "latency_us": [
+                  20412.875
+                ],
+                "gpu_throughput_us": [
+                  21227.5000522
+                ],
+                "gpu_latency_us": [
+                  19988.1250155
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 22146.417,
+                "throughput_us_p90": 22146.417,
+                "latency_us_p50": 20412.875,
+                "latency_us_p90": 20412.875
+              },
+              "slowdown": 1.2391868240699313,
+              "system_slowdown": 1.1485059185871918,
+              "valid": true
+            },
+            "selection_score": 469248.0,
+            "model_cost": 469248
+          },
+          {
+            "block": [
+              32,
+              64,
+              512
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                32,
+                64,
+                512
+              ],
+              "timing_order": "system_then_torch_then_native",
+              "implementation_order": [
+                "system",
+                "torch",
+                "native"
+              ],
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 92.450458,
+                "cold_call_ms": 33.236458,
+                "warmup_ms": 168.918542,
+                "download_ms": 9.01025,
+                "repetitions": 1,
+                "throughput_us": [
+                  20544.125
+                ],
+                "latency_us": [
+                  20666
+                ],
+                "gpu_throughput_us": [
+                  20041.4999854
+                ],
+                "gpu_latency_us": [
+                  20385.083335
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 20544.125,
+                "throughput_us_p90": 20544.125,
+                "latency_us_p50": 20666.0,
+                "latency_us_p90": 20666.0
+              },
+              "torch": {
+                "cold_call_ms": 22.696875,
+                "warmup_ms": 155.177417,
+                "repetitions": 1,
+                "throughput_us": [
+                  19505.167
+                ],
+                "latency_us": [
+                  20070.209
+                ],
+                "throughput_us_p50": 19505.167,
+                "throughput_us_p90": 19505.167,
+                "latency_us_p50": 20070.209,
+                "latency_us_p90": 20070.209,
+                "download_ms": 2.342333,
+                "allocation_upload_ms": 22.122875,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "32",
+                "64",
+                "512",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-iv9_yy9n/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "c0d39c381e366940e49f6b16b96f69805b57c7be6a9dfd879cd317abdeff09ce",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.491583,
+                "capture_ms": 0.066833,
+                "compile_ms": 33.91825,
+                "allocation_upload_ms": 30.437417,
+                "cold_call_ms": 192.773917,
+                "warmup_ms": 181.692667,
+                "download_ms": 9.592834,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  23074.375
+                ],
+                "latency_us": [
+                  23945.959
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 64,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 8192,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 108,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 13632,
+                    "normalized_kernel_cost": 436224,
+                    "matrix_issues": 16384,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 32,
+                    "metal_mpp_operations": 16,
+                    "memory_fragment_reads": 8192,
+                    "lhs_footprint_fragments": 2048,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 32,
+                    "tile_aspect_fragments": 256,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 20480,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 1,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 23074.375,
+                "throughput_us_p90": 23074.375,
+                "latency_us_p50": 23945.959,
+                "latency_us_p90": 23945.959
+              },
+              "slowdown": 1.182987820611841,
+              "system_slowdown": 1.12316173115185,
+              "valid": true
+            },
+            "selection_score": 436224.0,
+            "model_cost": 436224
+          },
+          {
+            "block": [
+              32,
+              64,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                32,
+                64,
+                4096
+              ],
+              "timing_order": "torch_then_system_then_native",
+              "implementation_order": [
+                "torch",
+                "system",
+                "native"
+              ],
+              "torch": {
+                "cold_call_ms": 30.872042,
+                "warmup_ms": 154.375416,
+                "repetitions": 1,
+                "throughput_us": [
+                  18858.291999999998
+                ],
+                "latency_us": [
+                  21600.0
+                ],
+                "throughput_us_p50": 18858.291999999998,
+                "throughput_us_p90": 18858.291999999998,
+                "latency_us_p50": 21600.0,
+                "latency_us_p90": 21600.0,
+                "download_ms": 2.459833,
+                "allocation_upload_ms": 20.507417,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 79.117834,
+                "cold_call_ms": 35.295875,
+                "warmup_ms": 166.370125,
+                "download_ms": 9.839,
+                "repetitions": 1,
+                "throughput_us": [
+                  21242.708
+                ],
+                "latency_us": [
+                  22922.5
+                ],
+                "gpu_throughput_us": [
+                  20807.541674
+                ],
+                "gpu_latency_us": [
+                  21103.2916559
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 21242.708,
+                "throughput_us_p90": 21242.708,
+                "latency_us_p50": 22922.5,
+                "latency_us_p90": 22922.5
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "32",
+                "64",
+                "4096",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-e70tezat/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "d081ca0299a8f3ae1a408902a0008666435a35fa84d2e42e37273630c03dd6c5",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.227291,
+                "capture_ms": 0.053542,
+                "compile_ms": 32.793792,
+                "allocation_upload_ms": 39.285375,
+                "cold_call_ms": 185.243625,
+                "warmup_ms": 171.308042,
+                "download_ms": 10.768541,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  22054.917
+                ],
+                "latency_us": [
+                  22385.084
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 64,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 8192,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 108,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 13315,
+                    "normalized_kernel_cost": 426080,
+                    "matrix_issues": 16384,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 32,
+                    "metal_mpp_operations": 2,
+                    "memory_fragment_reads": 8192,
+                    "lhs_footprint_fragments": 2048,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 0,
+                    "tile_aspect_fragments": 32,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 6144,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 1,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 22054.917,
+                "throughput_us_p90": 22054.917,
+                "latency_us_p50": 22385.084,
+                "latency_us_p90": 22385.084
+              },
+              "slowdown": 1.1695076627300078,
+              "system_slowdown": 1.0382347203567457,
+              "valid": true
+            },
+            "selection_score": 426080.0,
+            "model_cost": 426080
+          },
+          {
+            "block": [
+              64,
+              64,
+              128
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                64,
+                64,
+                128
+              ],
+              "timing_order": "native_then_system_then_torch",
+              "implementation_order": [
+                "native",
+                "system",
+                "torch"
+              ],
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "64",
+                "64",
+                "128",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-ky809c8h/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "a60a051e5c46e9201e3c0a4d6972a91076d83af1fd209f4415f8810077d82260",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.596709,
+                "capture_ms": 0.056875,
+                "compile_ms": 33.364708,
+                "allocation_upload_ms": 34.449916,
+                "cold_call_ms": 194.3095,
+                "warmup_ms": 195.788833,
+                "download_ms": 9.823333,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  25314.041
+                ],
+                "latency_us": [
+                  25623.084
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 128,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 4096,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 14184,
+                    "normalized_kernel_cost": 453888,
+                    "matrix_issues": 32768,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 64,
+                    "metal_mpp_operations": 128,
+                    "memory_fragment_reads": 16384,
+                    "lhs_footprint_fragments": 4096,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 64,
+                    "tile_aspect_fragments": 0,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 139264,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 2,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 25314.041,
+                "throughput_us_p90": 25314.041,
+                "latency_us_p50": 25623.084,
+                "latency_us_p90": 25623.084
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 83.074625,
+                "cold_call_ms": 33.376,
+                "warmup_ms": 166.751417,
+                "download_ms": 9.119667,
+                "repetitions": 1,
+                "throughput_us": [
+                  21288.791
+                ],
+                "latency_us": [
+                  21093.542
+                ],
+                "gpu_throughput_us": [
+                  20844.2083676
+                ],
+                "gpu_latency_us": [
+                  20465.1666572
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 21288.791,
+                "throughput_us_p90": 21288.791,
+                "latency_us_p50": 21093.542,
+                "latency_us_p90": 21093.542
+              },
+              "torch": {
+                "cold_call_ms": 26.943375,
+                "warmup_ms": 153.269084,
+                "repetitions": 1,
+                "throughput_us": [
+                  19269.791999999998
+                ],
+                "latency_us": [
+                  19140.167
+                ],
+                "throughput_us_p50": 19269.791999999998,
+                "throughput_us_p90": 19269.791999999998,
+                "latency_us_p50": 19140.167,
+                "latency_us_p90": 19140.167,
+                "download_ms": 2.851125,
+                "allocation_upload_ms": 22.208167,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "slowdown": 1.313664465086079,
+              "system_slowdown": 1.189078374624468,
+              "valid": true
+            },
+            "selection_score": 453888.0,
+            "model_cost": 453888
+          },
+          {
+            "block": [
+              64,
+              64,
+              512
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                64,
+                64,
+                512
+              ],
+              "timing_order": "system_then_native_then_torch",
+              "implementation_order": [
+                "system",
+                "native",
+                "torch"
+              ],
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 85.611917,
+                "cold_call_ms": 39.368792,
+                "warmup_ms": 168.07975,
+                "download_ms": 9.976167,
+                "repetitions": 1,
+                "throughput_us": [
+                  23358.041
+                ],
+                "latency_us": [
+                  21564.291
+                ],
+                "gpu_throughput_us": [
+                  21380.2916696
+                ],
+                "gpu_latency_us": [
+                  20592.2499881
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 23358.041,
+                "throughput_us_p90": 23358.041,
+                "latency_us_p50": 21564.291,
+                "latency_us_p90": 21564.291
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "64",
+                "64",
+                "512",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-cxa6fzyh/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "455732941aed9dde3e3b856dca57ac1213a8e66372439c9ba5a4d101abfc6021",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.329,
+                "capture_ms": 0.060042,
+                "compile_ms": 33.591333,
+                "allocation_upload_ms": 37.608167,
+                "cold_call_ms": 194.744458,
+                "warmup_ms": 178.581291,
+                "download_ms": 9.08625,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  23413.541
+                ],
+                "latency_us": [
+                  22315.166
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 128,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 4096,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 13224,
+                    "normalized_kernel_cost": 423168,
+                    "matrix_issues": 32768,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 64,
+                    "metal_mpp_operations": 32,
+                    "memory_fragment_reads": 16384,
+                    "lhs_footprint_fragments": 4096,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 64,
+                    "tile_aspect_fragments": 0,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 40960,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 2,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 23413.541,
+                "throughput_us_p90": 23413.541,
+                "latency_us_p50": 22315.166,
+                "latency_us_p90": 22315.166
+              },
+              "torch": {
+                "cold_call_ms": 28.8985,
+                "warmup_ms": 152.472125,
+                "repetitions": 1,
+                "throughput_us": [
+                  20143.209
+                ],
+                "latency_us": [
+                  20131.75
+                ],
+                "throughput_us_p50": 20143.209,
+                "throughput_us_p90": 20143.209,
+                "latency_us_p50": 20131.75,
+                "latency_us_p90": 20131.75,
+                "download_ms": 3.205792,
+                "allocation_upload_ms": 23.07375,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "slowdown": 1.1623540717866752,
+              "system_slowdown": 1.0023760554234835,
+              "valid": true
+            },
+            "selection_score": 423168.0,
+            "model_cost": 423168
+          },
+          {
+            "block": [
+              64,
+              64,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                64,
+                64,
+                4096
+              ],
+              "timing_order": "torch_then_native_then_system",
+              "implementation_order": [
+                "torch",
+                "native",
+                "system"
+              ],
+              "torch": {
+                "cold_call_ms": 20.793458,
+                "warmup_ms": 155.47125,
+                "repetitions": 1,
+                "throughput_us": [
+                  18780.667
+                ],
+                "latency_us": [
+                  19528.25
+                ],
+                "throughput_us_p50": 18780.667,
+                "throughput_us_p90": 18780.667,
+                "latency_us_p50": 19528.25,
+                "latency_us_p90": 19528.25,
+                "download_ms": 2.870833,
+                "allocation_upload_ms": 12.7605,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "64",
+                "64",
+                "4096",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-wnap0k11/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "dd13e0d35b93d96d8f242c617fc6f6d4cfb39fc022d7fa8645ec7193fb463ae2",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.49325,
+                "capture_ms": 0.061959,
+                "compile_ms": 33.039542,
+                "allocation_upload_ms": 30.935833,
+                "cold_call_ms": 191.268625,
+                "warmup_ms": 167.561709,
+                "download_ms": 10.083917,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  21954.833
+                ],
+                "latency_us": [
+                  21102.833
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 128,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 4096,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 12928,
+                    "normalized_kernel_cost": 413696,
+                    "matrix_issues": 32768,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 64,
+                    "metal_mpp_operations": 4,
+                    "memory_fragment_reads": 16384,
+                    "lhs_footprint_fragments": 4096,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 0,
+                    "tile_aspect_fragments": 0,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 12288,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 2,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 21954.833,
+                "throughput_us_p90": 21954.833,
+                "latency_us_p50": 21102.833,
+                "latency_us_p90": 21102.833
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 84.510459,
+                "cold_call_ms": 31.916084,
+                "warmup_ms": 166.228792,
+                "download_ms": 8.375667,
+                "repetitions": 1,
+                "throughput_us": [
+                  21275.583
+                ],
+                "latency_us": [
+                  21333.417
+                ],
+                "gpu_throughput_us": [
+                  20690.5000377
+                ],
+                "gpu_latency_us": [
+                  20513.0833201
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 21275.583,
+                "throughput_us_p90": 21275.583,
+                "latency_us_p50": 21333.417,
+                "latency_us_p90": 21333.417
+              },
+              "slowdown": 1.16901242112434,
+              "system_slowdown": 1.0319262696585094,
+              "valid": true
+            },
+            "selection_score": 413696.0,
+            "model_cost": 413696
+          },
+          {
+            "block": [
+              128,
+              32,
+              128
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                128,
+                32,
+                128
+              ],
+              "timing_order": "native_then_torch_then_system",
+              "implementation_order": [
+                "native",
+                "torch",
+                "system"
+              ],
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "128",
+                "32",
+                "128",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-wdbmlqvz/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "9b2fdedac6f4e4979969d59582370809c19b64610fe9207624ee875c0110927b",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.586,
+                "capture_ms": 0.063541,
+                "compile_ms": 33.8885,
+                "allocation_upload_ms": 39.298291,
+                "cold_call_ms": 198.31975,
+                "warmup_ms": 207.854625,
+                "download_ms": 10.542583,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  26514.5
+                ],
+                "latency_us": [
+                  26024.334
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 128,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 4096,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 106,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 14408,
+                    "normalized_kernel_cost": 461056,
+                    "matrix_issues": 32768,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 64,
+                    "metal_mpp_operations": 128,
+                    "memory_fragment_reads": 16384,
+                    "lhs_footprint_fragments": 8192,
+                    "rhs_footprint_fragments": 2048,
+                    "accumulator_initializations": 64,
+                    "tile_aspect_fragments": 6144,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 139264,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 4,
+                        "subgroups_n": 1,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 26514.5,
+                "throughput_us_p90": 26514.5,
+                "latency_us_p50": 26024.334,
+                "latency_us_p90": 26024.334
+              },
+              "torch": {
+                "cold_call_ms": 28.127666,
+                "warmup_ms": 157.522834,
+                "repetitions": 1,
+                "throughput_us": [
+                  18410.916
+                ],
+                "latency_us": [
+                  19454.708
+                ],
+                "throughput_us_p50": 18410.916,
+                "throughput_us_p90": 18410.916,
+                "latency_us_p50": 19454.708,
+                "latency_us_p90": 19454.708,
+                "download_ms": 3.151375,
+                "allocation_upload_ms": 19.461666,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 88.727792,
+                "cold_call_ms": 33.021417,
+                "warmup_ms": 165.343709,
+                "download_ms": 9.16975,
+                "repetitions": 1,
+                "throughput_us": [
+                  22269.625
+                ],
+                "latency_us": [
+                  21354.792
+                ],
+                "gpu_throughput_us": [
+                  21306.8749872
+                ],
+                "gpu_latency_us": [
+                  20708.8750321
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 22269.625,
+                "throughput_us_p90": 22269.625,
+                "latency_us_p50": 21354.792,
+                "latency_us_p90": 21354.792
+              },
+              "slowdown": 1.440151049518666,
+              "system_slowdown": 1.190612774126192,
+              "valid": true
+            },
+            "selection_score": 461056.0,
+            "model_cost": 461056
+          },
+          {
+            "block": [
+              128,
+              32,
+              512
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                128,
+                32,
+                512
+              ],
+              "timing_order": "system_then_torch_then_native",
+              "implementation_order": [
+                "system",
+                "torch",
+                "native"
+              ],
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 90.005542,
+                "cold_call_ms": 36.247541,
+                "warmup_ms": 165.523,
+                "download_ms": 8.385292,
+                "repetitions": 1,
+                "throughput_us": [
+                  20412.167
+                ],
+                "latency_us": [
+                  21336.542
+                ],
+                "gpu_throughput_us": [
+                  20085.2083508
+                ],
+                "gpu_latency_us": [
+                  20461.0416549
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 20412.167,
+                "throughput_us_p90": 20412.167,
+                "latency_us_p50": 21336.542,
+                "latency_us_p90": 21336.542
+              },
+              "torch": {
+                "cold_call_ms": 27.29225,
+                "warmup_ms": 153.820042,
+                "repetitions": 1,
+                "throughput_us": [
+                  20237.666
+                ],
+                "latency_us": [
+                  19136.084
+                ],
+                "throughput_us_p50": 20237.666,
+                "throughput_us_p90": 20237.666,
+                "latency_us_p50": 19136.084,
+                "latency_us_p90": 19136.084,
+                "download_ms": 2.215625,
+                "allocation_upload_ms": 19.976791,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "128",
+                "32",
+                "512",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-8g0c8n67/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "b479a9b52d0b79358acfd46e840e8c7afb7acb7a4780cb33b0c23f1ff320169b",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.881,
+                "capture_ms": 0.067375,
+                "compile_ms": 34.186917,
+                "allocation_upload_ms": 32.701375,
+                "cold_call_ms": 186.368708,
+                "warmup_ms": 182.462583,
+                "download_ms": 9.556166,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  24446.042
+                ],
+                "latency_us": [
+                  24148.042
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 128,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 4096,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 106,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 13232,
+                    "normalized_kernel_cost": 423424,
+                    "matrix_issues": 32768,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 64,
+                    "metal_mpp_operations": 32,
+                    "memory_fragment_reads": 16384,
+                    "lhs_footprint_fragments": 8192,
+                    "rhs_footprint_fragments": 2048,
+                    "accumulator_initializations": 64,
+                    "tile_aspect_fragments": 1536,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 40960,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 4,
+                        "subgroups_n": 1,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 24446.042,
+                "throughput_us_p90": 24446.042,
+                "latency_us_p50": 24148.042,
+                "latency_us_p90": 24148.042
+              },
+              "slowdown": 1.2079476951541743,
+              "system_slowdown": 1.1976211050987384,
+              "valid": true
+            },
+            "selection_score": 423424.0,
+            "model_cost": 423424
+          },
+          {
+            "block": [
+              128,
+              32,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                128,
+                32,
+                4096
+              ],
+              "timing_order": "torch_then_system_then_native",
+              "implementation_order": [
+                "torch",
+                "system",
+                "native"
+              ],
+              "torch": {
+                "cold_call_ms": 25.174542,
+                "warmup_ms": 156.910125,
+                "repetitions": 1,
+                "throughput_us": [
+                  19086.917
+                ],
+                "latency_us": [
+                  20181.083000000002
+                ],
+                "throughput_us_p50": 19086.917,
+                "throughput_us_p90": 19086.917,
+                "latency_us_p50": 20181.083000000002,
+                "latency_us_p90": 20181.083000000002,
+                "download_ms": 3.332625,
+                "allocation_upload_ms": 3.838584,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 86.732,
+                "cold_call_ms": 38.532417,
+                "warmup_ms": 166.318791,
+                "download_ms": 8.552041,
+                "repetitions": 1,
+                "throughput_us": [
+                  20531.625
+                ],
+                "latency_us": [
+                  21664.334
+                ],
+                "gpu_throughput_us": [
+                  19957.9583132
+                ],
+                "gpu_latency_us": [
+                  21075.3749707
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 20531.625,
+                "throughput_us_p90": 20531.625,
+                "latency_us_p50": 21664.334,
+                "latency_us_p90": 21664.334
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "128",
+                "32",
+                "4096",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-bm1qfrhw/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "ec3b76316ffc7e30c285376c89ce3554e6cb85d27a999e5ccae7e262f461009b",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 19.068917,
+                "capture_ms": 0.058167,
+                "compile_ms": 33.536083,
+                "allocation_upload_ms": 33.125209,
+                "cold_call_ms": 185.2595,
+                "warmup_ms": 158.393875,
+                "download_ms": 9.9025,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  18838.875
+                ],
+                "latency_us": [
+                  20264.875
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 128,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 4096,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 106,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 12873,
+                    "normalized_kernel_cost": 411936,
+                    "matrix_issues": 32768,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 64,
+                    "metal_mpp_operations": 4,
+                    "memory_fragment_reads": 16384,
+                    "lhs_footprint_fragments": 8192,
+                    "rhs_footprint_fragments": 2048,
+                    "accumulator_initializations": 0,
+                    "tile_aspect_fragments": 192,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 12288,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 4,
+                        "subgroups_n": 1,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 18838.875,
+                "throughput_us_p90": 18838.875,
+                "latency_us_p50": 20264.875,
+                "latency_us_p90": 20264.875
+              },
+              "slowdown": 0.9870046063489456,
+              "system_slowdown": 0.9175540172782233,
+              "valid": true
+            },
+            "selection_score": 411936.0,
+            "model_cost": 411936
+          },
+          {
+            "block": [
+              128,
+              64,
+              128
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                128,
+                64,
+                128
+              ],
+              "timing_order": "native_then_system_then_torch",
+              "implementation_order": [
+                "native",
+                "system",
+                "torch"
+              ],
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "128",
+                "64",
+                "128",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-1wv2s64m/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "ced8deeff7af9c158eeee3961c834a3fc8f2e6221e9ad5a3ef877a5be50b1bc2",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.894292,
+                "capture_ms": 0.058375,
+                "compile_ms": 32.916458,
+                "allocation_upload_ms": 36.5725,
+                "cold_call_ms": 206.188458,
+                "warmup_ms": 265.915458,
+                "download_ms": 9.803209,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  34066.209
+                ],
+                "latency_us": [
+                  33610.875
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 256,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 2048,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 14088,
+                    "normalized_kernel_cost": 450816,
+                    "matrix_issues": 65536,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 128,
+                    "metal_mpp_operations": 256,
+                    "memory_fragment_reads": 32768,
+                    "lhs_footprint_fragments": 8192,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 128,
+                    "tile_aspect_fragments": 4096,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 278528,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 4,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 34066.209,
+                "throughput_us_p90": 34066.209,
+                "latency_us_p50": 33610.875,
+                "latency_us_p90": 33610.875
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 87.015625,
+                "cold_call_ms": 33.239167,
+                "warmup_ms": 165.418958,
+                "download_ms": 8.963708,
+                "repetitions": 1,
+                "throughput_us": [
+                  21155.459
+                ],
+                "latency_us": [
+                  20926.833
+                ],
+                "gpu_throughput_us": [
+                  20485.7499921
+                ],
+                "gpu_latency_us": [
+                  20444.5833806
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 21155.459,
+                "throughput_us_p90": 21155.459,
+                "latency_us_p50": 20926.833,
+                "latency_us_p90": 20926.833
+              },
+              "torch": {
+                "cold_call_ms": 29.6075,
+                "warmup_ms": 153.253041,
+                "repetitions": 1,
+                "throughput_us": [
+                  20965.75
+                ],
+                "latency_us": [
+                  18956.917
+                ],
+                "throughput_us_p50": 20965.75,
+                "throughput_us_p90": 20965.75,
+                "latency_us_p50": 18956.917,
+                "latency_us_p90": 18956.917,
+                "download_ms": 1.587042,
+                "allocation_upload_ms": 20.362208,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "slowdown": 1.6248504823342833,
+              "system_slowdown": 1.6102798336826445,
+              "valid": true
+            },
+            "selection_score": 450816.0,
+            "model_cost": 450816
+          },
+          {
+            "block": [
+              128,
+              64,
+              512
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                128,
+                64,
+                512
+              ],
+              "timing_order": "system_then_native_then_torch",
+              "implementation_order": [
+                "system",
+                "native",
+                "torch"
+              ],
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 96.935375,
+                "cold_call_ms": 33.436833,
+                "warmup_ms": 165.7845,
+                "download_ms": 10.50725,
+                "repetitions": 1,
+                "throughput_us": [
+                  21239.208
+                ],
+                "latency_us": [
+                  22114.959
+                ],
+                "gpu_throughput_us": [
+                  20731.9583278
+                ],
+                "gpu_latency_us": [
+                  21291.6249875
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 21239.208,
+                "throughput_us_p90": 21239.208,
+                "latency_us_p50": 22114.959,
+                "latency_us_p90": 22114.959
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "128",
+                "64",
+                "512",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-tarh2he4/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "58e1958c5d4d1a06efd0da89be1a4a0b4b03d2c383cd40643acbe118362b79d6",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 19.276959,
+                "capture_ms": 0.067,
+                "compile_ms": 33.427583,
+                "allocation_upload_ms": 39.662041,
+                "cold_call_ms": 197.367541,
+                "warmup_ms": 229.949,
+                "download_ms": 10.364208,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  30244.166
+                ],
+                "latency_us": [
+                  29534.042
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 256,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 2048,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 13056,
+                    "normalized_kernel_cost": 417792,
+                    "matrix_issues": 65536,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 128,
+                    "metal_mpp_operations": 64,
+                    "memory_fragment_reads": 32768,
+                    "lhs_footprint_fragments": 8192,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 128,
+                    "tile_aspect_fragments": 1024,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 81920,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 4,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 30244.166,
+                "throughput_us_p90": 30244.166,
+                "latency_us_p50": 29534.042,
+                "latency_us_p90": 29534.042
+              },
+              "torch": {
+                "cold_call_ms": 28.730417,
+                "warmup_ms": 155.828917,
+                "repetitions": 1,
+                "throughput_us": [
+                  19297.042
+                ],
+                "latency_us": [
+                  19642.584
+                ],
+                "throughput_us_p50": 19297.042,
+                "throughput_us_p90": 19297.042,
+                "latency_us_p50": 19642.584,
+                "latency_us_p90": 19642.584,
+                "download_ms": 1.872333,
+                "allocation_upload_ms": 19.747125,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "slowdown": 1.567295443519271,
+              "system_slowdown": 1.423978050405646,
+              "valid": true
+            },
+            "selection_score": 417792.0,
+            "model_cost": 417792
+          },
+          {
+            "block": [
+              128,
+              64,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                128,
+                64,
+                4096
+              ],
+              "timing_order": "torch_then_native_then_system",
+              "implementation_order": [
+                "torch",
+                "native",
+                "system"
+              ],
+              "torch": {
+                "cold_call_ms": 22.38725,
+                "warmup_ms": 152.819292,
+                "repetitions": 1,
+                "throughput_us": [
+                  21449.541
+                ],
+                "latency_us": [
+                  19240.165999999997
+                ],
+                "throughput_us_p50": 21449.541,
+                "throughput_us_p90": 21449.541,
+                "latency_us_p50": 19240.165999999997,
+                "latency_us_p90": 19240.165999999997,
+                "download_ms": 1.882167,
+                "allocation_upload_ms": 8.213875,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "128",
+                "64",
+                "4096",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-gz22su88/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "3f207c7bc67e8c8d6cd2f979b22c50d2e304d4e8ab34147e0ccf8b45592042e4",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.584875,
+                "capture_ms": 0.0555,
+                "compile_ms": 33.271042,
+                "allocation_upload_ms": 33.268917,
+                "cold_call_ms": 198.387292,
+                "warmup_ms": 194.020709,
+                "download_ms": 11.006708,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  24234.459
+                ],
+                "latency_us": [
+                  24835.375
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 256,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 2048,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 12739,
+                    "normalized_kernel_cost": 407648,
+                    "matrix_issues": 65536,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 128,
+                    "metal_mpp_operations": 8,
+                    "memory_fragment_reads": 32768,
+                    "lhs_footprint_fragments": 8192,
+                    "rhs_footprint_fragments": 4096,
+                    "accumulator_initializations": 0,
+                    "tile_aspect_fragments": 128,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 24576,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 4,
+                        "subgroups_n": 2,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 24234.459,
+                "throughput_us_p90": 24234.459,
+                "latency_us_p50": 24835.375,
+                "latency_us_p90": 24835.375
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 86.989791,
+                "cold_call_ms": 34.650166,
+                "warmup_ms": 167.3655,
+                "download_ms": 9.100583,
+                "repetitions": 1,
+                "throughput_us": [
+                  23501.583
+                ],
+                "latency_us": [
+                  23596.042
+                ],
+                "gpu_throughput_us": [
+                  22143.1250102
+                ],
+                "gpu_latency_us": [
+                  22985.333344
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 23501.583,
+                "throughput_us_p90": 23501.583,
+                "latency_us_p50": 23596.042,
+                "latency_us_p90": 23596.042
+              },
+              "slowdown": 1.1298357852972238,
+              "system_slowdown": 1.0311841121510836,
+              "valid": true
+            },
+            "selection_score": 407648.0,
+            "model_cost": 407648
+          },
+          {
+            "block": [
+              64,
+              128,
+              128
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                64,
+                128,
+                128
+              ],
+              "timing_order": "native_then_torch_then_system",
+              "implementation_order": [
+                "native",
+                "torch",
+                "system"
+              ],
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "64",
+                "128",
+                "128",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-xkjntzvz/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "1eec4a8ee2b10774b75c925f51435572037d4788c4cb7136b4a86fe36712e5de",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 20.749166,
+                "capture_ms": 0.061583,
+                "compile_ms": 34.005833,
+                "allocation_upload_ms": 36.096583,
+                "cold_call_ms": 204.306708,
+                "warmup_ms": 273.192917,
+                "download_ms": 10.041083,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  35534.5
+                ],
+                "latency_us": [
+                  34809.125
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 256,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 2048,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 14216,
+                    "normalized_kernel_cost": 454912,
+                    "matrix_issues": 65536,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 128,
+                    "metal_mpp_operations": 256,
+                    "memory_fragment_reads": 32768,
+                    "lhs_footprint_fragments": 4096,
+                    "rhs_footprint_fragments": 8192,
+                    "accumulator_initializations": 128,
+                    "tile_aspect_fragments": 4096,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 278528,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 2,
+                        "subgroups_n": 4,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 35534.5,
+                "throughput_us_p90": 35534.5,
+                "latency_us_p50": 34809.125,
+                "latency_us_p90": 34809.125
+              },
+              "torch": {
+                "cold_call_ms": 27.173833,
+                "warmup_ms": 154.243334,
+                "repetitions": 1,
+                "throughput_us": [
+                  19038.792
+                ],
+                "latency_us": [
+                  20780.0
+                ],
+                "throughput_us_p50": 19038.792,
+                "throughput_us_p90": 19038.792,
+                "latency_us_p50": 20780.0,
+                "latency_us_p90": 20780.0,
+                "download_ms": 1.891625,
+                "allocation_upload_ms": 22.316,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 86.944125,
+                "cold_call_ms": 34.229542,
+                "warmup_ms": 168.406291,
+                "download_ms": 8.807667,
+                "repetitions": 1,
+                "throughput_us": [
+                  21810.417
+                ],
+                "latency_us": [
+                  20878.208
+                ],
+                "gpu_throughput_us": [
+                  20939.8750449
+                ],
+                "gpu_latency_us": [
+                  20484.4583641
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 21810.417,
+                "throughput_us_p90": 21810.417,
+                "latency_us_p50": 20878.208,
+                "latency_us_p90": 20878.208
+              },
+              "slowdown": 1.8664261892246103,
+              "system_slowdown": 1.6292444110536721,
+              "valid": true
+            },
+            "selection_score": 454912.0,
+            "model_cost": 454912
+          },
+          {
+            "block": [
+              64,
+              128,
+              512
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                64,
+                128,
+                512
+              ],
+              "timing_order": "system_then_torch_then_native",
+              "implementation_order": [
+                "system",
+                "torch",
+                "native"
+              ],
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 93.586417,
+                "cold_call_ms": 35.184542,
+                "warmup_ms": 168.38075,
+                "download_ms": 10.005,
+                "repetitions": 1,
+                "throughput_us": [
+                  20759.792
+                ],
+                "latency_us": [
+                  20557.291
+                ],
+                "gpu_throughput_us": [
+                  20313.3333125
+                ],
+                "gpu_latency_us": [
+                  19750.6249533
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 20759.792,
+                "throughput_us_p90": 20759.792,
+                "latency_us_p50": 20557.291,
+                "latency_us_p90": 20557.291
+              },
+              "torch": {
+                "cold_call_ms": 27.322416,
+                "warmup_ms": 154.051542,
+                "repetitions": 1,
+                "throughput_us": [
+                  20329.667
+                ],
+                "latency_us": [
+                  22111.792
+                ],
+                "throughput_us_p50": 20329.667,
+                "throughput_us_p90": 20329.667,
+                "latency_us_p50": 22111.792,
+                "latency_us_p90": 22111.792,
+                "download_ms": 1.580291,
+                "allocation_upload_ms": 19.957833,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "64",
+                "128",
+                "512",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-yz7ugb_h/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "2c39f4a28ada19de571d772143a601d28440b2e231d563741d3103eb6a06e2c8",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 21.361916,
+                "capture_ms": 0.061083,
+                "compile_ms": 34.06825,
+                "allocation_upload_ms": 33.631042,
+                "cold_call_ms": 196.213833,
+                "warmup_ms": 229.406792,
+                "download_ms": 9.348125,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  29435.833
+                ],
+                "latency_us": [
+                  30180.333
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 256,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 2048,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 13184,
+                    "normalized_kernel_cost": 421888,
+                    "matrix_issues": 65536,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 128,
+                    "metal_mpp_operations": 64,
+                    "memory_fragment_reads": 32768,
+                    "lhs_footprint_fragments": 4096,
+                    "rhs_footprint_fragments": 8192,
+                    "accumulator_initializations": 128,
+                    "tile_aspect_fragments": 1024,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 81920,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 2,
+                        "subgroups_n": 4,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 29435.833,
+                "throughput_us_p90": 29435.833,
+                "latency_us_p50": 30180.333,
+                "latency_us_p90": 30180.333
+              },
+              "slowdown": 1.4479249955250126,
+              "system_slowdown": 1.4179252374012223,
+              "valid": true
+            },
+            "selection_score": 421888.0,
+            "model_cost": 421888
+          },
+          {
+            "block": [
+              64,
+              128,
+              4096
+            ],
+            "pipeline_window": 1,
+            "group_threads": 0,
+            "copy_batch": 1,
+            "shared_tile_materialization": "preserve",
+            "reduction_programs_per_group": 0,
+            "reduction_unroll": 1,
+            "reduction_lane_elements": 1,
+            "cache_reduction_inputs": false,
+            "valid": true,
+            "measurement": {
+              "case": {
+                "operation": "gemm",
+                "m": 4096,
+                "n": 4096,
+                "k": 4096
+              },
+              "name": "gemm_4096x4096x4096",
+              "backend": "metal",
+              "block": [
+                64,
+                128,
+                4096
+              ],
+              "timing_order": "torch_then_system_then_native",
+              "implementation_order": [
+                "torch",
+                "system",
+                "native"
+              ],
+              "torch": {
+                "cold_call_ms": 27.125583,
+                "warmup_ms": 156.876916,
+                "repetitions": 1,
+                "throughput_us": [
+                  19720.25
+                ],
+                "latency_us": [
+                  18896.667
+                ],
+                "throughput_us_p50": 19720.25,
+                "throughput_us_p90": 19720.25,
+                "latency_us_p50": 18896.667,
+                "latency_us_p90": 18896.667,
+                "download_ms": 1.555917,
+                "allocation_upload_ms": 25.702292,
+                "device": "mps:0",
+                "output_policy": "preallocated_out",
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                }
+              },
+              "system": {
+                "backend": "metal",
+                "implementation": "mps_matrix_multiplication",
+                "api_variant": "MPSKernelOptionsNone",
+                "operation": "gemm",
+                "dtype": "float32",
+                "layout": "compact_row_major",
+                "alpha": 1,
+                "beta": 0,
+                "transpose_left": false,
+                "transpose_right": false,
+                "m": 4096,
+                "n": 4096,
+                "k": 4096,
+                "row_bytes": [
+                  16384,
+                  16384,
+                  16384
+                ],
+                "device": "Apple M1 Max",
+                "storage": "private",
+                "batch_policy": "one_command_buffer_per_batch",
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "setup_ms": 86.911042,
+                "cold_call_ms": 41.851958,
+                "warmup_ms": 166.144833,
+                "download_ms": 8.851625,
+                "repetitions": 1,
+                "throughput_us": [
+                  21207.666
+                ],
+                "latency_us": [
+                  23114.5
+                ],
+                "gpu_throughput_us": [
+                  20847.7916894
+                ],
+                "gpu_latency_us": [
+                  21054.8749892
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 21207.666,
+                "throughput_us_p90": 21207.666,
+                "latency_us_p50": 23114.5,
+                "latency_us_p90": 23114.5
+              },
+              "native_command": [
+                "/private/tmp/luisa-mpp-realized-baseline.mbTNjX/benchmark_tile_tirx",
+                "metal",
+                "gemm",
+                "4096",
+                "4096",
+                "4096",
+                "64",
+                "128",
+                "4096",
+                "1",
+                "1",
+                "1",
+                "/var/folders/2_/k4txnts916qb_hd5bnch_jfw0000gn/T/luisa-tile-benchmark-oz6450sm/output.f32",
+                "group",
+                "1",
+                "mpp-views",
+                "vectorize"
+              ],
+              "native_stderr": "",
+              "native_source_sha256": "3ad7e091e255074e4ea1f5884d1392867736e3a1278054612bc7b20864dac0cc",
+              "native": {
+                "backend": "metal",
+                "operation": "gemm",
+                "execution_scope": "group",
+                "pipeline_window": 1,
+                "cooperative_matrix": true,
+                "metal_mpp": true,
+                "metal_subgroup_reductions": false,
+                "metal_max_threads": 1024,
+                "reduction_programs_per_group": 0,
+                "reduction_unroll_factor": 1,
+                "reduction_lane_elements": 1,
+                "cache_reduction_inputs": false,
+                "reduction_cost_profile": "analytic",
+                "fuse_gpu_elementwise": true,
+                "shared_tile_materialization": "preserve",
+                "forward_readonly_tile_loads": true,
+                "elide_independent_subgroup_barriers": false,
+                "vectorize": true,
+                "auto_vectorize": false,
+                "cpu_stack_bytes": 0,
+                "cpu_parallel_task_threshold": 64,
+                "cpu_vector_lanes": 16,
+                "max_reduction_striped_scalars_per_worker": 64,
+                "cpu_target_policy": "generic",
+                "cpu_model": "generic",
+                "cpu_matrix_backend": "reference",
+                "cpu_math_backend": "reference",
+                "planner_threads": 0,
+                "copy_batch": 1,
+                "matrix_intrinsics": 1,
+                "external_matrix_calls": 0,
+                "external_vector_math_calls": 0,
+                "simdgroup_intrinsics": 0,
+                "mpp_intrinsics": 1,
+                "runtime_init_ms": 18.54825,
+                "capture_ms": 0.056875,
+                "compile_ms": 32.806167,
+                "allocation_upload_ms": 32.938166,
+                "cold_call_ms": 189.323,
+                "warmup_ms": 194.785709,
+                "download_ms": 10.22225,
+                "repetitions": 1,
+                "output_elements": 16777216,
+                "mma_operations": 1,
+                "compiler": "21.0.0 (clang-2100.1.1.101)",
+                "throughput_us": [
+                  23958.708
+                ],
+                "latency_us": [
+                  23893.417
+                ],
+                "execution_plans": [
+                  {
+                    "threads": 256,
+                    "metal_mpp": true,
+                    "cost_basis": "metal_mpp_memory_v2",
+                    "programs": 2048,
+                    "shared_memory_bytes": 0,
+                    "optimized": true,
+                    "candidates_considered": 151,
+                    "candidates_rejected": 105,
+                    "max_copy_batch": 1,
+                    "batched_copy_operations": 0,
+                    "prefetched_pipeline_loops": 0,
+                    "prefetch_storage_scalars_per_lane": 0,
+                    "reduction_subgroups_per_program": 0,
+                    "reduction_programs_per_group": 0,
+                    "reduction_unroll_factor": 1,
+                    "reduction_lane_elements": 1,
+                    "reduction_threadgroups": 0,
+                    "reduction_scalar_rounds": 0,
+                    "reduction_lane_utilization": 0,
+                    "reduction_payload_accesses_known": false,
+                    "reduction_payload_accesses_per_program": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "reduction_payload_accesses_per_worker": {
+                      "global_read_bytes": 0,
+                      "global_write_bytes": 0,
+                      "private_read_bytes": 0,
+                      "private_write_bytes": 0
+                    },
+                    "striped_storage_scalars_per_worker": 0,
+                    "reduction_operations": 0,
+                    "reduction_elements": 0,
+                    "elementwise_elements_per_program": 0,
+                    "elementwise_scalar_temporaries": 0,
+                    "group_barrier_sites_before": 2,
+                    "group_barrier_sites_after": 2,
+                    "independent_subgroups": true,
+                    "normalized_cost": 12867,
+                    "normalized_kernel_cost": 411744,
+                    "matrix_issues": 65536,
+                    "shared_fragment_transfers": 0,
+                    "direct_fragment_stores": 128,
+                    "metal_mpp_operations": 8,
+                    "memory_fragment_reads": 32768,
+                    "lhs_footprint_fragments": 4096,
+                    "rhs_footprint_fragments": 8192,
+                    "accumulator_initializations": 0,
+                    "tile_aspect_fragments": 128,
+                    "local_row_aspect_issues": 0,
+                    "local_column_aspect_issues": 0,
+                    "independent_elements": 24576,
+                    "fragment_scalars_per_lane": 32,
+                    "concurrent_waves": 32,
+                    "matrices": [
+                      {
+                        "subgroups_m": 2,
+                        "subgroups_n": 4,
+                        "atom_rows": 4,
+                        "atom_columns": 4,
+                        "persistent_accumulator": true,
+                        "direct_accumulator_store": true
+                      }
+                    ]
+                  }
+                ],
+                "correctness": {
+                  "max_abs_error": 0.0,
+                  "atol": 0.0001,
+                  "rtol": 0.0001
+                },
+                "throughput_us_p50": 23958.708,
+                "throughput_us_p90": 23958.708,
+                "latency_us_p50": 23893.417,
+                "latency_us_p90": 23893.417
+              },
+              "slowdown": 1.2149292224997148,
+              "system_slowdown": 1.129719225114164,
+              "valid": true
+            },
+            "selection_score": 411744.0,
+            "model_cost": 411744
+          }
+        ],
+        "selected_trial": 11,
+        "model_selection_metric": "sum_execution_plan_normalized_kernel_cost",
+        "model_selected_trial": 11
+      }
+    }
+  ]
+}

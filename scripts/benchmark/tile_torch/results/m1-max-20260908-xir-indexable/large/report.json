@@ -1,0 +1,297 @@
+{
+  "metadata": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "date": "2026-09-08T03:02:06.275211+00:00",
+    "rounds": 1,
+    "samples": 7,
+    "timeout_seconds": 60,
+    "sample_ms": 30,
+    "warmup_ms": 100,
+    "packet_width": 8,
+    "workers": 8,
+    "timing": "synchronized_host_wall",
+    "kernel_only": false,
+    "cases": [
+      [
+        "rmsnorm",
+        [
+          17,
+          1537
+        ]
+      ],
+      [
+        "rmsnorm",
+        [
+          1024,
+          4096
+        ]
+      ],
+      [
+        "rmsnorm",
+        [
+          64,
+          16384
+        ]
+      ]
+    ],
+    "artifacts_sha256": {
+      "baseline": {
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/benchmark_tile_xir": "79e517adfc84707ea3987341a84782388c001fef775e973e4de6f2ab2b4f4b7a",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libSPIRV.16.3.0.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libSPIRV.16.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libSPIRV.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libglslang-default-resource-limits.16.3.0.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libglslang-default-resource-limits.16.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libglslang-default-resource-limits.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libglslang.16.3.0.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libglslang.16.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libglslang.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-ast.dylib": "3593c30c2c40059772688aaa0512f51e8e7b9dd84a659dedabeeef4f5d447190",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-backend-metal.so": "292c088e42be06f6324bf733a43bfe00a47698d6789ef45461b6c2c6b3dfeb63",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-backend-simd.so": "87111d1581dfcdc92685cf775964c70928cb3bdcd07d1a23eab7ab6b6929058f",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-benchmark-metal-timing.dylib": "989657bf3419937efd8de38e17681574ee73f28455cc2548184818f589cf7ae8",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-core.dylib": "55f31daf2e618e78bfa9e4686c47e6d7cb4a8f3727e54c97952d719e69f663b4",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-coro.dylib": "9b6b2ed9528c537b3236d3f2e1a9e0dcbe68e501a0ca5da7b9c47b19a88f65b3",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-dsl.dylib": "192fa9ea1ee2c49caf241ca79b93c776490c553ecc215046e8e245ec2158b7a5",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-osl.dylib": "d6f0121521dd0f25dc5fc1c37afdca6dff8f0280a1da85450da36449a0261fb1",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-runtime.dylib": "97165ca9efb0a1ee57eee076fd145bc0a95f373f578cd595dd1c0613cabcb4ac",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-tile-bridge-tirx.dylib": "de6a123adaf2a678e1e74bfd29f0c87789b71df94229c2728b00434b3704fd99",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-tile-bridge-xir.dylib": "0631c149e01ea6a6f74f8825447db7ade3e97f60fe1e5646ac2bca1304db3874",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-tile.dylib": "634878d1d9d5d27ca5a3b585916f2f602718cb2d1b327abde37ea6c9a29283e2",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-validation-layer.so": "1b791d7f116d07b095ff13925bf7e475c1eebb7ba02424f3411aa9b02f37f7eb",
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/libluisa-xir.dylib": "91fbf5814302f48263f0618798e5ec8cd3d24fdecdd19b62f49a551bb5812925"
+      },
+      "candidate": {
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/benchmark_tile_xir": "006bd324cfcbd001184fe16a003c704724c62683f52954ec701f3f43534210b6",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libSPIRV.16.3.0.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libSPIRV.16.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libSPIRV.dylib": "3bb5958e5e53e17c57ec342b4aef3783d46eb172be8611ee79941b28044e2d63",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libglslang-default-resource-limits.16.3.0.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libglslang-default-resource-limits.16.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libglslang-default-resource-limits.dylib": "1337e79b9de0888ffaec2b955f8a9248e560bb26b8897fe99b94e080d346e991",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libglslang.16.3.0.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libglslang.16.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libglslang.dylib": "2a11cbfe17b841c8d2dc55880d1c20141bd32549ffc1b328a73413b921894bde",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-ast.dylib": "3593c30c2c40059772688aaa0512f51e8e7b9dd84a659dedabeeef4f5d447190",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-backend-metal.so": "292c088e42be06f6324bf733a43bfe00a47698d6789ef45461b6c2c6b3dfeb63",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-backend-simd.so": "2ef4f4d7cbbb50e41adbe2ccae42e8ecebf65f2c32098bf717f1a8809b1af477",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-benchmark-metal-timing.dylib": "989657bf3419937efd8de38e17681574ee73f28455cc2548184818f589cf7ae8",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-core.dylib": "55f31daf2e618e78bfa9e4686c47e6d7cb4a8f3727e54c97952d719e69f663b4",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-coro.dylib": "9b6b2ed9528c537b3236d3f2e1a9e0dcbe68e501a0ca5da7b9c47b19a88f65b3",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-dsl.dylib": "192fa9ea1ee2c49caf241ca79b93c776490c553ecc215046e8e245ec2158b7a5",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-osl.dylib": "d6f0121521dd0f25dc5fc1c37afdca6dff8f0280a1da85450da36449a0261fb1",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-runtime.dylib": "97165ca9efb0a1ee57eee076fd145bc0a95f373f578cd595dd1c0613cabcb4ac",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-tile-bridge-tirx.dylib": "de6a123adaf2a678e1e74bfd29f0c87789b71df94229c2728b00434b3704fd99",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-tile-bridge-xir.dylib": "5e8928b27aec89cd0f6c8dd2c4c64103018762cd69ed66b87597b2a7c8bed04e",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-tile.dylib": "634878d1d9d5d27ca5a3b585916f2f602718cb2d1b327abde37ea6c9a29283e2",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-validation-layer.so": "1b791d7f116d07b095ff13925bf7e475c1eebb7ba02424f3411aa9b02f37f7eb",
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/libluisa-xir.dylib": "91fbf5814302f48263f0618798e5ec8cd3d24fdecdd19b62f49a551bb5812925"
+      }
+    },
+    "artifacts_unchanged": true
+  },
+  "results": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        1537
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,1537",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-indexable.21Tuda/tensors-large/00-rmsnorm-17x1537-0-baseline.f32"
+      ],
+      "error": "Command '['/private/tmp/luisa-xir-indexable.21Tuda/baseline/benchmark_tile_xir', 'llm', 'rmsnorm', '17,1537', '1', '1', '7', '30', '100', '/tmp/luisa-xir-indexable.21Tuda/tensors-large/00-rmsnorm-17x1537-0-baseline.f32']' timed out after 60 seconds",
+      "process_and_validation_wall_seconds": 60.040560957975686
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        1537
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "17,1537",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-indexable.21Tuda/tensors-large/00-rmsnorm-17x1537-0-candidate.f32"
+      ],
+      "error": "Command '['/private/tmp/luisa-xir-indexable.21Tuda/candidate/benchmark_tile_xir', 'llm', 'rmsnorm', '17,1537', '1', '1', '7', '30', '100', '/tmp/luisa-xir-indexable.21Tuda/tensors-large/00-rmsnorm-17x1537-0-candidate.f32']' timed out after 60 seconds",
+      "process_and_validation_wall_seconds": 60.01648904196918
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-indexable.21Tuda/tensors-large/01-rmsnorm-1024x4096-0-baseline.f32"
+      ],
+      "error": "Command '['/private/tmp/luisa-xir-indexable.21Tuda/baseline/benchmark_tile_xir', 'llm', 'rmsnorm', '1024,4096', '1', '1', '7', '30', '100', '/tmp/luisa-xir-indexable.21Tuda/tensors-large/01-rmsnorm-1024x4096-0-baseline.f32']' timed out after 60 seconds",
+      "process_and_validation_wall_seconds": 60.03288254106883
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "1024,4096",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-indexable.21Tuda/tensors-large/01-rmsnorm-1024x4096-0-candidate.f32"
+      ],
+      "error": "Command '['/private/tmp/luisa-xir-indexable.21Tuda/candidate/benchmark_tile_xir', 'llm', 'rmsnorm', '1024,4096', '1', '1', '7', '30', '100', '/tmp/luisa-xir-indexable.21Tuda/tensors-large/01-rmsnorm-1024x4096-0-candidate.f32']' timed out after 60 seconds",
+      "process_and_validation_wall_seconds": 60.04144191707019
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        16384
+      ],
+      "round": 0,
+      "variant": "baseline",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-indexable.21Tuda/baseline/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,16384",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-indexable.21Tuda/tensors-large/02-rmsnorm-64x16384-0-baseline.f32"
+      ],
+      "returncode": 2,
+      "error": "benchmark exit 2",
+      "process_and_validation_wall_seconds": 0.18355462502222508
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        16384
+      ],
+      "round": 0,
+      "variant": "candidate",
+      "order": [
+        "baseline",
+        "candidate"
+      ],
+      "valid": false,
+      "command": [
+        "/private/tmp/luisa-xir-indexable.21Tuda/candidate/benchmark_tile_xir",
+        "llm",
+        "rmsnorm",
+        "64,16384",
+        "1",
+        "1",
+        "7",
+        "30",
+        "100",
+        "/tmp/luisa-xir-indexable.21Tuda/tensors-large/02-rmsnorm-64x16384-0-candidate.f32"
+      ],
+      "returncode": 2,
+      "error": "benchmark exit 2",
+      "process_and_validation_wall_seconds": 0.13688700005877763
+    }
+  ],
+  "summaries": [
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        17,
+        1537
+      ],
+      "complete_pairs": 0,
+      "baseline_over_candidate_throughput_ratios": [],
+      "median_ratio": null
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        1024,
+        4096
+      ],
+      "complete_pairs": 0,
+      "baseline_over_candidate_throughput_ratios": [],
+      "median_ratio": null
+    },
+    {
+      "operation": "rmsnorm",
+      "dimensions": [
+        64,
+        16384
+      ],
+      "complete_pairs": 0,
+      "baseline_over_candidate_throughput_ratios": [],
+      "median_ratio": null
+    }
+  ]
+}

@@ -21,16 +21,15 @@ namespace lc {
 // target with a different block size. The source record stride is therefore not
 // tied to Vulkan's tightly packed 12-byte command structure.
 struct IndirectDispatchLayout {
-    static constexpr uint32_t header_word_count = 1u;
-    static constexpr uint32_t record_word_count = 7u;
-    static constexpr uint32_t logical_size_word = 0u;
-    static constexpr uint32_t kernel_id_word = 3u;
-    static constexpr uint32_t group_count_word = 4u;
+#define LC_INDIRECT_LAYOUT(shader_name, cpp_name, value) \
+    static constexpr uint32_t cpp_name = value;
+#include "indirect_dispatch_layout.def"
+#undef LC_INDIRECT_LAYOUT
     static constexpr size_t word_size = sizeof(uint32_t);
     static constexpr size_t header_size = header_word_count * word_size;
     static constexpr size_t record_size = record_word_count * word_size;
-    static constexpr size_t vulkan_command_size = 3u * word_size;
-    static constexpr uint32_t prepare_block_size = 64u;
+    static constexpr size_t vulkan_command_size =
+        command_word_count * word_size;
 
     [[nodiscard]] static constexpr size_t record_word_offset(
         uint32_t record_index) noexcept {
