@@ -1,0 +1,163 @@
+// bge-m3 embedding engine -- normalization kernel implementations
+// (plan §4 kernels #2 layernorm and #9 l2_normalize; see kernels_norm.h for the
+// ONNX-op mapping and the launch contract).
+//
+// Same conventions as kernels_embed.cpp (plan §4 #1): device-free Kernel1D
+// factories, explicit block 256, dispatch() = TOTAL THREADS, runtime row
+// length, row index computed from a flattened (possibly host-2D) grid. The
+// block reduction is a shared-memory halving tree instead of the warp->shared
+// two-level idiom, because the CPU fallback backend only implements
+// SYNCHRONIZE_BLOCK among the thread-group ops (no warp collectives), and the
+// fallback run is part of the numerical parity gate (plan §8); the tree is
+// bit-stable across backends.
+#include "embedding/embed/kernels/kernels_norm.h"
+
+#include <luisa/dsl/sugar.h>
+
+namespace luisa::embed {
+
+namespace {
+
+using compute::def;
+using compute::Var;
+
+}// namespace
+
+LayerNormKernel make_layernorm_kernel() noexcept {
+    using namespace luisa::compute;
+
+    // One block per row. Two-pass mean/variance in fp32 -- the same math order
+    // as the naive ONNX cluster (ReduceMean -> Sub -> Pow -> ReduceMean ->
+    // Div -> Sqrt -> Mul -> Add) and as the test's CPU reference:
+    //   mean = sum(x) / H            (ReduceMean)
+    //   var  = sum((x-mean)^2) / H   (Sub, Pow, ReduceMean; biased, no Bessel)
+    //   y    = ((x-mean) * (1/sqrt(var+eps))) * gamma + beta
+    LayerNormKernel kernel = [](BufferFloat x, BufferFloat y, BufferFloat gamma,
+                                BufferFloat beta, Var<uint> H, Var<float> eps) noexcept {
+        set_block_size(kNormBlock, 1u, 1u);
+        set_name("layernorm");
+
+        Shared<float> red{kNormBlock};
+
+        Var tx = thread_x();
+        Var bs = block_size().x;
+        // Flattened block index -> row; valid for 1D dispatch (y == 0) and for a
+        // host-flattened 2D grid (DX 65535-group cap).
+        Var row = dispatch_id().y * (dispatch_size().x / bs) + dispatch_id().x / bs;
+        Var base = row * H;
+        Var Hf = H.cast<float>();
+
+        // Block reduction: shared-memory halving tree over the 256 per-thread
+        // partials. A warp-collective reduction (warp_active_sum) would be
+        // cheaper on dx/vk, but the CPU fallback backend implements only
+        // SYNCHRONIZE_BLOCK among the thread-group ops
+        // (src/backends/fallback/fallback_codegen.cpp::_translate_thread_group_inst),
+        // so warp intrinsics abort there -- the tree below lowers to plain
+        // shared memory + barriers and therefore behaves identically (and
+        // bit-identically, same fixed summation order) on every backend,
+        // including the deterministic parity oracle.
+        //
+        // Every thread calls it the same number of times (block-uniform control
+        // flow only), and each call ends with a barrier so `red` is not
+        // overwritten before all threads have read the result.
+        auto block_sum = [&](Var<float> partial) noexcept {
+            red[tx] = partial;
+            sync_block();
+            // Plain C++ loop: compile-time-constant strides, fixed unroll.
+            for (auto stride = kNormBlock / 2u; stride > 0u; stride >>= 1u) {
+                $if (tx < stride) {
+                    red[tx] += red[tx + stride];
+                };
+                sync_block();
+            };
+            Var total = red[0u];
+            sync_block();
+            return total;
+        };
+
+        // Pass 1: sum(x). Threads with tx >= H (H < block size) contribute 0;
+        // the $while stride covers H > block size.
+        Var s1 = def(0.0f);
+        Var h = tx;
+        $while (h < H) {
+            s1 += x.read(base + h);
+            h += bs;
+        };
+        Var mean = block_sum(s1) / Hf;
+
+        // Pass 2: sum((x - mean)^2).
+        Var s2 = def(0.0f);
+        h = tx;
+        $while (h < H) {
+            Var d = x.read(base + h) - mean;
+            s2 += d * d;
+            h += bs;
+        };
+        Var var = block_sum(s2) / Hf;
+
+        // Pass 3: affine normalize + write. The CPU reference uses this exact
+        // expression order.
+        Var inv = 1.0f / sqrt(var + eps);
+        h = tx;
+        $while (h < H) {
+            Var xv = x.read(base + h);
+            Var yv = ((xv - mean) * inv) * gamma.read(h) + beta.read(h);
+            y.write(base + h, yv);
+            h += bs;
+        };
+    };
+    return kernel;
+}
+
+L2NormalizeKernel make_l2_normalize_kernel() noexcept {
+    using namespace luisa::compute;
+
+    // One block per row: sum of squares (ReduceSum/Mul chain), sqrt (ReduceL2),
+    // then y = x / max(norm, 1e-12) -- the torch F.normalize clamp, so an
+    // all-zero row stays zero instead of NaN.
+    L2NormalizeKernel kernel = [](BufferFloat x, BufferFloat y, Var<uint> H) noexcept {
+        set_block_size(kNormBlock, 1u, 1u);
+        set_name("l2_normalize");
+
+        Shared<float> red{kNormBlock};
+
+        Var tx = thread_x();
+        Var bs = block_size().x;
+        Var row = dispatch_id().y * (dispatch_size().x / bs) + dispatch_id().x / bs;
+        Var base = row * H;
+
+        // Same shared-memory tree reduction as layernorm (fallback has no warp
+        // collectives); see the comment in make_layernorm_kernel().
+        auto block_sum = [&](Var<float> partial) noexcept {
+            red[tx] = partial;
+            sync_block();
+            for (auto stride = kNormBlock / 2u; stride > 0u; stride >>= 1u) {
+                $if (tx < stride) {
+                    red[tx] += red[tx + stride];
+                };
+                sync_block();
+            };
+            Var total = red[0u];
+            sync_block();
+            return total;
+        };
+
+        Var s = def(0.0f);
+        Var h = tx;
+        $while (h < H) {
+            Var xv = x.read(base + h);
+            s += xv * xv;
+            h += bs;
+        };
+        Var denom = max(sqrt(block_sum(s)), def(1e-12f));
+
+        h = tx;
+        $while (h < H) {
+            y.write(base + h, x.read(base + h) / denom);
+            h += bs;
+        };
+    };
+    return kernel;
+}
+
+}// namespace luisa::embed

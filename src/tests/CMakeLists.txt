@@ -1674,11 +1674,51 @@ luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_round
 # --- unit/dsl: standalone GPU tests ---
 luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cpp)
 
-# --- unit/runtime: FP4/FP8 quantization tests ---
-luisa_compute_add_test(test_fp4                  unit/runtime/test_fp4.cpp)
-luisa_compute_add_test(test_fp4_quantization     unit/runtime/test_fp4_quantization.cpp)
-luisa_compute_add_test(test_fp8                  unit/runtime/test_fp8.cpp)
-luisa_compute_add_test(test_fp8_quantization     unit/runtime/test_fp8_quantization.cpp)
+  # --- unit/runtime: FP4/FP8 quantization tests ---
+  luisa_compute_add_test(test_fp4 unit/runtime/test_fp4.cpp)
+  luisa_compute_add_test(test_fp4_quantization unit/runtime/test_fp4_quantization.cpp)
+  luisa_compute_add_test(test_fp8 unit/runtime/test_fp8.cpp)
+  luisa_compute_add_test(test_fp8_quantization unit/runtime/test_fp8_quantization.cpp)
+
+  # --- embedding engine (bge-m3, embedding_model_plan.md) ---
+  # Goldens live in src/tests/data/embedding/; the path is compiled in.
+  set(LUISA_EMBED_TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/embedding")
+  function(luisa_compute_add_embed_test name source labels)
+      cmake_parse_arguments(PARSE_ARGV 3 EMB "" "" "ARGS")
+      luisa_compute_add_test(${name} ${source} LABELS "${labels}" ARGS ${EMB_ARGS})
+      target_link_libraries(${name} PRIVATE lc-example-embedding)
+      target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/examples)
+      target_compile_definitions(${name} PRIVATE
+              LUISA_EMBED_TEST_DATA_DIR="${LUISA_EMBED_TEST_DATA_DIR}")
+  endfunction()
+  # host-only (runs under plain CTest)
+  luisa_compute_add_embed_test(test_embed_tokenizer unit/embedding/test_embed_tokenizer.cpp
+          "unit;unit_embedding")
+  # device tests: pass the backend as argv[1] when run by hand; CTest runs them
+  # on the fallback backend unless a GPU backend is selected via LUISA_TEST_BACKEND.
+  set(LUISA_EMBED_DEVICE_BACKEND "fallback" CACHE STRING "Backend for embedding device tests")
+  foreach (_embed_dev_test IN ITEMS test_embed_kernel_gemm test_embed_kernel_layernorm
+          test_embed_kernel_embed test_embed_kernel_heads
+          # Phase B (attention/executor/scheduler/debug) + test-plan wave
+          # (L1 robust, L2 e2e, L3 retrieval, L5 robustness)
+          test_embed_kernel_attention test_embed_executor test_embed_scheduler
+          test_embed_debug test_embed_kernel_robust test_embed_e2e
+          test_embed_retrieval test_embed_robustness)
+      luisa_compute_add_embed_test(${_embed_dev_test}
+              integration/embedding/${_embed_dev_test}.cpp
+              "integration;integration_embedding"
+              ARGS "${LUISA_EMBED_DEVICE_BACKEND}")
+      set_tests_properties(${_embed_dev_test} PROPERTIES
+              ENVIRONMENT "LUISA_ENABLE_VALIDATION=1")
+  endforeach ()
+
+  # Test-plan L0 host-only additions (CTest label unit;unit_embedding).
+  luisa_compute_add_embed_test(test_embed_package unit/embedding/test_embed_package.cpp
+          "unit;unit_embedding")
+  luisa_compute_add_embed_test(test_embed_pack unit/embedding/test_embed_pack.cpp
+          "unit;unit_embedding")
+  luisa_compute_add_embed_test(test_embed_tokenizer_mt
+          unit/embedding/test_embed_tokenizer_mt.cpp "unit;unit_embedding")
 
 # The SIMD backend is a host-only module, so its supported runtime conformance
 # subset is safe to run unattended without a GPU or driver installation.

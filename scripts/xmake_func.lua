@@ -604,9 +604,9 @@ on_load(function(target, opt)
         llvm_build_dir = lc_llvm_path
     end
 
-    -- Add LLVM library and include paths
-    target:add("linkdirs", path.join(llvm_build_dir, "lib"))
-    target:add("includedirs", path.join(llvm_build_dir, "include"))
+        -- Add LLVM library and include paths
+        target:add("linkdirs", path.join(llvm_build_dir, "lib"))
+        target:add("includedirs", path.join(llvm_build_dir, "include"))
     -- Also add LLVM source include dir (for in-tree builds where headers are split)
     local llvm_src_include = path.join(lc_llvm_path, "llvm", "include")
     if os.exists(llvm_src_include) then

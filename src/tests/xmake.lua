@@ -834,11 +834,50 @@ end
 -- unit/dsl: standalone GPU tests
 test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
 
--- unit/runtime: FP4/FP8 quantization tests
-test_proj("test_fp4", "unit/runtime/test_fp4.cpp")
-test_proj("test_fp4_quantization", "unit/runtime/test_fp4_quantization.cpp")
-test_proj("test_fp8", "unit/runtime/test_fp8.cpp")
-test_proj("test_fp8_quantization", "unit/runtime/test_fp8_quantization.cpp")
+  -- unit/runtime: FP4/FP8 quantization tests
+  test_proj("test_fp4", "unit/runtime/test_fp4.cpp")
+  test_proj("test_fp4_quantization", "unit/runtime/test_fp4_quantization.cpp")
+  test_proj("test_fp8", "unit/runtime/test_fp8.cpp")
+  test_proj("test_fp8_quantization", "unit/runtime/test_fp8_quantization.cpp")
+
+  -- ==========================================================================
+  -- embedding engine (bge-m3, embedding_model_plan.md)
+  -- Data path is compiled in; tests load goldens from src/tests/data/embedding/.
+  -- ==========================================================================
+  local function embed_test(name, source, host_only)
+      test_proj(name, source, false, function()
+          add_includedirs("$(projectdir)/examples")
+          add_deps("lc-example-embedding")
+          add_defines(string.format('LUISA_EMBED_TEST_DATA_DIR="%s"',
+              (path.join(os.projectdir(), "src/tests/data/embedding")):gsub("\\", "/")))
+          if host_only then
+              add_defines("LUISA_EMBED_HOST_ONLY=1")
+          end
+      end)
+  end
+
+  -- unit/embedding: host-only tests (CTest label unit;unit_embedding)
+  embed_test("test_embed_tokenizer", "unit/embedding/test_embed_tokenizer.cpp", true)
+
+  -- integration/embedding: device tests (CTest label integration;integration_embedding)
+  embed_test("test_embed_kernel_gemm", "integration/embedding/test_embed_kernel_gemm.cpp")
+  embed_test("test_embed_kernel_layernorm", "integration/embedding/test_embed_kernel_layernorm.cpp")
+  embed_test("test_embed_kernel_embed", "integration/embedding/test_embed_kernel_embed.cpp")
+  embed_test("test_embed_kernel_heads", "integration/embedding/test_embed_kernel_heads.cpp")
+  -- Phase B
+  embed_test("test_embed_kernel_attention", "integration/embedding/test_embed_kernel_attention.cpp")
+  embed_test("test_embed_executor", "integration/embedding/test_embed_executor.cpp")
+  embed_test("test_embed_scheduler", "integration/embedding/test_embed_scheduler.cpp")
+  embed_test("test_embed_debug", "integration/embedding/test_embed_debug.cpp")
+  embed_test("test_embed_package", "unit/embedding/test_embed_package.cpp", true)
+  -- Test-plan wave (embedding_model_test_plan.md): L0 host-only additions,
+  -- L1 ragged/edge robustness, L2 e2e parity, L3 retrieval, L5 robustness.
+  embed_test("test_embed_pack", "unit/embedding/test_embed_pack.cpp", true)
+  embed_test("test_embed_tokenizer_mt", "unit/embedding/test_embed_tokenizer_mt.cpp", true)
+  embed_test("test_embed_kernel_robust", "integration/embedding/test_embed_kernel_robust.cpp")
+  embed_test("test_embed_e2e", "integration/embedding/test_embed_e2e.cpp")
+  embed_test("test_embed_retrieval", "integration/embedding/test_embed_retrieval.cpp")
+  embed_test("test_embed_robustness", "integration/embedding/test_embed_robustness.cpp")
 
 -- standalone CUDA tensor dispatch example: raw CUDA runtime + driver API with
 -- runtime NVRTC JIT (kernel source is a C++ raw string; no .cu compilation).

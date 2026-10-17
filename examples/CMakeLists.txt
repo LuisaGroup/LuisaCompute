@@ -213,8 +213,10 @@ luisa_compute_add_example(example_software_lbvh_test
     compute/lbvh/tlas.cpp
     compute/lbvh/software_lbvh.cpp
     MIRROR_AS_TEST)
-# n-gram tokenizer/retrieval/training example (headless, has its own --test mode)
-add_subdirectory(compute/tokenize)
+  # n-gram tokenizer/retrieval/training example (headless, has its own --test mode)
+  add_subdirectory(compute/tokenize)
+  # bge-m3 embedding engine (static lib + packer; tests in src/tests, demo at M6)
+  add_subdirectory(embedding)
 luisa_compute_add_example(example_multi_head_attention
         ml/multi_head_attention.cpp
         ml/attention_kernels.cpp

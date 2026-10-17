@@ -153,9 +153,10 @@ end)
             add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")
         end)
     end
-    example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false, function()
-        add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp", "ml/paged_attention.cpp")
-    end)
+      example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false, function()
+          add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp", "ml/paged_attention.cpp")
+      end)
+      includes("embedding")
     includes("compute/tokenize")
     includes("compute/compact")
 
