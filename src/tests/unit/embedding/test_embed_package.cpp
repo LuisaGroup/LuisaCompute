@@ -59,206 +59,206 @@ using namespace boost::ut::literals;
 
 namespace {
 
-    // independent transcription of the canonical emission order + dims from the
-    // format spec in tools/pack_model.cpp (spec literals, not derived from
-    // package.cpp's constants, so a drift in either file trips this test)
-    struct ExpectedEntry {
-        luisa::string name;
-        uint32_t rank;
-        uint32_t dims[4];
+// independent transcription of the canonical emission order + dims from the
+// format spec in tools/pack_model.cpp (spec literals, not derived from
+// package.cpp's constants, so a drift in either file trips this test)
+struct ExpectedEntry {
+    luisa::string name;
+    uint32_t rank;
+    uint32_t dims[4];
+};
+luisa::vector<ExpectedEntry> expected_entries() {
+    luisa::vector<ExpectedEntry> out;
+    out.reserve(296u);
+    const auto add = [&out](luisa::string name, uint32_t rank, const uint32_t *dims) {
+        ExpectedEntry e;
+        e.name = std::move(name);
+        e.rank = rank;
+        for (uint32_t i = 0u; i < 4u; i++) {
+            e.dims[i] = i < rank ? dims[i] : 0u;
+        }
+        out.push_back(std::move(e));
     };
-    luisa::vector<ExpectedEntry> expected_entries() {
-        luisa::vector<ExpectedEntry> out;
-        out.reserve(296u);
-        const auto add = [&out](luisa::string name, uint32_t rank, const uint32_t *dims) {
-            ExpectedEntry e;
-            e.name = std::move(name);
-            e.rank = rank;
-            for(uint32_t i = 0u; i < 4u; i++) {
-                e.dims[i] = i < rank ? dims[i] : 0u;
-            }
-            out.push_back(std::move(e));
-        };
-        const uint32_t w[2] = {250002u, 1024u};
-        const uint32_t p[2] = {8194u, 1024u};
-        const uint32_t h[1] = {1024u};
-        const uint32_t qkv[2] = {1024u, 3072u};
-        const uint32_t qkvb[1] = {3072u};
-        const uint32_t hh[2] = {1024u, 1024u};
-        const uint32_t up[2] = {1024u, 4096u};
-        const uint32_t upb[1] = {4096u};
-        const uint32_t down[2] = {4096u, 1024u};
-        const uint32_t one[1] = {1u};
-        const uint32_t h1[2] = {1024u, 1u};
-        add("emb.word", 2u, w);
-        add("emb.pos", 2u, p);
-        add("emb.ln.gamma", 1u, h);
-        add("emb.ln.beta", 1u, h);
-        for(uint32_t i = 0u; i < 24u; i++) {
-            const auto pre = luisa::format("layer{}.", i);
-            add(pre + "qkv", 2u, qkv);
-            add(pre + "qkv.bias", 1u, qkvb);
-            add(pre + "attn.out", 2u, hh);
-            add(pre + "attn.out.bias", 1u, h);
-            add(pre + "ln1.gamma", 1u, h);
-            add(pre + "ln1.beta", 1u, h);
-            add(pre + "ffn.up", 2u, up);
-            add(pre + "ffn.up.bias", 1u, upb);
-            add(pre + "ffn.down", 2u, down);
-            add(pre + "ffn.down.bias", 1u, h);
-            add(pre + "ln2.gamma", 1u, h);
-            add(pre + "ln2.beta", 1u, h);
+    const uint32_t w[2] = {250002u, 1024u};
+    const uint32_t p[2] = {8194u, 1024u};
+    const uint32_t h[1] = {1024u};
+    const uint32_t qkv[2] = {1024u, 3072u};
+    const uint32_t qkvb[1] = {3072u};
+    const uint32_t hh[2] = {1024u, 1024u};
+    const uint32_t up[2] = {1024u, 4096u};
+    const uint32_t upb[1] = {4096u};
+    const uint32_t down[2] = {4096u, 1024u};
+    const uint32_t one[1] = {1u};
+    const uint32_t h1[2] = {1024u, 1u};
+    add("emb.word", 2u, w);
+    add("emb.pos", 2u, p);
+    add("emb.ln.gamma", 1u, h);
+    add("emb.ln.beta", 1u, h);
+    for (uint32_t i = 0u; i < 24u; i++) {
+        const auto pre = luisa::format("layer{}.", i);
+        add(pre + "qkv", 2u, qkv);
+        add(pre + "qkv.bias", 1u, qkvb);
+        add(pre + "attn.out", 2u, hh);
+        add(pre + "attn.out.bias", 1u, h);
+        add(pre + "ln1.gamma", 1u, h);
+        add(pre + "ln1.beta", 1u, h);
+        add(pre + "ffn.up", 2u, up);
+        add(pre + "ffn.up.bias", 1u, upb);
+        add(pre + "ffn.down", 2u, down);
+        add(pre + "ffn.down.bias", 1u, h);
+        add(pre + "ln2.gamma", 1u, h);
+        add(pre + "ln2.beta", 1u, h);
+    }
+    add("head.sparse.w", 2u, h1);
+    add("head.sparse.b", 1u, one);
+    add("head.colbert.w", 2u, hh);
+    add("head.colbert.b", 1u, h);
+    return out;
+}
+
+uint64_t prod_dims(const ExpectedEntry &e) {
+    uint64_t n = 1ull;
+    for (uint32_t i = 0u; i < e.rank; i++) {
+        n *= e.dims[i];
+    }
+    return n;
+}
+
+constexpr float kTolerate = 1e-7f;
+
+void test_package_header_and_hyper_params(const luisa::embed::Package &pkg, const luisa::string &path) {
+    expect(pkg.tensors().size() == 296u) << "tensor_count must be 296 (4 emb + 24*12 layer + 4 head)";
+    expect(pkg.num_layers() == 24u);
+    expect(pkg.hidden_size() == 1024u);
+    expect(pkg.num_heads() == 16u);
+    expect(pkg.intermediate_size() == 4096u);
+    expect(pkg.vocab_size() == 250002u);
+    expect(pkg.max_positions() == 8194u);
+    LUISA_INFO("test_embed_package: loaded \"{}\" ({} tensors)", path, pkg.tensors().size());
+}
+
+void test_package_names_dims_and_emission_order(const luisa::embed::Package &pkg) {
+    const auto expected = expected_entries();
+    expect(expected.size() == 296u) << "guard the transcription itself";
+    uint32_t mismatch_count = 0u;
+    const auto table = pkg.tensors();
+    for (size_t i = 0u; i < expected.size(); i++) {
+        const auto &e = expected[i];
+        const auto *t = pkg.find(e.name);
+        if (t == nullptr) {
+            LUISA_WARNING("tensor '{}' is not resolvable by name", e.name);
+            mismatch_count++;
+            continue;
         }
-        add("head.sparse.w", 2u, h1);
-        add("head.sparse.b", 1u, one);
-        add("head.colbert.w", 2u, hh);
-        add("head.colbert.b", 1u, h);
-        return out;
-    }
-
-    uint64_t prod_dims(const ExpectedEntry &e) {
-        uint64_t n = 1ull;
-        for(uint32_t i = 0u; i < e.rank; i++) {
-            n *= e.dims[i];
+        if (t->rank != e.rank) {
+            LUISA_WARNING("tensor '{}': rank {} != expected {}", e.name, t->rank, e.rank);
+            mismatch_count++;
         }
-        return n;
-    }
-
-    constexpr float k_tolerate = 1e-7f;
-
-    void test_package_header_and_hyper_params(const luisa::embed::Package &pkg, const luisa::string &path) {
-        expect(pkg.tensors().size() == 296u) << "tensor_count must be 296 (4 emb + 24*12 layer + 4 head)";
-        expect(pkg.num_layers() == 24u);
-        expect(pkg.hidden_size() == 1024u);
-        expect(pkg.num_heads() == 16u);
-        expect(pkg.intermediate_size() == 4096u);
-        expect(pkg.vocab_size() == 250002u);
-        expect(pkg.max_positions() == 8194u);
-        LUISA_INFO("test_embed_package: loaded \"{}\" ({} tensors)", path, pkg.tensors().size());
-    }
-
-    void test_package_names_dims_and_emission_order(const luisa::embed::Package &pkg) {
-        const auto expected = expected_entries();
-        expect(expected.size() == 296u) << "guard the transcription itself";
-        uint32_t mismatch_count = 0u;
-        const auto table = pkg.tensors();
-        for(size_t i = 0u; i < expected.size(); i++) {
-            const auto &e = expected[i];
-            const auto *t = pkg.find(e.name);
-            if(t == nullptr) {
-                LUISA_WARNING("tensor '{}' is not resolvable by name", e.name);
-                mismatch_count++;
-                continue;
-            }
-            if(t->rank != e.rank) {
-                LUISA_WARNING("tensor '{}': rank {} != expected {}", e.name, t->rank, e.rank);
-                mismatch_count++;
-            }
-            for(uint32_t d = 0u; d < 4u; d++) {
-                if(t->dims[d] != e.dims[d]) {
-                    LUISA_WARNING("tensor '{}': dims[{}] {} != expected {}", e.name, d, t->dims[d], e.dims[d]);
-                    mismatch_count++;
-                }
-            }
-            if(t->size_bytes != prod_dims(e) * 4ull) {
-                LUISA_WARNING("tensor '{}': size_bytes {} != prod(dims)*4 {}", e.name, t->size_bytes, prod_dims(e) * 4ull);
-                mismatch_count++;
-            }
-            if(t->element_count() != prod_dims(e)) {
-                LUISA_WARNING("tensor '{}': element_count {} != {}", e.name, t->element_count(), prod_dims(e));
-                mismatch_count++;
-            }
-            // dim() semantics: dims beyond rank report 0
-            if(t->dim(e.rank) != 0ull || t->dim(0u) != e.dims[0]) {
-                LUISA_WARNING("tensor '{}': dim() accessors inconsistent", e.name);
-                mismatch_count++;
-            }
-            // emission order == table order: find() and positional access agree
-            if(i >= table.size() || t != &table[i]) {
-                LUISA_WARNING("tensor '{}': find() is not the positional table entry {}", e.name, i);
+        for (uint32_t d = 0u; d < 4u; d++) {
+            if (t->dims[d] != e.dims[d]) {
+                LUISA_WARNING("tensor '{}': dims[{}] {} != expected {}", e.name, d, t->dims[d], e.dims[d]);
                 mismatch_count++;
             }
         }
-        expect(mismatch_count == 0u) << "every canonical tensor must resolve with exact rank/dims/size in emission order";
+        if (t->size_bytes != prod_dims(e) * 4ull) {
+            LUISA_WARNING("tensor '{}': size_bytes {} != prod(dims)*4 {}", e.name, t->size_bytes, prod_dims(e) * 4ull);
+            mismatch_count++;
+        }
+        if (t->element_count() != prod_dims(e)) {
+            LUISA_WARNING("tensor '{}': element_count {} != {}", e.name, t->element_count(), prod_dims(e));
+            mismatch_count++;
+        }
+        // dim() semantics: dims beyond rank report 0
+        if (t->dim(e.rank) != 0ull || t->dim(0u) != e.dims[0]) {
+            LUISA_WARNING("tensor '{}': dim() accessors inconsistent", e.name);
+            mismatch_count++;
+        }
+        // emission order == table order: find() and positional access agree
+        if (i >= table.size() || t != &table[i]) {
+            LUISA_WARNING("tensor '{}': find() is not the positional table entry {}", e.name, i);
+            mismatch_count++;
+        }
     }
+    expect(mismatch_count == 0u) << "every canonical tensor must resolve with exact rank/dims/size in emission order";
+}
 
-    void test_package_dims_spot_checks(const luisa::embed::Package &pkg) {
-        uint32_t mismatch_count = 0u;
-        const auto check = [&mismatch_count, &pkg](luisa::string_view name, luisa::vector<uint32_t> dims) {
-            const auto *t = pkg.find(name);
-            if(t == nullptr) {
-                LUISA_WARNING("spot-check tensor '{}' missing", name);
-                mismatch_count++;
-                return;
-            }
-            if(t->rank != dims.size()) {
-                LUISA_WARNING("spot-check '{}': rank {} != {}", name, t->rank, dims.size());
-                mismatch_count++;
-                return;
-            }
-            for(size_t i = 0u; i < dims.size(); i++) {
-                if(t->dim(static_cast<uint32_t>(i)) != dims[i]) {
-                    LUISA_WARNING("spot-check '{}': dim({}) {} != {}", name, i, t->dim(static_cast<uint32_t>(i)), dims[i]);
-                    mismatch_count++;
-                }
-            }
-        };
-        check("emb.word", {250002u, 1024u});
-        check("layer7.qkv", {1024u, 3072u});
-        check("layer23.ffn.down", {4096u, 1024u});
-        check("head.sparse.w", {1024u, 1u});
-        expect(mismatch_count == 0u) << "spot-checked dims must match the packer spec";
-    }
-
-    void test_package_blob_alignment_and_negative_lookup(const luisa::embed::Package &pkg) {
-        uint32_t mismatch_count = 0u;
-        // 256-byte alignment of every blob offset, observable through the data
-        // pointer (see the file header): every Tensor::data must be 256-aligned
-        for(const auto &t : pkg.tensors()) {
-            if(reinterpret_cast<uintptr_t>(t.data) % 256u != 0u) {
-                LUISA_WARNING("tensor data pointer {} is not 256-byte aligned",
-                              static_cast<const void *>(t.data));
+void test_package_dims_spot_checks(const luisa::embed::Package &pkg) {
+    uint32_t mismatch_count = 0u;
+    const auto check = [&mismatch_count, &pkg](luisa::string_view name, luisa::vector<uint32_t> dims) {
+        const auto *t = pkg.find(name);
+        if (t == nullptr) {
+            LUISA_WARNING("spot-check tensor '{}' missing", name);
+            mismatch_count++;
+            return;
+        }
+        if (t->rank != dims.size()) {
+            LUISA_WARNING("spot-check '{}': rank {} != {}", name, t->rank, dims.size());
+            mismatch_count++;
+            return;
+        }
+        for (size_t i = 0u; i < dims.size(); i++) {
+            if (t->dim(static_cast<uint32_t>(i)) != dims[i]) {
+                LUISA_WARNING("spot-check '{}': dim({}) {} != {}", name, i, t->dim(static_cast<uint32_t>(i)), dims[i]);
                 mismatch_count++;
             }
         }
-        expect(mismatch_count == 0u) << "every blob pointer must be 256-byte aligned";
-        // unknown names resolve to nullptr (never a wrong tensor)
-        expect(pkg.find("layer24.qkv") == nullptr) << "layer24.qkv must not resolve (24 layers only)";
-        expect(pkg.find("emb.wordd") == nullptr) << "a typo'd name must not resolve";
-        expect(pkg.find("head.sparse.weight") == nullptr);
-        expect(pkg.find("") == nullptr) << "empty name must not resolve";
-    }
+    };
+    check("emb.word", {250002u, 1024u});
+    check("layer7.qkv", {1024u, 3072u});
+    check("layer23.ffn.down", {4096u, 1024u});
+    check("head.sparse.w", {1024u, 1u});
+    expect(mismatch_count == 0u) << "spot-checked dims must match the packer spec";
+}
 
-    void test_package_values_vs_packer_dev_extraction(const luisa::embed::Package &pkg) {
-        uint32_t mismatch_count = 0u;
-        // values extracted independently with pack_model_dev.py dump + python
-        // struct.unpack("<f") — see the file header; float32-exact decimals
-        const float emb_ln_beta[4] = {
-            -0.15087890625f, -0.241455078125f, 0.25830078125f, 0.2802734375f};
-        const float layer0_ln1_gamma[4] = {
-            0.94091796875f, 0.91015625f, 0.82958984375f, 0.93798828125f};
-        constexpr float head_sparse_b0 = 0.045196533203125f;
-
-        const auto check = [&mismatch_count, &pkg](luisa::string_view name, uint32_t idx, float want) {
-            const auto *t = pkg.find(name);
-            if(t == nullptr || idx >= t->element_count()) {
-                LUISA_WARNING("value check: '{}' element {} unavailable", name, idx);
-                mismatch_count++;
-                return;
-            }
-            const float got = t->data[idx];
-            if(std::abs(got - want) > k_tolerate) {
-                LUISA_WARNING("value check: '{}'[{}] = {}, packer-dev extraction says {}", name, idx, got, want);
-                mismatch_count++;
-            }
-        };
-        for(uint32_t i = 0u; i < 4u; i++) {
-            check("emb.ln.beta", i, emb_ln_beta[i]);
-            check("layer0.ln1.gamma", i, layer0_ln1_gamma[i]);
+void test_package_blob_alignment_and_negative_lookup(const luisa::embed::Package &pkg) {
+    uint32_t mismatch_count = 0u;
+    // 256-byte alignment of every blob offset, observable through the data
+    // pointer (see the file header): every Tensor::data must be 256-aligned
+    for (const auto &t : pkg.tensors()) {
+        if (reinterpret_cast<uintptr_t>(t.data) % 256u != 0u) {
+            LUISA_WARNING("tensor data pointer {} is not 256-byte aligned",
+                          static_cast<const void *>(t.data));
+            mismatch_count++;
         }
-        check("head.sparse.b", 0u, head_sparse_b0);
-        expect(mismatch_count == 0u) << "loader-served values must match the values extracted with pack_model_dev.py";
     }
+    expect(mismatch_count == 0u) << "every blob pointer must be 256-byte aligned";
+    // unknown names resolve to nullptr (never a wrong tensor)
+    expect(pkg.find("layer24.qkv") == nullptr) << "layer24.qkv must not resolve (24 layers only)";
+    expect(pkg.find("emb.wordd") == nullptr) << "a typo'd name must not resolve";
+    expect(pkg.find("head.sparse.weight") == nullptr);
+    expect(pkg.find("") == nullptr) << "empty name must not resolve";
+}
+
+void test_package_values_vs_packer_dev_extraction(const luisa::embed::Package &pkg) {
+    uint32_t mismatch_count = 0u;
+    // values extracted independently with pack_model_dev.py dump + python
+    // struct.unpack("<f") — see the file header; float32-exact decimals
+    const float emb_ln_beta[4] = {
+        -0.15087890625f, -0.241455078125f, 0.25830078125f, 0.2802734375f};
+    const float layer0_ln1_gamma[4] = {
+        0.94091796875f, 0.91015625f, 0.82958984375f, 0.93798828125f};
+    constexpr float head_sparse_b0 = 0.045196533203125f;
+
+    const auto check = [&mismatch_count, &pkg](luisa::string_view name, uint32_t idx, float want) {
+        const auto *t = pkg.find(name);
+        if (t == nullptr || idx >= t->element_count()) {
+            LUISA_WARNING("value check: '{}' element {} unavailable", name, idx);
+            mismatch_count++;
+            return;
+        }
+        const float got = t->data[idx];
+        if (std::abs(got - want) > kTolerate) {
+            LUISA_WARNING("value check: '{}'[{}] = {}, packer-dev extraction says {}", name, idx, got, want);
+            mismatch_count++;
+        }
+    };
+    for (uint32_t i = 0u; i < 4u; i++) {
+        check("emb.ln.beta", i, emb_ln_beta[i]);
+        check("layer0.ln1.gamma", i, layer0_ln1_gamma[i]);
+    }
+    check("head.sparse.b", 0u, head_sparse_b0);
+    expect(mismatch_count == 0u) << "loader-served values must match the values extracted with pack_model_dev.py";
+}
 
 }// namespace
 
@@ -266,8 +266,8 @@ int main(int argc, char *argv[]) {
     // argv[1] (optional) is the packed model path; the default pins the real
     // bge-m3 package the packer produced (plan §6 M2, dev environment).
     luisa::string bgm_path{"D:/compute/bge-m3/bge-m3/model.bgm"};
-    if(argc > 1) {
-        if(argv[1][0] == '\0') {
+    if (argc > 1) {
+        if (argv[1][0] == '\0') {
             std::fprintf(stderr, "test_embed_package: empty package path\n");
             return 1;
         }
@@ -280,7 +280,7 @@ int main(int argc, char *argv[]) {
 
     // fatal on any deviation from the BGM3 v1 spec (LUISA_ERROR abort)
     auto pkg = luisa::embed::Package::load(std::filesystem::path{bgm_path});
-    if(pkg == nullptr) {
+    if (pkg == nullptr) {
         LUISA_ERROR("Package::load returned null for \"{}\"", bgm_path);
     }
 

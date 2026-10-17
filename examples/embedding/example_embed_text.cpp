@@ -49,69 +49,69 @@ using namespace luisa;
 
 namespace {
 
-    void print_usage() {
-        LUISA_INFO("usage: example_embed_text <backend> <model.bgm> <tokenizer.json> "
-                   "[--sparse] [--colbert] [sentence...]");
-        LUISA_INFO("  backend          dx | vk | cuda | metal | fallback | simd | ...");
-        LUISA_INFO("  model.bgm        packed weights (BGM3 v1, see tools/pack_model.cpp)");
-        LUISA_INFO("  tokenizer.json   HF fast-tokenizer JSON (bge-m3 Unigram)");
-        LUISA_INFO("  sentence...      texts to encode; if none, one per line from stdin");
-    }
+void print_usage() {
+    LUISA_INFO("usage: example_embed_text <backend> <model.bgm> <tokenizer.json> "
+               "[--sparse] [--colbert] [sentence...]");
+    LUISA_INFO("  backend          dx | vk | cuda | metal | fallback | simd | ...");
+    LUISA_INFO("  model.bgm        packed weights (BGM3 v1, see tools/pack_model.cpp)");
+    LUISA_INFO("  tokenizer.json   HF fast-tokenizer JSON (bge-m3 Unigram)");
+    LUISA_INFO("  sentence...      texts to encode; if none, one per line from stdin");
+}
 
-    struct ParsedArgs {
-        luisa::string backend;
-        std::filesystem::path bgm;
-        std::filesystem::path tokenizer_json;
-        luisa::vector<luisa::string> sentences;// empty -> read stdin
-        bool want_sparse{false};
-        bool want_colbert{false};
-        bool ok{false};
-    };
+struct ParsedArgs {
+    luisa::string backend;
+    std::filesystem::path bgm;
+    std::filesystem::path tokenizer_json;
+    luisa::vector<luisa::string> sentences;// empty -> read stdin
+    bool want_sparse{false};
+    bool want_colbert{false};
+    bool ok{false};
+};
 
-    ParsedArgs parse_args(int argc, char *argv[]) {
-        ParsedArgs p;
-        for(int i = 1; i < argc; i++) {
-            const std::string_view a{argv[i]};
-            if(a == "--sparse") {
-                p.want_sparse = true;
-            } else if(a == "--colbert") {
-                p.want_colbert = true;
-            } else if(!a.starts_with("-")) {
-                if(p.backend.empty()) {
-                    p.backend = luisa::string{a.data(), a.size()};
-                } else if(p.bgm.empty()) {
-                    p.bgm = std::filesystem::path{argv[i]};
-                } else if(p.tokenizer_json.empty()) {
-                    p.tokenizer_json = std::filesystem::path{argv[i]};
-                } else {
-                    p.sentences.emplace_back(luisa::string{a.data(), a.size()});
-                }
+ParsedArgs parse_args(int argc, char *argv[]) {
+    ParsedArgs p;
+    for (int i = 1; i < argc; i++) {
+        const std::string_view a{argv[i]};
+        if (a == "--sparse") {
+            p.want_sparse = true;
+        } else if (a == "--colbert") {
+            p.want_colbert = true;
+        } else if (!a.starts_with("-")) {
+            if (p.backend.empty()) {
+                p.backend = luisa::string{a.data(), a.size()};
+            } else if (p.bgm.empty()) {
+                p.bgm = std::filesystem::path{argv[i]};
+            } else if (p.tokenizer_json.empty()) {
+                p.tokenizer_json = std::filesystem::path{argv[i]};
             } else {
-                LUISA_INFO("example_embed_text: unknown option '{}'", a);
-                return p;
+                p.sentences.emplace_back(luisa::string{a.data(), a.size()});
             }
+        } else {
+            LUISA_INFO("example_embed_text: unknown option '{}'", a);
+            return p;
         }
-        p.ok = !p.backend.empty() && !p.bgm.empty() && !p.tokenizer_json.empty();
-        return p;
     }
+    p.ok = !p.backend.empty() && !p.bgm.empty() && !p.tokenizer_json.empty();
+    return p;
+}
 
-    // shared validation of the parsed arguments (both build modes)
-    bool validate_files(const ParsedArgs &p) {
-        if(!p.ok) {
-            LUISA_INFO("example_embed_text: <backend> <model.bgm> <tokenizer.json> are all required");
-            print_usage();
-            return false;
-        }
-        if(!std::filesystem::exists(p.bgm)) {
-            LUISA_INFO("example_embed_text: packed model '{}' does not exist", p.bgm.string());
-            return false;
-        }
-        if(!std::filesystem::exists(p.tokenizer_json)) {
-            LUISA_INFO("example_embed_text: tokenizer '{}' does not exist", p.tokenizer_json.string());
-            return false;
-        }
-        return true;
+// shared validation of the parsed arguments (both build modes)
+bool validate_files(const ParsedArgs &p) {
+    if (!p.ok) {
+        LUISA_INFO("example_embed_text: <backend> <model.bgm> <tokenizer.json> are all required");
+        print_usage();
+        return false;
     }
+    if (!std::filesystem::exists(p.bgm)) {
+        LUISA_INFO("example_embed_text: packed model '{}' does not exist", p.bgm.string());
+        return false;
+    }
+    if (!std::filesystem::exists(p.tokenizer_json)) {
+        LUISA_INFO("example_embed_text: tokenizer '{}' does not exist", p.tokenizer_json.string());
+        return false;
+    }
+    return true;
+}
 
 }// namespace
 
@@ -119,7 +119,7 @@ namespace {
 // ---- stub build: B1's session.h is not in the tree yet ----------------------
 int main(int argc, char *argv[]) {
     const auto args = parse_args(argc, argv);
-    if(!validate_files(args)) {
+    if (!validate_files(args)) {
         return 1;
     }
     LUISA_INFO("example_embed_text: arguments accepted (backend '{}', package '{}', "
@@ -137,53 +137,53 @@ int main(int argc, char *argv[]) {
 // ---- full build: the Session API is present ---------------------------------
 namespace {
 
-    // reads all of stdin; returns one line per sentence (CR/LF stripped)
-    luisa::vector<luisa::string> read_stdin_lines() {
-        luisa::vector<luisa::string> lines;
-        luisa::string cur;
-        int c = std::fgetc(stdin);
-        while(c != EOF) {
-            if(c == '\n') {
-                if(!cur.empty() && cur.back() == '\r') {
-                    cur.pop_back();
-                }
-                lines.push_back(std::move(cur));
-                cur.clear();
-            } else {
-                cur.push_back(static_cast<char>(c));
+// reads all of stdin; returns one line per sentence (CR/LF stripped)
+luisa::vector<luisa::string> read_stdin_lines() {
+    luisa::vector<luisa::string> lines;
+    luisa::string cur;
+    int c = std::fgetc(stdin);
+    while (c != EOF) {
+        if (c == '\n') {
+            if (!cur.empty() && cur.back() == '\r') {
+                cur.pop_back();
             }
-            c = std::fgetc(stdin);
-        }
-        if(!cur.empty()) {
             lines.push_back(std::move(cur));
+            cur.clear();
+        } else {
+            cur.push_back(static_cast<char>(c));
         }
-        return lines;
+        c = std::fgetc(stdin);
     }
+    if (!cur.empty()) {
+        lines.push_back(std::move(cur));
+    }
+    return lines;
+}
 
-    // first `n` floats of `v`, comma separated, for one-line logging
-    luisa::string join_head(const luisa::vector<float> &v, size_t n) {
-        luisa::string s;
-        for(size_t i = 0u; i < n && i < v.size(); i++) {
-            if(i > 0u) {
-                s += ", ";
-            }
-            s += luisa::format("{:.6g}", v[i]);
+// first `n` floats of `v`, comma separated, for one-line logging
+luisa::string join_head(const luisa::vector<float> &v, size_t n) {
+    luisa::string s;
+    for (size_t i = 0u; i < n && i < v.size(); i++) {
+        if (i > 0u) {
+            s += ", ";
         }
-        return s;
+        s += luisa::format("{:.6g}", v[i]);
     }
+    return s;
+}
 
 }// namespace
 
 int main(int argc, char *argv[]) {
     auto args = parse_args(argc, argv);
-    if(!validate_files(args)) {
+    if (!validate_files(args)) {
         return 1;
     }
-    if(args.sentences.empty()) {
+    if (args.sentences.empty()) {
         LUISA_INFO("example_embed_text: no sentence arguments; reading sentences from stdin "
                    "(one per line, EOF to finish)");
         args.sentences = read_stdin_lines();
-        if(args.sentences.empty()) {
+        if (args.sentences.empty()) {
             LUISA_INFO("example_embed_text: stdin produced no sentences");
             return 1;
         }
@@ -192,10 +192,10 @@ int main(int argc, char *argv[]) {
     // device + tokenizer + session
     compute::Context ctx{argv[0]};
     auto device = ctx.create_device(args.backend);
-    if(!device) {
+    if (!device) {
         luisa::string installed;
-        for(const auto &b : ctx.installed_backends()) {
-            if(!installed.empty()) {
+        for (const auto &b : ctx.installed_backends()) {
+            if (!installed.empty()) {
                 installed += ", ";
             }
             installed += b;
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
     }
     auto tkn = embed::Tokenizer::load(args.tokenizer_json);
     auto session = embed::Session::create(device, args.bgm, args.tokenizer_json);
-    if(session == nullptr) {
+    if (session == nullptr) {
         LUISA_INFO("example_embed_text: Session::create failed for package '{}'", args.bgm.string());
         return 1;
     }
@@ -216,17 +216,17 @@ int main(int argc, char *argv[]) {
     enc_opt.want_colbert = args.want_colbert;
 
     size_t failures = 0u;
-    for(size_t i = 0u; i < args.sentences.size(); i++) {
+    for (size_t i = 0u; i < args.sentences.size(); i++) {
         const auto &text = args.sentences[i];
         const auto ids = tkn->encode(text, enc_opt.max_seq_len);
         auto emb = session->encode(std::string_view{text.data(), text.size()}, enc_opt);
-        if(emb.dense.empty()) {
+        if (emb.dense.empty()) {
             LUISA_WARNING("example_embed_text: sentence {} produced an empty dense vector", i);
             failures++;
             continue;
         }
         float sumsq = 0.f;
-        for(const auto v : emb.dense) {
+        for (const auto v : emb.dense) {
             sumsq += v * v;
         }
         const float norm = std::sqrt(sumsq);
@@ -234,18 +234,18 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("sentence {}: \"{}\"", i, shown);
         LUISA_INFO("  tokens : {} (with <s>/</s>, truncated to {})", ids.size(), enc_opt.max_seq_len);
         LUISA_INFO("  dense  : first 8 of {} = [{}], |v| = {:.6f}", emb.dense.size(), join_head(emb.dense, 8u), norm);
-        if(std::abs(norm - 1.0f) > 1e-3f) {
+        if (std::abs(norm - 1.0f) > 1e-3f) {
             LUISA_WARNING("  dense norm is {:.6f}, expected ~1.0 (L2-normalized output)", norm);
             failures++;
         }
-        if(enc_opt.want_sparse) {
+        if (enc_opt.want_sparse) {
             size_t terms = 0u;
             luisa::string listing;
-            for(const auto &pr : emb.sparse) {
-                if(pr.second > 0.0f) {
+            for (const auto &pr : emb.sparse) {
+                if (pr.second > 0.0f) {
                     terms++;
                     listing += luisa::format("({},{:.5f}) ", pr.first, pr.second);
-                    if(terms % 12u == 0u) {
+                    if (terms % 12u == 0u) {
                         listing += "\n";
                     }
                 }
@@ -253,8 +253,8 @@ int main(int argc, char *argv[]) {
             LUISA_INFO("  sparse : {} term(s) with weight > 0:{}", terms,
                        listing.empty() ? " <none>" : "\n" + listing);
         }
-        if(enc_opt.want_colbert) {
-            if(emb.colbert.empty()) {
+        if (enc_opt.want_colbert) {
+            if (emb.colbert.empty()) {
                 LUISA_WARNING("  colbert: requested but empty");
                 failures++;
             } else {
@@ -263,7 +263,7 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    if(failures > 0u) {
+    if (failures > 0u) {
         LUISA_INFO("example_embed_text: {} failure(s)", failures);
         return 1;
     }

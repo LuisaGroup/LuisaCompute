@@ -408,14 +408,12 @@ void check_attention_case(Device &device, Stream &stream, Families &fam, const S
     // Naive-path workspace. Buffer is move-only, so instead of default-creating
     // an empty handle and assigning later, bind a 1-element stand-in whenever the
     // real logits tensor does not fit (it is never touched on those shapes).
-    auto logits_buf = c.naive_fits()
-                          ? device.create_buffer<float>(static_cast<uint32_t>(c.logits_count()))
-                          : device.create_buffer<float>(1u);
+    auto logits_buf = c.naive_fits() ? device.create_buffer<float>(static_cast<uint32_t>(c.logits_count())) : device.create_buffer<float>(1u);
 
     stream << qkv_buf.copy_from(luisa::span{qkv}) << mask_buf.copy_from(luisa::span{mask});
 
-    luisa::vector<float> naive_out;    // device result of the naive trio
-    luisa::vector<float> out_ref_full; // CPU result matching it exactly
+    luisa::vector<float> naive_out;   // device result of the naive trio
+    luisa::vector<float> out_ref_full;// CPU result matching it exactly
 
     if (c.naive_fits()) {
         luisa::vector<float> logits_dev(c.logits_count(), 0.f);
@@ -508,24 +506,48 @@ void check_attention_case(Device &device, Stream &stream, Families &fam, const S
 }
 
 constexpr AttnCase kNaiveCases[] = {
-    {1u, 1u, 1u, 8u},      {1u, 1u, 16u, 64u},  {1u, 2u, 4u, 8u},
-    {3u, 2u, 1u, 64u},     {1u, 5u, 1u, 64u},   {3u, 5u, 4u, 8u},
-    {1u, 5u, 16u, 128u},   {1u, 64u, 16u, 64u}, {3u, 64u, 4u, 8u},
-    {1u, 64u, 32u, 64u},   {3u, 64u, 1u, 128u}, {1u, 127u, 16u, 64u},
-    {3u, 127u, 4u, 64u},   {1u, 127u, 1u, 8u},  {3u, 127u, 32u, 8u},
-    {1u, 256u, 16u, 64u},  {3u, 256u, 4u, 8u},  {1u, 256u, 1u, 128u},
-    {1u, 1000u, 16u, 64u}, {3u, 1000u, 1u, 8u}, {1u, 1024u, 16u, 64u},
-    {1u, 1024u, 4u, 128u}, {3u, 1024u, 1u, 64u},
+    {1u, 1u, 1u, 8u},
+    {1u, 1u, 16u, 64u},
+    {1u, 2u, 4u, 8u},
+    {3u, 2u, 1u, 64u},
+    {1u, 5u, 1u, 64u},
+    {3u, 5u, 4u, 8u},
+    {1u, 5u, 16u, 128u},
+    {1u, 64u, 16u, 64u},
+    {3u, 64u, 4u, 8u},
+    {1u, 64u, 32u, 64u},
+    {3u, 64u, 1u, 128u},
+    {1u, 127u, 16u, 64u},
+    {3u, 127u, 4u, 64u},
+    {1u, 127u, 1u, 8u},
+    {3u, 127u, 32u, 8u},
+    {1u, 256u, 16u, 64u},
+    {3u, 256u, 4u, 8u},
+    {1u, 256u, 1u, 128u},
+    {1u, 1000u, 16u, 64u},
+    {3u, 1000u, 1u, 8u},
+    {1u, 1024u, 16u, 64u},
+    {1u, 1024u, 4u, 128u},
+    {3u, 1024u, 1u, 64u},
     // Non-multiple-of-4 head_dims: exercise the ragged tail of the 16-wide
     // head_dim chunk (naive) and of the unroll-by-4 shared tiles (flash).
-    {1u, 37u, 4u, 6u},     {3u, 5u, 2u, 7u},   {1u, 127u, 1u, 1u},
+    {1u, 37u, 4u, 6u},
+    {3u, 5u, 2u, 7u},
+    {1u, 127u, 1u, 1u},
 };
 
 constexpr AttnCase kFlashCases[] = {
-    {1u, 37u, 4u, 64u},   {2u, 37u, 1u, 8u},     {2u, 128u, 16u, 64u},
-    {1u, 128u, 32u, 8u},  {1u, 1000u, 4u, 64u},  {2u, 1000u, 16u, 64u},
-    {1u, 2048u, 16u, 64u},{2u, 2048u, 1u, 64u},  {1u, 8192u, 16u, 64u},
-    {2u, 8192u, 16u, 64u}, {1u, 640u, 16u, 6u},
+    {1u, 37u, 4u, 64u},
+    {2u, 37u, 1u, 8u},
+    {2u, 128u, 16u, 64u},
+    {1u, 128u, 32u, 8u},
+    {1u, 1000u, 4u, 64u},
+    {2u, 1000u, 16u, 64u},
+    {1u, 2048u, 16u, 64u},
+    {2u, 2048u, 1u, 64u},
+    {1u, 8192u, 16u, 64u},
+    {2u, 8192u, 16u, 64u},
+    {1u, 640u, 16u, 6u},
 };
 
 [[nodiscard]] luisa::vector<PadMode> modes_for(const AttnCase &c) noexcept {

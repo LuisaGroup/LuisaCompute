@@ -21,7 +21,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/runtime/device.h>
 
-#include "scheduler.h">// EncodeOptions / Embedding / SchedulerConfig
+#include "scheduler.h"// EncodeOptions / Embedding / SchedulerConfig
 
 namespace luisa::embed {
 
@@ -77,13 +77,13 @@ public:
 
 private:
     Session() noexcept;
-    luisa::unique_ptr<ScheduledRequest> m_make_request(luisa::string_view utf8, const EncodeOptions &opt);
+    luisa::unique_ptr<ScheduledRequest> _make_request(luisa::string_view utf8, const EncodeOptions &opt);
 
-    compute::Device *m_device{};
-    luisa::unique_ptr<Package> m_package;
-    luisa::unique_ptr<Tokenizer> m_tokenizer;
-    luisa::unique_ptr<WeightStore> m_weights;
-    luisa::unique_ptr<Scheduler> m_scheduler;
+    compute::Device *_device{};
+    luisa::unique_ptr<Package> _package;
+    luisa::unique_ptr<Tokenizer> _tokenizer;
+    luisa::unique_ptr<WeightStore> _weights;
+    luisa::unique_ptr<Scheduler> _scheduler;
 };
 
 }// namespace luisa::embed

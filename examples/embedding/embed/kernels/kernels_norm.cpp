@@ -144,7 +144,7 @@ L2NormalizeKernel make_l2_normalize_kernel() noexcept {
 
         Var s = def(0.0f);
         Var h = tx;
-        $while(h < H) {
+        $while (h < H) {
             Var xv = x.read(base + h);
             s += xv * xv;
             h += bs;
@@ -152,7 +152,7 @@ L2NormalizeKernel make_l2_normalize_kernel() noexcept {
         Var denom = max(sqrt(block_sum(s)), def(1e-12f));
 
         h = tx;
-        $while(h < H) {
+        $while (h < H) {
             y.write(base + h, x.read(base + h) / denom);
             h += bs;
         };
@@ -171,7 +171,7 @@ DensePoolKernel make_dense_pool_kernel() noexcept {
     //
     // The reduction below is a verbatim copy of make_l2_normalize_kernel()'s tree,
     // strided accumulation and formula, just re-targeted at hidden[b*S*H + h]
-    // instead of a pre-sliced m_cls row, so the output is BIT-identical to running
+    // instead of a pre-sliced _cls row, so the output is BIT-identical to running
     // slice_cls then l2_normalize (the slice is a pure copy; the same H floats are
     // reduced in the same order). The CPU fallback keeps the shared-memory tree
     // (no warp collectives); summation order is block-uniform and fixed, so
@@ -189,14 +189,14 @@ DensePoolKernel make_dense_pool_kernel() noexcept {
         // flattened 2D grid that must dodge the DX 65535-group cap; lc_optimize
         // trap #2). For the sync 1D launch grid.y == 0.
         Var b = dispatch_id().y * (dispatch_size().x / bs) + dispatch_id().x / bs;
-        Var base = b * (S * H); // CLS row of batch b in hidden
-        Var obase = b * H;      // output row
+        Var base = b * (S * H);// CLS row of batch b in hidden
+        Var obase = b * H;     // output row
 
         auto block_sum = [&](Var<float> partial) noexcept {
             red[tx] = partial;
             sync_block();
-            for(auto stride = kNormBlock / 2u; stride > 0u; stride >>= 1u) {
-                $if(tx < stride) {
+            for (auto stride = kNormBlock / 2u; stride > 0u; stride >>= 1u) {
+                $if (tx < stride) {
                     red[tx] += red[tx + stride];
                 };
                 sync_block();
@@ -208,7 +208,7 @@ DensePoolKernel make_dense_pool_kernel() noexcept {
 
         Var s = def(0.0f);
         Var h = tx;
-        $while(h < H) {
+        $while (h < H) {
             Var xv = hidden.read(base + h);
             s += xv * xv;
             h += bs;
@@ -216,7 +216,7 @@ DensePoolKernel make_dense_pool_kernel() noexcept {
         Var denom = max(sqrt(block_sum(s)), def(1e-12f));
 
         h = tx;
-        $while(h < H) {
+        $while (h < H) {
             out.write(obase + h, hidden.read(base + h) / denom);
             h += bs;
         };

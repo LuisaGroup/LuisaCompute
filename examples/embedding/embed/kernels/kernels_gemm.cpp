@@ -99,7 +99,7 @@ using compute::Var;
 #ifndef LUISA_EMBED_GEMM_NO_FASTPATH
 #define LUISA_EMBED_GEMM_NO_FASTPATH 0
 #endif
-constexpr bool k_reg_fastpath = LUISA_EMBED_GEMM_NO_FASTPATH == 0;
+constexpr bool kRegFastpath = LUISA_EMBED_GEMM_NO_FASTPATH == 0;
 // The DSL builtins (set_block_size, sync_block, block_id, ite, abs, ...) are
 // found by ADL on Var<>, but the bare calls below follow the engine convention
 // of a using-directive in the kernel-building scope.
@@ -477,7 +477,7 @@ void reg_accumulate(const compute::BufferFloat &A, const compute::BufferFloat &B
 
     $for (s, (K + TK - 1u) / TK) {
         const Var k0 = s * TK;
-        if constexpr (k_reg_fastpath) {
+        if constexpr (kRegFastpath) {
             $if ((s < kfull) & (m0 + TM <= M) & (n0 + TN <= N)) {
                 fill_fast(k0);
             }
@@ -557,7 +557,7 @@ void reg_store(const Var<float> (&acc)[RM][RN], const compute::BufferFloat &C,
     };
     // Uniform fast path: this thread's whole sub-tile is in range -> no
     // per-element store guards (plan §3.1 G8).
-    if constexpr (k_reg_fastpath) {
+    if constexpr (kRegFastpath) {
         $if ((mb + RM) <= M & (nb + (RN - 1u) * T::cols) < N) {
             emit(std::false_type{});// whole sub-tile in range: no store guards
         }
@@ -679,11 +679,11 @@ constexpr uint32_t kEntryCount = static_cast<uint32_t>(sizeof(kEntries) / sizeof
 // ffn_down 11.08 -> 1.53 / 7.65 -> 1.53. The parent should re-measure in release
 // before freezing the table (plan §7.2); a per-backend change is one env var
 // away at deployment (see the header).
-constexpr luisa::string_view k_default_name{"rb_64x64_b128_r84"};
+constexpr luisa::string_view kDefaultName{"rb_64x64_b128_r84"};
 
 [[nodiscard]] constexpr uint32_t default_entry_index() noexcept {
     for (auto i = 0u; i < kEntryCount; i++) {
-        if (luisa::string_view{kEntries[i].cfg.name} == k_default_name) {
+        if (luisa::string_view{kEntries[i].cfg.name} == kDefaultName) {
             return i;
         }
     }
@@ -693,7 +693,7 @@ constexpr luisa::string_view k_default_name{"rb_64x64_b128_r84"};
 constexpr uint32_t kDefaultEntry = default_entry_index();
 
 static_assert(kDefaultEntry < kEntryCount &&
-                  luisa::string_view{kEntries[kDefaultEntry].cfg.name} == k_default_name,
+                  luisa::string_view{kEntries[kDefaultEntry].cfg.name} == kDefaultName,
               "the default gemm variant must exist in the table");
 
 // `block` must be derived geometry, never a free knob.

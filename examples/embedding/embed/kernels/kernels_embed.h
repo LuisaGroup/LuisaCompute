@@ -39,10 +39,10 @@ using EmbedLookupKernel = compute::Kernel1D<void(compute::Buffer<float> /*word_e
                                                  compute::Buffer<float> /*ln_gamma*/,
                                                  compute::Buffer<float> /*ln_beta*/,
                                                  compute::Buffer<float> /*hidden_out*/,
-                                                   uint32_t /*S*/,
-                                                   uint32_t /*H*/,
-                                                   float /*eps*/,
-                                                   uint32_t /*pos_offset*/)>;
+                                                 uint32_t /*S*/,
+                                                 uint32_t /*H*/,
+                                                 float /*eps*/,
+                                                 uint32_t /*pos_offset*/)>;
 
 [[nodiscard]] EmbedLookupKernel make_embed_lookup_kernel() noexcept;
 

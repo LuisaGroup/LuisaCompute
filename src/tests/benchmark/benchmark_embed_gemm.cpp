@@ -175,12 +175,12 @@ struct Options {
 template<typename F>
 void split_u32(const char *text, const F &f) {
     const char *p = text;
-    while(*p != '\0') {
+    while (*p != '\0') {
         const char *q = p;
-        while(*q != '\0' && *q != ',') {
+        while (*q != '\0' && *q != ',') {
             q++;
         }
-        if(q > p) {
+        if (q > p) {
             f(p, q);
         }
         p = (*q == ',') ? q + 1 : q;
@@ -195,13 +195,13 @@ void split_names(const char *text, const F &f) {
 
 [[nodiscard]] Options parse_args(int argc, char *argv[]) {
     Options opt;
-    for(int i = 2; i < argc; i++) {
+    for (int i = 2; i < argc; i++) {
         const std::string_view arg{argv[i]};
         const auto need = [&](std::string_view name) -> const char * {
             LUISA_ASSERT(i + 1 < argc, "flag {} requires a value", name);
             return argv[++i];
         };
-        if(arg == "--rows") {
+        if (arg == "--rows") {
             opt.rows.clear();
             split_u32(need("rows"), [&](const char *b, const char *e) {
                 uint32_t v{};
@@ -209,24 +209,24 @@ void split_names(const char *text, const F &f) {
                 LUISA_ASSERT(r.ec == std::errc{} && r.ptr == e, "rows must be integers");
                 opt.rows.emplace_back(v);
             });
-        } else if(arg == "--iters") {
+        } else if (arg == "--iters") {
             opt.iters = parse_u32(need("iters"), "iters");
-        } else if(arg == "--warmup") {
+        } else if (arg == "--warmup") {
             opt.warmup = parse_u32(need("warmup"), "warmup");
-        } else if(arg == "--csv") {
+        } else if (arg == "--csv") {
             opt.csv = std::string{need("csv")};
-        } else if(arg == "--variants") {
+        } else if (arg == "--variants") {
             split_names(need("variants"), [&](luisa::string t) { opt.variants.emplace_back(std::move(t)); });
-        } else if(arg == "--shapes") {
+        } else if (arg == "--shapes") {
             split_names(need("shapes"), [&](luisa::string s) { opt.shapes.emplace_back(std::move(s)); });
-        } else if(arg == "--no-time") {
+        } else if (arg == "--no-time") {
             opt.time = false;
-        } else if(arg == "--verify") {
+        } else if (arg == "--verify") {
             opt.debug_verify = true;
             opt.v_m = parse_u32(need("M"), "M");
             opt.v_n = parse_u32(need("N"), "N");
             opt.v_k = parse_u32(need("K"), "K");
-            if(i + 1 < argc && argv[i + 1][0] != '-') {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
                 opt.v_ep = static_cast<GemmEpilogue>(parse_u32(need("ep"), "ep"));
             }
         } else {
@@ -239,11 +239,11 @@ void split_names(const char *text, const F &f) {
 }
 
 [[nodiscard]] bool selected(const luisa::vector<luisa::string> &list, const char *name) noexcept {
-    if(list.empty()) {
+    if (list.empty()) {
         return true;
     }
-    for(const auto &s : list) {
-        if(s == name) {
+    for (const auto &s : list) {
+        if (s == name) {
             return true;
         }
     }
@@ -313,16 +313,16 @@ struct CaseBuffers {
            << synchronize();
     uint32_t bad = 0u;
     worst = 0.f;
-    for(uint32_t i = 0u; i < cb.m; i++) {
-        for(uint32_t j = 0u; j < cb.n; j++) {
+    for (uint32_t i = 0u; i < cb.m; i++) {
+        for (uint32_t j = 0u; j < cb.n; j++) {
             const auto ref = ref_element(cb.ha, cb.hb, cb.haux, cb.ep, i, j, cb.k, cb.n);
             const auto idx = static_cast<size_t>(i) * cb.n + j;
             const float d = std::abs(got[idx] - ref);
-            if(d > worst) {
+            if (d > worst) {
                 worst = d;
             }
-            if(!(d <= 1e-3f * std::max(1.f, std::abs(ref)))) {
-                if(bad < max_report) {
+            if (!(d <= 1e-3f * std::max(1.f, std::abs(ref)))) {
+                if (bad < max_report) {
                     LUISA_WARNING("  mismatch (m={}, n={}): got {:.6e} ref {:.6e} diff {:.3e}", i, j,
                                   got[idx], ref, d);
                 }
@@ -345,11 +345,11 @@ int main(int argc, char *argv[]) {
                gemm_resolved_config_source());
 
     std::ofstream csv_out;
-    if(!opt.csv.empty()) {
+    if (!opt.csv.empty()) {
         const bool need_header = !std::filesystem::exists(opt.csv) || std::filesystem::file_size(opt.csv) == 0u;
         csv_out.open(opt.csv, std::ios::app);
         LUISA_ASSERT(static_cast<bool>(csv_out), "cannot open csv \"{}\"", opt.csv.string());
-        if(need_header) {
+        if (need_header) {
             csv_out << "backend,variant,tile_m,tile_n,tile_k,reg_m,reg_n,block,naive,swap_grid,"
                        "shape,epilogue,rows,M,N,K,grid_x,grid_y,shared_bytes,proxy_bad,sample_bad,"
                        "worst_proxy_diff,iters,ms_min,ms_median,gflops,status\n";
@@ -363,7 +363,7 @@ int main(int argc, char *argv[]) {
     };
     auto shader_for = [&](uint32_t vi, GemmEpilogue ep) -> GemmShader & {
         auto &slot = shader_cache[cache_index(vi, ep)];
-        if(!slot.has_value()) {
+        if (!slot.has_value()) {
             slot.emplace(device.compile(make_gemm_kernel_config(ep, *gemm_tile_variant(vi)),
                                         compute::ShaderOption{.name = gemm_tile_variant(vi)->name}));
         }
@@ -374,10 +374,10 @@ int main(int argc, char *argv[]) {
     uint32_t timed_rows = 0u;
 
     //--- phase 0: optional arbitrary debug case -------------------------------
-    if(opt.debug_verify) {
-        for(auto vi = 0u; vi < vcount; vi++) {
+    if (opt.debug_verify) {
+        for (auto vi = 0u; vi < vcount; vi++) {
             const auto *cfg = gemm_tile_variant(vi);
-            if(!selected(opt.variants, cfg->name)) {
+            if (!selected(opt.variants, cfg->name)) {
                 continue;
             }
             auto cb = make_case(device, opt.v_m, opt.v_n, opt.v_k, opt.v_ep, 1.f);
@@ -395,9 +395,9 @@ int main(int argc, char *argv[]) {
     {
         auto cb_bias = make_case(device, kProxyM, kProxyN, kProxyK, GemmEpilogue::Bias, 1.f);
         auto cb_gelu = make_case(device, kProxyM, kProxyN, kProxyK, GemmEpilogue::BiasGeluErf, 1.f);
-        for(auto vi = 0u; vi < vcount; vi++) {
+        for (auto vi = 0u; vi < vcount; vi++) {
             const auto *cfg = gemm_tile_variant(vi);
-            if(!selected(opt.variants, cfg->name)) {
+            if (!selected(opt.variants, cfg->name)) {
                 continue;
             }
             float w1 = 0.f, w2 = 0.f;
@@ -410,7 +410,7 @@ int main(int argc, char *argv[]) {
             failures += bad;
             LUISA_INFO("{}: proxy 37x69x53 bias_bad={} gelu_bad={} worst={:.3e} [{}]", cfg->name, bad1,
                        bad2, worst, bad == 0u ? "PASS" : "FAIL");
-            if(csv_out) {
+            if (csv_out) {
                 csv_out << backend << ',' << cfg->name << ',' << cfg->tile_m << ',' << cfg->tile_n << ','
                         << cfg->tile_k << ',' << cfg->reg_m << ',' << cfg->reg_n << ',' << cfg->block << ','
                         << (cfg->naive ? 1 : 0) << ',' << (cfg->swap_grid ? 1 : 0) << ",proxy,"
@@ -424,22 +424,22 @@ int main(int argc, char *argv[]) {
     }
 
     //--- phase 2: timed engine shapes -----------------------------------------
-    if(opt.time) {
-        for(const auto &shape : kShapes) {
-            if(!selected(opt.shapes, shape.name)) {
+    if (opt.time) {
+        for (const auto &shape : kShapes) {
+            if (!selected(opt.shapes, shape.name)) {
                 continue;
             }
-            for(const auto m : opt.rows) {
+            for (const auto m : opt.rows) {
                 auto cb = make_case(device, m, shape.n, shape.k, shape.ep, 1.f);
                 LUISA_INFO("--- shape {} M={} N={} K={} (aux {}, C {:.1f} MB) ---", shape.name, m,
                            shape.n, shape.k, uses_bias(shape.ep) ? "bias[N]" : "residual[M,N]",
                            static_cast<double>(m) * shape.n * 4.0 / 1048576.0);
-                for(auto vi = 0u; vi < vcount; vi++) {
+                for (auto vi = 0u; vi < vcount; vi++) {
                     const auto *cfg = gemm_tile_variant(vi);
-                    if(!selected(opt.variants, cfg->name)) {
+                    if (!selected(opt.variants, cfg->name)) {
                         continue;
                     }
-                    if(proxy_ok[vi] == 0u) {
+                    if (proxy_ok[vi] == 0u) {
                         continue;// already reported in phase 1
                     }
                     auto &run_cb = cb;
@@ -459,16 +459,16 @@ int main(int argc, char *argv[]) {
                                << synchronize();
                         const uint32_t rows[] = {0u, m / 3u, m / 2u, m - 1u};
                         const uint32_t cols[] = {0u, shape.n / 4u, shape.n / 2u, shape.n - 1u};
-                        for(const auto i : rows) {
+                        for (const auto i : rows) {
                             stream << run_cb.c.view(static_cast<size_t>(i) * shape.n, shape.n)
                                           .copy_to(luisa::span{out_row})
                                    << synchronize();
-                            for(const auto j : cols) {
+                            for (const auto j : cols) {
                                 const auto ref =
                                     ref_element(run_cb.ha, run_cb.hb, run_cb.haux, shape.ep, i, j, shape.k, shape.n);
                                 const float d = std::abs(out_row[j] - ref);
-                                if(!(d <= 1e-3f * std::max(1.f, std::abs(ref)))) {
-                                    if(sample_bad < 4u) {
+                                if (!(d <= 1e-3f * std::max(1.f, std::abs(ref)))) {
+                                    if (sample_bad < 4u) {
                                         LUISA_WARNING("  sample mismatch (m={}, n={}): got {:.6e} ref {:.6e}",
                                                       i, j, out_row[j], ref);
                                     }
@@ -480,18 +480,18 @@ int main(int argc, char *argv[]) {
 
                     double ms_min = 0.0, ms_med = 0.0, gflops = 0.0;
                     uint32_t iters_run = 0u;
-                    if(sample_bad == 0u) {
+                    if (sample_bad == 0u) {
                         const auto enqueue = [&] {
                             stream << shader(run_cb.a.view(), run_cb.b.view(), run_cb.c.view(),
                                              run_cb.aux.view(), m, shape.n, shape.k)
                                           .dispatch(disp);
                         };
-                        for(auto w = 0u; w < opt.warmup; w++) {
+                        for (auto w = 0u; w < opt.warmup; w++) {
                             enqueue();
                             stream << synchronize();
                         }
                         luisa::vector<double> samples;
-                        for(auto it = 0u; it < opt.iters; it++) {
+                        for (auto it = 0u; it < opt.iters; it++) {
                             Clock clock;
                             enqueue();
                             stream << synchronize();
@@ -511,7 +511,7 @@ int main(int argc, char *argv[]) {
                                "min={:.3f}ms med={:.3f}ms {:.1f} GFLOPS [{}]",
                                cfg->name, m, disp.x, disp.y, shared_bytes_of(*cfg) / 1024.0, sample_bad,
                                ms_min, ms_med, gflops, sample_bad == 0u ? "PASS" : "FAIL");
-                    if(csv_out) {
+                    if (csv_out) {
                         csv_out << backend << ',' << cfg->name << ',' << cfg->tile_m << ',' << cfg->tile_n
                                 << ',' << cfg->tile_k << ',' << cfg->reg_m << ',' << cfg->reg_n << ','
                                 << cfg->block << ',' << (cfg->naive ? 1 : 0) << ','

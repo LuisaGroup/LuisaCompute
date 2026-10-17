@@ -49,19 +49,19 @@
 
 namespace luisa::embed {
 
-    // Upper bound on worker threads encode_parallel may spawn, regardless of
-    // what the caller asks for or how many cores the machine reports (H8).
-    inline constexpr uint32_t kTokenizerMaxPoolThreads = 8u;
+// Upper bound on worker threads encode_parallel may spawn, regardless of
+// what the caller asks for or how many cores the machine reports (H8).
+inline constexpr uint32_t kTokenizerMaxPoolThreads = 8u;
 
-    /**
+/**
      * \brief bge-m3 (XLM-RoBERTa Unigram) tokenizer.
      *
      * Instances are immutable after \ref load and safe to share across threads.
      */
-    class Tokenizer {
+class Tokenizer {
 
-    public:
-        /**
+public:
+    /**
          * \brief Loads and parses an HF fast-tokenizer JSON (tokenizer.json).
          *
          * \param tokenizer_json Path to the tokenizer.json file.
@@ -69,16 +69,16 @@ namespace luisa::embed {
          * read or the JSON deviates from the expected Unigram/Metaspace/Template
          * spec (this implementation is fail-closed; see the header comment).
          */
-        static luisa::unique_ptr<Tokenizer> load(const std::filesystem::path &tokenizer_json);
+    static luisa::unique_ptr<Tokenizer> load(const std::filesystem::path &tokenizer_json);
 
-        ~Tokenizer();
+    ~Tokenizer();
 
-        Tokenizer(const Tokenizer &) = delete;
-        Tokenizer(Tokenizer &&) = delete;
-        Tokenizer &operator=(const Tokenizer &) = delete;
-        Tokenizer &operator=(Tokenizer &&) = delete;
+    Tokenizer(const Tokenizer &) = delete;
+    Tokenizer(Tokenizer &&) = delete;
+    Tokenizer &operator=(const Tokenizer &) = delete;
+    Tokenizer &operator=(Tokenizer &&) = delete;
 
-        /**
+    /**
          * \brief Encodes one raw UTF-8 text into token ids.
          *
          * \param utf8 The input text.
@@ -88,9 +88,9 @@ namespace luisa::embed {
          * \return ids: [0 (=<s>), ...body..., 2 (=</s>)], truncated to max_len as
          * described in the header comment. Never empty for a valid tokenizer.
          */
-        luisa::vector<uint32_t> encode(luisa::string_view utf8, uint32_t max_len = 512u) const;
+    luisa::vector<uint32_t> encode(luisa::string_view utf8, uint32_t max_len = 512u) const;
 
-        /**
+    /**
          * \brief Encode many texts, optionally on a worker-thread pool (H8).
          *
          * The Tokenizer is immutable and reentrant after \ref load (the vocab
@@ -112,15 +112,15 @@ namespace luisa::embed {
          * with an effective count of 1 it degrades to the serial loop.
          * \return One id vector per input text, in input order.
          */
-        luisa::vector<luisa::vector<uint32_t>> encode_parallel(
-            luisa::span<const luisa::string_view> texts,
-            uint32_t max_len = 512u,
-            uint32_t num_threads = 0u) const;
+    luisa::vector<luisa::vector<uint32_t>> encode_parallel(
+        luisa::span<const luisa::string_view> texts,
+        uint32_t max_len = 512u,
+        uint32_t num_threads = 0u) const;
 
-    private:
-        Tokenizer();
-        struct Impl;
-        luisa::unique_ptr<Impl> _impl;
-    };
+private:
+    Tokenizer();
+    struct Impl;
+    luisa::unique_ptr<Impl> _impl;
+};
 
 }// namespace luisa::embed

@@ -84,12 +84,12 @@ void install_validation_preset() noexcept;
 // Installs the severity-prefix log callback on `stream` (replaces any
 // previously installed callback). See the file header for the routing table.
 void route_stream_logs(compute::Stream &stream) noexcept;
-[[nodiscard]] uint64_t routed_info_count() noexcept;    // 'I' lines -> log_info
-[[nodiscard]] uint64_t routed_warning_count() noexcept; // 'W' lines -> log_warning
-[[nodiscard]] uint64_t routed_error_count() noexcept;   // 'E' lines -> log_warning (never log_error)
-[[nodiscard]] uint64_t routed_other_count() noexcept;   // unprefixed lines -> log_verbose
-[[nodiscard]] uint64_t routed_total_count() noexcept;   // every callback invocation
-void reset_routed_counts() noexcept;                    // for tests
+[[nodiscard]] uint64_t routed_info_count() noexcept;   // 'I' lines -> log_info
+[[nodiscard]] uint64_t routed_warning_count() noexcept;// 'W' lines -> log_warning
+[[nodiscard]] uint64_t routed_error_count() noexcept;  // 'E' lines -> log_warning (never log_error)
+[[nodiscard]] uint64_t routed_other_count() noexcept;  // unprefixed lines -> log_verbose
+[[nodiscard]] uint64_t routed_total_count() noexcept;  // every callback invocation
+void reset_routed_counts() noexcept;                   // for tests
 
 // Kernel-side severity macros: wrap device_log with the D3 prefix and append
 // the dispatch id -- the proven pattern of
@@ -152,7 +152,7 @@ class Session;// complete type via embedding/embed/session.h (B1-owned)
 void install_layer_dump(Session &session, compute::Device &device,
                         uint32_t layer, const std::filesystem::path &out_dir) noexcept;
 [[nodiscard]] bool maybe_install_layer_dump(Session &session, compute::Device &device,
-                                             const std::filesystem::path &out_dir) noexcept;
+                                            const std::filesystem::path &out_dir) noexcept;
 #endif// Session gate
 
 }// namespace luisa::embed

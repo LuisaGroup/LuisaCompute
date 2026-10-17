@@ -31,7 +31,7 @@ SliceClsKernel make_slice_cls_kernel() noexcept {
     SliceClsKernel kernel = [](BufferFloat hidden, BufferFloat cls_out, Var<uint> H) noexcept {
         set_block_size(kHeadsBlock, 1u, 1u);
         set_name("slice_cls");
-        Var i = dispatch_id().x; // 1D element copy over H (H <= 8194 << 2^31)
+        Var i = dispatch_id().x;// 1D element copy over H (H <= 8194 << 2^31)
         $if (i < H) {
             cls_out.write(i, hidden.read(i));
         };
@@ -78,7 +78,7 @@ SparseHeadKernel make_sparse_head_kernel() noexcept {
                 sync_block();
             };
             Var total = red[0u];
-            sync_block(); // protect red against reuse by the next block_sum
+            sync_block();// protect red against reuse by the next block_sum
             return total;
         };
 
@@ -88,8 +88,8 @@ SparseHeadKernel make_sparse_head_kernel() noexcept {
             partial += X.read(base + h) * W_s.read(h);
             h += bs;
         };
-        Var v = block_sum(partial) + b_s; // dot + bias Add
-        Var y = def(0.0f);                // Relu epilogue
+        Var v = block_sum(partial) + b_s;// dot + bias Add
+        Var y = def(0.0f);               // Relu epilogue
         $if (v > 0.0f) {
             y = v;
         };
@@ -108,8 +108,8 @@ ColbertProjKernel make_colbert_proj_kernel() noexcept {
     // y[t, n] = sum_h X[t, h] * W_c[h, n] + b_c[n], with the runtime `normalize`
     // flag folding kernel #9 (l2_normalize) into the same launch.
     ColbertProjKernel kernel = [](BufferFloat X, BufferFloat W_c, BufferFloat b_c,
-                         BufferFloat out, Var<uint> H, Var<uint> N,
-                         Var<uint> normalize) noexcept {
+                                  BufferFloat out, Var<uint> H, Var<uint> N,
+                                  Var<uint> normalize) noexcept {
         set_block_size(kHeadsBlock, 1u, 1u);
         set_name("colbert_proj");
         Shared<float> xs{kMaxCachedRow};
@@ -139,7 +139,7 @@ ColbertProjKernel make_colbert_proj_kernel() noexcept {
                 sync_block();
             };
             Var total = red[0u];
-            sync_block(); // protect red against reuse by the next block_sum
+            sync_block();// protect red against reuse by the next block_sum
             return total;
         };
 
@@ -168,14 +168,15 @@ ColbertProjKernel make_colbert_proj_kernel() noexcept {
                     acc += xs[hh] * W_c.read(hh * N + n);
                     hh += 1u;
                 };
-            } $else {
+            }
+            $else {
                 Var hh = def(0u);
                 $while (hh < H) {
                     acc += X.read(base + hh) * W_c.read(hh * N + n);
                     hh += 1u;
                 };
             };
-            Var y = acc + b_c.read(n); // bias Add
+            Var y = acc + b_c.read(n);// bias Add
             out.write(obase + n, y);
             $if (normalize != 0u) {
                 sum_sq += y * y;
@@ -246,7 +247,7 @@ SparseHeadCompactKernel make_sparse_head_compact_kernel() noexcept {
                 sync_block();
             };
             Var total = red[0u];
-            sync_block(); // protect red against reuse by the next block_sum
+            sync_block();// protect red against reuse by the next block_sum
             return total;
         };
 
@@ -256,8 +257,8 @@ SparseHeadCompactKernel make_sparse_head_compact_kernel() noexcept {
             partial += X.read(base + h) * W_s.read(h);
             h += bs;
         };
-        Var v = block_sum(partial) + b_s; // dot + bias Add
-        Var y = def(0.0f);                // Relu epilogue
+        Var v = block_sum(partial) + b_s;// dot + bias Add
+        Var y = def(0.0f);               // Relu epilogue
         $if (v > 0.0f) {
             y = v;
         };
@@ -286,13 +287,13 @@ SparseHeadCompactKernel make_sparse_head_compact_kernel() noexcept {
             local_index = index.atomic(0u).fetch_add(1u);
         };
         sync_block();
-        $if (tx == 0u) { // ONE global atomic for the whole block
+        $if (tx == 0u) {// ONE global atomic for the whole block
             Var local_count = index.read(0u);
             Var global_offset = counter.atomic(0u).fetch_add(local_count);
-            index.write(0u, global_offset); // reuse the slot to broadcast the base
+            index.write(0u, global_offset);// reuse the slot to broadcast the base
         };
         sync_block();
-        $if (emit) { // scatter to the reserved slot
+        $if (emit) {// scatter to the reserved slot
             Var slot = index.read(0u) + local_index;
             pair_ids.write(slot, row);
             pair_w.write(slot, y);

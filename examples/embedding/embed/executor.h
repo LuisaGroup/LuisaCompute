@@ -95,8 +95,8 @@ template<typename K>
 using ShaderFor = decltype(std::declval<compute::Device &>().compile(std::declval<K>(), std::declval<compute::ShaderOption &>()));
 
 // bge-m3 constants verified by the packer (pack_model.cpp header; plan §0/§5).
-inline constexpr uint32_t kEmbedPosOffset = 2u;             // XLM-R +2
-inline constexpr float kEmbedLayerNormEps = 1e-5f;          // config layer_norm_eps
+inline constexpr uint32_t kEmbedPosOffset = 2u;   // XLM-R +2
+inline constexpr float kEmbedLayerNormEps = 1e-5f;// config layer_norm_eps
 inline constexpr float kAttentionNegLarge = -3.4028234663852886e38f;
 // Naive-trio cap (§4). Wave-1 review experiment (O-B evidence: tuned flash
 // beats the trio from S≈256) tried lowering this to 256 so S≤512 encodes use
@@ -158,70 +158,70 @@ public:
         compute::Buffer<float> ln2_gamma, ln2_beta;
     };
 
-    [[nodiscard]] const compute::Buffer<float> &word_emb() const noexcept { return m_word; }
-    [[nodiscard]] const compute::Buffer<float> &pos_emb() const noexcept { return m_pos; }
-    [[nodiscard]] const compute::Buffer<float> &emb_ln_gamma() const noexcept { return m_emb_ln_gamma; }
-    [[nodiscard]] const compute::Buffer<float> &emb_ln_beta() const noexcept { return m_emb_ln_beta; }
-    [[nodiscard]] const Layer &layer(uint32_t i) const noexcept { return m_layers[i]; }
-    [[nodiscard]] const compute::Buffer<float> &sparse_w() const noexcept { return m_sparse_w; }
-    [[nodiscard]] float sparse_b() const noexcept { return m_sparse_b; }
-    [[nodiscard]] const compute::Buffer<float> &colbert_w() const noexcept { return m_colbert_w; }
-    [[nodiscard]] const compute::Buffer<float> &colbert_b() const noexcept { return m_colbert_b; }
-    [[nodiscard]] uint32_t num_layers() const noexcept { return static_cast<uint32_t>(m_layers.size()); }
-    [[nodiscard]] uint32_t hidden_size() const noexcept { return m_hidden; }
-    [[nodiscard]] uint32_t num_heads() const noexcept { return m_heads; }
-    [[nodiscard]] uint32_t head_dim() const noexcept { return m_head_dim; }
-    [[nodiscard]] uint32_t intermediate_size() const noexcept { return m_inter; }
+    [[nodiscard]] const compute::Buffer<float> &word_emb() const noexcept { return _word; }
+    [[nodiscard]] const compute::Buffer<float> &pos_emb() const noexcept { return _pos; }
+    [[nodiscard]] const compute::Buffer<float> &emb_ln_gamma() const noexcept { return _emb_ln_gamma; }
+    [[nodiscard]] const compute::Buffer<float> &emb_ln_beta() const noexcept { return _emb_ln_beta; }
+    [[nodiscard]] const Layer &layer(uint32_t i) const noexcept { return _layers[i]; }
+    [[nodiscard]] const compute::Buffer<float> &sparse_w() const noexcept { return _sparse_w; }
+    [[nodiscard]] float sparse_b() const noexcept { return _sparse_b; }
+    [[nodiscard]] const compute::Buffer<float> &colbert_w() const noexcept { return _colbert_w; }
+    [[nodiscard]] const compute::Buffer<float> &colbert_b() const noexcept { return _colbert_b; }
+    [[nodiscard]] uint32_t num_layers() const noexcept { return static_cast<uint32_t>(_layers.size()); }
+    [[nodiscard]] uint32_t hidden_size() const noexcept { return _hidden; }
+    [[nodiscard]] uint32_t num_heads() const noexcept { return _heads; }
+    [[nodiscard]] uint32_t head_dim() const noexcept { return _head_dim; }
+    [[nodiscard]] uint32_t intermediate_size() const noexcept { return _inter; }
     // B-operand format the Executors on this store must compile their GEMM
     // kernels with (Fp32 for an fp32 package or for the fp32 A/B override; the
     // package format in the packed auto mode). See the class comment.
-    [[nodiscard]] GemmWeightFormat gemm_weight_format() const noexcept { return m_gemm_format; }
+    [[nodiscard]] GemmWeightFormat gemm_weight_format() const noexcept { return _gemm_format; }
     // Package element format as loaded (for reporting; the effective device
     // layout follows gemm_weight_format()).
-    [[nodiscard]] PackagePrecision package_precision() const noexcept { return m_pkg_precision; }
+    [[nodiscard]] PackagePrecision package_precision() const noexcept { return _pkg_precision; }
 
 private:
-    compute::Device &m_device;
-    uint32_t m_hidden{}, m_heads{}, m_head_dim{}, m_inter{};
-    GemmWeightFormat m_gemm_format{GemmWeightFormat::Fp32};
-    PackagePrecision m_pkg_precision{PackagePrecision::fp32};
-    compute::Buffer<float> m_word, m_pos, m_emb_ln_gamma, m_emb_ln_beta;
-    luisa::vector<Layer> m_layers;
-    compute::Buffer<float> m_sparse_w;
-    float m_sparse_b{};
-    compute::Buffer<float> m_colbert_w, m_colbert_b;
+    compute::Device &_device;
+    uint32_t _hidden{}, _heads{}, _head_dim{}, _inter{};
+    GemmWeightFormat _gemm_format{GemmWeightFormat::Fp32};
+    PackagePrecision _pkg_precision{PackagePrecision::fp32};
+    compute::Buffer<float> _word, _pos, _emb_ln_gamma, _emb_ln_beta;
+    luisa::vector<Layer> _layers;
+    compute::Buffer<float> _sparse_w;
+    float _sparse_b{};
+    compute::Buffer<float> _colbert_w, _colbert_b;
     // host->device upload bookkeeping (pointers into the members above or into
-    // m_owned_scratch, stable because nothing is mutated after construction).
+    // _owned_scratch, stable because nothing is mutated after construction).
     // `src` is fp32 package data, packed-half blob data (raw memcpy -- the
     // v2 blob already IS the packed buffer), or fp32 host storage built by the
     // half->fp32 upload conversion; `count` is always the number of DEVICE
     // FLOATS to write (half a blob's element count when packed). Every src is
     // held in storage owned by this WeightStore (package image, or
-    // m_owned_scratch for the packed/copy-converted tensors -- the packed
+    // _owned_scratch for the packed/copy-converted tensors -- the packed
     // copy avoids reading the blob's 2-byte tail as floats).
     struct UploadItem {
         compute::Buffer<float> *buffer;
         const float *src;
         size_t count;
     };
-    luisa::vector<UploadItem> m_uploads;
+    luisa::vector<UploadItem> _uploads;
     // half -> fp32 upload-conversion results, alive until the upload commands
     // retire (same lifetime contract as the Package; record_upload's host spans
     // borrow from here). Only populated for a half package's non-GEMM tensors
     // and for the fp32 A/B override of a half package.
-    luisa::vector<luisa::vector<float>> m_owned_scratch{};
+    luisa::vector<luisa::vector<float>> _owned_scratch{};
 };
 
 // One recorded forward pass. All spans are host pointers owned by the caller;
 // sizes follow the layout documented in executor.h.
 struct EncodeJob {
-    uint32_t batch{};                    // B
-    uint32_t seq{};                      // padded sequence length (all rows)
-    luisa::span<const uint32_t> ids;     // [B*S] token ids (pad = 1)
-    luisa::span<const float> mask;       // [B*S] 1.0 real / 0.0 pad
+    uint32_t batch{};               // B
+    uint32_t seq{};                 // padded sequence length (all rows)
+    luisa::span<const uint32_t> ids;// [B*S] token ids (pad = 1)
+    luisa::span<const float> mask;  // [B*S] 1.0 real / 0.0 pad
     bool want_sparse{};
     bool want_colbert{};
-    luisa::span<float> dense_out;        // [B*H] L2-normalized CLS rows (required)
+    luisa::span<float> dense_out;// [B*H] L2-normalized CLS rows (required)
     // [B*S] lexical weights (when want_sparse). Under EMBED_P1_SPARSE_COMPACT
     // (opt plan §3.4 P1) the GPU->host wire carries only the real-token values
     // (mode 1, window) or the compact (row, weight) pair stream + count
@@ -231,8 +231,8 @@ struct EncodeJob {
     // padded tail [b*S + N, b*S + S) is zero-filled (legacy left the pad rows'
     // relu outputs there -- unread, contract-wise "no weight"). The caller's
     // span must stay alive until the recorded CommandList completes, as before.
-    luisa::span<float> sparse_out;       // [B*S] lexical weights (when want_sparse)
-    luisa::span<float> colbert_out;      // [B*S*H] projected token vectors (when want_colbert)
+    luisa::span<float> sparse_out; // [B*S] lexical weights (when want_sparse)
+    luisa::span<float> colbert_out;// [B*S*H] projected token vectors (when want_colbert)
 };
 
 // Per-worker graph executor. NOT thread-safe: one owner (scheduler worker) at
@@ -246,7 +246,7 @@ public:
     Executor(compute::Device &device, const WeightStore &weights,
              compute::Stream &owner_stream) noexcept;
 
-    void set_layer_trace(LayerTraceCallback cb) noexcept { m_trace_cb = std::move(cb); }
+    void set_layer_trace(LayerTraceCallback cb) noexcept { _trace_cb = std::move(cb); }
 
     // Records the full forward pass (and trace-slot copies when tracing is on)
     // into `cl` and appends the readback copies into the job's host spans.
@@ -256,67 +256,67 @@ public:
     // trace callback for every traced layer of the most recent recorded job.
     void fire_trace_callbacks() noexcept;
 
-    [[nodiscard]] const WeightStore &weights() const noexcept { return m_weights; }
-    [[nodiscard]] uint32_t hidden_size() const noexcept { return m_weights.hidden_size(); }
+    [[nodiscard]] const WeightStore &weights() const noexcept { return _weights; }
+    [[nodiscard]] uint32_t hidden_size() const noexcept { return _weights.hidden_size(); }
 
 private:
-    void m_ensure_pool(uint32_t rows, uint32_t batch, uint32_t seq);
-    void m_ensure_trace_slots(uint32_t floats_per_slot);
+    void _ensure_pool(uint32_t rows, uint32_t batch, uint32_t seq);
+    void _ensure_trace_slots(uint32_t floats_per_slot);
 
-    compute::Device &m_device;
-    compute::Stream &m_owner_stream;
-    const WeightStore &m_weights;
+    compute::Device &_device;
+    compute::Stream &_owner_stream;
+    const WeightStore &_weights;
 
     // Compiled kernel cache (flash is lazy -- stub until B2/M4).
-    ShaderFor<EmbedLookupKernel> m_embed;
-    ShaderFor<GemmKernel> m_gemm_bias, m_gemm_gelu;
-    ShaderFor<ResidualAddKernel> m_residual;
-    ShaderFor<LayerNormKernel> m_layernorm;
-    ShaderFor<L2NormalizeKernel> m_l2norm;
-    ShaderFor<SliceClsKernel> m_slice_cls;
-    ShaderFor<DensePoolKernel> m_dense_pool; // fused slice_cls+l2 (plan §3.3 N1(b))
-    ShaderFor<SparseHeadKernel> m_sparse_head;
+    ShaderFor<EmbedLookupKernel> _embed;
+    ShaderFor<GemmKernel> _gemm_bias, _gemm_gelu;
+    ShaderFor<ResidualAddKernel> _residual;
+    ShaderFor<LayerNormKernel> _layernorm;
+    ShaderFor<L2NormalizeKernel> _l2norm;
+    ShaderFor<SliceClsKernel> _slice_cls;
+    ShaderFor<DensePoolKernel> _dense_pool;// fused slice_cls+l2 (plan §3.3 N1(b))
+    ShaderFor<SparseHeadKernel> _sparse_head;
     // P1 sparse-head readback compaction (opt plan §3.4; EMBED_P1_SPARSE_COMPACT):
     // "pairs" mode (mode 2) swaps the sparse_head dispatch for these two;
     // "window" mode (mode 1, default) keeps sparse_head untouched and only
     // narrows the readback copies (see record_encode).
-    ShaderFor<SparseHeadCompactKernel> m_sparse_head_compact;
-    ShaderFor<SparseCountResetKernel> m_sparse_count_reset;
-    ShaderFor<ColbertProjKernel> m_colbert_proj;
-    ShaderFor<AttentionScoresKernel> m_attn_scores;
-    ShaderFor<SoftmaxRowKernel> m_attn_softmax;
-    ShaderFor<AttentionPvKernel> m_attn_pv;
-    luisa::optional<ShaderFor<FlashAttentionKernel>> m_flash;
+    ShaderFor<SparseHeadCompactKernel> _sparse_head_compact;
+    ShaderFor<SparseCountResetKernel> _sparse_count_reset;
+    ShaderFor<ColbertProjKernel> _colbert_proj;
+    ShaderFor<AttentionScoresKernel> _attn_scores;
+    ShaderFor<SoftmaxRowKernel> _attn_softmax;
+    ShaderFor<AttentionPvKernel> _attn_pv;
+    luisa::optional<ShaderFor<FlashAttentionKernel>> _flash;
 
     // Grow-only per-worker pool.
-    uint32_t m_pool_rows{};   // capacity in token rows (B*S)
-    uint32_t m_logits_floats{};
-    compute::Buffer<uint32_t> m_ids_dev;                  // staging [rows] token ids
-    compute::Buffer<float> m_mask_dev;                    // staging [rows] attention mask
-    compute::Buffer<float> m_h0, m_h1;                    // hidden ping [rows*H]
-    compute::Buffer<float> m_qkv;                         // [rows*3H]
-    compute::Buffer<float> m_att, m_tmp1, m_tmp2;         // [rows*H]
-    compute::Buffer<float> m_ffn;                         // [rows*I]
-    compute::Buffer<float> m_logits;                      // [B*heads*S*S] (naive)
-    compute::Buffer<float> m_flash_scratch;               // [B*heads*S*4] (flash)
-    compute::Buffer<float> m_cls, m_dense_dev;            // [H], [B*H]
-    compute::Buffer<float> m_sparse_dev, m_colbert_dev;   // [rows], [rows*H]
+    uint32_t _pool_rows{};// capacity in token rows (B*S)
+    uint32_t _logits_floats{};
+    compute::Buffer<uint32_t> _ids_dev;              // staging [rows] token ids
+    compute::Buffer<float> _mask_dev;                // staging [rows] attention mask
+    compute::Buffer<float> _h0, _h1;                 // hidden ping [rows*H]
+    compute::Buffer<float> _qkv;                     // [rows*3H]
+    compute::Buffer<float> _att, _tmp1, _tmp2;       // [rows*H]
+    compute::Buffer<float> _ffn;                     // [rows*I]
+    compute::Buffer<float> _logits;                  // [B*heads*S*S] (naive)
+    compute::Buffer<float> _flash_scratch;           // [B*heads*S*4] (flash)
+    compute::Buffer<float> _cls, _dense_dev;         // [H], [B*H]
+    compute::Buffer<float> _sparse_dev, _colbert_dev;// [rows], [rows*H]
     // P1 "pairs" mode staging (opt plan §3.4; allocated with the pool, used
     // only when EMBED_P1_SPARSE_COMPACT=2): compact (row, weight) append
     // stream + its 1-uint global count. Emissions are mask-gated, so they are
     // bounded by the real-token count <= rows -- the [rows] capacity can never
     // overflow.
-    compute::Buffer<uint32_t> m_sparse_pair_ids;          // [rows]
-    compute::Buffer<float> m_sparse_pair_w;               // [rows]
-    compute::Buffer<uint32_t> m_sparse_count;             // [1]
+    compute::Buffer<uint32_t> _sparse_pair_ids;// [rows]
+    compute::Buffer<float> _sparse_pair_w;     // [rows]
+    compute::Buffer<uint32_t> _sparse_count;   // [1]
 
     // Layer trace (all zero-cost while unset).
-    LayerTraceCallback m_trace_cb;
-    static constexpr uint32_t kTraceStates = 25u;         // 0..24, golden_layers.bin
-    compute::Buffer<float> m_trace_slots[kTraceStates];
-    uint32_t m_trace_floats{};                            // slot capacity (elements)
-    uint32_t m_traced_states{};                           // states recorded by last encode
-    uint32_t m_trace_rows{}, m_trace_cols{};
+    LayerTraceCallback _trace_cb;
+    static constexpr uint32_t kTraceStates = 25u;// 0..24, golden_layers.bin
+    compute::Buffer<float> _trace_slots[kTraceStates];
+    uint32_t _trace_floats{}; // slot capacity (elements)
+    uint32_t _traced_states{};// states recorded by last encode
+    uint32_t _trace_rows{}, _trace_cols{};
 };
 
 }// namespace luisa::embed

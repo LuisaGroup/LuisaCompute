@@ -1361,8 +1361,8 @@ bool split_layer_param(const std::string &name, int &layer, std::string &tail) {
     return true;
 }
 
-model_sources discover_sources(const onnx_model &m_const, const onnx_weights &w, int num_layers) {
-    auto &m = const_cast<onnx_model &>(m_const);
+model_sources discover_sources(const onnx_model &model, const onnx_weights &w, int num_layers) {
+    auto &m = const_cast<onnx_model &>(model);
     model_sources src;
     src.layers.resize(static_cast<size_t>(num_layers));
 
@@ -1518,20 +1518,20 @@ namespace pack_model_detail {
 // model.bgm writer (format spec at the top of this file)
 // ---------------------------------------------------------------------------
 
-constexpr uint32_t k_bgm_version = 1;
-constexpr uint32_t k_bgm_version_half = 2;// opt plan §4 Q1/Q2 (bf16/fp16 blobs)
-constexpr uint32_t k_bgm_precision_fp32 = 0;
-constexpr uint32_t k_bgm_precision_bf16 = 1;
-constexpr uint32_t k_bgm_precision_fp16 = 2;
-constexpr uint64_t k_bgm_align = 256;
+constexpr uint32_t kBgmVersion = 1;
+constexpr uint32_t kBgmVersionHalf = 2;// opt plan §4 Q1/Q2 (bf16/fp16 blobs)
+constexpr uint32_t kBgmPrecisionFp32 = 0;
+constexpr uint32_t kBgmPrecisionBf16 = 1;
+constexpr uint32_t kBgmPrecisionFp16 = 2;
+constexpr uint64_t kBgmAlign = 256;
 inline uint64_t bgm_elem_bytes(uint32_t precision) {
-    return precision == k_bgm_precision_fp32 ? 4ull : 2ull;
+    return precision == kBgmPrecisionFp32 ? 4ull : 2ull;
 }
 inline const char *bgm_precision_name(uint32_t precision) {
     switch (precision) {
-        case k_bgm_precision_fp32: return "fp32";
-        case k_bgm_precision_bf16: return "bf16";
-        case k_bgm_precision_fp16: return "fp16";
+        case kBgmPrecisionFp32: return "fp32";
+        case kBgmPrecisionBf16: return "bf16";
+        case kBgmPrecisionFp16: return "fp16";
         default: return "invalid";
     }
 }
@@ -1561,7 +1561,7 @@ inline uint16_t f32_to_f16_rne(float v) {
     const uint32_t m = u & 0x007fffffu;
     if (E == 0xffu) return static_cast<uint16_t>(sign | 0x7c00u | (m != 0u ? (0x200u | ((m >> 13) & 0x1ffu)) : 0u));
     if (E >= 143u) return static_cast<uint16_t>(sign | 0x7c00u);// |v| >= 2^16 -> inf
-    if (E >= 113u) {// normal: round the 13 discarded mantissa bits (RNE)
+    if (E >= 113u) {                                            // normal: round the 13 discarded mantissa bits (RNE)
         const uint32_t r = m & 0x1fffu;
         uint32_t h = m >> 13;
         if (r > 0x1000u || (r == 0x1000u && (h & 1u))) ++h;
@@ -1600,15 +1600,15 @@ inline float f16_to_f32(uint16_t h) {
     }
     return neg ? -pos : pos;
 }
-constexpr int k_num_layers = 24;
-constexpr int k_hidden = 1024;
-constexpr int k_intermediate = 4096;
-constexpr int k_heads = 16;
-constexpr int k_head_dim = 64;
-constexpr int k_vocab = 250002;
-constexpr int k_max_pos = 8194;
-constexpr double k_ln_eps = 1e-5;
-constexpr float k_pad_bias = -3.4028234663852886e38f;// (1 - mask) * finfo.min
+constexpr int kNumLayers = 24;
+constexpr int kHidden = 1024;
+constexpr int kIntermediate = 4096;
+constexpr int kHeads = 16;
+constexpr int kHeadDim = 64;
+constexpr int kVocab = 250002;
+constexpr int kMaxPos = 8194;
+constexpr double kLnEps = 1e-5;
+constexpr float kPadBias = -3.4028234663852886e38f;// (1 - mask) * finfo.min
 
 std::string dims_str(const std::vector<int64_t> &d) {
     std::string s = "[";
@@ -1630,9 +1630,9 @@ struct bgm_plan_entry {
 
 class bgm_writer {
 public:
-    // precision: k_bgm_precision_fp32 (version 1, byte-identical to the
+    // precision: kBgmPrecisionFp32 (version 1, byte-identical to the
     // historical output) | bf16 | fp16 (version 2, 2-byte RNE blobs).
-    explicit bgm_writer(std::string path, uint32_t precision = k_bgm_precision_fp32)
+    explicit bgm_writer(std::string path, uint32_t precision = kBgmPrecisionFp32)
         : _path(std::move(path)), _precision(precision), _esz(bgm_elem_bytes(precision)) {}
     ~bgm_writer() { close(); }
     bgm_writer(const bgm_writer &) = delete;
@@ -1644,10 +1644,10 @@ public:
     // Assigns every blob offset (256-byte aligned) and remembers the total size.
     void plan(std::vector<bgm_plan_entry> entries) {
         _entries = std::move(entries);
-        uint64_t off = align_up(16 + 48 * static_cast<uint64_t>(_entries.size()), k_bgm_align);
+        uint64_t off = align_up(16 + 48 * static_cast<uint64_t>(_entries.size()), kBgmAlign);
         for (auto &e : _entries) {
             e.offset = off;
-            off = align_up(off + e.size_bytes, k_bgm_align);
+            off = align_up(off + e.size_bytes, kBgmAlign);
         }
         _total = off;
     }
@@ -1659,7 +1659,7 @@ public:
         _f = std::fopen(_path.c_str(), "wb");
         PACK_CHECK(_f, "cannot open the output file '%s' for writing", _path.c_str());
         uint8_t header[16] = {'B', 'G', 'M', '3', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-        write_u32(header + 4, _precision == k_bgm_precision_fp32 ? k_bgm_version : k_bgm_version_half);
+        write_u32(header + 4, _precision == kBgmPrecisionFp32 ? kBgmVersion : kBgmVersionHalf);
         write_u32(header + 8, _precision);
         write_u32(header + 12, static_cast<uint32_t>(_entries.size()));
         put(header, sizeof(header));
@@ -1675,7 +1675,7 @@ public:
             for (int d = 0; d < 4; d++) write_u32(p + 28 + 4 * static_cast<size_t>(d), e.dims[d]);
         }
         put(table.data(), table.size());
-        pad_to(_entries.empty() ? k_bgm_align : _entries.front().offset);
+        pad_to(_entries.empty() ? kBgmAlign : _entries.front().offset);
     }
     // Writes the blob of plan entry `idx`; `fill` produces exactly the expected
     // number of floats, so the 1 GB word table can be streamed in row chunks.
@@ -1703,14 +1703,14 @@ public:
             if (_esz == 2ull) {
                 _hbuf.resize(buf.size());
                 for (size_t j = 0; j < buf.size(); j++) {
-                    _hbuf[j] = _precision == k_bgm_precision_bf16 ? f32_to_bf16_rne(buf[j]) : f32_to_f16_rne(buf[j]);
+                    _hbuf[j] = _precision == kBgmPrecisionBf16 ? f32_to_bf16_rne(buf[j]) : f32_to_f16_rne(buf[j]);
                 }
                 put(reinterpret_cast<const uint8_t *>(_hbuf.data()), _hbuf.size() * 2);
             } else {
                 put(reinterpret_cast<const uint8_t *>(buf.data()), buf.size() * 4);
             }
         }
-        pad_to(align_up(e.offset + e.size_bytes, k_bgm_align));
+        pad_to(align_up(e.offset + e.size_bytes, kBgmAlign));
     }
 
     template<class Fn>
@@ -1721,9 +1721,10 @@ public:
         const uint64_t written = tell64(_f);
         PACK_CHECK(written == _total, "'%s': wrote %llu bytes, the plan said %llu", _path.c_str(),
                    static_cast<unsigned long long>(written), static_cast<unsigned long long>(_total));
-        if (_esz == 2ull && _precision == k_bgm_precision_fp16 && _max_abs > 65504.0) [[unlikely]] {
+        if (_esz == 2ull && _precision == kBgmPrecisionFp16 && _max_abs > 65504.0) [[unlikely]] {
             info("WARNING: fp16 package: max |w| = %.6g exceeds the fp16 finite range (+-65504); such weights "
-                 "became inf -- do not deploy this package.\n", _max_abs);
+                 "became inf -- do not deploy this package.\n",
+                 _max_abs);
         }
         std::fclose(_f);
         _f = nullptr;
@@ -1743,7 +1744,7 @@ private:
         if (n == 0) return;
         PACK_CHECK(std::fwrite(p, 1, n, _f) == n, "write failed on '%s'", _path.c_str());
     }
-        void pad_to(uint64_t target) {
+    void pad_to(uint64_t target) {
         static const uint8_t zeros[256] = {};
         uint64_t cur = tell64(_f);
         PACK_CHECK(target >= cur, "alignment target %llu is behind the writer (%llu)", static_cast<unsigned long long>(target), static_cast<unsigned long long>(cur));
@@ -1758,7 +1759,7 @@ private:
     std::FILE *_f = nullptr;
     std::vector<bgm_plan_entry> _entries;
     uint64_t _total = 0;
-    uint32_t _precision = k_bgm_precision_fp32;
+    uint32_t _precision = kBgmPrecisionFp32;
     uint64_t _esz = 4;
     double _max_abs = 0.0;
     std::vector<uint16_t> _hbuf;// half-chunk staging (_esz == 2)
@@ -1768,7 +1769,7 @@ private:
 // emission plan: canonical names, ranks and dims in file order
 // ---------------------------------------------------------------------------
 
-std::vector<bgm_plan_entry> build_plan(uint32_t precision = k_bgm_precision_fp32) {
+std::vector<bgm_plan_entry> build_plan(uint32_t precision = kBgmPrecisionFp32) {
     const uint64_t esz = bgm_elem_bytes(precision);
     auto mk = [esz](const std::string &name, std::initializer_list<uint32_t> dims) {
         bgm_plan_entry e;
@@ -1785,29 +1786,29 @@ std::vector<bgm_plan_entry> build_plan(uint32_t precision = k_bgm_precision_fp32
     };
     std::vector<bgm_plan_entry> plan;
     plan.reserve(296);
-    plan.push_back(mk("emb.word", {static_cast<uint32_t>(k_vocab), static_cast<uint32_t>(k_hidden)}));
-    plan.push_back(mk("emb.pos", {static_cast<uint32_t>(k_max_pos), static_cast<uint32_t>(k_hidden)}));
-    plan.push_back(mk("emb.ln.gamma", {static_cast<uint32_t>(k_hidden)}));
-    plan.push_back(mk("emb.ln.beta", {static_cast<uint32_t>(k_hidden)}));
-    for (int i = 0; i < k_num_layers; i++) {
+    plan.push_back(mk("emb.word", {static_cast<uint32_t>(kVocab), static_cast<uint32_t>(kHidden)}));
+    plan.push_back(mk("emb.pos", {static_cast<uint32_t>(kMaxPos), static_cast<uint32_t>(kHidden)}));
+    plan.push_back(mk("emb.ln.gamma", {static_cast<uint32_t>(kHidden)}));
+    plan.push_back(mk("emb.ln.beta", {static_cast<uint32_t>(kHidden)}));
+    for (int i = 0; i < kNumLayers; i++) {
         const std::string p = "layer" + std::to_string(i) + ".";
-        plan.push_back(mk(p + "qkv", {static_cast<uint32_t>(k_hidden), static_cast<uint32_t>(3 * k_hidden)}));
-        plan.push_back(mk(p + "qkv.bias", {static_cast<uint32_t>(3 * k_hidden)}));
-        plan.push_back(mk(p + "attn.out", {static_cast<uint32_t>(k_hidden), static_cast<uint32_t>(k_hidden)}));
-        plan.push_back(mk(p + "attn.out.bias", {static_cast<uint32_t>(k_hidden)}));
-        plan.push_back(mk(p + "ln1.gamma", {static_cast<uint32_t>(k_hidden)}));
-        plan.push_back(mk(p + "ln1.beta", {static_cast<uint32_t>(k_hidden)}));
-        plan.push_back(mk(p + "ffn.up", {static_cast<uint32_t>(k_hidden), static_cast<uint32_t>(k_intermediate)}));
-        plan.push_back(mk(p + "ffn.up.bias", {static_cast<uint32_t>(k_intermediate)}));
-        plan.push_back(mk(p + "ffn.down", {static_cast<uint32_t>(k_intermediate), static_cast<uint32_t>(k_hidden)}));
-        plan.push_back(mk(p + "ffn.down.bias", {static_cast<uint32_t>(k_hidden)}));
-        plan.push_back(mk(p + "ln2.gamma", {static_cast<uint32_t>(k_hidden)}));
-        plan.push_back(mk(p + "ln2.beta", {static_cast<uint32_t>(k_hidden)}));
+        plan.push_back(mk(p + "qkv", {static_cast<uint32_t>(kHidden), static_cast<uint32_t>(3 * kHidden)}));
+        plan.push_back(mk(p + "qkv.bias", {static_cast<uint32_t>(3 * kHidden)}));
+        plan.push_back(mk(p + "attn.out", {static_cast<uint32_t>(kHidden), static_cast<uint32_t>(kHidden)}));
+        plan.push_back(mk(p + "attn.out.bias", {static_cast<uint32_t>(kHidden)}));
+        plan.push_back(mk(p + "ln1.gamma", {static_cast<uint32_t>(kHidden)}));
+        plan.push_back(mk(p + "ln1.beta", {static_cast<uint32_t>(kHidden)}));
+        plan.push_back(mk(p + "ffn.up", {static_cast<uint32_t>(kHidden), static_cast<uint32_t>(kIntermediate)}));
+        plan.push_back(mk(p + "ffn.up.bias", {static_cast<uint32_t>(kIntermediate)}));
+        plan.push_back(mk(p + "ffn.down", {static_cast<uint32_t>(kIntermediate), static_cast<uint32_t>(kHidden)}));
+        plan.push_back(mk(p + "ffn.down.bias", {static_cast<uint32_t>(kHidden)}));
+        plan.push_back(mk(p + "ln2.gamma", {static_cast<uint32_t>(kHidden)}));
+        plan.push_back(mk(p + "ln2.beta", {static_cast<uint32_t>(kHidden)}));
     }
-    plan.push_back(mk("head.sparse.w", {static_cast<uint32_t>(k_hidden), 1}));
+    plan.push_back(mk("head.sparse.w", {static_cast<uint32_t>(kHidden), 1}));
     plan.push_back(mk("head.sparse.b", {1}));
-    plan.push_back(mk("head.colbert.w", {static_cast<uint32_t>(k_hidden), static_cast<uint32_t>(k_hidden)}));
-    plan.push_back(mk("head.colbert.b", {static_cast<uint32_t>(k_hidden)}));
+    plan.push_back(mk("head.colbert.w", {static_cast<uint32_t>(kHidden), static_cast<uint32_t>(kHidden)}));
+    plan.push_back(mk("head.colbert.b", {static_cast<uint32_t>(kHidden)}));
     return plan;
 }
 
@@ -1827,7 +1828,7 @@ std::vector<float> transpose_kn(const std::vector<float> &w, uint64_t out, uint6
 // ---------------------------------------------------------------------------
 
 void run_pack(const std::string &model_dir, const std::string &out_path, const config_info &cfg, bool dump,
-              uint32_t precision = k_bgm_precision_fp32) {
+              uint32_t precision = kBgmPrecisionFp32) {
     const std::string onnx_path = path_join(path_join(model_dir, "onnx"), "model.onnx");
     const auto blob = read_file_text(onnx_path);
     info("read %s (%zu bytes)\n", onnx_path.c_str(), blob.size());
@@ -1849,23 +1850,23 @@ void run_pack(const std::string &model_dir, const std::string &out_path, const c
     info("external data: %s (%llu bytes)\n", data_path.empty() ? "<none, all inline>" : data_path.c_str(),
          static_cast<unsigned long long>(data_path.empty() ? 0 : file_size64_of(data_path)));
 
-    PACK_CHECK(cfg.num_hidden_layers == k_num_layers, "config.json says %lld layers, this packer is written for %d",
-               static_cast<long long>(cfg.num_hidden_layers), k_num_layers);
-    PACK_CHECK(cfg.hidden_size == k_hidden && cfg.intermediate_size == k_intermediate && cfg.num_attention_heads == k_heads,
+    PACK_CHECK(cfg.num_hidden_layers == kNumLayers, "config.json says %lld layers, this packer is written for %d",
+               static_cast<long long>(cfg.num_hidden_layers), kNumLayers);
+    PACK_CHECK(cfg.hidden_size == kHidden && cfg.intermediate_size == kIntermediate && cfg.num_attention_heads == kHeads,
                "config.json architecture (%lld hidden / %lld intermediate / %lld heads) does not match %d/%d/%d",
                static_cast<long long>(cfg.hidden_size), static_cast<long long>(cfg.intermediate_size),
-               static_cast<long long>(cfg.num_attention_heads), k_hidden, k_intermediate, k_heads);
+               static_cast<long long>(cfg.num_attention_heads), kHidden, kIntermediate, kHeads);
 
-    const auto src = discover_sources(model, weights, k_num_layers);
+    const auto src = discover_sources(model, weights, kNumLayers);
     const auto sparse = load_pt_head(path_join(model_dir, "sparse_linear.pt"));
     const auto colbert = load_pt_head(path_join(model_dir, "colbert_linear.pt"));
-    PACK_CHECK(sparse.weight_sizes.size() == 2 && sparse.weight_sizes[0] == 1 && sparse.weight_sizes[1] == k_hidden,
+    PACK_CHECK(sparse.weight_sizes.size() == 2 && sparse.weight_sizes[0] == 1 && sparse.weight_sizes[1] == kHidden,
                "sparse_linear weight has unexpected shape %s", dims_str(sparse.weight_sizes).c_str());
     PACK_CHECK(sparse.bias_sizes.size() == 1 && sparse.bias_sizes[0] == 1, "sparse_linear bias has unexpected shape %s",
                dims_str(sparse.bias_sizes).c_str());
-    PACK_CHECK(colbert.weight_sizes.size() == 2 && colbert.weight_sizes[0] == k_hidden && colbert.weight_sizes[1] == k_hidden,
+    PACK_CHECK(colbert.weight_sizes.size() == 2 && colbert.weight_sizes[0] == kHidden && colbert.weight_sizes[1] == kHidden,
                "colbert_linear weight has unexpected shape %s", dims_str(colbert.weight_sizes).c_str());
-    PACK_CHECK(colbert.bias_sizes.size() == 1 && colbert.bias_sizes[0] == k_hidden, "colbert_linear bias has unexpected shape %s",
+    PACK_CHECK(colbert.bias_sizes.size() == 1 && colbert.bias_sizes[0] == kHidden, "colbert_linear bias has unexpected shape %s",
                dims_str(colbert.bias_sizes).c_str());
 
     if (dump) {
@@ -1875,7 +1876,7 @@ void run_pack(const std::string &model_dir, const std::string &out_path, const c
         info("  emb.word(+type)   <- %s%s row 0 folded in\n", src.token_type.c_str(), "");
         info("  emb.ln.gamma      <- %s\n", src.emb_ln_g.c_str());
         info("  emb.ln.beta       <- %s\n", src.emb_ln_b.c_str());
-        for (int i = 0; i < k_num_layers; i++) {
+        for (int i = 0; i < kNumLayers; i++) {
             const auto &L = src.layers[static_cast<size_t>(i)];
             info("  layer%d.qkv        <- %s %s %s\n", i, L.q.c_str(), L.k.c_str(), L.v.c_str());
             info("  layer%d.qkv.bias   <- %s %s %s\n", i, L.q_b.c_str(), L.k_b.c_str(), L.v_b.c_str());
@@ -1891,58 +1892,58 @@ void run_pack(const std::string &model_dir, const std::string &out_path, const c
 
     // ---- source payloads -----------------------------------------------------
     const auto &word_t = weights.require(src.word);
-    weights.check(word_t, src.word, {k_vocab, k_hidden});
+    weights.check(word_t, src.word, {kVocab, kHidden});
     const auto &type_t = weights.require(src.token_type);
-    weights.check(type_t, src.token_type, {1, k_hidden});
+    weights.check(type_t, src.token_type, {1, kHidden});
     PACK_CHECK(cfg.type_vocab_size == 1, "config.json says type_vocab_size=%lld; the packer only folds a single token-type row",
                static_cast<long long>(cfg.type_vocab_size));
-    auto type_row = weights.load(src.token_type, {1, k_hidden});
+    auto type_row = weights.load(src.token_type, {1, kHidden});
     weights.mark_used(src.word);// streamed below, not via load()
 
-    auto pos = weights.load(src.pos, {k_max_pos, k_hidden});
-    auto emb_ln_g = weights.load(src.emb_ln_g, {k_hidden});
-    auto emb_ln_b = weights.load(src.emb_ln_b, {k_hidden});
+    auto pos = weights.load(src.pos, {kMaxPos, kHidden});
+    auto emb_ln_g = weights.load(src.emb_ln_g, {kHidden});
+    auto emb_ln_b = weights.load(src.emb_ln_b, {kHidden});
 
-    std::vector<float> sparse_w = transpose_kn(sparse.weight, 1, static_cast<uint64_t>(k_hidden));
-    std::vector<float> colbert_w = transpose_kn(colbert.weight, static_cast<uint64_t>(k_hidden), static_cast<uint64_t>(k_hidden));
+    std::vector<float> sparse_w = transpose_kn(sparse.weight, 1, static_cast<uint64_t>(kHidden));
+    std::vector<float> colbert_w = transpose_kn(colbert.weight, static_cast<uint64_t>(kHidden), static_cast<uint64_t>(kHidden));
 
     struct layer_payload {
         std::vector<float> qkv, qkv_b, attn_out, attn_out_b, ln1_g, ln1_b, ffn_up, ffn_up_b, ffn_down, ffn_down_b, ln2_g, ln2_b;
     };
-    std::vector<layer_payload> layers(static_cast<size_t>(k_num_layers));
+    std::vector<layer_payload> layers(static_cast<size_t>(kNumLayers));
     // QKV fusion: the opset-11 export stores the projection weights as [in,out]
     // (verified against pytorch_model.bin), i.e. already B[K][N]; concatenating
     // the three matrices along N produces the fused [1024,3072] block Q|K|V.
-    for (int i = 0; i < k_num_layers; i++) {
+    for (int i = 0; i < kNumLayers; i++) {
         const auto &L = src.layers[static_cast<size_t>(i)];
         auto &P = layers[static_cast<size_t>(i)];
-        auto q = weights.load(L.q, {k_hidden, k_hidden});
-        auto k = weights.load(L.k, {k_hidden, k_hidden});
-        auto v = weights.load(L.v, {k_hidden, k_hidden});
-        P.qkv.resize(static_cast<size_t>(k_hidden) * 3 * static_cast<size_t>(k_hidden));
-        for (int row = 0; row < k_hidden; row++) {
-            float *dst = P.qkv.data() + static_cast<size_t>(row) * 3 * static_cast<size_t>(k_hidden);
-            std::memcpy(dst, q.data() + static_cast<size_t>(row) * k_hidden, static_cast<size_t>(k_hidden) * 4);
-            std::memcpy(dst + k_hidden, k.data() + static_cast<size_t>(row) * k_hidden, static_cast<size_t>(k_hidden) * 4);
-            std::memcpy(dst + 2 * k_hidden, v.data() + static_cast<size_t>(row) * k_hidden, static_cast<size_t>(k_hidden) * 4);
+        auto q = weights.load(L.q, {kHidden, kHidden});
+        auto k = weights.load(L.k, {kHidden, kHidden});
+        auto v = weights.load(L.v, {kHidden, kHidden});
+        P.qkv.resize(static_cast<size_t>(kHidden) * 3 * static_cast<size_t>(kHidden));
+        for (int row = 0; row < kHidden; row++) {
+            float *dst = P.qkv.data() + static_cast<size_t>(row) * 3 * static_cast<size_t>(kHidden);
+            std::memcpy(dst, q.data() + static_cast<size_t>(row) * kHidden, static_cast<size_t>(kHidden) * 4);
+            std::memcpy(dst + kHidden, k.data() + static_cast<size_t>(row) * kHidden, static_cast<size_t>(kHidden) * 4);
+            std::memcpy(dst + 2 * kHidden, v.data() + static_cast<size_t>(row) * kHidden, static_cast<size_t>(kHidden) * 4);
         }
-        auto qb = weights.load(L.q_b, {k_hidden});
-        auto kb = weights.load(L.k_b, {k_hidden});
-        auto vb = weights.load(L.v_b, {k_hidden});
-        P.qkv_b.reserve(3 * static_cast<size_t>(k_hidden));
+        auto qb = weights.load(L.q_b, {kHidden});
+        auto kb = weights.load(L.k_b, {kHidden});
+        auto vb = weights.load(L.v_b, {kHidden});
+        P.qkv_b.reserve(3 * static_cast<size_t>(kHidden));
         P.qkv_b.insert(P.qkv_b.end(), qb.begin(), qb.end());
         P.qkv_b.insert(P.qkv_b.end(), kb.begin(), kb.end());
         P.qkv_b.insert(P.qkv_b.end(), vb.begin(), vb.end());
-        P.attn_out = weights.load(L.attn_out, {k_hidden, k_hidden});
-        P.attn_out_b = weights.load(L.attn_out_b, {k_hidden});
-        P.ln1_g = weights.load(L.ln1_g, {k_hidden});
-        P.ln1_b = weights.load(L.ln1_b, {k_hidden});
-        P.ffn_up = weights.load(L.ffn_up, {k_hidden, k_intermediate});
-        P.ffn_up_b = weights.load(L.ffn_up_b, {k_intermediate});
-        P.ffn_down = weights.load(L.ffn_down, {k_intermediate, k_hidden});
-        P.ffn_down_b = weights.load(L.ffn_down_b, {k_hidden});
-        P.ln2_g = weights.load(L.ln2_g, {k_hidden});
-        P.ln2_b = weights.load(L.ln2_b, {k_hidden});
+        P.attn_out = weights.load(L.attn_out, {kHidden, kHidden});
+        P.attn_out_b = weights.load(L.attn_out_b, {kHidden});
+        P.ln1_g = weights.load(L.ln1_g, {kHidden});
+        P.ln1_b = weights.load(L.ln1_b, {kHidden});
+        P.ffn_up = weights.load(L.ffn_up, {kHidden, kIntermediate});
+        P.ffn_up_b = weights.load(L.ffn_up_b, {kIntermediate});
+        P.ffn_down = weights.load(L.ffn_down, {kIntermediate, kHidden});
+        P.ffn_down_b = weights.load(L.ffn_down_b, {kHidden});
+        P.ln2_g = weights.load(L.ln2_g, {kHidden});
+        P.ln2_b = weights.load(L.ln2_b, {kHidden});
         q.clear();
         q.shrink_to_fit();
         k.clear();
@@ -1987,14 +1988,14 @@ void run_pack(const std::string &model_dir, const std::string &out_path, const c
     writer.write_entry(0, 4096, [&](uint64_t row, uint64_t rows, std::vector<float> &buf) {
         weights.load_rows(word_t, row, rows, buf);
         for (uint64_t r = 0; r < rows; r++) {
-            float *dst = buf.data() + static_cast<size_t>(r) * k_hidden;
-            for (int c = 0; c < k_hidden; c++) dst[c] += type_row[static_cast<size_t>(c)];
+            float *dst = buf.data() + static_cast<size_t>(r) * kHidden;
+            for (int c = 0; c < kHidden; c++) dst[c] += type_row[static_cast<size_t>(c)];
         }
     });
     writer.write_entry(1, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = pos; });
     writer.write_entry(2, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = emb_ln_g; });
     writer.write_entry(3, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = emb_ln_b; });
-    for (int i = 0; i < k_num_layers; i++) {
+    for (int i = 0; i < kNumLayers; i++) {
         const auto &P = layers[static_cast<size_t>(i)];
         const size_t base = static_cast<size_t>(4 + i * 12);
         writer.write_entry(base + 0, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = P.qkv; });
@@ -2010,10 +2011,10 @@ void run_pack(const std::string &model_dir, const std::string &out_path, const c
         writer.write_entry(base + 10, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = P.ln2_g; });
         writer.write_entry(base + 11, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = P.ln2_b; });
     }
-    writer.write_entry(4 + static_cast<size_t>(k_num_layers) * 12 + 0, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = sparse_w; });
-    writer.write_entry(4 + static_cast<size_t>(k_num_layers) * 12 + 1, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = sparse.bias; });
-    writer.write_entry(4 + static_cast<size_t>(k_num_layers) * 12 + 2, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = colbert_w; });
-    writer.write_entry(4 + static_cast<size_t>(k_num_layers) * 12 + 3, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = colbert.bias; });
+    writer.write_entry(4 + static_cast<size_t>(kNumLayers) * 12 + 0, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = sparse_w; });
+    writer.write_entry(4 + static_cast<size_t>(kNumLayers) * 12 + 1, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = sparse.bias; });
+    writer.write_entry(4 + static_cast<size_t>(kNumLayers) * 12 + 2, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = colbert_w; });
+    writer.write_entry(4 + static_cast<size_t>(kNumLayers) * 12 + 3, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = colbert.bias; });
     writer.close();
     info("weight range audit: max |w| = %.6f over all packed fp32 source values\n", writer.max_abs());
     info("wrote %s (%llu bytes)\n", out_path.c_str(), static_cast<unsigned long long>(file_size64_of(out_path)));
@@ -2244,12 +2245,12 @@ public:
         // v1 = fp32 blobs; v2 = half blobs (bf16/fp16) -- format spec above.
         // Mirrors embed::Package::load (package.cpp) so --check reads exactly
         // what the engine accepts.
-        PACK_CHECK(_version == k_bgm_version || _version == k_bgm_version_half, "unsupported BGM3 version %u", _version);
-        if (_version == k_bgm_version) {
-            PACK_CHECK(_precision == k_bgm_precision_fp32,
+        PACK_CHECK(_version == kBgmVersion || _version == kBgmVersionHalf, "unsupported BGM3 version %u", _version);
+        if (_version == kBgmVersion) {
+            PACK_CHECK(_precision == kBgmPrecisionFp32,
                        "unsupported precision %u (0 = fp32 is the only v1 mode; bf16/fp16 are version 2)", _precision);
         } else {
-            PACK_CHECK(_precision == k_bgm_precision_bf16 || _precision == k_bgm_precision_fp16,
+            PACK_CHECK(_precision == kBgmPrecisionBf16 || _precision == kBgmPrecisionFp16,
                        "unsupported precision %u for version 2 (1 = bf16, 2 = fp16)", _precision);
         }
         _esz = bgm_elem_bytes(_precision);
@@ -2258,7 +2259,7 @@ public:
         _entries.resize(_count);
         std::vector<uint8_t> table(48ull * _count);
         read_at(16, table.data(), table.size());
-        uint64_t expect_off = align_up(16 + 48ull * _count, k_bgm_align);
+        uint64_t expect_off = align_up(16 + 48ull * _count, kBgmAlign);
         for (uint32_t i = 0; i < _count; i++) {
             const uint8_t *p = table.data() + 48ull * i;
             auto &e = _entries[i];
@@ -2269,7 +2270,7 @@ public:
             for (int d = 0; d < 4; d++) e.dims[d] = read_le32(p + 28 + 4 * static_cast<size_t>(d));
             // table sanity: alignment, rank, size/dims consistency, ordering
             PACK_CHECK(e.rank >= 1 && e.rank <= 4, "entry %u: rank %u out of range", i, e.rank);
-            PACK_CHECK(e.offset % k_bgm_align == 0, "entry %u: offset %llu is not 256-byte aligned", i,
+            PACK_CHECK(e.offset % kBgmAlign == 0, "entry %u: offset %llu is not 256-byte aligned", i,
                        static_cast<unsigned long long>(e.offset));
             PACK_CHECK(e.offset >= expect_off || i == 0, "entry %u: offset %llu overlaps the table", i,
                        static_cast<unsigned long long>(e.offset));
@@ -2280,7 +2281,7 @@ public:
             PACK_CHECK(elems * _esz == e.size_bytes, "entry %u: dims %ux%ux%ux%u * %llu != size_bytes %llu", i, e.dims[0], e.dims[1],
                        e.dims[2], e.dims[3], static_cast<unsigned long long>(_esz), static_cast<unsigned long long>(e.size_bytes));
             for (uint32_t d = e.rank; d < 4; d++) PACK_CHECK(e.dims[d] == 0, "entry %u: dims beyond rank are not zero", i);
-            expect_off = align_up(e.offset + e.size_bytes, k_bgm_align);
+            expect_off = align_up(e.offset + e.size_bytes, kBgmAlign);
         }
         for (uint32_t i = 0; i < _count; i++) {
             const auto &e = _entries[i];
@@ -2293,12 +2294,12 @@ public:
     bgm_reader(const bgm_reader &) = delete;
     bgm_reader &operator=(const bgm_reader &) = delete;
 
-        uint32_t count() const { return _count; }
-        uint32_t version() const { return _version; }
-        uint32_t precision() const { return _precision; }
-        const char *precision_name() const { return bgm_precision_name(_precision); }
-        uint64_t elem_bytes() const { return _esz; }
-        uint64_t file_size() const { return _size; }
+    uint32_t count() const { return _count; }
+    uint32_t version() const { return _version; }
+    uint32_t precision() const { return _precision; }
+    const char *precision_name() const { return bgm_precision_name(_precision); }
+    uint64_t elem_bytes() const { return _esz; }
+    uint64_t file_size() const { return _size; }
     const bgm_entry_view &entry(size_t i) const { return _entries[i]; }
     const bgm_entry_view *lookup(const std::string &name) const {
         const auto it = _index.find(fnv1a_64(name));
@@ -2310,46 +2311,46 @@ public:
                    static_cast<unsigned long long>(fnv1a_64(name)));
         return *e;
     }
-        std::vector<float> read_all(const std::string &name) const {
-            const auto &e = require(name);
-            const uint64_t elems = e.num_elements();
-            std::vector<float> out(static_cast<size_t>(elems));
-            if (_esz == 4ull) {
-                read_at(e.offset, out.data(), static_cast<size_t>(e.size_bytes));
-            } else {
-                _raw.assign(static_cast<size_t>(e.size_bytes), 0u);
-                read_at(e.offset, _raw.data(), static_cast<size_t>(e.size_bytes));
-                decode_halves(_raw, out.data());
-            }
-            return out;
+    std::vector<float> read_all(const std::string &name) const {
+        const auto &e = require(name);
+        const uint64_t elems = e.num_elements();
+        std::vector<float> out(static_cast<size_t>(elems));
+        if (_esz == 4ull) {
+            read_at(e.offset, out.data(), static_cast<size_t>(e.size_bytes));
+        } else {
+            _raw.assign(static_cast<size_t>(e.size_bytes), 0u);
+            read_at(e.offset, _raw.data(), static_cast<size_t>(e.size_bytes));
+            decode_halves(_raw, out.data());
         }
-        void read_rows(const std::string &name, uint64_t row, uint64_t rows, float *dst) const {
-            const auto &e = require(name);
-            PACK_CHECK(e.rank == 2, "'%s' is not rank-2", name.c_str());
-            const uint64_t cols = e.dims[1];
-            PACK_CHECK(row + rows <= e.dims[0], "'%s': row range out of bounds", name.c_str());
-            const uint64_t nelem = rows * cols;
-            if (_esz == 4ull) {
-                read_at(e.offset + row * cols * 4, dst, static_cast<size_t>(nelem * 4));
-            } else {
-                _raw.assign(static_cast<size_t>(nelem * 2), 0u);
-                read_at(e.offset + row * cols * 2, _raw.data(), static_cast<size_t>(nelem * 2));
-                decode_halves(_raw, dst);
-            }
+        return out;
+    }
+    void read_rows(const std::string &name, uint64_t row, uint64_t rows, float *dst) const {
+        const auto &e = require(name);
+        PACK_CHECK(e.rank == 2, "'%s' is not rank-2", name.c_str());
+        const uint64_t cols = e.dims[1];
+        PACK_CHECK(row + rows <= e.dims[0], "'%s': row range out of bounds", name.c_str());
+        const uint64_t nelem = rows * cols;
+        if (_esz == 4ull) {
+            read_at(e.offset + row * cols * 4, dst, static_cast<size_t>(nelem * 4));
+        } else {
+            _raw.assign(static_cast<size_t>(nelem * 2), 0u);
+            read_at(e.offset + row * cols * 2, _raw.data(), static_cast<size_t>(nelem * 2));
+            decode_halves(_raw, dst);
         }
+    }
 
-    private:
-        // v2 blob bytes -> fp32 (the exact upcasts of the format spec; the
-        // engine's kernel-side load path performs the same conversion)
-        void decode_halves(const std::vector<uint8_t> &bytes, float *dst) const {
-            const size_t n = bytes.size() / 2;
-            for (size_t i = 0; i < n; i++) {
-                const uint16_t h = static_cast<uint16_t>(bytes[2 * i] | (static_cast<uint16_t>(bytes[2 * i + 1]) << 8));
-                dst[i] = _precision == k_bgm_precision_bf16 ? bf16_to_f32(h) : f16_to_f32(h);
-            }
+private:
+    // v2 blob bytes -> fp32 (the exact upcasts of the format spec; the
+    // engine's kernel-side load path performs the same conversion)
+    void decode_halves(const std::vector<uint8_t> &bytes, float *dst) const {
+        const size_t n = bytes.size() / 2;
+        for (size_t i = 0; i < n; i++) {
+            const uint16_t h = static_cast<uint16_t>(bytes[2 * i] | (static_cast<uint16_t>(bytes[2 * i + 1]) << 8));
+            dst[i] = _precision == kBgmPrecisionBf16 ? bf16_to_f32(h) : f16_to_f32(h);
         }
+    }
 
-        void read_at(uint64_t off, void *dst, size_t n) const {
+    void read_at(uint64_t off, void *dst, size_t n) const {
         PACK_CHECK(off + n <= _size, "read [%llu,%llu) is past the file", static_cast<unsigned long long>(off),
                    static_cast<unsigned long long>(off + n));
         seek64(_f, off);
@@ -2357,16 +2358,16 @@ public:
                    static_cast<unsigned long long>(off));
     }
 
-        std::FILE *_f = nullptr;
-        uint64_t _size = 0;
-        uint32_t _version = 0;
-        uint32_t _precision = 0;
-        uint64_t _esz = 4;
-        uint32_t _count = 0;
-        std::vector<bgm_entry_view> _entries;
-        std::unordered_map<uint64_t, uint32_t> _index;
-        mutable std::vector<uint8_t> _raw;// half-blob staging for read_all/read_rows
-    };
+    std::FILE *_f = nullptr;
+    uint64_t _size = 0;
+    uint32_t _version = 0;
+    uint32_t _precision = 0;
+    uint64_t _esz = 4;
+    uint32_t _count = 0;
+    std::vector<bgm_entry_view> _entries;
+    std::unordered_map<uint64_t, uint32_t> _index;
+    mutable std::vector<uint8_t> _raw;// half-blob staging for read_all/read_rows
+};
 
 void summarize_package(const bgm_reader &r) {
     const auto plan = build_plan();
@@ -2387,14 +2388,14 @@ void summarize_package(const bgm_reader &r) {
     }
     info("  ... (%u entries total; the last one is '%s')\n", r.count(), name_of(r.entry(r.count() - 1).hash).c_str());
     uint64_t aligned = 0;
-    for (uint32_t i = 0; i < r.count(); i++) aligned += align_up(r.entry(i).size_bytes, k_bgm_align);
+    for (uint32_t i = 0; i < r.count(); i++) aligned += align_up(r.entry(i).size_bytes, kBgmAlign);
     info("  payload %llu bytes, %llu bytes including 256-byte alignment padding\n",
          static_cast<unsigned long long>([&] {
              uint64_t s = 0;
              for (uint32_t i = 0; i < r.count(); i++) s += r.entry(i).size_bytes;
              return s;
          }()),
-         static_cast<unsigned long long>(align_up(16 + 48ull * r.count(), k_bgm_align) + aligned - 16 - 48ull * r.count()));
+         static_cast<unsigned long long>(align_up(16 + 48ull * r.count(), kBgmAlign) + aligned - 16 - 48ull * r.count()));
 }
 
 }// namespace pack_model_detail
@@ -2443,7 +2444,7 @@ void layernorm_f32(const float *x, float *y, uint64_t rows, uint64_t cols, const
             const double d = src[c] - mean;
             sq += d * d;
         }
-        const float inv = static_cast<float>(1.0 / std::sqrt(sq / static_cast<double>(cols) + k_ln_eps));
+        const float inv = static_cast<float>(1.0 / std::sqrt(sq / static_cast<double>(cols) + kLnEps));
         for (uint64_t c = 0; c < cols; c++) dst[c] = (src[c] - mean) * inv * gamma[c] + beta[c];
     }
 }
@@ -2458,13 +2459,13 @@ struct forward_state {
 
 void encode_sequence(const std::vector<int64_t> &ids, const bgm_reader &r, forward_state &st) {
     const uint64_t S = ids.size();
-    st.x.assign(S * k_hidden, 0.0f);
-    st.tmp.assign(S * 3 * static_cast<size_t>(k_hidden), 0.0f);
-    st.next.assign(S * k_hidden, 0.0f);
+    st.x.assign(S * kHidden, 0.0f);
+    st.tmp.assign(S * 3 * static_cast<size_t>(kHidden), 0.0f);
+    st.next.assign(S * kHidden, 0.0f);
 
     // --- embeddings: word (+ folded token-type) + position, then LayerNorm ---
-    std::vector<float> word_row(static_cast<size_t>(k_hidden));
-    std::vector<float> pos_row(static_cast<size_t>(k_hidden));
+    std::vector<float> word_row(static_cast<size_t>(kHidden));
+    std::vector<float> pos_row(static_cast<size_t>(kHidden));
     uint64_t cum = 0;
     for (uint64_t t = 0; t < S; t++) {
         const bool real = ids[t] != 1;// pad token id
@@ -2472,39 +2473,39 @@ void encode_sequence(const std::vector<int64_t> &ids, const bgm_reader &r, forwa
         const uint64_t pos = real ? cum + 1 : 1;// graph: cumsum(non-pad)*(non-pad) + 1
         r.read_rows("emb.word", static_cast<uint64_t>(ids[t]), 1, word_row.data());
         r.read_rows("emb.pos", pos, 1, pos_row.data());
-        float *dst = st.x.data() + t * k_hidden;
-        for (int c = 0; c < k_hidden; c++) dst[c] = word_row[c] + pos_row[c];
+        float *dst = st.x.data() + t * kHidden;
+        for (int c = 0; c < kHidden; c++) dst[c] = word_row[c] + pos_row[c];
     }
     {
         const auto gamma = r.read_all("emb.ln.gamma");
         const auto beta = r.read_all("emb.ln.beta");
-        layernorm_f32(st.x.data(), st.next.data(), S, k_hidden, gamma.data(), beta.data());
+        layernorm_f32(st.x.data(), st.next.data(), S, kHidden, gamma.data(), beta.data());
         std::swap(st.x, st.next);
     }
 
     // padding mask: additive bias on the key axis, (1 - mask) * finfo.min
     std::vector<float> mask_bias(S, 0.0f);
     for (uint64_t t = 0; t < S; t++) {
-        if (ids[t] == 1) mask_bias[t] = k_pad_bias;
+        if (ids[t] == 1) mask_bias[t] = kPadBias;
     }
 
     std::vector<float> attn(static_cast<size_t>(S) * S);
-    std::vector<float> ctx(static_cast<size_t>(S) * k_hidden);
-    std::vector<float> up(static_cast<size_t>(S) * k_intermediate);
-    for (int layer = 0; layer < k_num_layers; layer++) {
+    std::vector<float> ctx(static_cast<size_t>(S) * kHidden);
+    std::vector<float> up(static_cast<size_t>(S) * kIntermediate);
+    for (int layer = 0; layer < kNumLayers; layer++) {
         const std::string p = "layer" + std::to_string(layer) + ".";
         const auto qkv_w = r.read_all(p + "qkv");
         const auto qkv_b = r.read_all(p + "qkv.bias");
-        gemm_f32(st.x.data(), S, qkv_w.data(), k_hidden, 3 * static_cast<uint64_t>(k_hidden), qkv_b.data(), st.tmp.data());
+        gemm_f32(st.x.data(), S, qkv_w.data(), kHidden, 3 * static_cast<uint64_t>(kHidden), qkv_b.data(), st.tmp.data());
 
         // attention: per head scores = (Q K^T)/8 + mask_bias, softmax, ctx = P V
         std::fill(attn.begin(), attn.end(), 0.0f);
         std::fill(ctx.begin(), ctx.end(), 0.0f);
-        const uint64_t qkv_stride = 3 * static_cast<uint64_t>(k_hidden);
-        for (int h = 0; h < k_heads; h++) {
-            const float *q = st.tmp.data() + h * k_head_dim;
-            const float *k = st.tmp.data() + static_cast<size_t>(k_hidden) + h * k_head_dim;
-            const float *v = st.tmp.data() + 2 * static_cast<size_t>(k_hidden) + h * k_head_dim;
+        const uint64_t qkv_stride = 3 * static_cast<uint64_t>(kHidden);
+        for (int h = 0; h < kHeads; h++) {
+            const float *q = st.tmp.data() + h * kHeadDim;
+            const float *k = st.tmp.data() + static_cast<size_t>(kHidden) + h * kHeadDim;
+            const float *v = st.tmp.data() + 2 * static_cast<size_t>(kHidden) + h * kHeadDim;
             for (uint64_t i = 0; i < S; i++) {
                 float *ap = attn.data() + i * S;
                 float row_max = -3.0e38f;
@@ -2512,7 +2513,7 @@ void encode_sequence(const std::vector<int64_t> &ids, const bgm_reader &r, forwa
                     const float *qq = q + i * qkv_stride;
                     const float *kk = k + j * qkv_stride;
                     float acc = 0.0f;
-                    for (int d = 0; d < k_head_dim; d++) acc += qq[d] * kk[d];
+                    for (int d = 0; d < kHeadDim; d++) acc += qq[d] * kk[d];
                     const float s = acc / 8.0f + mask_bias[j];// the graph divides by 8.0
                     ap[j] = s;
                     row_max = s > row_max ? s : row_max;
@@ -2524,47 +2525,47 @@ void encode_sequence(const std::vector<int64_t> &ids, const bgm_reader &r, forwa
                     sum += e;
                 }
                 const float inv = sum > 0.0f ? 1.0f / sum : 0.0f;
-                float *dst = ctx.data() + i * k_hidden + h * k_head_dim;
+                float *dst = ctx.data() + i * kHidden + h * kHeadDim;
                 for (uint64_t j = 0; j < S; j++) {
                     const float pr = ap[j] * inv;
                     if (pr == 0.0f) continue;// fully masked keys contribute nothing
                     const float *vj = v + j * qkv_stride;
-                    for (int d = 0; d < k_head_dim; d++) dst[d] += pr * vj[d];
+                    for (int d = 0; d < kHeadDim; d++) dst[d] += pr * vj[d];
                 }
             }
         }
 
         const auto out_w = r.read_all(p + "attn.out");
         const auto out_b = r.read_all(p + "attn.out.bias");
-        gemm_f32(ctx.data(), S, out_w.data(), k_hidden, k_hidden, out_b.data(), st.next.data());
-        for (uint64_t t = 0; t < S * static_cast<uint64_t>(k_hidden); t++) st.next[t] += st.x[t];// residual
+        gemm_f32(ctx.data(), S, out_w.data(), kHidden, kHidden, out_b.data(), st.next.data());
+        for (uint64_t t = 0; t < S * static_cast<uint64_t>(kHidden); t++) st.next[t] += st.x[t];// residual
         {
             const auto g = r.read_all(p + "ln1.gamma");
             const auto b = r.read_all(p + "ln1.beta");
-            layernorm_f32(st.next.data(), st.x.data(), S, k_hidden, g.data(), b.data());
+            layernorm_f32(st.next.data(), st.x.data(), S, kHidden, g.data(), b.data());
         }
         const auto up_w = r.read_all(p + "ffn.up");
         const auto up_b = r.read_all(p + "ffn.up.bias");
         const auto down_w = r.read_all(p + "ffn.down");
         const auto down_b = r.read_all(p + "ffn.down.bias");
-        gemm_f32(st.x.data(), S, up_w.data(), k_hidden, k_intermediate, up_b.data(), up.data());
+        gemm_f32(st.x.data(), S, up_w.data(), kHidden, kIntermediate, up_b.data(), up.data());
         for (auto &u : up) u = gelu_erf_f32(u);
         std::fill(st.next.begin(), st.next.end(), 0.0f);
-        gemm_f32(up.data(), S, down_w.data(), k_intermediate, k_hidden, down_b.data(), st.next.data());
-        for (uint64_t t = 0; t < S * static_cast<uint64_t>(k_hidden); t++) st.next[t] += st.x[t];// residual
+        gemm_f32(up.data(), S, down_w.data(), kIntermediate, kHidden, down_b.data(), st.next.data());
+        for (uint64_t t = 0; t < S * static_cast<uint64_t>(kHidden); t++) st.next[t] += st.x[t];// residual
         {
             const auto g = r.read_all(p + "ln2.gamma");
             const auto b = r.read_all(p + "ln2.beta");
-            layernorm_f32(st.next.data(), st.x.data(), S, k_hidden, g.data(), b.data());
+            layernorm_f32(st.next.data(), st.x.data(), S, kHidden, g.data(), b.data());
         }
     }
 }
 
 std::vector<float> dense_of(const forward_state &st) {
     // CLS pool (row 0) + L2 normalization with the graph's 1e-12 floor
-    std::vector<float> out(static_cast<size_t>(k_hidden));
+    std::vector<float> out(static_cast<size_t>(kHidden));
     double sq = 0.0;
-    for (int c = 0; c < k_hidden; c++) {
+    for (int c = 0; c < kHidden; c++) {
         const double v = st.x[c];
         sq += v * v;
         out[static_cast<size_t>(c)] = static_cast<float>(v);
@@ -2620,17 +2621,17 @@ void run_check(const std::string &out_path, const std::string &golden_dir, bool 
     // ---- golden dense ---------------------------------------------------------
     const auto dense_path = path_join(golden_dir, "golden_dense.bin");
     const auto dense_size = file_size64_of(dense_path);
-    PACK_CHECK(dense_size % (static_cast<uint64_t>(k_hidden) * 4) == 0, "%s: size %llu is not a multiple of %d bytes",
-               dense_path.c_str(), static_cast<unsigned long long>(dense_size), k_hidden * 4);
-    const uint64_t golden_rows = dense_size / (static_cast<uint64_t>(k_hidden) * 4);
+    PACK_CHECK(dense_size % (static_cast<uint64_t>(kHidden) * 4) == 0, "%s: size %llu is not a multiple of %d bytes",
+               dense_path.c_str(), static_cast<unsigned long long>(dense_size), kHidden * 4);
+    const uint64_t golden_rows = dense_size / (static_cast<uint64_t>(kHidden) * 4);
     PACK_CHECK(golden_rows >= 3, "%s: only %llu rows", dense_path.c_str(), static_cast<unsigned long long>(golden_rows));
-    std::vector<float> golden(3 * static_cast<size_t>(k_hidden));
+    std::vector<float> golden(3 * static_cast<size_t>(kHidden));
     {
         std::FILE *f = std::fopen(dense_path.c_str(), "rb");
         PACK_CHECK(f, "cannot open '%s'", dense_path.c_str());
         for (size_t row = 0; row < 3; row++) {
-            seek64(f, static_cast<uint64_t>(row) * k_hidden * 4);
-            PACK_CHECK(std::fread(golden.data() + row * k_hidden, 1, static_cast<size_t>(k_hidden) * 4, f) == static_cast<size_t>(k_hidden) * 4,
+            seek64(f, static_cast<uint64_t>(row) * kHidden * 4);
+            PACK_CHECK(std::fread(golden.data() + row * kHidden, 1, static_cast<size_t>(kHidden) * 4, f) == static_cast<size_t>(kHidden) * 4,
                        "short read on '%s'", dense_path.c_str());
         }
         std::fclose(f);
@@ -2643,10 +2644,10 @@ void run_check(const std::string &out_path, const std::string &golden_dir, bool 
         forward_state st;
         encode_sequence(ids_by_index[s], r, st);
         const auto out = dense_of(st);
-        const float *gt = golden.data() + s * k_hidden;
-        const double c = cosine(out.data(), gt, k_hidden);
+        const float *gt = golden.data() + s * kHidden;
+        const double c = cosine(out.data(), gt, kHidden);
         double max_abs = 0.0;
-        for (int d = 0; d < k_hidden; d++) max_abs = std::max(max_abs, std::abs(static_cast<double>(out[d]) - gt[d]));
+        for (int d = 0; d < kHidden; d++) max_abs = std::max(max_abs, std::abs(static_cast<double>(out[d]) - gt[d]));
         info("sentence %zu (S=%zu): cosine vs golden_dense = %.10f, max-abs-diff = %.3e\n", s, ids_by_index[s].size(), c, max_abs);
         worst = std::min(worst, c);
         worst_abs = std::max(worst_abs, max_abs);
@@ -2655,7 +2656,7 @@ void run_check(const std::string &out_path, const std::string &golden_dir, bool 
     // package carries real quantization noise and is gated >= 0.999 -- the
     // cosine is measured against the SAME frozen fp32 goldens, with the
     // dequantized weights feeding the identical fp32 forward pass.
-    const double gate = r.precision() == k_bgm_precision_fp32 ? 0.9999 : 0.999;
+    const double gate = r.precision() == kBgmPrecisionFp32 ? 0.9999 : 0.999;
     PACK_CHECK(worst >= gate, "internal CPU forward parity FAILED (%s weights): worst cosine %.10f < %.4f (worst max-abs-diff %.3e)",
                r.precision_name(), worst, gate, worst_abs);
     info("parity gate passed (%s weights): worst cosine %.10f >= %.4f, worst max-abs-diff %.3e\n",
@@ -2673,7 +2674,7 @@ int main_impl(int argc, char **argv) {
     std::string golden_dir;
     bool check = false;
     bool dump = false;
-    uint32_t precision = k_bgm_precision_fp32;
+    uint32_t precision = kBgmPrecisionFp32;
     std::vector<std::string> positional;
     for (int i = 1; i < argc; i++) {
         const std::string a = argv[i];
@@ -2693,11 +2694,11 @@ int main_impl(int argc, char **argv) {
                 p = argv[++i];
             }
             if (p == "fp32") {
-                precision = k_bgm_precision_fp32;
+                precision = kBgmPrecisionFp32;
             } else if (p == "bf16") {
-                precision = k_bgm_precision_bf16;
+                precision = kBgmPrecisionBf16;
             } else if (p == "fp16") {
-                precision = k_bgm_precision_fp16;
+                precision = kBgmPrecisionFp16;
             } else {
                 PACK_CHECK(false, "--precision '%s' is not fp32|bf16|fp16", p.c_str());
             }
@@ -2727,9 +2728,9 @@ int main_impl(int argc, char **argv) {
              static_cast<long long>(cfg.intermediate_size), static_cast<long long>(cfg.num_attention_heads),
              static_cast<long long>(cfg.vocab_size), static_cast<long long>(cfg.max_position_embeddings),
              static_cast<long long>(cfg.type_vocab_size), cfg.layer_norm_eps, cfg.hidden_act.c_str());
-        PACK_CHECK(cfg.vocab_size == k_vocab, "config.json vocab_size %lld != %d", static_cast<long long>(cfg.vocab_size), k_vocab);
-        PACK_CHECK(cfg.max_position_embeddings == k_max_pos, "config.json max_position_embeddings %lld != %d",
-                   static_cast<long long>(cfg.max_position_embeddings), k_max_pos);
+        PACK_CHECK(cfg.vocab_size == kVocab, "config.json vocab_size %lld != %d", static_cast<long long>(cfg.vocab_size), kVocab);
+        PACK_CHECK(cfg.max_position_embeddings == kMaxPos, "config.json max_position_embeddings %lld != %d",
+                   static_cast<long long>(cfg.max_position_embeddings), kMaxPos);
         PACK_CHECK(!cfg.hidden_act_found || cfg.hidden_act == "gelu",
                    "config.json hidden_act '%s' is not the Erf-GELU (0.5*x*(1+erf(x/sqrt(2)))) the internal check implements",
                    cfg.hidden_act.c_str());

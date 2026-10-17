@@ -59,16 +59,16 @@ struct EncodeOptions {
 };
 
 struct Embedding {
-    luisa::vector<float> dense;                       // [H], L2-normalized CLS
-    luisa::vector<std::pair<uint32_t, float>> sparse; // (token_id, weight>0), specials dropped
-    luisa::vector<float> colbert;                     // [(n-2) * H], specials dropped, per-row L2-normalized
+    luisa::vector<float> dense;                      // [H], L2-normalized CLS
+    luisa::vector<std::pair<uint32_t, float>> sparse;// (token_id, weight>0), specials dropped
+    luisa::vector<float> colbert;                    // [(n-2) * H], specials dropped, per-row L2-normalized
 };
 
 struct SchedulerConfig {
-    uint32_t num_workers = 2u;        // P (plan §3.5 default)
-    uint32_t max_batch_size = 8u;     // coalescing cap per launched job
-    uint32_t max_queue_delay_ms = 2u; // staleness that forces a sub-maximal batch
-    uint32_t max_queue_size = 512u;   // bounded FIFO (in-flight requests beyond workers)
+    uint32_t num_workers = 2u;       // P (plan §3.5 default)
+    uint32_t max_batch_size = 8u;    // coalescing cap per launched job
+    uint32_t max_queue_delay_ms = 2u;// staleness that forces a sub-maximal batch
+    uint32_t max_queue_size = 512u;  // bounded FIFO (in-flight requests beyond workers)
 };
 
 // One tokenized encode request. The scheduler owns the padded upload staging
@@ -119,7 +119,7 @@ public:
     // Trace hook passthrough (sync-path semantics; see executor.h).
     void set_layer_trace(LayerTraceCallback cb) noexcept;
 
-    [[nodiscard]] uint32_t worker_count() const noexcept { return static_cast<uint32_t>(m_workers.size()); }
+    [[nodiscard]] uint32_t worker_count() const noexcept { return static_cast<uint32_t>(_workers.size()); }
     // Per-request submit->completion latency samples in ms (drains the buffer).
     [[nodiscard]] luisa::vector<double> take_latency_samples_ms();
 
@@ -127,20 +127,20 @@ private:
     struct Job;
     struct PendingGroup;
 
-    void m_dispatch_loop() noexcept;
-    bool m_try_dispatch() noexcept;// true if a job was launched
-    Job *m_launch(luisa::vector<std::unique_ptr<ScheduledRequest>> owned,
-                  luisa::vector<ScheduledRequest *> reqs, bool atomic_batch, uint32_t slot,
-                  std::unique_lock<std::mutex> &lk) noexcept;
-    Embedding m_finalize(ScheduledRequest *req, Job &job) noexcept;
-    uint32_t m_pick_worker_slot() noexcept;// requires mutex; non-blocking poll
-    void m_wait_assigned(ScheduledRequest *req) noexcept;
-    void m_record_sample(double ms) noexcept;
-    static Embedding m_empty_embedding() noexcept { return {}; }
+    void _dispatch_loop() noexcept;
+    bool _try_dispatch() noexcept;// true if a job was launched
+    Job *_launch(luisa::vector<luisa::unique_ptr<ScheduledRequest>> owned,
+                 luisa::vector<ScheduledRequest *> reqs, bool atomic_batch, uint32_t slot,
+                 std::unique_lock<std::mutex> &lk) noexcept;
+    Embedding _finalize(ScheduledRequest *req, Job &job) noexcept;
+    uint32_t _pick_worker_slot() noexcept;// requires mutex; non-blocking poll
+    void _wait_assigned(ScheduledRequest *req) noexcept;
+    void _record_sample(double ms) noexcept;
+    static Embedding _empty_embedding() noexcept { return {}; }
 
-    compute::Device &m_device;
-    const WeightStore &m_weights;
-    SchedulerConfig m_cfg;
+    compute::Device &_device;
+    const WeightStore &_weights;
+    SchedulerConfig _cfg;
 
     struct Worker {
         compute::Stream stream;
@@ -149,22 +149,22 @@ private:
         uint64_t busy_fence{};
         bool busy{};
     };
-    luisa::vector<Worker> m_workers;
+    luisa::vector<Worker> _workers;
 
-    compute::Stream m_init_stream;
-    compute::TimelineEvent m_weights_ready;
+    compute::Stream _init_stream;
+    compute::TimelineEvent _weights_ready;
 
-    std::mutex m_mutex;
-    std::condition_variable m_cv;
-    luisa::vector<PendingGroup *> m_queue;// FIFO of pending groups (heap-owned)
-    uint32_t m_queue_size{};              // in-flight request count
-    std::atomic<bool> m_stop{false};
-    std::thread m_dispatcher;
-    uint32_t m_outstanding_jobs{};// launched, not yet completed (under m_mutex)
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    luisa::vector<PendingGroup *> _queue;// FIFO of pending groups (heap-owned)
+    uint32_t _queue_size{};              // in-flight request count
+    std::atomic<bool> _stop{false};
+    std::thread _dispatcher;
+    uint32_t _outstanding_jobs{};// launched, not yet completed (under _mutex)
 
-    std::mutex m_stats_mutex;
-    luisa::vector<double> m_latency_ms;
-    double m_now_ms() const noexcept;
+    std::mutex _stats_mutex;
+    luisa::vector<double> _latency_ms;
+    double _now_ms() const noexcept;
 };
 
 }// namespace luisa::embed

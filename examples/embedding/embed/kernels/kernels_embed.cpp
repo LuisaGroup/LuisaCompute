@@ -36,13 +36,13 @@ EmbedLookupKernel make_embed_lookup_kernel() noexcept {
     using namespace luisa::compute;
 
     EmbedLookupKernel kernel = [](BufferFloat word_emb, BufferFloat pos_emb, BufferUInt ids,
-                         BufferFloat gamma, BufferFloat beta, BufferFloat out,
-                                                    Var<uint> S, Var<uint> H, Var<float> eps,
-                           Var<uint> pos_offset) noexcept {
+                                  BufferFloat gamma, BufferFloat beta, BufferFloat out,
+                                  Var<uint> S, Var<uint> H, Var<float> eps,
+                                  Var<uint> pos_offset) noexcept {
         set_block_size(kEmbedBlock, 1u, 1u);
         set_name("embed_lookup");
 
-        Shared<float> xs{kMaxCachedRow}; // cached x-row when H <= kMaxCachedRow
+        Shared<float> xs{kMaxCachedRow};// cached x-row when H <= kMaxCachedRow
         Shared<float> red{kEmbedBlock}; // per-thread partials for the tree reduce
 
         Var tx = thread_x();
@@ -56,9 +56,9 @@ EmbedLookupKernel make_embed_lookup_kernel() noexcept {
         // Phase-A-style tests pass 0. Padded rows shift uniformly and are
         // masked/dropped downstream, so a uniform offset is safe for them.
         Var pos = row % S + pos_offset;
-        Var wbase = ids.read(row) * H;      // Gather #1 row base
-        Var pbase = pos * H;                // Gather #2 row base
-        Var obase = row * H;                // output row base
+        Var wbase = ids.read(row) * H;// Gather #1 row base
+        Var pbase = pos * H;          // Gather #2 row base
+        Var obase = row * H;          // output row base
         Var Hf = H.cast<float>();
 
         // Block reduction: shared-memory halving tree over the 256 per-thread
@@ -85,7 +85,7 @@ EmbedLookupKernel make_embed_lookup_kernel() noexcept {
                 sync_block();
             };
             Var total = red[0u];
-            sync_block(); // protect red against reuse by the next block_sum
+            sync_block();// protect red against reuse by the next block_sum
             return total;
         };
 
@@ -99,7 +99,8 @@ EmbedLookupKernel make_embed_lookup_kernel() noexcept {
                 sum_x += x;
                 h += bs;
             };
-        } $else {
+        }
+        $else {
             // Fallback for H > kMaxCachedRow: no shared cache; passes 2/3
             // re-gather x. Slower but correct (bge-m3 never takes this path).
             Var h = tx;
@@ -108,7 +109,7 @@ EmbedLookupKernel make_embed_lookup_kernel() noexcept {
                 h += bs;
             };
         };
-        Var mean = block_sum(sum_x) / Hf; // ReduceMean
+        Var mean = block_sum(sum_x) / Hf;// ReduceMean
 
         // Pass 2: variance = ReduceMean((x - mean)^2) (Sub, Pow, ReduceMean).
         Var sum_sq = def(0.0f);
@@ -119,7 +120,8 @@ EmbedLookupKernel make_embed_lookup_kernel() noexcept {
                 sum_sq += d * d;
                 h += bs;
             };
-        } $else {
+        }
+        $else {
             Var h = tx;
             $while (h < H) {
                 Var d = word_emb.read(wbase + h) + pos_emb.read(pbase + h) - mean;
@@ -140,7 +142,8 @@ EmbedLookupKernel make_embed_lookup_kernel() noexcept {
                 out.write(obase + h, y);
                 h += bs;
             };
-        } $else {
+        }
+        $else {
             Var h = tx;
             $while (h < H) {
                 Var x = word_emb.read(wbase + h) + pos_emb.read(pbase + h);

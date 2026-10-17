@@ -50,9 +50,9 @@ inline constexpr uint kAttentionBlock = 256u;
 // Launch: 2D tiles over (qi, ki); see kernels_attention.cpp for the exact
 // dispatch helper attention_scores_dispatch(S) (total-thread semantics).
 using AttentionScoresKernel = compute::Kernel2D<void(
-    compute::Buffer<float> /*qkv*/,     // [B*S, 3*num_heads*head_dim]
-    compute::Buffer<float> /*mask*/,    // [B*S]
-    compute::Buffer<float> /*logits*/,  // [B*num_heads, S, S]
+    compute::Buffer<float> /*qkv*/,   // [B*S, 3*num_heads*head_dim]
+    compute::Buffer<float> /*mask*/,  // [B*S]
+    compute::Buffer<float> /*logits*/,// [B*num_heads, S, S]
     uint32_t /*S*/, uint32_t /*num_heads*/, uint32_t /*head_dim*/,
     float /*scale*/, float /*neg_large*/)>;
 [[nodiscard]] AttentionScoresKernel make_attention_scores_kernel() noexcept;
@@ -68,9 +68,9 @@ using SoftmaxRowKernel = compute::Kernel1D<void(
 // out has the same [B*S, num_heads*head_dim] layout as one Q/K/V section,
 // ready for the "layer{i}.attn.out" GEMM.
 using AttentionPvKernel = compute::Kernel2D<void(
-    compute::Buffer<float> /*qkv*/,     // [B*S, 3*num_heads*head_dim] (V only)
-    compute::Buffer<float> /*logits*/,  // [B*num_heads, S, S] (softmaxed)
-    compute::Buffer<float> /*out*/,     // [B*S, num_heads*head_dim]
+    compute::Buffer<float> /*qkv*/,   // [B*S, 3*num_heads*head_dim] (V only)
+    compute::Buffer<float> /*logits*/,// [B*num_heads, S, S] (softmaxed)
+    compute::Buffer<float> /*out*/,   // [B*S, num_heads*head_dim]
     uint32_t /*S*/, uint32_t /*num_heads*/, uint32_t /*head_dim*/)>;
 [[nodiscard]] AttentionPvKernel make_attention_pv_kernel() noexcept;
 
@@ -81,8 +81,8 @@ using AttentionPvKernel = compute::Kernel2D<void(
 using FlashAttentionKernel = compute::Kernel2D<void(
     compute::Buffer<float> /*qkv*/,
     compute::Buffer<float> /*mask*/,
-    compute::Buffer<float> /*out*/,      // [B*S, num_heads*head_dim]
-    compute::Buffer<float> /*scratch*/,  // see .cpp header
+    compute::Buffer<float> /*out*/,    // [B*S, num_heads*head_dim]
+    compute::Buffer<float> /*scratch*/,// see .cpp header
     uint32_t /*B*/, uint32_t /*S*/,
     uint32_t /*num_heads*/, uint32_t /*head_dim*/,
     float /*scale*/, float /*neg_large*/)>;

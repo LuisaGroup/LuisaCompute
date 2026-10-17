@@ -45,11 +45,11 @@ using namespace boost::ut::literals;
 namespace {
 
 luisa::vector<char> read_file(const std::filesystem::path &p) {
-    if(std::FILE *f = std::fopen(p.string().c_str(), "rb"); f != nullptr) {
+    if (std::FILE *f = std::fopen(p.string().c_str(), "rb"); f != nullptr) {
         luisa::vector<char> data;
         char buf[65536];
         size_t got = 0u;
-        while((got = std::fread(buf, 1u, sizeof(buf), f)) > 0u) {
+        while ((got = std::fread(buf, 1u, sizeof(buf), f)) > 0u) {
             data.insert(data.end(), buf, buf + static_cast<ptrdiff_t>(got));
         }
         std::fclose(f);
@@ -62,20 +62,20 @@ luisa::string unescape_corpus_line(luisa::string_view line) {
     luisa::string out;
     out.reserve(line.size());
     size_t i = 0u;
-    while(i < line.size()) {
-        if(line[i] == '\\' && i + 1u < line.size()) {
+    while (i < line.size()) {
+        if (line[i] == '\\' && i + 1u < line.size()) {
             const auto c = line[i + 1u];
-            if(c == 'n') {
+            if (c == 'n') {
                 out.push_back('\n');
                 i += 2u;
                 continue;
             }
-            if(c == 'r') {
+            if (c == 'r') {
                 out.push_back('\r');
                 i += 2u;
                 continue;
             }
-            if(c == '\\') {
+            if (c == '\\') {
                 out.push_back('\\');
                 i += 2u;
                 continue;
@@ -93,18 +93,18 @@ luisa::vector<luisa::string> load_corpus(const std::filesystem::path &dir) {
     size_t start = 0u;
     auto emit_line = [&](size_t end) {
         luisa::string_view line{raw.data() + start, end - start};
-        if(!line.empty() && line.back() == '\r') {
+        if (!line.empty() && line.back() == '\r') {
             line.remove_suffix(1u);// CRLF tolerance
         }
         lines.push_back(unescape_corpus_line(line));
         start = end + 1u;
     };
-    for(size_t i = 0u; i < raw.size(); i++) {
-        if(raw[i] == '\n') {
+    for (size_t i = 0u; i < raw.size(); i++) {
+        if (raw[i] == '\n') {
             emit_line(i);
         }
     }
-    if(start < raw.size()) {
+    if (start < raw.size()) {
         emit_line(raw.size());
     }
     return lines;
@@ -120,12 +120,12 @@ luisa::vector<float> read_f32_file(const std::filesystem::path &p) {
 // cosine of two fp32 vectors (goldens are unit-norm; full formula anyway)
 float cosine(const float *a, const float *b, size_t n) {
     double dot = 0.0, na = 0.0, nb = 0.0;
-    for(size_t i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++) {
         dot += static_cast<double>(a[i]) * b[i];
         na += static_cast<double>(a[i]) * a[i];
         nb += static_cast<double>(b[i]) * b[i];
     }
-    if(na <= 0.0 || nb <= 0.0) {
+    if (na <= 0.0 || nb <= 0.0) {
         return -1.0f;
     }
     return static_cast<float>(dot / (std::sqrt(na) * std::sqrt(nb)));
@@ -142,16 +142,15 @@ int main(int argc, char *argv[]) {
     auto [context, device] = luisa::test::create_device(argc, argv);
     luisa::test::log_test_backend(argv[1], device);
     const std::filesystem::path data_dir{LUISA_EMBED_TEST_DATA_DIR};
-    const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]}
-                                                : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
+    const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]} : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
     // O-G precision gating (same policy as test_embed_e2e): the golden cosine
     // gate follows the package header (0.9999 fp32 v1 / 0.999 half v2).
     float golden_gate = 0.9999f;
     {
         uint32_t ver = 1u, prec = 0u;
-        if(auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
+        if (auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
             uint8_t hdr[16] = {};
-            if(std::fread(hdr, 1u, 16u, f) == 16u && hdr[0] == 'B' && hdr[1] == 'G' && hdr[2] == 'M' && hdr[3] == '3') {
+            if (std::fread(hdr, 1u, 16u, f) == 16u && hdr[0] == 'B' && hdr[1] == 'G' && hdr[2] == 'M' && hdr[3] == '3') {
                 ver = static_cast<uint32_t>(hdr[4]) | (static_cast<uint32_t>(hdr[5]) << 8u) |
                       (static_cast<uint32_t>(hdr[6]) << 16u) | (static_cast<uint32_t>(hdr[7]) << 24u);
                 prec = static_cast<uint32_t>(hdr[8]) | (static_cast<uint32_t>(hdr[9]) << 8u) |
@@ -179,7 +178,7 @@ int main(int argc, char *argv[]) {
     float worst_cosine = 1.0f;
     uint32_t worst_idx = 0u;
     luisa::compute::Clock enc_clock;
-    for(uint32_t i = 0; !trace_only && i < 16u; i++) {
+    for (uint32_t i = 0; !trace_only && i < 16u; i++) {
         EncodeOptions opt;
         opt.max_seq_len = 512u;
         auto emb = session->encode(corpus[i], opt);
@@ -196,13 +195,13 @@ int main(int argc, char *argv[]) {
 
     // ---- full-corpus timing (report evidence; every sentence gated too when
     // the run is not on the slow fallback reference).
-    if(!trace_only) {
+    if (!trace_only) {
         const bool full_gate = std::strcmp(argv[1], "fallback") != 0;
         luisa::compute::Clock corpus_clock;
         float worst_all = 1.0f;
-        for(size_t i = 0; i < corpus.size(); i++) {
+        for (size_t i = 0; i < corpus.size(); i++) {
             auto emb = session->encode(corpus[i]);
-            if(full_gate) {
+            if (full_gate) {
                 const auto c = cosine(emb.dense.data(), gold_dense.data() + i * kDenseDim, kDenseDim);
                 worst_all = std::min(worst_all, c);
             }
@@ -211,9 +210,9 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("full corpus ({} sentences) encode: {:.1f} ms total, {:.1f} ms/sentence, worst cosine {}",
                    corpus.size(), total_ms, total_ms / static_cast<double>(corpus.size()),
                    full_gate ? luisa::format("{:.6f}", worst_all) : luisa::string{"(not gated on fallback)"});
-    if(full_gate) {
-        expect(worst_all >= golden_gate) << "full-corpus worst cosine";
-    }
+        if (full_gate) {
+            expect(worst_all >= golden_gate) << "full-corpus worst cosine";
+        }
     }
 
     // ---- diagnostic (BGEM3_DIAG=1): host-side reference embedding block
@@ -222,12 +221,12 @@ int main(int argc, char *argv[]) {
     // ids/tokenization errors, weight-upload errors, trace-plumbing errors and
     // golden-index errors.
     const bool diag = std::getenv("BGEM3_DIAG") != nullptr && golden_gate >= 0.9999f;
-    if(std::getenv("BGEM3_DIAG") != nullptr && golden_gate < 0.9999f) {
+    if (std::getenv("BGEM3_DIAG") != nullptr && golden_gate < 0.9999f) {
         LUISA_INFO("BGEM3_DIAG skipped: the host-side embedding reference reader below is fp32-blob-only (half packages use Tensor::half_data).");
     }
     luisa::vector<float> diag_ref;
     luisa::vector<uint32_t> diag_ids;
-    if(diag) {
+    if (diag) {
         auto pkg = Package::load(bgm);
         auto tok = Tokenizer::load(data_dir / "tokenizer.json");
         diag_ids = tok->encode(corpus[0], 512u);
@@ -238,24 +237,24 @@ int main(int argc, char *argv[]) {
         const auto *g = pkg->find("emb.ln.gamma")->data;
         const auto *bt = pkg->find("emb.ln.beta")->data;
         diag_ref.assign(static_cast<size_t>(N) * Hh, 0.0f);
-        for(uint32_t s2 = 0; s2 < N; s2++) {
+        for (uint32_t s2 = 0; s2 < N; s2++) {
             // same math as kernel #1: word+pos, two-pass mean/var LN
             luisa::vector<float> row(Hh);
             double mean = 0.0;
-            for(uint32_t d = 0; d < Hh; d++) {
+            for (uint32_t d = 0; d < Hh; d++) {
                 row[d] = word[static_cast<size_t>(diag_ids[s2]) * Hh + d] +
                          pos[static_cast<size_t>(s2 + 2u) * Hh + d];
                 mean += row[d];
             }
             mean /= static_cast<double>(Hh);
             double var = 0.0;
-            for(uint32_t d = 0; d < Hh; d++) {
+            for (uint32_t d = 0; d < Hh; d++) {
                 const double dv = static_cast<double>(row[d]) - mean;
                 var += dv * dv;
             }
             var /= static_cast<double>(Hh);
             const double rstd = 1.0 / std::sqrt(var + 1e-5);
-            for(uint32_t d = 0; d < Hh; d++) {
+            for (uint32_t d = 0; d < Hh; d++) {
                 diag_ref[static_cast<size_t>(s2) * Hh + d] =
                     static_cast<float>((static_cast<double>(row[d]) - mean) * rstd * g[d] + bt[d]);
             }
@@ -285,17 +284,17 @@ int main(int argc, char *argv[]) {
             luisa::vector<float> got(static_cast<size_t>(N) * 1024);
             st << shader(wbuf.view(), pbuf.view(), ibuf.view(0, N), gbuf.view(), bbuf.view(),
                          obuf.view(), N, 1024u, 1e-5f, 2u)
-                     .dispatch(N * 256u)
+                      .dispatch(N * 256u)
                << obuf.copy_to(luisa::span{got})
                << synchronize();
             double d = 0.0;
-            for(size_t i = 0; i < got.size(); i++) {
+            for (size_t i = 0; i < got.size(); i++) {
                 d = std::max(d, static_cast<double>(std::abs(got[i] - diag_ref[i])));
             }
             LUISA_INFO("DIAG direct embed_lookup (test stream) vs host-reference: max_abs_diff = {:.3e}", d);
         }
         double d_ref_gold = 0.0;
-        for(size_t i = 0; i < diag_ref.size(); i++) {
+        for (size_t i = 0; i < diag_ref.size(); i++) {
             d_ref_gold = std::max(d_ref_gold, static_cast<double>(std::abs(diag_ref[i] - gold_layers[i])));
         }
         LUISA_INFO("DIAG host-reference embedding vs golden_layers[0]: max_abs_diff = {:.3e}", d_ref_gold);
@@ -310,7 +309,7 @@ int main(int argc, char *argv[]) {
     // destroying+recreating streams between sentences lets a new unnamed stream
     // inherit the recycled handle, making still-live trace slots look "in use".
     auto dl_stream = device.create_stream();
-    for(uint32_t si = 0; si < 2u; si++) {
+    for (uint32_t si = 0; si < 2u; si++) {
         const auto sent = kTraceSentences[si];
         luisa::vector<luisa::vector<float>> host;
         uint32_t traced_rows = 0u, traced_cols = 0u;
@@ -332,9 +331,9 @@ int main(int argc, char *argv[]) {
             << "trace rows match golden_layers.bin rows for sentence " << sent;
 
         const size_t stride = kTraceSentenceRows[si] * kDenseDim;
-        if(diag && si == 0u) {
+        if (diag && si == 0u) {
             double d = 0.0;
-            for(size_t i = 0; i < diag_ref.size() && i < host[0].size(); i++) {
+            for (size_t i = 0; i < diag_ref.size() && i < host[0].size(); i++) {
                 d = std::max(d, static_cast<double>(std::abs(diag_ref[i] - host[0][i])));
             }
             LUISA_INFO("DIAG host-reference vs traced slot0: max_abs_diff = {:.3e} (ref n={}, slot n={})",
@@ -350,11 +349,11 @@ int main(int argc, char *argv[]) {
         // (wrong-tensor mismatches are O(1)-O(10) diffs), not a softening of the
         // fp32 suite.
         const float layer_gate = golden_gate >= 0.9999f ? 1e-3f : 0.5f;
-        for(uint32_t layer = 0; layer < 25u; layer++) {
+        for (uint32_t layer = 0; layer < 25u; layer++) {
             const float *golden = gold_layers.data() + kTraceSentenceBase[si] / 4u + static_cast<size_t>(layer) * stride;
             const auto &got = host[layer];
             float max_diff = 0.0f;
-            for(size_t i = 0; i < got.size(); i++) {
+            for (size_t i = 0; i < got.size(); i++) {
                 max_diff = std::max(max_diff, std::abs(got[i] - golden[i]));
             }
             worst_layer_diff = std::max(worst_layer_diff, max_diff);

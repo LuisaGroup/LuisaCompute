@@ -106,46 +106,46 @@ struct Options {
 
 [[nodiscard]] Options parse_args(int argc, char *argv[]) {
     Options opt;
-    if(const auto *env = std::getenv("BGEM3_MODEL_DIR"); env != nullptr && env[0] != '\0') {
+    if (const auto *env = std::getenv("BGEM3_MODEL_DIR"); env != nullptr && env[0] != '\0') {
         opt.model_dir = env;
     }
-    for(int i = 2; i < argc; i++) {
+    for (int i = 2; i < argc; i++) {
         const luisa::string_view arg{argv[i]};
         const auto need = [&](const char *name) -> const char * {
-            if(i + 1 >= argc) {
+            if (i + 1 >= argc) {
                 LUISA_ERROR_WITH_LOCATION("flag {} requires a value", arg);
             }
             return argv[++i];
         };
-        if(arg == "--model") {
+        if (arg == "--model") {
             opt.model_dir = need("model");
-        } else if(arg == "--seq") {
+        } else if (arg == "--seq") {
             opt.seq = parse_uint32(need("seq"), "seq", 1u);
-        } else if(arg == "--batch") {
+        } else if (arg == "--batch") {
             opt.batch = parse_uint32(need("batch"), "batch", 1u);
-        } else if(arg == "--iters") {
+        } else if (arg == "--iters") {
             opt.iters = parse_uint32(need("iters"), "iters", 1u);
-        } else if(arg == "--warmup") {
+        } else if (arg == "--warmup") {
             opt.warmup = parse_uint32(need("warmup"), "warmup", 0u);
-        } else if(arg == "--csv") {
+        } else if (arg == "--csv") {
             opt.csv = need("csv");
-        } else if(arg == "--maxseq") {
+        } else if (arg == "--maxseq") {
             opt.maxseq = parse_uint32(need("maxseq"), "maxseq", 2u);
-        } else if(arg == "--heads") {
+        } else if (arg == "--heads") {
             opt.heads = true;
-        } else if(arg == "--executor") {
+        } else if (arg == "--executor") {
             opt.executor_mode = true;
-        } else if(arg == "--roofline") {
+        } else if (arg == "--roofline") {
             opt.roofline = true;
-        } else if(arg == "--text") {
+        } else if (arg == "--text") {
             opt.text = need("text");
-        } else if(arg == "--note") {
+        } else if (arg == "--note") {
             opt.note = need("note");
         } else {
             LUISA_ERROR_WITH_LOCATION("unknown argument: {}", arg);
         }
     }
-    if(opt.model_dir.empty()) {
+    if (opt.model_dir.empty()) {
         LUISA_ERROR_WITH_LOCATION(
             "no model dir: pass --model DIR or set BGEM3_MODEL_DIR (expects model.bgm + tokenizer.json inside)");
     }
@@ -177,9 +177,9 @@ struct Statistics {
         "courtyard near the riverbank, and somewhere downstream a patient "
         "fisherman mends his nets as the morning fog lifts slowly.\n";
     luisa::string text;
-    for(uint32_t attempt = 0; attempt < 4096u; attempt++) {
+    for (uint32_t attempt = 0; attempt < 4096u; attempt++) {
         text.append(kBase.data(), kBase.size());
-        if(tok.encode(text, 8192u).size() >= target_tokens) {
+        if (tok.encode(text, 8192u).size() >= target_tokens) {
             break;
         }
     }
@@ -189,17 +189,17 @@ struct Statistics {
 void append_csv(const Options &opt, luisa::string_view backend, luisa::string_view mode,
                 uint32_t actual_seq, double cold_ms, double tok_min,
                 const Statistics &enc, double record_min, double wall_min) {
-    if(opt.csv.empty()) {
+    if (opt.csv.empty()) {
         return;
     }
     const bool need_header = !std::filesystem::exists(opt.csv) ||
                              std::filesystem::file_size(opt.csv) == 0u;
     std::ofstream out{opt.csv, std::ios::app};
-    if(!out) {
+    if (!out) {
         LUISA_WARNING("benchmark_embed: cannot open csv \"{}\" -- row dropped.", opt.csv.string());
         return;
     }
-    if(need_header) {
+    if (need_header) {
         out << "backend,mode,seq,batch,heads,iters,note,cold_start_ms,tok_min_ms,"
                "enc_min_ms,enc_median_ms,enc_mean_ms,record_min_ms,wall_min_ms\n";
     }
@@ -234,7 +234,7 @@ void run_roofline(Device &device, luisa::string_view backend) {
     stream << fill_shader(in.view(), make_float4(1.0f)).dispatch(n4)
            << fill_shader(out.view(), make_float4(0.0f)).dispatch(n4) << synchronize();
     luisa::vector<double> bw;
-    for(uint32_t i = 0u; i < 10u; i++) {
+    for (uint32_t i = 0u; i < 10u; i++) {
         Clock clock;
         stream << stream_shader(in.view(), out.view()).dispatch(n4) << synchronize();
         bw.emplace_back(clock.toc());
@@ -256,14 +256,14 @@ void run_roofline(Device &device, luisa::string_view backend) {
         Var<float> x1 = 0.9999999f;
         Var<float> x2 = 1.0000002f;
         Var<float> x3 = 0.9999998f;
-        for(auto j = 0u; j < 1024u; j++) {
+        for (auto j = 0u; j < 1024u; j++) {
             x0 = x0 * 1.0000001f + 0.0000001f;
             x1 = x1 * 1.0000001f - 0.0000001f;
             x2 = x2 * 1.0000001f + 0.0000002f;
             x3 = x3 * 1.0000001f - 0.0000002f;
         }
         // Never-true guard keeps the chains alive without polluting the cache.
-        $if(dispatch_id().x == 0xFFFFFFFFu) {
+        $if (dispatch_id().x == 0xFFFFFFFFu) {
             sink.write(0u, x0 + x1 + x2 + x3);
         };
     };
@@ -271,14 +271,14 @@ void run_roofline(Device &device, luisa::string_view backend) {
     auto flops_shader = device.compile(flops_kernel, compute::ShaderOption{.name = "roofline_flops"});
     const uint32_t flop_blocks = 76u * 8u;// 76 SMs on the dev GPU, 8 blocks each
     luisa::vector<double> fl;
-    for(uint32_t i = 0u; i < 5u; i++) {
+    for (uint32_t i = 0u; i < 5u; i++) {
         Clock clock;
         stream << flops_shader(sink_buf.view()).dispatch(flop_blocks * 256u) << synchronize();
         fl.emplace_back(clock.toc());
     }
     const auto fl_min = summarize(fl).min;
     const double tflops = static_cast<double>(flop_blocks) * 256.0 *
-                          1024.0/*unrolled fma*/ * 4.0/*chains*/ * 2.0 / (fl_min * 1.0e6) / 1.0e3;
+                          1024.0 /*unrolled fma*/ * 4.0 /*chains*/ * 2.0 / (fl_min * 1.0e6) / 1.0e3;
 
     LUISA_INFO("=== roofline anchors (backend {}) ===", backend);
     LUISA_INFO("DRAM bandwidth : {:>10.1f} GB/s   (streaming float4 r+w, 537 MB moved, min-of-10)", bw_gbps);
@@ -291,7 +291,7 @@ void run_roofline(Device &device, luisa::string_view backend) {
 void run_session_bench(Device &device, const Options &opt, luisa::string_view backend) {
     const auto bgm = opt.model_dir / "model.bgm";
     const auto tokjson = opt.model_dir / "tokenizer.json";
-    if(!std::filesystem::exists(bgm) || !std::filesystem::exists(tokjson)) {
+    if (!std::filesystem::exists(bgm) || !std::filesystem::exists(tokjson)) {
         LUISA_ERROR_WITH_LOCATION("model dir \"{}\" must contain model.bgm and tokenizer.json",
                                   opt.model_dir.string());
     }
@@ -314,7 +314,7 @@ void run_session_bench(Device &device, const Options &opt, luisa::string_view ba
 
     // Tokenizer-only ruler (same work the session does per text).
     luisa::vector<double> tok_samples;
-    for(uint32_t i = 0u; i < opt.iters; i++) {
+    for (uint32_t i = 0u; i < opt.iters; i++) {
         Clock clock;
         auto ids = tokenizer->encode(text, 8192u);
         (void)ids;
@@ -324,8 +324,8 @@ void run_session_bench(Device &device, const Options &opt, luisa::string_view ba
 
     // Warm-up: allocator steady state + lazy kernel compiles (flash path) must
     // not leak into the samples.
-    for(uint32_t i = 0u; i < opt.warmup; i++) {
-        if(opt.batch == 1u) {
+    for (uint32_t i = 0u; i < opt.warmup; i++) {
+        if (opt.batch == 1u) {
             auto e = session->encode(text, eopt);
             (void)e;
         } else {
@@ -336,9 +336,9 @@ void run_session_bench(Device &device, const Options &opt, luisa::string_view ba
     }
 
     luisa::vector<double> enc;
-    for(uint32_t i = 0u; i < opt.iters; i++) {
+    for (uint32_t i = 0u; i < opt.iters; i++) {
         Clock clock;
-        if(opt.batch == 1u) {
+        if (opt.batch == 1u) {
             auto e = session->encode(text, eopt);
             (void)e;
         } else {
@@ -355,7 +355,7 @@ void run_session_bench(Device &device, const Options &opt, luisa::string_view ba
     LUISA_INFO("cold start (load+upload+compile): {:>10.1f} ms", cold_ms);
     LUISA_INFO("tokenize only       min/median/mean: {:>8.3f} / {:>8.3f} / {:>8.3f} ms", tok.min, tok.median, tok.mean);
     LUISA_INFO("encode e2e          min/median/mean: {:>8.3f} / {:>8.3f} / {:>8.3f} ms", enc_stats.min, enc_stats.median, enc_stats.mean);
-    if(opt.batch > 1u) {
+    if (opt.batch > 1u) {
         LUISA_INFO("per-embedding (batch wall / {}):    {:>8.3f} ms", opt.batch, enc_stats.min / static_cast<double>(opt.batch));
     }
     append_csv(opt, backend, "session", actual_seq, cold_ms, tok.min, enc_stats, 0.0, 0.0);
@@ -367,7 +367,7 @@ void run_executor_bench(Device &device, const Options &opt, luisa::string_view b
     const auto bgm = opt.model_dir / "model.bgm";
     const auto tokjson = opt.model_dir / "tokenizer.json";
     auto package = luisa::embed::Package::load(bgm);
-    if(package == nullptr) {
+    if (package == nullptr) {
         LUISA_ERROR_WITH_LOCATION("failed to load package \"{}\"", bgm.string());
     }
     auto tokenizer = luisa::embed::Tokenizer::load(tokjson);
@@ -395,7 +395,7 @@ void run_executor_bench(Device &device, const Options &opt, luisa::string_view b
     std::vector<float> dense(static_cast<size_t>(B) * H, 0.0f);
     std::vector<float> sparse(opt.heads ? rows : 0u, 0.0f);
     std::vector<float> colbert(opt.heads ? static_cast<size_t>(rows) * H : 0u, 0.0f);
-    for(uint32_t b = 0u; b < B; b++) {
+    for (uint32_t b = 0u; b < B; b++) {
         std::copy(ids0.begin(), ids0.end(), ids.begin() + static_cast<size_t>(b) * S);
     }
 
@@ -411,14 +411,14 @@ void run_executor_bench(Device &device, const Options &opt, luisa::string_view b
     job.colbert_out = luisa::span<float>{colbert.data(), colbert.size()};
 
     // Warm-up (pool growth + lazy flash compile).
-    for(uint32_t i = 0u; i < opt.warmup + 1u; i++) {
+    for (uint32_t i = 0u; i < opt.warmup + 1u; i++) {
         CommandList cl;
         executor.record_encode(cl, job);
         stream << std::move(cl).commit() << synchronize();
     }
 
     luisa::vector<double> record_samples, wall_samples;
-    for(uint32_t i = 0u; i < opt.iters; i++) {
+    for (uint32_t i = 0u; i < opt.iters; i++) {
         Clock wall_clock;
         CommandList cl;
         Clock record_clock;
@@ -441,7 +441,7 @@ void run_executor_bench(Device &device, const Options &opt, luisa::string_view b
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if(argc < 2) {
+    if (argc < 2) {
         LUISA_ERROR_WITH_LOCATION(
             "Usage: {} <backend> [--model DIR] [--seq N] [--batch B] [--iters N] "
             "[--warmup N] [--csv FILE] [--heads] [--executor] [--roofline] [--text S] [--note S]",
@@ -453,11 +453,11 @@ int main(int argc, char *argv[]) {
     auto [context, device] = test::create_device(argc, argv);
     const luisa::string_view backend{argv[1]};
 
-    if(opt.roofline) {
+    if (opt.roofline) {
         run_roofline(device, backend);
         return 0;
     }
-    if(opt.executor_mode) {
+    if (opt.executor_mode) {
         run_executor_bench(device, opt, backend);
         return 0;
     }

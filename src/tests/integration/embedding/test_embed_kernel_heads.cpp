@@ -52,7 +52,7 @@ struct Lcg {
 };
 
 void fill_uniform(Lcg &rng, luisa::vector<float> &v, float lo, float hi) noexcept {
-    for(auto &f : v) {
+    for (auto &f : v) {
         f = rng.uniform(lo, hi);
     }
 }
@@ -75,7 +75,7 @@ void test_slice_cls(Device &device, Stream &stream) {
            << synchronize();
 
     float max_diff = 0.f;
-    for(uint i = 0; i < kH; i++) {
+    for (uint i = 0; i < kH; i++) {
         max_diff = std::max(max_diff, std::abs(out[i] - hidden[i]));
     }
     LUISA_INFO("slice_cls rows={} H={}: max_abs_diff={:.3e}", kRows, kH, max_diff);
@@ -87,7 +87,7 @@ void test_sparse_head(Device &device, Stream &stream) {
     constexpr uint kRows = 3u;
     const uint hs[] = {7u, 16u, 1024u};
     auto shader = device.compile(make_sparse_head_kernel());
-    for(const uint h : hs) {
+    for (const uint h : hs) {
         Lcg rng{};
         rng.state = 0x5EED1234u ^ (h << 3u);
         luisa::vector<float> x(static_cast<size_t>(kRows) * h);
@@ -98,9 +98,9 @@ void test_sparse_head(Device &device, Stream &stream) {
 
         // CPU reference: out[t] = relu(sum_h X[t,h] * W[h] + b), serial order.
         luisa::vector<float> ref(kRows, 0.f);
-        for(uint t = 0; t < kRows; t++) {
+        for (uint t = 0; t < kRows; t++) {
             float dot = 0.f;
-            for(uint hh = 0; hh < h; hh++) {
+            for (uint hh = 0; hh < h; hh++) {
                 dot += x[static_cast<size_t>(t) * h + hh] * w[hh];
             }
             const float v = dot + b;
@@ -116,14 +116,14 @@ void test_sparse_head(Device &device, Stream &stream) {
 
         luisa::vector<float> out(kRows, 0.f);
         stream << shader(x_buf, w_buf, b, out_buf, h)
-                      .dispatch(kRows * kHeadsBlock) // block per token; total threads
+                      .dispatch(kRows * kHeadsBlock)// block per token; total threads
                << out_buf.copy_to(luisa::span{out})
                << synchronize();
 
         float max_diff = 0.f;
-        float worst_ratio = 0.f; // diff / tolerance
+        float worst_ratio = 0.f;// diff / tolerance
         bool ok = true;
-        for(uint t = 0; t < kRows; t++) {
+        for (uint t = 0; t < kRows; t++) {
             const float d = std::abs(out[t] - ref[t]);
             const float tol = 1e-5f + 1e-5f * std::abs(ref[t]);
             max_diff = std::max(max_diff, d);
@@ -141,11 +141,11 @@ void test_colbert_proj(Device &device, Stream &stream) {
     const uint hs[] = {7u, 16u, 1024u};
     const uint ns[] = {1u, 13u, 1024u};
     auto shader = device.compile(make_colbert_proj_kernel());
-    for(const uint rows_u : {2u, 5u}) {
-        for(uint hi = 0; hi < 3u; hi++) {
+    for (const uint rows_u : {2u, 5u}) {
+        for (uint hi = 0; hi < 3u; hi++) {
             const uint h = hs[hi];
-            const uint n = ns[hi]; // ragged pairs (7,1), (16,13), (1024,1024)
-            for(const uint norm : {0u, 1u}) {
+            const uint n = ns[hi];// ragged pairs (7,1), (16,13), (1024,1024)
+            for (const uint norm : {0u, 1u}) {
                 Lcg rng{};
                 rng.state = 0xC01B3E7u ^ (h << 5u) ^ (n << 1u) ^ norm ^ (rows_u << 12u);
                 luisa::vector<float> x(static_cast<size_t>(rows_u) * h);
@@ -159,11 +159,11 @@ void test_colbert_proj(Device &device, Stream &stream) {
                 // per-row division by max(||y||_2, 1e-12) when normalizing
                 // (torch F.normalize semantics, same op order as the kernel).
                 luisa::vector<float> ref(static_cast<size_t>(rows_u) * n, 0.f);
-                for(uint t = 0; t < rows_u; t++) {
+                for (uint t = 0; t < rows_u; t++) {
                     float sq = 0.f;
-                    for(uint nn = 0; nn < n; nn++) {
+                    for (uint nn = 0; nn < n; nn++) {
                         float acc = 0.f;
-                        for(uint hh = 0; hh < h; hh++) {
+                        for (uint hh = 0; hh < h; hh++) {
                             acc += x[static_cast<size_t>(t) * h + hh] *
                                    wc[static_cast<size_t>(hh) * n + nn];
                         }
@@ -171,10 +171,10 @@ void test_colbert_proj(Device &device, Stream &stream) {
                         ref[static_cast<size_t>(t) * n + nn] = y;
                         sq += y * y;
                     }
-                    if(norm != 0u) {
+                    if (norm != 0u) {
                         float d = std::sqrt(sq);
                         d = d < 1e-12f ? 1e-12f : d;
-                        for(uint nn = 0; nn < n; nn++) {
+                        for (uint nn = 0; nn < n; nn++) {
                             ref[static_cast<size_t>(t) * n + nn] /= d;
                         }
                     }
@@ -191,14 +191,14 @@ void test_colbert_proj(Device &device, Stream &stream) {
 
                 luisa::vector<float> out(static_cast<size_t>(rows_u) * n, 0.f);
                 stream << shader(x_buf, wc_buf, bc_buf, out_buf, h, n, norm)
-                              .dispatch(rows_u * kHeadsBlock) // block per token
+                              .dispatch(rows_u * kHeadsBlock)// block per token
                        << out_buf.copy_to(luisa::span{out})
                        << synchronize();
 
                 float max_diff = 0.f;
                 float worst_ratio = 0.f;
                 bool ok = true;
-                for(size_t i = 0; i < out.size(); i++) {
+                for (size_t i = 0; i < out.size(); i++) {
                     const float d = std::abs(out[i] - ref[i]);
                     const float tol = 1e-3f * std::max(1.f, std::abs(ref[i]));
                     max_diff = std::max(max_diff, d);

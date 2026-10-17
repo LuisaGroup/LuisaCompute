@@ -90,11 +90,11 @@ using namespace boost::ut::literals;
 namespace {
 
 luisa::vector<char> read_file(const std::filesystem::path &p) {
-    if(std::FILE *f = std::fopen(p.string().c_str(), "rb"); f != nullptr) {
+    if (std::FILE *f = std::fopen(p.string().c_str(), "rb"); f != nullptr) {
         luisa::vector<char> data;
         char buf[65536];
         size_t got = 0u;
-        while((got = std::fread(buf, 1u, sizeof(buf), f)) > 0u) {
+        while ((got = std::fread(buf, 1u, sizeof(buf), f)) > 0u) {
             data.insert(data.end(), buf, buf + static_cast<ptrdiff_t>(got));
         }
         std::fclose(f);
@@ -107,10 +107,10 @@ luisa::string unescape_corpus_line(luisa::string_view line) {
     luisa::string out;
     out.reserve(line.size());
     size_t i = 0u;
-    while(i < line.size()) {
-        if(line[i] == '\\' && i + 1u < line.size()) {
+    while (i < line.size()) {
+        if (line[i] == '\\' && i + 1u < line.size()) {
             const auto c = line[i + 1u];
-            if(c == 'n' || c == 'r' || c == '\\') {
+            if (c == 'n' || c == 'r' || c == '\\') {
                 out.push_back(c == 'n' ? '\n' : (c == 'r' ? '\r' : '\\'));
                 i += 2u;
                 continue;
@@ -128,18 +128,18 @@ luisa::vector<luisa::string> load_corpus(const std::filesystem::path &dir) {
     size_t start = 0u;
     auto emit_line = [&](size_t end) {
         luisa::string_view line{raw.data() + start, end - start};
-        if(!line.empty() && line.back() == '\r') {
+        if (!line.empty() && line.back() == '\r') {
             line.remove_suffix(1u);
         }
         lines.push_back(unescape_corpus_line(line));
         start = end + 1u;
     };
-    for(size_t i = 0u; i < raw.size(); i++) {
-        if(raw[i] == '\n') {
+    for (size_t i = 0u; i < raw.size(); i++) {
+        if (raw[i] == '\n') {
             emit_line(i);
         }
     }
-    if(start < raw.size()) {
+    if (start < raw.size()) {
         emit_line(raw.size());
     }
     return lines;
@@ -149,7 +149,7 @@ luisa::vector<luisa::string> load_corpus(const std::filesystem::path &dir) {
 #ifdef _WIN32
     PROCESS_MEMORY_COUNTERS_EX pmc{};
     pmc.cb = sizeof(pmc);
-    if(::GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&pmc), sizeof(pmc)) != 0) {
+    if (::GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&pmc), sizeof(pmc)) != 0) {
         return static_cast<uint64_t>(pmc.WorkingSetSize);
     }
     return 0u;
@@ -160,7 +160,7 @@ luisa::vector<luisa::string> load_corpus(const std::filesystem::path &dir) {
 
 [[nodiscard]] uint64_t popcount(uint64_t v) noexcept {
     uint64_t c = 0u;
-    while(v != 0u) {
+    while (v != 0u) {
         v &= (v - 1u);
         c++;
     }
@@ -176,8 +176,7 @@ int main(int argc, char *argv[]) {
     const bool is_fallback = std::strcmp(argv[1], "fallback") == 0;
 
     const std::filesystem::path data_dir{LUISA_EMBED_TEST_DATA_DIR};
-    const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]}
-                                                : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
+    const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]} : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
     const auto corpus = load_corpus(data_dir);
     expect(corpus.size() >= 184u) << "corpus size";
 
@@ -195,14 +194,14 @@ int main(int argc, char *argv[]) {
     // (all six ST sentences are mixed-length incl. both truncated 182/183).
     const bool st_scaled = is_fallback && single_threading;
     luisa::vector<uint32_t> sel;
-    if(st_scaled) {
-        for(uint32_t i = 0; i < 184u; i += 60u) {
+    if (st_scaled) {
+        for (uint32_t i = 0; i < 184u; i += 60u) {
             sel.emplace_back(i);
         }
         sel.emplace_back(182u);
         sel.emplace_back(183u);
     } else {
-        for(uint32_t i = 0; i < 184u; i += 3u) {
+        for (uint32_t i = 0; i < 184u; i += 3u) {
             sel.emplace_back(i);
         }
         sel.emplace_back(182u);
@@ -217,9 +216,9 @@ int main(int argc, char *argv[]) {
     // session uses, so padding decisions match).
     auto tok = Tokenizer::load(data_dir / "tokenizer.json");
     luisa::vector<uint32_t> hammer_src;
-    for(uint32_t i = 0; i < 184u; i++) {
+    for (uint32_t i = 0; i < 184u; i++) {
         const auto ids = tok->encode(corpus[i], 512u);
-        if(ids.size() > 32u && ids.size() <= 128u) {
+        if (ids.size() > 32u && ids.size() <= 128u) {
             hammer_src.emplace_back(i);
         }
     }
@@ -237,12 +236,12 @@ int main(int argc, char *argv[]) {
         auto session1 = Session::create(device, bgm, data_dir / "tokenizer.json", 1u);
         baseline.reserve(sel.size());
         luisa::compute::Clock clock;
-        for(const auto i : sel) {
+        for (const auto i : sel) {
             baseline.emplace_back(session1->encode(corpus[i]).dense);
         }
         LUISA_INFO("sequential baseline: {} encodes on P=1 in {:.1f} ms ({:.2f} ms/req)",
                    n_sel, clock.toc(), clock.toc() / static_cast<double>(n_sel));
-        for(const auto i : hammer_src) {
+        for (const auto i : hammer_src) {
             hammer_base.emplace_back(session1->encode(corpus[i]).dense);
         }
         LUISA_INFO("hammer baseline: {} bucket-128 sentences encoded sequentially on P=1",
@@ -264,11 +263,11 @@ int main(int argc, char *argv[]) {
         luisa::compute::Clock wall_clock;
         luisa::vector<std::thread> threads;
         threads.reserve(8u);
-        for(uint32_t t = 0; t < 8u; t++) {
+        for (uint32_t t = 0; t < 8u; t++) {
             threads.emplace_back([&] {
-                for(;;) {
+                for (;;) {
                     const auto k = next_req.fetch_add(1u);
-                    if(k >= sel.size()) {
+                    if (k >= sel.size()) {
                         break;
                     }
                     const auto idx = sel[k];
@@ -284,12 +283,12 @@ int main(int argc, char *argv[]) {
                 }
             });
         }
-        for(auto &th : threads) {
+        for (auto &th : threads) {
             th.join();
         }
         // all submissions done; wait purely on the completion counter (the
         // async path has no host-side wait primitive other than the callback).
-        while(completed.load() < sel.size()) {
+        while (completed.load() < sel.size()) {
             std::this_thread::yield();
         }
         const auto wall_ms = wall_clock.toc();
@@ -301,17 +300,17 @@ int main(int argc, char *argv[]) {
     uint32_t mismatches = 0u;
     double worst_abs = 0.0;
     bool hammer_ok = false;
-    for(size_t k = 0; k < sel.size(); k++) {
+    for (size_t k = 0; k < sel.size(); k++) {
         expect(slots[k].done) << "request " << k << " completed via callback";
         const auto &a = baseline[k];
         const auto &b = slots[k].dense;
-        if(a.size() != b.size()) {
+        if (a.size() != b.size()) {
             mismatches++;
             continue;
         }
-        for(size_t i = 0; i < a.size(); i++) {
+        for (size_t i = 0; i < a.size(); i++) {
             const double d = std::abs(static_cast<double>(a[i]) - static_cast<double>(b[i]));
-            if(d > 0.0) {
+            if (d > 0.0) {
                 mismatches++;
                 worst_abs = std::max(worst_abs, d);
                 break;
@@ -327,7 +326,7 @@ int main(int argc, char *argv[]) {
         auto samples = session->take_latency_samples_ms();
         std::sort(samples.begin(), samples.end());
         const auto n = samples.size();
-        if(n > 0u) {
+        if (n > 0u) {
             const double p50 = samples[n / 2u];
             const double p90 = samples[n * 9u / 10u];
             LUISA_INFO("latency samples: n={}, min={:.2f} ms, p50={:.2f} ms, p90={:.2f} ms, max={:.2f} ms",
@@ -340,14 +339,14 @@ int main(int argc, char *argv[]) {
     // ---- (e) §4.4 row 3: one-bucket async hammer (256 requests, 8 threads) --
     {
         luisa::vector<luisa::vector<float>> hdense(hammer_n);
-        for(auto &d : hdense) {
+        for (auto &d : hdense) {
             d.resize(1024u);
         }
         const size_t words_n = (hammer_n + 63u) / 64u;
         luisa::vector<uint64_t> word_snap(words_n, 0u);
         std::atomic<uint32_t> h_completed{0}, h_total_cbs{0}, h_dups{0};
         std::atomic<uint64_t> h_bits[4];// words_n <= 4 for 256
-        for(auto &w : h_bits) {
+        for (auto &w : h_bits) {
             w.store(0u);
         }
         std::atomic<uint32_t> h_next{0};
@@ -355,11 +354,11 @@ int main(int argc, char *argv[]) {
             luisa::compute::Clock wall_clock;
             luisa::vector<std::thread> threads;
             threads.reserve(8u);
-            for(uint32_t t = 0; t < 8u; t++) {
+            for (uint32_t t = 0; t < 8u; t++) {
                 threads.emplace_back([&] {
-                    for(;;) {
+                    for (;;) {
                         const auto k = h_next.fetch_add(1u);
-                        if(k >= hammer_n) {
+                        if (k >= hammer_n) {
                             break;
                         }
                         const auto idx = hammer_src[k % hammer_src.size()];
@@ -371,7 +370,7 @@ int main(int argc, char *argv[]) {
                             h_total_cbs.fetch_add(1u);
                             const auto wi = k >> 6u;
                             const uint64_t bit = 1ull << (k & 63u);
-                            if((h_bits[wi].fetch_or(bit) & bit) != 0u) {
+                            if ((h_bits[wi].fetch_or(bit) & bit) != 0u) {
                                 h_dups.fetch_add(1u);
                             }
                             hdense[k] = std::move(e.dense);
@@ -380,10 +379,10 @@ int main(int argc, char *argv[]) {
                     }
                 });
             }
-            for(auto &th : threads) {
+            for (auto &th : threads) {
                 th.join();
             }
-            while(h_completed.load() < hammer_n) {
+            while (h_completed.load() < hammer_n) {
                 std::this_thread::yield();
             }
             LUISA_INFO("hammer(e): {} async requests, one bucket (128), 8 threads, P=2: "
@@ -391,7 +390,7 @@ int main(int argc, char *argv[]) {
                        hammer_n, h_total_cbs.load(), h_dups.load(), wall_clock.toc());
         }
         uint64_t live_bits = 0u;
-        for(size_t w = 0; w < words_n; w++) {
+        for (size_t w = 0; w < words_n; w++) {
             word_snap[w] = h_bits[w].load();
             live_bits += popcount(word_snap[w]);
         }
@@ -400,16 +399,16 @@ int main(int argc, char *argv[]) {
         expect(live_bits == hammer_n) << "every request index completed exactly once (bit liveness)";
         uint32_t h_mismatch = 0u;
         double h_worst = 0.0;
-        for(uint32_t k = 0; k < hammer_n; k++) {
+        for (uint32_t k = 0; k < hammer_n; k++) {
             const auto &a = hammer_base[k % hammer_src.size()];
             const auto &b = hdense[k];
-            if(a.size() != b.size()) {
+            if (a.size() != b.size()) {
                 h_mismatch++;
                 continue;
             }
-            for(size_t i = 0; i < a.size(); i++) {
+            for (size_t i = 0; i < a.size(); i++) {
                 const double d = std::abs(static_cast<double>(a[i]) - static_cast<double>(b[i]));
-                if(d > 0.0) {
+                if (d > 0.0) {
                     h_mismatch++;
                     h_worst = std::max(h_worst, d);
                     break;
@@ -448,27 +447,27 @@ int main(int argc, char *argv[]) {
         uint32_t enc_done = 0u;
         luisa::compute::Clock clock;
         const auto n_loop = std::max(ev_cycles, enc_cycles);
-        for(uint32_t i = 0; i < n_loop; i++) {
-            if(i < ev_cycles) {
+        for (uint32_t i = 0; i < n_loop; i++) {
+            if (i < ev_cycles) {
                 auto cl = CommandList::create();
                 cl << scratch.view().copy_from(luisa::span{host64});
                 st << cl.commit();
                 auto sig = ev.signal();
                 st << std::move(sig);
-                if(sig.fence != prev_fence + 1u) {
+                if (sig.fence != prev_fence + 1u) {
                     fence_violations++;
                 }
                 ev.synchronize(sig.fence);
-                if(!ev.is_completed(sig.fence) || ev.last_fence() != sig.fence) {
+                if (!ev.is_completed(sig.fence) || ev.last_fence() != sig.fence) {
                     fence_violations++;
                 }
                 prev_fence = sig.fence;
             }
-            if(i < enc_cycles) {
+            if (i < enc_cycles) {
                 auto e = session->encode("a b c");
-                if(i == 0u) {
+                if (i == 0u) {
                     first_enc = std::move(e.dense);
-                } else if(e.dense != first_enc) {
+                } else if (e.dense != first_enc) {
                     enc_mismatch++;
                 }
                 enc_done++;
@@ -504,32 +503,32 @@ int main(int argc, char *argv[]) {
         // soak that fired all 5000 submits at once would trip that bound on
         // purpose, so cap outstanding (submitted - completed) below
         // max_queue_size to drive a steady encode/complete lifecycle.
-        const uint32_t in_flight_cap = 256u; // << scheduler default max_queue_size (512)
+        const uint32_t in_flight_cap = 256u;// << scheduler default max_queue_size (512)
         luisa::vector<uint64_t> rss_samples;
         luisa::vector<uint32_t> at_counts;
         {
             luisa::compute::Clock wall_clock;
             luisa::vector<std::thread> threads;
             threads.reserve(8u);
-            for(uint32_t t = 0; t < 8u; t++) {
+            for (uint32_t t = 0; t < 8u; t++) {
                 threads.emplace_back([&] {
-                    for(;;) {
+                    for (;;) {
                         const auto k = s_next.fetch_add(1u);
-                        if(k >= soak_n) {
+                        if (k >= soak_n) {
                             break;
                         }
                         // respect the bounded queue: only enqueue when there is
                         // room, so we exercise steady-state soak, not overflow.
-                        while(s_submitted.load() - s_completed.load() >= in_flight_cap) {
+                        while (s_submitted.load() - s_completed.load() >= in_flight_cap) {
                             std::this_thread::yield();
                         }
                         s_submitted.fetch_add(1u);
                         session->encode_async(corpus[k % soak_texts], [&, k](Embedding e) noexcept {
-                            if(e.dense.size() != 1024u) {
+                            if (e.dense.size() != 1024u) {
                                 s_bad.fetch_add(1u);
                             } else {
-                                for(const auto v : e.dense) {
-                                    if(!(v == v))// NaN guard without exceptions
+                                for (const auto v : e.dense) {
+                                    if (!(v == v))// NaN guard without exceptions
                                     {
                                         s_bad.fetch_add(1u);
                                         break;
@@ -542,19 +541,19 @@ int main(int argc, char *argv[]) {
                 });
             }
             uint32_t next_sample_at = soak_step;
-            while(s_completed.load() < soak_n) {
-                if(s_completed.load() >= next_sample_at) {
+            while (s_completed.load() < soak_n) {
+                if (s_completed.load() >= next_sample_at) {
                     rss_samples.emplace_back(process_rss_bytes());
                     at_counts.emplace_back(next_sample_at);
                     next_sample_at += soak_step;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds{2});
             }
-            for(auto &th : threads) {
+            for (auto &th : threads) {
                 th.join();
             }
             // final settled-state sample (all callbacks have fired)
-            if(rss_samples.empty() || at_counts.back() < soak_n) {
+            if (rss_samples.empty() || at_counts.back() < soak_n) {
                 rss_samples.emplace_back(process_rss_bytes());
                 at_counts.emplace_back(soak_n);
             }
@@ -563,19 +562,19 @@ int main(int argc, char *argv[]) {
             expect(s_completed.load() == soak_n) << "soak: every completion callback fired";
             expect(s_bad.load() == 0u) << "soak: all results well-formed";
         }
-        if(process_rss_bytes() == 0u) {
+        if (process_rss_bytes() == 0u) {
             LUISA_WARNING("soak(g): RSS sampling unavailable on this platform -- growth leg skipped");
         } else {
-            for(size_t i = 0; i < rss_samples.size(); i++) {
+            for (size_t i = 0; i < rss_samples.size(); i++) {
                 LUISA_INFO("soak(g): RSS after {:6.0f} completions = {:.1f} MB",
                            static_cast<double>(at_counts[i]),
                            static_cast<double>(rss_samples[i]) / (1024.0 * 1024.0));
             }
             const size_t wi = soak_warm / soak_step;
             expect(rss_samples.size() > wi) << "soak: enough samples past warm-up";
-            if(rss_samples.size() > wi) {
+            if (rss_samples.size() > wi) {
                 uint64_t min_post_warm = rss_samples[wi];
-                for(size_t i = wi + 1u; i < rss_samples.size(); i++) {
+                for (size_t i = wi + 1u; i < rss_samples.size(); i++) {
                     min_post_warm = std::min(min_post_warm, rss_samples[i]);
                 }
                 const auto last = rss_samples.back();
@@ -589,7 +588,7 @@ int main(int argc, char *argv[]) {
     }
 
     // ---- (h) §6 fallback row: LUISA_SINGLE_THREADING leg --------------------
-    if(single_threading) {
+    if (single_threading) {
         // This process ran entirely under LUISA_SINGLE_THREADING=1 (the var
         // must be set before device creation; in-process setenv cannot retro-
         // apply), so the bit-exactness asserted above (legs a and e) IS the
@@ -597,7 +596,7 @@ int main(int argc, char *argv[]) {
         expect(mismatches == 0u) << "ST: mixed-length bit-exactness under LUISA_SINGLE_THREADING";
         expect(hammer_ok) << "ST: hammer bit-exactness under LUISA_SINGLE_THREADING";
         LUISA_INFO("leg(h): LUISA_SINGLE_THREADING=1 bit-exactness: PASS (this whole single-threaded run; legs a/e re-gated; add-on legs e/f/g scaled for CPU wall-time)");
-    } else if(is_fallback) {
+    } else if (is_fallback) {
         LUISA_INFO("leg(h): SKIP LUISA_SINGLE_THREADING=1 fallback bit-exactness leg (env unset at process start; run the binary with the var set to execute it)");
     } else {
         LUISA_INFO("leg(h): note -- LUISA_SINGLE_THREADING leg applies to the fallback backend (§6); not this backend");
@@ -611,7 +610,7 @@ int main(int argc, char *argv[]) {
                reorder_disabled ? "DISABLED" : "ENABLED",
                hammer_n,
                single_threading ? "ACTIVE" : "SKIP");
-    if(!reorder_disabled) {
+    if (!reorder_disabled) {
         LUISA_INFO("debug gate reminder (plan §8): re-run this test with LUISA_DISABLE_COMMAND_REORDER=1.");
     }
     return 0;

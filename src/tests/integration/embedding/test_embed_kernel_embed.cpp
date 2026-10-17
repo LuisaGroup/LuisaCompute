@@ -59,22 +59,22 @@ luisa::vector<float> embed_cpu_reference(const luisa::vector<uint32_t> &ids,
                                          uint b, uint s, uint h, float eps) {
     luisa::vector<float> out(static_cast<size_t>(b) * s * h, 0.f);
     const size_t rows = static_cast<size_t>(b) * s;
-    for(size_t row = 0; row < rows; row++) {
+    for (size_t row = 0; row < rows; row++) {
         const auto p = static_cast<size_t>(row % s);
         const auto id = static_cast<size_t>(ids[row]);
         float sum = 0.f;
-        for(uint hh = 0; hh < h; hh++) {
+        for (uint hh = 0; hh < h; hh++) {
             sum += word[id * h + hh] + pos[p * h + hh];
         }
         const float mean = sum / static_cast<float>(h);
         float vsum = 0.f;
-        for(uint hh = 0; hh < h; hh++) {
+        for (uint hh = 0; hh < h; hh++) {
             const float d = word[id * h + hh] + pos[p * h + hh] - mean;
             vsum += d * d;
         }
         const float var = vsum / static_cast<float>(h);
         const float inv = 1.f / std::sqrt(var + eps);
-        for(uint hh = 0; hh < h; hh++) {
+        for (uint hh = 0; hh < h; hh++) {
             const float x = word[id * h + hh] + pos[p * h + hh];
             out[row * h + hh] = ((x - mean) * inv) * gamma[hh] + beta[hh];
         }
@@ -88,23 +88,23 @@ void test_embed_lookup(Device &device, Stream &stream, uint b, uint s, uint h, u
     rng.state = 0xC0FFEEu ^ (h << 8u) ^ (s << 4u) ^ b;
 
     luisa::vector<uint32_t> ids(rows);
-    for(auto &i : ids) {
+    for (auto &i : ids) {
         i = rng.bounded(v);
     }
     luisa::vector<float> word(static_cast<size_t>(v) * h);
-    for(auto &f : word) {
+    for (auto &f : word) {
         f = rng.uniform(-1.f, 1.f);
     }
-    luisa::vector<float> pos(static_cast<size_t>(s) * h); // positions 0..S-1 only
-    for(auto &f : pos) {
+    luisa::vector<float> pos(static_cast<size_t>(s) * h);// positions 0..S-1 only
+    for (auto &f : pos) {
         f = rng.uniform(-1.f, 1.f);
     }
     luisa::vector<float> gamma(h);
-    for(auto &f : gamma) {
+    for (auto &f : gamma) {
         f = rng.uniform(0.5f, 1.5f);
     }
     luisa::vector<float> beta(h);
-    for(auto &f : beta) {
+    for (auto &f : beta) {
         f = rng.uniform(-0.5f, 0.5f);
     }
 
@@ -127,20 +127,20 @@ void test_embed_lookup(Device &device, Stream &stream, uint b, uint s, uint h, u
     auto shader = device.compile(make_embed_lookup_kernel());
     luisa::vector<float> out(static_cast<size_t>(rows) * h, 0.f);
     stream << shader(word_buf, pos_buf, ids_buf, gamma_buf, beta_buf, out_buf, s, h, 1e-5f, 0u)
-                  .dispatch(rows * kEmbedBlock) // block-per-token row; total threads
+                  .dispatch(rows * kEmbedBlock)// block-per-token row; total threads
            << out_buf.copy_to(luisa::span{out})
            << synchronize();
 
     float max_diff = 0.f;
     size_t worst = 0u;
     bool ok = true;
-    for(size_t i = 0; i < out.size(); i++) {
+    for (size_t i = 0; i < out.size(); i++) {
         const float d = std::abs(out[i] - ref[i]);
-        if(d > max_diff) {
+        if (d > max_diff) {
             max_diff = d;
             worst = i;
         }
-        if(!(d < 1e-4f)) {
+        if (!(d < 1e-4f)) {
             ok = false;
         }
     }
@@ -155,10 +155,10 @@ void test_embed_lookup(Device &device, Stream &stream, uint b, uint s, uint h, u
 int main(int argc, char *argv[]) {
     auto [context, device] = luisa::test::create_device(argc, argv);
     auto stream = device.create_stream();
-    test_embed_lookup(device, stream, 2u, 5u, 8u, 97u);     // tiny ragged row
-    test_embed_lookup(device, stream, 1u, 128u, 64u, 97u);  // S=128 mid row
-    test_embed_lookup(device, stream, 1u, 1u, 1024u, 97u);  // single token
-    test_embed_lookup(device, stream, 2u, 5u, 1024u, 97u);  // bge-m3 hidden size
-    test_embed_lookup(device, stream, 1u, 1u, 2500u, 97u);  // shared-cache fallback
+    test_embed_lookup(device, stream, 2u, 5u, 8u, 97u);   // tiny ragged row
+    test_embed_lookup(device, stream, 1u, 128u, 64u, 97u);// S=128 mid row
+    test_embed_lookup(device, stream, 1u, 1u, 1024u, 97u);// single token
+    test_embed_lookup(device, stream, 2u, 5u, 1024u, 97u);// bge-m3 hidden size
+    test_embed_lookup(device, stream, 1u, 1u, 2500u, 97u);// shared-cache fallback
     return 0;
 }

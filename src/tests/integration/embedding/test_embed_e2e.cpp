@@ -71,7 +71,7 @@
 //     PV folds and every other kernel is row-parallel).
 //  6. Determinism: one sentence encoded 10x -> bit-identical.
 //  7. max_seq_len edge per the documented Session policy (session.cpp
-//     m_make_request: opt.max_seq_len is CLAMPED to [2, 8192] before
+//     _make_request: opt.max_seq_len is CLAMPED to [2, 8192] before
 //     Tokenizer::encode -- not an error): max_seq_len=1 behaves exactly like 2
 //     (bit-identical dense, ids == [0, 2]); max_seq_len=8194 truncates a
 //     8194-token input to 8192 ids, last == </s> -- asserted on every backend
@@ -163,379 +163,379 @@ using namespace boost::ut::literals;
 
 namespace {
 
-    // ---------------------------------------------------------------- data io
-    luisa::vector<char> read_file(const std::filesystem::path &p) {
-        if(std::FILE *f = std::fopen(p.string().c_str(), "rb"); f != nullptr) {
-            luisa::vector<char> data;
-            char buf[65536];
-            size_t got = 0u;
-            while((got = std::fread(buf, 1u, sizeof(buf), f)) > 0u) {
-                data.insert(data.end(), buf, buf + static_cast<ptrdiff_t>(got));
-            }
-            std::fclose(f);
-            return data;
-        }
-        LUISA_ERROR("cannot open test data file \"{}\"", p.string());
-    }
-
-    luisa::vector<float> read_f32_file(const std::filesystem::path &p) {
-        auto raw = read_file(p);
-        luisa::vector<float> out(raw.size() / 4u);
-        std::memcpy(out.data(), raw.data(), out.size() * 4u);
-        return out;
-    }
-
-    // corpus.txt escapes '\\', '\n', '\r' (golden_meta.json: corpus_escapes);
-    // unescape after reading a line. CRLF tolerant. Same reader as
-    // test_embed_executor.cpp.
-    luisa::string unescape_corpus_line(luisa::string_view line) {
-        luisa::string out;
-        out.reserve(line.size());
-        size_t i = 0u;
-        while(i < line.size()) {
-            if(line[i] == '\\' && i + 1u < line.size()) {
-                const auto c = line[i + 1u];
-                if(c == 'n' || c == 'r' || c == '\\') {
-                    out.push_back(c == 'n' ? '\n' : (c == 'r' ? '\r' : '\\'));
-                    i += 2u;
-                    continue;
-                }
-            }
-            out.push_back(line[i]);
-            i++;
-        }
-        return out;
-    }
-
-    luisa::vector<luisa::string> load_corpus(const std::filesystem::path &dir) {
-        auto raw = read_file(dir / "corpus.txt");
-        luisa::vector<luisa::string> lines;
-        size_t start = 0u;
-        auto emit_line = [&](size_t end) {
-            luisa::string_view line{raw.data() + start, end - start};
-            if(!line.empty() && line.back() == '\r') {
-                line.remove_suffix(1u);
-            }
-            lines.push_back(unescape_corpus_line(line));
-            start = end + 1u;
-        };
-        for(size_t i = 0u; i < raw.size(); i++) {
-            if(raw[i] == '\n') {
-                emit_line(i);
-            }
-        }
-        if(start < raw.size()) {
-            emit_line(raw.size());
-        }
-        return lines;
-    }
-
-    // ------------------------------------------------------------ numerics
-    float cosine(const float *a, const float *b, size_t n) {
-        double dot = 0.0, na = 0.0, nb = 0.0;
-        for(size_t i = 0; i < n; i++) {
-            dot += static_cast<double>(a[i]) * b[i];
-            na += static_cast<double>(a[i]) * a[i];
-            nb += static_cast<double>(b[i]) * b[i];
-        }
-        if(na <= 0.0 || nb <= 0.0) {
-            return -1.0f;
-        }
-        return static_cast<float>(dot / (std::sqrt(na) * std::sqrt(nb)));
-    }
-
-    // exact bitwise differences (NaN payloads and +-0 count as differences --
-    // the plan asks for BIT-identical, not approximately equal)
-    size_t count_bitwise_diffs(const luisa::vector<float> &a, const luisa::vector<float> &b) {
-        if(a.size() != b.size()) {
-            return static_cast<size_t>(-1);
-        }
-        size_t n = 0u;
-        for(size_t i = 0; i < a.size(); i++) {
-            n += (std::bit_cast<uint32_t>(a[i]) != std::bit_cast<uint32_t>(b[i]) ? 1u : 0u);
-        }
-        return n;
-    }
-
-    bool all_finite(const luisa::vector<float> &v) {
-        for(auto x : v) {
-            if(!std::isfinite(x)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    bool sparse_bitwise_equal(const luisa::vector<std::pair<uint32_t, float>> &a,
-                              const luisa::vector<std::pair<uint32_t, float>> &b) {
-        if(a.size() != b.size()) {
-            return false;
-        }
-        for(size_t k = 0; k < a.size(); k++) {
-            if(a[k].first != b[k].first ||
-               std::bit_cast<uint32_t>(a[k].second) != std::bit_cast<uint32_t>(b[k].second)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    // ------------------------------------------------------------ golden json
-    struct golden_sparse_entry {
-        uint32_t index;
-        luisa::vector<std::pair<uint32_t, float>> pairs;// raw (before the id>2 filter)
-    };
-
-    luisa::vector<golden_sparse_entry> load_golden_sparse(const std::filesystem::path &dir) {
-        auto path = (dir / "golden_sparse.json").string();
-        yyjson_read_err err;
-        yyjson_doc *doc = yyjson_read_file(path.c_str(), 0u, nullptr, &err);
-        if(doc == nullptr) {
-            LUISA_ERROR("cannot read golden_sparse.json: {} (pos {})",
-                        (err.msg != nullptr ? err.msg : "?"), err.pos);
-        }
-        struct guard {
-            yyjson_doc *d;
-            ~guard() { yyjson_doc_free(d); }
-        } g{doc};
-        const auto *entries = yyjson_obj_get(yyjson_doc_get_root(doc), "entries");
-        if(!yyjson_is_arr(entries)) {
-            LUISA_ERROR("golden_sparse.json: missing entries array");
-        }
-        luisa::vector<golden_sparse_entry> out;
-        yyjson_val *item;
-        yyjson_arr_iter it = yyjson_arr_iter_with(entries);
-        while((item = yyjson_arr_iter_next(&it)) != nullptr) {
-            golden_sparse_entry e;
-            e.index = static_cast<uint32_t>(yyjson_get_uint(yyjson_obj_get(item, "i")));
-            const auto *pairs = yyjson_obj_get(item, "pairs");
-            if(!yyjson_is_arr(pairs)) {
-                LUISA_ERROR("golden_sparse.json: malformed pairs for sentence {}", e.index);
-            }
-            yyjson_val *pair;
-            yyjson_arr_iter pit = yyjson_arr_iter_with(pairs);
-            while((pair = yyjson_arr_iter_next(&pit)) != nullptr) {
-                if(!yyjson_is_arr(pair) || yyjson_arr_size(pair) != 2u) {
-                    LUISA_ERROR("golden_sparse.json: malformed pair for sentence {}", e.index);
-                }
-                const auto *idv = yyjson_arr_get(pair, 0);
-                const auto *wv = yyjson_arr_get(pair, 1);
-                e.pairs.emplace_back(static_cast<uint32_t>(yyjson_get_uint(idv)),
-                                     static_cast<float>(yyjson_get_num(wv)));
-            }
-            out.push_back(std::move(e));
-        }
-        return out;
-    }
-
-    struct colbert_layout_entry {
-        uint32_t index;
-        uint32_t rows;
-        size_t float_offset;// elements (offset_bytes / 4)
-    };
-
-    luisa::vector<colbert_layout_entry> load_colbert_layout(const std::filesystem::path &dir) {
-        auto path = (dir / "golden_meta.json").string();
-        yyjson_read_err err;
-        yyjson_doc *doc = yyjson_read_file(path.c_str(), 0u, nullptr, &err);
-        if(doc == nullptr) {
-            LUISA_ERROR("cannot read golden_meta.json: {} (pos {})",
-                        (err.msg != nullptr ? err.msg : "?"), err.pos);
-        }
-        struct guard {
-            yyjson_doc *d;
-            ~guard() { yyjson_doc_free(d); }
-        } g{doc};
-        const auto *cb = yyjson_obj_get(yyjson_doc_get_root(doc), "colbert");
-        const auto *entries = cb != nullptr ? yyjson_obj_get(cb, "entries") : nullptr;
-        if(!yyjson_is_arr(entries)) {
-            LUISA_ERROR("golden_meta.json: missing colbert.entries");
-        }
-        luisa::vector<colbert_layout_entry> out;
-        yyjson_val *item;
-        yyjson_arr_iter it = yyjson_arr_iter_with(entries);
-        while((item = yyjson_arr_iter_next(&it)) != nullptr) {
-            colbert_layout_entry e;
-            e.index = static_cast<uint32_t>(yyjson_get_uint(yyjson_obj_get(item, "i")));
-            e.rows = static_cast<uint32_t>(yyjson_get_uint(yyjson_obj_get(item, "rows")));
-            e.float_offset = static_cast<size_t>(yyjson_get_uint(yyjson_obj_get(item, "offset_bytes"))) / 4u;
-            out.push_back(e);
-        }
-        return out;
-    }
-
-    // ------------------------------------------------------------ constants
-    constexpr size_t kDenseDim = 1024u;
-    constexpr size_t kGoldenCount = 184u;
-    constexpr size_t kHeadSubset = 10u;// sentences 0..9 get sparse+colbert goldens
-    constexpr uint32_t kBucketCaps[4] = {128u, 512u, 2048u, 8192u};
-    constexpr uint32_t kBoundaryLens[6] = {127u, 128u, 129u, 511u, 512u, 513u};
-
-    uint32_t bucket_index_of(uint32_t len) noexcept {
-        for(uint32_t i = 0u; i < 4u; i++) {
-            if(len <= kBucketCaps[i]) {
-                return i;
-            }
-        }
-        return 3u;
-    }
-
-    // "the" x n joined by single spaces: with the XLM-R metaspace tokenizer
-    // every "the" maps to the single piece "▁the", so encode(text) =
-    // [0] + the^n + [2] (verified at runtime; the builder auto-corrects the
-    // repeat count if the measured size deviates).
-    luisa::string make_word_repeat(const char *word, uint32_t n) {
-        luisa::string t;
-        for(uint32_t i = 0u; i < n; i++) {
-            if(i > 0u) {
-                t.push_back(' ');
-            }
-            t.append(word);
-        }
-        return t;
-    }
-
-    // exact-length token-repeat builder (boundary leg). Only valid for
-    // target_len <= 8192 (larger targets cannot be VERIFIED through the
-    // tokenizer's 8192 encoding cap; the 8194 edge case builds the repeat
-    // directly and asserts the truncated 8192-id form instead).
-    luisa::string make_exact_tokens(const Tokenizer &tok, uint32_t target_len) {
-        uint32_t n = (target_len > 2u ? target_len - 2u : 1u);
-        luisa::string t = make_word_repeat("the", n);
-        if(target_len > 8192u) {
-            return t;// unverifiable by design; caller asserts truncation
-        }
-        for(uint32_t tries = 0u; tries < 16u; tries++) {
-            const auto got = static_cast<uint32_t>(tok.encode(t, 8192u).size());
-            if(got == target_len) {
-                return t;
-            }
-            const int32_t delta = static_cast<int32_t>(target_len) - static_cast<int32_t>(got);
-            if(delta < 0 && static_cast<uint32_t>(-delta) >= n) {
-                break;
-            }
-            n = static_cast<uint32_t>(static_cast<int32_t>(n) + delta);
-            t = make_word_repeat("the", n);
-        }
-        return t;
-    }
-
-    // corpus-unit repeat builder for the bucket leg: repeats `unit` until the
-    // measured token count leaves `lower` (strictly greater), returning the
-    // text and its measured length.
-    luisa::string make_repeat_until(const Tokenizer &tok, const luisa::string &unit,
-                                    uint32_t lower, uint32_t &out_len) {
-        luisa::string t = unit;
-        uint32_t size = 0u;
-        for(uint32_t i = 0u; i < 4096u; i++) {
-            size = static_cast<uint32_t>(tok.encode(t, 8192u).size());
-            if(size > lower) {
-                break;
-            }
-            t.push_back(' ');
-            t.append(unit);
-        }
-        out_len = size;
-        return t;
-    }
-
-    // ------------------------------------------------------- bucket dumps
-    // <temp>/embed_e2e_<backend>_bucket_dense.bin : u32 count, then per bucket
-    // rep {u32 token_len, 1024 f32}. Cross-backend oracle equality for
-    // sentences without goldens (plan §1.3 + §6 policy).
-    struct BucketRep {
-        luisa::string text;
-        uint32_t token_len{};
-        bool synthesized{};
-        int32_t corpus_index{-1};// -1 == synthesized
-        luisa::vector<float> dense;
-    };
-
-    void write_dump(const std::filesystem::path &p, const luisa::vector<BucketRep> &reps) {
-        std::FILE *f = std::fopen(p.string().c_str(), "wb");
-        if(f == nullptr) {
-            LUISA_WARNING("bucket dump: cannot open \"{}\" for write", p.string());
-            return;
-        }
-        const uint32_t count = static_cast<uint32_t>(reps.size());
-        std::fwrite(&count, 4u, 1u, f);
-        for(const auto &r : reps) {
-            std::fwrite(&r.token_len, 4u, 1u, f);
-            std::fwrite(r.dense.data(), 4u, r.dense.size(), f);
+// ---------------------------------------------------------------- data io
+luisa::vector<char> read_file(const std::filesystem::path &p) {
+    if (std::FILE *f = std::fopen(p.string().c_str(), "rb"); f != nullptr) {
+        luisa::vector<char> data;
+        char buf[65536];
+        size_t got = 0u;
+        while ((got = std::fread(buf, 1u, sizeof(buf), f)) > 0u) {
+            data.insert(data.end(), buf, buf + static_cast<ptrdiff_t>(got));
         }
         std::fclose(f);
+        return data;
     }
+    LUISA_ERROR("cannot open test data file \"{}\"", p.string());
+}
 
-    struct DumpFile {
-        luisa::vector<uint32_t> lens;
-        luisa::vector<luisa::vector<float>> dense;
+luisa::vector<float> read_f32_file(const std::filesystem::path &p) {
+    auto raw = read_file(p);
+    luisa::vector<float> out(raw.size() / 4u);
+    std::memcpy(out.data(), raw.data(), out.size() * 4u);
+    return out;
+}
+
+// corpus.txt escapes '\\', '\n', '\r' (golden_meta.json: corpus_escapes);
+// unescape after reading a line. CRLF tolerant. Same reader as
+// test_embed_executor.cpp.
+luisa::string unescape_corpus_line(luisa::string_view line) {
+    luisa::string out;
+    out.reserve(line.size());
+    size_t i = 0u;
+    while (i < line.size()) {
+        if (line[i] == '\\' && i + 1u < line.size()) {
+            const auto c = line[i + 1u];
+            if (c == 'n' || c == 'r' || c == '\\') {
+                out.push_back(c == 'n' ? '\n' : (c == 'r' ? '\r' : '\\'));
+                i += 2u;
+                continue;
+            }
+        }
+        out.push_back(line[i]);
+        i++;
+    }
+    return out;
+}
+
+luisa::vector<luisa::string> load_corpus(const std::filesystem::path &dir) {
+    auto raw = read_file(dir / "corpus.txt");
+    luisa::vector<luisa::string> lines;
+    size_t start = 0u;
+    auto emit_line = [&](size_t end) {
+        luisa::string_view line{raw.data() + start, end - start};
+        if (!line.empty() && line.back() == '\r') {
+            line.remove_suffix(1u);
+        }
+        lines.push_back(unescape_corpus_line(line));
+        start = end + 1u;
     };
+    for (size_t i = 0u; i < raw.size(); i++) {
+        if (raw[i] == '\n') {
+            emit_line(i);
+        }
+    }
+    if (start < raw.size()) {
+        emit_line(raw.size());
+    }
+    return lines;
+}
 
-    bool read_dump(const std::filesystem::path &p, DumpFile &out) {
-        if(!std::filesystem::exists(p)) {
+// ------------------------------------------------------------ numerics
+float cosine(const float *a, const float *b, size_t n) {
+    double dot = 0.0, na = 0.0, nb = 0.0;
+    for (size_t i = 0; i < n; i++) {
+        dot += static_cast<double>(a[i]) * b[i];
+        na += static_cast<double>(a[i]) * a[i];
+        nb += static_cast<double>(b[i]) * b[i];
+    }
+    if (na <= 0.0 || nb <= 0.0) {
+        return -1.0f;
+    }
+    return static_cast<float>(dot / (std::sqrt(na) * std::sqrt(nb)));
+}
+
+// exact bitwise differences (NaN payloads and +-0 count as differences --
+// the plan asks for BIT-identical, not approximately equal)
+size_t count_bitwise_diffs(const luisa::vector<float> &a, const luisa::vector<float> &b) {
+    if (a.size() != b.size()) {
+        return static_cast<size_t>(-1);
+    }
+    size_t n = 0u;
+    for (size_t i = 0; i < a.size(); i++) {
+        n += (std::bit_cast<uint32_t>(a[i]) != std::bit_cast<uint32_t>(b[i]) ? 1u : 0u);
+    }
+    return n;
+}
+
+bool all_finite(const luisa::vector<float> &v) {
+    for (auto x : v) {
+        if (!std::isfinite(x)) {
             return false;
         }
-        auto raw = read_file(p);
-        if(raw.size() < 4u) {
+    }
+    return true;
+}
+
+bool sparse_bitwise_equal(const luisa::vector<std::pair<uint32_t, float>> &a,
+                          const luisa::vector<std::pair<uint32_t, float>> &b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (size_t k = 0; k < a.size(); k++) {
+        if (a[k].first != b[k].first ||
+            std::bit_cast<uint32_t>(a[k].second) != std::bit_cast<uint32_t>(b[k].second)) {
             return false;
         }
-        uint32_t count = 0u;
-        std::memcpy(&count, raw.data(), 4u);
-        size_t off = 4u;
-        out.lens.clear();
-        out.dense.clear();
-        for(uint32_t i = 0u; i < count && off + 8u <= raw.size(); i++) {
-            uint32_t len = 0u;
-            std::memcpy(&len, raw.data() + off, 4u);
-            off += 4u;
-            // the payload is always the full dense vector (kDenseDim floats);
-            // 'len' is the token length recorded alongside for layout checks
-            const size_t bytes = kDenseDim * 4u;
-            if(off + bytes > raw.size()) {
-                break;
-            }
-            luisa::vector<float> v(kDenseDim);
-            std::memcpy(v.data(), raw.data() + off, bytes);
-            off += bytes;
-            out.lens.push_back(len);
-            out.dense.push_back(std::move(v));
-        }
-        return true;
     }
+    return true;
+}
 
-    std::filesystem::path dump_path_for(const char *backend, luisa::string_view precision_tag) {
-        // O-G: cross-backend dumps are keyed by package precision too -- a
-        // half-precision run must never be compared against an fp32 artifact
-        // (fp32 keeps the historical file name, precision_tag == "").
-        return std::filesystem::temp_directory_path() /
-               (luisa::string{"embed_e2e_"} + backend + (precision_tag.empty() ? luisa::string{} : luisa::string{"_"} + luisa::string{precision_tag}) + "_bucket_dense.bin");
+// ------------------------------------------------------------ golden json
+struct golden_sparse_entry {
+    uint32_t index;
+    luisa::vector<std::pair<uint32_t, float>> pairs;// raw (before the id>2 filter)
+};
+
+luisa::vector<golden_sparse_entry> load_golden_sparse(const std::filesystem::path &dir) {
+    auto path = (dir / "golden_sparse.json").string();
+    yyjson_read_err err;
+    yyjson_doc *doc = yyjson_read_file(path.c_str(), 0u, nullptr, &err);
+    if (doc == nullptr) {
+        LUISA_ERROR("cannot read golden_sparse.json: {} (pos {})",
+                    (err.msg != nullptr ? err.msg : "?"), err.pos);
     }
-    // Read the 12-byte BGM3 header (magic/version/precision) so the golden
-    // cosine gates follow the PACKAGE format (opt plan §4/§5: >= 0.9999 fp32 /
-    // >= 0.999 bf16-fp16 on the SAME goldens). The package is the source of
-    // truth; a header mismatch with the engine loader surfaces there anyway.
-    void probe_package_precision(const std::filesystem::path &bgm, uint32_t &version, uint32_t &precision) {
-        version = 0u;
-        precision = 0xFFFFFFFFu;
-        if(auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
-            uint8_t hdr[16] = {};
-            const auto got = std::fread(hdr, 1u, 16u, f);
-            std::fclose(f);
-            if(got == 16u && hdr[0] == 'B' && hdr[1] == 'G' && hdr[2] == 'M' && hdr[3] == '3') {
-                version = static_cast<uint32_t>(hdr[4]) | (static_cast<uint32_t>(hdr[5]) << 8u) |
-                          (static_cast<uint32_t>(hdr[6]) << 16u) | (static_cast<uint32_t>(hdr[7]) << 24u);
-                precision = static_cast<uint32_t>(hdr[8]) | (static_cast<uint32_t>(hdr[9]) << 8u) |
-                            (static_cast<uint32_t>(hdr[10]) << 16u) | (static_cast<uint32_t>(hdr[11]) << 24u);
+    struct guard {
+        yyjson_doc *d;
+        ~guard() { yyjson_doc_free(d); }
+    } g{doc};
+    const auto *entries = yyjson_obj_get(yyjson_doc_get_root(doc), "entries");
+    if (!yyjson_is_arr(entries)) {
+        LUISA_ERROR("golden_sparse.json: missing entries array");
+    }
+    luisa::vector<golden_sparse_entry> out;
+    yyjson_val *item;
+    yyjson_arr_iter it = yyjson_arr_iter_with(entries);
+    while ((item = yyjson_arr_iter_next(&it)) != nullptr) {
+        golden_sparse_entry e;
+        e.index = static_cast<uint32_t>(yyjson_get_uint(yyjson_obj_get(item, "i")));
+        const auto *pairs = yyjson_obj_get(item, "pairs");
+        if (!yyjson_is_arr(pairs)) {
+            LUISA_ERROR("golden_sparse.json: malformed pairs for sentence {}", e.index);
+        }
+        yyjson_val *pair;
+        yyjson_arr_iter pit = yyjson_arr_iter_with(pairs);
+        while ((pair = yyjson_arr_iter_next(&pit)) != nullptr) {
+            if (!yyjson_is_arr(pair) || yyjson_arr_size(pair) != 2u) {
+                LUISA_ERROR("golden_sparse.json: malformed pair for sentence {}", e.index);
             }
+            const auto *idv = yyjson_arr_get(pair, 0);
+            const auto *wv = yyjson_arr_get(pair, 1);
+            e.pairs.emplace_back(static_cast<uint32_t>(yyjson_get_uint(idv)),
+                                 static_cast<float>(yyjson_get_num(wv)));
+        }
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
+struct colbert_layout_entry {
+    uint32_t index;
+    uint32_t rows;
+    size_t float_offset;// elements (offset_bytes / 4)
+};
+
+luisa::vector<colbert_layout_entry> load_colbert_layout(const std::filesystem::path &dir) {
+    auto path = (dir / "golden_meta.json").string();
+    yyjson_read_err err;
+    yyjson_doc *doc = yyjson_read_file(path.c_str(), 0u, nullptr, &err);
+    if (doc == nullptr) {
+        LUISA_ERROR("cannot read golden_meta.json: {} (pos {})",
+                    (err.msg != nullptr ? err.msg : "?"), err.pos);
+    }
+    struct guard {
+        yyjson_doc *d;
+        ~guard() { yyjson_doc_free(d); }
+    } g{doc};
+    const auto *cb = yyjson_obj_get(yyjson_doc_get_root(doc), "colbert");
+    const auto *entries = cb != nullptr ? yyjson_obj_get(cb, "entries") : nullptr;
+    if (!yyjson_is_arr(entries)) {
+        LUISA_ERROR("golden_meta.json: missing colbert.entries");
+    }
+    luisa::vector<colbert_layout_entry> out;
+    yyjson_val *item;
+    yyjson_arr_iter it = yyjson_arr_iter_with(entries);
+    while ((item = yyjson_arr_iter_next(&it)) != nullptr) {
+        colbert_layout_entry e;
+        e.index = static_cast<uint32_t>(yyjson_get_uint(yyjson_obj_get(item, "i")));
+        e.rows = static_cast<uint32_t>(yyjson_get_uint(yyjson_obj_get(item, "rows")));
+        e.float_offset = static_cast<size_t>(yyjson_get_uint(yyjson_obj_get(item, "offset_bytes"))) / 4u;
+        out.push_back(e);
+    }
+    return out;
+}
+
+// ------------------------------------------------------------ constants
+constexpr size_t kDenseDim = 1024u;
+constexpr size_t kGoldenCount = 184u;
+constexpr size_t kHeadSubset = 10u;// sentences 0..9 get sparse+colbert goldens
+constexpr uint32_t kBucketCaps[4] = {128u, 512u, 2048u, 8192u};
+constexpr uint32_t kBoundaryLens[6] = {127u, 128u, 129u, 511u, 512u, 513u};
+
+uint32_t bucket_index_of(uint32_t len) noexcept {
+    for (uint32_t i = 0u; i < 4u; i++) {
+        if (len <= kBucketCaps[i]) {
+            return i;
         }
     }
+    return 3u;
+}
 
-    luisa::vector<float> encode_dense(Session &session, const luisa::string &text, uint32_t max_seq_len = 512u) {
-        EncodeOptions opt;
-        opt.max_seq_len = max_seq_len;
-        auto emb = session.encode(text, opt);
-        return emb.dense;
+// "the" x n joined by single spaces: with the XLM-R metaspace tokenizer
+// every "the" maps to the single piece "▁the", so encode(text) =
+// [0] + the^n + [2] (verified at runtime; the builder auto-corrects the
+// repeat count if the measured size deviates).
+luisa::string make_word_repeat(const char *word, uint32_t n) {
+    luisa::string t;
+    for (uint32_t i = 0u; i < n; i++) {
+        if (i > 0u) {
+            t.push_back(' ');
+        }
+        t.append(word);
     }
+    return t;
+}
+
+// exact-length token-repeat builder (boundary leg). Only valid for
+// target_len <= 8192 (larger targets cannot be VERIFIED through the
+// tokenizer's 8192 encoding cap; the 8194 edge case builds the repeat
+// directly and asserts the truncated 8192-id form instead).
+luisa::string make_exact_tokens(const Tokenizer &tok, uint32_t target_len) {
+    uint32_t n = (target_len > 2u ? target_len - 2u : 1u);
+    luisa::string t = make_word_repeat("the", n);
+    if (target_len > 8192u) {
+        return t;// unverifiable by design; caller asserts truncation
+    }
+    for (uint32_t tries = 0u; tries < 16u; tries++) {
+        const auto got = static_cast<uint32_t>(tok.encode(t, 8192u).size());
+        if (got == target_len) {
+            return t;
+        }
+        const int32_t delta = static_cast<int32_t>(target_len) - static_cast<int32_t>(got);
+        if (delta < 0 && static_cast<uint32_t>(-delta) >= n) {
+            break;
+        }
+        n = static_cast<uint32_t>(static_cast<int32_t>(n) + delta);
+        t = make_word_repeat("the", n);
+    }
+    return t;
+}
+
+// corpus-unit repeat builder for the bucket leg: repeats `unit` until the
+// measured token count leaves `lower` (strictly greater), returning the
+// text and its measured length.
+luisa::string make_repeat_until(const Tokenizer &tok, const luisa::string &unit,
+                                uint32_t lower, uint32_t &out_len) {
+    luisa::string t = unit;
+    uint32_t size = 0u;
+    for (uint32_t i = 0u; i < 4096u; i++) {
+        size = static_cast<uint32_t>(tok.encode(t, 8192u).size());
+        if (size > lower) {
+            break;
+        }
+        t.push_back(' ');
+        t.append(unit);
+    }
+    out_len = size;
+    return t;
+}
+
+// ------------------------------------------------------- bucket dumps
+// <temp>/embed_e2e_<backend>_bucket_dense.bin : u32 count, then per bucket
+// rep {u32 token_len, 1024 f32}. Cross-backend oracle equality for
+// sentences without goldens (plan §1.3 + §6 policy).
+struct BucketRep {
+    luisa::string text;
+    uint32_t token_len{};
+    bool synthesized{};
+    int32_t corpus_index{-1};// -1 == synthesized
+    luisa::vector<float> dense;
+};
+
+void write_dump(const std::filesystem::path &p, const luisa::vector<BucketRep> &reps) {
+    std::FILE *f = std::fopen(p.string().c_str(), "wb");
+    if (f == nullptr) {
+        LUISA_WARNING("bucket dump: cannot open \"{}\" for write", p.string());
+        return;
+    }
+    const uint32_t count = static_cast<uint32_t>(reps.size());
+    std::fwrite(&count, 4u, 1u, f);
+    for (const auto &r : reps) {
+        std::fwrite(&r.token_len, 4u, 1u, f);
+        std::fwrite(r.dense.data(), 4u, r.dense.size(), f);
+    }
+    std::fclose(f);
+}
+
+struct DumpFile {
+    luisa::vector<uint32_t> lens;
+    luisa::vector<luisa::vector<float>> dense;
+};
+
+bool read_dump(const std::filesystem::path &p, DumpFile &out) {
+    if (!std::filesystem::exists(p)) {
+        return false;
+    }
+    auto raw = read_file(p);
+    if (raw.size() < 4u) {
+        return false;
+    }
+    uint32_t count = 0u;
+    std::memcpy(&count, raw.data(), 4u);
+    size_t off = 4u;
+    out.lens.clear();
+    out.dense.clear();
+    for (uint32_t i = 0u; i < count && off + 8u <= raw.size(); i++) {
+        uint32_t len = 0u;
+        std::memcpy(&len, raw.data() + off, 4u);
+        off += 4u;
+        // the payload is always the full dense vector (kDenseDim floats);
+        // 'len' is the token length recorded alongside for layout checks
+        const size_t bytes = kDenseDim * 4u;
+        if (off + bytes > raw.size()) {
+            break;
+        }
+        luisa::vector<float> v(kDenseDim);
+        std::memcpy(v.data(), raw.data() + off, bytes);
+        off += bytes;
+        out.lens.push_back(len);
+        out.dense.push_back(std::move(v));
+    }
+    return true;
+}
+
+std::filesystem::path dump_path_for(const char *backend, luisa::string_view precision_tag) {
+    // O-G: cross-backend dumps are keyed by package precision too -- a
+    // half-precision run must never be compared against an fp32 artifact
+    // (fp32 keeps the historical file name, precision_tag == "").
+    return std::filesystem::temp_directory_path() /
+           (luisa::string{"embed_e2e_"} + backend + (precision_tag.empty() ? luisa::string{} : luisa::string{"_"} + luisa::string{precision_tag}) + "_bucket_dense.bin");
+}
+// Read the 12-byte BGM3 header (magic/version/precision) so the golden
+// cosine gates follow the PACKAGE format (opt plan §4/§5: >= 0.9999 fp32 /
+// >= 0.999 bf16-fp16 on the SAME goldens). The package is the source of
+// truth; a header mismatch with the engine loader surfaces there anyway.
+void probe_package_precision(const std::filesystem::path &bgm, uint32_t &version, uint32_t &precision) {
+    version = 0u;
+    precision = 0xFFFFFFFFu;
+    if (auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
+        uint8_t hdr[16] = {};
+        const auto got = std::fread(hdr, 1u, 16u, f);
+        std::fclose(f);
+        if (got == 16u && hdr[0] == 'B' && hdr[1] == 'G' && hdr[2] == 'M' && hdr[3] == '3') {
+            version = static_cast<uint32_t>(hdr[4]) | (static_cast<uint32_t>(hdr[5]) << 8u) |
+                      (static_cast<uint32_t>(hdr[6]) << 16u) | (static_cast<uint32_t>(hdr[7]) << 24u);
+            precision = static_cast<uint32_t>(hdr[8]) | (static_cast<uint32_t>(hdr[9]) << 8u) |
+                        (static_cast<uint32_t>(hdr[10]) << 16u) | (static_cast<uint32_t>(hdr[11]) << 24u);
+        }
+    }
+}
+
+luisa::vector<float> encode_dense(Session &session, const luisa::string &text, uint32_t max_seq_len = 512u) {
+    EncodeOptions opt;
+    opt.max_seq_len = max_seq_len;
+    auto emb = session.encode(text, opt);
+    return emb.dense;
+}
 
 }// namespace
 
@@ -550,8 +550,7 @@ int main(int argc, char *argv[]) {
     const bool allow_8192 = std::getenv("BGEM3_E2E_ALLOW_8192") != nullptr;
 
     const std::filesystem::path data_dir{LUISA_EMBED_TEST_DATA_DIR};
-    const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]}
-                                                : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
+    const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]} : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
     // O-G precision gating: golden-parity gates from the package header
     // (fp32: unchanged 0.9999 / 0.99999; bf16|fp16: 0.999 per sentence /
     // 0.9995 mean -- opt plan §4 Q1 and §5). Engine-vs-engine and cross-
@@ -597,27 +596,27 @@ int main(int argc, char *argv[]) {
         double mean_sum = 0.0;
         size_t worst_idx = 0u;
         uint32_t below = 0u;
-        for(size_t i = 0; i < kGoldenCount; i++) {
+        for (size_t i = 0; i < kGoldenCount; i++) {
             auto dense = encode_dense(*session, corpus[i]);
             expect(dense.size() == kDenseDim) << "dense dim for sentence " << i;
             const auto c = cosine(dense.data(), gold_dense.data() + i * kDenseDim, kDenseDim);
             mean_sum += c;
-            if(c < worst) {
+            if (c < worst) {
                 worst = c;
                 worst_idx = i;
             }
-          if(!(c >= golden_gate)) {
-              below++;
-              LUISA_INFO("LEG1 sentence {:3d}: cosine {:.8f} BELOW gate", i, c);
-          }
-      }
-      const auto mean = static_cast<float>(mean_sum / static_cast<double>(kGoldenCount));
-      LUISA_INFO("LEG 1 (full-corpus dense parity, sync): {} sentences in {:.1f} ms ({:.1f} ms/sentence); "
-                 "worst cosine {:.8f} (sentence {}), mean cosine {:.8f}; gates: per-sentence >= {:.4f}, mean >= {:.5f}",
-                 kGoldenCount, clock.toc(), clock.toc() / static_cast<double>(kGoldenCount),
-                 worst, worst_idx, mean, golden_gate, golden_mean_gate);
-      expect(below == 0u) << ("LEG1: every sentence cosine >= " + luisa::format("{:.4f}", golden_gate));
-      expect(mean >= golden_mean_gate) << ("LEG1: mean cosine >= " + luisa::format("{:.5f}", golden_mean_gate));
+            if (!(c >= golden_gate)) {
+                below++;
+                LUISA_INFO("LEG1 sentence {:3d}: cosine {:.8f} BELOW gate", i, c);
+            }
+        }
+        const auto mean = static_cast<float>(mean_sum / static_cast<double>(kGoldenCount));
+        LUISA_INFO("LEG 1 (full-corpus dense parity, sync): {} sentences in {:.1f} ms ({:.1f} ms/sentence); "
+                   "worst cosine {:.8f} (sentence {}), mean cosine {:.8f}; gates: per-sentence >= {:.4f}, mean >= {:.5f}",
+                   kGoldenCount, clock.toc(), clock.toc() / static_cast<double>(kGoldenCount),
+                   worst, worst_idx, mean, golden_gate, golden_mean_gate);
+        expect(below == 0u) << ("LEG1: every sentence cosine >= " + luisa::format("{:.4f}", golden_gate));
+        expect(mean >= golden_mean_gate) << ("LEG1: mean cosine >= " + luisa::format("{:.5f}", golden_mean_gate));
     }
 
     // ================================================================
@@ -626,13 +625,13 @@ int main(int argc, char *argv[]) {
     {
         auto tok = Tokenizer::load(data_dir / "tokenizer.json");
         size_t golden_id_gt2 = 0u;
-        for(const auto &e : gold_sparse) {
-            for(const auto &p : e.pairs) {
+        for (const auto &e : gold_sparse) {
+            for (const auto &p : e.pairs) {
                 golden_id_gt2 += (p.first > 2u ? 1u : 0u);
             }
         }
         const bool golden_degenerate = (golden_id_gt2 == 0u);
-        if(golden_degenerate) {
+        if (golden_degenerate) {
             LUISA_WARNING("LEG2: golden_sparse.json contains NO pair with id>2 (every entry is exactly "
                           "[(0, w_cls)] -- generator defect, see file header). The strict §4.2 set-match gate "
                           "lies dormant until the golden is regenerated; this run gates the engine-side "
@@ -642,7 +641,7 @@ int main(int argc, char *argv[]) {
                  sparse_contain_fail = 0u;
         uint32_t colbert_fail = 0u, colbert_shape_fail = 0u, colbert_det_fail = 0u;
         float worst_colbert = 2.0f;
-        for(size_t i = 0; i < kHeadSubset; i++) {
+        for (size_t i = 0; i < kHeadSubset; i++) {
             EncodeOptions opt;
             opt.max_seq_len = 512u;
             opt.want_sparse = true;
@@ -653,8 +652,8 @@ int main(int argc, char *argv[]) {
             // specials dropped (id > 2), weights strictly positive, ids drawn
             // from the tokenizer's interior content-id multiset, and the whole
             // head output is bit-reproducible across re-encodes.
-            for(const auto &p : emb.sparse) {
-                if(p.first <= 2u || !(p.second > 0.0f)) {
+            for (const auto &p : emb.sparse) {
+                if (p.first <= 2u || !(p.second > 0.0f)) {
                     sparse_inv_fail++;
                     LUISA_INFO("LEG2 sentence {:2d}: sparse contract violation (id {}, w {:.8f})", i, p.first, p.second);
                 }
@@ -662,22 +661,22 @@ int main(int argc, char *argv[]) {
             {
                 const auto ids = tok->encode(corpus[i], 512u);
                 luisa::vector<uint32_t> interior;
-                for(size_t k = 1u; k + 1u < ids.size(); k++) {
+                for (size_t k = 1u; k + 1u < ids.size(); k++) {
                     interior.push_back(ids[k]);
                 }
                 std::sort(interior.begin(), interior.end());
                 auto eng = luisa::vector<uint32_t>{};
-                for(const auto &p : emb.sparse) {
+                for (const auto &p : emb.sparse) {
                     eng.push_back(p.first);
                 }
                 std::sort(eng.begin(), eng.end());
                 // multiset containment eng <= interior
                 size_t a = 0u, b = 0u;
-                while(a < eng.size()) {
-                    while(b < interior.size() && interior[b] < eng[a]) {
+                while (a < eng.size()) {
+                    while (b < interior.size() && interior[b] < eng[a]) {
                         b++;
                     }
-                    if(b == interior.size() || interior[b] != eng[a]) {
+                    if (b == interior.size() || interior[b] != eng[a]) {
                         sparse_contain_fail++;
                         LUISA_INFO("LEG2 sentence {:2d}: sparse id {} not among interior content ids", i, eng[a]);
                         break;
@@ -687,18 +686,18 @@ int main(int argc, char *argv[]) {
                 }
             }
             auto emb2 = session->encode(corpus[i], opt);
-            if(!sparse_bitwise_equal(emb.sparse, emb2.sparse)) {
+            if (!sparse_bitwise_equal(emb.sparse, emb2.sparse)) {
                 sparse_det_fail++;
             }
-            if(emb.colbert.size() != emb2.colbert.size() ||
-               count_bitwise_diffs(emb.colbert, emb2.colbert) != 0u) {
+            if (emb.colbert.size() != emb2.colbert.size() ||
+                count_bitwise_diffs(emb.colbert, emb2.colbert) != 0u) {
                 colbert_det_fail++;
             }
 
             // -- strict §4.2 golden set match, enforced whenever the golden is
             // non-degenerate (dormant with the current frozen file; activates
             // automatically for a regenerated golden).
-            if(!golden_degenerate) {
+            if (!golden_degenerate) {
                 auto golden_pairs = gold_sparse[i].pairs;
                 golden_pairs.erase(std::remove_if(golden_pairs.begin(), golden_pairs.end(),
                                                   [](const auto &p) { return p.first <= 2u; }),
@@ -712,14 +711,14 @@ int main(int argc, char *argv[]) {
                           [](const auto &a, const auto &b) {
                               return a.first != b.first ? a.first < b.first : a.second < b.second;
                           });
-                if(engine_pairs.size() != golden_pairs.size()) {
+                if (engine_pairs.size() != golden_pairs.size()) {
                     sparse_set_fail++;
                     LUISA_INFO("LEG2 sentence {:2d}: sparse pair count engine={} golden(raw={}, filtered={}) -- SET MISMATCH",
                                i, engine_pairs.size(), gold_sparse[i].pairs.size(), golden_pairs.size());
                 }
-                for(size_t k = 0; k < std::min(engine_pairs.size(), golden_pairs.size()); k++) {
-                    if(engine_pairs[k].first != golden_pairs[k].first ||
-                       std::abs(engine_pairs[k].second - golden_pairs[k].second) > 1e-4f) {
+                for (size_t k = 0; k < std::min(engine_pairs.size(), golden_pairs.size()); k++) {
+                    if (engine_pairs[k].first != golden_pairs[k].first ||
+                        std::abs(engine_pairs[k].second - golden_pairs[k].second) > 1e-4f) {
                         sparse_weight_fail++;
                         LUISA_INFO("LEG2 sentence {:2d} pair {}: engine ({}, {:.8f}) vs golden ({}, {:.8f})",
                                    i, k, engine_pairs[k].first, engine_pairs[k].second,
@@ -732,50 +731,49 @@ int main(int argc, char *argv[]) {
             // cosine vs golden_colbert.bin at the meta offset (strict gate).
             const auto &lay = colbert_layout[i];
             expect(lay.index == static_cast<uint32_t>(i)) << "colbert layout ordering";
-            if(emb.colbert.size() != static_cast<size_t>(lay.rows) * kDenseDim) {
+            if (emb.colbert.size() != static_cast<size_t>(lay.rows) * kDenseDim) {
                 colbert_shape_fail++;
                 LUISA_INFO("LEG2 sentence {:2d}: colbert rows engine={} golden={} -- SHAPE MISMATCH",
                            i, emb.colbert.size() / kDenseDim, lay.rows);
             } else {
-                for(uint32_t r = 0u; r < lay.rows; r++) {
+                for (uint32_t r = 0u; r < lay.rows; r++) {
                     const float *g = gold_colbert.data() + lay.float_offset + static_cast<size_t>(r) * kDenseDim;
                     const float *e = emb.colbert.data() + static_cast<size_t>(r) * kDenseDim;
-                  const auto c = cosine(e, g, kDenseDim);
-                  worst_colbert = std::min(worst_colbert, c);
-                  if(!(c >= golden_gate)) {
-                      colbert_fail++;
-                      LUISA_INFO("LEG2 sentence {:2d} token {}: colbert cosine {:.8f} BELOW gate", i, r, c);
-                  }
+                    const auto c = cosine(e, g, kDenseDim);
+                    worst_colbert = std::min(worst_colbert, c);
+                    if (!(c >= golden_gate)) {
+                        colbert_fail++;
+                        LUISA_INFO("LEG2 sentence {:2d} token {}: colbert cosine {:.8f} BELOW gate", i, r, c);
+                    }
                 }
             }
         }
-    LUISA_INFO("LEG 2 (sparse+colbert heads, sentences 0..9): sparse inv-violations={}, id-containment-failures={}, "
-               "reproducibility-failures={} (sparse+colbert), strict-gate set/weight failures={} ({}); "
-               "colbert shape-failures={}, per-token-failures={}, worst colbert cosine {:.8f}; "
-               "colbert gate: per-token cosine >= {:.4f} (strict, golden-backed)",
-               sparse_inv_fail, sparse_contain_fail, sparse_det_fail + colbert_det_fail,
-               sparse_set_fail + sparse_weight_fail,
-               (golden_degenerate ? "dormant: golden degenerate"
-                                  : (pkg_half ? "MEASURED, report-only: the 1e-4 sparse set-match gate is the "
-                                                     "fp32 retrieval gate (opt plan §4: retrieval heads stay fp32-only "
-                                                     "unless parity holds -- see counts and per-pair rows)"
-                                              : "ENFORCED")),
-               colbert_shape_fail, colbert_fail, worst_colbert, golden_gate);
-      expect(sparse_inv_fail == 0u) << "LEG2: sparse pairs respect the (id>2, weight>0) contract";
-      expect(sparse_contain_fail == 0u) << "LEG2: sparse ids are interior content ids";
-      expect(sparse_det_fail == 0u) << "LEG2: sparse head bit-reproducible";
-      expect(colbert_det_fail == 0u) << "LEG2: colbert head bit-reproducible";
-      // O-G: the strict sparse set-match gate (ids identical + weights within
-      // 1e-4 of the fp32 golden) is the RETRIEVAL gate; for a half-precision
-      // package the quantized sparse head cannot hold 1e-4 (bf16 ulp of the
-      // head weight ~5e-4). It stays enforced for fp32 and is REPORTED for
-      // half packages (the counts above and the per-pair LUISA_INFO rows are
-      // the measured delta). Dense-row parity (LEG1) is the authoritative
-      // half-package gate per opt plan §4 Q1.
-      expect(sparse_set_fail == 0u || pkg_half) << "LEG2: sparse set sizes match golden (strict gate, fp32-enforced)";
-      expect(sparse_weight_fail == 0u || pkg_half) << "LEG2: sparse pair (id, weight) match within 1e-4 (strict gate, fp32-enforced)";
-      expect(colbert_shape_fail == 0u) << "LEG2: colbert row counts match goldens";
-      expect(colbert_fail == 0u) << ("LEG2: every colbert token cosine >= " + luisa::format("{:.4f}", golden_gate));
+        LUISA_INFO("LEG 2 (sparse+colbert heads, sentences 0..9): sparse inv-violations={}, id-containment-failures={}, "
+                   "reproducibility-failures={} (sparse+colbert), strict-gate set/weight failures={} ({}); "
+                   "colbert shape-failures={}, per-token-failures={}, worst colbert cosine {:.8f}; "
+                   "colbert gate: per-token cosine >= {:.4f} (strict, golden-backed)",
+                   sparse_inv_fail, sparse_contain_fail, sparse_det_fail + colbert_det_fail,
+                   sparse_set_fail + sparse_weight_fail,
+                   (golden_degenerate ? "dormant: golden degenerate" : (pkg_half ? "MEASURED, report-only: the 1e-4 sparse set-match gate is the "
+                                                                                   "fp32 retrieval gate (opt plan §4: retrieval heads stay fp32-only "
+                                                                                   "unless parity holds -- see counts and per-pair rows)" :
+                                                                                   "ENFORCED")),
+                   colbert_shape_fail, colbert_fail, worst_colbert, golden_gate);
+        expect(sparse_inv_fail == 0u) << "LEG2: sparse pairs respect the (id>2, weight>0) contract";
+        expect(sparse_contain_fail == 0u) << "LEG2: sparse ids are interior content ids";
+        expect(sparse_det_fail == 0u) << "LEG2: sparse head bit-reproducible";
+        expect(colbert_det_fail == 0u) << "LEG2: colbert head bit-reproducible";
+        // O-G: the strict sparse set-match gate (ids identical + weights within
+        // 1e-4 of the fp32 golden) is the RETRIEVAL gate; for a half-precision
+        // package the quantized sparse head cannot hold 1e-4 (bf16 ulp of the
+        // head weight ~5e-4). It stays enforced for fp32 and is REPORTED for
+        // half packages (the counts above and the per-pair LUISA_INFO rows are
+        // the measured delta). Dense-row parity (LEG1) is the authoritative
+        // half-package gate per opt plan §4 Q1.
+        expect(sparse_set_fail == 0u || pkg_half) << "LEG2: sparse set sizes match golden (strict gate, fp32-enforced)";
+        expect(sparse_weight_fail == 0u || pkg_half) << "LEG2: sparse pair (id, weight) match within 1e-4 (strict gate, fp32-enforced)";
+        expect(colbert_shape_fail == 0u) << "LEG2: colbert row counts match goldens";
+        expect(colbert_fail == 0u) << ("LEG2: every colbert token cosine >= " + luisa::format("{:.4f}", golden_gate));
     }
 
     // ================================================================
@@ -785,36 +783,36 @@ int main(int argc, char *argv[]) {
     {
         auto tok = Tokenizer::load(data_dir / "tokenizer.json");
         luisa::vector<uint32_t> len_of(corpus.size());
-        for(size_t i = 0; i < corpus.size(); i++) {
+        for (size_t i = 0; i < corpus.size(); i++) {
             len_of[i] = static_cast<uint32_t>(tok->encode(corpus[i], 8192u).size());
         }
         uint32_t counts[4] = {0u, 0u, 0u, 0u};
-        for(size_t i = 0; i < corpus.size(); i++) {
+        for (size_t i = 0; i < corpus.size(); i++) {
             counts[bucket_index_of(len_of[i])]++;
         }
         LUISA_INFO("LEG 3 corpus token-length histogram (Tokenizer::encode cap 8192): "
                    "bucket <=128: {}, <=512: {}, <=2048: {}, <=8192: {}",
                    counts[0], counts[1], counts[2], counts[3]);
 
-        for(uint32_t bi = 0u; bi < 4u; bi++) {
+        for (uint32_t bi = 0u; bi < 4u; bi++) {
             auto &r = reps[bi];
             const uint32_t lo = (bi == 0u ? 0u : kBucketCaps[bi - 1u]);
             // representative = longest corpus sentence inside the bucket
             uint32_t best = 0u;
-            for(size_t i = 0; i < corpus.size() && i < kGoldenCount; i++) {
-                if(len_of[i] > lo && len_of[i] <= kBucketCaps[bi] && len_of[i] > best) {
+            for (size_t i = 0; i < corpus.size() && i < kGoldenCount; i++) {
+                if (len_of[i] > lo && len_of[i] <= kBucketCaps[bi] && len_of[i] > best) {
                     best = len_of[i];
                     r.corpus_index = static_cast<int32_t>(i);
                 }
             }
-            if(r.corpus_index >= 0) {
+            if (r.corpus_index >= 0) {
                 r.text = corpus[static_cast<size_t>(r.corpus_index)];
                 r.token_len = best;
             } else {
                 // empty bucket -> synthesize (repeat corpus[0] past the bucket's
                 // lower edge; the "the"-repeat builder fills the small buckets)
                 r.synthesized = true;
-                if(bi <= 1u) {
+                if (bi <= 1u) {
                     const uint32_t target = (bi == 0u ? 120u : 400u);
                     r.text = make_exact_tokens(*tok, target);
                 } else {
@@ -822,7 +820,7 @@ int main(int argc, char *argv[]) {
                     r.text = make_repeat_until(*tok, corpus[0], lower, r.token_len);
                 }
                 r.token_len = static_cast<uint32_t>(tok->encode(r.text, 8192u).size());
-                if(r.token_len <= lo || r.token_len > kBucketCaps[bi]) {
+                if (r.token_len <= lo || r.token_len > kBucketCaps[bi]) {
                     LUISA_INFO("LEG 3 bucket {} synthesis MISSED its bucket (len {}) -- gate will surface the consequences", kBucketCaps[bi], r.token_len);
                 }
                 LUISA_INFO("LEG 3: bucket <= {} has NO corpus representative (count {}); synthesized sentence with {} tokens",
@@ -832,29 +830,27 @@ int main(int argc, char *argv[]) {
 
         uint32_t det_fail = 0u, parity_fail = 0u, batch_parity_fail = 0u, batch_cos_fail = 0u;
         float worst_rep_cos = 2.0f;
-        for(uint32_t bi = 0u; bi < 4u; bi++) {
+        for (uint32_t bi = 0u; bi < 4u; bi++) {
             auto &r = reps[bi];
             EncodeOptions opt;
             opt.max_seq_len = 8192u;
             r.dense = session->encode(r.text, opt).dense;// sync path at exact length
             expect(r.dense.size() == kDenseDim) << "bucket rep dense dim";
             LUISA_INFO("LEG 3 bucket <={} rep: {} ({} tokens, max_seq_len=8192 encode)", kBucketCaps[bi],
-                       (r.corpus_index >= 0
-                            ? luisa::format("corpus sentence #{}", r.corpus_index)
-                            : luisa::string{"SYNTHETIC sentence (empty bucket filled)"}),
+                       (r.corpus_index >= 0 ? luisa::format("corpus sentence #{}", r.corpus_index) : luisa::string{"SYNTHETIC sentence (empty bucket filled)"}),
                        r.token_len);
 
             // golden parity where one exists (corpus sentence, natural length
             // <= 512 == the golden truncation policy -> identical ids)
-            if(!r.synthesized && r.token_len <= 512u) {
+            if (!r.synthesized && r.token_len <= 512u) {
                 const auto c = cosine(r.dense.data(),
                                       gold_dense.data() + static_cast<size_t>(r.corpus_index) * kDenseDim,
                                       kDenseDim);
-              worst_rep_cos = std::min(worst_rep_cos, c);
-              if(!(c >= golden_gate)) {
-                  parity_fail++;
-              }
-              LUISA_INFO("LEG 3 bucket <={} rep golden parity: cosine {:.8f} (gate >= {:.4f})", kBucketCaps[bi], c, golden_gate);
+                worst_rep_cos = std::min(worst_rep_cos, c);
+                if (!(c >= golden_gate)) {
+                    parity_fail++;
+                }
+                LUISA_INFO("LEG 3 bucket <={} rep golden parity: cosine {:.8f} (gate >= {:.4f})", kBucketCaps[bi], c, golden_gate);
             } else {
                 LUISA_INFO("LEG 3 bucket <={} rep: NO golden exists for this sentence ({}); "
                            "gated on determinism (bit-identical 2x) + cross-backend fallback-oracle equality "
@@ -866,37 +862,37 @@ int main(int argc, char *argv[]) {
             // determinism (bit-identical re-encode)
             const auto again = session->encode(r.text, opt).dense;
             const auto bd = count_bitwise_diffs(r.dense, again);
-            if(bd != 0u) {
+            if (bd != 0u) {
                 det_fail++;
             }
 
             // padded-bucket invariance: encode_batch with this single rep pads
-            // the job to embed_bucket_for(len) (scheduler m_launch). <=512 reps
+            // the job to embed_bucket_for(len) (scheduler _launch). <=512 reps
             // must stay bit-identical; >512 reps (flash path) are compared with
             // the cosine gate. Skips: >512 reps on fallback (CPU cost) and any
             // rep whose padded bucket is 8192 unless BGEM3_E2E_ALLOW_8192=1
             // (TDR hazard, header deviation b).
             luisa::vector<luisa::string_view> one{luisa::string_view{r.text}};
             const bool padded_heavy_gpu = kBucketCaps[bi] >= 4096u && !allow_8192;
-            if(r.token_len <= 512u) {
+            if (r.token_len <= 512u) {
                 auto batch = session->encode_batch(luisa::span<const luisa::string_view>{one}, opt);
                 expect(batch.size() == 1u) << "bucket rep batch size";
                 const auto d = count_bitwise_diffs(r.dense, batch[0].dense);
-                if(d != 0u) {
+                if (d != 0u) {
                     batch_parity_fail++;
                     LUISA_INFO("LEG 3 bucket <={} rep: batch-vs-sync differs in {} floats", kBucketCaps[bi], d);
                 }
-            } else if(is_fallback) {
+            } else if (is_fallback) {
                 LUISA_INFO("LEG 3 bucket <={} rep: padded-batch invariance SKIPPED on fallback (CPU cost, header deviation b)",
                            kBucketCaps[bi]);
-            } else if(padded_heavy_gpu) {
+            } else if (padded_heavy_gpu) {
                 LUISA_INFO("LEG 3 bucket <={} rep: padded-batch invariance SKIPPED (single job at S=8192 is a TDR/device-removal hazard on watchdog-managed GPUs; re-run with BGEM3_E2E_ALLOW_8192=1 to enable -- header deviation b)",
                            kBucketCaps[bi]);
             } else {
                 auto batch = session->encode_batch(luisa::span<const luisa::string_view>{one}, opt);
                 expect(batch.size() == 1u) << "bucket rep batch size";
                 const auto c = cosine(r.dense.data(), batch[0].dense.data(), kDenseDim);
-                if(!(c >= 0.99999f)) {
+                if (!(c >= 0.99999f)) {
                     batch_cos_fail++;
                     LUISA_INFO("LEG 3 bucket <={} rep: batch-vs-sync cosine {:.8f} BELOW 0.99999", kBucketCaps[bi], c);
                 } else {
@@ -911,24 +907,24 @@ int main(int argc, char *argv[]) {
         write_dump(my_dump, reps);
         uint32_t oracle_fail = 0u;
         uint32_t compared = 0u;
-        for(const char *other : {"dx", "vk", "cuda", "fallback"}) {
-            if(std::strcmp(other, argv[1]) == 0) {
+        for (const char *other : {"dx", "vk", "cuda", "fallback"}) {
+            if (std::strcmp(other, argv[1]) == 0) {
                 continue;
             }
             DumpFile d;
-            if(!read_dump(dump_path_for(other, precision_tag), d) || d.dense.size() != reps.size()) {
+            if (!read_dump(dump_path_for(other, precision_tag), d) || d.dense.size() != reps.size()) {
                 continue;
             }
             compared++;
-            for(uint32_t bi = 0u; bi < 4u; bi++) {
-                if(d.lens[bi] != reps[bi].token_len || d.dense[bi].size() != kDenseDim) {
+            for (uint32_t bi = 0u; bi < 4u; bi++) {
+                if (d.lens[bi] != reps[bi].token_len || d.dense[bi].size() != kDenseDim) {
                     oracle_fail++;
                     LUISA_INFO("LEG 3 bucket <={} rep vs {} backend: layout mismatch (lens {} vs {})",
                                kBucketCaps[bi], other, d.lens[bi], reps[bi].token_len);
                     continue;
                 }
                 const auto c = cosine(reps[bi].dense.data(), d.dense[bi].data(), kDenseDim);
-                if(!(c >= 0.99999f)) {
+                if (!(c >= 0.99999f)) {
                     oracle_fail++;
                     LUISA_INFO("LEG 3 bucket <={} rep vs {} backend: cosine {:.8f} BELOW 0.99999 (plan §6: this is a bug to bisect, not a tolerance)",
                                kBucketCaps[bi], other, c);
@@ -937,7 +933,7 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-        if(compared == 0u) {
+        if (compared == 0u) {
             LUISA_INFO("LEG 3 cross-backend oracle: no other-backend dump found yet; this leg's effective gate is determinism + padded-batch invariance. Later backends in the run sequence (dx -> vk -> fallback) will compare against this dump.");
         }
 
@@ -959,19 +955,19 @@ int main(int argc, char *argv[]) {
         auto tok = Tokenizer::load(data_dir / "tokenizer.json");
         uint32_t len_fail = 0u, trunc_fail = 0u, encode_fail = 0u, trunc_bit_fail = 0u, det_fail = 0u;
         luisa::vector<luisa::string> texts(6u);
-        for(int i = 0; i < 6; i++) {
+        for (int i = 0; i < 6; i++) {
             texts[i] = make_exact_tokens(*tok, kBoundaryLens[i]);
             const auto ids = tok->encode(texts[i], 8192u);
-            if(ids.size() != kBoundaryLens[i]) {
+            if (ids.size() != kBoundaryLens[i]) {
                 len_fail++;
                 LUISA_INFO("LEG4 {} tokens: builder produced {} -- LENGTH FAIL", kBoundaryLens[i], ids.size());
             }
         }
         // tokenizer-level truncation contract at 512
-        const auto ids512 = tok->encode(texts[4], 512u);// exact 512 stays intact
+        const auto ids512 = tok->encode(texts[4], 512u); // exact 512 stays intact
         const auto tids513 = tok->encode(texts[5], 512u);// 513 truncates to 512
-        if(ids512.size() != 512u || tids513.size() != 512u || tids513[511u] != 2u || tids513[0] != 0u ||
-           tids513 != ids512) {
+        if (ids512.size() != 512u || tids513.size() != 512u || tids513[511u] != 2u || tids513[0] != 0u ||
+            tids513 != ids512) {
             trunc_fail++;
             LUISA_INFO("LEG4: tokenizer truncation of the 513-token input != the 512-token ids (sizes {} {}, last {})",
                        ids512.size(), tids513.size(), tids513.empty() ? 0u : tids513[511u]);
@@ -979,26 +975,26 @@ int main(int argc, char *argv[]) {
         // engine-level: every boundary length encodes cleanly at default 512
         // and at 8192; the 513-at-512 result is bit-identical to the 512 input.
         luisa::vector<float> dense512_of_512, dense512_of_513, full_of_513;
-        for(int i = 0; i < 6; i++) {
+        for (int i = 0; i < 6; i++) {
             auto d = encode_dense(*session, texts[i]);// default max_seq_len 512
             auto d8 = encode_dense(*session, texts[i], 8192u);
-            if(d.size() != kDenseDim || d8.size() != kDenseDim || !all_finite(d) || !all_finite(d8)) {
+            if (d.size() != kDenseDim || d8.size() != kDenseDim || !all_finite(d) || !all_finite(d8)) {
                 encode_fail++;
             }
-            if(i == 4) {
+            if (i == 4) {
                 dense512_of_512 = std::move(d);
             }
-            if(i == 5) {
+            if (i == 5) {
                 dense512_of_513 = std::move(d);
                 full_of_513 = std::move(d8);
             }
         }
-        if(const auto d = count_bitwise_diffs(dense512_of_512, dense512_of_513); d != 0u) {
+        if (const auto d = count_bitwise_diffs(dense512_of_512, dense512_of_513); d != 0u) {
             trunc_bit_fail++;
             LUISA_INFO("LEG4: encode(513-token, msl 512) vs encode(512-token, msl 512) differs in {} floats", d);
         }
         // determinism of the 513-at-8192 (un-truncated, S=513 naive path)
-        if(const auto d = count_bitwise_diffs(full_of_513, encode_dense(*session, texts[5], 8192u)); d != 0u) {
+        if (const auto d = count_bitwise_diffs(full_of_513, encode_dense(*session, texts[5], 8192u)); d != 0u) {
             det_fail++;
         }
         LUISA_INFO("LEG 4 (boundary 127/128/129/511/512/513): length-fail={}, truncation-fail={}, encode-fail={}, "
@@ -1036,8 +1032,8 @@ int main(int argc, char *argv[]) {
         auto tok = Tokenizer::load(data_dir / "tokenizer.json");
         luisa::vector<uint32_t> short_idx;
         luisa::vector<luisa::string> short_texts, long_texts;
-        for(size_t i = 0; i < corpus.size() && short_texts.size() < kShortN; i++) {
-            if(tok->encode(corpus[i], 8192u).size() <= kBucketCaps[0]) {
+        for (size_t i = 0; i < corpus.size() && short_texts.size() < kShortN; i++) {
+            if (tok->encode(corpus[i], 8192u).size() <= kBucketCaps[0]) {
                 short_idx.push_back(static_cast<uint32_t>(i));
                 short_texts.push_back(corpus[i]);
             }
@@ -1053,30 +1049,30 @@ int main(int argc, char *argv[]) {
         expect(short_texts.size() == kShortN) << "LEG5: 16 short sentences found";
 
         luisa::vector<luisa::string> texts;
-        for(auto &t : short_texts) {
+        for (auto &t : short_texts) {
             texts.push_back(t);
         }
-        for(auto &t : long_texts) {
+        for (auto &t : long_texts) {
             texts.push_back(t);
         }
         // sync (each its own exact-length job)
         luisa::vector<luisa::vector<float>> sync_d(kAllN);
-        for(size_t k = 0; k < kAllN; k++) {
+        for (size_t k = 0; k < kAllN; k++) {
             sync_d[k] = encode_dense(*session, texts[k]);
         }
         // async: one submit each; completion is 100% callback-driven
         // (scheduler.h -- the async path performs no host-side synchronize()).
         luisa::vector<luisa::vector<float>> async_d(kAllN);
         std::atomic<uint32_t> fired{0u};
-        for(size_t k = 0; k < kAllN; k++) {
+        for (size_t k = 0; k < kAllN; k++) {
             session->encode_async(texts[k], [&, k](Embedding e) noexcept {
                 async_d[k] = std::move(e.dense);
                 fired.fetch_add(1u);
             });
         }
         luisa::compute::Clock spin_clock;
-        while(fired.load() < kAllN) {
-            if(spin_clock.toc() > 600.0 * 1000.0) {
+        while (fired.load() < kAllN) {
+            if (spin_clock.toc() > 600.0 * 1000.0) {
                 LUISA_ERROR("LEG5: only {}/{} async callbacks fired after 600 s -- async completion is broken",
                             fired.load(), kAllN);
             }
@@ -1085,10 +1081,10 @@ int main(int argc, char *argv[]) {
         expect(fired.load() == kAllN) << "LEG5: all async callbacks fired before comparison";
         // batch: two atomic jobs (shorts padded to bucket 128, longs to 512)
         luisa::vector<luisa::string_view> ssvs, lsvs;
-        for(auto &t : short_texts) {
+        for (auto &t : short_texts) {
             ssvs.push_back(luisa::string_view{t});
         }
-        for(auto &t : long_texts) {
+        for (auto &t : long_texts) {
             lsvs.push_back(luisa::string_view{t});
         }
         LUISA_INFO("LEG 5: submitting the two atomic batch jobs (16 short @ bucket 128, 5 long @ bucket 512)");
@@ -1099,21 +1095,17 @@ int main(int argc, char *argv[]) {
 
         uint32_t async_bit_fail = 0u, batch_bit_fail = 0u;
         size_t async_diff_total = 0u, batch_diff_total = 0u;
-        for(size_t k = 0; k < kAllN; k++) {
+        for (size_t k = 0; k < kAllN; k++) {
             const auto da = count_bitwise_diffs(sync_d[k], async_d[k]);
-            const auto batch_row = (k < kShortN && k < short_batch.size())
-                                       ? &short_batch[k].dense
-                                       : (k >= kShortN && k - kShortN < long_batch.size() ? &long_batch[k - kShortN].dense
-                                                                                          : nullptr);
-            const auto db = (batch_row != nullptr ? count_bitwise_diffs(sync_d[k], *batch_row)
-                                                  : static_cast<size_t>(-1));
-            if(da != 0u) {
+            const auto batch_row = (k < kShortN && k < short_batch.size()) ? &short_batch[k].dense : (k >= kShortN && k - kShortN < long_batch.size() ? &long_batch[k - kShortN].dense : nullptr);
+            const auto db = (batch_row != nullptr ? count_bitwise_diffs(sync_d[k], *batch_row) : static_cast<size_t>(-1));
+            if (da != 0u) {
                 async_bit_fail++;
                 async_diff_total += da;
                 LUISA_INFO("LEG5 sentence {} ({}): async-vs-sync differs in {} floats", k,
                            (k < kShortN ? luisa::format("corpus #{}", short_idx[k]) : luisa::format("long #{}", k - kShortN)), da);
             }
-            if(db != 0u) {
+            if (db != 0u) {
                 batch_bit_fail++;
                 batch_diff_total += db;
                 LUISA_INFO("LEG5 sentence {} ({}): batch-vs-sync differs in {} floats", k,
@@ -1134,9 +1126,9 @@ int main(int argc, char *argv[]) {
         const auto first = encode_dense(*session, corpus[0]);
         uint32_t fails = 0u;
         size_t max_diff = 0u;
-        for(uint32_t r = 1u; r < 10u; r++) {
+        for (uint32_t r = 1u; r < 10u; r++) {
             const auto d = count_bitwise_diffs(first, encode_dense(*session, corpus[0]));
-            if(d != 0u) {
+            if (d != 0u) {
                 fails++;
                 max_diff = std::max(max_diff, d);
             }
@@ -1148,7 +1140,7 @@ int main(int argc, char *argv[]) {
 
     // ================================================================
     // LEG 7 -- max_seq_len edge policy (Session CLAMPS opt.max_seq_len into
-    // [2, 8192] before tokenizing -- session.cpp m_make_request; NOT an error).
+    // [2, 8192] before tokenizing -- session.cpp _make_request; NOT an error).
     // ================================================================
     {
         auto tok = Tokenizer::load(data_dir / "tokenizer.json");
@@ -1158,15 +1150,15 @@ int main(int argc, char *argv[]) {
         // token sequence is identical by construction).
         {
             const auto ids = tok->encode(corpus[3], 2u);
-            if(ids.size() != 2u || ids[0] != 0u || ids[1] != 2u) {
+            if (ids.size() != 2u || ids[0] != 0u || ids[1] != 2u) {
                 clamp1_fail++;
                 LUISA_INFO("LEG7: tokenizer at max_len=2 produced {} ids ([{}, ...])", ids.size(), ids.empty() ? 0u : ids[0]);
             }
             const auto d1a = encode_dense(*session, corpus[3], 1u);
             const auto d2 = encode_dense(*session, corpus[3], 2u);
             const auto d1b = encode_dense(*session, corpus[5], 1u);
-            if(count_bitwise_diffs(d1a, d2) != 0u || count_bitwise_diffs(d1a, d1b) != 0u ||
-               d1a.size() != kDenseDim || !all_finite(d1a)) {
+            if (count_bitwise_diffs(d1a, d2) != 0u || count_bitwise_diffs(d1a, d1b) != 0u ||
+                d1a.size() != kDenseDim || !all_finite(d1a)) {
                 clamp1_fail++;
                 LUISA_INFO("LEG7: msl=1 is NOT clamp-to-2 equivalent at the engine level");
             }
@@ -1176,7 +1168,7 @@ int main(int argc, char *argv[]) {
         {
             const auto a = encode_dense(*session, corpus[0], 2000u);
             const auto b = encode_dense(*session, corpus[0], 8192u);
-            if(count_bitwise_diffs(a, b) != 0u) {
+            if (count_bitwise_diffs(a, b) != 0u) {
                 clamp_hi_fail++;
             }
         }
@@ -1191,7 +1183,7 @@ int main(int argc, char *argv[]) {
         uint32_t probe_fail = 0u;
         {
             const auto probe = tok->encode(make_word_repeat("the", 3u), 8192u);
-            if(probe.size() != 5u) {
+            if (probe.size() != 5u) {
                 probe_fail++;
                 LUISA_INFO("LEG7: 'the' x3 tokenized to {} ids (expected 5 = [0] + 3 x 'the' + [2])", probe.size());
             }
@@ -1199,22 +1191,22 @@ int main(int argc, char *argv[]) {
         {
             const auto text8194 = make_word_repeat("the", 8192u);
             const auto ids = tok->encode(text8194, 8192u);
-            if(ids.size() != 8192u || ids[0] != 0u || ids[8191] != 2u) {
+            if (ids.size() != 8192u || ids[0] != 0u || ids[8191] != 2u) {
                 edge8194_fail++;
                 LUISA_INFO("LEG7: tokenizer at 8192 on the 8194-token input: size {}, first {}, last {}",
                            ids.size(), ids.empty() ? 0u : ids[0], ids.empty() ? 0u : ids[8191]);
             }
-            if(!is_fallback && allow_8192) {
+            if (!is_fallback && allow_8192) {
                 const auto d8194 = encode_dense(*session, text8194, 8194u);
                 const auto d8192 = encode_dense(*session, text8194, 8192u);
-                if(d8194.size() != kDenseDim || !all_finite(d8194) ||
-                   count_bitwise_diffs(d8194, d8192) != 0u) {
+                if (d8194.size() != kDenseDim || !all_finite(d8194) ||
+                    count_bitwise_diffs(d8194, d8192) != 0u) {
                     edge8194_fail++;
                     LUISA_INFO("LEG7: engine msl=8194 != msl=8192 (clamp policy violated) or NaN");
                 } else {
                     LUISA_INFO("LEG7: engine msl=8194 clamp bit-identical to msl=8192 (S=8192 flash encode OK)");
                 }
-            } else if(!is_fallback) {
+            } else if (!is_fallback) {
                 LUISA_INFO("LEG7: max_seq_len=8194 ENGINE encode SKIPPED (S=8192 single job is a TDR/device-removal hazard on watchdog-managed GPUs; run with BGEM3_E2E_ALLOW_8192=1 to enable). Clamp policy asserted at the tokenizer level above (exact 8192-id truncation with </s> kept) + the cheap engine-level high-clamp check (msl=2000 vs 8192 bit-identity).");
             } else {
                 LUISA_INFO("LEG7: max_seq_len=8194 ENCODE skipped on fallback (8192-token flash encode on CPU costs minutes); the clamp policy is asserted at the tokenizer level above + the cheap engine-level high-clamp check (msl=2000 vs 8192).");

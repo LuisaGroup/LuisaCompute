@@ -351,8 +351,7 @@ static_assert(kFlashKernelNameCount == kFlashVariantCount,
               "flash name table must be index-parallel with the variant table");
 
 [[nodiscard]] constexpr uint32_t flash_shared_bytes(const FlashVariant &v) noexcept {
-    return v.reg ? 2u * v.tile * kFlashStride * 4u
-                 : (2u * v.block + 2u * v.tile) * kFlashStride * 4u + v.tile * 4u;
+    return v.reg ? 2u * v.tile * kFlashStride * 4u : (2u * v.block + 2u * v.tile) * kFlashStride * 4u + v.tile * 4u;
 }
 
 // Shipped default: the measured winner of the A1 x A3 sweep on this device
@@ -383,11 +382,11 @@ static_assert(kFlashVariants[0u].block == kFlashBlock &&
               "the legacy entry must describe the shipped M4 geometry");
 
 [[nodiscard]] int32_t flash_variant_by_name(const char *name) noexcept {
-    if(name == nullptr) [[unlikely]] {
+    if (name == nullptr) [[unlikely]] {
         return -1;
     }
-    for(auto i = 0u; i < kFlashVariantCount; i++) {
-        if(luisa::string_view{kFlashVariants[i].name} == luisa::string_view{name}) {
+    for (auto i = 0u; i < kFlashVariantCount; i++) {
+        if (luisa::string_view{kFlashVariants[i].name} == luisa::string_view{name}) {
             return static_cast<int32_t>(i);
         }
     }
@@ -395,13 +394,13 @@ static_assert(kFlashVariants[0u].block == kFlashBlock &&
 }
 
 [[nodiscard]] bool flash_parse_u32(const char *text, uint32_t &v) noexcept {
-    if(text == nullptr || text[0] == '\0') [[unlikely]] {
+    if (text == nullptr || text[0] == '\0') [[unlikely]] {
         return false;
     }
     const auto *end = text + std::strlen(text);
     uint32_t out = 0u;
     const auto r = std::from_chars(text, end, out);
-    if(r.ec != std::errc{} || r.ptr != end) [[unlikely]] {
+    if (r.ec != std::errc{} || r.ptr != end) [[unlikely]] {
         return false;
     }
     v = out;
@@ -426,11 +425,11 @@ struct FlashSelection {
 [[nodiscard]] const FlashSelection &flash_selection() noexcept {
     static const FlashSelection sel = [] noexcept {
         // 1. Whole-variant override.
-        if(const auto *name = std::getenv("LUISA_EMBED_FLASH_CONFIG");
-           name != nullptr && name[0] != '\0') {
+        if (const auto *name = std::getenv("LUISA_EMBED_FLASH_CONFIG");
+            name != nullptr && name[0] != '\0') {
             const auto i = flash_variant_by_name(name);
-            if(i >= 0) {
-                if(flash_shared_bytes(kFlashVariants[static_cast<uint32_t>(i)]) > 32768u) [[unlikely]] {
+            if (i >= 0) {
+                if (flash_shared_bytes(kFlashVariants[static_cast<uint32_t>(i)]) > 32768u) [[unlikely]] {
                     LUISA_WARNING("embed flash: variant '{}' needs {} B of shared memory, over the "
                                   "32 KiB DX floor; using the baseline variant '{}'.",
                                   kFlashVariants[static_cast<uint32_t>(i)].name,
@@ -455,42 +454,42 @@ struct FlashSelection {
         // 2. Field-wise override (every specified field must match one variant).
         uint32_t blk = 0u, tile = 0u, reg = 0u;
         bool any = false;
-        if(const auto *e = std::getenv("LUISA_EMBED_FLASH_BLOCK"); e != nullptr && e[0] != '\0') {
-            if(flash_parse_u32(e, blk)) {
+        if (const auto *e = std::getenv("LUISA_EMBED_FLASH_BLOCK"); e != nullptr && e[0] != '\0') {
+            if (flash_parse_u32(e, blk)) {
                 any = true;
             } else [[unlikely]] {
                 LUISA_WARNING("embed flash: ignoring malformed LUISA_EMBED_FLASH_BLOCK=\"{}\".", e);
             }
         }
-        if(const auto *e = std::getenv("LUISA_EMBED_FLASH_TILE"); e != nullptr && e[0] != '\0') {
-            if(flash_parse_u32(e, tile)) {
+        if (const auto *e = std::getenv("LUISA_EMBED_FLASH_TILE"); e != nullptr && e[0] != '\0') {
+            if (flash_parse_u32(e, tile)) {
                 any = true;
             } else [[unlikely]] {
                 LUISA_WARNING("embed flash: ignoring malformed LUISA_EMBED_FLASH_TILE=\"{}\".", e);
             }
         }
-        if(const auto *e = std::getenv("LUISA_EMBED_FLASH_REG"); e != nullptr && e[0] != '\0') {
-            if(flash_parse_u32(e, reg)) {
+        if (const auto *e = std::getenv("LUISA_EMBED_FLASH_REG"); e != nullptr && e[0] != '\0') {
+            if (flash_parse_u32(e, reg)) {
                 any = true;
             } else [[unlikely]] {
                 LUISA_WARNING("embed flash: ignoring malformed LUISA_EMBED_FLASH_REG=\"{}\".", e);
             }
         }
-        if(any) {
+        if (any) {
             int32_t found = -1;
             uint32_t matches = 0u;
-            for(auto i = 0u; i < kFlashVariantCount; i++) {
+            for (auto i = 0u; i < kFlashVariantCount; i++) {
                 const auto &v = kFlashVariants[i];
-                if((blk != 0u && v.block != blk) || (tile != 0u && v.tile != tile) ||
-                   (std::getenv("LUISA_EMBED_FLASH_REG") != nullptr &&
-                    static_cast<uint32_t>(v.reg ? 1 : 0) != reg) ||
-                   flash_shared_bytes(v) > 32768u) {
+                if ((blk != 0u && v.block != blk) || (tile != 0u && v.tile != tile) ||
+                    (std::getenv("LUISA_EMBED_FLASH_REG") != nullptr &&
+                     static_cast<uint32_t>(v.reg ? 1 : 0) != reg) ||
+                    flash_shared_bytes(v) > 32768u) {
                     continue;
                 }
                 found = static_cast<int32_t>(i);
                 matches++;
             }
-            if(matches == 1u) {
+            if (matches == 1u) {
                 LUISA_INFO("embed flash: variant '{}' selected by LUISA_EMBED_FLASH_BLOCK/TILE/REG "
                            "(block {}, tile {}, {} row state; {} B shared).",
                            kFlashVariants[static_cast<uint32_t>(found)].name,
@@ -521,7 +520,7 @@ struct FlashSelection {
 // indexed local array and the accumulation order matches the M4 baseline).
 template<typename Body>
 constexpr void flash_for_each_dim(Body &&body) noexcept {
-    for(auto g = 0u; g < kFlashMaxHeadDim; g += 4u) {
+    for (auto g = 0u; g < kFlashMaxHeadDim; g += 4u) {
         body(g);
     }
 }
@@ -902,183 +901,180 @@ namespace {
 // M4 flash attention (single fused kernel, replaces #4-#6) -- O-B tuned family
 //-----------------------------------------------------------------------------
 
-    // Emitter 1: the shipped M4 geometry, parameterised on (BLOCK, TILE) but with
-    // byte-identical math and the same shared-resident per-thread row state
-    // (q_sh / o_sh private stride-65 slices). BLOCK=32, TILE=8 reproduces the
-    // pre-optimization kernel exactly (the LUISA_EMBED_FLASH_CONFIG=legacy_b32_t8
-    // kill switch); TILE=16/24 isolate the A1 tile effect without A3.
-    template<uint32_t BLOCK, uint32_t TILE>
-    [[nodiscard]] FlashAttentionKernel make_flash_kernel_shared(const char *vname) noexcept {
-        using namespace luisa::compute;
-        static_assert(BLOCK % 32u == 0u && BLOCK >= 32u && BLOCK <= 1024u);
-        static_assert(TILE % 8u == 0u && TILE <= BLOCK,
-                      "shared variant keeps the baseline mask-load pattern (tx < TILE)");
-        static_assert(TILE * 4u % BLOCK == 0u, "the cooperative tile fill must divide exactly");
-        static_assert((2u * BLOCK + 2u * TILE) * kFlashStride * 4u + TILE * 4u <= 32768u,
-                      "shared variant exceeds the DX static-shared floor");
-        FlashAttentionKernel kernel = [vname](BufferFloat qkv, BufferFloat mask, BufferFloat out,
-                                              BufferFloat scratch, Var<uint> B, Var<uint> S,
-                                              Var<uint> num_heads, Var<uint> head_dim,
-                                              Var<float> scale, Var<float> neg_large) noexcept {
-            set_block_size(BLOCK, 1u, 1u);
-            set_name(vname);
+// Emitter 1: the shipped M4 geometry, parameterised on (BLOCK, TILE) but with
+// byte-identical math and the same shared-resident per-thread row state
+// (q_sh / o_sh private stride-65 slices). BLOCK=32, TILE=8 reproduces the
+// pre-optimization kernel exactly (the LUISA_EMBED_FLASH_CONFIG=legacy_b32_t8
+// kill switch); TILE=16/24 isolate the A1 tile effect without A3.
+template<uint32_t BLOCK, uint32_t TILE>
+[[nodiscard]] FlashAttentionKernel make_flash_kernel_shared(const char *vname) noexcept {
+    using namespace luisa::compute;
+    static_assert(BLOCK % 32u == 0u && BLOCK >= 32u && BLOCK <= 1024u);
+    static_assert(TILE % 8u == 0u && TILE <= BLOCK,
+                  "shared variant keeps the baseline mask-load pattern (tx < TILE)");
+    static_assert(TILE * 4u % BLOCK == 0u, "the cooperative tile fill must divide exactly");
+    static_assert((2u * BLOCK + 2u * TILE) * kFlashStride * 4u + TILE * 4u <= 32768u,
+                  "shared variant exceeds the DX static-shared floor");
+    FlashAttentionKernel kernel = [vname](BufferFloat qkv, BufferFloat mask, BufferFloat out,
+                                          BufferFloat scratch, Var<uint> B, Var<uint> S,
+                                          Var<uint> num_heads, Var<uint> head_dim,
+                                          Var<float> scale, Var<float> neg_large) noexcept {
+        set_block_size(BLOCK, 1u, 1u);
+        set_name(vname);
 
-            static_cast<void>(scratch);
+        static_cast<void>(scratch);
 
-            const Var hd = min(head_dim, def(kFlashMaxHeadDim));
-            const Var hd_pad = ((hd + 3u) / 4u) * 4u;
+        const Var hd = min(head_dim, def(kFlashMaxHeadDim));
+        const Var hd_pad = ((hd + 3u) / 4u) * 4u;
 
-            Shared<float> q_sh{BLOCK * kFlashStride};
-            Shared<float> o_sh{BLOCK * kFlashStride};
-            Shared<float> k_sh{TILE * kFlashStride};
-            Shared<float> v_sh{TILE * kFlashStride};
-            Shared<float> m_sh{TILE};
+        Shared<float> q_sh{BLOCK * kFlashStride};
+        Shared<float> o_sh{BLOCK * kFlashStride};
+        Shared<float> k_sh{TILE * kFlashStride};
+        Shared<float> v_sh{TILE * kFlashStride};
+        Shared<float> max_sh{TILE};
 
-            const Var tx = thread_x();
-            const Var tiles_q = (S + BLOCK - 1u) / BLOCK;
-            const Var bh_count = B * num_heads;
-            const Var lin = flattened_block_id();
-            const Var rt = lin % tiles_q;
-            const Var bh = lin / tiles_q;
-            const Var qi = rt * BLOCK + tx;
+        const Var tx = thread_x();
+        const Var tiles_q = (S + BLOCK - 1u) / BLOCK;
+        const Var bh_count = B * num_heads;
+        const Var lin = flattened_block_id();
+        const Var rt = lin % tiles_q;
+        const Var bh = lin / tiles_q;
+        const Var qi = rt * BLOCK + tx;
 
-            const Var row_stride = 3u * num_heads * head_dim;
-            const Var qb = tx * kFlashStride;
+        const Var row_stride = 3u * num_heads * head_dim;
+        const Var qb = tx * kFlashStride;
 
-            $if (bh < bh_count) {
-                const Var b = bh / num_heads;
-                const Var h = bh % num_heads;
-                const Var h_off = h * hd;
+        $if (bh < bh_count) {
+            const Var b = bh / num_heads;
+            const Var h = bh % num_heads;
+            const Var h_off = h * hd;
 
-                $for (dq, hd_pad / 4u) {
-                    const Var d = dq * 4u;
-                    const Var q_base = (b * S + qi) * row_stride + h_off;
-                    Float q0;
-                    $if (qi < S & d < hd) {
-                        q0 = qkv.read(q_base + d);
-                    }
-                    $else {
-                        q0 = def(0.0f);
-                    };
-                    Float q1;
-                    $if (qi < S & (d + 1u) < hd) {
-                        q1 = qkv.read(q_base + d + 1u);
-                    }
-                    $else {
-                        q1 = def(0.0f);
-                    };
-                    Float q2;
-                    $if (qi < S & (d + 2u) < hd) {
-                        q2 = qkv.read(q_base + d + 2u);
-                    }
-                    $else {
-                        q2 = def(0.0f);
-                    };
-                    Float q3;
-                    $if (qi < S & (d + 3u) < hd) {
-                        q3 = qkv.read(q_base + d + 3u);
-                    }
-                    $else {
-                        q3 = def(0.0f);
-                    };
-                    q_sh[qb + d] = q0;
-                    q_sh[qb + d + 1u] = q1;
-                    q_sh[qb + d + 2u] = q2;
-                    q_sh[qb + d + 3u] = q3;
-                    o_sh[qb + d] = def(0.0f);
-                    o_sh[qb + d + 1u] = def(0.0f);
-                    o_sh[qb + d + 2u] = def(0.0f);
-                    o_sh[qb + d + 3u] = def(0.0f);
+            $for (dq, hd_pad / 4u) {
+                const Var d = dq * 4u;
+                const Var q_base = (b * S + qi) * row_stride + h_off;
+                Float q0;
+                $if (qi < S & d < hd) {
+                    q0 = qkv.read(q_base + d);
+                }
+                $else {
+                    q0 = def(0.0f);
                 };
-
-                Var m = def(-1.0e30f);
-                Var s_norm = def(0.0f);
-
-                $for (jt, (S + TILE - 1u) / TILE) {
-                    $for (e, TILE * hd_pad / BLOCK) {
-                        const Var idx = e * BLOCK + tx;
-                        const Var j = idx / hd_pad;
-                        const Var d = idx % hd_pad;
-                        const Var tok = jt * TILE + j;
-                        Float kv;
-                        Float vv;
-                        $if (tok < S & d < hd) {
-                            const Var k_base = (b * S + tok) * row_stride + h_off;
-                            kv = qkv.read(k_base + num_heads * hd + d);
-                            vv = qkv.read(k_base + 2u * num_heads * hd + d);
-                        }
-                        $else {
-                            kv = def(0.0f);
-                            vv = def(0.0f);
-                        };
-                        k_sh[j * kFlashStride + d] = kv;
-                        v_sh[j * kFlashStride + d] = vv;
-                    };
-                    $if (tx < TILE) {
-                        const Var tok = jt * TILE + tx;
-                        Float mv;
-                        $if (tok < S) {
-                            mv = mask.read(b * S + tok);
-                        }
-                        $else {
-                            mv = def(0.0f);
-                        };
-                        m_sh[tx] = mv;
-                    };
-                    sync_block();
-
-                    for (auto j = 0u; j < TILE; j++) {
-                        const Var kb = j * kFlashStride;
-                        Var score = def(0.0f);
-                        $for (dq, hd_pad / 4u) {
-                            const Var d = dq * 4u;
-                            score += q_sh[qb + d] * k_sh[kb + d]
-                                     + q_sh[qb + d + 1u] * k_sh[kb + d + 1u]
-                                     + q_sh[qb + d + 2u] * k_sh[kb + d + 2u]
-                                     + q_sh[qb + d + 3u] * k_sh[kb + d + 3u];
-                        };
-                        score = score * scale + (1.0f - m_sh[j]) * neg_large;
-
-                        const Var m_new = max(m, score);
-                        const Var exp_diff = exp(m - m_new);
-                        const Var exp_score = exp(score - m_new);
-                        s_norm = s_norm * exp_diff + exp_score;
-                        $for (dq, hd_pad / 4u) {
-                            const Var d = dq * 4u;
-                            o_sh[qb + d] = o_sh[qb + d] * exp_diff + v_sh[kb + d] * exp_score;
-                            o_sh[qb + d + 1u] = o_sh[qb + d + 1u] * exp_diff + v_sh[kb + d + 1u] * exp_score;
-                            o_sh[qb + d + 2u] = o_sh[qb + d + 2u] * exp_diff + v_sh[kb + d + 2u] * exp_score;
-                            o_sh[qb + d + 3u] = o_sh[qb + d + 3u] * exp_diff + v_sh[kb + d + 3u] * exp_score;
-                        };
-                        m = m_new;
-                    };
-                    sync_block();
+                Float q1;
+                $if (qi < S & (d + 1u) < hd) {
+                    q1 = qkv.read(q_base + d + 1u);
+                }
+                $else {
+                    q1 = def(0.0f);
                 };
+                Float q2;
+                $if (qi < S & (d + 2u) < hd) {
+                    q2 = qkv.read(q_base + d + 2u);
+                }
+                $else {
+                    q2 = def(0.0f);
+                };
+                Float q3;
+                $if (qi < S & (d + 3u) < hd) {
+                    q3 = qkv.read(q_base + d + 3u);
+                }
+                $else {
+                    q3 = def(0.0f);
+                };
+                q_sh[qb + d] = q0;
+                q_sh[qb + d + 1u] = q1;
+                q_sh[qb + d + 2u] = q2;
+                q_sh[qb + d + 3u] = q3;
+                o_sh[qb + d] = def(0.0f);
+                o_sh[qb + d + 1u] = def(0.0f);
+                o_sh[qb + d + 2u] = def(0.0f);
+                o_sh[qb + d + 3u] = def(0.0f);
+            };
 
-                $if (qi < S) {
-                    const Var o_base = (b * S + qi) * num_heads * head_dim + h_off;
-                    $for (d, hd) {
-                        out.write(o_base + d, o_sh[qb + d] / s_norm);
+            Var m = def(-1.0e30f);
+            Var s_norm = def(0.0f);
+
+            $for (jt, (S + TILE - 1u) / TILE) {
+                $for (e, TILE * hd_pad / BLOCK) {
+                    const Var idx = e * BLOCK + tx;
+                    const Var j = idx / hd_pad;
+                    const Var d = idx % hd_pad;
+                    const Var tok = jt * TILE + j;
+                    Float kv;
+                    Float vv;
+                    $if (tok < S & d < hd) {
+                        const Var k_base = (b * S + tok) * row_stride + h_off;
+                        kv = qkv.read(k_base + num_heads * hd + d);
+                        vv = qkv.read(k_base + 2u * num_heads * hd + d);
+                    }
+                    $else {
+                        kv = def(0.0f);
+                        vv = def(0.0f);
                     };
+                    k_sh[j * kFlashStride + d] = kv;
+                    v_sh[j * kFlashStride + d] = vv;
+                };
+                $if (tx < TILE) {
+                    const Var tok = jt * TILE + tx;
+                    Float mv;
+                    $if (tok < S) {
+                        mv = mask.read(b * S + tok);
+                    }
+                    $else {
+                        mv = def(0.0f);
+                    };
+                    max_sh[tx] = mv;
+                };
+                sync_block();
+
+                for (auto j = 0u; j < TILE; j++) {
+                    const Var kb = j * kFlashStride;
+                    Var score = def(0.0f);
+                    $for (dq, hd_pad / 4u) {
+                        const Var d = dq * 4u;
+                        score += q_sh[qb + d] * k_sh[kb + d] + q_sh[qb + d + 1u] * k_sh[kb + d + 1u] + q_sh[qb + d + 2u] * k_sh[kb + d + 2u] + q_sh[qb + d + 3u] * k_sh[kb + d + 3u];
+                    };
+                    score = score * scale + (1.0f - max_sh[j]) * neg_large;
+
+                    const Var m_new = max(m, score);
+                    const Var exp_diff = exp(m - m_new);
+                    const Var exp_score = exp(score - m_new);
+                    s_norm = s_norm * exp_diff + exp_score;
+                    $for (dq, hd_pad / 4u) {
+                        const Var d = dq * 4u;
+                        o_sh[qb + d] = o_sh[qb + d] * exp_diff + v_sh[kb + d] * exp_score;
+                        o_sh[qb + d + 1u] = o_sh[qb + d + 1u] * exp_diff + v_sh[kb + d + 1u] * exp_score;
+                        o_sh[qb + d + 2u] = o_sh[qb + d + 2u] * exp_diff + v_sh[kb + d + 2u] * exp_score;
+                        o_sh[qb + d + 3u] = o_sh[qb + d + 3u] * exp_diff + v_sh[kb + d + 3u] * exp_score;
+                    };
+                    m = m_new;
+                };
+                sync_block();
+            };
+
+            $if (qi < S) {
+                const Var o_base = (b * S + qi) * num_heads * head_dim + h_off;
+                $for (d, hd) {
+                    out.write(o_base + d, o_sh[qb + d] / s_norm);
                 };
             };
         };
-        return kernel;
-    }
+    };
+    return kernel;
+}
 
-    // Emitter 2 (A3): the query row and the PV accumulator are per-thread
-    // REGISTERS, addressed only through emission-time constants (flash_for_each_dim
-    // unrolls the 64 register slots by 4; lc_optimize §10.5 -- the storage choice is
-    // baked at emission and the same locals carry the running sum/max/accumulator
-    // across every K/V iteration, so nothing is re-bound per iteration). Shared
-    // memory holds only the streamed K/V tiles, and the attention mask is folded
-    // into each K row's padding slot (A4: one (1 - mask) * neg_large value per key
-    // produced during the tile fill, no separate mask pass, no mask array).
-    //
-    // Slots [head_dim, kFlashMaxHeadDim) are zero-filled by the predicated loads, so
-    // the fixed-length register dot products stay numerically identical to the
-    // shared-resident baseline for ragged head_dim (0 * x contributes exactly 0).
-    // A5: BLOCK query rows x one (batch, head) per block are covered by the 2D grid
+// Emitter 2 (A3): the query row and the PV accumulator are per-thread
+// REGISTERS, addressed only through emission-time constants (flash_for_each_dim
+// unrolls the 64 register slots by 4; lc_optimize §10.5 -- the storage choice is
+// baked at emission and the same locals carry the running sum/max/accumulator
+// across every K/V iteration, so nothing is re-bound per iteration). Shared
+// memory holds only the streamed K/V tiles, and the attention mask is folded
+// into each K row's padding slot (A4: one (1 - mask) * neg_large value per key
+// produced during the tile fill, no separate mask pass, no mask array).
+//
+// Slots [head_dim, kFlashMaxHeadDim) are zero-filled by the predicated loads, so
+// the fixed-length register dot products stay numerically identical to the
+// shared-resident baseline for ragged head_dim (0 * x contributes exactly 0).
+// A5: BLOCK query rows x one (batch, head) per block are covered by the 2D grid
 // from flash_attention_dispatch (x = tiles_q * BLOCK threads -- always a multiple
 // of BLOCK, so the flattened block id is valid for both a plain and a
 // host-flattened grid; y = B * num_heads). DX bound: y = B*num_heads <= 65535
@@ -1087,130 +1083,119 @@ namespace {
 // S=8192, B=8, heads=16 the shipped default (BLOCK=128) gives groups_x = 64 and
 // groups_y = 128 = 8192 blocks (256 x 128 = 32768 on the 32-row baseline block);
 // both dimensions stay far below the 65535 cap, so no third dimension is needed.
-    template<uint32_t BLOCK, uint32_t TILE>
-    [[nodiscard]] FlashAttentionKernel make_flash_kernel_reg(const char *vname) noexcept {
-        using namespace luisa::compute;
-        static_assert(BLOCK % 32u == 0u && BLOCK >= 32u && BLOCK <= 1024u);
-        static_assert(TILE * kFlashMaxHeadDim % BLOCK == 0u,
-                      "the cooperative K/V fill must divide exactly");
-        static_assert(2u * TILE * kFlashStride * 4u <= 32768u,
-                      "register variant exceeds the DX static-shared floor");
-        FlashAttentionKernel kernel = [vname](BufferFloat qkv, BufferFloat mask, BufferFloat out,
-                                              BufferFloat scratch, Var<uint> B, Var<uint> S,
-                                              Var<uint> num_heads, Var<uint> head_dim,
-                                              Var<float> scale, Var<float> neg_large) noexcept {
-            set_block_size(BLOCK, 1u, 1u);
-            set_name(vname);
+template<uint32_t BLOCK, uint32_t TILE>
+[[nodiscard]] FlashAttentionKernel make_flash_kernel_reg(const char *vname) noexcept {
+    using namespace luisa::compute;
+    static_assert(BLOCK % 32u == 0u && BLOCK >= 32u && BLOCK <= 1024u);
+    static_assert(TILE * kFlashMaxHeadDim % BLOCK == 0u,
+                  "the cooperative K/V fill must divide exactly");
+    static_assert(2u * TILE * kFlashStride * 4u <= 32768u,
+                  "register variant exceeds the DX static-shared floor");
+    FlashAttentionKernel kernel = [vname](BufferFloat qkv, BufferFloat mask, BufferFloat out,
+                                          BufferFloat scratch, Var<uint> B, Var<uint> S,
+                                          Var<uint> num_heads, Var<uint> head_dim,
+                                          Var<float> scale, Var<float> neg_large) noexcept {
+        set_block_size(BLOCK, 1u, 1u);
+        set_name(vname);
 
-            static_cast<void>(scratch);
+        static_cast<void>(scratch);
 
-            const Var hd = min(head_dim, def(kFlashMaxHeadDim));
+        const Var hd = min(head_dim, def(kFlashMaxHeadDim));
 
-            // K rows use stride 65: slot kFlashMaxHeadDim carries that key's folded
-            // additive mask bias (A4). V rows are packed at the same stride for
-            // symmetry; nothing reads V's padding slot.
-            Shared<float> k_sh{TILE * kFlashStride};
-            Shared<float> v_sh{TILE * kFlashStride};
+        // K rows use stride 65: slot kFlashMaxHeadDim carries that key's folded
+        // additive mask bias (A4). V rows are packed at the same stride for
+        // symmetry; nothing reads V's padding slot.
+        Shared<float> k_sh{TILE * kFlashStride};
+        Shared<float> v_sh{TILE * kFlashStride};
 
-            const Var tx = thread_x();
-            const Var tiles_q = (S + BLOCK - 1u) / BLOCK;
-            const Var bh_count = B * num_heads;
-            const Var lin = flattened_block_id();
-            const Var rt = lin % tiles_q;
-            const Var bh = lin / tiles_q;
-            const Var qi = rt * BLOCK + tx;
+        const Var tx = thread_x();
+        const Var tiles_q = (S + BLOCK - 1u) / BLOCK;
+        const Var bh_count = B * num_heads;
+        const Var lin = flattened_block_id();
+        const Var rt = lin % tiles_q;
+        const Var bh = lin / tiles_q;
+        const Var qi = rt * BLOCK + tx;
 
-            const Var row_stride = 3u * num_heads * head_dim;
+        const Var row_stride = 3u * num_heads * head_dim;
 
-            $if (bh < bh_count) {
-                const Var b = bh / num_heads;
-                const Var h = bh % num_heads;
-                const Var h_off = h * hd;
-                const Var q_base = (b * S + qi) * row_stride + h_off;
+        $if (bh < bh_count) {
+            const Var b = bh / num_heads;
+            const Var h = bh % num_heads;
+            const Var h_off = h * hd;
+            const Var q_base = (b * S + qi) * row_stride + h_off;
 
-                //--- register file: query row + PV accumulator + running max/sum
-                Var<float> q_reg[kFlashMaxHeadDim];// DSL locals are zero-initialised
-                Var<float> o_acc[kFlashMaxHeadDim];// and stay live for the whole loop
-                const Var q_ok = qi < S;
-                flash_for_each_dim([&](auto g) noexcept {
-                    const Var d0 = def(static_cast<uint>(g));
-                    Float q0;
-                    $if (q_ok & d0 < hd) {
-                        q0 = qkv.read(q_base + d0);
+            //--- register file: query row + PV accumulator + running max/sum
+            Var<float> q_reg[kFlashMaxHeadDim];// DSL locals are zero-initialised
+            Var<float> o_acc[kFlashMaxHeadDim];// and stay live for the whole loop
+            const Var q_ok = qi < S;
+            flash_for_each_dim([&](auto g) noexcept {
+                const Var d0 = def(static_cast<uint>(g));
+                Float q0;
+                $if (q_ok & d0 < hd) {
+                    q0 = qkv.read(q_base + d0);
+                }
+                $else {
+                    q0 = def(0.0f);
+                };
+                Float q1;
+                $if (q_ok & (d0 + 1u) < hd) {
+                    q1 = qkv.read(q_base + d0 + 1u);
+                }
+                $else {
+                    q1 = def(0.0f);
+                };
+                Float q2;
+                $if (q_ok & (d0 + 2u) < hd) {
+                    q2 = qkv.read(q_base + d0 + 2u);
+                }
+                $else {
+                    q2 = def(0.0f);
+                };
+                Float q3;
+                $if (q_ok & (d0 + 3u) < hd) {
+                    q3 = qkv.read(q_base + d0 + 3u);
+                }
+                $else {
+                    q3 = def(0.0f);
+                };
+                q_reg[g] = q0;
+                q_reg[g + 1u] = q1;
+                q_reg[g + 2u] = q2;
+                q_reg[g + 3u] = q3;
+            });
+
+            Var m = def(-1.0e30f);
+            Var s_norm = def(0.0f);
+
+            $for (jt, (S + TILE - 1u) / TILE) {
+                // Cooperative K/V tile fill: TILE * kFlashMaxHeadDim elements
+                // over BLOCK threads, division exact (static_assert above), so
+                // no per-element bound guard is emitted (lc_optimize §10.3).
+                for (auto rep = 0u; rep < TILE * kFlashMaxHeadDim / BLOCK; rep++) {
+                    const Var idx = rep * BLOCK + tx;
+                    const Var j = idx / kFlashMaxHeadDim;
+                    const Var d = idx % kFlashMaxHeadDim;
+                    const Var tok = jt * TILE + j;
+                    Float kv;
+                    Float vv;
+                    $if (tok < S & d < hd) {
+                        const Var k_base = (b * S + tok) * row_stride + h_off;
+                        kv = qkv.read(k_base + num_heads * hd + d);
+                        vv = qkv.read(k_base + 2u * num_heads * hd + d);
                     }
                     $else {
-                        q0 = def(0.0f);
+                        kv = def(0.0f);
+                        vv = def(0.0f);
                     };
-                    Float q1;
-                    $if (q_ok & (d0 + 1u) < hd) {
-                        q1 = qkv.read(q_base + d0 + 1u);
-                    }
-                    $else {
-                        q1 = def(0.0f);
-                    };
-                    Float q2;
-                    $if (q_ok & (d0 + 2u) < hd) {
-                        q2 = qkv.read(q_base + d0 + 2u);
-                    }
-                    $else {
-                        q2 = def(0.0f);
-                    };
-                    Float q3;
-                    $if (q_ok & (d0 + 3u) < hd) {
-                        q3 = qkv.read(q_base + d0 + 3u);
-                    }
-                    $else {
-                        q3 = def(0.0f);
-                    };
-                    q_reg[g] = q0;
-                    q_reg[g + 1u] = q1;
-                    q_reg[g + 2u] = q2;
-                    q_reg[g + 3u] = q3;
-                });
-
-                Var m = def(-1.0e30f);
-                Var s_norm = def(0.0f);
-
-                $for (jt, (S + TILE - 1u) / TILE) {
-                    // Cooperative K/V tile fill: TILE * kFlashMaxHeadDim elements
-                    // over BLOCK threads, division exact (static_assert above), so
-                    // no per-element bound guard is emitted (lc_optimize §10.3).
-                    for (auto rep = 0u; rep < TILE * kFlashMaxHeadDim / BLOCK; rep++) {
-                        const Var idx = rep * BLOCK + tx;
-                        const Var j = idx / kFlashMaxHeadDim;
-                        const Var d = idx % kFlashMaxHeadDim;
-                        const Var tok = jt * TILE + j;
-                        Float kv;
-                        Float vv;
-                        $if (tok < S & d < hd) {
-                            const Var k_base = (b * S + tok) * row_stride + h_off;
-                            kv = qkv.read(k_base + num_heads * hd + d);
-                            vv = qkv.read(k_base + 2u * num_heads * hd + d);
-                        }
-                        $else {
-                            kv = def(0.0f);
-                            vv = def(0.0f);
-                        };
-                        k_sh[j * kFlashStride + d] = kv;
-                        v_sh[j * kFlashStride + d] = vv;
-                    };
-                    // A4: the additive key bias is generated once per key while the
-                    // tile is filled (padding and out-of-range tail keys -> neg_large).
-                    for (auto rep = 0u; rep < (TILE + BLOCK - 1u) / BLOCK; rep++) {
-                        const Var j = rep * BLOCK + tx;
-                        if constexpr (TILE % BLOCK != 0u) {
-                            $if (j < TILE) {
-                                const Var tok = jt * TILE + j;
-                                Float mv;
-                                $if (tok < S) {
-                                    mv = mask.read(b * S + tok);
-                                }
-                                $else {
-                                    mv = def(0.0f);
-                                };
-                                k_sh[j * kFlashStride + kFlashMaxHeadDim] = (1.0f - mv) * neg_large;
-                            };
-                        } else {
+                    k_sh[j * kFlashStride + d] = kv;
+                    v_sh[j * kFlashStride + d] = vv;
+                };
+                // A4: the additive key bias is generated once per key while the
+                // tile is filled (padding and out-of-range tail keys -> neg_large).
+                for (auto rep = 0u; rep < (TILE + BLOCK - 1u) / BLOCK; rep++) {
+                    const Var j = rep * BLOCK + tx;
+                    if constexpr (TILE % BLOCK != 0u) {
+                        $if (j < TILE) {
                             const Var tok = jt * TILE + j;
                             Float mv;
                             $if (tok < S) {
@@ -1220,69 +1205,78 @@ namespace {
                                 mv = def(0.0f);
                             };
                             k_sh[j * kFlashStride + kFlashMaxHeadDim] = (1.0f - mv) * neg_large;
+                        };
+                    } else {
+                        const Var tok = jt * TILE + j;
+                        Float mv;
+                        $if (tok < S) {
+                            mv = mask.read(b * S + tok);
                         }
-                    };
-                    sync_block();
-
-                    // Fixed compile-time unroll over the tile's key slots (native C++
-                    // loop: the generator knows TILE; there is no XIR unroll pass).
-                    for (auto j = 0u; j < TILE; j++) {
-                        const Var kb = def(j * kFlashStride);
-                        Var score = def(0.0f);
-                        flash_for_each_dim([&](auto g) noexcept {
-                            score += q_reg[g] * k_sh[kb + g] + q_reg[g + 1u] * k_sh[kb + g + 1u]
-                                     + q_reg[g + 2u] * k_sh[kb + g + 2u]
-                                     + q_reg[g + 3u] * k_sh[kb + g + 3u];
-                        });
-                        score = score * scale + k_sh[kb + kFlashMaxHeadDim];
-
-                        const Var m_new = max(m, score);
-                        const Var exp_diff = exp(m - m_new);
-                        const Var exp_score = exp(score - m_new);
-                        s_norm = s_norm * exp_diff + exp_score;
-                        flash_for_each_dim([&](auto g) noexcept {
-                            o_acc[g] = o_acc[g] * exp_diff + v_sh[kb + g] * exp_score;
-                            o_acc[g + 1u] = o_acc[g + 1u] * exp_diff + v_sh[kb + g + 1u] * exp_score;
-                            o_acc[g + 2u] = o_acc[g + 2u] * exp_diff + v_sh[kb + g + 2u] * exp_score;
-                            o_acc[g + 3u] = o_acc[g + 3u] * exp_diff + v_sh[kb + g + 3u] * exp_score;
-                        });
-                        m = m_new;
-                    };
-                    // Everyone must be done with this tile before it is overwritten.
-                    sync_block();
+                        $else {
+                            mv = def(0.0f);
+                        };
+                        k_sh[j * kFlashStride + kFlashMaxHeadDim] = (1.0f - mv) * neg_large;
+                    }
                 };
+                sync_block();
 
-                $if (qi < S) {
-                    const Var o_base = (b * S + qi) * num_heads * head_dim + h_off;
+                // Fixed compile-time unroll over the tile's key slots (native C++
+                // loop: the generator knows TILE; there is no XIR unroll pass).
+                for (auto j = 0u; j < TILE; j++) {
+                    const Var kb = def(j * kFlashStride);
+                    Var score = def(0.0f);
                     flash_for_each_dim([&](auto g) noexcept {
-                        const Var d0 = def(static_cast<uint>(g));
-                        $if (d0 < hd) {
-                            out.write(o_base + d0, o_acc[g] / s_norm);
-                        };
-                        $if ((d0 + 1u) < hd) {
-                            out.write(o_base + d0 + 1u, o_acc[g + 1u] / s_norm);
-                        };
-                        $if ((d0 + 2u) < hd) {
-                            out.write(o_base + d0 + 2u, o_acc[g + 2u] / s_norm);
-                        };
-                        $if ((d0 + 3u) < hd) {
-                            out.write(o_base + d0 + 3u, o_acc[g + 3u] / s_norm);
-                        };
+                        score += q_reg[g] * k_sh[kb + g] + q_reg[g + 1u] * k_sh[kb + g + 1u] + q_reg[g + 2u] * k_sh[kb + g + 2u] + q_reg[g + 3u] * k_sh[kb + g + 3u];
                     });
+                    score = score * scale + k_sh[kb + kFlashMaxHeadDim];
+
+                    const Var m_new = max(m, score);
+                    const Var exp_diff = exp(m - m_new);
+                    const Var exp_score = exp(score - m_new);
+                    s_norm = s_norm * exp_diff + exp_score;
+                    flash_for_each_dim([&](auto g) noexcept {
+                        o_acc[g] = o_acc[g] * exp_diff + v_sh[kb + g] * exp_score;
+                        o_acc[g + 1u] = o_acc[g + 1u] * exp_diff + v_sh[kb + g + 1u] * exp_score;
+                        o_acc[g + 2u] = o_acc[g + 2u] * exp_diff + v_sh[kb + g + 2u] * exp_score;
+                        o_acc[g + 3u] = o_acc[g + 3u] * exp_diff + v_sh[kb + g + 3u] * exp_score;
+                    });
+                    m = m_new;
                 };
+                // Everyone must be done with this tile before it is overwritten.
+                sync_block();
+            };
+
+            $if (qi < S) {
+                const Var o_base = (b * S + qi) * num_heads * head_dim + h_off;
+                flash_for_each_dim([&](auto g) noexcept {
+                    const Var d0 = def(static_cast<uint>(g));
+                    $if (d0 < hd) {
+                        out.write(o_base + d0, o_acc[g] / s_norm);
+                    };
+                    $if ((d0 + 1u) < hd) {
+                        out.write(o_base + d0 + 1u, o_acc[g + 1u] / s_norm);
+                    };
+                    $if ((d0 + 2u) < hd) {
+                        out.write(o_base + d0 + 2u, o_acc[g + 2u] / s_norm);
+                    };
+                    $if ((d0 + 3u) < hd) {
+                        out.write(o_base + d0 + 3u, o_acc[g + 3u] / s_norm);
+                    };
+                });
             };
         };
-        return kernel;
-    }
+    };
+    return kernel;
+}
 
-    template<uint32_t BLOCK, uint32_t TILE, bool REG>
-    [[nodiscard]] FlashAttentionKernel build_flash_kernel(const char *vname) noexcept {
-        if constexpr (REG) {
-            return make_flash_kernel_reg<BLOCK, TILE>(vname);
-        } else {
-            return make_flash_kernel_shared<BLOCK, TILE>(vname);
-        }
+template<uint32_t BLOCK, uint32_t TILE, bool REG>
+[[nodiscard]] FlashAttentionKernel build_flash_kernel(const char *vname) noexcept {
+    if constexpr (REG) {
+        return make_flash_kernel_reg<BLOCK, TILE>(vname);
+    } else {
+        return make_flash_kernel_shared<BLOCK, TILE>(vname);
     }
+}
 
 }// namespace
 

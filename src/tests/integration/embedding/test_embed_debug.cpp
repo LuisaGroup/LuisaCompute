@@ -123,7 +123,6 @@ void test_device_log_routing(Device &device) {
     expect(total == 4u) << "every callback invocation must be counted";
 }
 
-
 // --- env-knob gate ---------------------------------------------------------
 void test_dump_env_knob() {
     uint32_t layer = 0xFFFFFFFFu;
@@ -321,7 +320,6 @@ int main(int argc, char *argv[]) {
     if (!dc) return 0;
     auto &device = dc->device;
 
-
     test_device_log_routing(device);
     test_dump_env_knob();
 
@@ -340,8 +338,7 @@ int main(int argc, char *argv[]) {
         // argv[2] = bgm path; the gate token itself ("b4_d4") never becomes a path.
         const bool bgm_arg_ok = argc > 2 && argv[2] != nullptr && argv[2][0] != '\0' &&
                                 std::strcmp(argv[2], "b4_d4") != 0;
-        const auto bgm = bgm_arg_ok ? luisa::string_view{argv[2]}
-                                    : luisa::string_view{"D:/compute/bge-m3/bge-m3/model.bgm"};
+        const auto bgm = bgm_arg_ok ? luisa::string_view{argv[2]} : luisa::string_view{"D:/compute/bge-m3/bge-m3/model.bgm"};
         test_layer_dump(device, bgm);
     } else {
         LUISA_WARNING("D4 layer-dump gate NOT RUN: opt in with argv token b4_d4 or "

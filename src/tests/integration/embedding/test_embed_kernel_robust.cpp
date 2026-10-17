@@ -177,11 +177,11 @@ constexpr float kNegLarge = -1.0e30f;
 
 // CPU reference applying the SAME pos_offset as the kernel: pos = row%S + pos_offset.
 luisa::vector<float> embed_cpu_reference(const luisa::vector<uint32_t> &ids,
-                                          const luisa::vector<float> &word,
-                                          const luisa::vector<float> &pos,
-                                          const luisa::vector<float> &gamma,
-                                          const luisa::vector<float> &beta, uint32_t s, uint32_t h,
-                                          float eps, uint32_t pos_offset) {
+                                         const luisa::vector<float> &word,
+                                         const luisa::vector<float> &pos,
+                                         const luisa::vector<float> &gamma,
+                                         const luisa::vector<float> &beta, uint32_t s, uint32_t h,
+                                         float eps, uint32_t pos_offset) {
     const size_t rows = ids.size();
     luisa::vector<float> out(rows * h, 0.f);
     for (size_t row = 0u; row < rows; row++) {
@@ -213,14 +213,14 @@ luisa::vector<float> embed_cpu_reference(const luisa::vector<uint32_t> &ids,
 void check_embed(Device &device, Stream &stream, Family &fam) {
     struct Case {
         uint32_t b, s, h, v, pos_offset;
-        bool boundary; // ids drawn from {0, v-1} only (vocab boundary)
+        bool boundary;// ids drawn from {0, v-1} only (vocab boundary)
     };
     // v=250002 (bge-m3 vocab) is used only for the boundary case, where the word
     // table is allocated full but only rows 0 and v-1 are populated (the kernel only
     // reads the ids present in the ids buffer).
     const Case cases[] = {
-        {1u, 1u, 64u, 97u, 0u, false},   // 1×1, offset 0
-        {3u, 37u, 64u, 97u, 2u, false},  // 3×37, offset 2 (bge-m3-like)
+        {1u, 1u, 64u, 97u, 0u, false}, // 1×1, offset 0
+        {3u, 37u, 64u, 97u, 2u, false},// 3×37, offset 2 (bge-m3-like)
         {2u, 127u, 1024u, 97u, 0u, false},
         {5u, 251u, 64u, 97u, 2u, false}, // 5×251 ragged, offset 2
         {1u, 4u, 16u, 250002u, 2u, true},// vocab boundary {0, 250001}, offset 2
@@ -244,7 +244,7 @@ void check_embed(Device &device, Stream &stream, Family &fam) {
         if (c.boundary) {
             // populate ONLY the boundary rows; the rest stay 0 (never read).
             for (uint32_t hh = 0u; hh < c.h; hh++) {
-                word[hh] = rng.uniform(-1.f, 1.f);                 // row 0
+                word[hh] = rng.uniform(-1.f, 1.f);// row 0
                 word[static_cast<size_t>(c.v - 1u) * c.h + hh] = rng.uniform(-1.f, 1.f);
             }
         } else {
@@ -260,7 +260,7 @@ void check_embed(Device &device, Stream &stream, Family &fam) {
         fill(rng, beta, -0.5f, 0.5f);
 
         const auto ref = embed_cpu_reference(ids, word, pos, gamma, beta, c.s, c.h, 1e-5f,
-                                              c.pos_offset);
+                                             c.pos_offset);
 
         auto word_buf = device.create_buffer<float>(word.size());
         auto pos_buf = device.create_buffer<float>(pos.size());
@@ -288,9 +288,9 @@ void check_embed(Device &device, Stream &stream, Family &fam) {
 // #2 layernorm -- ragged rows/H, constant row (var 0), eps=1e-5, large |x|.
 //=============================================================================
 luisa::vector<float> layernorm_cpu_reference(const luisa::vector<float> &x,
-                                              const luisa::vector<float> &gamma,
-                                              const luisa::vector<float> &beta, uint32_t rows,
-                                              uint32_t h, float eps) {
+                                             const luisa::vector<float> &gamma,
+                                             const luisa::vector<float> &beta, uint32_t rows,
+                                             uint32_t h, float eps) {
     luisa::vector<float> out(static_cast<size_t>(rows) * h, 0.f);
     for (uint32_t r = 0u; r < rows; r++) {
         const size_t base = static_cast<size_t>(r) * h;
@@ -387,14 +387,14 @@ void check_layernorm(Device &device, Stream &stream, Family &fam) {
         run_layernorm_case(device, stream, shader, rows, 64u, 0, fam);
     }
     for (const uint32_t h : h_prod) {
-        run_layernorm_case(device, stream, shader, 257u, h, 0, fam); // random, ragged H
-        run_layernorm_case(device, stream, shader, 257u, h, 1, fam); // constant rows (var 0)
-        run_layernorm_case(device, stream, shader, 32u, h, 2, fam);  // large |x|~1e4
+        run_layernorm_case(device, stream, shader, 257u, h, 0, fam);// random, ragged H
+        run_layernorm_case(device, stream, shader, 257u, h, 1, fam);// constant rows (var 0)
+        run_layernorm_case(device, stream, shader, 32u, h, 2, fam); // large |x|~1e4
     }
     // a couple of tiny ragged H values against the block (H < block size, idle threads)
     run_layernorm_case(device, stream, shader, 4u, 1u, 0, fam);
     run_layernorm_case(device, stream, shader, 4u, 3u, 0, fam);
-    run_layernorm_case(device, stream, shader, 3u, 255u, 1, fam); // constant row H<block
+    run_layernorm_case(device, stream, shader, 3u, 255u, 1, fam);// constant row H<block
 }
 
 //=============================================================================
@@ -402,8 +402,8 @@ void check_layernorm(Device &device, Stream &stream, Family &fam) {
 //=============================================================================
 struct GemmEdgeCase {
     uint32_t m, n, k;
-    int edge; // 0 random |x|<=1, 1 bias-only row (A row 0 zeroed), 2 all-neg pre-act (Relu),
-              // 3 large |x| for erf-GELU saturation
+    int edge;// 0 random |x|<=1, 1 bias-only row (A row 0 zeroed), 2 all-neg pre-act (Relu),
+             // 3 large |x| for erf-GELU saturation
 };
 
 // Naive fp64 reference with the exact epilogue of plan §4 #3.
@@ -451,7 +451,7 @@ void check_gemm_case(Device &device, Stream &stream, const auto &shader, GemmEpi
     const size_t c_count = static_cast<size_t>(c.m) * c.n;
 
     // input magnitude bound: production-range for |x|<=1; large for edge 3 (erf sat).
-    const float amag = (c.edge == 3) ? 4.f : 1.f; // |A|,|B| <= 4 for edge 3
+    const float amag = (c.edge == 3) ? 4.f : 1.f;// |A|,|B| <= 4 for edge 3
     luisa::vector<float> a(a_count);
     luisa::vector<float> b(b_count);
     fill(rng, a, -amag, amag);
@@ -504,9 +504,15 @@ void check_gemm_case(Device &device, Stream &stream, const auto &shader, GemmEpi
 void check_gemm(Device &device, Stream &stream, Family &fam) {
     // ragged M/N/K never divisible by 16; edge values exercised per epilogue.
     const GemmEdgeCase shapes[] = {
-        {1u, 1u, 1u, 0},      {3u, 17u, 1u, 0},     {1u, 1000u, 17u, 0},
-        {17u, 1u, 17u, 0},    {255u, 17u, 1u, 0},   {17u, 17u, 1000u, 0},
-        {255u, 1000u, 17u, 0},{3u, 1000u, 1000u, 0},{17u, 17u, 17u, 0},
+        {1u, 1u, 1u, 0},
+        {3u, 17u, 1u, 0},
+        {1u, 1000u, 17u, 0},
+        {17u, 1u, 17u, 0},
+        {255u, 17u, 1u, 0},
+        {17u, 17u, 1000u, 0},
+        {255u, 1000u, 17u, 0},
+        {3u, 1000u, 1000u, 0},
+        {17u, 17u, 17u, 0},
     };
     const GemmEpilogue eps[] = {GemmEpilogue::None, GemmEpilogue::Bias, GemmEpilogue::BiasGeluErf,
                                 GemmEpilogue::BiasRelu, GemmEpilogue::ResidualAdd};
@@ -522,10 +528,10 @@ void check_gemm(Device &device, Stream &stream, Family &fam) {
         GemmEdgeCase c;
     };
     const Targeted targeted[] = {
-        {GemmEpilogue::Bias, {3u, 17u, 1u, 1}},                // bias-only row
-        {GemmEpilogue::BiasGeluErf, {17u, 17u, 1u, 1}},        // bias-only row (gelu)
-        {GemmEpilogue::BiasRelu, {3u, 1000u, 1u, 2}},          // all-negative -> all 0
-        {GemmEpilogue::BiasGeluErf, {1u, 1000u, 1000u, 3}},    // erf-GELU at large |x|
+        {GemmEpilogue::Bias, {3u, 17u, 1u, 1}},            // bias-only row
+        {GemmEpilogue::BiasGeluErf, {17u, 17u, 1u, 1}},    // bias-only row (gelu)
+        {GemmEpilogue::BiasRelu, {3u, 1000u, 1u, 2}},      // all-negative -> all 0
+        {GemmEpilogue::BiasGeluErf, {1u, 1000u, 1000u, 3}},// erf-GELU at large |x|
     };
     for (const auto &t : targeted) {
         auto shader = device.compile(make_gemm_kernel(t.ep));
@@ -577,9 +583,9 @@ struct AttnCase {
 };
 
 enum class MaskMode : uint32_t {
-    none = 0u,       // every token real
-    single_valid = 1u, // only key 0 real; the other S-1 keys are -1e30 -> adversarial rescale
-    all_masked = 2u,   // every key padded -> all logits ~-1e30 -> uniform-ish, assert finite
+    none = 0u,        // every token real
+    single_valid = 1u,// only key 0 real; the other S-1 keys are -1e30 -> adversarial rescale
+    all_masked = 2u,  // every key padded -> all logits ~-1e30 -> uniform-ish, assert finite
 };
 
 // scale = 1/sqrt(head_dim) as in bge-m3 (1/8 at hd=64), but applied to the ragged hd.
@@ -621,8 +627,8 @@ luisa::vector<float> make_mask(const AttnCase &c, MaskMode mode) {
 // #4 logits (float math, matching the kernel bit-for-bit in rounding order for a
 // single dot): dot(Q,K)*scale + (1-mask[key])*neg_large.
 luisa::vector<float> logits_cpu_reference(const luisa::vector<float> &qkv,
-                                         const luisa::vector<float> &mask, const AttnCase &c,
-                                         float scale) {
+                                          const luisa::vector<float> &mask, const AttnCase &c,
+                                          float scale) {
     luisa::vector<float> logits(c.logits_count(), 0.f);
     const uint32_t rs = c.row_stride();
     const size_t rows = static_cast<size_t>(c.b) * c.heads * c.s;
@@ -670,7 +676,7 @@ void softmax_cpu_reference(luisa::vector<float> &logits, size_t rows, uint32_t s
 
 // #6 out[b*S+qi, h*hd+d] = sum_ki P[bh][qi][ki] * V(b,ki,h,d).
 luisa::vector<float> pv_cpu_reference(const luisa::vector<float> &qkv, const luisa::vector<float> &probs,
-                                     const AttnCase &c) {
+                                      const AttnCase &c) {
     luisa::vector<float> out(c.out_count(), 0.f);
     const uint32_t rs = c.row_stride();
     const size_t rows = static_cast<size_t>(c.b) * c.heads * c.s;
@@ -710,7 +716,7 @@ void check_finite(Family &fam, const luisa::vector<float> &got, const luisa::str
     fam.elements += static_cast<uint32_t>(got.size());
     fam.failures += bad;
     LUISA_INFO("{}: isfinite check bad={}/{} (documented degenerate row)", desc, bad,
-              static_cast<uint32_t>(got.size()));
+               static_cast<uint32_t>(got.size()));
 }
 
 [[nodiscard]] const char *mask_name(MaskMode m) noexcept {
@@ -763,7 +769,7 @@ void check_attention_case(Device &device, Stream &stream, Family &naive_fam, Fam
     compare(naive_fam, logits_dev, probs_ref, probs_ref.size(), 1e-4f, 1e-4f,
             luisa::format("naive#5 B={} S={} heads={} hd={} mask={}", c.b, c.s, c.heads, c.hd,
                           mask_name(mode)),
-            finite_needed); // masked-row guard: probs must be finite (no NaN)
+            finite_needed);// masked-row guard: probs must be finite (no NaN)
 
     // #6 pv -> [B*S, heads*hd]
     luisa::vector<float> naive_out(c.out_count(), 0.f);
@@ -774,7 +780,7 @@ void check_attention_case(Device &device, Stream &stream, Family &naive_fam, Fam
     compare(naive_fam, naive_out, out_ref, out_ref.size(), 1e-4f, 1e-4f,
             luisa::format("naive#6 B={} S={} heads={} hd={} mask={}", c.b, c.s, c.heads, c.hd,
                           mask_name(mode)),
-            true); // the whole masked-row output must be finite
+            true);// the whole masked-row output must be finite
 
     // ---- M4 flash on the same inputs ----
     luisa::vector<float> flash_out(c.out_count(), 0.f);
@@ -848,11 +854,21 @@ void check_attention(Device &device, Stream &stream, Family &naive_fam, Family &
     // S straddles the 16-wide tiles; head_dim ragged; small head counts keep the
     // logits workspace bounded (B*heads*S*S floats).
     const AttnCase cases[] = {
-        {1u, 15u, 1u, 7u},   {1u, 16u, 1u, 7u},   {1u, 17u, 1u, 7u},
-        {2u, 15u, 16u, 64u}, {2u, 16u, 16u, 64u}, {2u, 17u, 16u, 64u},
-        {1u, 31u, 4u, 1u},   {1u, 32u, 4u, 7u},   {1u, 33u, 4u, 64u},
-        {1u, 255u, 2u, 64u}, {1u, 256u, 2u, 64u}, {1u, 257u, 2u, 64u},
-        {2u, 32u, 16u, 64u}, {2u, 256u, 4u, 64u}, {2u, 257u, 1u, 7u},
+        {1u, 15u, 1u, 7u},
+        {1u, 16u, 1u, 7u},
+        {1u, 17u, 1u, 7u},
+        {2u, 15u, 16u, 64u},
+        {2u, 16u, 16u, 64u},
+        {2u, 17u, 16u, 64u},
+        {1u, 31u, 4u, 1u},
+        {1u, 32u, 4u, 7u},
+        {1u, 33u, 4u, 64u},
+        {1u, 255u, 2u, 64u},
+        {1u, 256u, 2u, 64u},
+        {1u, 257u, 2u, 64u},
+        {2u, 32u, 16u, 64u},
+        {2u, 256u, 4u, 64u},
+        {2u, 257u, 1u, 7u},
     };
     const MaskMode modes[] = {MaskMode::none, MaskMode::single_valid, MaskMode::all_masked};
     for (const auto &c : cases) {
@@ -871,8 +887,7 @@ void check_slice_cls(Device &device, Stream &stream, Family &fam) {
     struct C {
         uint32_t rows, h;
     };
-    const C cases[] = {{1u, 1u},   {6u, 64u},  {5u, 1024u}, {3u, 2048u}, {2u, 4096u},
-                       {4u, 2500u}}; // 2500 / 4096 > shared cache (re-gather path)
+    const C cases[] = {{1u, 1u}, {6u, 64u}, {5u, 1024u}, {3u, 2048u}, {2u, 4096u}, {4u, 2500u}};// 2500 / 4096 > shared cache (re-gather path)
     auto shader = device.compile(make_slice_cls_kernel());
     for (const auto &c : cases) {
         Lcg rng{};
@@ -936,7 +951,7 @@ void check_l2_normalize(Device &device, Stream &stream, Family &fam) {
 void check_sparse_head(Device &device, Stream &stream, Family &fam) {
     const uint32_t hs[] = {7u, 1000u, 1024u};
     auto shader = device.compile(make_sparse_head_kernel());
-    const uint32_t rows = 300u; // ragged token count
+    const uint32_t rows = 300u;// ragged token count
     for (const uint32_t h : hs) {
         Lcg rng{};
         rng.state = 0x5EED1234u ^ (h << 3u) ^ rows;
@@ -1009,7 +1024,7 @@ void check_colbert(Device &device, Stream &stream, Family &fam) {
     const uint32_t rows = 5u;
     for (uint32_t hi = 0u; hi < 2u; hi++) {
         const uint32_t h = hs[hi];
-        const uint32_t n = ns[hi == 0u ? 1u : 2u]; // (1000,13), (1024,1024)
+        const uint32_t n = ns[hi == 0u ? 1u : 2u];// (1000,13), (1024,1024)
         for (const uint32_t normalize : {0u, 1u}) {
             Lcg rng{};
             rng.state = 0xC01B3E7u ^ (h << 5u) ^ (n << 1u) ^ normalize;
@@ -1082,7 +1097,7 @@ void check_colbert(Device &device, Stream &stream, Family &fam) {
     }
 }
 
-} // namespace
+}// namespace
 
 int main(int argc, char *argv[]) {
     auto [context, device] = luisa::test::create_device(argc, argv);

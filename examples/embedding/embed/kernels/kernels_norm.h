@@ -51,12 +51,12 @@ using L2NormalizeKernel = compute::Kernel1D<void(compute::Buffer<float> /*x*/,
 // dense_pool (plan §3.3 N1(b)): the fused replacement for the per-batch-row
 // slice_cls (#8) + l2_normalize (#9) pair at the head of the dense-pooling tail.
 // bge-m3 has NO pooler final-LayerNorm after layer 24 -- layer 24's output is
-// already post-LN2 (executor.h record_encode: LN2 writes back into m_h0 and
-// trace slot i+1 reads m_h0; golden_layers.bin slot 24 == m_h0), so the dense
+// already post-LN2 (executor.h record_encode: LN2 writes back into _h0 and
+// trace slot i+1 reads _h0; golden_layers.bin slot 24 == _h0), so the dense
 // pooling path is exactly CLS-slice + L2-normalize. This kernel performs both in
 // one launch: for batch row b it L2-normalizes hidden[b*S .. b*S+1) (the CLS row
 // of the [B*S, H] final hidden state) straight out of `hidden` into out[b] (a
-// [B, H] dense buffer), removing the m_cls intermediate round-trip and folding 2B
+// [B, H] dense buffer), removing the _cls intermediate round-trip and folding 2B
 // dispatches into 1.
 //
 // Numerics are BIT-IDENTICAL to running slice_cls then l2_normalize per row: the

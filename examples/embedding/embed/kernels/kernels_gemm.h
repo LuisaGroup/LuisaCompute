@@ -149,15 +149,15 @@ using GemmKernel = compute::Kernel2D<void(compute::Buffer<float> /*A*/,
 // format, so no per-format table entries exist and the sweep harness (which
 // feeds fp32 weights) keeps seeing exactly the fp32 variants.
 struct GemmTileConfig {
-    const char *name;   ///< variant key, e.g. "rb_64x64_b256_r4x4_k16"
-    uint32_t tile_m;    ///< output rows per block
-    uint32_t tile_n;    ///< output columns per block
-    uint32_t tile_k;    ///< K slab (0 for the naive family: it is fixed at 16)
-    uint32_t reg_m;     ///< output rows per thread (1 == naive)
-    uint32_t reg_n;     ///< output columns per thread (1 == naive)
-    uint32_t block;     ///< threads per block
-    bool naive;         ///< legacy one-output-per-thread kernel
-    bool swap_grid;     ///< grid.x carries M-tiles (L2 locality probe)
+    const char *name;                                ///< variant key, e.g. "rb_64x64_b256_r4x4_k16"
+    uint32_t tile_m;                                 ///< output rows per block
+    uint32_t tile_n;                                 ///< output columns per block
+    uint32_t tile_k;                                 ///< K slab (0 for the naive family: it is fixed at 16)
+    uint32_t reg_m;                                  ///< output rows per thread (1 == naive)
+    uint32_t reg_n;                                  ///< output columns per thread (1 == naive)
+    uint32_t block;                                  ///< threads per block
+    bool naive;                                      ///< legacy one-output-per-thread kernel
+    bool swap_grid;                                  ///< grid.x carries M-tiles (L2 locality probe)
     GemmWeightFormat format = GemmWeightFormat::Fp32;///< B-operand element format
 };
 
