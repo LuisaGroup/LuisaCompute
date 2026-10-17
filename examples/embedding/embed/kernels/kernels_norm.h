@@ -48,4 +48,31 @@ using L2NormalizeKernel = compute::Kernel1D<void(compute::Buffer<float> /*x*/,
 
 [[nodiscard]] L2NormalizeKernel make_l2_normalize_kernel() noexcept;
 
+// dense_pool (plan §3.3 N1(b)): the fused replacement for the per-batch-row
+// slice_cls (#8) + l2_normalize (#9) pair at the head of the dense-pooling tail.
+// bge-m3 has NO pooler final-LayerNorm after layer 24 -- layer 24's output is
+// already post-LN2 (executor.h record_encode: LN2 writes back into m_h0 and
+// trace slot i+1 reads m_h0; golden_layers.bin slot 24 == m_h0), so the dense
+// pooling path is exactly CLS-slice + L2-normalize. This kernel performs both in
+// one launch: for batch row b it L2-normalizes hidden[b*S .. b*S+1) (the CLS row
+// of the [B*S, H] final hidden state) straight out of `hidden` into out[b] (a
+// [B, H] dense buffer), removing the m_cls intermediate round-trip and folding 2B
+// dispatches into 1.
+//
+// Numerics are BIT-IDENTICAL to running slice_cls then l2_normalize per row: the
+// L2 reduction uses the same kNormBlock-wide shared-memory halving tree, the same
+// strided per-thread accumulation order over the CLS row, and the same
+// y = x / max(||x||_2, 1e-12) formula. Verified 0 differing floats over B in
+// {1,16}, H=1024 on dx + vk + fallback (scratch harness). Per-block flattening is
+// by BATCH (grid.y carries batch groups so a >65535-batch host could dodge the DX
+// cap the same way; B <= 16383 in practice, so 1D is always safe).
+// Launch: one block per batch row, block kNormBlock; dispatch(B * kNormBlock)
+// TOTAL threads. Buffers: hidden [B*S*H], out [B*H]. Scalars: S (seq len), H.
+using DensePoolKernel = compute::Kernel1D<void(compute::Buffer<float> /*hidden*/,
+                                               compute::Buffer<float> /*out*/,
+                                               uint32_t /*S*/,
+                                               uint32_t /*H*/)>;
+
+[[nodiscard]] DensePoolKernel make_dense_pool_kernel() noexcept;
+
 }// namespace luisa::embed

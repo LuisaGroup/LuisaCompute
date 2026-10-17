@@ -7,7 +7,9 @@
 //                  sparse_linear weight pre-transposed to a plain [H] vector.
 //                  One scalar per token; host-side compaction of the nonzero
 //                  (token_id, weight) pairs happens after readback (Phase A
-//                  does not compact on device — plan §4 #10 note).
+//                  does not compact on device -- plan §4 #10 note; the opt
+//                  plan §3.4 P1 sparse_head_compact below adds the device
+//                  side, selected by the executor's EMBED_P1_SPARSE_COMPACT).
 // #10 colbert_proj: per token row: y[t, :] = hidden[t, :] @ W_c + b_c with the
 //                  colbert_linear weight pre-transposed to row-major [H, N]
 //                  (coalesced along N, plan §3.3 packing rule); optional
@@ -63,5 +65,43 @@ using ColbertProjKernel = compute::Kernel1D<void(compute::Buffer<float> /*X*/,
                                                  uint32_t /*normalize*/)>;
 
 [[nodiscard]] ColbertProjKernel make_colbert_proj_kernel() noexcept;
+
+// ---------------------------------------------------------------------------
+// P1 sparse-head readback compaction (opt plan §3.4 P1; the executor selects
+// these behind EMBED_P1_SPARSE_COMPACT=2, "pairs" mode; the public wire stays
+// the caller's [B*S] float span -- it is re-expanded host-side from the
+// compact stream in the list's completion callback, so the scheduler and all
+// parity gates consume byte-identical values on the positions they read).
+//
+// sparse_head_compact: computes y[t] = relu(dot(X[t,:], W_s) + b_s) with the
+// EXACT same block-reduction order as sparse_head (bit-identical values), then
+// appends the pair (t, y) -- token row index + weight -- for every row with
+// y > 0 AND mask[t] != 0 (padded rows carry no contract value; the scheduler
+// never reads them, and dropping them bounds the stream by the real-token
+// count the host can compute at record time). The append uses block-local
+// privatization -> one global atomic per block (lc_optimize §4.3), so the
+// pair order is run-arbitrary -- expansion is an order-free scatter by t, and
+// the expanded array is bit-identical regardless. Emissions <= sum(mask != 0)
+// <= rows: the pair buffers sized [rows] can never overflow. counter (1
+// uint, total emitted) must be zeroed before each dispatch -- see
+// make_sparse_count_reset_kernel.
+// Launch: 1D over rows (one block per token), block 256,
+// dispatch(rows * 256) -- same grid as sparse_head (rows <= 16383 << 65535).
+using SparseHeadCompactKernel = compute::Kernel1D<void(compute::Buffer<float> /*X*/,
+                                                       compute::Buffer<float> /*W_s*/,
+                                                       float /*b_s*/,
+                                                       compute::Buffer<float> /*mask*/,
+                                                       compute::Buffer<uint32_t> /*pair_ids*/,
+                                                       compute::Buffer<float> /*pair_w*/,
+                                                       compute::Buffer<uint32_t> /*counter*/,
+                                                       uint32_t /*H*/)>;
+
+[[nodiscard]] SparseHeadCompactKernel make_sparse_head_compact_kernel() noexcept;
+
+// Zeroes the 1-uint pair-stream counter (32-thread block, thread 0 writes;
+// recorded BEFORE sparse_head_compact in the same CommandList).
+using SparseCountResetKernel = compute::Kernel1D<void(compute::Buffer<uint32_t> /*counter*/)>;
+
+[[nodiscard]] SparseCountResetKernel make_sparse_count_reset_kernel() noexcept;
 
 }// namespace luisa::embed

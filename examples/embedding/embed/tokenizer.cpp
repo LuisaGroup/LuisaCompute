@@ -11,6 +11,8 @@
 
 #include <cstdint>
 #include <cstring>
+#include <thread>
+#include <atomic>
 #include <utility>
 
 #include <luisa/core/logging.h>
@@ -575,6 +577,62 @@ namespace luisa::embed {
             ids.swap(truncated);
         }
         return ids;
+    }
+
+    luisa::vector<luisa::vector<uint32_t>> Tokenizer::encode_parallel(
+        luisa::span<const luisa::string_view> texts,
+        uint32_t max_len,
+        uint32_t num_threads) const {
+
+        if(max_len < 2u || max_len > kMaxSeqLenCeiling)
+            LUISA_ERROR("tokenizer: max_len {} outside [2, {}]", max_len, kMaxSeqLenCeiling);
+
+        const size_t n = texts.size();
+        luisa::vector<luisa::vector<uint32_t>> results;
+        results.resize(n);// default-constructed (empty) per slot; never resized again
+
+        if(n == 0u) [[unlikely]] {
+            return results;
+        }
+
+        // Effective worker count: caller request (or auto) clamped to the pool
+        // cap and to the number of items. hw_concurrency of 0 (unsupported) is
+        // treated as 1 so the serial path is taken.
+        uint32_t wanted = num_threads;
+        if(wanted == 0u || wanted > kTokenizerMaxPoolThreads) {
+            auto hc = std::thread::hardware_concurrency();
+            wanted = (hc == 0u) ? 1u : hc;
+            if(wanted > kTokenizerMaxPoolThreads) { wanted = kTokenizerMaxPoolThreads; }
+        }
+        uint32_t workers = wanted;
+        if(workers > static_cast<uint32_t>(n)) { workers = static_cast<uint32_t>(n); }
+        if(workers < 2u) [[unlikely]] {
+            // Serial fallback (also the single-item case): identical to a plain loop.
+            for(size_t i = 0u; i < n; i++) {
+                results[i] = encode(texts[i], max_len);
+            }
+            return results;
+        }
+
+        // Dynamic, cursor-based distribution so that ragged batches (mixed token
+        // counts) load-balance. `results` is a fixed-size vector of distinct
+        // luisa::vector objects: each thread writes a disjoint slot and the
+        // container itself is never mutated after resize, so there is no data
+        // race. The Tokenizer is reentrant (read-only after load).
+        std::atomic<size_t> cursor{0u};
+        luisa::vector<std::thread> pool;
+        pool.reserve(workers);
+        const Tokenizer *self = this;
+        for(uint32_t t = 0u; t < workers; t++) {
+            pool.emplace_back([self, &texts, &results, &cursor, max_len]() {
+                size_t i = 0u;
+                while((i = cursor.fetch_add(1u, std::memory_order_relaxed)) < texts.size()) {
+                    results[i] = self->encode(texts[i], max_len);
+                }
+            });
+        }
+        for(auto &th : pool) { th.join(); }
+        return results;
     }
 
 }// namespace luisa::embed

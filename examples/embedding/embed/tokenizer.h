@@ -49,6 +49,10 @@
 
 namespace luisa::embed {
 
+    // Upper bound on worker threads encode_parallel may spawn, regardless of
+    // what the caller asks for or how many cores the machine reports (H8).
+    inline constexpr uint32_t kTokenizerMaxPoolThreads = 8u;
+
     /**
      * \brief bge-m3 (XLM-RoBERTa Unigram) tokenizer.
      *
@@ -85,6 +89,33 @@ namespace luisa::embed {
          * described in the header comment. Never empty for a valid tokenizer.
          */
         luisa::vector<uint32_t> encode(luisa::string_view utf8, uint32_t max_len = 512u) const;
+
+        /**
+         * \brief Encode many texts, optionally on a worker-thread pool (H8).
+         *
+         * The Tokenizer is immutable and reentrant after \ref load (the vocab
+         * trie and double-array are read-only; \ref encode touches no shared
+         * mutable state), so the \ref encode of each text may run concurrently
+         * on different threads. Output is order-preserving: result[i] is the
+         * \ref encode of texts[i] and is BIT-IDENTICAL to calling
+         * `encode(texts[i], max_len)` in a serial loop.
+         *
+         * Work is distributed dynamically (an atomic index cursor, not a static
+         * partition), so ragged batches load-balance across the pool.
+         *
+         * \param texts The input texts.
+         * \param max_len Truncation length; same contract as \ref encode.
+         * \param num_threads Desired worker count. 0 selects auto
+         * (min of hardware concurrency and \ref kTokenizerMaxPoolThreads).
+         * The effective count is further clamped to [1,
+         * min(num_threads or auto, kTokenizerMaxPoolThreads, texts.size())];
+         * with an effective count of 1 it degrades to the serial loop.
+         * \return One id vector per input text, in input order.
+         */
+        luisa::vector<luisa::vector<uint32_t>> encode_parallel(
+            luisa::span<const luisa::string_view> texts,
+            uint32_t max_len = 512u,
+            uint32_t num_threads = 0u) const;
 
     private:
         Tokenizer();

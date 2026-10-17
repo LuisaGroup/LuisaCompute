@@ -105,3 +105,119 @@ runs the release-mode review gate afterwards.
    with the parity numbers (max-abs-diff / cosine) printed by the tests.
 3. List of files created/modified (must match your ownership list exactly).
 4. Any deviation from the plan, with reason.
+## Performance tuning
+
+This section is the tuning reference for the bge-m3 embedding engine
+(LuisaCompute, `examples/embedding/`). All numbers are measured on an
+**RTX 4080 SUPER** with **release-mode** binaries using a **min-of-N** protocol.
+The authoritative per-run record lives in `benchmark_results/embed_opt_log.md`
+(append-only); the frozen default + kill-switch matrix is
+`benchmark_results/per_backend_config_table.md`.
+
+### Measured anchors (roofline, release, min-of-N)
+
+| Backend | DRAM BW (GB/s) | fp32 FLOPS (TFLOPS) | Ridge point (FLOP/B) |
+|---|---|---|---|
+| dx | 613.3 | 28.98 | ~47 |
+| vk | 614.2 | 35.72 | ~58 |
+
+Practical peaks (streaming float4 r+w, 537 MB moved; 4-ILP unrolled-FMA chains),
+not datasheet numbers. Shape intensities:
+- **QKV/FFN GEMM is compute-bound on paper at every batch** (≈256 FLOP/B at
+  S=512), so the binding constraint is the *achieved* GEMM throughput, not
+  bandwidth — this is why the register-blocked GEMM family (`rb_64x64_b128_r84`)
+  is the single biggest lever. At rows=4096 (release) it reaches ~22–24 TFLOPS
+  (dx) / ~23 TFLOPS (vk) on the QKV/FFN-up shapes — **7.8× / 8.1×** (dx) and
+  **5.3× / 5.4×** (vk) faster than the naive 16×16 kernel.
+- **LayerNorm / residual / embed** are bandwidth-bound (~0 FLOP, ~8 MB weights+
+  activations): block-size tuning only; the shipped tree reduction is kept.
+- **Batch shows no weight amortization at baseline** (per-embedding cost flat
+  from B=1→16 on the naive path); GEMM + attention tuning, not batch tricks,
+  moved the needle. After the wave-1/2 work B=1 S≈512 dropped **113.3 → 31.5 ms
+  (dx, 3.6×)** and **81.0 → 31.4 ms (vk, 2.6×)** on fp32, and **→ 27–28 ms on
+  fp16/bf16** (−10–14% vs fp32).
+
+For a quick read of what each knob buys and which legacy path restores it, see
+`benchmark_results/per_backend_config_table.md`.
+
+### Per-backend table
+
+See **`benchmark_results/per_backend_config_table.md`** — it freezes, for both
+`dx` and `vk`: the GEMM default variant and its `LUISA_EMBED_GEMM_TILE=16x16
+LUISA_EMBED_GEMM_BLOCK=256` legacy kill-switch; the flash default
+(`reg_b128_t16`) and `legacy_b32_t8`; the precision recommendation (**fp16**,
+with the bf16 gate-pass note); the heads readback mode (**WINDOW** default,
+**PAIRS** opt-in); the `kNaiveAttentionMaxSeq = 1024` cap and its revert
+rationale; and every runtime env toggle with its default.
+
+### Toggles (all runtime env vars; defaults in bold)
+
+| Toggle | Default / values | Effect |
+|---|---|---|
+| `LUISA_EMBED_GEMM_TILE` / `_BLOCK` (+`_KSLAB`/`_REGTILE`/`_CONFIG`) | **`rb_64x64_b128_r84`**; `TILE=16x16 BLOCK=256` = legacy `naive_16x16` | register-blocked GEMM family vs naive |
+| `LUISA_EMBED_GEMM_NO_FASTPATH` | **0** (compile-time) | non-fast epilogue path (audit) |
+| `LUISA_EMBED_FLASH_CONFIG` | **`reg_b128_t16`**; `legacy_b32_t8` = M4 baseline | flash attention variant (S>1024 only) |
+| `LUISA_EMBED_FLASH_BLOCK` / `_TILE` / `_REG` | default variant | field-wise flash overrides |
+| `LUISA_EMBED_WEIGHTS` | **`auto`** (from package); `fp32`\|`bf16`\|`fp16` | weight storage precision |
+| `EMBED_B1_READBACK_BARRIER` | **ON** (`=0` off) | sync-path readback drain barrier (B-1 fix) |
+| `EMBED_H8_TOKENIZER_POOL` | **ON** (`=0` off) | batched-tokenizer thread pool |
+| `EMBED_H10_LENGTH_BUCKET` | **ON** (`=0` off) | length bucketing in `encode_batch` |
+| `EMBED_N1_FUSE_POOL` | **ON** (`=0` off) | fused CLS-slice + L2-pool kernel |
+| `EMBED_P1_SPARSE_COMPACT` | **WINDOW** (unset/`1`); `0` LEGACY, `2` PAIRS | sparse readback compaction |
+
+"ON" toggles follow *unset ⇒ on, `=0` ⇒ off*. Every optimization is individually
+disable-able; kill-switch paths are byte-for-byte the pre-optimization kernels,
+so parity gates hold on either side.
+
+### Measurement methodology
+
+- **Release builds only for perf.** `xmake f -p windows -a x64 -m release
+  --lc_bin_dir=build/opt_rel/bin` + `xmake build benchmark_embed
+  benchmark_embed_gemm`. Debug-mode shader codegen (unoptimized DXIL/SPIR-V)
+  misclassifies every roofline and is only used for the parity suite. Because the
+  project config is shared, always reconfigure back to debug
+  (`xmake f -p windows -a x64 -m debug`) before parity runs.
+- **min-of-N after warm-up.** Numbers are `min` (and median) over repeated timed
+  dispatches after untimed warm-up (default 10–20 iters). Single runs are
+  distrusted; deltas under ~0.2 ms (roughly ±50%) are treated as noise.
+- **e2e metric** = session wall of `Session::encode`/`encode_batch` (the
+  acceptance number). Host submission overhead is ~0.02% of wall (record ≈0.03 ms
+  vs ≈30 ms encode), so the hot path is the kernels, not the host.
+- **GPU discipline** (shared box, single RTX 4080 SUPER): never two benchmarks
+  concurrently; after a device-init crash wait ~45–60 s and health-probe with a
+  tiny run before retrying; a first-crash-then-works on a previously-crashed GPU
+  is platform noise, not signal.
+
+### Caveats (honest)
+
+- **B-1 — intermittent release batch-path crash (mitigated, not provably
+  closed).** The sync-path readback used an event-fence wait that did not prove
+  the deferred DtoH memcpy / temp-ring recycle had drained, so a fast host could
+  free a Job while its readback was still pending → host use-after-free (segfault
+  at B=8/16) or readback-ring reuse fault (`DEVICE_REMOVED` at B=32). Fixed
+  engine-side (multi-chunk `encode_batch_sync` correctness + a readback drain
+  barrier, `EMBED_B1_READBACK_BARRIER` default ON). Debug and the CPU fallback are
+  clean in **all** windows; **release batch rows are window-dependent** — they pass
+  in healthy windows and can segfault at device-init in degraded ones. **Repro when
+  unhealthy:** `benchmark_embed dx --seq 512 --batch 8` (release). Release batch
+  throughput numbers (e.g. ~23.4 ms/embed at B=16, 3.4× over O0) are captured in
+  healthy windows; treat any single release batch run as conditional on a quiet GPU.
+- **Debug vs release.** All accepted perf numbers here are release-mode
+  min-of-N; debug numbers are larger and not comparable (they gate correctness, not
+  roofline). A debug measurement is never quoted as a speedup without its release
+  row in `embed_opt_log.md`.
+- **S=8192 long-sequence row is TDR-gated (B-2).** A solo S=8192 encode trips the
+  OS/driver TDR watchdog (documented hazard, e2e-gated behind
+  `BGEM3_E2E_ALLOW_8192`), so it is **not** a calibrated row; long-seq tuning was
+  validated at S ∈ {2048, 4096} instead (S=2048: dx 88.4 / vk 88.2 ms).
+- **Calibration status (wave-3 re-sweep, `calibration_2026-10-17.csv`).** GEMM rows
+  (QKV + FFN-up at rows=4096, dx+vk, default vs `naive_16x16` legacy) reproduce the
+  wave-1 win in release with **no regression** (release default is faster than the
+  wave-1 debug default). e2e B=1 S=561 fp32 re-measured **dx 27.26 ms / vk 27.32 ms**
+  — within ±15% of the wave-1 anchors (31.5 / 31.4 ms). Toggle sanity: `EMBED_N1_FUSE_POOL=0`
+  (+0.15%) and `EMBED_P1_SPARSE_COMPACT=0` (+0.39%) both run and land within ±5% of
+  the default (host-readback-level, not hot-path — as expected). The **S=2048 long-seq
+  row could not be re-measured**: every device-init segfaulted during the session
+  (recorded `unavailable`, 5 flakes); the wave-1 release anchor (dx 88.4 / vk 88.2 ms)
+  remains the frozen reference for that row. All rows are best-effort against the
+  shared box's intermittent release device-init flakes.

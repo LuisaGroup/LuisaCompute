@@ -15,9 +15,14 @@
 #include "executor.h"
 
 #include <algorithm>
+#include <atomic>
+#include <bit>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/format.h>
 
 #include "kernels/kernels_attention.h"
 #include "kernels/kernels_embed.h"
@@ -54,6 +59,142 @@ const Tensor &m_require(const Package &p, const luisa::string &name) {
     return *t;
 }
 
+// Host exact upcasts for the v2 half blobs (mirrors of the device-side load
+// helpers in kernels_gemm.cpp; both are bit-exact for every half value).
+[[nodiscard]] float m_bf16_up(uint16_t h) noexcept {
+    return std::bit_cast<float>(static_cast<uint32_t>(h) << 16u);
+}
+[[nodiscard]] float m_fp16_up(uint16_t h) noexcept {
+    const uint32_t mag = h & 0x7fffu;
+    const bool neg = (h >> 15u) != 0u;
+    float pos;
+    if(mag >= 0x7c00u) {
+        pos = std::bit_cast<float>(0x7f800000u | ((mag & 0x03ffu) << 13u));
+    } else if(mag >= 0x0400u) {
+        pos = std::bit_cast<float>((mag << 13u) + 0x38000000u);
+    } else {
+        pos = static_cast<float>(mag) * 5.9604644775390625e-8f;// 2^-24
+    }
+    return neg ? -pos : pos;
+}
+[[nodiscard]] float m_half_up(uint16_t h, PackagePrecision p) noexcept {
+    return p == PackagePrecision::bf16 ? m_bf16_up(h) : m_fp16_up(h);
+}
+
+// The GEMM weight matrices of one layer (the tensors uploaded packed-half in
+// the convert-on-read mode; every other tensor goes through the host
+// upconverter -- see the WeightStore class comment in executor.h).
+constexpr bool m_is_gemm_weight(luisa::string_view name) noexcept {
+    // "layer{i}.qkv" / ".attn.out" / ".ffn.up" / ".ffn.down" -- NOT the
+    // ".qkv.bias"/".ffn.up.bias" siblings, and not head.* (their kernels are
+    // not the GEMM family).
+    static constexpr luisa::string_view suffixes[] = {".qkv", ".attn.out", ".ffn.up", ".ffn.down"};
+    for(const auto s : suffixes) {
+        if(name.size() > s.size() + 6u && name.starts_with("layer") &&
+           name.ends_with(s)) {// "layer" + "0".."23" + "." + suffix: the '.' is
+            // implied by the suffix start, length guard rejects bare "layerN.qk"
+            return true;
+        }
+    }
+    return false;
+}
+
+// Plan §3.3 N1(b): fused dense-pool kernel (CLS-slice + L2-normalize in one
+// launch, bit-identical to the slice_cls + l2_normalize pair -- scratch harness:
+// 0 differing floats over B in {1,16}, H=1024 on dx+vk+fallback). It folds the
+// per-batch-row 2B dispatches into 1 and drops the m_cls intermediate round-trip.
+// Default ON; EMBED_N1_FUSE_POOL=0 restores the legacy slice_cls + l2_normalize
+// loop (kill switch for perf A/B and the toggle-regression gate). Pure dispatch
+// fusion: no math/eps/normalization change.
+[[nodiscard]] bool embed_fuse_pool_enabled() noexcept {
+    static const bool on = [] {
+        const auto *raw = std::getenv("EMBED_N1_FUSE_POOL");
+        return raw == nullptr || luisa::string_view{raw} != luisa::string_view{"0"};
+    }();
+    return on;
+}
+
+// Plan §3.4 P1: sparse-head readback compaction. The sparse wire stays the
+// caller's [B*S] float span (EncodeJob); what changes is how many bytes the
+// recorded DtoH copies move into it. Toggle EMBED_P1_SPARSE_COMPACT:
+//   "1"/unset -> WINDOW (default): the legacy sparse_head dispatch is kept
+//     bit-identical, but the readback copies only each row's real-token
+//     prefix [0, N_b) instead of the padded S floats (the scheduler's
+//     compaction window, m_finalize, never reads the padded tail; it is
+//     zero-filled here instead of carrying the pad rows' unread relu outputs).
+//     Bytes moved = 4 B * sum(N_b): never worse than legacy, strictly better
+//     on padded batches. No kernel change, no callbacks, fully deterministic.
+//   "2" -> PAIRS (the literal §4.3 queue-append design): a compact kernel
+//     computes the same y bit-identically, thresholds it, and appends
+//     (row, weight) pairs through block-local shared atomics -> ONE global
+//     atomic per emitting block; readback = 1-uint count + the pair prefix
+//     bounded by sum(N_b) (host-known from the mask); the completion callback
+//     expands the order-free pairs back into the caller's span (order-free
+//     scatter by unique row index -> the array, and every consumer-visible
+//     value, is run-invariant). This model's sparse head is value-dense in
+//     practice (golden_sparse.json: 12/13, 9/9, 15/15... of real tokens have
+//     w > 0 -> pairs cost 8 B/real-token vs the window's 4 B), so PAIRS is
+//     the opt-in audit arm, not the default.
+//   "0" -> LEGACY: the pre-P1 full [B*S] float copy.
+enum class EmbedP1Mode { legacy, window, pairs };
+[[nodiscard]] EmbedP1Mode embed_p1_mode() noexcept {
+    static const EmbedP1Mode mode = [] {
+        const auto *raw = std::getenv("EMBED_P1_SPARSE_COMPACT");
+        const luisa::string_view v{raw != nullptr ? raw : ""};
+        if(v == "0") {
+            return EmbedP1Mode::legacy;
+        }
+        if(v == "2") {
+            return EmbedP1Mode::pairs;
+        }
+        return EmbedP1Mode::window;
+    }();
+    return mode;
+}
+
+// Host pass over the uploaded mask: total real tokens and the per-row
+// prefix-contiguity precondition the WINDOW mode needs (the scheduler always
+// pads trailing rows, mask = 1..1 0..0; anything else falls back to the
+// legacy whole-array copy, loudly once).
+struct SparseRowWindows {
+    bool prefix_ok{true};
+    uint32_t real_total{};
+    luisa::vector<uint32_t> row_real;// [B]
+};
+
+[[nodiscard]] SparseRowWindows m_sparse_row_windows(luisa::span<const float> mask, uint32_t B, uint32_t S) {
+    SparseRowWindows w;
+    w.row_real.resize(B);
+    for(uint32_t b = 0; b < B; b++) {
+        const auto *row = mask.data() + static_cast<size_t>(b) * S;
+        uint32_t n = 0u;
+        while(n < S && row[n] != 0.0f) {
+            n++;
+        }
+        w.real_total += n;
+        w.row_real[b] = n;
+        for(uint32_t k = n; k < S; k++) {
+            if(row[k] != 0.0f) {
+                w.prefix_ok = false;
+                break;
+            }
+        }
+        if(!w.prefix_ok) [[unlikely]] {
+            break;
+        }
+    }
+    return w;
+}
+
+// PAIRS-mode host staging: one allocation per encode, shared_ptr-captured by
+// the completion callback that expands the pair stream back into the caller's
+// span (lc_optimize §8.8.4: callbacks own what they touch).
+struct SparsePairStaging {
+    luisa::vector<uint32_t> count;// [1]
+    luisa::vector<uint32_t> ids;  // [cap]
+    luisa::vector<float> weights; // [cap]
+};
+
 }// namespace
 
 // B2's launch helpers are DEFINED in kernels_attention.cpp but not declared in
@@ -68,7 +209,7 @@ uint32_t flash_attention_scratch_floats(uint32_t batch, uint32_t seq_len, uint32
 
 
 WeightStore::WeightStore(Device &device, const Package &package)
-    : m_device{device} {
+    : m_device{device}, m_pkg_precision{package.precision()} {
 
     const auto L = package.num_layers();
     m_hidden = package.hidden_size();
@@ -80,17 +221,95 @@ WeightStore::WeightStore(Device &device, const Package &package)
                     L, m_hidden, m_heads);
     }
 
-    const auto m_take = [&](const luisa::string &name, Buffer<float> &dst) {
+    // --- weight-format toggle (opt plan §3.1 G7 / §4 Q1-Q2) ------------------
+    // auto-detect from the package; LUISA_EMBED_WEIGHTS may force the fp32
+    // A/B arm or re-interpret -- mismatches are refused loudly.
+    const bool pkg_half = m_pkg_precision != PackagePrecision::fp32;
+    bool packed_half = pkg_half;// upload v2 blobs verbatim + convert-on-read
+    if(const auto *env = std::getenv("LUISA_EMBED_WEIGHTS"); env != nullptr && env[0] != '\0') {
+        luisa::string req;
+        req.reserve(6u);
+        for(const char *c = env; *c != '\0'; c++) {
+            req.push_back((*c >= 'A' && *c <= 'Z') ? static_cast<char>(*c + 32) : *c);
+        }
+        PackagePrecision want;
+        if(req == "fp32") {
+            want = PackagePrecision::fp32;
+        } else if(req == "bf16") {
+            want = PackagePrecision::bf16;
+        } else if(req == "fp16") {
+            want = PackagePrecision::fp16;
+        } else [[unlikely]] {
+            LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" is not fp32|bf16|fp16 (fail-closed).", env);
+        }
+        if(!pkg_half && want != PackagePrecision::fp32) [[unlikely]] {
+            LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" asks for the {} convert-on-read "
+                        "kernel path, but the package is fp32 (v1) -- its blobs are not packed-half buffers; "
+                        "pack a v2 --precision {} package to use it.",
+                        env, req, req);
+        }
+        if(pkg_half && want != PackagePrecision::fp32 && want != m_pkg_precision) [[unlikely]] {
+            LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" disagrees with the package "
+                        "format '{}' (bf16 and fp16 bit patterns must not be reinterpreted across).",
+                        env, package_precision_name(m_pkg_precision));
+        }
+        packed_half = pkg_half && want != PackagePrecision::fp32;
+        LUISA_INFO("embedding WeightStore: package precision '{}', LUISA_EMBED_WEIGHTS='{}' -> device mode '{}'.",
+                   package_precision_name(m_pkg_precision), env,
+                   pkg_half ? (packed_half ? "packed-half convert-on-read" : "fp32 convert-on-upload (A/B)")
+                            : "fp32");
+    }
+    if(pkg_half && packed_half) {
+        LUISA_INFO("embedding WeightStore: half-precision package '{}' -> GEMM weights uploaded packed "
+                   "({} B/elt), converted at the kernel B-tile load; fp32 accumulation unchanged.",
+                   package_precision_name(m_pkg_precision), 2);
+    } else if(pkg_half) {
+        LUISA_INFO("embedding WeightStore: half-precision package '{}' in fp32 A/B mode -- every tensor "
+                   "up-converted at upload, fp32 kernel path.",
+                   package_precision_name(m_pkg_precision));
+    }
+    m_gemm_format = (pkg_half && packed_half)
+                        ? (m_pkg_precision == PackagePrecision::bf16 ? GemmWeightFormat::Bf16 : GemmWeightFormat::Fp16)
+                        : GemmWeightFormat::Fp32;
+
+    // Role-aware tensor acquisition. allow_packed tensors (the four GEMM weight
+    // matrices per layer) keep the packed-half device layout in the
+    // convert-on-read mode; everything else -- and every tensor in the fp32
+    // A/B mode -- is up-converted host-side at construction time. The
+    // conversion results live in m_owned_scratch for the store's lifetime, so
+    // the upload spans borrow from storage owned by this WeightStore (the same
+    // "outlives the recorded commands" contract as the Package image).
+    const auto m_take = [&](const luisa::string &name, Buffer<float> &dst, bool allow_packed) {
         const auto &t = m_require(package, name);
         const auto n = static_cast<size_t>(t.element_count());
+        if(m_pkg_precision == PackagePrecision::fp32) {
+            dst = m_device.create_buffer<float>(n);
+            m_uploads.push_back(UploadItem{&dst, t.data, n});
+            return;
+        }
+        if(allow_packed && packed_half) {
+            const auto words = (n + 1u) / 2u;// two LE halves per device float
+            dst = m_device.create_buffer<float>(words);
+            m_owned_scratch.emplace_back(words, 0.0f);
+            auto &scratch = m_owned_scratch.back();
+            std::memcpy(scratch.data(), t.half_data, n * 2u); // exact blob bytes;
+            // zero-init covers the 2-byte tail of an odd n (no blob overrun).
+            m_uploads.push_back(UploadItem{&dst, scratch.data(), words});
+            return;
+        }
         dst = m_device.create_buffer<float>(n);
-        m_uploads.push_back(UploadItem{&dst, t.data, n});
+        m_owned_scratch.emplace_back(n);
+        auto &scratch = m_owned_scratch.back();
+        for(size_t i = 0u; i < n; i++) {
+            scratch[i] = m_half_up(t.half_data[i], m_pkg_precision);
+        }
+        m_uploads.push_back(UploadItem{&dst, scratch.data(), n});
     };
 
-    m_take("emb.word", m_word);
-    m_take("emb.pos", m_pos);
-    m_take("emb.ln.gamma", m_emb_ln_gamma);
-    m_take("emb.ln.beta", m_emb_ln_beta);
+    m_take("emb.word", m_word, false);
+    m_take("emb.pos", m_pos, false);
+    m_take("emb.ln.gamma", m_emb_ln_gamma, false);
+    m_take("emb.ln.beta", m_emb_ln_beta, false);
 
     m_layers.reserve(L);
     for(uint32_t i = 0; i < L; i++) {
@@ -98,24 +317,27 @@ WeightStore::WeightStore(Device &device, const Package &package)
         auto &lw = m_layers.back();// fill IN PLACE: UploadItem stores pointers to
         // these member buffers, so they must never move (m_layers is reserved
         // above and append-only afterwards).
-        m_take(luisa::format("layer{}.qkv", i), lw.qkv);
-        m_take(luisa::format("layer{}.qkv.bias", i), lw.qkv_bias);
-        m_take(luisa::format("layer{}.attn.out", i), lw.attn_out);
-        m_take(luisa::format("layer{}.attn.out.bias", i), lw.attn_out_bias);
-        m_take(luisa::format("layer{}.ln1.gamma", i), lw.ln1_gamma);
-        m_take(luisa::format("layer{}.ln1.beta", i), lw.ln1_beta);
-        m_take(luisa::format("layer{}.ffn.up", i), lw.ffn_up);
-        m_take(luisa::format("layer{}.ffn.up.bias", i), lw.ffn_up_bias);
-        m_take(luisa::format("layer{}.ffn.down", i), lw.ffn_down);
-        m_take(luisa::format("layer{}.ffn.down.bias", i), lw.ffn_down_bias);
-        m_take(luisa::format("layer{}.ln2.gamma", i), lw.ln2_gamma);
-        m_take(luisa::format("layer{}.ln2.beta", i), lw.ln2_beta);
+        m_take(luisa::format("layer{}.qkv", i), lw.qkv, true);
+        m_take(luisa::format("layer{}.qkv.bias", i), lw.qkv_bias, false);
+        m_take(luisa::format("layer{}.attn.out", i), lw.attn_out, true);
+        m_take(luisa::format("layer{}.attn.out.bias", i), lw.attn_out_bias, false);
+        m_take(luisa::format("layer{}.ln1.gamma", i), lw.ln1_gamma, false);
+        m_take(luisa::format("layer{}.ln1.beta", i), lw.ln1_beta, false);
+        m_take(luisa::format("layer{}.ffn.up", i), lw.ffn_up, true);
+        m_take(luisa::format("layer{}.ffn.up.bias", i), lw.ffn_up_bias, false);
+        m_take(luisa::format("layer{}.ffn.down", i), lw.ffn_down, true);
+        m_take(luisa::format("layer{}.ffn.down.bias", i), lw.ffn_down_bias, false);
+        m_take(luisa::format("layer{}.ln2.gamma", i), lw.ln2_gamma, false);
+        m_take(luisa::format("layer{}.ln2.beta", i), lw.ln2_beta, false);
     }
 
-    m_take("head.sparse.w", m_sparse_w);// [H,1] == plain [H] dot vector
-    m_sparse_b = m_require(package, "head.sparse.b").data[0];
-    m_take("head.colbert.w", m_colbert_w);
-    m_take("head.colbert.b", m_colbert_b);
+    m_take("head.sparse.w", m_sparse_w, false);// [H,1] == plain [H] dot vector
+    {
+        const auto &sb = m_require(package, "head.sparse.b");
+        m_sparse_b = m_pkg_precision == PackagePrecision::fp32 ? sb.data[0] : m_half_up(sb.half_data[0], m_pkg_precision);
+    }
+    m_take("head.colbert.w", m_colbert_w, false);
+    m_take("head.colbert.b", m_colbert_b, false);
 }
 
 void WeightStore::record_upload(CommandList &cl) const {
@@ -133,14 +355,28 @@ Executor::Executor(Device &device, const WeightStore &weights, compute::Stream &
         return m_device.compile(std::forward<decltype(kernel)>(kernel), opt);
     };
 
+    // GEMM kernels are compiled in the B-operand format the WeightStore
+    // uploads (opt plan §3.1 G7): Fp32 -> the historical bit-identical path;
+    // Bf16/Fp16 -> the convert-on-read packed-B load (fp32 accumulation).
+    const auto gemm_wf = m_weights.gemm_weight_format();
+    const luisa::string wf_sfx = gemm_wf == GemmWeightFormat::Fp32
+                                    ? luisa::string{}
+                                    : luisa::format("_{}", gemm_weight_format_name(gemm_wf));
+    const auto gname = [&wf_sfx](luisa::string_view base) {
+        return luisa::string{base} + wf_sfx;
+    };
+
     m_embed = compile(make_embed_lookup_kernel(), "emb_lookup");
-    m_gemm_bias = compile(make_gemm_kernel(GemmEpilogue::Bias), "gemm_bias");
-    m_gemm_gelu = compile(make_gemm_kernel(GemmEpilogue::BiasGeluErf), "gemm_bias_gelu_erf");
+    m_gemm_bias = compile(make_gemm_kernel(GemmEpilogue::Bias, gemm_wf), gname("gemm_bias").c_str());
+    m_gemm_gelu = compile(make_gemm_kernel(GemmEpilogue::BiasGeluErf, gemm_wf), gname("gemm_bias_gelu_erf").c_str());
     m_residual = compile(make_residual_add_kernel(), "residual_add");
     m_layernorm = compile(make_layernorm_kernel(), "layernorm");
     m_l2norm = compile(make_l2_normalize_kernel(), "l2_normalize");
     m_slice_cls = compile(make_slice_cls_kernel(), "slice_cls");
+    m_dense_pool = compile(make_dense_pool_kernel(), "dense_pool");
     m_sparse_head = compile(make_sparse_head_kernel(), "sparse_head");
+    m_sparse_head_compact = compile(make_sparse_head_compact_kernel(), "sparse_head_compact");
+    m_sparse_count_reset = compile(make_sparse_count_reset_kernel(), "sparse_count_reset");
     m_colbert_proj = compile(make_colbert_proj_kernel(), "colbert_proj");
     m_attn_scores = compile(make_attention_scores_kernel(), "attn_scores");
     m_attn_softmax = compile(make_softmax_row_kernel(), "softmax_row");
@@ -176,6 +412,15 @@ void Executor::m_ensure_pool(uint32_t rows, uint32_t batch, uint32_t seq) {
         m_dense_dev = m_device.create_buffer<float>(rf * H);// B*H <= B*seq*H (seq >= 1)
         m_sparse_dev = m_device.create_buffer<float>(rf);
         m_colbert_dev = m_device.create_buffer<float>(rf * H);
+        // P1 "pairs" mode staging (EMBED_P1_SPARSE_COMPACT=2); allocated with
+        // the pool so a grow never sees a torn buffer. The counter is a fixed
+        // [1] buffer: (re)created only while empty (a grow rebinds the others
+        // in place).
+        m_sparse_pair_ids = m_device.create_buffer<uint32_t>(rf);
+        m_sparse_pair_w = m_device.create_buffer<float>(rf);
+        if(!m_sparse_count) {
+            m_sparse_count = m_device.create_buffer<uint32_t>(1u);
+        }
     }
 
     if(seq <= kNaiveAttentionMaxSeq) {
@@ -353,23 +598,54 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
     }
 
     //--- dense pooling: CLS row + L2 normalize (kernels #8, #9) ---------------
-    for(uint32_t b = 0; b < B; b++) {
-        cl << m_slice_cls(m_h0.view(static_cast<size_t>(b) * S * H, H),
-                          m_cls.view(0, H), H)
-                 .dispatch(H)
-           << m_l2norm(m_cls.view(0, H), m_dense_dev.view(static_cast<size_t>(b) * H, H), H)
-                 .dispatch(kNormBlock);
+    // N1(b): default fused path -- one dense_pool dispatch reads every batch's CLS
+    // row straight out of the [B*S, H] final hidden state (m_h0) and writes the
+    // L2-normalized [B, H] dense result into m_dense_dev, folding the old per-row
+    // slice_cls + l2_normalize pair (2B dispatches + an m_cls round-trip) into one.
+    // Bit-identical to the legacy loop below (scratch harness, 0/16384 differing
+    // floats on dx+vk+fallback). EMBED_N1_FUSE_POOL=0 restores the legacy pair.
+    if(embed_fuse_pool_enabled()) [[likely]] {
+        cl << m_dense_pool(m_h0.view(0, rf * H),
+                          m_dense_dev.view(0, static_cast<size_t>(B) * H),
+                          S, H)
+                 .dispatch(static_cast<uint>(B * kNormBlock));
+    } else {
+        for(uint32_t b = 0; b < B; b++) {
+            cl << m_slice_cls(m_h0.view(static_cast<size_t>(b) * S * H, H),
+                              m_cls.view(0, H), H)
+                     .dispatch(H)
+               << m_l2norm(m_cls.view(0, H), m_dense_dev.view(static_cast<size_t>(b) * H, H), H)
+                     .dispatch(kNormBlock);
+        }
     }
 
     //--- optional retrieval heads (kernel #10) --------------------------------
+    // P1 (opt plan §3.4): sparse readback compaction mode; see embed_p1_mode()
+    // and the readback section below. LEGACY and WINDOW share the untouched
+    // legacy sparse_head dispatch; PAIRS replaces it with the compact-append
+    // kernel (bit-identical y, same tree order -- see kernels_heads.cpp).
+    const auto p1_mode = embed_p1_mode();
+    // Host mask scan (also used by the readback below): O(B*S) floats, ~us.
+    const auto sparse_windows = job.want_sparse
+                                    ? m_sparse_row_windows(job.mask, B, S)
+                                    : SparseRowWindows{};
     if(job.want_sparse) {
         if(job.sparse_out.size() != rf) [[unlikely]] {
             LUISA_ERROR("executor: want_sparse but sparse_out has {} floats (need {}).",
                         job.sparse_out.size(), rf);
         }
-        cl << m_sparse_head(m_h0.view(0, rf * H), m_weights.sparse_w().view(),
-                            m_weights.sparse_b(), m_sparse_dev.view(0, rf), H)
-                 .dispatch(static_cast<uint>(rf * kHeadsBlock));
+        if(p1_mode == EmbedP1Mode::pairs && sparse_windows.real_total > 0u) {
+            cl << m_sparse_count_reset(m_sparse_count.view()).dispatch(32u)
+               << m_sparse_head_compact(m_h0.view(0, rf * H), m_weights.sparse_w().view(),
+                                        m_weights.sparse_b(), m_mask_dev.view(0, rf),
+                                        m_sparse_pair_ids.view(0, rf), m_sparse_pair_w.view(0, rf),
+                                        m_sparse_count.view(0, 1), H)
+                       .dispatch(static_cast<uint>(rf * kHeadsBlock));
+        } else {
+            cl << m_sparse_head(m_h0.view(0, rf * H), m_weights.sparse_w().view(),
+                                m_weights.sparse_b(), m_sparse_dev.view(0, rf), H)
+                     .dispatch(static_cast<uint>(rf * kHeadsBlock));
+        }
     }
     if(job.want_colbert) {
         if(job.colbert_out.size() != rf * H) [[unlikely]] {
@@ -385,7 +661,62 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
     //--- readback --------------------------------------------------------------
     cl << m_dense_dev.view(0, static_cast<size_t>(B) * H).copy_to(job.dense_out);
     if(job.want_sparse) {
-        cl << m_sparse_dev.view(0, rf).copy_to(job.sparse_out);
+        // P1 modes (see embed_p1_mode): WINDOW copies each row's real-token
+        // prefix out of the legacy [rows] array and zero-fills the (unread)
+        // padded tail at record time; PAIRS copies the 1-uint count + the
+        // count-bounded pair prefix into executor-owned host staging and
+        // re-expands into the caller's span from the list's completion
+        // callback (fires after the readback memcpys of this list drained --
+        // lc_optimize §8.8; the scheduler's own finalize callback is appended
+        // after record_encode returns, i.e. runs after this expansion in the
+        // completion-thread order). Any unexpected mask pattern (non-suffix
+        // padding -- the scheduler never produces it) or an empty real set
+        // falls back to the exact legacy whole-array copy.
+        auto *out = job.sparse_out.data();
+        if(p1_mode == EmbedP1Mode::pairs && sparse_windows.real_total > 0u) {
+            const auto cap = sparse_windows.real_total;
+            auto staging = luisa::make_shared<SparsePairStaging>();
+            staging->count.resize(1u);
+            staging->ids.resize(cap);
+            staging->weights.resize(cap);
+            const auto dst = job.sparse_out;
+            cl << m_sparse_count.view(0, 1).copy_to(luisa::span<uint32_t>{staging->count})
+               << m_sparse_pair_ids.view(0, cap).copy_to(luisa::span<uint32_t>{staging->ids})
+               << m_sparse_pair_w.view(0, cap).copy_to(luisa::span<float>{staging->weights});
+            cl.add_callback([staging, dst]() noexcept {
+                std::memset(dst.data(), 0, dst.size() * sizeof(float));
+                const uint32_t n = staging->count[0];
+                const auto lim = std::min<size_t>(n, staging->ids.size());
+                for(size_t i = 0; i < lim; i++) {
+                    const auto t = staging->ids[i];
+                    if(t < dst.size()) [[likely]] {
+                        dst[t] = staging->weights[i];
+                    }
+                }
+            });
+        } else if(p1_mode == EmbedP1Mode::window && sparse_windows.prefix_ok) {
+            for(uint32_t b = 0; b < B; b++) {
+                const auto off = static_cast<size_t>(b) * S;
+                const auto n = sparse_windows.row_real[b];
+                if(n > 0u) {
+                    cl << m_sparse_dev.view(off, n)
+                              .copy_to(luisa::span<float>{out + off, n});
+                }
+                if(n < S) {
+                    std::memset(out + off + n, 0, static_cast<size_t>(S - n) * sizeof(float));
+                }
+            }
+        } else {
+            if(p1_mode == EmbedP1Mode::window) [[unlikely]] {
+                static std::atomic_flag warned{};
+                if(!warned.test_and_set()) {
+                    LUISA_WARNING("embedding P1 window: non-suffix padding mask at B={} S={}; "
+                                  "using the legacy whole-array sparse readback for this encode.",
+                                  B, S);
+                }
+            }
+            cl << m_sparse_dev.view(0, rf).copy_to(job.sparse_out);
+        }
     }
     if(job.want_colbert) {
         cl << m_colbert_dev.view(0, rf * H).copy_to(job.colbert_out);

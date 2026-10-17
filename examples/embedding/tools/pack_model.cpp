@@ -29,28 +29,47 @@
 // =============================================================================
 // model.bgm FORMAT -- VERSION 1. THIS COMMENT BLOCK IS THE FORMAT SPECIFICATION;
 // Phase B (package.h/.cpp loader, plan §3.3/B3) is written against it.
-//
 // All integers little-endian, all fields packed (no implicit padding except the
 // explicitly stated 256-byte blob alignment).
-//
-//   offset  size  field
-//   ------  ----  -------------------------------------------------------------
-//   0       4     magic 'B','G','M','3'
-//   4       4     u32 version      = 1
-//   8       4     u32 precision    = 0 (fp32 little-endian); 1 is reserved for
-//                                    bf16 (plan M7) -- loader must reject 1 in v1
-//   12      4     u32 tensor_count = N
-//   16      N*48  tensor table, N entries, in the emission order listed below
-//   ...           blobs: each tensor blob starts at a 256-byte aligned offset
-//
+// offset  size  field
+// ------  ----  -------------------------------------------------------------
+// 0 4 magic 'B','G','M','3'
+// 4 4 u32 version = 1 (fp32) or 2 (half-precision, opt plan §4 Q1/Q2)
+// 8 4 u32 precision = 0 (fp32 little-endian elements; the only v1 mode).
+//   Version 2 only: 1 = bf16, 2 = fp16 -- every blob is 2-byte
+//   little-endian elements, size_bytes = prod(dims) * 2
+//   (v1 must have precision 0; v2 must NOT have precision 0; both
+//   loaders reject mismatches loudly)
+// 12 4 u32 tensor_count = N
+// 16 N*48  tensor table, N entries, in the emission order listed below
+// ... blobs: each tensor blob starts at a 256-byte aligned offset
 // Tensor table entry (48 bytes):
-//   u64  name_hash    FNV-1a-64 of the canonical name bytes (no NUL):
-//                     offset_basis = 0xcbf29ce484222325, prime = 0x00000100000001b3,
-//                     h = basis; for each byte b: h ^= b; h *= prime;
-//   u64  offset       absolute byte offset of the blob from the start of file
-//                     (always a multiple of 256)
-//   u64  size_bytes   == prod(dims[0..rank-1]) * 4   (fp32 elements, v1)
-//   u32  rank         number of meaningful dims (1 or 2 in v1)
+// u64  name_hash FNV-1a-64 of the canonical name bytes (no NUL):
+// offset_basis = 0xcbf29ce484222325, prime = 0x00000100000001b3,
+// h = basis; for each byte b: h ^= b; h *= prime;
+// u64  offset absolute byte offset of the blob from the start of file
+// (always a multiple of 256)
+// u64  size_bytes == prod(dims[0..rank-1]) * elem_size (4 for fp32/v1,
+// 2 for bf16/fp16/v2)
+// u32  rank number of meaningful dims (1 or 2 in v1/v2)
+// u32  dims[4] outermost-first; entries beyond rank are 0
+// Blobs are row-major (C-contiguous) tensors. Padding bytes between blobs are
+// zero. The file size is align_up(16 + 48*N, 256) + sum(align_up(size_i, 256)).
+// VERSION 2 ELEMENT ENCODING (pack_model --precision bf16|fp16; everything
+// above -- names, order, dims, alignment -- is identical to v1, and the v1
+// fp32 output is byte-identical to the historical packer):
+// * bf16: round-to-nearest-even truncation of the fp32 bits (ties-to-even on
+//   the discarded low 16 bits); NaN stays NaN, +-0/inf exact.
+// * fp16: IEEE binary32 -> binary16 round-to-nearest-even with subnormal and
+//   overflow-to-inf handling; exact for every value a bf16 blob could hold
+//   within range, but VALUES OUTSIDE +-65504 (|w| > 65504) become inf -- the
+//   packer reports the observed max |w| of the model so the range is audited
+//   at pack time (bge-m3 weights are far inside fp16 range; see the run log).
+// * Runtime: the engine uploads v2 GEMM weight blobs verbatim into packed
+//   Buffer<float> device buffers (two LE elements per word) and converts
+//   bf16/fp16 -> fp32 at the kernel B-tile load (FMA accumulation stays fp32;
+//   see kernels_gemm.h "WEIGHT FORMAT"). Other tensors are up-converted
+//   host-side once at upload. The conversion is exact in both directions.
 //   u32  dims[4]      outermost-first; entries beyond rank are 0
 //
 // Blobs are row-major (C-contiguous) tensors. Padding bytes between blobs are
@@ -122,15 +141,24 @@
 //     packer converts them to fp32.
 //
 // CLI
-//   pack_model <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump]
-//   <model_dir>     directory containing onnx/model.onnx, onnx/model.onnx_data,
-//                   sparse_linear.pt, colbert_linear.pt and config.json (the
-//                   config is read for cross-checking only)
-//   --golden-dir    directory holding golden_tokens.json and golden_dense.bin
-//   --check         after packing, reopen the .bgm, run the internal naive CPU
-//                   fp32 forward over the first three corpus sentences and
-//                   compare against golden_dense.bin (requires --golden-dir)
-//   --dump          print the canonical-name -> source-initializer mapping table
+// pack_model <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump]
+// [--precision fp32|bf16|fp16]
+// <model_dir> directory containing onnx/model.onnx, onnx/model.onnx_data,
+// sparse_linear.pt, colbert_linear.pt and config.json (the
+// config is read for cross-checking only)
+// --golden-dir directory holding golden_tokens.json and golden_dense.bin
+// --check after packing, reopen the .bgm, run the internal naive CPU
+// fp32 forward over the first three corpus sentences and
+// compare against golden_dense.bin (requires --golden-dir).
+// Gate: cosine >= 0.9999 for an fp32 package, >= 0.999
+// for a half-precision one (opt plan §4 parity gates)
+// --dump print the canonical-name -> source-initializer mapping table
+// --precision element format of the OUTPUT file (default fp32 = the
+// historical byte-identical v1 output). bf16/fp16 write
+// BGM3 v2 (see VERSION 2 above): every blob is
+// 2-byte RNE-quantized elements. The internal --check
+// forward dequantizes on read-back, so it measures the
+// true quantization effect end to end.
 //
 // Exit code: 0 on success, 1 on any fatal error (missing or unexpected
 // initializer, truncated data, alignment mismatch, parity mismatch, ...).
@@ -1491,8 +1519,87 @@ namespace pack_model_detail {
 // ---------------------------------------------------------------------------
 
 constexpr uint32_t k_bgm_version = 1;
+constexpr uint32_t k_bgm_version_half = 2;// opt plan §4 Q1/Q2 (bf16/fp16 blobs)
 constexpr uint32_t k_bgm_precision_fp32 = 0;
+constexpr uint32_t k_bgm_precision_bf16 = 1;
+constexpr uint32_t k_bgm_precision_fp16 = 2;
 constexpr uint64_t k_bgm_align = 256;
+inline uint64_t bgm_elem_bytes(uint32_t precision) {
+    return precision == k_bgm_precision_fp32 ? 4ull : 2ull;
+}
+inline const char *bgm_precision_name(uint32_t precision) {
+    switch (precision) {
+        case k_bgm_precision_fp32: return "fp32";
+        case k_bgm_precision_bf16: return "bf16";
+        case k_bgm_precision_fp16: return "fp16";
+        default: return "invalid";
+    }
+}
+// ---------------------------------------------------------------------------
+// half-precision codecs (format spec above). Quantization is round-to-nearest-
+// even; the upcasts are exact bit operations (mirror of the engine's device-
+// side load path in kernels_gemm.cpp and the upload conversion in
+// executor.cpp -- all three must agree bit for bit).
+// ---------------------------------------------------------------------------
+inline uint16_t f32_to_bf16_rne(float v) {
+    uint32_t u;
+    std::memcpy(&u, &v, sizeof(u));
+    if ((u & 0x7f800000u) == 0x7f800000u) {// inf: high bits exact; NaN: keep a
+        // quieting payload bit so the round-trip stays NaN
+        if ((u & 0x007fffffu) != 0u) u |= 0x00400000u;
+        return static_cast<uint16_t>(u >> 16);
+    }
+    const uint32_t lsb = (u >> 16) & 1u;
+    u += 0x7fffu + lsb;// RNE (also rounds finite overflow to inf, correctly)
+    return static_cast<uint16_t>(u >> 16);
+}
+inline uint16_t f32_to_f16_rne(float v) {
+    uint32_t u;
+    std::memcpy(&u, &v, sizeof(u));
+    const uint32_t sign = (u >> 16) & 0x8000u;
+    const uint32_t E = (u >> 23) & 0xffu;
+    const uint32_t m = u & 0x007fffffu;
+    if (E == 0xffu) return static_cast<uint16_t>(sign | 0x7c00u | (m != 0u ? (0x200u | ((m >> 13) & 0x1ffu)) : 0u));
+    if (E >= 143u) return static_cast<uint16_t>(sign | 0x7c00u);// |v| >= 2^16 -> inf
+    if (E >= 113u) {// normal: round the 13 discarded mantissa bits (RNE)
+        const uint32_t r = m & 0x1fffu;
+        uint32_t h = m >> 13;
+        if (r > 0x1000u || (r == 0x1000u && (h & 1u))) ++h;
+        if (h == 0x400u) return static_cast<uint16_t>(sign | ((E - 111u) << 10u));// carry to exp+1 (inf at the top)
+        return static_cast<uint16_t>(sign | ((E - 112u) << 10u) | h);
+    }
+    if (E >= 103u) {// fp16 subnormal: q = M >> (126 - E), RNE on the residue
+        const uint32_t M = m | 0x800000u;
+        const uint32_t sh = 126u - E;
+        const uint32_t r = M & ((1u << sh) - 1u);
+        uint32_t q = M >> sh;
+        const uint32_t half = 1u << (sh - 1u);
+        if (r > half || (r == half && (q & 1u))) ++q;
+        return static_cast<uint16_t>(sign | q);// q == 0x400 is the min normal (correct bits)
+    }
+    return static_cast<uint16_t>(sign);// |v| < 2^-25 -> signed zero
+}
+inline float bf16_to_f32(uint16_t h) {
+    const uint32_t u = static_cast<uint32_t>(h) << 16u;
+    float f;
+    std::memcpy(&f, &u, sizeof(f));
+    return f;
+}
+inline float f16_to_f32(uint16_t h) {
+    const uint32_t mag = h & 0x7fffu;
+    const bool neg = (h >> 15u) != 0u;
+    float pos;
+    if (mag >= 0x7c00u) {
+        const uint32_t u = 0x7f800000u | ((mag & 0x03ffu) << 13u);
+        std::memcpy(&pos, &u, sizeof(pos));
+    } else if (mag >= 0x0400u) {
+        const uint32_t u = (mag << 13u) + 0x38000000u;// exact rebias, e16 <= 30
+        std::memcpy(&pos, &u, sizeof(pos));
+    } else {
+        pos = static_cast<float>(mag) * 5.9604644775390625e-8f;// 2^-24
+    }
+    return neg ? -pos : pos;
+}
 constexpr int k_num_layers = 24;
 constexpr int k_hidden = 1024;
 constexpr int k_intermediate = 4096;
@@ -1523,11 +1630,17 @@ struct bgm_plan_entry {
 
 class bgm_writer {
 public:
-    explicit bgm_writer(std::string path) : _path(std::move(path)) {}
+    // precision: k_bgm_precision_fp32 (version 1, byte-identical to the
+    // historical output) | bf16 | fp16 (version 2, 2-byte RNE blobs).
+    explicit bgm_writer(std::string path, uint32_t precision = k_bgm_precision_fp32)
+        : _path(std::move(path)), _precision(precision), _esz(bgm_elem_bytes(precision)) {}
     ~bgm_writer() { close(); }
     bgm_writer(const bgm_writer &) = delete;
     bgm_writer &operator=(const bgm_writer &) = delete;
-
+    uint32_t precision() const { return _precision; }
+    // max |value| observed over all written fp32 weights (fp16 range audit;
+    // format spec "VERSION 2 ELEMENT ENCODING").
+    double max_abs() const { return _max_abs; }
     // Assigns every blob offset (256-byte aligned) and remembers the total size.
     void plan(std::vector<bgm_plan_entry> entries) {
         _entries = std::move(entries);
@@ -1538,16 +1651,16 @@ public:
         }
         _total = off;
     }
+
     uint64_t total_size() const { return _total; }
     size_t tensor_count() const { return _entries.size(); }
     const bgm_plan_entry &entry(size_t i) const { return _entries[i]; }
-
     void open() {
         _f = std::fopen(_path.c_str(), "wb");
         PACK_CHECK(_f, "cannot open the output file '%s' for writing", _path.c_str());
         uint8_t header[16] = {'B', 'G', 'M', '3', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-        write_u32(header + 4, k_bgm_version);
-        write_u32(header + 8, k_bgm_precision_fp32);
+        write_u32(header + 4, _precision == k_bgm_precision_fp32 ? k_bgm_version : k_bgm_version_half);
+        write_u32(header + 8, _precision);
         write_u32(header + 12, static_cast<uint32_t>(_entries.size()));
         put(header, sizeof(header));
         std::vector<uint8_t> table(48 * _entries.size());
@@ -1564,9 +1677,10 @@ public:
         put(table.data(), table.size());
         pad_to(_entries.empty() ? k_bgm_align : _entries.front().offset);
     }
-
     // Writes the blob of plan entry `idx`; `fill` produces exactly the expected
     // number of floats, so the 1 GB word table can be streamed in row chunks.
+    // For a half package the floats are RNE-quantized to 2-byte elements here
+    // (and the running max |w| is audited for the fp16 range check).
     template<class Fn>
     void write_entry(size_t idx, uint64_t rows_per_call, Fn &&fill) {
         const auto &e = _entries[idx];
@@ -1582,22 +1696,39 @@ public:
             PACK_CHECK(static_cast<uint64_t>(buf.size()) == count * cols,
                        "'%s': chunk at row %llu produced %zu floats, expected %llu", e.name.c_str(),
                        static_cast<unsigned long long>(row), buf.size(), static_cast<unsigned long long>(count * cols));
-            put(reinterpret_cast<const uint8_t *>(buf.data()), buf.size() * 4);
+            for (const float x : buf) {
+                const double ax = std::abs(static_cast<double>(x));
+                if (ax > _max_abs) _max_abs = ax;
+            }
+            if (_esz == 2ull) {
+                _hbuf.resize(buf.size());
+                for (size_t j = 0; j < buf.size(); j++) {
+                    _hbuf[j] = _precision == k_bgm_precision_bf16 ? f32_to_bf16_rne(buf[j]) : f32_to_f16_rne(buf[j]);
+                }
+                put(reinterpret_cast<const uint8_t *>(_hbuf.data()), _hbuf.size() * 2);
+            } else {
+                put(reinterpret_cast<const uint8_t *>(buf.data()), buf.size() * 4);
+            }
         }
         pad_to(align_up(e.offset + e.size_bytes, k_bgm_align));
     }
+
     template<class Fn>
     void write_entry(size_t idx, Fn &&fill) { write_entry(idx, 1u << 30, std::forward<Fn>(fill)); }
-
     void close() {
         if (!_f) return;
         std::fflush(_f);
         const uint64_t written = tell64(_f);
         PACK_CHECK(written == _total, "'%s': wrote %llu bytes, the plan said %llu", _path.c_str(),
                    static_cast<unsigned long long>(written), static_cast<unsigned long long>(_total));
+        if (_esz == 2ull && _precision == k_bgm_precision_fp16 && _max_abs > 65504.0) [[unlikely]] {
+            info("WARNING: fp16 package: max |w| = %.6g exceeds the fp16 finite range (+-65504); such weights "
+                 "became inf -- do not deploy this package.\n", _max_abs);
+        }
         std::fclose(_f);
         _f = nullptr;
     }
+
     const std::string &path() const { return _path; }
 
 private:
@@ -1607,11 +1738,12 @@ private:
         p[2] = static_cast<uint8_t>(x >> 16);
         p[3] = static_cast<uint8_t>(x >> 24);
     }
+
     void put(const uint8_t *p, size_t n) {
         if (n == 0) return;
         PACK_CHECK(std::fwrite(p, 1, n, _f) == n, "write failed on '%s'", _path.c_str());
     }
-    void pad_to(uint64_t target) {
+        void pad_to(uint64_t target) {
         static const uint8_t zeros[256] = {};
         uint64_t cur = tell64(_f);
         PACK_CHECK(target >= cur, "alignment target %llu is behind the writer (%llu)", static_cast<unsigned long long>(target), static_cast<unsigned long long>(cur));
@@ -1626,14 +1758,19 @@ private:
     std::FILE *_f = nullptr;
     std::vector<bgm_plan_entry> _entries;
     uint64_t _total = 0;
+    uint32_t _precision = k_bgm_precision_fp32;
+    uint64_t _esz = 4;
+    double _max_abs = 0.0;
+    std::vector<uint16_t> _hbuf;// half-chunk staging (_esz == 2)
 };
 
 // ---------------------------------------------------------------------------
 // emission plan: canonical names, ranks and dims in file order
 // ---------------------------------------------------------------------------
 
-std::vector<bgm_plan_entry> build_plan() {
-    auto mk = [](const std::string &name, std::initializer_list<uint32_t> dims) {
+std::vector<bgm_plan_entry> build_plan(uint32_t precision = k_bgm_precision_fp32) {
+    const uint64_t esz = bgm_elem_bytes(precision);
+    auto mk = [esz](const std::string &name, std::initializer_list<uint32_t> dims) {
         bgm_plan_entry e;
         e.name = name;
         e.rank = static_cast<uint32_t>(dims.size());
@@ -1643,7 +1780,7 @@ std::vector<bgm_plan_entry> build_plan() {
             e.dims[i++] = d;
             n *= d;
         }
-        e.size_bytes = n * 4;
+        e.size_bytes = n * esz;
         return e;
     };
     std::vector<bgm_plan_entry> plan;
@@ -1689,7 +1826,8 @@ std::vector<float> transpose_kn(const std::vector<float> &w, uint64_t out, uint6
 // the pack step
 // ---------------------------------------------------------------------------
 
-void run_pack(const std::string &model_dir, const std::string &out_path, const config_info &cfg, bool dump) {
+void run_pack(const std::string &model_dir, const std::string &out_path, const config_info &cfg, bool dump,
+              uint32_t precision = k_bgm_precision_fp32) {
     const std::string onnx_path = path_join(path_join(model_dir, "onnx"), "model.onnx");
     const auto blob = read_file_text(onnx_path);
     info("read %s (%zu bytes)\n", onnx_path.c_str(), blob.size());
@@ -1833,10 +1971,10 @@ void run_pack(const std::string &model_dir, const std::string &out_path, const c
     }
 
     // ---- write ---------------------------------------------------------------
-    bgm_writer writer(out_path);
-    writer.plan(build_plan());
-    info("packing %zu tensors, %llu bytes of fp32 payload, %llu bytes total (256-byte aligned)\n",
-         writer.tensor_count(),
+    bgm_writer writer(out_path, precision);
+    writer.plan(build_plan(precision));
+    info("packing %zu tensors as %s, %llu bytes of payload, %llu bytes total (256-byte aligned)\n",
+         writer.tensor_count(), bgm_precision_name(precision),
          static_cast<unsigned long long>([&] {
              uint64_t s = 0;
              for (size_t i = 0; i < writer.tensor_count(); i++) s += writer.entry(i).size_bytes;
@@ -1877,6 +2015,7 @@ void run_pack(const std::string &model_dir, const std::string &out_path, const c
     writer.write_entry(4 + static_cast<size_t>(k_num_layers) * 12 + 2, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = colbert_w; });
     writer.write_entry(4 + static_cast<size_t>(k_num_layers) * 12 + 3, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = colbert.bias; });
     writer.close();
+    info("weight range audit: max |w| = %.6f over all packed fp32 source values\n", writer.max_abs());
     info("wrote %s (%llu bytes)\n", out_path.c_str(), static_cast<unsigned long long>(file_size64_of(out_path)));
 }
 
@@ -2102,8 +2241,18 @@ public:
         _version = read_le32(header + 4);
         _precision = read_le32(header + 8);
         _count = read_le32(header + 12);
-        PACK_CHECK(_version == k_bgm_version, "unsupported BGM3 version %u", _version);
-        PACK_CHECK(_precision == k_bgm_precision_fp32, "unsupported precision %u (0 = fp32 is the only v1 mode)", _precision);
+        // v1 = fp32 blobs; v2 = half blobs (bf16/fp16) -- format spec above.
+        // Mirrors embed::Package::load (package.cpp) so --check reads exactly
+        // what the engine accepts.
+        PACK_CHECK(_version == k_bgm_version || _version == k_bgm_version_half, "unsupported BGM3 version %u", _version);
+        if (_version == k_bgm_version) {
+            PACK_CHECK(_precision == k_bgm_precision_fp32,
+                       "unsupported precision %u (0 = fp32 is the only v1 mode; bf16/fp16 are version 2)", _precision);
+        } else {
+            PACK_CHECK(_precision == k_bgm_precision_bf16 || _precision == k_bgm_precision_fp16,
+                       "unsupported precision %u for version 2 (1 = bf16, 2 = fp16)", _precision);
+        }
+        _esz = bgm_elem_bytes(_precision);
         PACK_CHECK(_count > 0 && _count < (1u << 20), "implausible tensor_count %u", _count);
         PACK_CHECK(static_cast<uint64_t>(16) + 48ull * _count <= _size, "the tensor table does not fit in the file");
         _entries.resize(_count);
@@ -2128,8 +2277,8 @@ public:
                        static_cast<unsigned long long>(e.offset), static_cast<unsigned long long>(e.offset + e.size_bytes),
                        static_cast<unsigned long long>(_size));
             const uint64_t elems = e.num_elements();
-            PACK_CHECK(elems * 4 == e.size_bytes, "entry %u: dims %ux%ux%ux%u * 4 != size_bytes %llu", i, e.dims[0], e.dims[1],
-                       e.dims[2], e.dims[3], static_cast<unsigned long long>(e.size_bytes));
+            PACK_CHECK(elems * _esz == e.size_bytes, "entry %u: dims %ux%ux%ux%u * %llu != size_bytes %llu", i, e.dims[0], e.dims[1],
+                       e.dims[2], e.dims[3], static_cast<unsigned long long>(_esz), static_cast<unsigned long long>(e.size_bytes));
             for (uint32_t d = e.rank; d < 4; d++) PACK_CHECK(e.dims[d] == 0, "entry %u: dims beyond rank are not zero", i);
             expect_off = align_up(e.offset + e.size_bytes, k_bgm_align);
         }
@@ -2144,8 +2293,12 @@ public:
     bgm_reader(const bgm_reader &) = delete;
     bgm_reader &operator=(const bgm_reader &) = delete;
 
-    uint32_t count() const { return _count; }
-    uint64_t file_size() const { return _size; }
+        uint32_t count() const { return _count; }
+        uint32_t version() const { return _version; }
+        uint32_t precision() const { return _precision; }
+        const char *precision_name() const { return bgm_precision_name(_precision); }
+        uint64_t elem_bytes() const { return _esz; }
+        uint64_t file_size() const { return _size; }
     const bgm_entry_view &entry(size_t i) const { return _entries[i]; }
     const bgm_entry_view *lookup(const std::string &name) const {
         const auto it = _index.find(fnv1a_64(name));
@@ -2157,22 +2310,46 @@ public:
                    static_cast<unsigned long long>(fnv1a_64(name)));
         return *e;
     }
-    std::vector<float> read_all(const std::string &name) const {
-        const auto &e = require(name);
-        std::vector<float> out(static_cast<size_t>(e.size_bytes / 4));
-        read_at(e.offset, out.data(), static_cast<size_t>(e.size_bytes));
-        return out;
-    }
-    void read_rows(const std::string &name, uint64_t row, uint64_t rows, float *dst) const {
-        const auto &e = require(name);
-        PACK_CHECK(e.rank == 2, "'%s' is not rank-2", name.c_str());
-        const uint64_t cols = e.dims[1];
-        PACK_CHECK(row + rows <= e.dims[0], "'%s': row range out of bounds", name.c_str());
-        read_at(e.offset + row * cols * 4, dst, static_cast<size_t>(rows * cols * 4));
-    }
+        std::vector<float> read_all(const std::string &name) const {
+            const auto &e = require(name);
+            const uint64_t elems = e.num_elements();
+            std::vector<float> out(static_cast<size_t>(elems));
+            if (_esz == 4ull) {
+                read_at(e.offset, out.data(), static_cast<size_t>(e.size_bytes));
+            } else {
+                _raw.assign(static_cast<size_t>(e.size_bytes), 0u);
+                read_at(e.offset, _raw.data(), static_cast<size_t>(e.size_bytes));
+                decode_halves(_raw, out.data());
+            }
+            return out;
+        }
+        void read_rows(const std::string &name, uint64_t row, uint64_t rows, float *dst) const {
+            const auto &e = require(name);
+            PACK_CHECK(e.rank == 2, "'%s' is not rank-2", name.c_str());
+            const uint64_t cols = e.dims[1];
+            PACK_CHECK(row + rows <= e.dims[0], "'%s': row range out of bounds", name.c_str());
+            const uint64_t nelem = rows * cols;
+            if (_esz == 4ull) {
+                read_at(e.offset + row * cols * 4, dst, static_cast<size_t>(nelem * 4));
+            } else {
+                _raw.assign(static_cast<size_t>(nelem * 2), 0u);
+                read_at(e.offset + row * cols * 2, _raw.data(), static_cast<size_t>(nelem * 2));
+                decode_halves(_raw, dst);
+            }
+        }
 
-private:
-    void read_at(uint64_t off, void *dst, size_t n) const {
+    private:
+        // v2 blob bytes -> fp32 (the exact upcasts of the format spec; the
+        // engine's kernel-side load path performs the same conversion)
+        void decode_halves(const std::vector<uint8_t> &bytes, float *dst) const {
+            const size_t n = bytes.size() / 2;
+            for (size_t i = 0; i < n; i++) {
+                const uint16_t h = static_cast<uint16_t>(bytes[2 * i] | (static_cast<uint16_t>(bytes[2 * i + 1]) << 8));
+                dst[i] = _precision == k_bgm_precision_bf16 ? bf16_to_f32(h) : f16_to_f32(h);
+            }
+        }
+
+        void read_at(uint64_t off, void *dst, size_t n) const {
         PACK_CHECK(off + n <= _size, "read [%llu,%llu) is past the file", static_cast<unsigned long long>(off),
                    static_cast<unsigned long long>(off + n));
         seek64(_f, off);
@@ -2180,19 +2357,21 @@ private:
                    static_cast<unsigned long long>(off));
     }
 
-    std::FILE *_f = nullptr;
-    uint64_t _size = 0;
-    uint32_t _version = 0;
-    uint32_t _precision = 0;
-    uint32_t _count = 0;
-    std::vector<bgm_entry_view> _entries;
-    std::unordered_map<uint64_t, uint32_t> _index;
-};
+        std::FILE *_f = nullptr;
+        uint64_t _size = 0;
+        uint32_t _version = 0;
+        uint32_t _precision = 0;
+        uint64_t _esz = 4;
+        uint32_t _count = 0;
+        std::vector<bgm_entry_view> _entries;
+        std::unordered_map<uint64_t, uint32_t> _index;
+        mutable std::vector<uint8_t> _raw;// half-blob staging for read_all/read_rows
+    };
 
 void summarize_package(const bgm_reader &r) {
     const auto plan = build_plan();
-    info("model.bgm: %llu bytes, version %u, precision fp32, tensor_count %u\n",
-         static_cast<unsigned long long>(r.file_size()), k_bgm_version, r.count());
+    info("model.bgm: %llu bytes, version %u, precision %s, tensor_count %u\n",
+         static_cast<unsigned long long>(r.file_size()), r.version(), r.precision_name(), r.count());
     auto name_of = [&](uint64_t hash) -> std::string {
         for (const auto &p : plan) {
             if (fnv1a_64(p.name) == hash) return p.name;
@@ -2472,9 +2651,15 @@ void run_check(const std::string &out_path, const std::string &golden_dir, bool 
         worst = std::min(worst, c);
         worst_abs = std::max(worst_abs, max_abs);
     }
-    PACK_CHECK(worst >= 0.9999, "internal CPU forward parity FAILED: worst cosine %.10f < 0.9999 (worst max-abs-diff %.3e)",
-               worst, worst_abs);
-    info("parity gate passed: worst cosine %.10f >= 0.9999, worst max-abs-diff %.3e\n", worst, worst_abs);
+    // Parity gate (opt plan §4 / §5): fp32 v1 >= 0.9999; a half-precision v2
+    // package carries real quantization noise and is gated >= 0.999 -- the
+    // cosine is measured against the SAME frozen fp32 goldens, with the
+    // dequantized weights feeding the identical fp32 forward pass.
+    const double gate = r.precision() == k_bgm_precision_fp32 ? 0.9999 : 0.999;
+    PACK_CHECK(worst >= gate, "internal CPU forward parity FAILED (%s weights): worst cosine %.10f < %.4f (worst max-abs-diff %.3e)",
+               r.precision_name(), worst, gate, worst_abs);
+    info("parity gate passed (%s weights): worst cosine %.10f >= %.4f, worst max-abs-diff %.3e\n",
+         r.precision_name(), worst, gate, worst_abs);
 }
 
 }// namespace pack_model_detail
@@ -2488,6 +2673,7 @@ int main_impl(int argc, char **argv) {
     std::string golden_dir;
     bool check = false;
     bool dump = false;
+    uint32_t precision = k_bgm_precision_fp32;
     std::vector<std::string> positional;
     for (int i = 1; i < argc; i++) {
         const std::string a = argv[i];
@@ -2500,15 +2686,31 @@ int main_impl(int argc, char **argv) {
             golden_dir = argv[++i];
         } else if (a.rfind("--golden-dir=", 0) == 0) {
             golden_dir = a.substr(std::strlen("--golden-dir="));
+        } else if (a == "--precision" || a.rfind("--precision=", 0) == 0) {
+            std::string p = a.rfind("--precision=", 0) == 0 ? a.substr(std::strlen("--precision=")) : std::string{};
+            if (p.empty()) {
+                PACK_CHECK(i + 1 < argc, "--precision needs an argument: fp32|bf16|fp16");
+                p = argv[++i];
+            }
+            if (p == "fp32") {
+                precision = k_bgm_precision_fp32;
+            } else if (p == "bf16") {
+                precision = k_bgm_precision_bf16;
+            } else if (p == "fp16") {
+                precision = k_bgm_precision_fp16;
+            } else {
+                PACK_CHECK(false, "--precision '%s' is not fp32|bf16|fp16", p.c_str());
+            }
         } else if (a == "-h" || a == "--help") {
-            info("usage: pack_model <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump]\n");
+            info("usage: pack_model <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump] [--precision fp32|bf16|fp16]\n");
             return 0;
         } else {
             positional.push_back(a);
         }
     }
     PACK_CHECK(positional.size() == 2,
-               "expected <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump], got %zu positional argument(s)",
+               "expected <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump] [--precision fp32|bf16|fp16], "
+               "got %zu positional argument(s)",
                positional.size());
     std::string model_dir = positional[0];
     const std::string out_path = positional[1];
@@ -2535,7 +2737,7 @@ int main_impl(int argc, char **argv) {
         info("config.json not found in '%s'; using the architecture constants of the format spec\n", model_dir.c_str());
     }
 
-    run_pack(model_dir, out_path, cfg, dump);
+    run_pack(model_dir, out_path, cfg, dump, precision);
 
     if (check) {
         info("--- internal CPU forward check (weights read back from '%s') ---\n", out_path.c_str());

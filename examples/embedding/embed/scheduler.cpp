@@ -10,8 +10,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/string.h>
 #include <luisa/runtime/command_list.h>
 
 namespace luisa::embed {
@@ -95,6 +97,31 @@ uint32_t m_group_max_len(const luisa::vector<ScheduledRequest *> &reqs) noexcept
         n = std::max(n, static_cast<uint32_t>(r->ids.size()));
     }
     return n;
+}
+
+// B-1 workaround toggle (defect investigation, see embed_opt_log B-1 row).
+// The sync path waits the WORKER EVENT FENCE (GPU timeline reached the event),
+// which does NOT imply that the backend completion worker has finished the
+// host-side readback memcpy (DtoH into the Job's host staging) and recycled the
+// readback placed-resource. In debug the completion path is slow/synchronous
+// enough that it always finishes before the fence wait returns; in release it
+// races, and freeing/reusing the Job's host staging under that in-flight read
+// produces either a host use-after-free segfault (dx+vk, batch>=8) or a lost
+// device surfacing at the next readback CreatePlacedResource (b32). The barrier
+// forces a full queue drain -- provably ordering every completion-Worker side
+// effect before the caller reads/deletes the Job.
+//
+// EMBED_B1_READBACK_BARRIER=0 disables it (to re-measure the pre-fix crash /
+// compare cost); default ON. It is a pure host-completion barrier: no numeric
+// change. On the sync path we already block on the fence, so an extra
+// stream::synchronize() is essentially free (the queue is already drained to the
+// fence; this only waits for the completion worker's bookkeeping).
+bool b1_readback_barrier_enabled() noexcept {
+    static const bool on = [] {
+        const auto *raw = std::getenv("EMBED_B1_READBACK_BARRIER");
+        return raw == nullptr || luisa::string_view{raw} != luisa::string_view{"0"};
+    }();
+    return on;
 }
 }// namespace
 
@@ -502,6 +529,12 @@ Embedding Scheduler::encode_sync(luisa::unique_ptr<ScheduledRequest> &req) noexc
     auto &worker = m_workers[req->worker_index];
     worker.done_ev.synchronize(req->fence);
     worker.executor->fire_trace_callbacks();// no-op unless tracing is on
+    // B-1 barrier (default ON): drain the worker stream so the backend completion
+    // worker has finished the readback memcpy into the Job's host staging before
+    // it is read below and freed -- see the note in encode_batch_sync.
+    if(b1_readback_barrier_enabled()) [[likely]] {
+        worker.stream.synchronize();
+    }
 
     auto *job = static_cast<Job *>(req->opaque_job);
     auto emb = m_finalize(req.get(), *job);
@@ -557,16 +590,72 @@ luisa::vector<Embedding> Scheduler::encode_batch_sync(luisa::vector<luisa::uniqu
     }
     m_cv.notify_one();
 
-    m_wait_assigned(reqs[0].get());
-    if(!reqs[0]->sync_ready) {
-        LUISA_WARNING("embedding scheduler: encode_batch_sync aborted by shutdown.");
-        return {};
+    // B-1 fix (multi-chunk submit path): a batch whose padded row total exceeds
+    // kMaxJobRows is split by split_atomic_chunks into SEVERAL atomic jobs, each
+    // launched on some worker with its OWN event fence. The previous code only
+    // waited on and deleted reqs[0]'s job, so every later chunk was (a)
+    // read back before its fence was signalled -- a host data race on the
+    // job-owned dense/sparse/colbert staging (surfaced as the release-only
+    // crash for large batches), (b) left un-deleted (Job leak) and (c) left
+    // m_outstanding_jobs inflated (the destructor drain loop spins forever).
+    // Correctness-only control flow; no numeric change; the single-chunk
+    // (common) case behaves exactly as before (all reqs share one fence).
+
+    // 1) Wait until EVERY request in the batch has been assigned (each chunk
+    //    launched and its sync_ready published under the mutex). A single
+    //    worker runs the chunks back-to-back, so the last chunk only launches
+    //    once the dispatcher observes the previous chunk's fence completed --
+    //    the dispatcher loop drives that, so this cannot deadlock.
+    for(auto &r : reqs) {
+        m_wait_assigned(r.get());
+        if(!r->sync_ready) [[unlikely]] {
+            LUISA_WARNING("embedding scheduler: encode_batch_sync aborted by shutdown.");
+            return {};
+        }
     }
 
-    const auto fence = reqs[0]->fence;
-    auto &worker = m_workers[reqs[0]->worker_index];
-    worker.done_ev.synchronize(fence);
-    worker.executor->fire_trace_callbacks();
+    // 2) Collect the DISTINCT jobs (one per atomic chunk), keyed by the
+    //    scheduler-owned Job pointer stored on each request.
+    luisa::vector<Job *> jobs;
+    jobs.reserve(chunks.size());
+    for(auto &r : reqs) {
+        auto *job = static_cast<Job *>(r->opaque_job);
+        bool seen = false;
+        for(auto *j : jobs) {
+            if(j == job) { seen = true; break; }
+        }
+        if(!seen) [[likely]] { jobs.emplace_back(job); }
+    }
+
+    // 3) CPU-side wait on each chunk job's fence (never a queue flush) and fire
+    //    trace callbacks on each distinct worker once (debug-only hook).
+    {
+        luisa::vector<Worker *> traced_workers;
+        for(auto &r : reqs) {
+            auto &worker = m_workers[r->worker_index];
+            worker.done_ev.synchronize(r->fence);
+            bool dup = false;
+            for(auto *w : traced_workers) {
+                if(w == &worker) { dup = true; break; }
+            }
+            if(!dup) [[likely]] {
+                traced_workers.emplace_back(&worker);
+                worker.executor->fire_trace_callbacks();
+            }
+        }
+        // B-1 barrier (default ON, EMBED_B1_READBACK_BARRIER=0 to disable):
+        // the event fence proves the GPU reached the job's tail, not that the
+        // backend completion worker finished the readback memcpy into each
+        // Job's host staging. Drain every involved worker stream fully before
+        // the caller reads (m_finalize) and frees the Jobs, so host staging is
+        // never freed under an in-flight DtoH copy. Pure host ordering; no
+        // numeric change; near-zero cost on a path that already blocks.
+        if(b1_readback_barrier_enabled()) [[likely]] {
+            for(auto *w : traced_workers) {
+                w->stream.synchronize();
+            }
+        }
+    }
 
     luisa::vector<Embedding> out;
     out.reserve(reqs.size());
@@ -577,11 +666,14 @@ luisa::vector<Embedding> Scheduler::encode_batch_sync(luisa::vector<luisa::uniqu
         m_record_sample(now - r->submitted_ms);
     }
     {
+        // 4) Retire every distinct chunk job exactly once (each atomic batch
+        //    sets pending_sync_callers == 1, so a single decrement frees it).
         std::scoped_lock lk{m_mutex};
-        auto *job = static_cast<Job *>(reqs[0]->opaque_job);
-        if(--job->pending_sync_callers == 0u) {
-            m_outstanding_jobs--;
-            delete job;
+        for(auto *job : jobs) {
+            if(--job->pending_sync_callers == 0u) {
+                m_outstanding_jobs--;
+                delete job;
+            }
         }
     }
     return out;

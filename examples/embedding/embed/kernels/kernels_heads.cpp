@@ -204,4 +204,117 @@ ColbertProjKernel make_colbert_proj_kernel() noexcept {
     return kernel;
 }
 
+SparseHeadCompactKernel make_sparse_head_compact_kernel() noexcept {
+    using namespace luisa::compute;
+
+    // P1 pairs mode (opt plan §3.4 P1): identical y computation as
+    // sparse_head (same strided partials, same shared halving tree, same bias
+    // + relu -- bit-identical weights), then the (row, weight) pair of every
+    // REAL row with a positive weight is appended to a compact stream via
+    // block-local privatization -> ONE global atomic per block
+    // (lc_optimize §4.3, the test_atomic_queue::push_if pattern). No warp
+    // collectives: the CPU fallback backend lowers atomics + barriers but not
+    // warp shuffles. The emission predicate mask[row] != 0 bounds the stream
+    // by the host-known real-token count, so the pair buffers (capacity
+    // rows) can never overflow and the recorded readback span can be that
+    // exact bound.
+    SparseHeadCompactKernel kernel = [](BufferFloat X, BufferFloat W_s, Var<float> b_s,
+                                        BufferFloat mask, BufferUInt pair_ids,
+                                        BufferFloat pair_w, BufferUInt counter,
+                                        Var<uint> H) noexcept {
+        set_block_size(kHeadsBlock, 1u, 1u);
+        set_name("sparse_head_compact");
+        Shared<float> red{kHeadsBlock};
+        Shared<uint> index{1u};
+
+        Var tx = thread_x();
+        Var bs = block_size().x;
+        Var row = dispatch_id().y * (dispatch_size().x / bs) + dispatch_id().x / bs;
+        Var base = row * H;
+
+        // Block reduction: shared-memory halving tree over the 256 per-thread
+        // partials -- EXACTLY the idiom, strides and summation order of
+        // sparse_head above (see its comment; bit-stable on every backend).
+        auto block_sum = [&](Var<float> partial) noexcept {
+            red[tx] = partial;
+            sync_block();
+            // Plain C++ loop: compile-time-constant strides, fixed unroll.
+            for (auto stride = kHeadsBlock / 2u; stride > 0u; stride >>= 1u) {
+                $if (tx < stride) {
+                    red[tx] += red[tx + stride];
+                };
+                sync_block();
+            };
+            Var total = red[0u];
+            sync_block(); // protect red against reuse by the next block_sum
+            return total;
+        };
+
+        Var partial = def(0.0f);
+        Var h = tx;
+        $while (h < H) {
+            partial += X.read(base + h) * W_s.read(h);
+            h += bs;
+        };
+        Var v = block_sum(partial) + b_s; // dot + bias Add
+        Var y = def(0.0f);                // Relu epilogue
+        $if (v > 0.0f) {
+            y = v;
+        };
+
+        // Stream compaction (§4.3): one block emits at most one pair (one
+        // scalar per row), so the per-item predicate is restricted to thread 0
+        // -- the privatized shared counter then carries exactly 0 or 1 and the
+        // block reserves exactly one slot with ONE global atomic (the same
+        // machinery a future multi-value head would drive with a per-thread
+        // pred). (A block-uniform pred here is the classic §4.3 trap: all 256
+        // threads append duplicate items and blow the capacity bound 256x.)
+        Var emit = def(false);
+        $if (tx == 0u) {
+            $if (y > 0.0f) {
+                $if (mask.read(row) != 0.0f) {
+                    emit = true;
+                };
+            };
+        };
+        $if (tx == 0u) {
+            index.write(0u, 0u);
+        };
+        sync_block();
+        Var local_index = def(0u);
+        $if (emit) {
+            local_index = index.atomic(0u).fetch_add(1u);
+        };
+        sync_block();
+        $if (tx == 0u) { // ONE global atomic for the whole block
+            Var local_count = index.read(0u);
+            Var global_offset = counter.atomic(0u).fetch_add(local_count);
+            index.write(0u, global_offset); // reuse the slot to broadcast the base
+        };
+        sync_block();
+        $if (emit) { // scatter to the reserved slot
+            Var slot = index.read(0u) + local_index;
+            pair_ids.write(slot, row);
+            pair_w.write(slot, y);
+        };
+    };
+    return kernel;
+}
+
+SparseCountResetKernel make_sparse_count_reset_kernel() noexcept {
+    using namespace luisa::compute;
+
+    // Zeroes the pair-stream counter before the sparse_head_compact dispatch
+    // (same pattern as test_atomic_queue's _reset; block 32 = the DSL's warp
+    // multiple, only thread 0 writes).
+    SparseCountResetKernel kernel = [](BufferUInt counter) noexcept {
+        set_block_size(32u, 1u, 1u);
+        set_name("sparse_count_reset");
+        $if (thread_x() == 0u) {
+            counter.write(0u, 0u);
+        };
+    };
+    return kernel;
+}
+
 }// namespace luisa::embed

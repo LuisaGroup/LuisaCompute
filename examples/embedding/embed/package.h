@@ -12,7 +12,12 @@
 // - Position embeddings are a raw table; the ONNX graph uses cumsum-based
 //   positions with XLM-R's +2 offset (first real token = row 2 of "emb.pos").
 //   The executor/kernels own that indexing; the loader just serves the table.
-// - precision must be 0 (fp32); reject 1 (bf16 is plan M7).
+// - VERSION 1 packages: precision must be 0 (fp32); 1/2 are rejected in v1.
+// - VERSION 2 packages (optimization plan §4 Q1/Q2, O-G): precision 1 = bf16,
+//   2 = fp16; every blob stores 2-byte little-endian elements (round-to-
+//   nearest-even from fp32 at pack time), size_bytes = prod(dims)*2. Names,
+//   order, dims, alignment and the table layout are identical to v1. The v1
+//   fp32 format stays byte-identical and is loaded by the same code path.
 #pragma once
 
 #include <cstdint>
@@ -25,10 +30,25 @@
 
 namespace luisa::embed {
 
+// Package element format, mirroring the header `precision` field (opt plan
+// §4 Q1/Q2). fp32 == BGM3 v1; bf16/fp16 == BGM3 v2.
+enum class PackagePrecision : uint32_t {
+    fp32 = 0u,
+    bf16 = 1u,
+    fp16 = 2u,
+};
+// "fp32" / "bf16" / "fp16" (log/test reporting).
+[[nodiscard]] const char *package_precision_name(PackagePrecision p) noexcept;
+
 // One tensor descriptor from the bgm table. `data` is a host-side view valid
 // for the lifetime of the Package (backed by the mapped/loaded blob).
+// For precision()==fp32 `data` is the float blob (as before, bit-identical
+// behavior); for a half package `half_data` carries the uint16 blob and
+// `data` is null (typed apart so an fp32 consumer of a half blob cannot
+// happen silently).
 struct Tensor {
     const float *data{};
+    const uint16_t *half_data{};
     uint64_t size_bytes{};
     uint32_t rank{};
     uint32_t dims[4]{};// outermost-first; dims[i] == 0 for i >= rank
@@ -47,6 +67,9 @@ public:
     [[nodiscard]] virtual const Tensor *find(luisa::string_view canonical_name) const noexcept = 0;
     // All tensors in file (emission) order.
     [[nodiscard]] virtual luisa::span<const Tensor> tensors() const noexcept = 0;
+    // Element format of the file (header precision field, validated against
+    // the version on load).
+    [[nodiscard]] virtual PackagePrecision precision() const noexcept = 0;
     // Convenience: model hyper-parameters baked into the package (from the
     // packer constants; validated against table dims on load).
     [[nodiscard]] virtual uint32_t num_layers() const noexcept = 0;

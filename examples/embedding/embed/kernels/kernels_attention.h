@@ -23,9 +23,17 @@
 // [B*num_heads, S, S] logits workspace (fp32; 64 MiB at B=1,S=1024).
 //   #4 attention_scores -> #5 softmax_row (in place) -> #6 attention_pv.
 // FLASH PATH (Milestone M4, any S): single fused kernel, no S*S workspace
-// (<= ~8 MiB tile scratch), online softmax with running max/sum rescale,
-// pure scalar ALU (adapted from examples/ml create_mha_online_attention_kernel
-// scalar/Cooperative=false path; document the adaptation in the .cpp header).
+// (<= ~25 KiB tile scratch; the tuned default variant uses 8.3 KiB of shared per
+// block), online softmax with running max/sum rescale, pure scalar ALU (adapted
+// from examples/ml create_mha_online_attention_kernel scalar/Cooperative=false
+// path; document the adaptation in the .cpp header). The kernel geometry (query
+// rows per block, key rows per streamed K/V tile, and where the per-thread row
+// state lives) is selected once per process from a variant table in
+// kernels_attention.cpp: env LUISA_EMBED_FLASH_CONFIG=<name> (or the field-wise
+// LUISA_EMBED_FLASH_BLOCK / _TILE / _REG), with legacy_b32_t8 as the kill switch
+// back to the shipped M4 emission. flash_attention_dispatch() reads the same
+// resolution, so host geometry and kernel geometry can never disagree.
+
 #pragma once
 
 #include <cstdint>
@@ -97,7 +105,13 @@ using FlashAttentionKernel = compute::Kernel2D<void(
 // #5: 1D total threads = B*num_heads*S*kAttentionBlock (one block per logits row).
 [[nodiscard]] uint32_t softmax_row_dispatch(uint32_t batch, uint32_t seq_len,
                                             uint32_t num_heads) noexcept;
-// M4: 2D grid (x = S-tiles * kFlashBlock(32), y = B*num_heads).
+// M4: 2D grid (x = query-row-tiles * BLOCK, y = B*num_heads), where BLOCK is the
+// query rows per block of the runtime-selected flash variant (32 on the shipped
+// M4 baseline / legacy kill switch, 128 on the tuned default -- see
+// kFlashVariants in kernels_attention.cpp; x is always a multiple of the block
+// size and the kernel derives the flattened block index from dispatch_id()/
+// dispatch_size(), so the same emission is correct for a plain 2D launch and for a
+// host-flattened one).
 [[nodiscard]] uint2 flash_attention_dispatch(uint32_t batch, uint32_t seq_len,
                                              uint32_t num_heads) noexcept;
 // M4 scratch float count (currently 1: all online-softmax state is

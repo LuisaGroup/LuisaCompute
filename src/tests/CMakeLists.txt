@@ -459,6 +459,17 @@ target_include_directories(test_command_reorder_ranges PRIVATE ../backends/commo
 luisa_compute_add_test(benchmark_command_reorder benchmark/benchmark_command_reorder.cpp)
 # Host-side counterpart (GPU-idle kernels) measuring pure submission cost.
 luisa_compute_add_test(benchmark_command_reorder_host benchmark/benchmark_command_reorder_host.cpp)
+# Optimization-phase benchmark for the bge-m3 embedding engine
+# (embedding_model_opt_plan.md O0.1; needs the packed model via --model/BGEM3_MODEL_DIR).
+luisa_compute_add_test(benchmark_embed benchmark/benchmark_embed.cpp)
+target_link_libraries(benchmark_embed PRIVATE lc-example-embedding)
+target_include_directories(benchmark_embed PRIVATE ${CMAKE_SOURCE_DIR}/examples)
+# GEMM-family tile sweep for the bge-m3 embedding engine
+# (embedding_model_opt_plan.md §3.1 G1/G2/G3/G4/G8, agent O-A; synthetic shapes only,
+# no packed model needed): benchmark_embed_gemm <dx|vk|fallback> [--rows 512,4096] [--csv f.csv]
+luisa_compute_add_test(benchmark_embed_gemm benchmark/benchmark_embed_gemm.cpp)
+target_link_libraries(benchmark_embed_gemm PRIVATE lc-example-embedding)
+target_include_directories(benchmark_embed_gemm PRIVATE ${CMAKE_SOURCE_DIR}/examples)
 luisa_compute_add_test(test_vk_cuda_launch_command unit/ext/test_vk_cuda_launch_command.cpp LABELS "unit;unit_ext")
 luisa_compute_add_test(test_vk_cuda_command_owns_blob unit/ext/test_vk_cuda_command_owns_blob.cpp LABELS "unit;unit_ext")
 get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)
@@ -1719,6 +1730,8 @@ luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cp
           "unit;unit_embedding")
   luisa_compute_add_embed_test(test_embed_tokenizer_mt
           unit/embedding/test_embed_tokenizer_mt.cpp "unit;unit_embedding")
+  luisa_compute_add_embed_test(test_embed_tokenizer_pool
+          unit/embedding/test_embed_tokenizer_pool.cpp "unit;unit_embedding")
 
 # The SIMD backend is a host-only module, so its supported runtime conformance
 # subset is safe to run unattended without a GPU or driver installation.

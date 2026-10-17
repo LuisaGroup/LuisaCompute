@@ -100,6 +100,13 @@ on_load(function(target)
                 target:add("files", path.join(marl_path, "src/osfiber_ppc64.c"))
                 target:add("files", path.join(marl_path, "src/osfiber_asm_ppc64.S"))
             end
+            -- osfiber_asm_<arch>.S carries no .note.GNU-stack section, so without
+            -- this the linker marks every consumer (libluisa-core.so) as needing an
+            -- executable stack, and glibc >= 2.41 refuses to dlopen it ("cannot
+            -- enable executable stack as shared object requires").
+            if target:is_plat("linux") then
+                target:add("asflags", "-Wa,--noexecstack")
+            end
         end
         target:add("includedirs", path.join(marl_path, "include"), {
             public = true

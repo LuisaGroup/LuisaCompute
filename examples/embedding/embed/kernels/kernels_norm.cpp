@@ -144,7 +144,7 @@ L2NormalizeKernel make_l2_normalize_kernel() noexcept {
 
         Var s = def(0.0f);
         Var h = tx;
-        $while (h < H) {
+        $while(h < H) {
             Var xv = x.read(base + h);
             s += xv * xv;
             h += bs;
@@ -152,8 +152,72 @@ L2NormalizeKernel make_l2_normalize_kernel() noexcept {
         Var denom = max(sqrt(block_sum(s)), def(1e-12f));
 
         h = tx;
-        $while (h < H) {
+        $while(h < H) {
             y.write(base + h, x.read(base + h) / denom);
+            h += bs;
+        };
+    };
+    return kernel;
+}
+
+DensePoolKernel make_dense_pool_kernel() noexcept {
+    using namespace luisa::compute;
+
+    // Fused CLS-slice + L2-normalize (plan §3.3 N1(b); replaces the per-row
+    // slice_cls(#8) + l2_normalize(#9) pair). One block per batch row b: reads the
+    // CLS hidden row hidden[b*S .. b*S+1) directly out of the [B*S, H] final hidden
+    // state and writes its L2-normalization into out[b] ([B, H]). No final LayerNorm
+    // exists in bge-m3 -- layer 24 output is already post-LN2 (see kernels_norm.h).
+    //
+    // The reduction below is a verbatim copy of make_l2_normalize_kernel()'s tree,
+    // strided accumulation and formula, just re-targeted at hidden[b*S*H + h]
+    // instead of a pre-sliced m_cls row, so the output is BIT-identical to running
+    // slice_cls then l2_normalize (the slice is a pure copy; the same H floats are
+    // reduced in the same order). The CPU fallback keeps the shared-memory tree
+    // (no warp collectives); summation order is block-uniform and fixed, so
+    // dx/vk/fallback agree bit-for-bit.
+    DensePoolKernel kernel = [](BufferFloat hidden, BufferFloat out, Var<uint> S,
+                                Var<uint> H) noexcept {
+        set_block_size(kNormBlock, 1u, 1u);
+        set_name("dense_pool");
+
+        Shared<float> red{kNormBlock};
+
+        Var tx = thread_x();
+        Var bs = block_size().x;
+        // Per-block batch index (flattened, valid for 1D dispatch and a host-
+        // flattened 2D grid that must dodge the DX 65535-group cap; lc_optimize
+        // trap #2). For the sync 1D launch grid.y == 0.
+        Var b = dispatch_id().y * (dispatch_size().x / bs) + dispatch_id().x / bs;
+        Var base = b * (S * H); // CLS row of batch b in hidden
+        Var obase = b * H;      // output row
+
+        auto block_sum = [&](Var<float> partial) noexcept {
+            red[tx] = partial;
+            sync_block();
+            for(auto stride = kNormBlock / 2u; stride > 0u; stride >>= 1u) {
+                $if(tx < stride) {
+                    red[tx] += red[tx + stride];
+                };
+                sync_block();
+            };
+            Var total = red[0u];
+            sync_block();
+            return total;
+        };
+
+        Var s = def(0.0f);
+        Var h = tx;
+        $while(h < H) {
+            Var xv = hidden.read(base + h);
+            s += xv * xv;
+            h += bs;
+        };
+        Var denom = max(sqrt(block_sum(s)), def(1e-12f));
+
+        h = tx;
+        $while(h < H) {
+            out.write(obase + h, hidden.read(base + h) / denom);
             h += bs;
         };
     };

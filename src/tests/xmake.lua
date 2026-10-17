@@ -301,6 +301,20 @@ test_proj("benchmark_command_reorder", "benchmark/benchmark_command_reorder.cpp"
 -- Host-side counterpart measuring pure submission cost (GPU-idle kernels);
 -- run with `xmake run benchmark_command_reorder_host vk` (or dx).
 test_proj("benchmark_command_reorder_host", "benchmark/benchmark_command_reorder_host.cpp")
+-- Optimization-phase benchmark for the bge-m3 embedding engine
+-- (embedding_model_opt_plan.md O0.1); run with
+-- `xmake run benchmark_embed <backend> --model <dir> [--seq N] [--batch B] ...`.
+test_proj("benchmark_embed", "benchmark/benchmark_embed.cpp", false, function()
+    add_includedirs("$(projectdir)/examples")
+    add_deps("lc-example-embedding")
+end)
+-- GEMM-family tile sweep for the bge-m3 embedding engine
+-- (embedding_model_opt_plan.md §3.1 G1/G2/G3/G4/G8, agent O-A); run with
+-- `xmake run benchmark_embed_gemm <backend> [--rows 512,4096] [--csv out.csv]`.
+test_proj("benchmark_embed_gemm", "benchmark/benchmark_embed_gemm.cpp", false, function()
+    add_includedirs("$(projectdir)/examples")
+    add_deps("lc-example-embedding")
+end)
 -- cuda-backend dispatch vs. CUDA kernels launched through the Vulkan runtime
 -- (VK_NV_cuda_kernel_launch) with the reorder pass on/off; run with
 -- `xmake run benchmark_cuda_vs_vk_cuda_reorder vk`. It needs both the vk and the
@@ -874,6 +888,7 @@ test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
   -- L1 ragged/edge robustness, L2 e2e parity, L3 retrieval, L5 robustness.
   embed_test("test_embed_pack", "unit/embedding/test_embed_pack.cpp", true)
   embed_test("test_embed_tokenizer_mt", "unit/embedding/test_embed_tokenizer_mt.cpp", true)
+  embed_test("test_embed_tokenizer_pool", "unit/embedding/test_embed_tokenizer_pool.cpp", true)
   embed_test("test_embed_kernel_robust", "integration/embedding/test_embed_kernel_robust.cpp")
   embed_test("test_embed_e2e", "integration/embedding/test_embed_e2e.cpp")
   embed_test("test_embed_retrieval", "integration/embedding/test_embed_retrieval.cpp")

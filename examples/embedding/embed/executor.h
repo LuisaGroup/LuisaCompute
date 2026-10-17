@@ -98,7 +98,15 @@ using ShaderFor = decltype(std::declval<compute::Device &>().compile(std::declva
 inline constexpr uint32_t kEmbedPosOffset = 2u;             // XLM-R +2
 inline constexpr float kEmbedLayerNormEps = 1e-5f;          // config layer_norm_eps
 inline constexpr float kAttentionNegLarge = -3.4028234663852886e38f;
-inline constexpr uint32_t kNaiveAttentionMaxSeq = 1024u;    // §4: naive path cap
+// Naive-trio cap (§4). Wave-1 review experiment (O-B evidence: tuned flash
+// beats the trio from S≈256) tried lowering this to 256 so S≤512 encodes use
+// the tuned flash kernel; it BROKE e2e LEG5 batch-vs-solo BIT-identity: the
+// flash online-softmax rescale order depends on the K-tile count, so a solo
+// encode at S=300 and a bucket-512 batch job (S=512) round differently, while
+// the naive trio's masked-pad reductions stay exact-zero and bit-stable at
+// any S. Reverted (§7.4: gates are not softened). Revisit only together with
+// a solo-encodes-at-bucket-padding design change.
+inline constexpr uint32_t kNaiveAttentionMaxSeq = 1024u;
 
 // Activation-pool buckets (plan §3.4). A batch job pads its sequence length to
 // the smallest bucket covering the longest member; a solo job runs at its exact
@@ -110,6 +118,30 @@ using LayerTraceCallback = luisa::function<void(uint32_t layer, luisa::compute::
 
 // Shared, immutable after upload, device-side copy of every packed tensor the
 // forward pass touches. Created once per device from a loaded Package.
+//
+// WEIGHT STORAGE FORMAT (optimization plan §3.1 G7 / §4 Q1-Q2, O-G): for a
+// half-precision package (BGM3 v2, package.h) the four GEMM weight matrices
+// per layer (qkv, attn.out, ffn.up, ffn.down) are uploaded VERBATIM as packed
+// halves -- ceil(n/2) device floats, two LE 16-bit elements per word (the
+// kernels_gemm.h packed-B contract) -- and converted bf16/fp16 -> fp32 at the
+// kernel B-tile load. FMA accumulation stays fp32; the conversion is storage-
+// only. Every other tensor (embeddings, biases, LN gamma/beta, head vectors)
+// is up-converted HOST-side once at upload into the fp32 device buffers its
+// (untouched, fp32) kernels expect: their per-encode traffic is O(rows) or
+// O(1), so halving their device footprint buys no steady-state bandwidth,
+// while the GEMM matrices are the >1 GB of weight traffic G7 targets.
+// Measured justification: embed_opt_log wave-2 rows (B=1 encode latency,
+// fp32 vs packed-bf16 in the same build, LUISA_EMBED_WEIGHTS toggle A/B).
+//
+// Toggle: env LUISA_EMBED_WEIGHTS=fp32|bf16|fp16 (read once per WeightStore,
+// logged; unknown values are a loud error):
+//   - package fp32 + unset/fp32  -> the historical path, byte-identical.
+//   - package fp32 + bf16/fp16   -> REFUSED (LUISA_ERROR): an fp32 blob is not
+//     a packed-half blob; the bf16 kernel path must never reinterpret it.
+//   - package half + unset       -> auto: packed upload + convert-on-read.
+//   - package half + fp32        -> A/B arm: convert everything on upload, fp32
+//     device buffers + fp32 kernels (measures the pure steady-state effect).
+//   - package half + other half  -> REFUSED (LUISA_ERROR): bit patterns differ.
 class WeightStore {
 public:
     WeightStore(compute::Device &device, const Package &package);
@@ -140,23 +172,44 @@ public:
     [[nodiscard]] uint32_t num_heads() const noexcept { return m_heads; }
     [[nodiscard]] uint32_t head_dim() const noexcept { return m_head_dim; }
     [[nodiscard]] uint32_t intermediate_size() const noexcept { return m_inter; }
+    // B-operand format the Executors on this store must compile their GEMM
+    // kernels with (Fp32 for an fp32 package or for the fp32 A/B override; the
+    // package format in the packed auto mode). See the class comment.
+    [[nodiscard]] GemmWeightFormat gemm_weight_format() const noexcept { return m_gemm_format; }
+    // Package element format as loaded (for reporting; the effective device
+    // layout follows gemm_weight_format()).
+    [[nodiscard]] PackagePrecision package_precision() const noexcept { return m_pkg_precision; }
 
 private:
     compute::Device &m_device;
     uint32_t m_hidden{}, m_heads{}, m_head_dim{}, m_inter{};
+    GemmWeightFormat m_gemm_format{GemmWeightFormat::Fp32};
+    PackagePrecision m_pkg_precision{PackagePrecision::fp32};
     compute::Buffer<float> m_word, m_pos, m_emb_ln_gamma, m_emb_ln_beta;
     luisa::vector<Layer> m_layers;
     compute::Buffer<float> m_sparse_w;
     float m_sparse_b{};
     compute::Buffer<float> m_colbert_w, m_colbert_b;
-    // host->device upload bookkeeping (pointers into the members above, stable
-    // because nothing is mutated after construction).
+    // host->device upload bookkeeping (pointers into the members above or into
+    // m_owned_scratch, stable because nothing is mutated after construction).
+    // `src` is fp32 package data, packed-half blob data (raw memcpy -- the
+    // v2 blob already IS the packed buffer), or fp32 host storage built by the
+    // half->fp32 upload conversion; `count` is always the number of DEVICE
+    // FLOATS to write (half a blob's element count when packed). Every src is
+    // held in storage owned by this WeightStore (package image, or
+    // m_owned_scratch for the packed/copy-converted tensors -- the packed
+    // copy avoids reading the blob's 2-byte tail as floats).
     struct UploadItem {
         compute::Buffer<float> *buffer;
         const float *src;
         size_t count;
     };
     luisa::vector<UploadItem> m_uploads;
+    // half -> fp32 upload-conversion results, alive until the upload commands
+    // retire (same lifetime contract as the Package; record_upload's host spans
+    // borrow from here). Only populated for a half package's non-GEMM tensors
+    // and for the fp32 A/B override of a half package.
+    luisa::vector<luisa::vector<float>> m_owned_scratch{};
 };
 
 // One recorded forward pass. All spans are host pointers owned by the caller;
@@ -169,6 +222,15 @@ struct EncodeJob {
     bool want_sparse{};
     bool want_colbert{};
     luisa::span<float> dense_out;        // [B*H] L2-normalized CLS rows (required)
+    // [B*S] lexical weights (when want_sparse). Under EMBED_P1_SPARSE_COMPACT
+    // (opt plan §3.4 P1) the GPU->host wire carries only the real-token values
+    // (mode 1, window) or the compact (row, weight) pair stream + count
+    // (mode 2, pairs) and is re-expanded into this span at readback/completion;
+    // the positions every consumer reads ([b*S + 1, b*S + N-1) per row, the
+    // scheduler's compaction window) hold bit-identical legacy values, and the
+    // padded tail [b*S + N, b*S + S) is zero-filled (legacy left the pad rows'
+    // relu outputs there -- unread, contract-wise "no weight"). The caller's
+    // span must stay alive until the recorded CommandList completes, as before.
     luisa::span<float> sparse_out;       // [B*S] lexical weights (when want_sparse)
     luisa::span<float> colbert_out;      // [B*S*H] projected token vectors (when want_colbert)
 };
@@ -212,7 +274,14 @@ private:
     ShaderFor<LayerNormKernel> m_layernorm;
     ShaderFor<L2NormalizeKernel> m_l2norm;
     ShaderFor<SliceClsKernel> m_slice_cls;
+    ShaderFor<DensePoolKernel> m_dense_pool; // fused slice_cls+l2 (plan §3.3 N1(b))
     ShaderFor<SparseHeadKernel> m_sparse_head;
+    // P1 sparse-head readback compaction (opt plan §3.4; EMBED_P1_SPARSE_COMPACT):
+    // "pairs" mode (mode 2) swaps the sparse_head dispatch for these two;
+    // "window" mode (mode 1, default) keeps sparse_head untouched and only
+    // narrows the readback copies (see record_encode).
+    ShaderFor<SparseHeadCompactKernel> m_sparse_head_compact;
+    ShaderFor<SparseCountResetKernel> m_sparse_count_reset;
     ShaderFor<ColbertProjKernel> m_colbert_proj;
     ShaderFor<AttentionScoresKernel> m_attn_scores;
     ShaderFor<SoftmaxRowKernel> m_attn_softmax;
@@ -232,6 +301,14 @@ private:
     compute::Buffer<float> m_flash_scratch;               // [B*heads*S*4] (flash)
     compute::Buffer<float> m_cls, m_dense_dev;            // [H], [B*H]
     compute::Buffer<float> m_sparse_dev, m_colbert_dev;   // [rows], [rows*H]
+    // P1 "pairs" mode staging (opt plan §3.4; allocated with the pool, used
+    // only when EMBED_P1_SPARSE_COMPACT=2): compact (row, weight) append
+    // stream + its 1-uint global count. Emissions are mask-gated, so they are
+    // bounded by the real-token count <= rows -- the [rows] capacity can never
+    // overflow.
+    compute::Buffer<uint32_t> m_sparse_pair_ids;          // [rows]
+    compute::Buffer<float> m_sparse_pair_w;               // [rows]
+    compute::Buffer<uint32_t> m_sparse_count;             // [1]
 
     // Layer trace (all zero-cost while unset).
     LayerTraceCallback m_trace_cb;

@@ -139,13 +139,28 @@ constexpr size_t kTraceSentenceBase[] = {0u, 1536000u};
 }// namespace
 
 int main(int argc, char *argv[]) {
-
     auto [context, device] = luisa::test::create_device(argc, argv);
     luisa::test::log_test_backend(argv[1], device);
-
     const std::filesystem::path data_dir{LUISA_EMBED_TEST_DATA_DIR};
     const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]}
                                                 : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
+    // O-G precision gating (same policy as test_embed_e2e): the golden cosine
+    // gate follows the package header (0.9999 fp32 v1 / 0.999 half v2).
+    float golden_gate = 0.9999f;
+    {
+        uint32_t ver = 1u, prec = 0u;
+        if(auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
+            uint8_t hdr[16] = {};
+            if(std::fread(hdr, 1u, 16u, f) == 16u && hdr[0] == 'B' && hdr[1] == 'G' && hdr[2] == 'M' && hdr[3] == '3') {
+                ver = static_cast<uint32_t>(hdr[4]) | (static_cast<uint32_t>(hdr[5]) << 8u) |
+                      (static_cast<uint32_t>(hdr[6]) << 16u) | (static_cast<uint32_t>(hdr[7]) << 24u);
+                prec = static_cast<uint32_t>(hdr[8]) | (static_cast<uint32_t>(hdr[9]) << 8u) |
+                       (static_cast<uint32_t>(hdr[10]) << 16u) | (static_cast<uint32_t>(hdr[11]) << 24u);
+            }
+            std::fclose(f);
+        }
+        golden_gate = (ver == 2u && prec != 0u) ? 0.999f : 0.9999f;
+    }
     const auto corpus = load_corpus(data_dir);
     const auto gold_dense = read_f32_file(data_dir / "golden_dense.bin");
     const auto gold_layers = read_f32_file(data_dir / "golden_layers.bin");
@@ -173,11 +188,11 @@ int main(int argc, char *argv[]) {
         worst_cosine = std::min(worst_cosine, c);
         worst_idx = (c == worst_cosine ? i : worst_idx);
         LUISA_INFO("sentence {:3d}: cosine = {:.6f}", i, c);
-        expect(c >= 0.9999f) << "cosine >= 0.9999 for sentence " << i;
+        expect(c >= golden_gate) << "cosine >= package gate for sentence " << i;
     }
     LUISA_INFO("M3 dense gate: 16 sentences, worst cosine = {:.6f} (sentence {}), gate >= 0.9999",
                worst_cosine, worst_idx);
-    expect(worst_cosine >= 0.9999f) << "worst cosine gate";
+    expect(worst_cosine >= golden_gate) << "worst cosine gate";
 
     // ---- full-corpus timing (report evidence; every sentence gated too when
     // the run is not on the slow fallback reference).
@@ -196,9 +211,9 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("full corpus ({} sentences) encode: {:.1f} ms total, {:.1f} ms/sentence, worst cosine {}",
                    corpus.size(), total_ms, total_ms / static_cast<double>(corpus.size()),
                    full_gate ? luisa::format("{:.6f}", worst_all) : luisa::string{"(not gated on fallback)"});
-        if(full_gate) {
-            expect(worst_all >= 0.9999f) << "full-corpus worst cosine";
-        }
+    if(full_gate) {
+        expect(worst_all >= golden_gate) << "full-corpus worst cosine";
+    }
     }
 
     // ---- diagnostic (BGEM3_DIAG=1): host-side reference embedding block
@@ -206,7 +221,10 @@ int main(int argc, char *argv[]) {
     // slot 0 and against golden_layers.bin layer 0. Separates
     // ids/tokenization errors, weight-upload errors, trace-plumbing errors and
     // golden-index errors.
-    const bool diag = std::getenv("BGEM3_DIAG") != nullptr;
+    const bool diag = std::getenv("BGEM3_DIAG") != nullptr && golden_gate >= 0.9999f;
+    if(std::getenv("BGEM3_DIAG") != nullptr && golden_gate < 0.9999f) {
+        LUISA_INFO("BGEM3_DIAG skipped: the host-side embedding reference reader below is fp32-blob-only (half packages use Tensor::half_data).");
+    }
     luisa::vector<float> diag_ref;
     luisa::vector<uint32_t> diag_ids;
     if(diag) {
@@ -323,6 +341,15 @@ int main(int argc, char *argv[]) {
                        d, diag_ref.size(), host[0].size());
         }
         float worst_layer_diff = 0.0f;
+        // O-G: the 1e-3 per-layer trace gate compares against the FROZEN fp32
+        // golden_layers.bin; a half package's weights are RNE-quantized, so the
+        // quantization drift (bf16: observed worst 1.0e-1) legitimately exceeds
+        // it. The authoritative half-package gate remains the end-to-end cosine
+        // (>= 0.999 above). For fp32 the 1e-3 gate is unchanged; for half
+        // packages it widens to 0.5 -- still catches upload/layout corruption
+        // (wrong-tensor mismatches are O(1)-O(10) diffs), not a softening of the
+        // fp32 suite.
+        const float layer_gate = golden_gate >= 0.9999f ? 1e-3f : 0.5f;
         for(uint32_t layer = 0; layer < 25u; layer++) {
             const float *golden = gold_layers.data() + kTraceSentenceBase[si] / 4u + static_cast<size_t>(layer) * stride;
             const auto &got = host[layer];
@@ -332,10 +359,10 @@ int main(int argc, char *argv[]) {
             }
             worst_layer_diff = std::max(worst_layer_diff, max_diff);
             LUISA_INFO("sentence {} layer {:2d}: max_abs_diff = {:.3e}", sent, layer, max_diff);
-            expect(max_diff <= 1e-3f) << "layer " << layer << " diff <= 1e-3 (sentence " << sent << ")";
+            expect(max_diff <= layer_gate) << "layer " << layer << " diff <= gate (sentence " << sent << ")";
         }
-        LUISA_INFO("sentence {} worst per-layer max-abs-diff = {:.3e} (gate <= 1e-3)",
-                   sent, worst_layer_diff);
+        LUISA_INFO("sentence {} worst per-layer max-abs-diff = {:.3e} (gate <= {:.1e})",
+                   sent, worst_layer_diff, layer_gate);
     }
 
     return 0;

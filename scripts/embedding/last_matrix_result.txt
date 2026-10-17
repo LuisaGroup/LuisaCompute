@@ -1,0 +1,104 @@
+==================================================================
+Embedding test-matrix summary  (mode=debug, backend_filter=<all>)
+generated: 2026-10-17T12:06:03Z
+==================================================================
+
+Per-leg tallies  (PASS/FAIL/TIMEOUT/SKIP):
+  ci-dx-debug      13/0/0/0
+  ci-vk            13/0/0/0
+  ci-cuda          13/0/0/0
+  ci-fallback      18/0/1/0
+  ci-reorder-off   6/0/0/0
+  ci-host          4/0/0/0
+  ci-safe-mode     0/0/0/17
+
+Detail (leg | test | status | note):
+  ci-dx-debug      | test_embed_debug                   | PASS     | 
+  ci-dx-debug      | test_embed_e2e                     | PASS     | 
+  ci-dx-debug      | test_embed_executor                | PASS     | 
+  ci-dx-debug      | test_embed_kernel_attention        | PASS     | 
+  ci-dx-debug      | test_embed_kernel_embed            | PASS     | 
+  ci-dx-debug      | test_embed_kernel_gemm             | PASS     | 
+  ci-dx-debug      | test_embed_kernel_heads            | PASS     | 
+  ci-dx-debug      | test_embed_kernel_layernorm        | PASS     | 
+  ci-dx-debug      | test_embed_kernel_robust           | PASS     | 
+  ci-dx-debug      | test_embed_retrieval               | PASS     | 
+  ci-dx-debug      | test_embed_robustness              | PASS     | 
+  ci-dx-debug      | test_embed_scheduler               | PASS     | 
+  ci-dx-debug      | test_embed_tokenizer_pool          | PASS     | 
+  ci-vk            | test_embed_debug                   | PASS     | 
+  ci-vk            | test_embed_e2e                     | PASS     | 
+  ci-vk            | test_embed_executor                | PASS     | 
+  ci-vk            | test_embed_kernel_attention        | PASS     | 
+  ci-vk            | test_embed_kernel_embed            | PASS     | 
+  ci-vk            | test_embed_kernel_gemm             | PASS     | 
+  ci-vk            | test_embed_kernel_heads            | PASS     | 
+  ci-vk            | test_embed_kernel_layernorm        | PASS     | 
+  ci-vk            | test_embed_kernel_robust           | PASS     | 
+  ci-vk            | test_embed_retrieval               | PASS     | 
+  ci-vk            | test_embed_robustness              | PASS     | 
+  ci-vk            | test_embed_scheduler               | PASS     | 
+  ci-vk            | test_embed_tokenizer_pool          | PASS     | 
+  ci-cuda          | test_embed_debug                   | PASS     | 
+  ci-cuda          | test_embed_e2e                     | PASS     | 
+  ci-cuda          | test_embed_executor                | PASS     | 
+  ci-cuda          | test_embed_kernel_attention        | PASS     | 
+  ci-cuda          | test_embed_kernel_embed            | PASS     | 
+  ci-cuda          | test_embed_kernel_gemm             | PASS     | 
+  ci-cuda          | test_embed_kernel_heads            | PASS     | 
+  ci-cuda          | test_embed_kernel_layernorm        | PASS     | 
+  ci-cuda          | test_embed_kernel_robust           | PASS     | 
+  ci-cuda          | test_embed_retrieval               | PASS     | 
+  ci-cuda          | test_embed_robustness              | PASS     | 
+  ci-cuda          | test_embed_scheduler               | PASS     | 
+  ci-cuda          | test_embed_tokenizer_pool          | PASS     | 
+  ci-fallback      | test_embed_debug                   | PASS     | 
+  ci-fallback      | test_embed_e2e                     | PASS     | 
+  ci-fallback      | test_embed_executor                | PASS     | 
+  ci-fallback      | test_embed_kernel_attention        | PASS     | 
+  ci-fallback      | test_embed_kernel_attention:single-thread | PASS     | 
+  ci-fallback      | test_embed_kernel_embed            | PASS     | 
+  ci-fallback      | test_embed_kernel_embed:single-thread | PASS     | 
+  ci-fallback      | test_embed_kernel_gemm             | PASS     | 
+  ci-fallback      | test_embed_kernel_gemm:single-thread | PASS     | 
+  ci-fallback      | test_embed_kernel_heads            | PASS     | 
+  ci-fallback      | test_embed_kernel_heads:single-thread | PASS     | 
+  ci-fallback      | test_embed_kernel_layernorm        | PASS     | 
+  ci-fallback      | test_embed_kernel_layernorm:single-thread | PASS     | 
+  ci-fallback      | test_embed_kernel_robust           | PASS     | 
+  ci-fallback      | test_embed_kernel_robust:single-thread | PASS     | 
+  ci-fallback      | test_embed_retrieval               | PASS     | 
+  ci-fallback      | test_embed_robustness              | TIMEOUT  | exceeded 1800s (see plan §7 hang triage)
+  ci-fallback      | test_embed_scheduler               | PASS     | 
+  ci-fallback      | test_embed_tokenizer_pool          | PASS     | 
+  ci-reorder-off   | test_embed_e2e:dx                  | PASS     | 
+  ci-reorder-off   | test_embed_e2e:vk                  | PASS     | 
+  ci-reorder-off   | test_embed_executor:dx             | PASS     | 
+  ci-reorder-off   | test_embed_executor:vk             | PASS     | 
+  ci-reorder-off   | test_embed_scheduler:dx            | PASS     | 
+  ci-reorder-off   | test_embed_scheduler:vk            | PASS     | 
+  ci-host          | test_embed_pack                    | PASS     | 
+  ci-host          | test_embed_package                 | PASS     | 
+  ci-host          | test_embed_tokenizer               | PASS     | 
+  ci-host          | test_embed_tokenizer_mt            | PASS     | 
+  ci-safe-mode     | test_embed_debug                   | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_e2e                     | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_executor                | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_kernel_attention        | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_kernel_embed            | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_kernel_gemm             | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_kernel_heads            | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_kernel_layernorm        | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_kernel_robust           | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_pack                    | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_package                 | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_retrieval               | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_robustness              | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_scheduler               | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_tokenizer               | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_tokenizer_mt            | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+  ci-safe-mode     | test_embed_tokenizer_pool          | SKIP     | safe-mode binaries not built (no bin_safemode/debug)
+
+OVERALL: PASS=67 FAIL=0 TIMEOUT=1 SKIP=17
+RESULT: FAILING (a test failed or timed out)
+==================================================================

@@ -1,6 +1,6 @@
 ---
 name: lc_optimize
-description: Optimize LuisaCompute DSL kernels using warp/wave primitives, shared-memory aggregation, block-level collectives, thread-group (block) size / occupancy tuning, and C++ branch-prediction hints (`[[likely]]`/`[[unlikely]]`). Use when kernels bottleneck on atomics, reductions, inter-thread communication, or poor occupancy.
+description: Optimize LuisaCompute DSL kernels using warp/wave primitives, shared-memory aggregation, block-level collectives, thread-group (block) size / occupancy tuning, async copy / software pipelining, roofline and profiler-stall diagnosis, and C++ branch-prediction hints (`[[likely]]`/`[[unlikely]]`). Includes cross-platform hardware experience for NVIDIA (Ampere/Hopper/Blackwell, incl. TMA, wgmma, tcgen05/TMEM, clusters, PDL), AMD (GCN/RDNA/CDNA wave32/wave64, VGPR/LDS budgets, MFMA), Apple Metal, Intel Xe, and Vulkan/DX subgroup portability. Use when kernels bottleneck on atomics, reductions, inter-thread communication, memory bandwidth/coalescing, launch overhead, or poor occupancy, or when porting/tuning kernels across GPU vendors.
 ---
 
 # LuisaCompute DSL Kernel Optimization Guide
@@ -1033,3 +1033,328 @@ Per-element index computation (div/mod decompositions, stride multiplies) is inv
 - Always gate on an **end-to-end correctness check against a host reference**, per kernel, after every change — lowering bugs produce plausible-but-wrong numbers far more often than crashes.
 - Exercise **ragged extents** (sizes not divisible by the block/warp/segment size): guard-elision and segment-bound bugs hide behind evenly-dividing test sizes. Ragged segment boundaries are a classic source of cross-thread races (one thread writes into a neighbor's region).
 - Revert-fast: keep each transformation independently toggleable during development; a change that regresses or breaks one kernel shape gets reverted, not patched over.
+
+---
+
+# PART II — Cross-Platform GPU Kernel Optimization Experience
+
+Sections 1–10 are anchored in the LuisaCompute repository. Sections 11 onward collect general, vendor-documented and measured GPU-kernel optimization experience across NVIDIA (Ampere/Hopper/Blackwell), AMD (GCN/RDNA/CDNA), Apple Metal, Intel Xe, and the Vulkan/DX12 abstraction layers. Claims that come from external sources carry an inline link; treat per-device numbers as priors to re-measure with the block-size sweep harness in §5.7.
+
+## 11. Roofline First: Diagnose Before Optimizing
+
+### 11.1 The Model
+
+The roofline model bounds attainable throughput by `P = min(peak_FLOPS, AI × peak_bandwidth)`, where arithmetic intensity **AI = FLOPs / bytes moved from the memory level you care about** (always state the level: HBM, L2, L1) ([NERSC](https://docs.nersc.gov/tools/performance/roofline/), [ai-infrastructure.net](https://ai-infrastructure.net/roofline-arithmetic-intensity/)). The ridge point (machine balance) `I_ridge = peak_FLOPS / peak_bandwidth` separates memory-bound from compute-bound kernels. Compute it from datasheet numbers before touching code:
+
+| GPU | Dense BF16/FP16 peak | HBM bandwidth | Ridge (FLOP/byte) |
+|---|---|---|---|
+| A100 80GB | 312 TFLOPS | 2.04 TB/s | ≈ 153 |
+| H100 SXM | 989 TFLOPS | 3.35 TB/s | ≈ 295 |
+| H200 | 989 TFLOPS | 4.8 TB/s | ≈ 206 |
+| B200 | 2,250 TFLOPS | 8.0 TB/s | ≈ 281 |
+| MI300X | 1,307 TFLOPS | 5.3 TB/s | ≈ 247 |
+
+([AI Infra Interviews](https://aiinfrainterviews.com/q/arithmetic-intensity-and-the-roofline); H100/B200 numbers also in [NextPCB](https://www.nextpcb.com/blog/nvidia-blackwell-architecture-b200-gb200-pcb-design) and the [Blackwell microbenchmarking paper](https://arxiv.org/html/2512.02189v2)). Note the ridge **creeps up across generations** — FLOPS grow faster than bandwidth — so a kernel balanced on A100 is memory-bound on H100, and more kernels land memory-bound every generation ([ai-infrastructure.net](https://ai-infrastructure.net/roofline-arithmetic-intensity/)).
+
+### 11.2 The Two Levers
+
+When a kernel is memory-bound (AI < ridge), only two things help:
+
+1. **Move fewer bytes for the same FLOPs** — kernel fusion (read/write the activation once instead of per-op), lower-precision storage (FP8/BF16 weights halve bytes *and* double the tensor-core peak), avoiding materialized intermediates (the FlashAttention trick, §17).
+2. **Reuse each byte more** — shared-memory/register tiling in GEMM (a tile loaded once serves `TILE` multiply-adds, raising GEMM AI to ≈ `TILE/4` FLOP/B ([riteshyadav.xyz](https://www.riteshyadav.xyz/notes/device-software/tiled-matrix-multiplication))), batching (a GEMV at batch 64 reads the same weights as batch 1 for 64× the FLOPs), and cache residency.
+
+Optimizing compute on a memory-bound kernel (or chasing bandwidth on a compute-bound one) is wasted effort: "a team three weeks into optimizing a kernel's arithmetic, whose intensity was 2 FLOP/byte against a ridge of 295, was never going to move" ([AI Infra Interviews](https://aiinfrainterviews.com/q/arithmetic-intensity-and-the-roofline)).
+
+### 11.3 When the Roofline Does Not Apply
+
+Roofline assumes steady-state throughput. It does **not** describe:
+
+- **Latency-bound kernels** — high occupancy, but neither memory nor compute near peak: warps stall on dependency chains. Fix with ILP (multiple accumulators, unrolling), not more occupancy (§12, §15).
+- **Launch/schedule-bound workloads** — many tiny kernels where CPU dispatch overhead exceeds GPU execution (§20).
+- A kernel can sit at 100% occupancy and still be memory-bound — occupancy hides latency, it does not raise AI ([ai-infrastructure.net](https://ai-infrastructure.net/roofline-arithmetic-intensity/)).
+
+Nsight Compute's "Memory Throughput %" and "Compute (SM) Throughput %" per kernel is the roofline restated one kernel at a time; the hierarchical roofline (L1/L2/HBM levels) tells you which cache level your working set actually lives in ([NERSC ISC2019 tutorial](https://www.nersc.gov/assets/Uploads/Tutorial-ISC2019-Intro.pdf)).
+
+## 12. Profiler-Guided Diagnosis: The Warp-Stall Taxonomy
+
+The dominant warp-stall reason routes you to the fix. Cross-vendor mapping:
+
+| Stall (Nsight name) | Meaning | Fix | AMD analog |
+|---|---|---|---|
+| **Long Scoreboard** | Waiting on a global/local/texture load (L1 hit ~33 cy, L2 ~200 cy, HBM ~290–566 cy) ([Software Frontier](https://softwarefrontier.substack.com/p/mastering-cuda-and-high-performance-ebc)) | More occupancy, prefetch earlier, async copy, restructure to independent loads, improve L2 hit rate | `SQ_WAIT_INST_LDS` / VMEM waits in rocprof |
+| **Short Scoreboard** | Waiting on shared-memory load or SFU/MUFU result (~16–23 cy) ([Nsight guide via zinlab](https://zinlab.github.io/tutorials/nsight-compute-mastery.html)) | Fix bank conflicts (pad/swizzle), restructure math, hide with independent work | LDS waits; check bank conflicts |
+| **MIO / LG Throttle** | Memory instruction input FIFO full — too many requests in flight ([Software Frontier](https://softwarefrontier.substack.com/p/mastering-cuda-and-high-performance-ebc)) | Vectorize loads (`float4`), coalesce, reduce memory-instruction count, cut atomics | VALU/LDS queue pressure |
+| **Barrier** | Warp waiting at `__syncthreads()` for slower sibling warps | Balance per-warp work, fewer barriers, smaller blocks, warp-scope sync instead | Same; check wave imbalance |
+| **Math Pipe Throttle** | Execution pipe saturated | **This is the good stall** — you are compute-bound; only tensor/matrix cores or lower precision go further | VALU utilization >90% (RGP) |
+| **Not Selected** | Eligible but scheduler picked another warp | Healthy sign of surplus warps; high values mean you could *lower* occupancy | n/a |
+| **Drain** | Warp exiting | Kernel too short → launch-bound; fuse kernels (§20) | Same |
+
+([zinlab](https://zinlab.github.io/tutorials/nsight-compute-mastery.html), [ai-infrastructure.net ILP](https://ai-infrastructure.net/instruction-level-parallelism-gpu/), [quant67](https://quant67.com/post/gpu-kernel/08-nsight-profiling/08-nsight-profiling.html)).
+
+Interpretation rule ([ai-infrastructure.net](https://ai-infrastructure.net/instruction-level-parallelism-gpu)): `Long Scoreboard` high **and** `Not Selected` low **and** DRAM % low ⇒ latency-bound (add ILP/occupancy). `Not Selected` high ⇒ issue-bound/compute-bound (already fast). Throttle reasons high with DRAM near peak ⇒ bandwidth-bound (raise arithmetic intensity).
+
+Practical workflow:
+1. **Nsight Systems first** (`nsys profile --trace=cuda,nvtx ./app`) for the timeline — gaps between kernels = host overhead; then **Nsight Compute** (`ncu --set full`) on the hot kernel ([praveentn.live](https://www.praveentn.live/learn/concepts/profiling-gpu-workloads)). Compile with `-lineinfo` so stalls attribute to source lines ([ai-infrastructure.net](https://ai-infrastructure.net/instruction-level-parallelism-gpu/)).
+2. Check `ptxas -v` output: **nonzero `lmem` (local-memory spill) is a silent killer** — fix via `__launch_bounds__` or restructuring before anything else ([anylearn.cc](https://anylearn.cc/lessons/cuda-profiling-and-optimization)).
+3. Quick sanity thresholds ([kunwar.page](https://www.kunwar.page/chapter/039-cuda-programming-for-ml-engineers)): achieved occupancy < 30% → cut registers/SMEM; memory throughput < 50% of peak → fix coalescing/locality; long-scoreboard > 50% → latency-bound.
+4. On AMD: `amdclang++ -Rpass-analysis=kernel-resource-usage` prints SGPR/VGPR/spills/LDS/occupancy per kernel at compile time; confirm against hardware with `rocprofv3 --kernel-trace` (the `LDS_Block_Size` column matches the compiler exactly) ([ROCm blogs](https://rocm.blogs.amd.com/software-tools-optimization/rdna-fp16-gemm/README.html)). Use `llvm-objdump --disassemble-symbols` on the `.co` to inspect `.vgpr_spill_count` ([ROCm blogs](https://rocm.blogs.amd.com/software-tools-optimization/register-pressure/README.html), [FlyDSL issue](https://github.com/sunway513/FlyDSL/issues/8)).
+5. Optimization order of operations ([anylearn.cc](https://anylearn.cc/lessons/cuda-profiling-and-optimization)): correctness → coalescing → kill spills → shared-memory reuse → block-size tuning → divergence → stream overlap → bank conflicts/ILP/tensor cores. "Most kernels live or die on steps 2–3."
+
+## 13. Occupancy, Wave Quantization, and Grid Sizing
+
+### 13.1 Occupancy Is a `min()` Over Three Resources
+
+`occupancy = resident_warps / max_warps_per_SM`, limited by the tightest of warp slots, register file, and shared memory ([sankethbk](https://sankethbk.github.io/blog/posts/gpu/2026-09-01-2-cuda-occupancy/)). Target "**enough** occupancy to cover the latency your kernel sees," not 100% — high occupancy with high ILP is often interchangeable (Volkov: ILP and TLP are substitute latency-hiding mechanisms ([ai-infrastructure.net](https://ai-infrastructure.net/instruction-level-parallelism-gpu/))). Compute-bound kernels can run fast at low occupancy; memory-bound kernels want ≥ 50% achieved occupancy ([anylearn.cc](https://anylearn.cc/lessons/cuda-profiling-and-optimization)).
+
+Register math example: 64 regs/thread on a 65,536-register SM caps residency at 1,024 threads = 50% occupancy ([anylearn.cc](https://anylearn.cc/lessons/cuda-profiling-and-optimization)). On Blackwell/Hopper the constraint is per-SMSP (each of 4 SMSPs holds 16,384 registers) — violating it in one SMSP limits the whole SM ([Software Frontier](https://softwarefrontier.substack.com/p/mastering-cuda-and-high-performance-ebc)).
+
+### 13.2 Theoretical vs Achieved: Quantization, Tails, Imbalance
+
+Achieved occupancy is usually below theoretical, for three structural reasons ([aicassindra](https://aicassindra.com/blogs/gpu/gpu_occupancy.html)):
+
+- **Wave quantization**: launching 40 blocks onto a GPU that runs 32 at a time leaves a second wave 8 blocks wide with most SMs idle. Size the grid to a multiple of the concurrent-block count, or use grid-stride loops / persistent kernels so the tail disappears.
+- **Tail effects**: a block's resources are not released until its last warp retires; the end of a kernel drains toward empty. Keep per-block runtime small relative to total kernel time.
+- **Load imbalance**: divergent per-block work strands some SMs. Use work-stealing (atomic ticket counter), tile schedulers, or persistent CTAs that pull tiles until exhausted.
+
+Persistent kernels (grid = #SMs × blocks/SM, inner loop over tiles) also let you add a **grouped/swizzled tile order** for L2 locality — without it the L2 hit rate drops ([tessl.io fla skill](https://tessl.io/registry/skills/github/fla-org/flash-linear-attention/fla-triton-to-gluon)).
+
+### 13.3 Empirical Autotuning Discipline
+
+A six-tier optimization playbook measured in agent-driven kernel search ([arXiv 2603.21331](https://arxiv.org/html/2603.21331v1)) gives typical payoff ranges: block-size/tile sweeps **10–50%**, memory-access fixes (coalescing, prefetch, L2 swizzle, SMEM padding) **10–30%**, compute-level (TF32 accumulation, epilogue fusion, invariant hoisting) **5–15%**, advanced (split-K, persistent kernels, warp specialization) **5–20%**, architecture-specific (TMA on Hopper, cp.async on Ampere) **5–15%**. Practical rules:
+
+- Sweep powers of two **and** rectangular tiles; change one thing at a time; re-autotune after every structural change (in one published walkthrough, the best pre-pipelining config lost >100 TFLOPS once pipelining was added ([tessl.io](https://tessl.io/registry/skills/github/fla-org/flash-linear-attention/fla-triton-to-gluon))).
+- For small kernels (< 0.2 ms) use min-of-N runs — run-to-run noise is ±50% (§10.8).
+- Block-size results do not transfer across architectures; a sweep on one GPU must be redone on another ([SCITEPRESS 113148](https://www.scitepress.org/PublishedPapers/2022/113148/113148.pdf)), which matches the repo's measured §5.7 findings.
+
+## 14. Memory-Access Optimization: Coalescing, Vectorization, Caching
+
+### 14.1 Coalescing Is Still Optimization #1
+
+Consecutive threads → consecutive addresses. Coalesced access reaches 70–90% of peak bandwidth on AMD hardware; random access gets 5–15% ([HIP hardware docs](https://rocm.docs.amd.com/projects/HIP/en/latest/understand/hardware_implementation.html)). Prefer **SoA over AoS** layouts ([shivam2003.com](https://shivam2003.com/posts/gpu-1-2-memory)). On AMD, aim for **256-byte coalesced blocks per wave** when writing images — an 8×8 thread group writing an 8×8 pixel block; a Morton-like 2×2 swizzle matched standard texture layout and gained ~8% in AMD's mip-chain case study ([AMD GPUOpen RDNA Performance Guide](https://gpuopen.com/learn/rdna-performance-guide/), [Interplay of Light](https://interplayoflight.wordpress.com/2020/05/23/optimizing-for-the-rdna-architecture-presentation-notes/)). Cross-vendor confirmation of §5.7's "shape ≫ size" lesson: never use 1-wide thread groups for 2D data.
+
+### 14.2 Vectorized Loads (`LDG.128` / `float4` / `int4`)
+
+Loading `float4` (16 B/lane) makes a warp move 512 B per instruction instead of 128 B, cutting instruction issue count 4× and typically adding **15–40% throughput on memory-bound kernels** ([ai-infra-odyssey](https://github.com/lilinji/ai-infra-odyssey/blob/main/03_CUDA%E4%B8%8E%E7%AE%97%E5%AD%90%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96/22_CUDA%E7%BC%96%E7%A8%8B%E6%A8%A1%E5%9E%8B%E4%B8%8E%E5%86%85%E5%AD%98%E5%B1%82%E6%AC%A1_Thread_Block_Coalescing.md), [arpanpathak.github.io](https://arpanpathak.github.io/gpu-parallel-book/chapters/part3_optimisation/ch07_memory_optimisation_deep_dive.html)). Rules:
+
+- The base pointer must be **16-byte aligned** (`cudaMalloc` guarantees ≥16 B; offsets by odd element counts do not). Handle misaligned prologue/epilogue with a scalar fallback loop ([aispe.notlate.cn](https://aispe.notlate.cn/chapters/ch11/)).
+- In LuisaCompute DSL terms: prefer `BufferFloat4`/`read` of vector types over four scalar reads when the layout permits; the SLP vectorization pass (`slp_vectorization`, §10) automates part of this.
+- Applies equally to stores (`STG.128`) and to AMD (`float4` → `flat_load_dwordx4`).
+
+### 14.3 Bank Conflicts: Padding and Swizzling
+
+Shared memory (SMEM/LDS) is banked: 32 banks of 32 bits on NVIDIA and AMD RDNA/GCN ([AMD GPUOpen](https://gpuopen.com/learn/rdna-performance-guide/)). A 32-way conflict can push one LDS access from 1 cycle to as many as 64 cycles on RDNA — slower than going to VRAM ([AMD RDNA2 ISA via yyy3d.online](https://yyy3d.online/blog/gpu-architecture-ep03-shader-core/)). Fixes:
+
+- **Padding**: `TILE[N][N+1]` shifts each row off the previous row's bank pattern; a matrix-transpose benchmark measured 1.10 ms → 0.92 ms (~20%) from either padding or XOR swizzle on an RTX 3090 ([Spheron](https://www.spheron.network/blog/shared-memory-bank-conflicts-why-your-quantized-kernel-is-sl/)). AMD explicitly recommends SoA layout or padding to cut access strides ([GPUOpen](https://gpuopen.com/learn/rdna-performance-guide/)).
+- **XOR swizzle**: `col ^ (row % k)` permutes banks without wasting SMEM — required when SMEM budget is tight (padding inflates footprint and can cost occupancy, §13).
+- RDNA4 (gfx1201) widened LDS to **64 banks × 4 B**, so conflict patterns differ between wave32 and wave64 dispatches — a padding tuned for wave32 is narrower than wave64 needs ([zolotukhin.ai](https://zolotukhin.ai/blog/2026-05-11-the-wave32-commit-that-closes-rdna4-long-context-flash-attention-gap/)).
+- Watch tensor-core staging layouts: `ldmatrix`/wgmma/tcgen05 operand layouts interact with bank/swizzle modes; CUTLASS's swizzle atoms exist precisely for this.
+
+### 14.4 L2 Cache Control (CUDA)
+
+Devices of compute capability ≥ 8.0 expose an **L2 persisting-access window**: set aside part of L2 (`cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, ...)`) and mark a global-memory region as `cudaAccessPropertyPersisting` on a stream or graph node so hot data (e.g. attention KV heads, embedding tables) survives across kernels ([CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/l2-cache-control.html)). Tune `hitRatio` below 1.0 to avoid thrashing when the window exceeds the set-aside area ([CUDA Best Practices 11.5](https://docs.nvidia.com/cuda/archive/11.5.0/pdf/CUDA_C_Best_Practices_Guide.pdf)). **Reset with `cudaAccessPropertyNormal` / `cudaCtxResetPersistingL2Cache()`** when done — persistence survives past its intended use and shrinks L2 for later kernels. Useful immediately after producer kernels in the CommandList pipelines of §8.
+
+## 15. Async Data Movement and Software Pipelining
+
+### 15.1 Why Pipelining
+
+A sequential `load → sync → compute → sync` K-loop leaves the memory system idle during compute and the compute units idle during loads. **Double-buffered software pipelining** — prefetch tile `k+1` into a second SMEM buffer while computing tile `k` — is worth **1.2–1.5×** on staged kernels once residency and swizzling are in place, and "every serious GEMM implementation does this" ([ocannl issue #487](https://github.com/ahrefs/ocannl/issues/487)). CUTLASS stage-count guidance: Ampere 3–4 stages, Hopper 4–7 (async TMA), Blackwell dynamic per problem ([CUTLASS optimization notes](https://mintlify.com/NVIDIA/cutlass/performance/optimization)).
+
+### 15.2 Choosing the Copy Mechanism
+
+| Mechanism | Introduced | What it does | Register cost | Notes |
+|---|---|---|---|---|
+| LDG into registers, STS after barrier | pre-Ampere fallback | prefetch via registers | high (staging regs) | still a win vs no pipelining |
+| `cp.async` / `cuda::memcpy_async` (`__pipeline_memcpy_async`) | Ampere (sm_80) | global→SMEM **without** staging through registers | zero for the copy | L1 bypass optional; 16 B/thread copies can bypass L1 ([CUDA Best Practices](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html)) |
+| TMA (`cp.async.bulk.tensor`) | Hopper (sm_90) | descriptor-driven multi-dim tile copy by **one thread**; completion via mbarrier | ~none (hardware does addressing) | also multicasts one tile into up to 16 SMs' SMEM within a cluster ([The Index](https://theindex26.com/tensor-memory-accelerator-tma-nvidia-hopper/)) |
+
+The measured decision rule on GA104: compute/load ratio < 5:1 → prefer `cp.async` (+35% on IGEMM); 5–20:1 → implement both and benchmark; > 20:1 → warp interleaving suffices ([pipeline-gpu-kernel skill](https://www.skillsdirectory.com/skills/pjt222-pipeline-gpu-kernel-agent-almanac)). LuisaCompute exposes `async_copy` + `pipeline_commit` + `pipeline_wait_prior` (§4.6); remember **every thread must issue its own copy** and you still need `sync_block()` before consumers read.
+
+Structure the loop as **prologue / main loop / epilogue**: prefetch stage 0 before entering the loop; in iteration `k` acquire the pipeline, issue the copy into buffer `(k+1) % S`, commit, then wait ≤ S−1 outstanding groups and compute on buffer `k % S`; drain after the loop ([jared-hpc.com](https://jared-hpc.com/ai-hardware-engineer-roadmap/Phase%205%20-%20Advanced%20Topics%20and%20Specialization/1.%20GPU%20Infrastructure/Nvidia%20GPU/HPC%20Setup/CUDA-Advanced-Optimization/05-Warp-Specialization/), [mlc.ai](https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_gemm_async/index.html)).
+
+### 15.3 Budget Check Before You Double-Buffer
+
+Doubling (or staging) SMEM can push you over an occupancy cliff: e.g. GA104 has 100 KB SMEM/SM and a 50 KB/block cliff above which only one block resides ([pipeline-gpu-kernel skill](https://www.skillsdirectory.com/skills/pjt222-pipeline-gpu-kernel-agent-almanac)). Always recompute occupancy *after* adding stages — halving tile depth `BK` is the usual way back under the cliff. On RDNA the same trade measured: halving LDS per block from 63 KB to 31.5 KB doubled occupancy from 2 to 4 waves/SIMD in AMD's FP16 GEMM walkthrough ([ROCm blogs](https://rocm.blogs.amd.com/software-tools-optimization/rdna-fp16-gemm/README.html)).
+
+## 16. Hopper (sm_90) Experience: wgmma, TMA, Warp Specialization
+
+### 16.1 The Async Stack
+
+Hopper made both data movement **and** compute asynchronous: TMA copies tiles GMEM↔SMEM under one thread's control with mbarrier completion, and `wgmma.mma_async` (warpgroup-wide, 128 threads, up to m64n256k16) reads operands **directly from SMEM** and accumulates into registers, returning immediately ([FlashAttention-3 paper](https://arxiv.org/html/2407.08608v2), [ai-infrastructure.net](https://ai-infrastructure.net/tensor-core-programming/)). wgmma latency scales linearly with tile width (32 cy at m64n64k16 → 128 cy at m64n256k16) — a temporal pipeline ([Delaware microbenchmarks](https://arxiv.org/html/2512.02189v3)).
+
+### 16.2 Warp Specialization + `setmaxnreg`
+
+With TMA doing addressing in hardware, a producer warp needs almost no registers. Hopper's `setmaxnreg` lets warpgroups **redistribute the SM register pool at runtime**: producer warpgroup drops to 24–56 regs/thread, consumers rise to 240–256, with the constraint `Σ(regs×128)` across warpgroups ≤ 65,536/SM (FA3's configs land on 64,512/65,536 — the entire file, to the register) ([FlashAttention-3 paper](https://arxiv.org/html/2407.08608v2), [thesatyajit.com](https://ai.thesatyajit.com/articles/flash-attention-3)). Without reallocation, combined demand of 3 warpgroups forces 1 CTA/SM; Colfax measured an FP32-accumulate kernel collapsing ~500 → ~21 TFLOPS without it ([pinghaoyang.com.cn](https://pinghaoyang.com.cn/aigc/posts/gpu-gemm-part-3/)). Rules: every warp in the warpgroup executes the same `setmaxnreg`, value is a multiple of 8 in [24, 256], and explicit warpgroup sync is required between successive adjustments ([arXiv 2604.17834](https://arxiv.org/pdf/2604.17834)).
+
+Warp specialization is **spatial** division (different warps do different jobs) as opposed to multi-stage pipelining's **temporal** overlap; it pays only when producer and consumer genuinely differ — when all threads must cooperatively gather (indirect loads TMA cannot express), specialization loses its benefit and a single-warpgroup design with thread-0 TMA + cooperative loads wins ([arXiv 2604.17834](https://arxiv.org/pdf/2604.17834)).
+
+### 16.3 Hiding Non-Matmul Work Under GEMMs
+
+The H100's FP16 matmul peak (989 TFLOPS) dwarfs its special-function throughput (3.9 TFLOPS for exp), so softmax becomes the bottleneck unless overlapped ([rudrite.com FA3 notes](https://research.rudrite.com/flash-attention-3)). FA3's two schedules: **pingpong** (consumer warpgroup A's softmax overlaps warpgroup B's GEMMs, coordinated by named barriers) and **intra-warpgroup 2-stage** (softmax of iteration j overlaps wgmma of j+1) ([l1-ca0.github.io](https://l1-ca0.github.io/posts/flash-attention-3-on-hopper/)). Result: FA2's ~35% utilization on H100 (it was designed for Ampere's synchronous model) rose to 75–85%, 740 TFLOPS FP16 / ~1.2–1.3 PFLOPS FP8 ([pinghaoyang.com.cn](https://pinghaoyang.com.cn/aigc/posts/gpu-gemm-part-3/), [NVIDIA CUDA Tile blog](https://developer.nvidia.com/blog/tuning-flash-attention-for-peak-performance-in-nvidia-cuda-tile/)).
+
+### 16.4 Thread-Block Clusters and Distributed Shared Memory
+
+Hopper clusters let up to 8 CTAs (16 non-portably on B200, opting in via `cudaFuncAttributeNonPortableClusterSizeAllowed`) share **distributed shared memory** and TMA multicast ([NVIDIA Blackwell Tuning Guide](https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html)). The killer use is **multicast**: one TMA fetch feeds up to 16 SMs' SMEM simultaneously, slashing global traffic for shared operands (MoE weights) ([The Index](https://theindex26.com/tensor-memory-accelerator-tma-nvidia-hopper/)). Caveat: larger clusters reduce max active blocks per GPU (occupancy), so measure net effect.
+
+### 16.5 Programmatic Dependent Launch (PDL)
+
+PDL lets a dependent kernel start its prologue (e.g. weight prefetch via `griddepcontrol.launch_dependent_grids`) while the producer kernel is still finishing, hiding launch latency on Hopper and Blackwell. CUTLASS example 63 exposes `overlap_ratio` (when to trigger, default 0.5) and `prefetch_ratio` (how many K-tiles to prefetch); TensorRT-LLM's expanded PDL use contributed to up to 2.8× throughput gains on Blackwell MoE inference ([CSDN CUTLASS PDL guide](https://blog.csdn.net/gitblog_01183/article/details/165467821), [NVIDIA Developer Blog](https://developer.nvidia.com/blog/delivering-massive-performance-leaps-for-mixture-of-experts-inference-on-nvidia-blackwell/)).
+
+## 17. Blackwell (sm_100 / sm_120) Experience
+
+### 17.1 The tcgen05 Revolution — and the Compatibility Cliff
+
+Blackwell's 5th-gen tensor cores abandon warp-synchronous MMA: **`tcgen05.mma` is issued by a single elected thread**; operands come from SMEM (or TMEM for A), and the **accumulator lives in TMEM — a dedicated 256 KB/SM on-chip memory (128 lanes × 512 columns × 32-bit), not the register file** ([CUTLASS tcgen05 guide](https://docs.nvidia.com/cutlass/4.7.0/media/docs/pythonDSL/guides/mma/tcgen05_programming.html), [The Software Frontier](https://www.thesoftwarefrontier.com/p/how-blackwells-tensor-memory-actually)). The forcing function: the largest single-CTA atom (m128n256k16) produces 32,768 FP32 accumulators = 256 registers/thread against a 255 ceiling — literally unrepresentable in the old model ([The Software Frontier](https://www.thesoftwarefrontier.com/p/how-blackwells-tensor-memory-actually)).
+
+**Critical porting fact:** `wgmma` is not deprecated on Blackwell — it is **removed from every Blackwell target** (`sm_100a`, `sm_103a`, `sm_120a`); Hopper warpgroup-MMA kernels fail at assembly time, not at runtime, and NVIDIA estimates staying on wgmma leaves 30–40% of peak on the table for MX-FP4 workloads ([The Software Frontier](https://www.thesoftwarefrontier.com/p/how-blackwells-tensor-memory-actually), [pinghaoyang.com.cn](https://pinghaoyang.com.cn/aigc/posts/gpu-gemm-part-3/)). Consumer Blackwell (RTX 50, sm_120) keeps **extended `mma.sync`** (warp-level, register operands) and has **no TMEM** — datacenter and consumer Blackwell need different GEMM paths ([backend.ai](https://www.backend.ai/blog/2026-02-is-dgx-spark-actually-a-blackwell)).
+
+### 17.2 Measured Microarchitecture Facts
+
+From the University of Delaware microbenchmark suite ([arXiv 2512.02189](https://arxiv.org/html/2512.02189v3)):
+
+- `tcgen05.mma` single-instruction latency is **11.0–11.4 cycles, nearly flat across tile sizes** (m64n64k16 → m256n256k16) — a spatial array, vs Hopper's linearly-scaling temporal pipeline; 2.9–11.6× lower single-instruction latency.
+- Removing the 4-warp wgmma synchronization cut scheduler stalls **18–23%** in memory-bound kernels.
+- Chained GEMMs keeping intermediates in TMEM avoid ~12 TB/s of data movement vs Hopper's global round-trip; TMEM staging cut board power 15% at equal throughput for 2048² GEMM — but for small problems fitting in L1, forcing TMEM costs 3–5% overhead. **TMEM for multi-stage large-tile pipelines; classic SMEM path for single-shot small ops.**
+- B200: 148 SMs, dual-die with NV-HBI, 4 L2 partitions (2× Hopper), 192 GB HBM3e at 8 TB/s; SMEM/L1 still 256 KB combined with 228 KB max shared per SM (227 KB addressable per block after the 1 KB reservation; static allocations still capped at 48 KB) ([NVIDIA Blackwell Tuning Guide](https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html)).
+- tcgen05 throughput is **2–4× Hopper wgmma** depending on dtype (TF32→NVFP4) ([Joe Fioti / CUTLASS](https://www.linkedin.com/posts/joe-fioti-24a986189_blackwells-tensor-core-introduces-a-new-activity-7495334431197392896-xz0c)); two adjacent CTAs can form a **CTA pair** executing one MMA across a wider tile.
+
+### 17.3 Programming-Model Consequences
+
+The kernel becomes a **dataflow choreography**: TMA stages tiles; a producer warp manages descriptors/mbarriers; one elected thread issues `tcgen05.mma`; accumulators drain TMEM→registers via `tcgen05.ld` for the epilogue; TMEM must be explicitly allocated/deallocated (`tcgen05.alloc/dealloc`) and is another scarce resource to budget (512 columns per SM — the largest accumulator takes half) ([The Software Frontier](https://www.thesoftwarefrontier.com/p/how-blackwells-tensor-memory-actually), [tessl.io](https://tessl.io/registry/skills/github/fla-org/flash-linear-attention/fla-triton-to-gluon)). Latency hiding shifts from *occupancy* (many CTAs per SM) to *intra-CTA pipelining* (multiple tcgen05 stages in flight, one mbarrier per stage) — the classic "more warps" advice matters less on Blackwell GEMMs than correct pipeline depth. Also: `use_acc=false`-style zero-init tricks and `tcgen05.cp` (SMEM→TMEM without register round-trip) remove common epilogue costs ([tessl.io](https://tessl.io/registry/skills/github/fla-org/flash-linear-attention/fla-triton-to-gluon)).
+
+On the host side, Blackwell GPUs are so fast that **CPU dispatch becomes the bottleneck**: vLLM measured ~10% end-to-end gain from async scheduling alone on H200/B200/GB200 ([vLLM blog](https://vllm.ai/blog/2026-02-01-gpt-oss-optimizations)) — see §20.
+
+## 18. AMD Platform Experience (GCN / RDNA / CDNA)
+
+### 18.1 Wave32 vs Wave64 — the Single Most Expensive Line in a Port
+
+NVIDIA warp = 32; AMD wavefront = 64 on GCN/CDNA, 32 native on RDNA ([HIP docs](https://rocm.docs.amd.com/projects/HIP/en/latest/understand/hardware_implementation.html)). Code must never assume either — use `warpSize`/`__hip_warp_size` ([labhub.hopto.org](https://labhub.hopto.org/blog/gpu-cuda/2026-08-02-amd-vs-nvidia-gpu-stack?lang=en), [dev.to](https://dev.to/javadinteger/advanced-gpu-optimization-cuda-hip-from-zero-to-hero-1dle)). Classic silent bug: a shuffle reduction loop `for (off = 16; off > 0; off >>= 1)` assumes 32 lanes; on a 64-lane wavefront **it compiles, doesn't crash, and halves the reduction** — start at `warpSize/2` ([labhub.hopto.org](https://labhub.hopto.org/blog/gpu-cuda/2026-08-02-amd-vs-nvidia-gpu-stack?lang=en)). The ballot return type likewise widens (64-bit mask on wave64). In LuisaCompute this is exactly why `warp_lane_count()`/`warp_active_bit_mask().x` (with `.y` for >32 lanes) exist — never slice `.x` alone on wave64 backends.
+
+Mode selection guidance:
+
+- **CDNA (MI-series)**: optimize for 64-thread wave granularity, leverage matrix cores, consider AGPRs for accumulators ([HIP hardware docs](https://rocm.docs.amd.com/projects/HIP/en/latest/understand/hardware_implementation.html)).
+- **RDNA**: design for wave32; wave64 is emulated as two sequential wave32 passes on gfx11 and **loses VOPD dual-issue**; SGPR read/write ordering across the two passes can surprise; cross-half permutes need LDS staging ([rdna3-zen3-unified](https://github.com/thejeangenie18/rdna3-zen3-unified)). Divergence-heavy shaders favor wave32 (half the wasted lanes); uniform compute-dense shaders can favor wave64 (dual-issue constraints always satisfied in wave64 on RDNA3) ([Chips and Cheese](https://chipsandcheese.com/p/starfield-on-the-rx-6900-xt-rx-7600-and-rtx-2060-mobile), [velog.io](https://velog.io/@lunacat16/%EA%B7%B8%EB%9E%98%ED%94%BD-%ED%94%84%EB%A1%9C%EA%B7%B8%EB%9E%98%EB%B0%8D-Fundamentals-1)).
+- **RDNA4 (gfx1201) went wave32-only**, added dynamic VGPR allocation (wave32-only feature), split `vmcnt` into per-class counters, and doubled LDS banks to 64 — together these closed a long-context FlashAttention gap: a wave32 toggle plus row-splitting and Q-register caching delivered the measured win ([zolotukhin.ai](https://zolotukhin.ai/blog/2026-05-11-the-wave32-commit-that-closes-rdna4-long-context-flash-attention-gap/)).
+- **CDNA5 (MI455X) also abandons wave64 for wave32**, with up to 1,024 VGPRs/thread addressable and 64 resident waves/WGP ([pcgameshardware.de](https://www.pcgameshardware.de/Grafikkarten-Grafikkarte-97980/Specials/AMD-Instinct-MI455X-CDNA-5-432-GiB-HBM4-Technik-Check-1549242/)) — the industry is converging on 32-lane groups; LuisaCompute's `set_warp_size(32)`-pinned kernels age well.
+- Workgroup size: **make it a multiple of 64** to be optimal across all AMD generations even when wave32 is native ([AMD GPUOpen](https://gpuopen.com/learn/rdna-performance-guide/)).
+
+### 18.2 Register/LDS Budgets and Occupancy on AMD
+
+Occupancy = min over VGPR, LDS, SGPR limits, capped at hardware max waves/SIMD ([FlyDSL tuning guide](https://rocm.github.io/FlyDSL/kernel_tuning_guide.html)). Key numbers:
+
+| Arch | Wave | VGPR model | LDS/CU (WGP) | Notes |
+|---|---|---|---|---|
+| gfx942 (CDNA3, MI300X) | 64 | 512 combined (256 arch + 256 accum AGPR) / SIMD | 64 KB | MFMA v3; AGPRs hold MFMA accumulators but are not reachable from MLIR — inline ASM only |
+| gfx950 (CDNA4) | 64 | same combined 512 | 160 KB | MFMA-scale / transpose loads; 2.5× LDS headroom |
+| gfx1250 (RDNA) | 32 | wave32 register file | 320 KB | per-wave accounting differs — don't reuse the CDNA 512 rule |
+
+([FlyDSL tuning guide](https://rocm.github.io/FlyDSL/kernel_tuning_guide.html), [FlyDSL issue #8](https://github.com/sunway513/FlyDSL/issues/8)). On RDNA4, ≤96 VGPRs/thread = max occupancy (16 waves/SIMD); 97–128 → 12; 129–192 → 8; 193–256 → 6; dynamic allocation rounds to 16- or 32-register blocks ([zolotukhin.ai reference](https://zolotukhin.ai/zinc/docs/amd-gpu-reference/)). A real occupancy-cliff example: reducing VGPRs 102 → 96 raised occupancy 4 → 5 waves/SIMD on CDNA2 ([ROCm register-pressure blog](https://rocm.blogs.amd.com/software-tools-optimization/register-pressure/README.html)).
+
+Reducing register pressure on AMD (measured techniques, [ROCm register-pressure blog](https://rocm.blogs.amd.com/software-tools-optimization/register-pressure/README.html)):
+1. Always set `__launch_bounds__` — without it the compiler assumes 1024 threads/block.
+2. Move variable definitions close to first use (shorten live ranges).
+3. Avoid stack arrays (`double array[10]` lives in scratch), avoid passing big objects as kernel args, replace `pow(x,2.0)` with `x*x` (all device functions are inlined; each inflates pressure).
+4. Control `#pragma unroll` — Clang unrolls more literally than nvcc; unrolling raises pressure.
+5. Compile with `-Rpass-analysis=kernel-resource-usage` and check `VGPRs Spill`/`ScratchSize` > 0.
+
+### 18.3 MFMA / Matrix-Core Experience
+
+MI300X (gfx942): 304 CUs, 64-thread wavefronts, 192 GB HBM3 at 5.3 TB/s peak (measured ~4.3 TB/s, 81% utilization), 4 matrix-core engines per CU, 64 KB LDS per CU, 32 MB L2 ([mfma-cdna-amd](https://github.com/bogdannadev/mfma-cdna-amd/blob/master/README.md), [emergentmind](https://www.emergentmind.com/topics/amd-mi300x-gpu)). Practical MFMA lessons ([ROCmKernelWiki](https://github.com/jhinpan/ROCmKernelWiki/blob/main/wiki/patterns/mfma-underutilized.md)): pipelining + double buffering removes load-induced bubbles; pre-shuffling operand layouts removes LDS-read bubbles; together they move a "compute-bound but slow" kernel from a small fraction of peak toward datasheet TFLOPS. Verify with rocprof counters — MFMA utilization should rise and `SQ_WAIT_INST_LDS` should fall. Beware **over-tiling to feed the matrix core**: the VGPR/AGPR pressure pattern is the failure mode when accumulator tiles get too large.
+
+### 18.4 CUDA→HIP Porting Checklist
+
+HIPIFY translates 80–95% of straightforward CUDA automatically; the rest is where the time goes ([clusterbid.com](https://clusterbid.com/blog/nvidia-cuopt-vs-amd-hip-optimization-comparison)):
+
+- **Warp-size assumptions** — never auto-translated (HIPIFY can't know if a literal 32 means warp size). Ginkgo's workflow: factor all arch-specific parameters (warp size, tile constants) into config variables *before* porting ([arXiv 2006.14290](https://arxiv.org/html/2006.14290v1)).
+- **`__launch_bounds__` semantics differ**: CUDA's `MIN_BLOCKS_PER_MULTIPROCESSOR` becomes HIP's `MIN_WARPS_PER_EXECUTION_UNIT`; convert with `(blocks × threads) / (warpSize × 2)` in CU mode or `× 4` in WGP mode ([HIP porting guide](https://rocm.docs.amd.com/projects/HIP/en/docs-7.0.1/how-to/hip_porting_guide.html)).
+- **Inline PTX has no counterpart** — rewrite as HIP intrinsics or AMDGCN asm; this is "the single most reliable time sink" ([labhub.hopto.org](https://labhub.hopto.org/blog/gpu-cuda/2026-08-02-amd-vs-nvidia-gpu-stack?lang=en)).
+- CUDA-only libraries (cuDNN/CUTLASS/cuBLASLt) need ROCm equivalents or rewrites; NVIDIA-tuned memory patterns can be suboptimal on AMD's cache hierarchy — **performance tuning after porting is a separate phase** (2–8 weeks per significant kernel) ([uplatz](https://uplatz.com/blog/the-architecture-of-acceleration-a-comprehensive-analysis-of-gpu-driven-computing/), [clusterbid.com](https://clusterbid.com/blog/nvidia-cuopt-vs-amd-hip-optimization-comparison)).
+- Experiment with `-mwavefrontsize64` / `-mno-wavefrontsize64` and `-mcumode` per kernel and re-profile ([beefed.ai](https://beefed.ai/en/port-cuda-to-hip-amd-performance)).
+- Recommended workflow: hipify once, verify functional correctness **on the NVIDIA GPU** via HIP-on-CUDA first, then move to ROCm — this isolates remaining bugs to the ROCm stack ([uplatz](https://uplatz.com/blog/the-architecture-of-acceleration-a-comprehensive-analysis-of-gpu-driven-computing/)).
+- AMD quirks worth knowing: routing Vulkan compute dispatches through the graphics queue dodged an AMD driver memory-fence stall worth a large fraction of a 56% regression in llama.cpp ([zolotukhin.ai](https://zolotukhin.ai/blog/2026-05-11-the-wave32-commit-that-closes-rdna4-long-context-flash-attention-gap/)) — when a backend is inexplicably slow, suspect the queue/driver path, not just the kernel.
+
+## 19. Other Platforms: Apple Metal, Intel Xe, Vulkan/DX12 Subgroups
+
+### 19.1 Apple Silicon / Metal
+
+- Apple GPUs run **SIMD-groups of 32** (`threadExecutionWidth`); both LuisaCompute Metal backends reject any other pinned size (§6). Threadgroup memory is **32 KiB** by default (64 KiB on newer families) — note this is *smaller* than the 48 KB static-SMEM floor on NVIDIA; size portable kernels to the lowest target.
+- Apple Silicon is **unified memory**: prefer `.shared` buffers for CPU↔GPU exchange (zero-copy), `.private` for GPU-only intermediates ([Medium/macoclock](https://medium.com/macoclock/unlocking-the-gpu-a-deep-dive-into-metal-kernels-on-apple-silicon-adc0859413bd)).
+- Two-tier locality model: registers + `simd_shuffle` (1–2 cy) first, threadgroup memory (32 KiB, ~2–4 cy) as an exchange tier between SIMD-groups ([arXiv 2603.27569](https://www.alphaxiv.org/abs/2603.27569)). Cross-vendor study found **intra-wave shuffle is essential on NVIDIA but optional on Apple** — Apple's scheduler tolerates barrier-based reductions with ~98% efficiency ([arXiv 2603.28793](https://arxiv.org/html/2603.28793v1)) — so warp-collective refactors (§3) are still correct on Metal, just less decisive.
+- Query capabilities at runtime (`supportsFamily:`) and select kernels accordingly; never hardcode a family. Metal 4 adds MTLTensor and quantized types ([macoclock](https://medium.com/macoclock/unlocking-the-gpu-a-deep-dive-into-metal-kernels-on-apple-silicon-adc0859413bd)).
+- Hierarchical atomics (SIMD → threadgroup → global) instead of flat global atomics ([macoclock](https://medium.com/macoclock/unlocking-the-gpu-a-deep-dive-into-metal-kernels-on-apple-silicon-adc0859413bd)) — matches §4.3.
+
+### 19.2 Intel Xe (Arc / Data Center Max)
+
+Intel's oneAPI GPU Optimization Guide covers the same pillars with Xe terminology: sub-groups and SIMD vectorization, registerization and avoiding spills (including a small-vs-large register mode tradeoff), shared local memory, `restrict` pointer aliasing, work-group size selection, prefetch, and reduction patterns ([Intel oneAPI GPU Optimization Guide 2024.2](https://cdrdv2-public.intel.com/824351/oneapi_optimization-guide-gpu_2024.2-771772-824351.pdf)). XMX matrix extensions are programmed via the SYCL joint-matrix extension. Notable Intel-specific advice: remove per-lane conditional checks where possible, prefer subgroup collectives, and watch register-spill behavior when porting high-pressure kernels to Max GPUs — the guide has a dedicated chapter for it.
+
+### 19.3 Vulkan / DX12 Subgroup Portability
+
+- Vulkan subgroup sizes range **8–64** (128 possible on some mobile GPUs, e.g. Adreno/Imagination); on many GPUs the size is dynamic per dispatch and unknowable without `VK_EXT_subgroup_size_control`, which also exposes min/max sizes and a required-size pipeline flag ([compute-shader-101](https://github.com/googlefonts/compute-shader-101/blob/main/docs/glossary.md), [Khronos registry](https://registry.khronos.org/VulkanSC/specs/1.0-extensions/man/html/VK_EXT_subgroup_size_control.html), [Phoronix](https://www.phoronix.com/news/Vulkan-1.1.116-Released)). LuisaCompute's Vulkan backend errors if you pin a size outside `[minSubgroupSize, maxSubgroupSize]` (§1.5) — query before pinning.
+- Not all GPUs support all subgroup ops; capability bits must be checked ([compute-shader-101](https://github.com/googlefonts/compute-shader-101/blob/main/docs/glossary.md)).
+- DX12 SM6.x wave ops map onto vendor paths: on RDNA, quad ops (`QuadReadAcrossX`) lower to fast DPP8/DPP16 instructions, shuffles across ≤ 8 lanes are very fast, ≤ 16 still OK, and **shuffles across more than 32 lanes force slow compiler fallbacks** (LDS round-trips) — keep logical groups ≤ 8–16 lanes on AMD ([Interplay of Light](https://interplayoflight.wordpress.com/2020/05/23/optimizing-for-the-rdna-architecture-presentation-notes/)). Vulkan subgroup ops fix the wavefront size to 64 on some AMD paths unless an extension is available — the same shader can silently change subgroup width between APIs ([Interplay of Light](https://interplayoflight.wordpress.com/2020/05/23/optimizing-for-the-rdna-architecture-presentation-notes/)).
+- Group active threads together in batches of 32 so RDNA can skip wholly-inactive wave32s (~7% measured in the mip-chain study) ([Interplay of Light](https://interplayoflight.wordpress.com/2020/05/23/optimizing-for-the-rdna-architecture-presentation-notes/)).
+
+## 20. Host-Side Throughput: Launch Overhead, CUDA Graphs, Fusion
+
+### 20.1 Quantifying Launch Overhead
+
+A single CUDA kernel launch costs roughly **2–15 µs** of CPU/driver time depending on version and warmth — negligible for millisecond kernels, dominant for microsecond kernels: a 7B LLM forward pass at batch 1 launches ~3,000–5,000 kernels, so launch overhead alone can exceed the compute budget ([gozymtrace.com](https://gozymtrace.com/blog/zymtrace-03-cuda-kernel-launch-latency), [llms.blog](https://www.llms.blog/posts/cuda-graph-capture-in-production-llm-serving-dynamic-batch-bucketing-static-memory-pooling-and-kernel-launch-elimination)). The LuisaCompute CommandList batching of §8 is the portable mitigation; vendor-specific ones:
+
+- **CUDA Graphs**: capture once, replay with one `cudaGraphLaunch`; measured 1.56–2.1× on a 48-kernel transformer batch, 32% wall-clock cut in libtorch, and 30–50% per-launch overhead reduction in production ([martinuke0.github.io](https://martinuke0.github.io/posts/2026-09-14-deep-dive-into-cuda-graphs-for-efficient-kernel-launch-overhead-reduction/), [zenn.dev](https://zenn.dev/kosuke_sugimoto/articles/b36f2628daa2be?locale=en)). Constraints: static shapes/pointers (update with `cudaGraphExecKernelNodeSetParams` or copy into mapped pointers), heavy one-time `cudaGraphInstantiate` (cache exec graphs), and capture forbids host-dependent control flow ([mortalapps.com](https://mortalapps.com/infrastructure/cuda-triton-compiler-systems/cuda-graphs-launch-overhead/)). Multi-step scheduling pushes further: encapsulate K decode iterations (K∈[4,16]) in one graph so the CPU scheduler runs once per K tokens ([llms.blog](https://www.llms.blog/posts/cuda-graph-capture-in-production-llm-serving-dynamic-batch-bucketing-static-memory-pooling-and-kernel-launch-elimination)).
+- **PDL** (§16.5) overlaps dependent kernels' prologue/epilogue.
+- **Kernel fusion** removes both launches and intermediate HBM round-trips — every unfused op writes to global memory and the next reads it back ([aigrants.in](https://aigrants.in/topics/how-to-optimize-low-level-neural-kernels)); FlashAttention is the canonical fusion win (§17 case study below).
+- If `Drain` stalls dominate a kernel's profile, the kernel is too short — fuse it ([zinlab](https://zinlab.github.io/tutorials/nsight-compute-mastery.html)).
+
+### 20.2 Case Study: FlashAttention as the Model Cross-Platform Kernel
+
+The FA lineage is a compressed course in everything above ([llms.blog](https://www.llms.blog/posts/flashattention-io-aware-tiling-online-softmax-mathematics-memory-hierarchy-dynamics-and-kernel-evolution), [aicassindra.com](https://aicassindra.com/blogs/llm/llm_flash_attention.html)):
+
+| Version | Key techniques | Utilization | Binding constraint |
+|---|---|---|---|
+| Naive attention | materializes N×N in HBM (Θ(N²) IO) | 15–25% peak | HBM bandwidth |
+| FA-1 | tiling + online softmax, Θ(N²d²/M) IO | 25–40% on A100 | SMEM sync, non-matmul overhead |
+| FA-2 | parallelize over query blocks, fewer non-matmul FLOPs, warp-level partitioning | 50–73% on A100 | register pressure |
+| FA-3 | TMA + wgmma + warp specialization + pingpong, FP8 block scaling | 75–85% on H100 | instruction issue |
+
+Generic lessons that transfer to LuisaCompute kernels: (1) **never materialize quadratic intermediates** — recompute in fast memory (backward pass recomputation trades free FLOPs for HBM traffic); (2) **defer normalization divisions to the end** (lazy softmax); (3) rescale accumulators with running statistics (`exp(m_old − m_new)` correction) so tiles stream; (4) small working sets defeat fast hardware: FA's advantage shrinks when head_dim > 256 because IO complexity flips ([shaiyy.cn](https://www.shaiyy.cn/3062.html)).
+
+## 21. Atomic Contention: The Full Hierarchy
+
+Atomics under contention serialize at ~1/(2×memory latency) per conflicting update ([PMPP vault](https://github.com/HuaTsai/pmpp-vault-sources/blob/main/09-Parallel-Histogram/02-Histogram-Optimizations-Privatization-Coarsening-Aggregation.md)). The escalation ladder, cheapest first:
+
+1. **Warp aggregation** — reduce within the warp (`__shfl`/`warp_active_sum`), one atomic per warp: 32× fewer atomics, 5–20× faster ([chipfoundryservices.com](https://www.chipfoundryservices.com/topics/gpu-atomic-operations)). This is §3.1.
+2. **Block privatization in shared memory** — per-block private counters/histograms with cheap SMEM atomics, then one global commit per block: 10–100× fewer global atomics ([yencal.github.io](https://yencal.github.io/gpu-histogram-optimization/) measured 0.1% → 68.5% of peak bandwidth from privatization + `uint4` vectorized loads). This is §4.3.
+3. **Thread coarsening** — fewer blocks, each thread processes multiple elements (interleaved partitioning for coalescing); cuts redundant commit phases ([PMPP vault](https://github.com/HuaTsai/pmpp-vault-sources/blob/main/09-Parallel-Histogram/02-Histogram-Optimizations-Privatization-Coarsening-Aggregation.md)).
+4. **Aggregation** — accumulate consecutive same-bin updates in a register, flush on bin change; wins on skewed data, costs registers/divergence ([PMPP vault](https://github.com/HuaTsai/pmpp-vault-sources/blob/main/09-Parallel-Histogram/02-Histogram-Optimizations-Privatization-Coarsening-Aggregation.md)).
+5. **Atomic-free restructure** — sort-then-reduce or scan-based compaction beats atomics entirely for some patterns ([chipfoundryservices.com](https://www.chipfoundryservices.com/topics/gpu-atomic-operations)).
+
+Caveats that match §5.7's measured histogram result (privatization only wins ≥ 512 threads/block, 8× *slower* at 64): privatization pays only when contention actually exists — a cross-vendor study found per-warp privatized histograms no faster than a single shared histogram when contention was low ([arXiv 2603.28793](https://arxiv.org/html/2603.28793v1)). Modern GPUs execute global atomics in L2, not DRAM — fast at low contention ([mtuann.github.io](https://mtuann.github.io/blog/cuda/pmpp/chapter-09/)). Watch Nsight's atomic-replay metric: > 10 replays = severe contention. Use narrowest memory scope (`atomicAdd_block` > device > system); FP16 atomics don't exist natively — use CAS on bits or integer atomics ([chipfoundryservices.com](https://www.chipfoundryservices.com/topics/gpu-atomic-operations)).
+
+## 22. Cross-Platform Portability Checklist
+
+The bugs that survive porting are the ones that **compile and pass small tests**. Checklist, ordered by pain observed in the wild:
+
+1. **Warp/wave/subgroup width**: 32 (NVIDIA, RDNA, Metal, Intel typical) vs 64 (GCN/CDNA) vs dynamic (Vulkan). Never hardcode 32/64 in shuffle loops, ballot masks (32-bit vs 64-bit return!), or `threadIdx.x / 32` warp indexing. Query (`warpSize`, `warp_lane_count()`, `WaveGetLaneCount()`, `gl_SubgroupSize`, `threadExecutionWidth`) or pin and verify the backend accepted it (§1.5, §6).
+2. **Shuffle semantics**: masks on `__shfl_sync`, out-of-range lane behavior, and whether inactive lanes' values are defined differ per vendor — clamp indices and require full participation (§7.13). AMD shuffles beyond 32 lanes degrade to slow paths (§19.3).
+3. **Lockstep assumptions**: post-Volta NVIDIA has **independent thread scheduling** — lanes no longer share a program counter, so implicit "same warp ⇒ synchronized" reasoning (e.g. reading a neighbor's register write without a shuffle/sync) is UB. Always use explicit `_sync` intrinsics/`__syncwarp()`; this is also why LuisaCompute warp collectives lower to `_sync`-suffixed forms.
+4. **Shared-memory capacity floors differ**: 48 KB static SMEM on NVIDIA, 32 KiB floor in LuisaCompute's HLSL path (§5.1), 32 KiB default on Metal, 64 KB LDS on CDNA3. Size portable tiles to the minimum or query per-device limits.
+5. **Block-size optima don't transfer** (§13.3, §5.7): re-sweep per backend; VK vs DX alone differed 2.6× on identical DSL kernels.
+6. **Driver/queue paths**: identical kernels can stall on one queue and not another (§18.4 AMD graphics-queue case).
+7. **Feature asymmetry**: tensor/matrix core instructions (mma/wgmma/tcgen05 vs MFMA/WMMA vs XMX vs simdgroup_matrix) have no portable form — guard vendor paths behind macros or accept the library route (cuBLAS/rocBLAS/CUTLASS/CK) ([dev.to](https://dev.to/javadinteger/advanced-gpu-optimization-cuda-hip-from-zero-to-hero-1dle)).
+8. **Numerics**: double-precision ratios, SFU accuracy, and FP16 conversion behaviors differ; re-run correctness on each backend with ragged sizes (§10.9).
+9. **Dispatch limits**: D3D12's 65,535 groups/dimension (§5.7 trap 2) — flatten to 2D grids portably.
+10. **Verify on ≥ 2 backends with tail/partial sizes** (§3.8 rule) — idle-warp and boundary-lane paths are where portability bugs hide.
+
+## 23. Cross-Platform Rules of Thumb (Addendum to §7)
+
+15. **Roofline before code.** Compute AI and the ridge point for the target GPU; pick the lever (fewer bytes vs more reuse vs more compute throughput) that matches the side of the ridge you're on (§11).
+16. **Read the dominant stall, then fix that one thing.** Long scoreboard → latency/occupancy; short scoreboard → SMEM/bank conflicts; MIO throttle → too many memory instructions (vectorize); barrier → imbalance; math-pipe throttle → you're done (§12).
+17. **Spills before everything.** `ptxas -v` `lmem` or AMD `ScratchSize`/`vgpr_spill_count` nonzero → fix that first (§12, §18.2).
+18. **Vectorize memory access** (16 B/lane, aligned) before exotic restructuring — 15–40% on memory-bound kernels (§14.2).
+19. **Pipeline staged loops** — double-buffer with `cp.async`/TMA/`async_copy`; re-check the SMEM/LDS occupancy cliff after adding stages (§15.3).
+20. **Match the abstraction to the silicon generation**: warp-synchronous MMA (≤ Ampere) → wgmma+TMA warp specialization (Hopper) → tcgen05/TMEM single-thread-issue dataflow (Blackwell DC) — and remember consumer Blackwell has no TMEM and no wgmma (§17.1).
+21. **Redistribute registers when warps have different jobs** (`setmaxnreg`, Hopper+); a TMA producer warp needs ~24 (§16.2).
+22. **Wave32 is the industry's converging granularity** (RDNA native, RDNA4/CDNA5 exclusive) — algorithms pinned to 32 lanes port best (§18.1).
+23. **Privatize atomics hierarchically** (warp → block → global), but only when contention is measured, not assumed (§21).
+24. **Batch host submissions** (CommandList §8) and capture graphs when shapes are static; on the newest GPUs the CPU is often the bottleneck (§20.1).
+25. **Occupancy is a means, not a goal.** "Runs" ≠ "fits": 1024-thread blocks with heavy registers spill and crawl 19× slower while launching fine (§5.7); latency is hidden by ILP as much as by warps (§13.1).
+26. **Re-measure per backend, per generation, per tile shape.** Every measured table in this document (§5.7, FA3 configs, RDNA GEMM steps) was the result of a sweep; none of the constants transfer unchanged.

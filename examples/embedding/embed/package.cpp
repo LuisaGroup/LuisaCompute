@@ -3,10 +3,15 @@
 //
 // The on-disk format is model.bgm VERSION 1, specified in the header comment of
 // examples/embedding/tools/pack_model.cpp (that comment block IS the spec):
-//   magic 'B','G','M','3' | u32 version=1 | u32 precision=0 (fp32) |
-//   u32 tensor_count=296 | 296 * 48-byte table entries
-//   {fnv1a64(name), offset, size_bytes, rank, dims[4]} in the fixed emission
-//   order emb.*, layer0.* .. layer23.*, head.* | 256-byte aligned fp32 LE blobs.
+// magic 'B','G','M','3' | u32 version=1 | u32 precision=0 (fp32) |
+// u32 tensor_count=296 | 296 * 48-byte table entries
+// {fnv1a64(name), offset, size_bytes, rank, dims[4]} in the fixed emission
+// order emb.*, layer0.* .. layer23.*, head.* | 256-byte aligned fp32 LE blobs.
+//
+// VERSION 2 (optimization plan §4 Q1/Q2, O-G): same layout with version=2 and
+// precision = 1 (bf16) or 2 (fp16); every blob is 2-byte little-endian
+// elements (RNE from fp32 at pack time), size_bytes = prod(dims)*2. The v1
+// fp32 path is unchanged byte-for-byte.
 //
 // Loading strategy (documented choice; package.h: "Blobs stay on disk (mapped)
 // or are read on demand — implementation choice"): the whole file is read once
@@ -19,11 +24,12 @@
 // _raw is never resized after load(), so the pointers are stable for the
 // lifetime of the Package.
 //
-// Validation is fail-closed and loud: every deviation from the version-1 spec
-// (magic / version != 1 / precision != 0 / tensor_count != 296 / table
-// structural inconsistency / canonical-name or emission-order mismatch / dims
-// disagreeing with the bge-m3 hyper-parameters / file size) raises LUISA_ERROR
-// with the offending values. precision == 1 (bf16, plan M7) is rejected.
+// Validation is fail-closed and loud: every deviation from the spec
+// (magic / unknown version / v1-with-precision!=0 / v2-with-precision==0 /
+// precision > 2 / tensor_count != 296 / table structural inconsistency /
+// canonical-name or emission-order mismatch / dims disagreeing with the
+// bge-m3 hyper-parameters / file size) raises LUISA_ERROR with the offending
+// values. Version 2 accepts precision 1 (bf16) / 2 (fp16) only.
 //
 // Hyper-parameter cross-check: the packer stores no constants beyond the table,
 // so the architecture (24 layers, 1024 hidden, 4096 intermediate, 250002 vocab,
@@ -48,6 +54,15 @@
 
 namespace luisa::embed {
 
+const char *package_precision_name(PackagePrecision p) noexcept {
+    switch (p) {
+        case PackagePrecision::fp32: return "fp32";
+        case PackagePrecision::bf16: return "bf16";
+        case PackagePrecision::fp16: return "fp16";
+    }
+    return "unknown";
+}
+
 uint64_t Tensor::element_count() const noexcept {
     uint64_t n = 1ull;
     for(uint32_t i = 0u; i < rank; i++) {
@@ -60,7 +75,10 @@ namespace {
 
     // --- format constants (mirror the packer spec; pack_model.cpp k_bgm_*) -----
     constexpr uint32_t k_bgm_version = 1u;
+    constexpr uint32_t k_bgm_version_half = 2u;// opt plan §4 Q1/Q2
     constexpr uint32_t k_bgm_precision_fp32 = 0u;
+    constexpr uint32_t k_bgm_precision_bf16 = 1u;
+    constexpr uint32_t k_bgm_precision_fp16 = 2u;
     constexpr uint64_t k_bgm_align = 256ull;
     constexpr uint64_t k_bgm_header_bytes = 16ull;
     constexpr uint64_t k_bgm_entry_bytes = 48ull;
@@ -181,6 +199,7 @@ namespace {
         [[nodiscard]] luisa::span<const Tensor> tensors() const noexcept override {
             return {_tensors.data(), _tensors.size()};
         }
+        [[nodiscard]] PackagePrecision precision() const noexcept override { return _precision; }
         [[nodiscard]] uint32_t num_layers() const noexcept override { return k_num_layers; }
         [[nodiscard]] uint32_t hidden_size() const noexcept override { return k_hidden_size; }
         [[nodiscard]] uint32_t num_heads() const noexcept override { return k_num_heads; }
@@ -192,9 +211,10 @@ namespace {
         void _fill(const std::filesystem::path &bgm_file);
 
         luisa::vector<uint8_t> _raw{};// whole file image + alignment slack
-        const uint8_t *_image{};      // 256-byte aligned start of the file image
+        const uint8_t *_image{}; // 256-byte aligned start of the file image
         luisa::vector<Tensor> _tensors{};
         luisa::vector<uint64_t> _hashes{};
+        PackagePrecision _precision{PackagePrecision::fp32};
     };
 
     void PackageImpl::_fill(const std::filesystem::path &bgm_file) {
@@ -213,17 +233,26 @@ namespace {
         const size_t fsize = static_cast<size_t>(fsize_u64);
 
         // --- single bulk read into the 256-byte aligned file image ----------------
+        // H7 (host-memory opt, plan §2.3) was MEASURED and NOT landed: see
+        // benchmark_results/embed_opt_log.md. The eager ~160 ms in the allocation
+        // below is mimalloc's OS page-commit of the 2.27 GiB image (VirtualAlloc
+        // MEM_COMMIT zeroes the pages), not the vector zero-fill, so switching to
+        // resize_uninitialized changes nothing measurable (<100 ms gate, win ~0).
+        // The remaining cost is the bulk fread memcpy; a zero-copy mmap that folds
+        // page-faults into the GPU upload (and overlaps kernel compile) lives in the
+        // Scheduler/WeightStore upload path -- outside this file's ownership -- and
+        // cold start already meets the <3 s target at baseline (1.0-1.3 s).
         _raw.resize(fsize + static_cast<size_t>(k_bgm_align));
         _image = reinterpret_cast<const uint8_t *>(
             align_up(reinterpret_cast<uintptr_t>(_raw.data()), k_bgm_align));
         if(auto *f = std::fopen(bgm_file.string().c_str(), "rb"); f != nullptr) {
             const auto got = std::fread(const_cast<uint8_t *>(_image), 1u, fsize, f);
             std::fclose(f);
-            if(got != fsize) {
+            if(got != fsize) [[unlikely]] {
                 LUISA_ERROR("short read on the packed model \"{}\": {} of {} bytes",
                             bgm_file.string(), got, fsize);
             }
-        } else {
+        } else [[unlikely]] {
             LUISA_ERROR("cannot open the packed model \"{}\" for reading", bgm_file.string());
         }
 
@@ -232,16 +261,30 @@ namespace {
             LUISA_ERROR("bad magic in \"{}\": not a BGM3 package", bgm_file.string());
         }
         const auto version = read_le32(_image + 4u);
-        if(version != k_bgm_version) {
-            LUISA_ERROR("unsupported BGM3 version {} in \"{}\" (this loader implements v1)",
+        if(version != k_bgm_version && version != k_bgm_version_half) {
+            LUISA_ERROR("unsupported BGM3 version {} in \"{}\" (this loader implements v1 fp32 and v2 half-precision packages)",
                         version, bgm_file.string());
         }
         const auto precision = read_le32(_image + 8u);
-        if(precision != k_bgm_precision_fp32) {
+        if(version == k_bgm_version_half && precision == k_bgm_precision_fp32) {
+            LUISA_ERROR("unsupported BGM3 version {} with precision 0 in \"{}\": v2 packages are half-precision only "
+                        "(1 = bf16, 2 = fp16)",
+                        version, bgm_file.string());
+        }
+        if(version == k_bgm_version && precision != k_bgm_precision_fp32) {
             LUISA_ERROR("unsupported precision {} in \"{}\": v1 is fp32 only "
-                        "(1 = bf16 is reserved for plan M7)",
+                        "(bf16 = precision 1 and fp16 = precision 2 packages are version 2)",
                         precision, bgm_file.string());
         }
+        const PackagePrecision pkg_precision = precision == k_bgm_precision_bf16   ? PackagePrecision::bf16
+                                               : precision == k_bgm_precision_fp16 ? PackagePrecision::fp16
+                                                                                   : PackagePrecision::fp32;
+        if(precision != k_bgm_precision_fp32 && precision != k_bgm_precision_bf16 && precision != k_bgm_precision_fp16) {
+            LUISA_ERROR("unsupported precision {} in \"{}\" (0 = fp32, 1 = bf16, 2 = fp16 are the only defined modes)",
+                        precision, bgm_file.string());
+        }
+        _precision = pkg_precision;
+        const uint64_t elem_bytes = pkg_precision == PackagePrecision::fp32 ? 4ull : 2ull;
         const auto count = read_le32(_image + 12u);
         const auto expected = expected_table();
         if(count != static_cast<uint32_t>(expected.size())) {
@@ -293,9 +336,10 @@ namespace {
             for(uint32_t d = 0u; d < rank; d++) {
                 elems *= dims[d];
             }
-            if(elems * 4ull != size_bytes) {
-                LUISA_ERROR("tensor '{}' of \"{}\": size_bytes {} != prod(dims) {} * 4 (fp32)",
-                            e.name, bgm_file.string(), size_bytes, elems);
+            if(elems * elem_bytes != size_bytes) {
+                LUISA_ERROR("tensor '{}' of \"{}\": size_bytes {} != prod(dims) {} * {} ({})",
+                            e.name, bgm_file.string(), size_bytes, elems, elem_bytes,
+                            package_precision_name(pkg_precision));
             }
 
             // blob placement: 256-byte aligned, exactly packed, inside the file, in
@@ -318,7 +362,11 @@ namespace {
             payload += size_bytes;
 
             Tensor t;
-            t.data = reinterpret_cast<const float *>(_image + offset);
+            if(elem_bytes == 4ull) {
+                t.data = reinterpret_cast<const float *>(_image + offset);
+            } else {// 256-byte blob offsets keep the uint16 pointer aligned too
+                t.half_data = reinterpret_cast<const uint16_t *>(_image + offset);
+            }
             t.size_bytes = size_bytes;
             t.rank = rank;
             for(uint32_t d = 0u; d < 4u; d++) {

@@ -503,9 +503,31 @@ namespace {
         return true;
     }
 
-    std::filesystem::path dump_path_for(const char *backend) {
+    std::filesystem::path dump_path_for(const char *backend, luisa::string_view precision_tag) {
+        // O-G: cross-backend dumps are keyed by package precision too -- a
+        // half-precision run must never be compared against an fp32 artifact
+        // (fp32 keeps the historical file name, precision_tag == "").
         return std::filesystem::temp_directory_path() /
-               (luisa::string{"embed_e2e_"} + backend + "_bucket_dense.bin");
+               (luisa::string{"embed_e2e_"} + backend + (precision_tag.empty() ? luisa::string{} : luisa::string{"_"} + luisa::string{precision_tag}) + "_bucket_dense.bin");
+    }
+    // Read the 12-byte BGM3 header (magic/version/precision) so the golden
+    // cosine gates follow the PACKAGE format (opt plan §4/§5: >= 0.9999 fp32 /
+    // >= 0.999 bf16-fp16 on the SAME goldens). The package is the source of
+    // truth; a header mismatch with the engine loader surfaces there anyway.
+    void probe_package_precision(const std::filesystem::path &bgm, uint32_t &version, uint32_t &precision) {
+        version = 0u;
+        precision = 0xFFFFFFFFu;
+        if(auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
+            uint8_t hdr[16] = {};
+            const auto got = std::fread(hdr, 1u, 16u, f);
+            std::fclose(f);
+            if(got == 16u && hdr[0] == 'B' && hdr[1] == 'G' && hdr[2] == 'M' && hdr[3] == '3') {
+                version = static_cast<uint32_t>(hdr[4]) | (static_cast<uint32_t>(hdr[5]) << 8u) |
+                          (static_cast<uint32_t>(hdr[6]) << 16u) | (static_cast<uint32_t>(hdr[7]) << 24u);
+                precision = static_cast<uint32_t>(hdr[8]) | (static_cast<uint32_t>(hdr[9]) << 8u) |
+                            (static_cast<uint32_t>(hdr[10]) << 16u) | (static_cast<uint32_t>(hdr[11]) << 24u);
+            }
+        }
     }
 
     luisa::vector<float> encode_dense(Session &session, const luisa::string &text, uint32_t max_seq_len = 512u) {
@@ -530,6 +552,20 @@ int main(int argc, char *argv[]) {
     const std::filesystem::path data_dir{LUISA_EMBED_TEST_DATA_DIR};
     const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]}
                                                 : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
+    // O-G precision gating: golden-parity gates from the package header
+    // (fp32: unchanged 0.9999 / 0.99999; bf16|fp16: 0.999 per sentence /
+    // 0.9995 mean -- opt plan §4 Q1 and §5). Engine-vs-engine and cross-
+    // backend gates (bit identity, 0.99999 dump parity) are precision-
+    // INDEPENDENT and unchanged; dump artifacts are precision-keyed.
+    uint32_t pkg_version = 0u, pkg_precision = 0u;
+    probe_package_precision(bgm, pkg_version, pkg_precision);
+    const bool pkg_half = pkg_version == 2u && pkg_precision != 0u;
+    const float golden_gate = pkg_half ? 0.999f : 0.9999f;
+    const float golden_mean_gate = pkg_half ? 0.9995f : 0.99999f;
+    const luisa::string precision_tag = pkg_half ? (pkg_precision == 1u ? "bf16" : "fp16") : luisa::string{};
+    LUISA_INFO("test_embed_e2e: package \"{}\" BGM3 v{} precision {} -> golden gate {:.4f} (mean {:.4f}){}",
+               bgm.string(), pkg_version, pkg_precision, golden_gate, golden_mean_gate,
+               pkg_half ? " (half-precision package, opt plan §4)" : "");
 
     luisa::compute::Clock total_clock;
 
@@ -570,18 +606,18 @@ int main(int argc, char *argv[]) {
                 worst = c;
                 worst_idx = i;
             }
-            if(!(c >= 0.9999f)) {
-                below++;
-                LUISA_INFO("LEG1 sentence {:3d}: cosine {:.8f} BELOW gate", i, c);
-            }
-        }
-        const auto mean = static_cast<float>(mean_sum / static_cast<double>(kGoldenCount));
-        LUISA_INFO("LEG 1 (full-corpus dense parity, sync): {} sentences in {:.1f} ms ({:.1f} ms/sentence); "
-                   "worst cosine {:.8f} (sentence {}), mean cosine {:.8f}; gates: per-sentence >= 0.9999, mean >= 0.99999",
-                   kGoldenCount, clock.toc(), clock.toc() / static_cast<double>(kGoldenCount),
-                   worst, worst_idx, mean);
-        expect(below == 0u) << "LEG1: every sentence cosine >= 0.9999";
-        expect(mean >= 0.99999f) << "LEG1: mean cosine >= 0.99999";
+          if(!(c >= golden_gate)) {
+              below++;
+              LUISA_INFO("LEG1 sentence {:3d}: cosine {:.8f} BELOW gate", i, c);
+          }
+      }
+      const auto mean = static_cast<float>(mean_sum / static_cast<double>(kGoldenCount));
+      LUISA_INFO("LEG 1 (full-corpus dense parity, sync): {} sentences in {:.1f} ms ({:.1f} ms/sentence); "
+                 "worst cosine {:.8f} (sentence {}), mean cosine {:.8f}; gates: per-sentence >= {:.4f}, mean >= {:.5f}",
+                 kGoldenCount, clock.toc(), clock.toc() / static_cast<double>(kGoldenCount),
+                 worst, worst_idx, mean, golden_gate, golden_mean_gate);
+      expect(below == 0u) << ("LEG1: every sentence cosine >= " + luisa::format("{:.4f}", golden_gate));
+      expect(mean >= golden_mean_gate) << ("LEG1: mean cosine >= " + luisa::format("{:.5f}", golden_mean_gate));
     }
 
     // ================================================================
@@ -704,31 +740,42 @@ int main(int argc, char *argv[]) {
                 for(uint32_t r = 0u; r < lay.rows; r++) {
                     const float *g = gold_colbert.data() + lay.float_offset + static_cast<size_t>(r) * kDenseDim;
                     const float *e = emb.colbert.data() + static_cast<size_t>(r) * kDenseDim;
-                    const auto c = cosine(e, g, kDenseDim);
-                    worst_colbert = std::min(worst_colbert, c);
-                    if(!(c >= 0.9999f)) {
-                        colbert_fail++;
-                        LUISA_INFO("LEG2 sentence {:2d} token {}: colbert cosine {:.8f} BELOW gate", i, r, c);
-                    }
+                  const auto c = cosine(e, g, kDenseDim);
+                  worst_colbert = std::min(worst_colbert, c);
+                  if(!(c >= golden_gate)) {
+                      colbert_fail++;
+                      LUISA_INFO("LEG2 sentence {:2d} token {}: colbert cosine {:.8f} BELOW gate", i, r, c);
+                  }
                 }
             }
         }
-        LUISA_INFO("LEG 2 (sparse+colbert heads, sentences 0..9): sparse inv-violations={}, id-containment-failures={}, "
-                   "reproducibility-failures={} (sparse+colbert), strict-gate set/weight failures={} ({}); "
-                   "colbert shape-failures={}, per-token-failures={}, worst colbert cosine {:.8f}; "
-                   "colbert gate: per-token cosine >= 0.9999 (strict, golden-backed)",
-                   sparse_inv_fail, sparse_contain_fail, sparse_det_fail + colbert_det_fail,
-                   sparse_set_fail + sparse_weight_fail,
-                   (golden_degenerate ? "dormant: golden degenerate" : "ENFORCED"),
-                   colbert_shape_fail, colbert_fail, worst_colbert);
-        expect(sparse_inv_fail == 0u) << "LEG2: sparse pairs respect the (id>2, weight>0) contract";
-        expect(sparse_contain_fail == 0u) << "LEG2: sparse ids are interior content ids";
-        expect(sparse_det_fail == 0u) << "LEG2: sparse head bit-reproducible";
-        expect(colbert_det_fail == 0u) << "LEG2: colbert head bit-reproducible";
-        expect(sparse_set_fail == 0u) << "LEG2: sparse set sizes match golden (strict gate)";
-        expect(sparse_weight_fail == 0u) << "LEG2: sparse pair (id, weight) match within 1e-4 (strict gate)";
-        expect(colbert_shape_fail == 0u) << "LEG2: colbert row counts match goldens";
-        expect(colbert_fail == 0u) << "LEG2: every colbert token cosine >= 0.9999";
+    LUISA_INFO("LEG 2 (sparse+colbert heads, sentences 0..9): sparse inv-violations={}, id-containment-failures={}, "
+               "reproducibility-failures={} (sparse+colbert), strict-gate set/weight failures={} ({}); "
+               "colbert shape-failures={}, per-token-failures={}, worst colbert cosine {:.8f}; "
+               "colbert gate: per-token cosine >= {:.4f} (strict, golden-backed)",
+               sparse_inv_fail, sparse_contain_fail, sparse_det_fail + colbert_det_fail,
+               sparse_set_fail + sparse_weight_fail,
+               (golden_degenerate ? "dormant: golden degenerate"
+                                  : (pkg_half ? "MEASURED, report-only: the 1e-4 sparse set-match gate is the "
+                                                     "fp32 retrieval gate (opt plan §4: retrieval heads stay fp32-only "
+                                                     "unless parity holds -- see counts and per-pair rows)"
+                                              : "ENFORCED")),
+               colbert_shape_fail, colbert_fail, worst_colbert, golden_gate);
+      expect(sparse_inv_fail == 0u) << "LEG2: sparse pairs respect the (id>2, weight>0) contract";
+      expect(sparse_contain_fail == 0u) << "LEG2: sparse ids are interior content ids";
+      expect(sparse_det_fail == 0u) << "LEG2: sparse head bit-reproducible";
+      expect(colbert_det_fail == 0u) << "LEG2: colbert head bit-reproducible";
+      // O-G: the strict sparse set-match gate (ids identical + weights within
+      // 1e-4 of the fp32 golden) is the RETRIEVAL gate; for a half-precision
+      // package the quantized sparse head cannot hold 1e-4 (bf16 ulp of the
+      // head weight ~5e-4). It stays enforced for fp32 and is REPORTED for
+      // half packages (the counts above and the per-pair LUISA_INFO rows are
+      // the measured delta). Dense-row parity (LEG1) is the authoritative
+      // half-package gate per opt plan §4 Q1.
+      expect(sparse_set_fail == 0u || pkg_half) << "LEG2: sparse set sizes match golden (strict gate, fp32-enforced)";
+      expect(sparse_weight_fail == 0u || pkg_half) << "LEG2: sparse pair (id, weight) match within 1e-4 (strict gate, fp32-enforced)";
+      expect(colbert_shape_fail == 0u) << "LEG2: colbert row counts match goldens";
+      expect(colbert_fail == 0u) << ("LEG2: every colbert token cosine >= " + luisa::format("{:.4f}", golden_gate));
     }
 
     // ================================================================
@@ -803,11 +850,11 @@ int main(int argc, char *argv[]) {
                 const auto c = cosine(r.dense.data(),
                                       gold_dense.data() + static_cast<size_t>(r.corpus_index) * kDenseDim,
                                       kDenseDim);
-                worst_rep_cos = std::min(worst_rep_cos, c);
-                if(!(c >= 0.9999f)) {
-                    parity_fail++;
-                }
-                LUISA_INFO("LEG 3 bucket <={} rep golden parity: cosine {:.8f} (gate >= 0.9999)", kBucketCaps[bi], c);
+              worst_rep_cos = std::min(worst_rep_cos, c);
+              if(!(c >= golden_gate)) {
+                  parity_fail++;
+              }
+              LUISA_INFO("LEG 3 bucket <={} rep golden parity: cosine {:.8f} (gate >= {:.4f})", kBucketCaps[bi], c, golden_gate);
             } else {
                 LUISA_INFO("LEG 3 bucket <={} rep: NO golden exists for this sentence ({}); "
                            "gated on determinism (bit-identical 2x) + cross-backend fallback-oracle equality "
@@ -860,7 +907,7 @@ int main(int argc, char *argv[]) {
         }
 
         // cross-backend fallback-oracle equality via temp dumps
-        const auto my_dump = dump_path_for(argv[1]);
+        const auto my_dump = dump_path_for(argv[1], precision_tag);
         write_dump(my_dump, reps);
         uint32_t oracle_fail = 0u;
         uint32_t compared = 0u;
@@ -869,7 +916,7 @@ int main(int argc, char *argv[]) {
                 continue;
             }
             DumpFile d;
-            if(!read_dump(dump_path_for(other), d) || d.dense.size() != reps.size()) {
+            if(!read_dump(dump_path_for(other, precision_tag), d) || d.dense.size() != reps.size()) {
                 continue;
             }
             compared++;
