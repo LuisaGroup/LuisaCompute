@@ -1274,6 +1274,18 @@ struct IOperatorNewBase {
         size_t size) noexcept {
         return vengine_malloc(size);
     }
+    // Over-aligned allocation: without this overload, `new T` for any T with
+    // alignof(T) > default new alignment resolves to the class-specific plain
+    // operator new above (which hides the global aligned overloads) and
+    // returns under-aligned storage — release builds then fault on aligned
+    // vector stores into alignas members (observed: lc::vk::Stream ctor,
+    // alignof 64 from LockFreeArrayQueue's alignas(64) cache-line structs).
+    static void *operator new(
+        size_t size,
+        std::align_val_t alignment) noexcept {
+        return luisa::detail::allocator_allocate(
+            size, static_cast<size_t>(alignment));
+    }
     static void *operator new(
         size_t,
         void *place) noexcept {
@@ -1288,6 +1300,13 @@ struct IOperatorNewBase {
         return vengine_malloc(size);
     }
     static void *operator new(
+        size_t size,
+        std::align_val_t alignment,
+        const std::nothrow_t &) noexcept {
+        return luisa::detail::allocator_allocate(
+            size, static_cast<size_t>(alignment));
+    }
+    static void *operator new(
         size_t,
         void *place, const std::nothrow_t &) noexcept {
         return place;
@@ -1298,6 +1317,19 @@ struct IOperatorNewBase {
     }
     static void operator delete(
         void *pdead) noexcept {
+        vengine_free(pdead);
+    }
+    // Matching deallocation for the aligned overload above (deallocation
+    // ignores alignment in this allocator, so forward to the plain delete).
+    static void operator delete(
+        void *pdead,
+        std::align_val_t) noexcept {
+        vengine_free(pdead);
+    }
+    static void operator delete(
+        void *pdead,
+        size_t,
+        std::align_val_t) noexcept {
         vengine_free(pdead);
     }
     static void operator delete(
