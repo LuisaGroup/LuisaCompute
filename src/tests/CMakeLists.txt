@@ -470,6 +470,10 @@ target_include_directories(benchmark_embed PRIVATE ${CMAKE_SOURCE_DIR}/examples)
 luisa_compute_add_test(benchmark_embed_gemm benchmark/benchmark_embed_gemm.cpp)
 target_link_libraries(benchmark_embed_gemm PRIVATE lc-example-embedding)
 target_include_directories(benchmark_embed_gemm PRIVATE ${CMAKE_SOURCE_DIR}/examples)
+# Verification benchmark for the lc_optimize SKILL.md Part II claims
+# (roofline, vectorization, cp.async pipelining, launch overhead):
+# benchmark_part2_verify <backend> [--csv f.csv]
+luisa_compute_add_test(benchmark_part2_verify benchmark/benchmark_part2_verify.cpp)
 luisa_compute_add_test(test_vk_cuda_launch_command unit/ext/test_vk_cuda_launch_command.cpp LABELS "unit;unit_ext")
 luisa_compute_add_test(test_vk_cuda_command_owns_blob unit/ext/test_vk_cuda_command_owns_blob.cpp LABELS "unit;unit_ext")
 get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)

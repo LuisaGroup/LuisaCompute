@@ -80,14 +80,29 @@ struct BenchContext {
     std::string device_name;
     std::vector<BenchRow> rows;
     bool any_fail{false};
+    // Rows are appended to the CSV incrementally (and flushed) so a case that
+    // hard-fails at dispatch level (e.g. CUDA LAUNCH_OUT_OF_RESOURCES on an
+    // over-subscribed block) cannot take down the results of the cases that
+    // already ran.
+    std::ofstream csv;
 
     void add_row(std::string case_name, std::string shape, uint32_t block_size,
                  double ms, double throughput, std::string unit, int iters,
                  std::string correctness) {
         if (correctness == "FAIL") { any_fail = true; }
-        rows.push_back(BenchRow{backend, device_name, std::move(case_name),
-                                std::move(shape), block_size, ms, throughput,
-                                std::move(unit), iters, std::move(correctness)});
+        auto row = BenchRow{backend, device_name, std::move(case_name),
+                            std::move(shape), block_size, ms, throughput,
+                            std::move(unit), iters, std::move(correctness)};
+        if (csv) {
+            csv << row.backend << ",\"" << row.device << "\"," << row.case_name
+                << "," << row.shape << "," << row.block_size << ","
+                << std::fixed << std::setprecision(6) << row.ms_per_dispatch
+                << "," << std::fixed << std::setprecision(3) << row.throughput
+                << "," << row.unit << "," << row.iterations << ","
+                << row.correctness << "\n";
+            csv.flush();
+        }
+        rows.push_back(std::move(row));
     }
 };
 
@@ -820,25 +835,6 @@ void print_markdown(const std::vector<BenchRow> &rows) {
     std::cout << std::endl;
 }
 
-void write_csv(const luisa::filesystem::path &path,
-               const std::vector<BenchRow> &rows) {
-    std::ofstream f(path, std::ios::trunc);
-    if (!f) {
-        LUISA_WARNING("Failed to open CSV file: {}", path.string());
-        return;
-    }
-    f << "backend,device,case,shape,block_size,ms_per_dispatch,throughput,"
-         "unit,iterations,correctness\n";
-    for (const auto &r : rows) {
-        f << r.backend << ",\"" << r.device << "\"," << r.case_name << ","
-          << r.shape << "," << r.block_size << "," << std::fixed
-          << std::setprecision(6) << r.ms_per_dispatch << "," << std::fixed
-          << std::setprecision(3) << r.throughput << "," << r.unit << ","
-          << r.iterations << "," << r.correctness << "\n";
-    }
-    LUISA_INFO("CSV written to {}", path.string());
-}
-
 bool is_discrete_gpu_name(const std::string &name_lower) {
     return name_lower.find("nvidia") != std::string::npos ||
            name_lower.find("geforce") != std::string::npos ||
@@ -906,6 +902,20 @@ int main(int argc, char *argv[]) {
 
     auto stream = device.create_stream();
     BenchContext bc{device, stream, backend, device_name};
+    {
+        std::error_code ec;
+        luisa::filesystem::create_directories(k_results_dir, ec);
+        auto csv_path = luisa::filesystem::path{k_results_dir} /
+                        (backend + "_block_size_bench.csv");
+        bc.csv.open(csv_path, std::ios::trunc);
+        if (bc.csv) {
+            bc.csv << "backend,device,case,shape,block_size,ms_per_dispatch,"
+                      "throughput,unit,iterations,correctness\n";
+            bc.csv.flush();
+        } else {
+            LUISA_WARNING("Failed to open CSV file: {}", csv_path.string());
+        }
+    }
 
     LUISA_INFO("=== Case 1: elementwise ===");
     case_elementwise<32>(bc);
@@ -945,13 +955,11 @@ int main(int argc, char *argv[]) {
     case_divergent<512>(bc);
     case_divergent<1024>(bc);
 
-    LUISA_INFO("=== Case 6: register_heavy ===");
-    case_register_heavy<64>(bc);
-    case_register_heavy<128>(bc);
-    case_register_heavy<256>(bc);
-    case_register_heavy<512>(bc);
-    case_register_heavy<1024>(bc);
-
+    // Case 6 (register_heavy) runs LAST: on some backends (observed: CUDA)
+    // an over-subscribed 1024-thread launch fails at dispatch level with a
+    // fatal error instead of spilling, which would abort the process and lose
+    // the remaining cases.
+    LUISA_INFO("=== Case 7: histogram ===");
     LUISA_INFO("=== Case 7: histogram ===");
     case_histogram<64, false>(bc);
     case_histogram<128, false>(bc);
@@ -971,14 +979,20 @@ int main(int argc, char *argv[]) {
     case_image_2d<16, 16>(bc);
     case_image_2d<256, 1>(bc);
     case_image_2d<1, 256>(bc);
-
+    LUISA_INFO("=== Case 6: register_heavy ===");
+    case_register_heavy<64>(bc);
+    case_register_heavy<128>(bc);
+    case_register_heavy<256>(bc);
+    case_register_heavy<512>(bc);
+    case_register_heavy<1024>(bc);
+    print_markdown(bc.rows);
     print_markdown(bc.rows);
 
     std::error_code ec;
     luisa::filesystem::create_directories(k_results_dir, ec);
     auto csv_path = luisa::filesystem::path{k_results_dir} /
-                    (backend + "_block_size_bench.csv");
-    write_csv(csv_path, bc.rows);
+                  (backend + "_block_size_bench.csv");
+    LUISA_INFO("CSV written to {}", csv_path.string());
 
     // Histogram speedup summary.
     std::cout << "\n### histogram shared-vs-global speedup\n\n"

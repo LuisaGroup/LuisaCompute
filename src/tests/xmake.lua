@@ -311,10 +311,14 @@ end)
 -- GEMM-family tile sweep for the bge-m3 embedding engine
 -- (embedding_model_opt_plan.md §3.1 G1/G2/G3/G4/G8, agent O-A); run with
 -- `xmake run benchmark_embed_gemm <backend> [--rows 512,4096] [--csv out.csv]`.
-test_proj("benchmark_embed_gemm", "benchmark/benchmark_embed_gemm.cpp", false, function()
-    add_includedirs("$(projectdir)/examples")
-    add_deps("lc-example-embedding")
-end)
+    test_proj("benchmark_embed_gemm", "benchmark/benchmark_embed_gemm.cpp", false, function()
+        add_includedirs("$(projectdir)/examples")
+        add_deps("lc-example-embedding")
+    end)
+    -- Verification benchmark for the lc_optimize SKILL.md Part II claims
+    -- (roofline, vectorization, cp.async pipelining, launch overhead); run with
+    -- `xmake run benchmark_part2_verify <backend> [--csv out.csv]`.
+    test_proj("benchmark_part2_verify", "benchmark/benchmark_part2_verify.cpp")
 -- cuda-backend dispatch vs. CUDA kernels launched through the Vulkan runtime
 -- (VK_NV_cuda_kernel_launch) with the reorder pass on/off; run with
 -- `xmake run benchmark_cuda_vs_vk_cuda_reorder vk`. It needs both the vk and the

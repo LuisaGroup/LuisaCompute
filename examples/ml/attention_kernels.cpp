@@ -592,15 +592,18 @@ template OnlineAttentionKernel create_online_attention_kernel<false>();
 // ---------------------------------------------------------------------------
 MhaOnlineAttentionKernel create_mha_online_attention_kernel() {
     // -- Shared-memory-optimized MHA kernel (broadcast K/V via shared memory) --
-    // A single 32-thread wave consumes each shared K/V tile. Keeping the
-    // consumer cohort within one wave avoids cross-wave progress skew while
-    // still amortizing each global K/V load over 32 query rows.
-    // Keys/values are consumed kTile tokens per iteration: all 32 threads
-    // cooperatively fill the tile, halving the barrier count per token.
+    // Geometry swept {32,64,128,256} query rows/block x {8,16,24,32,48} keys/tile
+    // in commit d1b4fec (examples/embedding O-B pass A1, head_dim=64): block 128 /
+    // tile 16 won at 1.17us vs 19.79us for the legacy block 32 / tile 8 (~17x).
+    // "Bigger tile" only pays with "more query rows per block": q/o are
+    // register-resident ($array, compile-time indices -> per-thread work fixed),
+    // so the shared K/V tile fill amortizes over 128 consumers instead of 32.
+    // Shared usage is 2*kTile*head_dim floats = 8 KiB, under the 32 KiB DX
+    // static-shared floor. All kBlockSize threads cooperatively fill each tile.
     MhaOnlineAttentionKernel kernel = [&](BufferFloat Q, BufferFloat K,
                                           BufferFloat V, BufferFloat O) noexcept {
-        constexpr uint kBlockSize = 32u;
-        constexpr uint kTile = 8u;
+        constexpr uint kBlockSize = 128u;
+        constexpr uint kTile = 16u;
         static_assert(seq_len % kTile == 0u, "seq_len must be a multiple of the j tile");
         static_assert((kTile * head_dim) % kBlockSize == 0u);
         set_block_size(kBlockSize, 1u, 1u);
@@ -634,8 +637,8 @@ MhaOnlineAttentionKernel create_mha_online_attention_kernel() {
         Shared<float> V_shared{kTile * head_dim};
 
         $for (jt, seq_len / kTile) {
-            // All 32 threads cooperatively load the kTile-token K/V tile
-            // (2 * kTile * head_dim floats, 32 per thread).
+            // All kBlockSize threads cooperatively load the kTile-token K/V tile
+            // (2 * kTile * head_dim floats, kTile * head_dim / kBlockSize per thread).
             Var kt_base = head_base + jt * (kTile * head_dim);
             $for (e, kTile * head_dim / kBlockSize) {
                 Var e_idx = thread_x() + e * kBlockSize;
