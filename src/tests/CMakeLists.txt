@@ -1736,6 +1736,15 @@ luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cp
           unit/embedding/test_embed_tokenizer_mt.cpp "unit;unit_embedding")
   luisa_compute_add_embed_test(test_embed_tokenizer_pool
           unit/embedding/test_embed_tokenizer_pool.cpp "unit;unit_embedding")
+  luisa_compute_add_embed_test(test_embed_retrieval_index
+          unit/embedding/test_embed_retrieval_index.cpp "unit;unit_embedding")
+  target_compile_definitions(test_embed_retrieval_index PRIVATE LUISA_EMBED_HOST_ONLY=1)
+  luisa_compute_add_embed_test(test_embed_retrieval_rpc
+          unit/embedding/test_embed_retrieval_rpc.cpp "unit;unit_embedding")
+  target_compile_definitions(test_embed_retrieval_rpc PRIVATE LUISA_EMBED_HOST_ONLY=1)
+  if (WIN32)
+      target_link_libraries(test_embed_retrieval_rpc PRIVATE ws2_32)
+  endif ()
 
 # The SIMD backend is a host-only module, so its supported runtime conformance
 # subset is safe to run unattended without a GPU or driver installation.

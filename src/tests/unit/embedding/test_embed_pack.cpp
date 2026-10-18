@@ -765,7 +765,7 @@ void test_corrupt_fixtures_rejected(const luisa::string &exe,
     };
     for (uint32_t i = 0u; i < sizeof(cases) / sizeof(cases[0]); i++) {
         const auto &c = cases[i];
-        auto fixture_path = (work_dir / luisa::format("corrupt_{}.bgm", i)).string();
+        auto fixture_path = luisa::string{(work_dir / luisa::format("corrupt_{}.bgm", i)).string()};
         const auto img = corrupt_fixture(i, base);
         if (!write_whole_file(std::filesystem::path{fixture_path}, img)) {
             LUISA_WARNING("cannot write the corrupt fixture \"{}\"", fixture_path);
@@ -835,7 +835,7 @@ int main(int argc, char *argv[]) {
     }
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-    const auto exe = luisa::filesystem::absolute(self).string();
+    const auto exe = luisa::string{luisa::filesystem::absolute(self).string()};
     std::error_code ec;
     auto work_dir = luisa::filesystem::temp_directory_path(ec) /
                     luisa::string{"luisa_embed_pack_scratch"};

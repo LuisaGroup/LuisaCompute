@@ -140,7 +140,7 @@ const std::filesystem::path &data_dir() {
     return dir;
 }
 luisa::string tokenizer_json_path() {
-    return (data_dir() / "tokenizer.json").generic_string();
+    return luisa::string{(data_dir() / "tokenizer.json").generic_string()};
 }
 luisa::string self_exe_path() {
 #ifdef _WIN32
@@ -583,7 +583,7 @@ luisa::vector<luisa::string> child_args(luisa::string mode, luisa::string backen
     a.push_back(std::move(mode));
     a.push_back(std::move(backend));
     a.push_back(std::move(tok));
-    a.push_back(workdir.generic_string());
+    a.push_back(luisa::string{workdir.generic_string()});
     a.push_back(std::move(bgm));
     a.push_back(std::move(label));
     return a;
@@ -765,7 +765,7 @@ void row4_batch_leg_child(const luisa::string &backend, const std::filesystem::p
     for (uint32_t a = 0u; a < (attempts[1].chunk == attempts[0].chunk ? 1u : 2u); a++) {
         if (completed_clean) break;
         const auto label = luisa::format("batch_leg_{}", attempts[a].chunk);
-        auto args = child_args("batch_leg", backend, tok, workdir, bgm.generic_string(), label);
+        auto args = child_args("batch_leg", backend, tok, workdir, luisa::string{bgm.generic_string()}, label);
         args.push_back(luisa::format("{}:{}", sent, attempts[a].chunk));
         const auto res = spawn_child(luisa::span<const luisa::string>{args.data(), args.size()},
                                      workdir / luisa::format("child_{}.log", label), 900000u);
@@ -807,18 +807,18 @@ void corrupt_file_rows(const luisa::string &backend, const std::filesystem::path
     };
     luisa::vector<Case> cases;
     // R5 -- corrupt .bgm, VALID tokenizer
-    cases.push_back({"bgm_badmagic", (workdir / "badmagic.bgm").generic_string(), tok, "bad magic", 120000u});
-    cases.push_back({"bgm_badversion", (workdir / "badversion.bgm").generic_string(), tok, "unsupported BGM3 version", 120000u});
+    cases.push_back({"bgm_badmagic", luisa::string{(workdir / "badmagic.bgm").generic_string()}, tok, "bad magic", 120000u});
+    cases.push_back({"bgm_badversion", luisa::string{(workdir / "badversion.bgm").generic_string()}, tok, "unsupported BGM3 version", 120000u});
     if (std::filesystem::exists(workdir / "truncated.bgm")) {
-        cases.push_back({"bgm_truncated", (workdir / "truncated.bgm").generic_string(), tok, "runs past the end", 180000u});
+        cases.push_back({"bgm_truncated", luisa::string{(workdir / "truncated.bgm").generic_string()}, tok, "runs past the end", 180000u});
     } else {
         LUISA_WARNING("t5 R5: truncated.bgm fixture missing (real model absent) -- case SKIPPED, documented");
     }
-    cases.push_back({"bgm_missing", (workdir / "no_such_model.bgm").generic_string(), tok, "cannot determine the size", 120000u});
+    cases.push_back({"bgm_missing", luisa::string{(workdir / "no_such_model.bgm").generic_string()}, tok, "cannot determine the size", 120000u});
     // R6 -- bad tokenizer, real package (only meaningful with the model present)
     if (std::filesystem::is_regular_file(bgm) && std::filesystem::exists(workdir / "corrupttokenizer.json")) {
-        cases.push_back({"tok_corrupt", bgm.generic_string(), (workdir / "corrupttokenizer.json").generic_string(), "cannot read tokenizer.json", 300000u});
-        cases.push_back({"tok_missing", bgm.generic_string(), (workdir / "no_such_tokenizer.json").generic_string(), "cannot read tokenizer.json", 300000u});
+        cases.push_back({"tok_corrupt", luisa::string{bgm.generic_string()}, luisa::string{(workdir / "corrupttokenizer.json").generic_string()}, "cannot read tokenizer.json", 300000u});
+        cases.push_back({"tok_missing", luisa::string{bgm.generic_string()}, luisa::string{(workdir / "no_such_tokenizer.json").generic_string()}, "cannot read tokenizer.json", 300000u});
     } else {
         LUISA_WARNING("t5 R6: real model / corrupt fixture absent -- tokenizer cases would abort at the package load first; SKIPPED, documented");
     }
@@ -889,7 +889,7 @@ void row4b_batch_overflow(const luisa::string &backend, const std::filesystem::p
         return;
     }
     const auto tok = tokenizer_json_path();
-    const auto args = child_args("batch_overflow", backend, tok, workdir, bgm.generic_string(), "batch_overflow");
+    const auto args = child_args("batch_overflow", backend, tok, workdir, luisa::string{bgm.generic_string()}, "batch_overflow");
     const auto res = spawn_child(luisa::span<const luisa::string>{args.data(), args.size()},
                                  workdir / "child_batch_overflow.log", 300000u);
     const auto marker_exists = std::filesystem::exists(workdir / "marker_batch_overflow.ok");
@@ -931,7 +931,7 @@ void row7_vram(const luisa::string &backend, const std::filesystem::path &workdi
     if (!std::filesystem::is_regular_file(bgm)) {
         LUISA_WARNING("t5 R7 vram_engine: SKIPPED -- real model unavailable on this box");
     } else {
-        const auto args = child_args("vram_engine", backend, tok, workdir, bgm.generic_string(), "vram_engine");
+        const auto args = child_args("vram_engine", backend, tok, workdir, luisa::string{bgm.generic_string()}, "vram_engine");
         const auto res = spawn_child(luisa::span<const luisa::string>{args.data(), args.size()},
                                      workdir / "child_vram_engine.log", 300000u);
         if (res.timed_out) {
