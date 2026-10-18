@@ -160,7 +160,7 @@ rationale; and every runtime env toggle with its default.
 | `LUISA_EMBED_FLASH_BLOCK` / `_TILE` / `_REG` | default variant | field-wise flash overrides |
 | `LUISA_EMBED_WEIGHTS` | **`auto`** (from package); `fp32`\|`bf16`\|`fp16` | weight storage precision |
 | `EMBED_B1_READBACK_BARRIER` | **ON** (`=0` off) | sync-path readback drain barrier (B-1 fix) |
-| `EMBED_H8_TOKENIZER_POOL` | **ON** (`=0` off) | batched-tokenizer thread pool |
+| `EMBED_H8_TOKENIZER_POOL` | **ON** (`=0` off) | fiber-based tokenizer pool |
 | `EMBED_H10_LENGTH_BUCKET` | **ON** (`=0` off) | length bucketing in `encode_batch` |
 | `EMBED_N1_FUSE_POOL` | **ON** (`=0` off) | fused CLS-slice + L2-pool kernel |
 | `EMBED_P1_SPARSE_COMPACT` | **WINDOW** (unset/`1`); `0` LEGACY, `2` PAIRS | sparse readback compaction |

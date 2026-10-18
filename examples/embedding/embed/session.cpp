@@ -97,7 +97,7 @@ luisa::vector<Embedding> Session::encode_batch(luisa::span<const luisa::string_v
     const auto max_len = std::min<uint32_t>(std::max<uint32_t>(opt.max_seq_len, 2u), 8192u);
 
     // H8: tokenize the whole batch up front. The Tokenizer is reentrant after
-    // load, so the batch is encoded on a worker-thread pool; the result is
+    // load, so the batch is encoded by fiber worker tasks; the result is
     // order-preserving and bit-identical to the serial encode loop. Set
     // EMBED_H8_TOKENIZER_POOL=0 to fall back to the serial path. encode() and
     // encode_async() keep using the single-text _make_request path.

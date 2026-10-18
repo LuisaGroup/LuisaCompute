@@ -25,6 +25,7 @@
 #include <filesystem>
 
 #include <luisa/core/clock.h>
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/string.h>
@@ -139,6 +140,7 @@ constexpr size_t kTraceSentenceBase[] = {0u, 1536000u};
 }// namespace
 
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     auto [context, device] = luisa::test::create_device(argc, argv);
     luisa::test::log_test_backend(argv[1], device);
     const std::filesystem::path data_dir{LUISA_EMBED_TEST_DATA_DIR};

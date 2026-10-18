@@ -215,8 +215,9 @@ void case_pipeline(Device &device, Stream &stream, std::vector<Row> &rows) {
             }
         }
         int iters = 0;
+        const auto dispatch_count = num_blocks * block_size;
         auto enqueue = [&] {
-            stream << shader(src, out).dispatch(num_blocks * block_size);
+            stream << shader(src, out).dispatch(dispatch_count);
         };
         double ms = ok ? time_dispatches(stream, enqueue, iters) : 0.0;
         rows.push_back({"async_pipeline", name, ms, traffic_gb / (ms / 1e3), "GB/s", ok});

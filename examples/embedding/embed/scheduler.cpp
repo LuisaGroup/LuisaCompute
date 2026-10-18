@@ -157,7 +157,7 @@ Scheduler::Scheduler(Device &device, const WeightStore &weights, const Scheduler
         worker.executor = luisa::make_unique<Executor>(_device, _weights, worker.stream);
     }
 
-    _dispatcher = std::thread{[this] { _dispatch_loop(); }};
+    _dispatcher = luisa::fiber::async([this] { _dispatch_loop(); });
 }
 
 Scheduler::~Scheduler() noexcept {
@@ -167,22 +167,13 @@ Scheduler::~Scheduler() noexcept {
         std::scoped_lock lk{_mutex};
         _cv.notify_all();
     }
-    if (_dispatcher.joinable()) {
-        _dispatcher.join();
-    }
+    _dispatcher.wait();
 
     // never tear a worker/pool down while jobs are still in flight: async
     // callbacks and sync finishers capture/derive `this`.
-    for (;;) {
-        bool idle = false;
-        {
-            std::scoped_lock lk{_mutex};
-            idle = (_outstanding_jobs == 0u);
-        }
-        if (idle) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    {
+        luisa::fiber::lock lk{_mutex};
+        _cv.wait(lk, [this] { return _outstanding_jobs == 0u; });
     }
 
     {
@@ -295,7 +286,7 @@ uint32_t Scheduler::_pick_worker_slot() noexcept {
 
 bool Scheduler::_try_dispatch() noexcept {
 
-    std::unique_lock lk{_mutex};
+    luisa::fiber::lock lk{_mutex};
     const uint32_t slot = _pick_worker_slot();
     if (slot >= _workers.size() || _queue.empty()) {
         return false;
@@ -371,16 +362,16 @@ bool Scheduler::_try_dispatch() noexcept {
 Scheduler::Job *Scheduler::_launch(
     luisa::vector<luisa::unique_ptr<ScheduledRequest>> owned,
     luisa::vector<ScheduledRequest *> reqs, bool atomic_batch, uint32_t slot,
-    std::unique_lock<std::mutex> &lk) noexcept {
+    luisa::fiber::lock &lk) noexcept {
 
     // Reserve the worker NOW (mutex still held by _try_dispatch); the
-    // dispatcher is the only thread that launches, so the slot cannot be
+    // dispatcher is the only task that launches, so the slot cannot be
     // taken between here and the busy bookkeeping below. Then release the
     // lock for the slow recording/commit phase.
     auto &worker = _workers[slot];
     worker.busy = true;
     _outstanding_jobs++;
-    lk.unlock();
+    lk.unlock_no_tsa();
 
     const auto H = _weights.hidden_size();
     auto *job = new Job{};
@@ -493,7 +484,7 @@ Scheduler::Job *Scheduler::_launch(
 }
 
 void Scheduler::_wait_assigned(ScheduledRequest *req) noexcept {
-    std::unique_lock lk{_mutex};
+    luisa::fiber::lock lk{_mutex};
     _cv.wait(lk, [this, req] { return _stop.load() || req->sync_ready; });
 }
 
@@ -544,6 +535,7 @@ Embedding Scheduler::encode_sync(luisa::unique_ptr<ScheduledRequest> &req) noexc
         std::scoped_lock lk{_mutex};
         if (--job->pending_sync_callers == 0u) {
             _outstanding_jobs--;
+            _cv.notify_all();
             delete job;
         }
     }
@@ -597,7 +589,7 @@ luisa::vector<Embedding> Scheduler::encode_batch_sync(luisa::vector<luisa::uniqu
     // read back before its fence was signalled -- a host data race on the
     // job-owned dense/sparse/colbert staging (surfaced as the release-only
     // crash for large batches), (b) left un-deleted (Job leak) and (c) left
-    // _outstanding_jobs inflated (the destructor drain loop spins forever).
+    // _outstanding_jobs inflated (the destructor drain wait never completes).
     // Correctness-only control flow; no numeric change; the single-chunk
     // (common) case behaves exactly as before (all reqs share one fence).
 
@@ -678,6 +670,7 @@ luisa::vector<Embedding> Scheduler::encode_batch_sync(luisa::vector<luisa::uniqu
         for (auto *job : jobs) {
             if (--job->pending_sync_callers == 0u) {
                 _outstanding_jobs--;
+                _cv.notify_all();
                 delete job;
             }
         }
@@ -741,7 +734,7 @@ void Scheduler::_record_sample(double ms) noexcept {
 void Scheduler::_dispatch_loop() noexcept {
     while (!_stop.load()) {
         {
-            std::unique_lock lk{_mutex};
+            luisa::fiber::lock lk{_mutex};
             _cv.wait_for(lk, std::chrono::milliseconds{1},
                          [this] { return _stop.load() || !_queue.empty(); });
         }

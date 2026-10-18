@@ -52,6 +52,7 @@
 #include <numeric>
 
 #include <luisa/core/clock.h>
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/string.h>
@@ -441,6 +442,7 @@ void run_executor_bench(Device &device, const Options &opt, luisa::string_view b
 }// namespace
 
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     if (argc < 2) {
         LUISA_ERROR_WITH_LOCATION(
             "Usage: {} <backend> [--model DIR] [--seq N] [--batch B] [--iters N] "

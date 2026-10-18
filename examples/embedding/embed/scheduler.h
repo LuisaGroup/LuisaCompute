@@ -11,7 +11,7 @@
 //     the init stream signals the weights_ready TimelineEvent fence 1, and
 //     every worker stream issues weights_ready.wait(1) as its first command.
 //     After that the common case is event-free (weights immutable).
-//   - Dispatch: one dispatcher thread. Acquire = non-blocking
+// - Dispatch: one dispatcher fiber/task. Acquire = non-blocking
 //     Event::is_completed() poll; queued requests are coalesced (FIFO per
 //     bucket, same padded sequence bucket + same completion kind) into one
 //     batch job up to max_batch_size; a group whose head is older than
@@ -35,12 +35,11 @@
 // caller-supplied Stream -- the session/scheduler own all streams per §3.5.
 
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
 #include <mutex>
-#include <thread>
 #include <utility>
 
+#include <luisa/core/fiber.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/runtime/device.h>
@@ -90,6 +89,8 @@ struct ScheduledRequest {
     double submitted_ms{};
 };
 
+// The caller must have a bound luisa::fiber::scheduler before constructing
+// this object and keep it alive until after the Scheduler is destroyed.
 class Scheduler {
 public:
     Scheduler(compute::Device &device, const WeightStore &weights, const SchedulerConfig &cfg) noexcept;
@@ -131,7 +132,7 @@ private:
     bool _try_dispatch() noexcept;// true if a job was launched
     Job *_launch(luisa::vector<luisa::unique_ptr<ScheduledRequest>> owned,
                  luisa::vector<ScheduledRequest *> reqs, bool atomic_batch, uint32_t slot,
-                 std::unique_lock<std::mutex> &lk) noexcept;
+                 luisa::fiber::lock &lk) noexcept;
     Embedding _finalize(ScheduledRequest *req, Job &job) noexcept;
     uint32_t _pick_worker_slot() noexcept;// requires mutex; non-blocking poll
     void _wait_assigned(ScheduledRequest *req) noexcept;
@@ -154,12 +155,12 @@ private:
     compute::Stream _init_stream;
     compute::TimelineEvent _weights_ready;
 
-    std::mutex _mutex;
-    std::condition_variable _cv;
+    luisa::fiber::mutex _mutex;
+    luisa::fiber::condition_variable _cv;
     luisa::vector<PendingGroup *> _queue;// FIFO of pending groups (heap-owned)
     uint32_t _queue_size{};              // in-flight request count
     std::atomic<bool> _stop{false};
-    std::thread _dispatcher;
+    luisa::fiber::event _dispatcher;// signalled after _dispatch_loop() returns
     uint32_t _outstanding_jobs{};// launched, not yet completed (under _mutex)
 
     std::mutex _stats_mutex;

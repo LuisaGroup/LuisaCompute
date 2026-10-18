@@ -30,6 +30,20 @@ target("example_embed_pack_model")
     add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/embedding")
 target_end()
 
+-- Interactive incremental retrieval REPL and newline-delimited JSON-RPC server.
+target("example_embed_retrieval")
+    add_deps("lc-backends-dummy", {inherit = false, links = false})
+    _config_project({
+        project_kind = "binary"
+    })
+    add_files("example_embed_retrieval.cpp")
+    add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/embedding")
+    add_deps("lc-example-embedding")
+    if is_plat("windows") then
+        add_syslinks("ws2_32")
+    end
+target_end()
+
 -- dev tool: dump golden intermediates from a packed model (M0 counterpart, §9.1 D4)
 target("example_embed_dump_golden")
     add_deps("lc-backends-dummy", {inherit = false, links = false})

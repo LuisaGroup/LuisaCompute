@@ -145,6 +145,7 @@
 #include <utility>
 
 #include <luisa/core/clock.h>
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/string.h>
@@ -540,6 +541,7 @@ luisa::vector<float> encode_dense(Session &session, const luisa::string &text, u
 }// namespace
 
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
 
     auto [context, device] = luisa::test::create_device(argc, argv);
     luisa::test::log_test_backend(argv[1], device);

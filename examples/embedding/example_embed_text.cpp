@@ -32,6 +32,7 @@
 #include <filesystem>
 #include <string_view>
 
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/string.h>
@@ -118,6 +119,7 @@ bool validate_files(const ParsedArgs &p) {
 #if !__has_include("embedding/embed/session.h")
 // ---- stub build: B1's session.h is not in the tree yet ----------------------
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     const auto args = parse_args(argc, argv);
     if (!validate_files(args)) {
         return 1;
@@ -175,6 +177,7 @@ luisa::string join_head(const luisa::vector<float> &v, size_t n) {
 }// namespace
 
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     auto args = parse_args(argc, argv);
     if (!validate_files(args)) {
         return 1;

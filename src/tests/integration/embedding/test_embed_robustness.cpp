@@ -102,6 +102,7 @@
 #include <system_error>
 
 #include <luisa/core/clock.h>
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
@@ -950,6 +951,7 @@ void row7_vram(const luisa::string &backend, const std::filesystem::path &workdi
 
 // ============================================================ main
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     // ---- child protocol first (never touches the ut/device machinery) ------
     if (argc > 1 && std::strcmp(argv[1], "child") == 0) {
         return run_child_case(argc, argv);

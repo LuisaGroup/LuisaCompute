@@ -88,7 +88,7 @@ constexpr bool is_gemm_weight(luisa::string_view name) noexcept {
     // "layer{i}.qkv" / ".attn.out" / ".ffn.up" / ".ffn.down" -- NOT the
     // ".qkv.bias"/".ffn.up.bias" siblings, and not head.* (their kernels are
     // not the GEMM family).
-    static constexpr luisa::string_view suffixes[] = {".qkv", ".attn.out", ".ffn.up", ".ffn.down"};
+    constexpr luisa::string_view suffixes[] = {".qkv", ".attn.out", ".ffn.up", ".ffn.down"};
     for (const auto s : suffixes) {
         if (name.size() > s.size() + 6u && name.starts_with("layer") &&
             name.ends_with(s)) {// "layer" + "0".."23" + "." + suffix: the '.' is

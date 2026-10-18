@@ -862,7 +862,7 @@ test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
   -- embedding engine (bge-m3, embedding_model_plan.md)
   -- Data path is compiled in; tests load goldens from src/tests/data/embedding/.
   -- ==========================================================================
-  local function embed_test(name, source, host_only)
+  local function embed_test(name, source, host_only, extra)
       test_proj(name, source, false, function()
           add_includedirs("$(projectdir)/examples")
           add_deps("lc-example-embedding")
@@ -870,6 +870,9 @@ test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
               (path.join(os.projectdir(), "src/tests/data/embedding")):gsub("\\", "/")))
           if host_only then
               add_defines("LUISA_EMBED_HOST_ONLY=1")
+          end
+          if extra then
+              extra()
           end
       end)
   end
@@ -893,6 +896,12 @@ test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
   embed_test("test_embed_pack", "unit/embedding/test_embed_pack.cpp", true)
   embed_test("test_embed_tokenizer_mt", "unit/embedding/test_embed_tokenizer_mt.cpp", true)
   embed_test("test_embed_tokenizer_pool", "unit/embedding/test_embed_tokenizer_pool.cpp", true)
+  embed_test("test_embed_retrieval_index", "unit/embedding/test_embed_retrieval_index.cpp", true)
+  embed_test("test_embed_retrieval_rpc", "unit/embedding/test_embed_retrieval_rpc.cpp", true, function()
+      if is_plat("windows") then
+          add_syslinks("ws2_32")
+      end
+  end)
   embed_test("test_embed_kernel_robust", "integration/embedding/test_embed_kernel_robust.cpp")
   embed_test("test_embed_e2e", "integration/embedding/test_embed_e2e.cpp")
   embed_test("test_embed_retrieval", "integration/embedding/test_embed_retrieval.cpp")

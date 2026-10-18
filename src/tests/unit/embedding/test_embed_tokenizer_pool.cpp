@@ -5,7 +5,7 @@
 //
 // Host-only test (LUISA_EMBED_HOST_ONLY=1): it creates no LuisaCompute device
 // and takes no backend argument. It exercises Tokenizer::encode_parallel --
-// the entry point Session::encode_batch uses for the H8 thread-pool wiring.
+// the entry point Session::encode_batch uses for the H8 fiber-pool wiring.
 //
 // What it pins:
 //  - Correctness (hard): encode_parallel(texts, max_len, W) returns, for every
@@ -35,8 +35,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <limits>
-#include <thread>
 
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
@@ -163,6 +163,7 @@ uint32_t count_id_mismatches(const luisa::vector<luisa::vector<uint32_t>> &got,
 }// namespace
 
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
     const auto tkn_path = tokenizer_json_path();
@@ -236,7 +237,7 @@ int main(int argc, char *argv[]) {
     }
     const auto speedup = (pool_ms > 0.0) ? (serial_ms / pool_ms) : 0.0;
 
-    uint32_t hw = std::thread::hardware_concurrency();
+    uint32_t hw = luisa::fiber::worker_thread_count();
     if (hw == 0u) { hw = 1u; }
     const uint32_t usable = std::min(hw, kPoolThreads);
     // Require >= 4x when the box offers the full 8-core pool; otherwise scale the

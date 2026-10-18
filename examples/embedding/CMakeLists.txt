@@ -9,6 +9,9 @@ add_library(lc-example-embedding STATIC
         embed/session.cpp
         embed/executor.cpp
         embed/scheduler.cpp
+        embed/retrieval_index.cpp
+        embed/retrieval_service.cpp
+        embed/retrieval_rpc.cpp
         embed/debug_utils.cpp
         embed/kernels/kernels_embed.cpp
         embed/kernels/kernels_gemm.cpp
@@ -32,6 +35,15 @@ target_link_libraries(example_embed_text PRIVATE lc-example-embedding)
 target_include_directories(example_embed_text PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/examples)
+
+luisa_compute_add_executable(example_embed_retrieval example_embed_retrieval.cpp)
+target_link_libraries(example_embed_retrieval PRIVATE lc-example-embedding)
+target_include_directories(example_embed_retrieval PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/examples)
+if (WIN32)
+    target_link_libraries(example_embed_retrieval PRIVATE ws2_32)
+endif ()
 
 luisa_compute_add_executable(example_embed_dump_golden tools/dump_golden.cpp)
 target_link_libraries(example_embed_dump_golden PRIVATE lc-example-embedding)

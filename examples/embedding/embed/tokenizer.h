@@ -49,8 +49,8 @@
 
 namespace luisa::embed {
 
-// Upper bound on worker threads encode_parallel may spawn, regardless of
-// what the caller asks for or how many cores the machine reports (H8).
+// Upper bound on logical worker tasks encode_parallel may launch, regardless of
+// what the caller asks for or the bound scheduler's worker capacity (H8).
 inline constexpr uint32_t kTokenizerMaxPoolThreads = 8u;
 
 /**
@@ -91,22 +91,23 @@ public:
     luisa::vector<uint32_t> encode(luisa::string_view utf8, uint32_t max_len = 512u) const;
 
     /**
-         * \brief Encode many texts, optionally on a worker-thread pool (H8).
+         * \brief Encode many texts, optionally with fiber worker tasks (H8).
          *
          * The Tokenizer is immutable and reentrant after \ref load (the vocab
          * trie and double-array are read-only; \ref encode touches no shared
          * mutable state), so the \ref encode of each text may run concurrently
-         * on different threads. Output is order-preserving: result[i] is the
+         * in different worker tasks. Output is order-preserving: result[i] is the
          * \ref encode of texts[i] and is BIT-IDENTICAL to calling
          * `encode(texts[i], max_len)` in a serial loop.
          *
          * Work is distributed dynamically (an atomic index cursor, not a static
-         * partition), so ragged batches load-balance across the pool.
+         * partition), so ragged batches load-balance across the fiber tasks. A
+         * bound luisa::fiber::scheduler is required for the parallel path.
          *
          * \param texts The input texts.
          * \param max_len Truncation length; same contract as \ref encode.
          * \param num_threads Desired worker count. 0 selects auto
-         * (min of hardware concurrency and \ref kTokenizerMaxPoolThreads).
+         * (min of the bound fiber scheduler's worker count and \ref kTokenizerMaxPoolThreads).
          * The effective count is further clamped to [1,
          * min(num_threads or auto, kTokenizerMaxPoolThreads, texts.size())];
          * with an effective count of 1 it degrades to the serial loop.

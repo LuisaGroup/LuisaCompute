@@ -41,6 +41,7 @@
 #include <filesystem>
 #include <string_view>
 
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/string.h>
@@ -527,6 +528,7 @@ int run_compare(const GoldenLayers &golden, const luisa::vector<Dump> &dumps) {
 }// namespace
 
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     Options opt;
     if (!parse_args(argc, argv, opt)) {
         print_usage();
@@ -640,6 +642,7 @@ int main(int argc, char *argv[]) {
 #else
 // ---- stub build: B1's session.h is not in the tree yet ----------------------
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     Options opt;
     if (!parse_args(argc, argv, opt)) {
         print_usage();

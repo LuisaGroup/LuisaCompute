@@ -33,6 +33,7 @@
 
 #include "embedding/embed/debug_utils.h"
 
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/format.h>
@@ -316,6 +317,7 @@ void test_layer_dump(Device &device, luisa::string_view bgm_path) {
 #endif// LUISA_EMBED_HAS_SESSION
 
 int main(int argc, char *argv[]) {
+    luisa::fiber::scheduler fiber_scheduler;
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) return 0;
     auto &device = dc->device;

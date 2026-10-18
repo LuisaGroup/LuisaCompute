@@ -11,10 +11,10 @@
 
 #include <cstdint>
 #include <cstring>
-#include <thread>
 #include <atomic>
 #include <utility>
 
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/string.h>
@@ -596,11 +596,11 @@ luisa::vector<luisa::vector<uint32_t>> Tokenizer::encode_parallel(
     }
 
     // Effective worker count: caller request (or auto) clamped to the pool
-    // cap and to the number of items. hw_concurrency of 0 (unsupported) is
-    // treated as 1 so the serial path is taken.
+    // cap and to the number of items. A scheduler worker count of 0 is treated
+    // as 1 so the serial path is taken.
     uint32_t wanted = num_threads;
     if (wanted == 0u || wanted > kTokenizerMaxPoolThreads) {
-        auto hc = std::thread::hardware_concurrency();
+        auto hc = luisa::fiber::worker_thread_count();
         wanted = (hc == 0u) ? 1u : hc;
         if (wanted > kTokenizerMaxPoolThreads) { wanted = kTokenizerMaxPoolThreads; }
     }
@@ -616,22 +616,22 @@ luisa::vector<luisa::vector<uint32_t>> Tokenizer::encode_parallel(
 
     // Dynamic, cursor-based distribution so that ragged batches (mixed token
     // counts) load-balance. `results` is a fixed-size vector of distinct
-    // luisa::vector objects: each thread writes a disjoint slot and the
+    // luisa::vector objects: each worker task writes a disjoint slot and the
     // container itself is never mutated after resize, so there is no data
     // race. The Tokenizer is reentrant (read-only after load).
     std::atomic<size_t> cursor{0u};
-    luisa::vector<std::thread> pool;
+    luisa::vector<luisa::fiber::event> pool;
     pool.reserve(workers);
     const Tokenizer *self = this;
     for (uint32_t t = 0u; t < workers; t++) {
-        pool.emplace_back([self, &texts, &results, &cursor, max_len]() {
+        pool.emplace_back(luisa::fiber::async([self, &texts, &results, &cursor, max_len]() {
             size_t i = 0u;
             while ((i = cursor.fetch_add(1u, std::memory_order_relaxed)) < texts.size()) {
                 results[i] = self->encode(texts[i], max_len);
             }
-        });
+        }));
     }
-    for (auto &th : pool) { th.join(); }
+    for (auto &evt : pool) { evt.wait(); }
     return results;
 }
 
