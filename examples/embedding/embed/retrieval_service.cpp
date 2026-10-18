@@ -3,27 +3,29 @@
 // consistent across console and TCP clients.
 
 #include "retrieval_service.h"
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::embed {
 
-RetrievalLoadResult RetrievalService::load(const std::filesystem::path &root) {
+RetrievalLoadResult RetrievalService::load(const luisa::filesystem::path &root) {
     std::lock_guard lock{_mutex};
     return _index.load(root);
 }
 
 RetrievalLoadResult RetrievalService::load(
-    const std::filesystem::path &root,
+    const luisa::filesystem::path &root,
     luisa::span<const luisa::string> extensions) {
     std::lock_guard lock{_mutex};
     return _index.load(root, extensions);
 }
 
-RetrievalUnloadResult RetrievalService::unload(const std::filesystem::path &root) {
+RetrievalUnloadResult RetrievalService::unload(const luisa::filesystem::path &root) {
     std::lock_guard lock{_mutex};
     return _index.unload(root);
 }
 
-RetrievalUpdateResult RetrievalService::update(const std::filesystem::path &path) {
+RetrievalUpdateResult RetrievalService::update(const luisa::filesystem::path &path) {
     std::lock_guard lock{_mutex};
     return _index.update(path);
 }

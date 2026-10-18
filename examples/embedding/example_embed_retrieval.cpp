@@ -17,6 +17,8 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #include "embedding/embed/retrieval_rpc.h"
 #include "embedding/embed/retrieval_service.h"
@@ -33,8 +35,8 @@ void handle_interrupt(int) noexcept {
 }
 
 struct ProgramOptions {
-    std::filesystem::path model;
-    std::filesystem::path tokenizer;
+    luisa::filesystem::path model;
+    luisa::filesystem::path tokenizer;
     luisa::string backend{"vk"};
     luisa::string listen_address{"127.0.0.1"};
     uint16_t port{8765u};
@@ -155,13 +157,13 @@ void print_command_help() {
         return false;
     }
     std::error_code ec;
-    if (!std::filesystem::is_regular_file(options.model, ec) || ec) {
+    if (!luisa::filesystem::is_regular_file(options.model, ec) || ec) {
         std::cerr << "error: packed model does not exist or is not a regular file: "
                   << options.model << '\n';
         return false;
     }
     ec.clear();
-    if (!std::filesystem::is_regular_file(options.tokenizer, ec) || ec) {
+    if (!luisa::filesystem::is_regular_file(options.tokenizer, ec) || ec) {
         std::cerr << "error: tokenizer does not exist or is not a regular file: "
                   << options.tokenizer << '\n';
         return false;
@@ -287,7 +289,7 @@ void execute_command(embed::RetrievalService &service, const luisa::vector<luisa
             std::cerr << "error: usage: load <directory> [<extension-list>]\n";
             return;
         }
-        std::filesystem::path root;
+        luisa::filesystem::path root;
         auto path_status = embed::RetrievalIndex::path_from_utf8(arguments[1], root);
         if (!path_status.ok()) {
             print_status_error(path_status);
@@ -319,7 +321,7 @@ void execute_command(embed::RetrievalService &service, const luisa::vector<luisa
             std::cerr << "error: usage: unload <loaded-root-directory>\n";
             return;
         }
-        std::filesystem::path root;
+        luisa::filesystem::path root;
         auto path_status = embed::RetrievalIndex::path_from_utf8(arguments[1], root);
         if (!path_status.ok()) {
             print_status_error(path_status);
@@ -338,7 +340,7 @@ void execute_command(embed::RetrievalService &service, const luisa::vector<luisa
             std::cerr << "error: usage: update <file-or-subdirectory>\n";
             return;
         }
-        std::filesystem::path path;
+        luisa::filesystem::path path;
         auto path_status = embed::RetrievalIndex::path_from_utf8(arguments[1], path);
         if (!path_status.ok()) {
             print_status_error(path_status);
@@ -388,12 +390,13 @@ void execute_command(embed::RetrievalService &service, const luisa::vector<luisa
 void run_repl(embed::RetrievalService &service) {
     std::cout << "Embedding retrieval console; type help for commands.\n";
     print_command_help();
-    std::string input;
-    while (true) {
-        std::cout << "embed> " << std::flush;
-        if (!std::getline(std::cin, input)) {
-            break;
-        }
+      while (true) {
+          std::cout << "embed> " << std::flush;
+          std::string line;
+          if (!std::getline(std::cin, line)) {
+              break;
+          }
+          luisa::string input{line.data(), line.size()};
         luisa::vector<luisa::string> arguments;
         luisa::string error;
         if (!tokenize_command(input, arguments, error)) {

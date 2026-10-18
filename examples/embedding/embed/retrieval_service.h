@@ -5,6 +5,8 @@
 #include <mutex>
 
 #include "retrieval_index.h"
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 namespace luisa::embed {
 
@@ -19,12 +21,12 @@ public:
     RetrievalService &operator=(const RetrievalService &) = delete;
     RetrievalService &operator=(RetrievalService &&) = delete;
 
-    [[nodiscard]] RetrievalLoadResult load(const std::filesystem::path &root);
+    [[nodiscard]] RetrievalLoadResult load(const luisa::filesystem::path &root);
     [[nodiscard]] RetrievalLoadResult load(
-        const std::filesystem::path &root,
+        const luisa::filesystem::path &root,
         luisa::span<const luisa::string> extensions);
-    [[nodiscard]] RetrievalUnloadResult unload(const std::filesystem::path &root);
-    [[nodiscard]] RetrievalUpdateResult update(const std::filesystem::path &path);
+    [[nodiscard]] RetrievalUnloadResult unload(const luisa::filesystem::path &root);
+    [[nodiscard]] RetrievalUpdateResult update(const luisa::filesystem::path &path);
     [[nodiscard]] RetrievalQueryResult query(
         luisa::string_view text,
         uint32_t top_k = kRetrievalDefaultTopK);

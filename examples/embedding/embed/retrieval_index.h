@@ -12,6 +12,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/filesystem.h>
 
 namespace luisa::embed {
 
@@ -87,7 +88,7 @@ public:
     // Invalid UTF-8 and embedded NUL bytes are recoverable input errors.
     [[nodiscard]] static RetrievalStatus path_from_utf8(
         luisa::string_view utf8,
-        std::filesystem::path &path);
+        luisa::filesystem::path &path);
     [[nodiscard]] static RetrievalStatus normalize_extensions(
         luisa::span<const luisa::string> input,
         luisa::vector<luisa::string> &normalized);
@@ -95,12 +96,12 @@ public:
         luisa::string_view comma_separated,
         luisa::vector<luisa::string> &normalized);
 
-    [[nodiscard]] RetrievalLoadResult load(const std::filesystem::path &root);
+    [[nodiscard]] RetrievalLoadResult load(const luisa::filesystem::path &root);
     [[nodiscard]] RetrievalLoadResult load(
-        const std::filesystem::path &root,
+        const luisa::filesystem::path &root,
         luisa::span<const luisa::string> extensions);
-    [[nodiscard]] RetrievalUnloadResult unload(const std::filesystem::path &root);
-    [[nodiscard]] RetrievalUpdateResult update(const std::filesystem::path &path);
+    [[nodiscard]] RetrievalUnloadResult unload(const luisa::filesystem::path &root);
+    [[nodiscard]] RetrievalUpdateResult update(const luisa::filesystem::path &path);
     [[nodiscard]] RetrievalQueryResult query(
         luisa::string_view text,
         uint32_t top_k = kRetrievalDefaultTopK);
@@ -110,14 +111,14 @@ public:
 
 private:
     struct RootRecord {
-        std::filesystem::path path;
-        std::filesystem::path comparison_path;
+        luisa::filesystem::path path;
+        luisa::filesystem::path comparison_path;
         luisa::vector<luisa::string> extensions;
     };
 
     struct DocumentRecord {
-        std::filesystem::path path;
-        std::filesystem::path comparison_path;
+        luisa::filesystem::path path;
+        luisa::filesystem::path comparison_path;
         luisa::string root_key;
         luisa::string display_path;
         luisa::string text;
@@ -125,7 +126,7 @@ private:
     };
 
     struct DiscoveryResult {
-        luisa::vector<std::filesystem::path> files;
+        luisa::vector<luisa::filesystem::path> files;
         size_t skipped{};
         size_t failed{};
     };
@@ -137,43 +138,43 @@ private:
     };
 
     [[nodiscard]] static RetrievalStatus _normalize_path(
-        const std::filesystem::path &input,
+        const luisa::filesystem::path &input,
         bool require_existing,
-        std::filesystem::path &display_path,
-        std::filesystem::path &comparison_path,
+        luisa::filesystem::path &display_path,
+        luisa::filesystem::path &comparison_path,
         luisa::string &comparison_key);
-    [[nodiscard]] static luisa::string _path_key(const std::filesystem::path &path);
-    [[nodiscard]] static luisa::string _display_path(const std::filesystem::path &path);
+    [[nodiscard]] static luisa::string _path_key(const luisa::filesystem::path &path);
+    [[nodiscard]] static luisa::string _display_path(const luisa::filesystem::path &path);
     [[nodiscard]] static bool _is_within(
-        const std::filesystem::path &path,
-        const std::filesystem::path &root) noexcept;
+        const luisa::filesystem::path &path,
+        const luisa::filesystem::path &root) noexcept;
     [[nodiscard]] static bool _extension_admitted(
-        const std::filesystem::path &path,
+        const luisa::filesystem::path &path,
         luisa::span<const luisa::string> extensions);
     [[nodiscard]] static DiscoveryResult _discover(
-        const std::filesystem::path &root,
+        const luisa::filesystem::path &root,
         luisa::span<const luisa::string> extensions);
     [[nodiscard]] static RetrievalStatus _read_text_file(
-        const std::filesystem::path &path,
+        const luisa::filesystem::path &path,
         luisa::string &text);
 
-    [[nodiscard]] RootRecord *_find_owning_root(const std::filesystem::path &comparison_path);
-    [[nodiscard]] const RootRecord *_find_owning_root(const std::filesystem::path &comparison_path) const;
+    [[nodiscard]] RootRecord *_find_owning_root(const luisa::filesystem::path &comparison_path);
+    [[nodiscard]] const RootRecord *_find_owning_root(const luisa::filesystem::path &comparison_path) const;
     [[nodiscard]] RetrievalStatus _encode(
         luisa::string_view text,
         luisa::vector<float> &embedding) const;
     [[nodiscard]] RetrievalStatus _apply_file(
         const luisa::string &root_key,
-        const std::filesystem::path &file,
+        const luisa::filesystem::path &file,
         FileOutcome &outcome);
     [[nodiscard]] RetrievalUpdateResult _update_file(
-        const std::filesystem::path &display_path,
+        const luisa::filesystem::path &display_path,
         const luisa::string &comparison_key,
         RootRecord &root,
         const luisa::string &root_key);
     [[nodiscard]] RetrievalUpdateResult _update_directory(
-        const std::filesystem::path &display_path,
-        const std::filesystem::path &comparison_path,
+        const luisa::filesystem::path &display_path,
+        const luisa::filesystem::path &comparison_path,
         RootRecord &root,
         const luisa::string &root_key);
 

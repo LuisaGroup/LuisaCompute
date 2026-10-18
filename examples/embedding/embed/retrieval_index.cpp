@@ -13,6 +13,9 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/string.h>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -117,7 +120,7 @@ luisa::vector<luisa::string> RetrievalIndex::default_extensions() {
 
 RetrievalStatus RetrievalIndex::path_from_utf8(
     luisa::string_view utf8,
-    std::filesystem::path &path) {
+    luisa::filesystem::path &path) {
     if (utf8.empty()) {
         return make_error(RetrievalErrorCode::invalid_argument, "path must not be empty");
     }
@@ -143,9 +146,9 @@ RetrievalStatus RetrievalIndex::path_from_utf8(
         return make_error(RetrievalErrorCode::invalid_argument,
                           "cannot convert UTF-8 path to a Windows path");
     }
-    path = std::filesystem::path{wide};
+    path = luisa::filesystem::path{wide};
 #else
-    path = std::filesystem::path{utf8};
+    path = luisa::filesystem::path{utf8};
 #endif
     return {};
 }
@@ -184,7 +187,7 @@ RetrievalStatus RetrievalIndex::normalize_extensions(
         }
         result.push_back(std::move(extension));
     }
-    std::sort(result.begin(), result.end());
+    luisa::sort(result.begin(), result.end());
     result.erase(std::unique(result.begin(), result.end()), result.end());
     normalized = std::move(result);
     return {};
@@ -212,32 +215,32 @@ RetrievalStatus RetrievalIndex::parse_extension_list(
         luisa::span<const luisa::string>{entries.data(), entries.size()}, normalized);
 }
 
-luisa::string RetrievalIndex::_path_key(const std::filesystem::path &path) {
+luisa::string RetrievalIndex::_path_key(const luisa::filesystem::path &path) {
     const auto utf8 = path.generic_u8string();
     return {reinterpret_cast<const char *>(utf8.data()), utf8.size()};
 }
 
-luisa::string RetrievalIndex::_display_path(const std::filesystem::path &path) {
+luisa::string RetrievalIndex::_display_path(const luisa::filesystem::path &path) {
     return _path_key(path);
 }
 
 RetrievalStatus RetrievalIndex::_normalize_path(
-    const std::filesystem::path &input,
+    const luisa::filesystem::path &input,
     bool require_existing,
-    std::filesystem::path &display_path,
-    std::filesystem::path &comparison_path,
+    luisa::filesystem::path &display_path,
+    luisa::filesystem::path &comparison_path,
     luisa::string &comparison_key) {
     if (input.empty()) {
         return make_error(RetrievalErrorCode::invalid_argument, "path must not be empty");
     }
     std::error_code ec;
-    std::filesystem::path normalized;
+    luisa::filesystem::path normalized;
     if (require_existing) {
-        normalized = std::filesystem::canonical(input, ec);
+        normalized = luisa::filesystem::canonical(input, ec);
     } else {
-        auto absolute = std::filesystem::absolute(input, ec);
+        auto absolute = luisa::filesystem::absolute(input, ec);
         if (!ec) {
-            normalized = std::filesystem::weakly_canonical(absolute, ec);
+            normalized = luisa::filesystem::weakly_canonical(absolute, ec);
         }
     }
     if (ec || normalized.empty()) {
@@ -259,7 +262,7 @@ RetrievalStatus RetrievalIndex::_normalize_path(
                               "cannot apply Windows case folding to path");
         }
     }
-    comparison_path = std::filesystem::path{wide};
+    comparison_path = luisa::filesystem::path{wide};
 #else
     comparison_path = display_path;
 #endif
@@ -268,8 +271,8 @@ RetrievalStatus RetrievalIndex::_normalize_path(
 }
 
 bool RetrievalIndex::_is_within(
-    const std::filesystem::path &path,
-    const std::filesystem::path &root) noexcept {
+    const luisa::filesystem::path &path,
+    const luisa::filesystem::path &root) noexcept {
     const auto relative = path.lexically_relative(root);
     if (relative.empty() || relative.is_absolute()) {
         return false;
@@ -280,23 +283,23 @@ bool RetrievalIndex::_is_within(
 }
 
 bool RetrievalIndex::_extension_admitted(
-    const std::filesystem::path &path,
+    const luisa::filesystem::path &path,
     luisa::span<const luisa::string> extensions) {
     const auto raw_extension = path.extension().u8string();
     const luisa::string_view extension_view{
         reinterpret_cast<const char *>(raw_extension.data()), raw_extension.size()};
     const auto extension = ascii_lower(extension_view);
-    return std::binary_search(extensions.begin(), extensions.end(), extension);
+    return luisa::binary_search(extensions.begin(), extensions.end(), extension);
 }
 
 RetrievalIndex::DiscoveryResult RetrievalIndex::_discover(
-    const std::filesystem::path &root,
+    const luisa::filesystem::path &root,
     luisa::span<const luisa::string> extensions) {
     DiscoveryResult result;
     std::error_code ec;
-    std::filesystem::recursive_directory_iterator iterator{
-        root, std::filesystem::directory_options::skip_permission_denied, ec};
-    const std::filesystem::recursive_directory_iterator end;
+    luisa::filesystem::recursive_directory_iterator iterator{
+        root, luisa::filesystem::directory_options::skip_permission_denied, ec};
+    const luisa::filesystem::recursive_directory_iterator end;
     if (ec) {
         result.failed = 1u;
         return result;
@@ -307,9 +310,9 @@ RetrievalIndex::DiscoveryResult RetrievalIndex::_discover(
         if (ec) {
             result.failed++;
             ec.clear();
-        } else if (std::filesystem::is_regular_file(status)) {
+        } else if (luisa::filesystem::is_regular_file(status)) {
             if (_extension_admitted(entry_path, extensions)) {
-                auto canonical = std::filesystem::canonical(entry_path, ec);
+                auto canonical = luisa::filesystem::canonical(entry_path, ec);
                 if (ec) {
                     result.failed++;
                     ec.clear();
@@ -326,7 +329,7 @@ RetrievalIndex::DiscoveryResult RetrievalIndex::_discover(
             break;
         }
     }
-    std::sort(result.files.begin(), result.files.end(), [](const auto &a, const auto &b) {
+    luisa::sort(result.files.begin(), result.files.end(), [](const auto &a, const auto &b) {
         return _path_key(a) < _path_key(b);
     });
     result.files.erase(
@@ -338,7 +341,7 @@ RetrievalIndex::DiscoveryResult RetrievalIndex::_discover(
 }
 
 RetrievalStatus RetrievalIndex::_read_text_file(
-    const std::filesystem::path &path,
+    const luisa::filesystem::path &path,
     luisa::string &text) {
     std::ifstream stream{path, std::ios::binary};
     if (!stream.is_open()) {
@@ -371,7 +374,7 @@ RetrievalStatus RetrievalIndex::_read_text_file(
 }
 
 RetrievalIndex::RootRecord *RetrievalIndex::_find_owning_root(
-    const std::filesystem::path &comparison_path) {
+    const luisa::filesystem::path &comparison_path) {
     for (auto &entry : _roots) {
         if (_is_within(comparison_path, entry.second.comparison_path)) {
             return &entry.second;
@@ -381,7 +384,7 @@ RetrievalIndex::RootRecord *RetrievalIndex::_find_owning_root(
 }
 
 const RetrievalIndex::RootRecord *RetrievalIndex::_find_owning_root(
-    const std::filesystem::path &comparison_path) const {
+    const luisa::filesystem::path &comparison_path) const {
     for (const auto &entry : _roots) {
         if (_is_within(comparison_path, entry.second.comparison_path)) {
             return &entry.second;
@@ -419,10 +422,10 @@ RetrievalStatus RetrievalIndex::_encode(
 
 RetrievalStatus RetrievalIndex::_apply_file(
     const luisa::string &root_key,
-    const std::filesystem::path &file,
+    const luisa::filesystem::path &file,
     FileOutcome &outcome) {
-    std::filesystem::path display;
-    std::filesystem::path comparison;
+    luisa::filesystem::path display;
+    luisa::filesystem::path comparison;
     luisa::string key;
     auto status = _normalize_path(file, true, display, comparison, key);
     if (!status.ok()) {
@@ -463,13 +466,13 @@ RetrievalStatus RetrievalIndex::_apply_file(
     return {};
 }
 
-RetrievalLoadResult RetrievalIndex::load(const std::filesystem::path &root) {
+RetrievalLoadResult RetrievalIndex::load(const luisa::filesystem::path &root) {
     const auto extensions = default_extensions();
     return load(root, luisa::span<const luisa::string>{extensions.data(), extensions.size()});
 }
 
 RetrievalLoadResult RetrievalIndex::load(
-    const std::filesystem::path &root,
+    const luisa::filesystem::path &root,
     luisa::span<const luisa::string> extensions) {
     RetrievalLoadResult result;
     auto status = normalize_extensions(extensions, result.extensions);
@@ -478,8 +481,8 @@ RetrievalLoadResult RetrievalIndex::load(
         result.total_documents = _documents.size();
         return result;
     }
-    std::filesystem::path display;
-    std::filesystem::path comparison;
+    luisa::filesystem::path display;
+    luisa::filesystem::path comparison;
     luisa::string key;
     status = _normalize_path(root, true, display, comparison, key);
     if (!status.ok()) {
@@ -488,7 +491,7 @@ RetrievalLoadResult RetrievalIndex::load(
         return result;
     }
     std::error_code ec;
-    if (!std::filesystem::is_directory(display, ec) || ec) {
+    if (!luisa::filesystem::is_directory(display, ec) || ec) {
         result.status = make_error(RetrievalErrorCode::invalid_argument,
                                    luisa::format("load root '{}' is not a directory", _display_path(display)));
         result.total_documents = _documents.size();
@@ -537,10 +540,10 @@ RetrievalLoadResult RetrievalIndex::load(
     return result;
 }
 
-RetrievalUnloadResult RetrievalIndex::unload(const std::filesystem::path &root) {
+RetrievalUnloadResult RetrievalIndex::unload(const luisa::filesystem::path &root) {
     RetrievalUnloadResult result;
-    std::filesystem::path display;
-    std::filesystem::path comparison;
+    luisa::filesystem::path display;
+    luisa::filesystem::path comparison;
     luisa::string key;
     auto status = _normalize_path(root, false, display, comparison, key);
     if (!status.ok()) {
@@ -575,7 +578,7 @@ RetrievalUnloadResult RetrievalIndex::unload(const std::filesystem::path &root) 
 }
 
 RetrievalUpdateResult RetrievalIndex::_update_file(
-    const std::filesystem::path &display_path,
+    const luisa::filesystem::path &display_path,
     const luisa::string &comparison_key,
     RootRecord &root,
     const luisa::string &root_key) {
@@ -590,7 +593,7 @@ RetrievalUpdateResult RetrievalIndex::_update_file(
     }
     auto existing = _documents.find(comparison_key);
     std::error_code ec;
-    const bool regular_file = std::filesystem::is_regular_file(display_path, ec);
+    const bool regular_file = luisa::filesystem::is_regular_file(display_path, ec);
     if (ec && !file_not_found(ec)) {
         if (existing != _documents.end()) {
             result.failed = 1u;
@@ -633,15 +636,15 @@ RetrievalUpdateResult RetrievalIndex::_update_file(
 }
 
 RetrievalUpdateResult RetrievalIndex::_update_directory(
-    const std::filesystem::path &display_path,
-    const std::filesystem::path &comparison_path,
+    const luisa::filesystem::path &display_path,
+    const luisa::filesystem::path &comparison_path,
     RootRecord &root,
     const luisa::string &root_key) {
     RetrievalUpdateResult result;
     result.path = _display_path(display_path);
     DiscoveryResult discovery;
     std::error_code ec;
-    const bool is_directory = std::filesystem::is_directory(display_path, ec);
+    const bool is_directory = luisa::filesystem::is_directory(display_path, ec);
     if (ec && !file_not_found(ec)) {
         result.failed = 1u;
     } else if (is_directory) {
@@ -671,7 +674,7 @@ RetrievalUpdateResult RetrievalIndex::_update_directory(
             continue;
         }
         std::error_code ec;
-        const bool still_regular = std::filesystem::is_regular_file(document.path, ec);
+        const bool still_regular = luisa::filesystem::is_regular_file(document.path, ec);
         if (ec && !file_not_found(ec)) {
             result.failed++;
         } else if (file_not_found(ec) || !still_regular || !_extension_admitted(document.path, root.extensions)) {
@@ -689,10 +692,10 @@ RetrievalUpdateResult RetrievalIndex::_update_directory(
     return result;
 }
 
-RetrievalUpdateResult RetrievalIndex::update(const std::filesystem::path &path) {
+RetrievalUpdateResult RetrievalIndex::update(const luisa::filesystem::path &path) {
     RetrievalUpdateResult result;
-    std::filesystem::path display;
-    std::filesystem::path comparison;
+    luisa::filesystem::path display;
+    luisa::filesystem::path comparison;
     luisa::string key;
     auto status = _normalize_path(path, false, display, comparison, key);
     if (!status.ok()) {
@@ -717,12 +720,12 @@ RetrievalUpdateResult RetrievalIndex::update(const std::filesystem::path &path) 
     }
 
     std::error_code ec;
-    const auto file_status = std::filesystem::status(display, ec);
-    const bool exists = !ec && std::filesystem::exists(file_status);
-    if (exists && std::filesystem::is_regular_file(file_status)) {
+    const auto file_status = luisa::filesystem::status(display, ec);
+    const bool exists = !ec && luisa::filesystem::exists(file_status);
+    if (exists && luisa::filesystem::is_regular_file(file_status)) {
         return _update_file(display, key, *root, root_key);
     }
-    if (exists && std::filesystem::is_directory(file_status)) {
+    if (exists && luisa::filesystem::is_directory(file_status)) {
         return _update_directory(display, comparison, *root, root_key);
     }
     if (!exists) {
@@ -792,7 +795,7 @@ RetrievalQueryResult RetrievalIndex::query(luisa::string_view text, uint32_t top
         }
         result.hits.push_back(RetrievalHit{document.display_path, score});
     }
-    std::sort(result.hits.begin(), result.hits.end(), [](const auto &a, const auto &b) {
+    luisa::sort(result.hits.begin(), result.hits.end(), [](const auto &a, const auto &b) {
         if (a.score != b.score) {
             return a.score > b.score;
         }

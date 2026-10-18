@@ -16,6 +16,10 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/mathematics.h>
+#include <luisa/core/stl/filesystem.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/stl/string.h>
 #include <yyjson.h>
 
 #ifdef _WIN32
@@ -205,7 +209,7 @@ private:
     luisa::string_view message) {
     if (notification) {
         LUISA_WARNING("retrieval RPC notification failed: {}", message);
-        return std::nullopt;
+        return luisa::nullopt;
     }
     return error_response(id, code, message);
 }
@@ -379,7 +383,7 @@ void shutdown_socket(SocketHandle socket) noexcept {
     size_t offset = 0u;
     while (offset < data.size()) {
         const auto remaining = data.size() - offset;
-        const auto chunk = std::min(remaining, static_cast<size_t>(std::numeric_limits<int>::max()));
+        const auto chunk = luisa::min(remaining, static_cast<size_t>(std::numeric_limits<int>::max()));
 #ifdef MSG_NOSIGNAL
         constexpr int flags = MSG_NOSIGNAL;
 #else
@@ -433,7 +437,7 @@ luisa::optional<luisa::string> RetrievalRpcServer::process_json_line(
         if (!copy_required_string(params, "path", path, true) || path.empty()) {
             return invalid_params("invalid params: load.path must be a nonempty UTF-8 string");
         }
-        std::filesystem::path filesystem_path;
+        luisa::filesystem::path filesystem_path;
         auto path_status = RetrievalIndex::path_from_utf8(path, filesystem_path);
         if (!path_status.ok()) {
             return invalid_params(path_status.message);
@@ -464,7 +468,7 @@ luisa::optional<luisa::string> RetrievalRpcServer::process_json_line(
             return dispatch_error(id, notification, operational_error_code(result.status.code), result.status.message);
         }
         if (notification) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto response = load_response(id, result);
         return response.empty() ? error_response(id, -32603, "response allocation failed") : std::move(response);
@@ -478,7 +482,7 @@ luisa::optional<luisa::string> RetrievalRpcServer::process_json_line(
         if (!copy_required_string(params, "path", path, true) || path.empty()) {
             return invalid_params("invalid params: unload.path must be a nonempty UTF-8 string");
         }
-        std::filesystem::path filesystem_path;
+        luisa::filesystem::path filesystem_path;
         auto path_status = RetrievalIndex::path_from_utf8(path, filesystem_path);
         if (!path_status.ok()) {
             return invalid_params(path_status.message);
@@ -488,7 +492,7 @@ luisa::optional<luisa::string> RetrievalRpcServer::process_json_line(
             return dispatch_error(id, notification, operational_error_code(result.status.code), result.status.message);
         }
         if (notification) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto response = unload_response(id, result);
         return response.empty() ? error_response(id, -32603, "response allocation failed") : std::move(response);
@@ -502,7 +506,7 @@ luisa::optional<luisa::string> RetrievalRpcServer::process_json_line(
         if (!copy_required_string(params, "path", path, true) || path.empty()) {
             return invalid_params("invalid params: update.path must be a nonempty UTF-8 string");
         }
-        std::filesystem::path filesystem_path;
+        luisa::filesystem::path filesystem_path;
         auto path_status = RetrievalIndex::path_from_utf8(path, filesystem_path);
         if (!path_status.ok()) {
             return invalid_params(path_status.message);
@@ -512,7 +516,7 @@ luisa::optional<luisa::string> RetrievalRpcServer::process_json_line(
             return dispatch_error(id, notification, operational_error_code(result.status.code), result.status.message);
         }
         if (notification) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto response = update_response(id, result);
         return response.empty() ? error_response(id, -32603, "response allocation failed") : std::move(response);
@@ -542,7 +546,7 @@ luisa::optional<luisa::string> RetrievalRpcServer::process_json_line(
             return dispatch_error(id, notification, operational_error_code(result.status.code), result.status.message);
         }
         if (notification) {
-            return std::nullopt;
+            return luisa::nullopt;
         }
         auto response = query_response(id, result);
         return response.empty() ? error_response(id, -32603, "response allocation failed") : std::move(response);

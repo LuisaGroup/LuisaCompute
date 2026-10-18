@@ -7,7 +7,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -18,6 +17,8 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/mathematics.h>
+#include <luisa/core/stl/filesystem.h>
 #include <yyjson.h>
 
 #include "embedding/embed/retrieval_rpc.h"
@@ -55,29 +56,29 @@ public:
         static std::atomic<uint64_t> sequence{0u};
         const auto ticks = std::chrono::high_resolution_clock::now().time_since_epoch().count();
         std::error_code ec;
-        const auto base = std::filesystem::temp_directory_path(ec);
+        const auto base = luisa::filesystem::temp_directory_path(ec);
         if (ec) {
             LUISA_ERROR("cannot locate temporary directory");
         }
         _path = base / luisa::format("lc_retrieval_rpc_{}_{}", ticks, sequence.fetch_add(1u));
-        std::filesystem::create_directories(_path, ec);
+        luisa::filesystem::create_directories(_path, ec);
         if (ec) {
             LUISA_ERROR("cannot create temporary test directory");
         }
     }
     ~TempDirectory() noexcept {
         std::error_code ec;
-        std::filesystem::remove_all(_path, ec);
+        luisa::filesystem::remove_all(_path, ec);
     }
-    [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
+    [[nodiscard]] const luisa::filesystem::path &path() const noexcept { return _path; }
 
 private:
-    std::filesystem::path _path;
+    luisa::filesystem::path _path;
 };
 
-void write_file(const std::filesystem::path &path, luisa::string_view contents) {
+void write_file(const luisa::filesystem::path &path, luisa::string_view contents) {
     std::error_code ec;
-    std::filesystem::create_directories(path.parent_path(), ec);
+    luisa::filesystem::create_directories(path.parent_path(), ec);
     if (ec) {
         LUISA_ERROR("cannot create test directory");
     }
@@ -88,9 +89,9 @@ void write_file(const std::filesystem::path &path, luisa::string_view contents) 
     stream.write(contents.data(), static_cast<std::streamsize>(contents.size()));
 }
 
-[[nodiscard]] luisa::string utf8_path(const std::filesystem::path &path) {
+[[nodiscard]] luisa::string utf8_path(const luisa::filesystem::path &path) {
     std::error_code ec;
-    const auto canonical = std::filesystem::canonical(path, ec);
+    const auto canonical = luisa::filesystem::canonical(path, ec);
     const auto &selected = ec ? path : canonical;
     const auto utf8 = selected.generic_u8string();
     return {reinterpret_cast<const char *>(utf8.data()), utf8.size()};
@@ -159,7 +160,7 @@ void expect_numeric_id(luisa::string_view json, double expected) {
     JsonDocument document{json};
     auto *id = yyjson_obj_get(document.root(), "id");
     expect(yyjson_is_num(id));
-    expect(std::abs(yyjson_get_num(id) - expected) < 1e-12);
+    expect(luisa::abs(yyjson_get_num(id) - expected) < 1e-12);
 }
 
 [[nodiscard]] luisa::string request_with_path(
@@ -224,7 +225,7 @@ void reg_rpc_methods_and_ids() {
             expect(yyjson_arr_size(hits) == 1u);
             auto *hit = yyjson_arr_get(hits, 0u);
             expect(yyjson_is_str(yyjson_obj_get(hit, "path")));
-            expect(std::abs(yyjson_get_num(yyjson_obj_get(hit, "score")) - 1.0) < 1e-12);
+            expect(luisa::abs(yyjson_get_num(yyjson_obj_get(hit, "score")) - 1.0) < 1e-12);
         }
 
         response = RetrievalRpcServer::process_json_line(
@@ -576,7 +577,7 @@ void reg_rpc_tcp_transport() {
                 JsonDocument document{concurrent_response};
                 auto *id = yyjson_obj_get(document.root(), "id");
                 if (!yyjson_is_num(id) ||
-                    std::abs(yyjson_get_num(id) - static_cast<double>(base + i)) > 1e-12 ||
+                    luisa::abs(yyjson_get_num(id) - static_cast<double>(base + i)) > 1e-12 ||
                     yyjson_obj_get(document.root(), "error") != nullptr) {
                     concurrent_ok.store(false);
                     return;

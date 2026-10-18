@@ -7,7 +7,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -17,6 +16,8 @@
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/mathematics.h>
+#include <luisa/core/stl/filesystem.h>
 
 #include "embedding/embed/retrieval_index.h"
 
@@ -33,35 +34,35 @@ public:
         static std::atomic<uint64_t> sequence{0u};
         const auto ticks = std::chrono::high_resolution_clock::now().time_since_epoch().count();
         std::error_code ec;
-        const auto base = std::filesystem::temp_directory_path(ec);
+        const auto base = luisa::filesystem::temp_directory_path(ec);
         if (ec) {
             LUISA_ERROR("cannot locate temporary directory");
         }
         _path = base / luisa::format("lc_retrieval_index_{}_{}", ticks, sequence.fetch_add(1u));
-        std::filesystem::create_directories(_path, ec);
+        luisa::filesystem::create_directories(_path, ec);
         if (ec) {
             LUISA_ERROR("cannot create temporary test directory");
         }
     }
     ~TempDirectory() noexcept {
         std::error_code ec;
-        std::filesystem::remove_all(_path, ec);
+        luisa::filesystem::remove_all(_path, ec);
     }
-    [[nodiscard]] const std::filesystem::path &path() const noexcept { return _path; }
+    [[nodiscard]] const luisa::filesystem::path &path() const noexcept { return _path; }
 
 private:
-    std::filesystem::path _path;
+    luisa::filesystem::path _path;
 };
 
-void make_directories(const std::filesystem::path &path) {
+void make_directories(const luisa::filesystem::path &path) {
     std::error_code ec;
-    std::filesystem::create_directories(path, ec);
+    luisa::filesystem::create_directories(path, ec);
     if (ec) {
         LUISA_ERROR("cannot create test directory '{}'", path.string());
     }
 }
 
-void write_file(const std::filesystem::path &path, luisa::string_view contents) {
+void write_file(const luisa::filesystem::path &path, luisa::string_view contents) {
     make_directories(path.parent_path());
     std::ofstream stream{path, std::ios::binary | std::ios::trunc};
     if (!stream.is_open()) {
@@ -73,15 +74,15 @@ void write_file(const std::filesystem::path &path, luisa::string_view contents) 
     }
 }
 
-void remove_file(const std::filesystem::path &path) {
+void remove_file(const luisa::filesystem::path &path) {
     std::error_code ec;
-    const auto removed = std::filesystem::remove(path, ec);
+    const auto removed = luisa::filesystem::remove(path, ec);
     expect(removed && !ec) << "test file deletion should succeed";
 }
 
-[[nodiscard]] luisa::string utf8_path(const std::filesystem::path &path) {
+[[nodiscard]] luisa::string utf8_path(const luisa::filesystem::path &path) {
     std::error_code ec;
-    const auto canonical = std::filesystem::canonical(path, ec);
+    const auto canonical = luisa::filesystem::canonical(path, ec);
     const auto &selected = ec ? path : canonical;
     const auto utf8 = selected.generic_u8string();
     return {reinterpret_cast<const char *>(utf8.data()), utf8.size()};
@@ -178,7 +179,7 @@ void reg_empty_corpus_and_validation() {
         expect(updated.failed == 1u && updated.total_documents == 0u);
 
         std::error_code ec;
-        std::filesystem::remove_all(temporary.path(), ec);
+        luisa::filesystem::remove_all(temporary.path(), ec);
         expect(!ec);
         updated = index.update(temporary.path());
         expect(updated.status.ok() && updated.failed == 0u && updated.total_documents == 0u);
@@ -205,9 +206,9 @@ void reg_deterministic_ranking() {
             expect(result.hits[0].path == utf8_path(a));
             expect(result.hits[1].path == utf8_path(c));
             expect(result.hits[2].path == utf8_path(b));
-            expect(std::abs(result.hits[0].score - 1.0) < 1e-12);
-            expect(std::abs(result.hits[1].score - 1.0) < 1e-12);
-            expect(std::abs(result.hits[2].score) < 1e-12);
+            expect(luisa::abs(result.hits[0].score - 1.0) < 1e-12);
+            expect(luisa::abs(result.hits[1].score - 1.0) < 1e-12);
+            expect(luisa::abs(result.hits[2].score) < 1e-12);
         }
         expect(index.query("alpha", 2u).hits.size() == 2u);
     };
@@ -270,7 +271,7 @@ void reg_single_file_update() {
         expect(query.status.ok() && query.hits.size() == 1u);
         if (query.hits.size() == 1u) {
             expect(query.hits[0].path == utf8_path(a));
-            expect(std::abs(query.hits[0].score - 1.0) < 1e-12);
+            expect(luisa::abs(query.hits[0].score - 1.0) < 1e-12);
         }
 
         const auto before_new = encoder.calls;
@@ -323,7 +324,7 @@ void reg_subdirectory_update() {
         expect(encoder.calls == before_unchanged);
 
         std::error_code ec;
-        std::filesystem::remove_all(left, ec);
+        luisa::filesystem::remove_all(left, ec);
         expect(!ec);
         updated = index.update(left);
         expect(updated.status.ok() && updated.removed == 2u && updated.failed == 0u);
@@ -350,7 +351,7 @@ void reg_failed_reencode_preserves_document() {
         expect(query.status.ok() && query.hits.size() == 1u);
         if (query.hits.size() == 1u) {
             expect(query.hits[0].path == utf8_path(file));
-            expect(std::abs(query.hits[0].score - 1.0) < 1e-12);
+            expect(luisa::abs(query.hits[0].score - 1.0) < 1e-12);
         }
 
         encoder.fail_on.clear();
@@ -359,7 +360,7 @@ void reg_failed_reencode_preserves_document() {
         query = index.query("beta", 1u);
         expect(query.status.ok() && query.hits.size() == 1u);
         if (query.hits.size() == 1u) {
-            expect(std::abs(query.hits[0].score - 1.0) < 1e-12);
+            expect(luisa::abs(query.hits[0].score - 1.0) < 1e-12);
         }
     };
 }
@@ -390,7 +391,7 @@ void reg_embedding_validation() {
         expect(loaded.status.ok() && loaded.added == 1u && loaded.failed == 1u);
         expect(loaded.total_documents == 1u);
 
-        std::filesystem::path converted;
+        luisa::filesystem::path converted;
         auto status = RetrievalIndex::path_from_utf8(luisa::string_view{"\xc0\xaf", 2u}, converted);
         expect(!status.ok() && status.code == RetrievalErrorCode::invalid_argument);
     };
