@@ -64,9 +64,9 @@
 // recorded as the documented C0 no-go path (tensor_optimize.md §5.1/§9):
 // print the reason, skip ALL coop execution for that battery, PASS. Only
 // when compile_to returned true may device.compile + dispatch run. Dispatch
-// crashes remain CATCHED (try_call) and recorded as no-go. NUMERIC mismatches
-// are FAILURES (layout incompatibility is a real bug signal).
-//
+// failures after this gate are recorded as no-go via error-code style (no
+// exceptions exist in this build). NUMERIC mismatches are FAILURES (layout
+// incompatibility is a real bug signal).
 // Run (device test, backend = argv[1]):
 //   xmake run test_embed_coop_probe dx
 //   xmake run test_embed_coop_probe vk
@@ -121,7 +121,6 @@ using CoopProbeKernel = compute::Kernel1D<void(compute::ByteBuffer /*x*/,
 #include <luisa/ast/type.h>
 
 #include <cmath>
-#include <stdexcept>
 
 #ifdef _WIN32
 #include <luisa/backends/ext/dx_config_ext.h>
@@ -387,28 +386,16 @@ BatteryInputs make_battery_inputs(uint32_t k, uint32_t n, bool zero_bias = false
     return name;
 }
 
-// Run a host-side callable, converting any throw into a recorded no-go
-// string. NOTE: a JIT device.compile failure on some backends can ABORT the
-// process instead of throwing (LUISA_ERROR is [[noreturn]]; e.g. the VK
-// HLSL-fallback coop path that yields invalid SPIR-V aborts inside
-// Device::_create_shader_hlsl when the ComputeShader is created) - try/catch
-// cannot contain that, which is why EVERY coop compile site below first
-// gates on the non-aborting AOT path device.compile_to(name, false, false),
-// exactly like tensor_path.cpp's run_probe: compile_to==false => recorded
-// no-go and device.compile is NEVER reached for that kernel.
-template<typename Fn>
-[[nodiscard]] bool try_call(luisa::string &err, Fn &&fn) noexcept(false) {
-    try {
-        std::forward<Fn>(fn)();
-        return true;
-    } catch (const std::exception &e) {
-        err = luisa::format("threw: {}", e.what());
-        return false;
-    } catch (...) {
-        err = "threw: unknown exception";
-        return false;
-    }
-}
+// NOTE: exceptions are disabled project-wide (-fno-exceptions) and a JIT
+// device.compile failure on some backends can ABORT the process anyway
+// (LUISA_ERROR is [[noreturn]]; e.g. the VK HLSL-fallback coop path that
+// yields invalid SPIR-V aborts inside Device::_create_shader_hlsl when the
+// ComputeShader is created) - nothing can be caught, which is why EVERY coop
+// compile site below first gates on the non-aborting AOT path
+// device.compile_to(name, false, false), exactly like tensor_path.cpp's
+// run_probe: compile_to==false => recorded no-go and device.compile is NEVER
+// reached for that kernel. Post-gate failures are recorded as no-go notes via
+// plain early-out / if-else error-code style.
 
 // Execute one cell end-to-end and return whether the numerics passed; fills
 // the cell record. `kernel` is the (already-built) DSL kernel object. Every
@@ -439,29 +426,26 @@ void run_battery_cell(Device &device, Stream &stream, const luisa::string &backe
         LUISA_INFO("coop probe K={} N={}: NO-GO ({})", k, n, cell.note);
         return;// recorded no-go; not a numeric failure
     }
-    const auto compiled = try_call(cell.note, [&] {
-        auto shader = device.compile(kernel);
-        if (!shader) {
-            throw std::runtime_error{"shader object invalid after compile"};
-        }
-        cell.compiled = true;
-        // zero-copy aliasing (plan §5.1 item 6: alias canonical [K,N] buffers
-        // as ByteBufferView; coop_api.md §4).
-        const ByteBufferView x_bv{x_buf};
-        const ByteBufferView w_bv{w_buf};
-        const ByteBufferView b_bv{b_buf};
-        const ByteBufferView y_bv{y_buf};
-        stream << x_buf.copy_from(luisa::span{in.x})
-               << w_buf.copy_from(luisa::span{in.w})
-               << b_buf.copy_from(luisa::span{in.bias})
-               << shader(x_bv, w_bv, b_bv, y_bv).dispatch(32u)
-               << y_buf.copy_to(luisa::span{got})
-               << synchronize();
-    });
-    if (!compiled) {
+    auto shader = device.compile(kernel);
+    if (!shader) {
+        cell.compiled = false;
+        cell.note = "shader object invalid after compile";
         LUISA_INFO("coop probe K={} N={}: NO-GO ({})", k, n, cell.note);
         return;// recorded no-go; not a numeric failure
     }
+    cell.compiled = true;
+    // zero-copy aliasing (plan §5.1 item 6: alias canonical [K,N] buffers
+    // as ByteBufferView; coop_api.md §4).
+    const ByteBufferView x_bv{x_buf};
+    const ByteBufferView w_bv{w_buf};
+    const ByteBufferView b_bv{b_buf};
+    const ByteBufferView y_bv{y_buf};
+    stream << x_buf.copy_from(luisa::span{in.x})
+           << w_buf.copy_from(luisa::span{in.w})
+           << b_buf.copy_from(luisa::span{in.bias})
+           << shader(x_bv, w_bv, b_bv, y_bv).dispatch(32u)
+           << y_buf.copy_to(luisa::span{got})
+           << synchronize();
     cell.executed = true;
     // Gate: per-element abs(diff) <= 1e-3 * max(1, |ref|) (plan gemm gate).
     float worst = 0.f;
@@ -607,7 +591,8 @@ int main(int argc, char *argv[]) {
     // the fp32 config unsupported -> the coop path emits SPIR-V the validator
     // rejects (OpCooperativeVectorMatrixMulAddNV operands must be array
     // types) and the JIT creation aborts via LUISA_ERROR inside
-    // Device::_create_shader_hlsl - try/catch cannot contain that; the
+    // Device::_create_shader_hlsl - nothing can be caught in a
+    // -fno-exceptions build; the
     // compile_only AOT arm only logs and reports compile_ok=false). A false
     // result is the documented C0 no-go path (tensor_optimize.md §5.1/§9):
     // print the reason, skip ALL coop execution for this battery, PASS.
@@ -634,11 +619,11 @@ int main(int argc, char *argv[]) {
             // C0 no-go path (tensor_optimize.md §5.1/§9) -> PASS with reason.
         } else {
             const auto in = make_battery_inputs(kCoopProbeK, kCoopProbeN);
-            const auto ok = try_call(cell.note, [&] {
-                const auto shader = device.compile(kernel);
-                if (!shader) {
-                    throw std::runtime_error{"engine probe shader invalid"};
-                }
+            const auto shader = device.compile(kernel);
+            const bool ok = static_cast<bool>(shader);
+            if (!ok) {
+                cell.note = "engine probe shader invalid";
+            } else {
                 cell.compiled = true;
                 auto x_buf = device.create_buffer<float>(kCoopProbeK);
                 auto w_buf = device.create_buffer<float>(kCoopProbeK * kCoopProbeN);
@@ -674,7 +659,7 @@ int main(int argc, char *argv[]) {
                     failures++;
                     cell.note = luisa::format("engine probe: {} element(s) exceed 1e-3 gate", bad);
                 }
-            });
+            }
             coop_engine_probe_ran = cell.executed;
             if (!ok) {
                 LUISA_INFO("[coop probe] no-go: ENGINE probe kernel compile/run failed ({}); "
@@ -708,7 +693,8 @@ int main(int argc, char *argv[]) {
                 cell.k = k;
                 cell.n = n;
                 // Building the kernel is host-only DSL emission; compile+run
-                // inside run_battery_cell can throw and is caught there.
+                // inside run_battery_cell records no-go notes via the
+                // error-code early-outs there.
                 const auto built = make_battery_kernel_for(k, n);
                 // AST check on every emitted battery kernel: coop ops present.
                 const auto *fb = built.function().get();
@@ -758,7 +744,7 @@ int main(int argc, char *argv[]) {
                backend, num_go, table.size());
 
     // Accumulate-then-expect-once: numeric failures above are the only
-    // FAIL path; compile throws are honest no-go evidence (PASS).
+    // FAIL path; recorded compile no-gos are honest no-go evidence (PASS).
     expect(failures == 0u)
         << luisa::format("coop probe produced {} numeric failure(s) (layout/numerics bug)",
                          failures);

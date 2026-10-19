@@ -311,9 +311,10 @@ void test_clc_canonical_ptx_regression(Device &device) {
 
 // 6. Cluster-barrier smoke test.
 //    On sm_90+ every kernel has an implicit 1x1x1 cluster, so the cluster
-//    barrier wrappers should be legal. If the backend raises an illegal
-//    instruction at runtime, catch it, log a warning, and skip rather than
-//    fail.
+//    barrier wrappers should be legal. NOTE: exceptions are disabled
+//    project-wide (-fno-exceptions) and backend failures abort via
+//    LUISA_ERROR ([[noreturn]], std::abort) rather than throwing, so they
+//    cannot be caught and skipped - the smoke test just runs unconditionally.
 void test_cluster_barrier_smoke(Device &device) {
     constexpr auto block_size = 32u;
 
@@ -334,23 +335,15 @@ void test_cluster_barrier_smoke(Device &device) {
         out.write(thread_x(), data[0u]);
     };
 
-    try {
-        auto shader = device.compile(kernel);
-        stream << shader(out).dispatch(block_size) << synchronize();
+    auto shader = device.compile(kernel);
+    stream << shader(out).dispatch(block_size) << synchronize();
 
-        std::array<uint, block_size> result{};
-        stream << out.copy_to(luisa::span{result}) << synchronize();
+    std::array<uint, block_size> result{};
+    stream << out.copy_to(luisa::span{result}) << synchronize();
 
-        for (auto i = 0u; i < block_size; ++i) {
-            expect(result[i] == 7u)
-                << "thread " << i << " observed " << result[i] << ", expected 7";
-        }
-    } catch (const std::exception &e) {
-        // The cluster barrier is not available on this backend/architecture
-        // (e.g. CUDA_ERROR_ILLEGAL_INSTRUCTION); treat as skipped.
-        LUISA_WARNING("cluster_barrier_smoke skipped: cluster barrier not "
-                      "supported on backend '{}' ({}).",
-                      device.backend_name(), e.what());
+    for (auto i = 0u; i < block_size; ++i) {
+        expect(result[i] == 7u)
+            << "thread " << i << " observed " << result[i] << ", expected 7";
     }
 }
 

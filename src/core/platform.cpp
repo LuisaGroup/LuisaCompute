@@ -3,6 +3,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
+#include <climits>
 #include <cstdlib>
 
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
@@ -562,6 +563,40 @@ luisa::string to_string(const TraceItem &item) noexcept {
     using namespace std::string_view_literals;
     return luisa::format("{}", item);
 }
+namespace platform {
+
+// ANSI code page (CP_ACP) conversion primitives. See the contract documented
+// in include/luisa/core/platform.h. These never allocate: the caller owns the
+// buffers, which is what makes them safe to export across module boundaries
+// even where modules link different allocator overrides.
+#if defined(LUISA_PLATFORM_WINDOWS) || defined(_WIN32) || defined(_WIN64)
+size_t narrow_to_wide_acp(luisa::string_view text, wchar_t *dst, size_t capacity) noexcept {
+    if (text.size() > static_cast<size_t>(INT_MAX) || capacity > static_cast<size_t>(INT_MAX)) {
+        return 0u;
+    }
+    const int len = static_cast<int>(text.size());
+    // Query (dst == nullptr): returns the required wchar_t count INCLUDING
+    // the null terminator, 0 for empty input or bytes the ANSI code page
+    // cannot represent (MB_ERR_INVALID_CHARS). Fill: writes up to `capacity`
+    // wchar_t; the returned count may or may not include the written null
+    // terminator depending on the Windows build, so callers size the buffer
+    // with the query result and strip trailing nulls instead of trusting it.
+    return static_cast<size_t>(::MultiByteToWideChar(
+        CP_ACP, MB_ERR_INVALID_CHARS, text.data(), len, dst, static_cast<int>(capacity)));
+}
+
+size_t wide_to_narrow_acp(luisa::wstring_view text, char *dst, size_t capacity, bool strict) noexcept {
+    if (text.size() > static_cast<size_t>(INT_MAX) || capacity > static_cast<size_t>(INT_MAX)) {
+        return 0u;
+    }
+    const DWORD flags = strict ? (WC_ERR_INVALID_CHARS | WC_NO_BEST_FIT_CHARS) : 0u;
+    return static_cast<size_t>(::WideCharToMultiByte(
+        CP_ACP, flags, text.data(), static_cast<int>(text.size()),
+        dst, static_cast<int>(capacity), nullptr, nullptr));
+}
+#endif
+
+}// namespace platform
 }// namespace luisa
 
 // Unity-build hygiene: the macros defined above before <windows.h>, plus the
