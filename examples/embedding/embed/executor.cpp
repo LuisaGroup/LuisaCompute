@@ -25,10 +25,15 @@
 #include <luisa/core/stl/format.h>
 
 #include "kernels/kernels_attention.h"
+#include "kernels/kernels_coop.h"
 #include "kernels/kernels_embed.h"
+#include "kernels/kernels_embed_vec.h"
 #include "kernels/kernels_gemm.h"
 #include "kernels/kernels_heads.h"
+#include "kernels/kernels_heads_vec.h"
 #include "kernels/kernels_norm.h"
+#include "kernels/kernels_norm_vec.h"
+#include "tensor_path.h"
 
 namespace luisa::embed {
 
@@ -152,6 +157,61 @@ enum class EmbedP1Mode { legacy,
         return EmbedP1Mode::window;
     }();
     return mode;
+}
+
+// Tensor-path (tensor_optimize.md 2.1/5.4): the coop matvec variant, selected
+// by an exact-name env override LUISA_EMBED_COOP_CONFIG -- mirroring the
+// whole-variant arm of LUISA_EMBED_GEMM_CONFIG (kernels_gemm.cpp:777-787: an
+// unknown value warns once and falls back to the shipped default, never a
+// hard error at startup). Resolved once per process (thread-safe magic-static,
+// same idiom as embed_p1_mode()).
+[[nodiscard]] const CoopGemmConfig *embed_coop_variant() noexcept {
+    static const CoopGemmConfig *cfg = [] {
+        if (const auto *name = std::getenv("LUISA_EMBED_COOP_CONFIG"); name != nullptr && name[0] != '\0') {
+            if (const auto *c = coop_gemm_variant_by_name(name); c != nullptr) {
+                LUISA_INFO("embed coop: variant '{}' selected by LUISA_EMBED_COOP_CONFIG "
+                           "(kslab {}, ntile {}, tokens_per_block {}).",
+                           c->name, c->kslab, c->ntile, c->tokens_per_block);
+                return c;
+            }
+            LUISA_WARNING("embed coop: LUISA_EMBED_COOP_CONFIG=\"{}\" is not a known variant; "
+                          "falling back to the shipped default '{}'.",
+                          name, coop_gemm_variant(0u)->name);
+        }
+        const auto *c = coop_gemm_variant(0u);
+        LUISA_INFO("embed coop: default variant '{}' (kslab {}, ntile {}, tokens_per_block {}).",
+                   c->name, c->kslab, c->ntile, c->tokens_per_block);
+        return c;
+    }();
+    return cfg;
+}
+
+// vec4 / coop host-binding helpers (tensor_optimize.md 1.1 / 5.2: zero-copy
+// reinterpretation of Buffer<float> as float4 / raw bytes -- no device copy).
+
+// float4 view of a Buffer<float> or BufferView<float> starting at element 0.
+// Offset 0 keeps every element-0 address at the buffer base (16 B aligned),
+// which is what the vec4 kernels' host contract requires.
+[[nodiscard]] auto v4_at0(const compute::Buffer<float> &b) noexcept {
+    return b.view().template as<float4>();
+}
+[[nodiscard]] auto v4_at0(compute::BufferView<float> v) noexcept {
+    return v.as<float4>();
+}
+// float4 view of `b`'s [off, off+n) with n % 4 == 0 -- off == 0 OR 16 B
+// aligned -- via subview-then-as (byte-preserving; the vec4 view inherits the
+// subview byte offset). The element-offset-alignment rule of
+// kernels_norm_vec.h:10-16.
+[[nodiscard]] auto v4_win(const compute::Buffer<float> &b, size_t off, size_t n) noexcept {
+    return b.view(off, n).template as<float4>();
+}
+// Raw byte view for the coop kernel args (coop_api.md 4: ByteBufferView over a
+// typed Buffer<float> is a zero-copy alias).
+[[nodiscard]] auto byte_at0(const compute::Buffer<float> &b) noexcept {
+    return compute::ByteBufferView{b};
+}
+[[nodiscard]] auto byte_at0(compute::BufferView<float> v) noexcept {
+    return compute::ByteBufferView{v};
 }
 
 // Host pass over the uploaded mask: total real tokens and the per-row
@@ -378,6 +438,86 @@ Executor::Executor(Device &device, const WeightStore &weights, compute::Stream &
     _attn_softmax = compile(make_softmax_row_kernel(), "softmax_row");
     _attn_pv = compile(make_attention_pv_kernel(), "attn_pv");
     // _flash stays unset: lazily compiled on the first S > 1024 encode (M4).
+
+    //--- tensor-path selection (tensor_optimize.md 2.1/5.4) -------------------
+    // Legacy (the default; LUISA_EMBED_TENSOR_PATH unset -> Legacy) issues the
+    // byte-identical dispatch sequence and compiles NONE of the shaders below,
+    // so the default startup stays as cheap as before. Only a Vector/Coop
+    // request pays the extra compiles. resolve_tensor_path() never returns Coop
+    // when cooperative support is absent (it errors on an explicit coop
+    // request, falls back to Vector on auto), so coop here already implies the
+    // device passed the C0 probe.
+    const auto req = tensor_path_requested();
+    luisa::string path_reason;
+    _tensor_path = resolve_tensor_path(_device, req);
+    path_reason = tensor_path_name(_tensor_path);
+
+    if (_tensor_path != TensorPath::Legacy) {
+        // vec4 bandwidth/compute twins (DX/VK/CUDA eligible). Each is bound at
+        // record time through a zero-copy BufferView<float>::as<float4>() view
+        // behind a per-site H % 4 == 0 guard, so a ragged shape stays on the
+        // legacy scalar kernel (tensor_optimize.md 4.1: no vec4 tail split).
+        _embed_vec4 = compile(make_embed_lookup_vec4_kernel(), "embed_lookup_vec4");
+        _residual_vec4 = compile(make_residual_add_vec4_kernel(), "residual_add_vec4");
+        _layernorm_vec4 = compile(make_layernorm_vec4_kernel(), "layernorm_vec4");
+        _l2norm_vec4 = compile(make_l2_normalize_vec4_kernel(), "l2_normalize_vec4");
+        _dense_pool_vec4 = compile(make_dense_pool_vec4_kernel(), "dense_pool_vec4");
+        _sparse_head_vec4 = compile(make_sparse_head_vec4_kernel(), "sparse_head_vec4");
+        _colbert_proj_vec4 = compile(make_colbert_proj_vec4_kernel(), "colbert_proj_vec4");
+
+        // coop is a projection replacement only; its matvec reads plain fp32
+        // weights and cannot reinterpret the packed half/bf16 B operand
+        // (tensor_optimize.md 1.3: no BF16 coop; 5.5: half formats gated on
+        // fp32 correctness). When the WeightStore uploaded packed weights, a
+        // coop-resolved path is demoted to Vector BEFORE any coop shader is
+        // compiled (the coop factory would assert wf == Fp32 otherwise).
+        if (_tensor_path == TensorPath::Coop && gemm_wf != GemmWeightFormat::Fp32) {
+            LUISA_WARNING("embedding tensor path: requested/resolved 'coop' but the WeightStore "
+                          "holds packed '{}' GEMM weights; the coop matvec requires fp32 weights "
+                          "(plan 1.3/5.5), so demoting to 'vector'. Set LUISA_EMBED_WEIGHTS=fp32 "
+                          "to keep coop on this package.",
+                          gemm_weight_format_name(gemm_wf));
+            _tensor_path = TensorPath::Vector;
+            path_reason = luisa::format("coop demoted to vector: packed '{}' weights cannot enter the coop path",
+                                        gemm_weight_format_name(gemm_wf));
+        }
+
+        if (_tensor_path == TensorPath::Coop) {
+            // fp32 weights are guaranteed here (demoted above otherwise).
+            // Resolve the variant (env LUISA_EMBED_COOP_CONFIG exact name,
+            // else shipped default coop_gemm_variant(0), mirroring the gemm
+            // config idiom), then compile the two epilogue shaders used by the
+            // projection sites. The shader names bake variant + tile + epilogue
+            // for profiling (plan 5.4), e.g. "embed_coop_gemm_bias_k64_n16_t1".
+            _coop_cfg = *embed_coop_variant();
+            const luisa::string_view tile_tag = [&] {
+                const luisa::string_view n{_coop_cfg.name};
+                constexpr luisa::string_view pfx{"coop_"};
+                return n.starts_with(pfx) ? n.substr(pfx.size()) : n;
+            }();
+            const luisa::string coop_bias_name = luisa::format("embed_coop_gemm_bias_{}", tile_tag);
+            const luisa::string coop_gelu_name = luisa::format("embed_coop_gemm_bias_gelu_erf_{}", tile_tag);
+            _coop_gemm_bias = compile(make_coop_gemm_kernel(GemmEpilogue::Bias, _coop_cfg, coop_bias_name.c_str(), gemm_wf),
+                                      coop_bias_name.c_str());
+            _coop_gemm_gelu = compile(make_coop_gemm_kernel(GemmEpilogue::BiasGeluErf, _coop_cfg, coop_gelu_name.c_str(), gemm_wf),
+                                      coop_gelu_name.c_str());
+        }
+    }
+
+    // Log once per Executor (plan 2.1 logging requirement: backend, requested
+    // path, actual path, reason; the summary line carries the GEMM variant
+    // source + weight format).
+    log_tensor_path_selection(_device.backend_name(), req, _tensor_path, path_reason);
+    {
+        // gemm-variant source: coop => the coop matvec variant name; else =>
+        // the resolved register-GEMM config string. Named locals keep the
+        // .c_str() alive to the log call.
+        const luisa::string gemm_src = _tensor_path == TensorPath::Coop
+                                           ? luisa::string{luisa::string_view{_coop_cfg.name}}
+                                           : gemm_resolved_config_source();
+        LUISA_INFO("embedding executor tensor path: resolved='{}', gemm_variant='{}', weight_format='{}'.",
+                   tensor_path_name(_tensor_path), gemm_src, gemm_weight_format_name(gemm_wf));
+    }
 }
 
 void Executor::_ensure_pool(uint32_t rows, uint32_t batch, uint32_t seq) {
@@ -487,6 +627,25 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
         }
     };
 
+    // TENSOR-PATH flags (tensor_optimize.md 2.1/5.4). Legacy => both false and
+    // EVERY site below falls through to the original, byte-identical dispatch
+    // (the kill switch). vec_ok gates the float4 bandwidth/compute kernels
+    // (Vector and Coop both use them for the non-projection sites); coop_ok
+    // gates only the coop matvec projection replacement. Each site ALSO adds
+    // its own divisibility guard (H % 4, N % ntile, K % kslab) so a ragged
+    // shape keeps the legacy expression even on a new path.
+    const bool vec_ok = (_tensor_path == TensorPath::Vector || _tensor_path == TensorPath::Coop);
+    const bool coop_ok = (_tensor_path == TensorPath::Coop);
+    // Residual+LN sub-block predicate: residual_add_vec4 needs (rf*H) % 4 == 0
+    // and layernorm_vec4 needs H % 4 == 0. The two are COUPLED -- vec4 LN is
+    // in-place, so the post-LN1 hidden lives in _tmp2 on the vec4 path (vs _h1
+    // under legacy) and every buffer slot in the residual1/LN1/ffn-up-input/
+    // residual2/LN2 chain follows from that. The sub-block therefore switches as
+    // ONE unit: full vec4 routing when both guards hold, otherwise the exact
+    // legacy expressions (bit-identical kill switch, and never a half-vec
+    // route that reads a slot the other half never wrote).
+    const bool rn_vec = vec_ok && H % 4u == 0u && (rf * H) % 4u == 0u;
+
     //--- staging upload -------------------------------------------------------
     cl << _ids_dev.view(0, rf).copy_from(job.ids)
        << _mask_dev.view(0, rf).copy_from(job.mask);
@@ -504,29 +663,67 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
     // XLM-R's position convention (first real token = row 2; pack_model.cpp
     // header) so traced layer 0 matches golden_layers.bin to 4.8e-7.
     const auto pos_rows = _weights.pos_emb().size();// full table capacity
-    cl << _embed(_weights.word_emb().view(),
-                 _weights.pos_emb().view(static_cast<size_t>(kEmbedPosOffset) * H,
-                                         (pos_rows / H - kEmbedPosOffset) * H),
-                 _ids_dev.view(0, rf),
-                 _weights.emb_ln_gamma().view(), _weights.emb_ln_beta().view(),
-                 _h0.view(0, rf * H),
-                 S, H, kEmbedLayerNormEps, 0u)
-              .dispatch(static_cast<uint>(rf * kEmbedBlock));
+    if (vec_ok && H % 4u == 0u) {
+        // embed_lookup_vec4: same fused gather+add+LN at float4 width, with the
+        // identical XLM-R +2 adaptation -- bind a shifted pos view (offset
+        // 2*H floats = 16B aligned for H%4==0) and pass pos_offset = 0. Arg
+        // order differs from legacy: (word, ids, pos, gamma, beta, out, ...).
+        const auto pos_shift_elems = static_cast<size_t>(kEmbedPosOffset) * H;
+        cl << _embed_vec4(v4_at0(_weights.word_emb()),
+                          _ids_dev.view(0, rf),
+                          v4_win(_weights.pos_emb(), pos_shift_elems,
+                                 (pos_rows / H - kEmbedPosOffset) * H),
+                          v4_at0(_weights.emb_ln_gamma()), v4_at0(_weights.emb_ln_beta()),
+                          v4_win(_h0, 0u, rf * H),
+                          S, H, kEmbedLayerNormEps, 0u)
+                  .dispatch(static_cast<uint>(rf * kEmbedVecBlock));
+    } else {
+        cl << _embed(_weights.word_emb().view(),
+                     _weights.pos_emb().view(static_cast<size_t>(kEmbedPosOffset) * H,
+                                             (pos_rows / H - kEmbedPosOffset) * H),
+                     _ids_dev.view(0, rf),
+                     _weights.emb_ln_gamma().view(), _weights.emb_ln_beta().view(),
+                     _h0.view(0, rf * H),
+                     S, H, kEmbedLayerNormEps, 0u)
+                  .dispatch(static_cast<uint>(rf * kEmbedBlock));
+    }
     trace(0u, _h0.view(0, rf * H));
 
     const float scale = 1.0f / std::sqrt(static_cast<float>(hd));
     const auto scores_disp = attention_scores_dispatch(B, S, heads);
     const auto pv_disp = attention_pv_dispatch(B, S, heads, hd);
 
+    // coop matvec projection recorder (tensor_optimize.md 5.3/5.4). Records a
+    // coop dispatch into `cl` and returns true ONLY when the resolved path is
+    // coop AND the shape is coop-clean (N % ntile == 0, K % kslab == 0); fp32
+    // weights are already guaranteed by the ctor (coop was demoted to vector
+    // otherwise). Ragged or non-coop shapes return false so the caller records
+    // the unchanged legacy _gemm_* dispatch. `A`/`C`/`bias` are bound as
+    // zero-copy ByteBufferViews (coop_api.md 4).
+    const auto record_coop_proj = [&](const ShaderFor<CoopGemmKernel> &shader,
+                                      BufferView<float> A, const Buffer<float> &W,
+                                      BufferView<float> C, const Buffer<float> &bias,
+                                      uint32_t M, uint32_t N, uint32_t K) noexcept -> bool {
+        if (!coop_ok || N % _coop_cfg.ntile != 0u || K % _coop_cfg.kslab != 0u) [[likely]] {
+            return false;
+        }
+        cl << shader(byte_at0(A), byte_at0(W), byte_at0(bias), byte_at0(C), M, N, K)
+                  .dispatch(coop_gemm_dispatch_size_config(_coop_cfg, M).x);
+        return true;
+    };
+
     //--- 24 encoder layers ----------------------------------------------------
     for (uint32_t i = 0; i < L; i++) {
         const auto &lw = _weights.layer(i);
 
         // qkv projection: [rows,H] @ [H,3H] + bias -> qkv
-        cl << _gemm_bias(_h0.view(0, rf * H), lw.qkv.view(),
-                         _qkv.view(0, rf * 3u * H), lw.qkv_bias.view(),
-                         rows, 3u * H, H)
-                  .dispatch(gemm_dispatch_size(rows, 3u * H));
+        if (!record_coop_proj(_coop_gemm_bias, _h0.view(0, rf * H), lw.qkv,
+                              _qkv.view(0, rf * 3u * H), lw.qkv_bias, rows, 3u * H, H)) {
+            cl << _gemm_bias(_h0.view(0, rf * H), lw.qkv.view(),
+                             _qkv.view(0, rf * 3u * H), lw.qkv_bias.view(),
+                             rows, 3u * H, H)
+                      .dispatch(gemm_dispatch_size(rows, 3u * H));
+        }
 
         // attention (naive trio for S <= 1024, fused flash above)
         if (S <= kNaiveAttentionMaxSeq) {
@@ -561,34 +758,81 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
         }
 
         // out projection + residual + LN1
-        cl << _gemm_bias(_att.view(0, rf * H), lw.attn_out.view(),
-                         _tmp1.view(0, rf * H), lw.attn_out_bias.view(),
-                         rows, H, H)
-                  .dispatch(gemm_dispatch_size(rows, H))
-           << _residual(_h0.view(0, rf * H), _tmp1.view(0, rf * H),
-                        _tmp2.view(0, rf * H), rf * H)
-                  .dispatch(static_cast<uint>(rf * H))
-           << _layernorm(_tmp2.view(0, rf * H), _h1.view(0, rf * H),
-                         lw.ln1_gamma.view(), lw.ln1_beta.view(), H, kEmbedLayerNormEps)
-                  .dispatch(static_cast<uint>(rf * kNormBlock));
+        if (!record_coop_proj(_coop_gemm_bias, _att.view(0, rf * H), lw.attn_out,
+                              _tmp1.view(0, rf * H), lw.attn_out_bias, rows, H, H)) {
+            cl << _gemm_bias(_att.view(0, rf * H), lw.attn_out.view(),
+                             _tmp1.view(0, rf * H), lw.attn_out_bias.view(),
+                             rows, H, H)
+                      .dispatch(gemm_dispatch_size(rows, H));
+        }
+        // residual (_h0 + _tmp1 -> _tmp2) + LN1 (_tmp2 -> post-LN1). Under
+        // legacy LN1 writes _h1; the in-place layernorm_vec4 normalizes _tmp2,
+        // so the vec4 sub-block keeps the post-LN1 hidden in _tmp2 and leaves
+        // _h1 unused (rn_vec drives the whole chain together, see its
+        // definition above). The layer-entry running hidden stays in _h0: both
+        // residual forms take a=_h0, and LN's result never lands there until
+        // LN2 writes the next layer's running value.
+        if (rn_vec) {
+            cl << _residual_vec4(v4_win(_h0, 0u, rf * H), v4_win(_tmp1, 0u, rf * H),
+                                 v4_win(_tmp2, 0u, rf * H),
+                                 static_cast<uint32_t>(rf * H / 4u))
+                      .dispatch(static_cast<uint>(rf * H / 4u))
+               << _layernorm_vec4(v4_win(_tmp2, 0u, rf * H),
+                                  v4_at0(lw.ln1_gamma), v4_at0(lw.ln1_beta),
+                                  H, kEmbedLayerNormEps)
+                      .dispatch(static_cast<uint>(rf * kNormVecBlock));
+        } else {
+            cl << _residual(_h0.view(0, rf * H), _tmp1.view(0, rf * H),
+                            _tmp2.view(0, rf * H), rf * H)
+                      .dispatch(static_cast<uint>(rf * H))
+               << _layernorm(_tmp2.view(0, rf * H), _h1.view(0, rf * H),
+                             lw.ln1_gamma.view(), lw.ln1_beta.view(), H, kEmbedLayerNormEps)
+                      .dispatch(static_cast<uint>(rf * kNormBlock));
+        }
 
         // FFN (erf-GELU fused in the up-projection epilogue) + residual + LN2.
-        // The result returns to _h0 in place: _h0's layer input is fully
-        // consumed by the first residual_add before LN2 writes back.
-        cl << _gemm_gelu(_h1.view(0, rf * H), lw.ffn_up.view(),
-                         _ffn.view(0, rf * I), lw.ffn_up_bias.view(),
-                         rows, I, H)
-                  .dispatch(gemm_dispatch_size(rows, I))
-           << _gemm_bias(_ffn.view(0, rf * I), lw.ffn_down.view(),
-                         _tmp1.view(0, rf * H), lw.ffn_down_bias.view(),
-                         rows, H, I)
-                  .dispatch(gemm_dispatch_size(rows, H))
-           << _residual(_h1.view(0, rf * H), _tmp1.view(0, rf * H),
-                        _tmp2.view(0, rf * H), rf * H)
-                  .dispatch(static_cast<uint>(rf * H))
-           << _layernorm(_tmp2.view(0, rf * H), _h0.view(0, rf * H),
-                         lw.ln2_gamma.view(), lw.ln2_beta.view(), H, kEmbedLayerNormEps)
-                  .dispatch(static_cast<uint>(rf * kNormBlock));
+        // Legacy: _h1 (post-LN1) -> ffn.up -> ffn.down -> _tmp1; residual2
+        // (_h1 + _tmp1 -> _tmp2); LN2 (_tmp2 -> _h0). The result returns to _h0
+        // in place: _h0's layer input is fully consumed by residual1 before LN2
+        // writes back.
+        //
+        // vec4 routing: layernorm_vec4 has NO separate y operand (it normalizes
+        // x in place), so the rn_vec path keeps the post-LN1 hidden in _tmp2
+        // (LN1's in-place slot) instead of _h1 -- _h1 is entirely unused there.
+        if (!record_coop_proj(_coop_gemm_gelu, rn_vec ? _tmp2.view(0, rf * H) : _h1.view(0, rf * H), lw.ffn_up,
+                              _ffn.view(0, rf * I), lw.ffn_up_bias, rows, I, H)) {
+            cl << _gemm_gelu(rn_vec ? _tmp2.view(0, rf * H) : _h1.view(0, rf * H),
+                             lw.ffn_up.view(),
+                             _ffn.view(0, rf * I), lw.ffn_up_bias.view(),
+                             rows, I, H)
+                      .dispatch(gemm_dispatch_size(rows, I));
+        }
+        if (!record_coop_proj(_coop_gemm_bias, _ffn.view(0, rf * I), lw.ffn_down,
+                              _tmp1.view(0, rf * H), lw.ffn_down_bias, rows, H, I)) {
+            cl << _gemm_bias(_ffn.view(0, rf * I), lw.ffn_down.view(),
+                             _tmp1.view(0, rf * H), lw.ffn_down_bias.view(),
+                             rows, H, I)
+                      .dispatch(gemm_dispatch_size(rows, H));
+        }
+        // residual2 + LN2 (vec path: _tmp2 (post-LN1) + _tmp1 -> _h0, LN2
+        // normalizes _h0 in place; legacy: _h1 + _tmp1 -> _tmp2, LN2 -> _h0).
+        if (rn_vec) {
+            cl << _residual_vec4(v4_win(_tmp2, 0u, rf * H), v4_win(_tmp1, 0u, rf * H),
+                                 v4_win(_h0, 0u, rf * H),
+                                 static_cast<uint32_t>(rf * H / 4u))
+                      .dispatch(static_cast<uint>(rf * H / 4u))
+               << _layernorm_vec4(v4_win(_h0, 0u, rf * H),
+                                  v4_at0(lw.ln2_gamma), v4_at0(lw.ln2_beta),
+                                  H, kEmbedLayerNormEps)
+                      .dispatch(static_cast<uint>(rf * kNormVecBlock));
+        } else {
+            cl << _residual(_h1.view(0, rf * H), _tmp1.view(0, rf * H),
+                            _tmp2.view(0, rf * H), rf * H)
+                      .dispatch(static_cast<uint>(rf * H))
+               << _layernorm(_tmp2.view(0, rf * H), _h0.view(0, rf * H),
+                             lw.ln2_gamma.view(), lw.ln2_beta.view(), H, kEmbedLayerNormEps)
+                      .dispatch(static_cast<uint>(rf * kNormBlock));
+        }
 
         trace(i + 1u, _h0.view(0, rf * H));
     }
@@ -601,17 +845,38 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
     // Bit-identical to the legacy loop below (scratch harness, 0/16384 differing
     // floats on dx+vk+fallback). EMBED_N1_FUSE_POOL=0 restores the legacy pair.
     if (embed_fuse_pool_enabled()) [[likely]] {
-        cl << _dense_pool(_h0.view(0, rf * H),
-                          _dense_dev.view(0, static_cast<size_t>(B) * H),
-                          S, H)
-                  .dispatch(static_cast<uint>(B * kNormBlock));
+        if (vec_ok && H % 4u == 0u) {
+            // fused CLS-slice + L2-normalize at float4 width; hidden [B*S*H]
+            // and out [B*H] views start at element 0 (16 B aligned for H%4==0).
+            cl << _dense_pool_vec4(v4_win(_h0, 0u, rf * H),
+                                   v4_win(_dense_dev, 0u, static_cast<size_t>(B) * H),
+                                   S, H)
+                      .dispatch(static_cast<uint>(B * kNormVecBlock));
+        } else {
+            cl << _dense_pool(_h0.view(0, rf * H),
+                              _dense_dev.view(0, static_cast<size_t>(B) * H),
+                              S, H)
+                      .dispatch(static_cast<uint>(B * kNormBlock));
+        }
     } else {
+        // legacy unfused pair (EMBED_N1_FUSE_POOL=0 kill switch): slice_cls has
+        // no vec4 twin, so it stays scalar; l2_normalize uses its vec4 variant
+        // whenever the guards allow (both kernels touch the same [b*H, b*H+H)
+        // windows, whose byte offsets are multiples of 16 when H % 4 == 0).
+        const bool l2_vec = vec_ok && H % 4u == 0u;
         for (uint32_t b = 0; b < B; b++) {
             cl << _slice_cls(_h0.view(static_cast<size_t>(b) * S * H, H),
                              _cls.view(0, H), H)
-                      .dispatch(H)
-               << _l2norm(_cls.view(0, H), _dense_dev.view(static_cast<size_t>(b) * H, H), H)
-                      .dispatch(kNormBlock);
+                      .dispatch(H);
+            if (l2_vec) {
+                cl << _l2norm_vec4(v4_win(_cls, 0u, H),
+                                   v4_win(_dense_dev, static_cast<size_t>(b) * H, H),
+                                   H)
+                          .dispatch(kNormVecBlock);
+            } else {
+                cl << _l2norm(_cls.view(0, H), _dense_dev.view(static_cast<size_t>(b) * H, H), H)
+                          .dispatch(kNormBlock);
+            }
         }
     }
 
@@ -629,11 +894,24 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
                         job.sparse_out.size(), rf);
         }
         if (p1_mode == EmbedP1Mode::pairs && sparse_windows.real_total > 0u) {
+            // PAIRS stays on the legacy compact kernel for the vec4 v1 path:
+            // sparse_head_compact has NO vec4 twin yet (the vec4 set covers
+            // sparse_head only), and mixing vec4 y with the compact-append
+            // kernel would change neither the values nor the pairing -- but
+            // there is simply nothing to swap in, so this mode keeps the exact
+            // legacy dispatch. (Documented v1 limitation.)
             cl << _sparse_count_reset(_sparse_count.view()).dispatch(32u)
                << _sparse_head_compact(_h0.view(0, rf * H), _weights.sparse_w().view(),
                                        _weights.sparse_b(), _mask_dev.view(0, rf),
                                        _sparse_pair_ids.view(0, rf), _sparse_pair_w.view(0, rf),
                                        _sparse_count.view(0, 1), H)
+                      .dispatch(static_cast<uint>(rf * kHeadsBlock));
+        } else if (vec_ok && H % 4u == 0u) {
+            // WINDOW / LEGACY readback modes (they share this dispatch): the
+            // float4 dot variant -- X [rows,H] and W_s [H] as float4 views,
+            // b_s stays the host scalar, out [rows] stays plain float.
+            cl << _sparse_head_vec4(v4_win(_h0, 0u, rf * H), v4_at0(_weights.sparse_w()),
+                                    _weights.sparse_b(), _sparse_dev.view(0, rf), H)
                       .dispatch(static_cast<uint>(rf * kHeadsBlock));
         } else {
             cl << _sparse_head(_h0.view(0, rf * H), _weights.sparse_w().view(),
@@ -646,10 +924,24 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
             LUISA_ERROR("executor: want_colbert but colbert_out has {} floats (need {}).",
                         job.colbert_out.size(), rf * H);
         }
-        cl << _colbert_proj(_h0.view(0, rf * H), _weights.colbert_w().view(),
-                            _weights.colbert_b().view(), _colbert_dev.view(0, rf * H),
-                            H, H, 1u)
-                  .dispatch(static_cast<uint>(rf * kHeadsBlock));
+        // colbert_proj_vec4 host contract: H % 4 == 0 AND N % 4 == 0 (here the
+        // call site projects [rows,H] -> [rows,H], so N == H and one guard
+        // covers both); X, W_c [H,N] row-major, b_c [N], out [rows,N] all at
+        // element offset 0 (16 B aligned).
+        const uint32_t colbert_n = H;
+        if (vec_ok && H % 4u == 0u && colbert_n % 4u == 0u) {
+            cl << _colbert_proj_vec4(v4_win(_h0, 0u, rf * H),
+                                     v4_at0(_weights.colbert_w()),
+                                     v4_at0(_weights.colbert_b()),
+                                     v4_win(_colbert_dev, 0u, rf * colbert_n),
+                                     H, colbert_n, 1u)
+                      .dispatch(static_cast<uint>(rf * kHeadsVecBlock));
+        } else {
+            cl << _colbert_proj(_h0.view(0, rf * H), _weights.colbert_w().view(),
+                                _weights.colbert_b().view(), _colbert_dev.view(0, rf * H),
+                                H, H, 1u)
+                      .dispatch(static_cast<uint>(rf * kHeadsBlock));
+        }
     }
 
     //--- readback --------------------------------------------------------------

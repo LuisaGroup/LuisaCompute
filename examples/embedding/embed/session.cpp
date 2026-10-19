@@ -69,9 +69,12 @@ luisa::unique_ptr<Session> Session::create(Device &device,
     cfg.num_workers = num_workers;
     session->_scheduler = luisa::make_unique<Scheduler>(device, *session->_weights, cfg);
 
-    LUISA_INFO("embedding Session ready: {} layers, H={}, {} weights-queue workers.",
+    LUISA_INFO("embedding Session ready: {} layers, H={}, {} weights-queue workers, "
+               "tensor-path='{}', gemm='{}'.",
                session->_package->num_layers(), session->_package->hidden_size(),
-               session->_scheduler->worker_count());
+               session->_scheduler->worker_count(),
+               tensor_path_name(tensor_path_requested()),
+               gemm_resolved_config_source());
     return session;
 }
 

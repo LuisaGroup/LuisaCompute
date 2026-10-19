@@ -256,6 +256,23 @@ void check_residual_add(Device &device, Stream &stream, Parity &parity) {
     }
 }
 
+// Vector register-blocked family (tensor_optimize.md §4, rbv_*): the two
+// comparator variants MUST be present in the compiled-in variant table (found by
+// name). Host-only checks — no device/launch. gemm_tile_index_by_name returns -1
+// for an unknown name.
+void check_gemm_vec4_table(Parity &parity) {
+    const char *const vec_names[] = {"rbv_64x64_b128_r84v4", "rbv_128x64_b256_r84v4"};
+    for (const char *name : vec_names) {
+        const int32_t idx = gemm_tile_index_by_name(name);
+        const bool present = idx >= 0 && gemm_tile_variant(static_cast<uint32_t>(idx)) != nullptr;
+        LUISA_INFO("gemm vec4 table presence [{}]: index={} present={}", name, idx,
+                   present ? "yes" : "no");
+        expect(present) << "gemm variant table must contain the vec4 family entry " << name;
+        parity.cases++;
+        parity.failures += present ? 0u : 1u;
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -269,6 +286,7 @@ int main(int argc, char *argv[]) {
     check_gemm_epilogue(device, stream, GemmEpilogue::BiasRelu, parity);
     check_gemm_epilogue(device, stream, GemmEpilogue::ResidualAdd, parity);
     check_residual_add(device, stream, parity);
+    check_gemm_vec4_table(parity);// host-only vec4 family table presence
 
     LUISA_INFO("gemm/layernorm gate: worst max-abs-diff {:.3e} at gemm[{}] "
                "(M={}, N={}, K={}) over {} cases",

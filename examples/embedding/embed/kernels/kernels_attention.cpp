@@ -226,6 +226,11 @@ using compute::Var;
 constexpr uint kAttnTile = 16u;
 constexpr uint kAttnStride = kAttnTile + 1u;
 
+// #6v PV vec4: one block = 16 query rows (tr) x 16 vec4 channel groups (tc), so a
+// block covers 64 head channels (16 groups * 4 lanes). tiles_d counts these
+// 64-channel blocks (head_dim = 64 -> tiles_d = 1).
+constexpr uint kAttnVecChannelsPerBlock = kAttnTile * 4u;// 64
+
 // softmax_row shared exp-value cache: the naive path is defined for S <= 1024
 // (4 KiB of shared), longer rows fall back to recomputing exp() in pass 3.
 constexpr uint kSoftmaxCacheS = 1024u;
@@ -562,10 +567,30 @@ uint2 attention_scores_dispatch(uint32_t batch, uint32_t seq_len, uint32_t num_h
     return {tiles * kAttentionBlock, batch * num_heads * tiles};
 }
 
+// #4v: SAME geometry as attention_scores_dispatch (16x16 logits tiles, block 256).
+uint2 attention_scores_vec4_dispatch(uint32_t batch, uint32_t seq_len, uint32_t num_heads) noexcept {
+    const auto tiles = (seq_len + kAttnTile - 1u) / kAttnTile;
+    return {tiles * kAttentionBlock, batch * num_heads * tiles};
+}
+
 uint2 attention_pv_dispatch(uint32_t batch, uint32_t seq_len, uint32_t num_heads,
                             uint32_t head_dim) noexcept {
     const auto tiles_q = (seq_len + kAttnTile - 1u) / kAttnTile;
     const auto tiles_d = (head_dim + kAttnTile - 1u) / kAttnTile;
+    return {tiles_d * kAttentionBlock, batch * num_heads * tiles_q};
+}
+
+// #6v: float4-channel PV geometry. 256 threads = 16 query rows (tr) x 16 vec4
+// channel groups (tc), so one block covers 16 rows x 64 channels: the channel
+// tile is 16*4 = 64 wide (head_dim/4 float4 groups), hence tiles_d counts
+// 64-channel blocks, not 16. For head_dim = 64 (bge-m3) tiles_d == 1.
+uint2 attention_pv_vec4_dispatch(uint32_t batch, uint32_t seq_len, uint32_t num_heads,
+                                 uint32_t head_dim) noexcept {
+    LUISA_ASSERT(head_dim % 4u == 0u,
+                 "attention_pv_vec4 requires head_dim % 4 == 0 (ragged head_dim uses the "
+                 "legacy scalar PV kernel)");
+    const auto tiles_q = (seq_len + kAttnTile - 1u) / kAttnTile;
+    const auto tiles_d = (head_dim + kAttnVecChannelsPerBlock - 1u) / kAttnVecChannelsPerBlock;
     return {tiles_d * kAttentionBlock, batch * num_heads * tiles_q};
 }
 
@@ -680,6 +705,128 @@ AttentionScoresKernel make_attention_scores_kernel() noexcept {
                 // i.e. this thread's query row against the staged key row tc.
                 for (auto j = 0u; j < kAttnTile; j++) {
                     acc += tile_q[tr * kAttnStride + j] * tile_k[tc * kAttnStride + j];
+                }
+                sync_block();
+            };
+
+            Float bias;
+            $if (ki < S) {
+                bias = (1.0f - mask.read(b * S + ki)) * neg_large;
+            }
+            $else {
+                bias = def(0.0f);
+            };
+
+            $if (qi < S & ki < S) {
+                logits.write((bh * S + qi) * S + ki, acc * scale + bias);
+            };
+        };
+    };
+    return kernel;
+}
+
+//-----------------------------------------------------------------------------
+// #4v attention_scores_vec4 (tensor_optimize.md §4.3 QK vec4 twin of #4)
+//-----------------------------------------------------------------------------
+AttentionScoresVec4Kernel make_attention_scores_vec4_kernel() noexcept {
+    using namespace luisa::compute;
+
+    // Identical geometry, staging and epilogue to make_attention_scores_kernel:
+    // one 16x16 logits tile per block (block 256 = kAttentionBlock), Q/K streamed
+    // through two 16x17 Shared<float> tiles (stride kAttnStride = 17 dodges the
+    // stride-16 bank conflict), the fused scale + additive key-side mask bias and
+    // the guarded store unchanged. The ONLY difference is the inner product: the
+    // 16-step scalar unroll (acc += tile_q[tr*17+j]*tile_k[tc*17+j]) becomes 4
+    // float4 chunks -> acc += dot(make_float4(tq[4j..4j+3]),
+    // make_float4(tk[4j..4j+3])) for j in 0..3.
+    //
+    // Ragged head_dim (robust test runs 1 and 7) needs NO scalar remainder loop:
+    // the stage loop still covers head_dim in ceil(head_dim/16) sub-tiles and the
+    // predicated staging ZERO-FILLS every channel >= head_dim (and every key/query
+    // row >= S) into the tile, so a 16-wide staged row is always well-defined and
+    // the dot's out-of-range lanes contribute exactly 0 * 0. Each sub-tile is 16
+    // floats == 4 lanes of a float4, so the vec4 chunking is exact (no tail) for
+    // any head_dim. The dot() re-associates the 16-sum into 4 chunk dots -- allowed
+    // per plan §8.2(3); the 1e-4 tolerance gate still applies and the legacy #4
+    // remains the bit-parity oracle.
+    AttentionScoresVec4Kernel kernel = [](BufferFloat qkv, BufferFloat mask, BufferFloat logits,
+                                          Var<uint> S, Var<uint> num_heads, Var<uint> head_dim,
+                                          Var<float> scale, Var<float> neg_large) noexcept {
+        set_block_size(kAttentionBlock, 1u, 1u);
+        set_name("embed_attention_scores_vec4");
+
+        Shared<float> tile_q{kAttnTile * kAttnStride};
+        Shared<float> tile_k{kAttnTile * kAttnStride};
+
+        const Var tid = thread_x();
+        const Var tr = tid / kAttnTile;// row of the tile == query index
+        const Var tc = tid % kAttnTile;// column of the tile == key index
+
+        const Var tiles = (S + kAttnTile - 1u) / kAttnTile;
+        const Var lin = flattened_block_id();
+        const Var kt = lin % tiles;// key tile
+        const Var rest = lin / tiles;
+        const Var qt = rest % tiles;// query tile
+        const Var bh = rest / tiles;// (batch, head)
+
+        const Var qi = qt * kAttnTile + tr;// this thread's output query row
+        const Var ki = kt * kAttnTile + tc;// this thread's output key column
+        // The tile is staged by rows, so the K rows a thread loads are keyed by
+        // tr while the key column it *computes* is keyed by tc.
+        const Var ki_stage = kt * kAttnTile + tr;
+
+        // The dispatch grid is exact (file header): each block maps to one
+        // (batch-head, query-tile, key-tile) triple; no per-block bound check is
+        // needed (or possible on dx, where buffer.size() is not usable). Ragged S
+        // / head_dim are handled by the per-element predicated staging.
+        {
+            const Var b = bh / num_heads;
+            const Var h = bh % num_heads;
+            const Var row_stride = 3u * num_heads * head_dim;
+            const Var q_base = (b * S + qi) * row_stride + h * head_dim;
+            const Var k_stage_base = (b * S + ki_stage) * row_stride + num_heads * head_dim +
+                                     h * head_dim;
+
+            Var acc = def(0.0f);
+            $for (dt, (head_dim + kAttnTile - 1u) / kAttnTile) {
+                const Var d0 = dt * kAttnTile;
+                // Thread (tr, tc) stages Q[qi0+tr][d0+tc] into tile_q[tr][tc] and
+                // K[ki0+tr][d0+tc] into tile_k[tr][tc]: both reads run along
+                // head_dim for consecutive tc (coalesced), and every element of
+                // both tiles is written (zero-filled) so no uninitialised shared
+                // value can reach the dot product.
+                Float qv;
+                $if (qi < S & (d0 + tc) < head_dim) {
+                    qv = qkv.read(q_base + d0 + tc);
+                }
+                $else {
+                    qv = def(0.0f);
+                };
+                tile_q[tr * kAttnStride + tc] = qv;
+                Float kv;
+                $if (ki_stage < S & (d0 + tc) < head_dim) {
+                    kv = qkv.read(k_stage_base + d0 + tc);
+                }
+                $else {
+                    kv = def(0.0f);
+                };
+                tile_k[tr * kAttnStride + tc] = kv;
+                sync_block();
+                // vec4 inner product: 4 chunks over the staged 16-wide row. The
+                // four float4 reads come from compile-time lane offsets (4j..4j+3)
+                // against the runtime this-thread bases tr/tc -- the DSL records an
+                // independent index expression per unrolled step. Each chunk dot is
+                // an independent DOT; their scalar sums fold into `acc`.
+                const Var qrow = tr * kAttnStride;
+                const Var krow = tc * kAttnStride;
+                for (auto j = 0u; j < kAttnTile / 4u; j++) {
+                    const Var qo = qrow + j * 4u;
+                    const Var ko = krow + j * 4u;
+                    const Float4 qv4 = make_float4(tile_q[qo], tile_q[qo + 1u],
+                                                   tile_q[qo + 2u], tile_q[qo + 3u]);
+                    const Float4 kv4 = make_float4(tile_k[ko], tile_k[ko + 1u],
+                                                   tile_k[ko + 2u], tile_k[ko + 3u]);
+                    acc += dot(qv4, kv4);
                 }
                 sync_block();
             };

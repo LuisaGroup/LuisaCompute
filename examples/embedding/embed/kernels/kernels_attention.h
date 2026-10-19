@@ -74,6 +74,46 @@ using AttentionPvKernel = compute::Kernel2D<void(
     uint32_t /*S*/, uint32_t /*num_heads*/, uint32_t /*head_dim*/)>;
 [[nodiscard]] AttentionPvKernel make_attention_pv_kernel() noexcept;
 
+// ---------------------------------------------------------------------------
+// VEC4 TWIN VARIANTS (tensor_optimize.md §4.3 "naive attention / flash
+// attention" — P2 row). The naive QK/PV kernels above are the bit-level
+// regression oracle and stay the shipped/executor path; these are the float4
+// experiments, with IDENTICAL buffer contracts and dispatch geometry so a
+// caller can swap one in per launch. Only the arithmetic changes:
+//   * QK: the 16-step scalar shared-tile dot becomes 4 float4 dot() chunks
+//     (the stage loop still covers head_dim in ceil(head_dim/16) sub-tiles of
+//     exactly 16 floats, zero-filled by the predicated staging, so a
+//     non-multiple-of-4 head_dim is correct by construction — the ragged
+//     channels are the zero lanes; no remainder loop exists, which also keeps
+//     every sub-tile's per-thread dot order identical across dt).
+//   * PV: one thread computes FOUR adjacent head channels with a float4
+//     accumulator and a Shared<float4> V tile; head_dim % 4 == 0 is a host
+//     contract (LUISA_ASSERT), not a tail case.
+// Summation order differs from the legacy twins (chunked dot), so acceptance
+// uses the existing numerical tolerance (plan §8.2(3)); the legacy kernels
+// remain the bit-parity oracle.
+// ---------------------------------------------------------------------------
+
+// #4v: identical math/layout contract to #4 (see the dot formula above), float4
+// inner product. Launch geometry == attention_scores_vec4_dispatch below.
+using AttentionScoresVec4Kernel = compute::Kernel2D<void(
+    compute::Buffer<float> /*qkv*/,    // [B*S, 3*num_heads*head_dim]
+    compute::Buffer<float> /*mask*/,   // [B*S]
+    compute::Buffer<float> /*logits*/, // [B*num_heads, S, S]
+    uint32_t /*S*/, uint32_t /*num_heads*/, uint32_t /*head_dim*/,
+    float /*scale*/, float /*neg_large*/)>;
+[[nodiscard]] AttentionScoresVec4Kernel make_attention_scores_vec4_kernel() noexcept;
+
+// #6v: identical math/layout contract to #6, float4 accumulator (4 adjacent
+// head channels per thread). HOST CONTRACT: head_dim % 4 == 0 (asserted in the
+// factory); ragged head_dim stays on the legacy #6.
+using AttentionPvVec4Kernel = compute::Kernel2D<void(
+    compute::Buffer<float> /*qkv*/,    // [B*S, 3*num_heads*head_dim] (V only)
+    compute::Buffer<float> /*logits*/, // [B*num_heads, S, S] (softmaxed)
+    compute::Buffer<float> /*out*/,    // [B*S, num_heads*head_dim]
+    uint32_t /*S*/, uint32_t /*num_heads*/, uint32_t /*head_dim*/)>;
+[[nodiscard]] AttentionPvVec4Kernel make_attention_pv_vec4_kernel() noexcept;
+
 // M4 fused flash attention (replaces #4-#6). Same logical inputs/outputs as
 // the naive trio, but no logits buffer; `scratch` is per-(b,h) online-softmax
 // rescale state sized scratch_floats(B, S, num_heads) -- see .cpp header for

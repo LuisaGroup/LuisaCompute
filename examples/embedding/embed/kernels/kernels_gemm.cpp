@@ -50,6 +50,35 @@
 // slab. sync_block() never sits inside a divergent branch (the fast/slow fill
 // branches close before the barrier) -- lc_optimize §10.7.
 //
+// 3. Vector register-blocked family (`rbv_*` in the table, tensor_optimize.md
+//    §4 "QKV / FFN / attn.out 普通 GEMM"): same K-slab / shared-padding /
+//    guard-elision skeleton as family 2, but the thread's N sub-tile is RN = 4
+//    *adjacent* columns held as one float4, so
+//      * the shared tiles are float4 arrays (16 B LDS/STS on the fast path --
+//        the B fill goes from TN/TK scalar loads to TN/4 vector loads per slab
+//        row and the consume phase reads one float4 per thread column), and
+//      * the inner product is RM*(RN/4) `fma(make_float4(a_scalar), b4, acc4)`
+//        instructions per K step instead of RM*RN scalar FMAs -- the A operand
+//        broadcast is the free component splat (mpm3d precedent: Var<float4>
+//        component writes and make_float4(scalar) splat are supported), NOT a
+//        bit reinterpretation (there is no `as<float4>()` anywhere here; the
+//        packed-half branches keep the scalar `load_b_element` word unpacking).
+//    The float4 store path is *not* 16 B: `C` is an unaligned [M,N] fp32 row, so
+//    for any TN not a multiple of 4 and any N not a multiple of 4 the vector
+//    store address has no 16 B alignment guarantee -- on DX (HLSL t[] indexing)
+//    and on Vulkan/SPIR-V a misaligned OpTypeVector buffer access is UB, not a
+//    slow path. The store therefore stays scalar (predicated on the edge path,
+//    unguarded on the interior fast path), exactly like family 2.
+//
+//    Deviation from family 2 (measured as accuracy, never as bit-parity): the
+//    float4 accumulator holds 4 components in one DSL var, so the K-order of a
+//    lane's FMAs is unchanged (kk ascending, slab ascending), but a thread's
+//    columns are adjacent instead of COLS apart. The values reaching a lane are
+//    the same products summed in the same order as its rb_ family twin, so
+//    rbv_* and rb_* agree per lane to the bit for equal RM/RN; the *thread
+//    ownership* differs, which is why the sweep compares against the fp64 CPU
+//    reference with the GEMM tolerance and not against the scalar kernel.
+//
 // Weight format (plan §3.1 G7, §4 Q1/Q2; kernels_gemm.h "WEIGHT FORMAT" for
 // the buffer contract): the B-tile load is templated on GemmWeightFormat. For
 // Fp32 it is `B.read(e)` exactly as before -- bit-identical. For Bf16/Fp16 it
@@ -410,6 +439,161 @@ struct RegTile {
     static_assert((a_sh + b_sh) * 4u <= 32768u, "register gemm tile exceeds the 32 KiB DX shared floor");
 };
 
+// Geometry constants of one *vector* register-blocked variant (rbv_*).
+// Differences from RegTile (see the file header, family 3):
+//   - RN is fixed at 4: the thread's N sub-tile is 4 *adjacent* columns held as
+//     one float4 (the vector accumulator), so cols = TN / 4 and the per-thread
+//     tile is RM x 4 (RM = TM / rows).
+//   - the shared tiles are float4 arrays: A is TM x (TK/4) slots with a +1-slot
+//     row pad (4 K-values per slot; the A operand for K step kk is component
+//     kk%4 of slot kk/4), B is TK x (TN/4 + 1) slots (one +1-slot row pad).
+//   - the shared footprint in bytes is the same shape as the scalar family at
+//     equal TM/TN/TK (+16 B per row pad instead of +4 B).
+template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM>
+struct RegVecTile {
+    static constexpr uint32_t rn = 4u;// vector width (RN == 4 by construction)
+    static constexpr uint32_t cols = TN / rn;// thread tiles along N
+    static constexpr uint32_t rows = TM / RM;// thread tiles along M
+    static constexpr uint32_t block = rows * cols;
+    static constexpr uint32_t slots4 = TK / 4u;// float4 slots per A row (logical)
+    static constexpr uint32_t astride4 = slots4 + 1u;// +1 slot: rows land in different banks
+    static constexpr uint32_t bstride4 = cols + 1u;// B row: TN/4 logical slots + 1 pad
+    static constexpr uint32_t a_fill4 = TM * slots4;// A float4 elements (logical)
+    static constexpr uint32_t b_fill4 = TK * cols;// B float4 elements (logical)
+    static constexpr uint32_t a_sh4 = TM * astride4;
+    static constexpr uint32_t b_sh4 = TK * bstride4;
+    static_assert(TK % 4u == 0u, "vector gemm needs TK % 4 == 0 (float4 A slots)");
+    static_assert(TN % rn == 0u, "vector gemm needs TN % 4 == 0 (float4 B columns)");
+    static_assert(TM % RM == 0u, "vector gemm tile must divide into register sub-tiles");
+    static_assert(block >= 32u && block <= 1024u && block % 32u == 0u, "vector gemm block size");
+    static_assert((a_sh4 + b_sh4) * 16u <= 32768u,
+                  "vector gemm tile exceeds the 32 KiB DX shared floor");
+};
+
+// Build a float4 from four (possibly predicated) scalar global loads. When
+// `GUARDED` is set, each component's own predicate selects 0 for an
+// out-of-range element, so a ragged K column or N column zero-fills its lane
+// exactly like the scalar family's per-element fill (no lane may read past the
+// buffer). When unset the four reads are emitted unguarded (interior fast
+// path). `idx(c)` returns the logical element index of component c;
+// `ok(c)` its in-range predicate (only instantiated when GUARDED).
+template<bool GUARDED, typename IdxFun, typename OkFun>
+[[nodiscard]] Var<float4> fill_float4_from(const compute::BufferFloat &buf,
+                                           const IdxFun &idx, const OkFun &ok) noexcept {
+    if constexpr (GUARDED) {
+        const auto load = [&](uint32_t c) noexcept {
+            compute::Float v;
+            $if (ok(c)) {
+                v = buf.read(idx(c));
+            }
+            $else {
+                v = def(0.0f);
+            };
+            return v;
+        };
+        return make_float4(load(0u), load(1u), load(2u), load(3u));
+    } else {
+        return make_float4(buf.read(idx(0u)), buf.read(idx(1u)),
+                           buf.read(idx(2u)), buf.read(idx(3u)));
+    }
+}
+
+// Same as fill_float4_from but for the packed-half B operand: one scalar
+// `load_b_element<WF>` per component (which already does the word unpack +
+// exact up-convert; NO as<float4> reinterpretation of a packed pair, see the
+// file header -- each 16-bit half is converted separately and splatted into
+// its float4 lane).
+template<GemmWeightFormat WF, bool GUARDED, typename IdxFun, typename OkFun>
+[[nodiscard]] Var<float4> fill_float4_from_b(const compute::BufferFloat &B,
+                                             const IdxFun &idx, const OkFun &ok) noexcept {
+    if constexpr (GUARDED) {
+        const auto load = [&](uint32_t c) noexcept {
+            compute::Float v;
+            $if (ok(c)) {
+                v = load_b_element<WF>(B, idx(c));
+            }
+            $else {
+                v = def(0.0f);
+            };
+            return v;
+        };
+        return make_float4(load(0u), load(1u), load(2u), load(3u));
+    } else {
+        return make_float4(load_b_element<WF>(B, idx(0u)), load_b_element<WF>(B, idx(1u)),
+                           load_b_element<WF>(B, idx(2u)), load_b_element<WF>(B, idx(3u)));
+    }
+}
+
+// Select component C (host-known) of a float4 DSL value. Used by the vector
+// consume phase to broadcast ONE A float (the kk-th K value lives in component
+// kk%4 of A slot kk/4). Var<float4> component reads plus the make_float4(scalar)
+// splat are the mpm3d precedent, so no as<float4> reinterpretation is needed.
+// C must be a template parameter (host-known): the DSL has no *runtime* component
+// select that lowers to a uniform register read, so the consume loop picks the
+// lane through an `if constexpr` over the (compile-time) kk counter below.
+template<uint32_t C>
+[[nodiscard]] Var<float> v4_comp(const Var<float4> &v) noexcept {
+    static_assert(C < 4u, "float4 component index");
+    if constexpr (C == 0u) {
+        return v.x;
+    } else if constexpr (C == 1u) {
+        return v.y;
+    } else if constexpr (C == 2u) {
+        return v.z;
+    } else {
+        return v.w;
+    }
+}
+
+// Consume one A-slot chunk (K = CHUNK*4 .. CHUNK*4+3) for the vector family.
+// CHUNK is a *template parameter*; r is a plain host-known loop subscript (the
+// acc[] array is indexed at emission time, exactly like the scalar family's
+// `for (r) for (q) acc[r][q]`). The four component lanes must be written as four
+// explicit v4_comp<0..3> calls (NOT a `for (c)` loop with `if constexpr`): the
+// float4 lane read is a template argument, so it must be a compile-time constant,
+// and a runtime loop variable is not constexpr. The B fragment index is
+// CHUNK*4+lane, all constant-folded into a plain LDS offset at emission time.
+// Each FMA broadcasts ONE A float (make_float4(av), the mpm3d precedent) against
+// the thread's B float4 -- so RM rows * 4 lanes = RM*4 vector FMAs per chunk, i.e.
+// RM*TK total per slab (identical count to the scalar family; the win is the 4x
+// wider accumulator + 16 B B/A shared reads, not fewer FMAs).
+template<uint32_t CHUNK, uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM>
+void reg_vec_consume_chunk(const compute::Shared<float4> &tile_a,
+                           const compute::Shared<float4> &tile_b,
+                           const Var<uint> &grow, const Var<uint> &gcol,
+                           Var<float4> (&acc)[RM]) noexcept {
+    using T = RegVecTile<TM, TN, TK, RM>;
+    static_assert(CHUNK < T::slots4, "A-slot chunk index must be in range");
+    const auto krow = CHUNK * 4u;
+    for (auto r = 0u; r < RM; r++) {
+        const Var<float4> a4 = tile_a[(grow * RM + r) * T::astride4 + CHUNK];
+        const Var<float4> b0 = tile_b[(krow + 0u) * T::bstride4 + gcol];
+        const Var<float4> b1 = tile_b[(krow + 1u) * T::bstride4 + gcol];
+        const Var<float4> b2 = tile_b[(krow + 2u) * T::bstride4 + gcol];
+        const Var<float4> b3 = tile_b[(krow + 3u) * T::bstride4 + gcol];
+        acc[r] = fma(make_float4(v4_comp<0u>(a4)), b0, acc[r]);
+        acc[r] = fma(make_float4(v4_comp<1u>(a4)), b1, acc[r]);
+        acc[r] = fma(make_float4(v4_comp<2u>(a4)), b2, acc[r]);
+        acc[r] = fma(make_float4(v4_comp<3u>(a4)), b3, acc[r]);
+    }
+}
+
+// Expand the whole TK-wide slab consumption as a compile-time C++ recursion over
+// the chunk index: reg_vec_consume_chunk<0> ... <slots4-1>, in ascending kk order
+// (identical K order to the scalar family; lc_optimize §10.6 -- there is no XIR
+// unroll pass, so the unroll is done at emission time).
+template<uint32_t CHUNK = 0u, uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM>
+void reg_vec_consume_slab(const compute::Shared<float4> &tile_a,
+                          const compute::Shared<float4> &tile_b,
+                          const Var<uint> &grow, const Var<uint> &gcol,
+                          Var<float4> (&acc)[RM]) noexcept {
+    using T = RegVecTile<TM, TN, TK, RM>;
+    if constexpr (CHUNK < T::slots4) {
+        reg_vec_consume_chunk<CHUNK, TM, TN, TK, RM>(tile_a, tile_b, grow, gcol, acc);
+        reg_vec_consume_slab<CHUNK + 1u, TM, TN, TK, RM>(tile_a, tile_b, grow, gcol, acc);
+    }
+}
+
 // Shared, epilogue-independent part: the K slab loop (fill -> barrier ->
 // consume -> barrier) accumulating into the per-thread register sub-tile.
 // Instantiated once per geometry (and per B-operand format WF), so an extra
@@ -569,6 +753,230 @@ void reg_store(const Var<float> (&acc)[RM][RN], const compute::BufferFloat &C,
     }
 }
 
+//----------------------------------------------------------------------------------------------------
+// Family 3: vector register-blocked kernel (rbv_*), tensor_optimize.md §4.
+//----------------------------------------------------------------------------------------------------
+
+// Shared, epilogue-independent K-slab loop for the vector family. Each thread
+// accumulates RM x 4 fp32 outputs as RM float4 registers over 4 ADJACENT columns
+// (gcol covers TN/4 thread tiles, each owning one float4 of N). The two shared
+// tiles are float4 arrays (16 B LDS/STS); every slot is written WHOLE via
+// make_float4() of four (predicated or not) scalar reads -- see fill_float4_from
+// (no component write is used, because the DSL shared-access proxy is const and
+// a runtime lane pick does not lower to a register select; the per-lane $if /
+// $else zero-fill in fill_float4_from<true> keeps every slot fully written).
+// Instantiated once per geometry and per B format WF.
+template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM, GemmWeightFormat WF>
+void reg_vec_accumulate(const compute::BufferFloat &A, const compute::BufferFloat &B,
+                        const Var<uint> &M, const Var<uint> &N, const Var<uint> &K,
+                        const Var<uint> &m0, const Var<uint> &n0, const Var<uint> &tid,
+                        Var<float4> (&acc)[RM]) noexcept {
+    using T = RegVecTile<TM, TN, TK, RM>;
+    using Each = FillEach<T::block>;
+    static_assert(T::rn == 4u, "vector family fixes RN = 4");
+
+    compute::Shared<float4> tile_a{T::a_sh4};
+    compute::Shared<float4> tile_b{T::b_sh4};
+
+    const Var grow = tid / T::cols;
+    const Var gcol = tid % T::cols;
+    const Var kfull = K / TK;
+
+    // Fast (unguarded) fill: every logical slot of both tiles is written with a
+    // single 16 B store from a make_float4() of four unguarded scalar reads.
+    const auto fill_fast = [&](const Var<uint> &k0) noexcept {
+        // A: TM rows x slots4 slots; slot s4 holds the 4 K-values c = 4*s4..4*s4+3.
+        Each::template run<T::a_fill4>(tid, [&](const Var<uint> &e) noexcept {
+            const Var r = e / T::slots4;
+            const Var s4 = e % T::slots4;
+            const Var arow = (m0 + r) * K + k0;
+            const auto idx = [&](uint32_t c) noexcept { return arow + s4 * 4u + c; };
+            const auto ok = [&](uint32_t) noexcept { return def(true); };
+            tile_a[r * T::astride4 + s4] = fill_float4_from<false>(A, idx, ok);
+        });
+        // B: TK K-rows x cols slots; slot (kk,gcol) holds the 4 adjacent N columns.
+        Each::template run<T::b_fill4>(tid, [&](const Var<uint> &e) noexcept {
+            const Var r = e / T::cols;// K row inside the slab
+            const Var c = e % T::cols;// float4 column index along N (coalesced)
+            const Var brow = (k0 + r) * N + n0 + c * 4u;
+            const auto idx = [&](uint32_t q) noexcept { return brow + q; };
+            const auto ok = [&](uint32_t) noexcept { return def(true); };
+            tile_b[r * T::bstride4 + c] = fill_float4_from_b<WF, false>(B, idx, ok);
+        });
+    };
+    // Guarded fill: per-lane predicates (ragged K tail or edge block). Each lane
+    // keeps its own $if/$else zero-fill; the slot is fully written on both sides.
+    const auto fill_guarded = [&](const Var<uint> &k0) noexcept {
+        Each::template run<T::a_fill4>(tid, [&](const Var<uint> &e) noexcept {
+            const Var r = e / T::slots4;
+            const Var s4 = e % T::slots4;
+            const Var arow = (m0 + r) * K + k0;
+            const Var in = (m0 + r) < M;
+            const auto idx = [&](uint32_t c) noexcept { return arow + s4 * 4u + c; };
+            const auto ok = [&](uint32_t c) noexcept { return in & (k0 + s4 * 4u + c) < K; };
+            tile_a[r * T::astride4 + s4] = fill_float4_from<true>(A, idx, ok);
+        });
+        Each::template run<T::b_fill4>(tid, [&](const Var<uint> &e) noexcept {
+            const Var r = e / T::cols;
+            const Var c = e % T::cols;
+            const Var brow = (k0 + r) * N + n0 + c * 4u;
+            const auto idx = [&](uint32_t q) noexcept { return brow + q; };
+            const auto ok = [&](uint32_t q) noexcept {
+                return (k0 + r) < K & (n0 + c * 4u + q) < N;
+            };
+            tile_b[r * T::bstride4 + c] = fill_float4_from_b<WF, true>(B, idx, ok);
+        });
+    };
+
+    $for (s, (K + TK - 1u) / TK) {
+        const Var k0 = s * TK;
+        if constexpr (kRegFastpath) {
+            $if ((s < kfull) & (m0 + TM <= M) & (n0 + TN <= N)) {
+                fill_fast(k0);
+            }
+            $else {
+                fill_guarded(k0);
+            };
+        } else {
+            fill_guarded(k0);
+        }
+        sync_block();
+        // Compile-time unrolled slab consumption (no XIR unroll -- lc_optimize
+        // §10.6). For each K step kk: read A slot kk/4, broadcast component kk%4
+        // as one float4, FMA against the thread's B float4 fragment. The
+        // broadcast splat make_float4(Var<float>) is the mpm3d precedent.
+        // Consume the whole slab, fully unrolled at emission time via the
+        // compile-time recursion in reg_vec_consume_slab (CHUNK indexes A slot
+        // kk/4; the per-component broadcast is resolved by `if constexpr` on the
+        // host-constant component index). K order is ascending within a slab and
+        // slabs ascend -- same sequence as the scalar family for equal RM/RN.
+        reg_vec_consume_slab<0u, TM, TN, TK, RM>(tile_a, tile_b, grow, gcol, acc);
+        sync_block();
+    };
+}
+
+// Vector-family epilogue store. `nb` is the thread's first column; its 4 columns
+// are nb..nb+3 (adjacent -- the float4 ownership of the accumulate phase). The
+// store is scalar (see the file header: C rows are only 4 B aligned per column,
+// so a vector store has no 16 B alignment guarantee on dx/vk); the epilogue math
+// reads each accumulator component with v4_comp.
+template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM, GemmEpilogue EP>
+void reg_vec_store(const Var<float4> (&acc)[RM], const compute::BufferFloat &C,
+                   const compute::BufferFloat &aux, const Var<uint> &M, const Var<uint> &N,
+                   const Var<uint> &m0, const Var<uint> &n0, const Var<uint> &tid) noexcept {
+    using T = RegVecTile<TM, TN, TK, RM>;
+    const Var grow = tid / T::cols;
+    const Var gcol = tid % T::cols;
+    const Var mb = m0 + grow * RM;
+    const Var nb = n0 + gcol * 4u;
+
+    // Per-column bias (aux[bias] is [N]) read into 4 scalars; out-of-range cols
+    // read 0 (those lanes are never stored to).
+    Var<float> bcol[T::rn];
+    if constexpr (gemm_uses_bias(EP)) {
+        for (auto c = 0u; c < T::rn; c++) {
+            const Var nn = nb + c;
+            compute::Float b;
+            $if (nn < N) {
+                b = aux.read(nn);
+            }
+            $else {
+                b = def(0.0f);
+            };
+            bcol[c] = b;
+        }
+    }
+
+    const auto emit = [&](const auto guard_tag) noexcept {
+        constexpr bool guarded = decltype(guard_tag)::value;
+        for (auto r = 0u; r < RM; r++) {
+            const Var mm = mb + r;
+            // The float4 lane is a compile-time constant: the four adjacent
+            // columns are written by four integral_constant-dispatched calls (a
+            // plain `for (c)` with `if constexpr (c == ..)` is ill-formed because
+            // the loop variable is not a constant expression). v4_comp<c> reads
+            // the matching accumulator component.
+            const auto lane = [&](auto lane_tag) noexcept {
+                constexpr uint32_t c = decltype(lane_tag)::value;
+                const Var nn = nb + c;
+                const Var<float> a = v4_comp<c>(acc[r]);
+                if constexpr (guarded) {
+                    $if (mm < M & nn < N) {
+                        C.write(mm * N + nn, reg_epilogue<EP>(a, aux, mm, nn, N, bcol[c]));
+                    };
+                } else {
+                    C.write(mm * N + nn, reg_epilogue<EP>(a, aux, mm, nn, N, bcol[c]));
+                }
+            };
+            lane(std::integral_constant<uint32_t, 0u>{});
+            lane(std::integral_constant<uint32_t, 1u>{});
+            lane(std::integral_constant<uint32_t, 2u>{});
+            lane(std::integral_constant<uint32_t, 3u>{});
+        }
+    };
+    // Uniform fast path: the whole sub-tile is in range -> no store guards. The
+    // 4 adjacent columns are in range iff nb+3 < N (nb = n0 + gcol*4 >= n0).
+    if constexpr (kRegFastpath) {
+        $if ((mb + RM) <= M & (nb + 3u) < N) {
+            emit(std::false_type{});
+        }
+        $else {
+            emit(std::true_type{});
+        };
+    } else {
+        emit(std::true_type{});
+    }
+}
+
+template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM, bool SWAP, GemmWeightFormat WF, GemmEpilogue EP>
+[[nodiscard]] GemmKernel make_reg_vec_kernel(const char *vname) noexcept {
+    using T = RegVecTile<TM, TN, TK, RM>;
+    GemmKernel kernel = [vname](compute::BufferFloat A, compute::BufferFloat B,
+                                compute::BufferFloat C, compute::BufferFloat aux,
+                                Var<uint> M, Var<uint> N, Var<uint> K) noexcept {
+        set_block_size(T::block, 1u, 1u);
+        set_name(vname);
+        const Var tid = thread_x();
+        Var<uint> mt;
+        Var<uint> nt;
+        if constexpr (SWAP) {
+            mt = block_id().x;
+            nt = block_id().y;
+        } else {
+            mt = block_id().y;
+            nt = block_id().x;
+        }
+        const Var m0 = mt * TM;
+        const Var n0 = nt * TN;
+        Var<float4> acc[RM];// DSL locals are zero-initialized
+        reg_vec_accumulate<TM, TN, TK, RM, WF>(A, B, M, N, K, m0, n0, tid, acc);
+        reg_vec_store<TM, TN, TK, RM, EP>(acc, C, aux, M, N, m0, n0, tid);
+    };
+    return kernel;
+}
+
+template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM, bool SWAP, GemmWeightFormat WF>
+[[nodiscard]] GemmKernel build_reg_vec_ep(GemmEpilogue ep, const char *vname) noexcept {
+    switch (ep) {
+        case GemmEpilogue::None: return make_reg_vec_kernel<TM, TN, TK, RM, SWAP, WF, GemmEpilogue::None>(vname);
+        case GemmEpilogue::Bias: return make_reg_vec_kernel<TM, TN, TK, RM, SWAP, WF, GemmEpilogue::Bias>(vname);
+        case GemmEpilogue::BiasGeluErf: return make_reg_vec_kernel<TM, TN, TK, RM, SWAP, WF, GemmEpilogue::BiasGeluErf>(vname);
+        case GemmEpilogue::BiasRelu: return make_reg_vec_kernel<TM, TN, TK, RM, SWAP, WF, GemmEpilogue::BiasRelu>(vname);
+        case GemmEpilogue::ResidualAdd: return make_reg_vec_kernel<TM, TN, TK, RM, SWAP, WF, GemmEpilogue::ResidualAdd>(vname);
+    }
+    return make_reg_vec_kernel<TM, TN, TK, RM, SWAP, WF, GemmEpilogue::Bias>(vname);
+}
+
+template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM, bool SWAP>
+[[nodiscard]] GemmKernel build_reg_vec(GemmEpilogue ep, GemmWeightFormat wf, const char *vname) noexcept {
+    switch (wf) {
+        case GemmWeightFormat::Fp32: return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Fp32>(ep, vname);
+        case GemmWeightFormat::Bf16: return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Bf16>(ep, vname);
+        case GemmWeightFormat::Fp16: return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Fp16>(ep, vname);
+    }
+    return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Fp32>(ep, vname);
+}
+
 template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM, uint32_t RN, bool SWAP, GemmWeightFormat WF, GemmEpilogue EP>
 [[nodiscard]] GemmKernel make_reg_kernel(const char *vname) noexcept {
     using T = RegTile<TM, TN, TK, RM, RN>;
@@ -655,6 +1063,12 @@ constexpr Entry kEntries[] = {
     {{"rb_64x64_b128_r84", 64u, 64u, 16u, 8u, 4u, 128u, false, false}, &build_reg<64u, 64u, 16u, 8u, 4u, false>},
     {{"rb_128x64_b256_r84", 128u, 64u, 16u, 8u, 4u, 256u, false, false}, &build_reg<128u, 64u, 16u, 8u, 4u, false>},
     {{"rb_128x128_b512_r84", 128u, 128u, 16u, 8u, 4u, 512u, false, false}, &build_reg<128u, 128u, 16u, 8u, 4u, false>},
+    //--- vector register-blocked family (tensor_optimize.md §4 rbv_*) ------
+    // RN = 4 columns as one float4; RM = 8 rows as 8 float4 accumulators. Same
+    // 64x64 / 128x64, TK=16 geometry as the r84 scalar twins (a *comparator*,
+    // not bit-parity: see the file header family-3 note).
+    {{"rbv_64x64_b128_r84v4", 64u, 64u, 16u, 8u, 4u, 128u, false, false}, &build_reg_vec<64u, 64u, 16u, 8u, false>},
+    {{"rbv_128x64_b256_r84v4", 128u, 64u, 16u, 8u, 4u, 256u, false, false}, &build_reg_vec<128u, 64u, 16u, 8u, false>},
     //--- 8x8 thread tile (0.5 B/FLOP shared traffic) --------------------
     {{"rb_64x64_b64_r88", 64u, 64u, 16u, 8u, 8u, 64u, false, false}, &build_reg<64u, 64u, 16u, 8u, 8u, false>},
     {{"rb_128x64_b128_r88", 128u, 64u, 16u, 8u, 8u, 128u, false, false}, &build_reg<128u, 64u, 16u, 8u, 8u, false>},

@@ -1719,7 +1719,9 @@ luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cp
           # (L1 robust, L2 e2e, L3 retrieval, L5 robustness)
           test_embed_kernel_attention test_embed_executor test_embed_scheduler
           test_embed_debug test_embed_kernel_robust test_embed_e2e
-          test_embed_retrieval test_embed_robustness)
+          test_embed_retrieval test_embed_robustness
+          # Phase-0 tensor/coop probes (tensor_optimize.md Phase 0)
+          test_embed_tensor_micro test_embed_coop_probe)
       luisa_compute_add_embed_test(${_embed_dev_test}
               integration/embedding/${_embed_dev_test}.cpp
               "integration;integration_embedding"

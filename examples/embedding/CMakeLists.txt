@@ -14,10 +14,15 @@ add_library(lc-example-embedding STATIC
         embed/retrieval_rpc.cpp
         embed/debug_utils.cpp
         embed/kernels/kernels_embed.cpp
+        embed/kernels/kernels_embed_vec.cpp
         embed/kernels/kernels_gemm.cpp
         embed/kernels/kernels_norm.cpp
+        embed/kernels/kernels_norm_vec.cpp
         embed/kernels/kernels_heads.cpp
+        embed/kernels/kernels_heads_vec.cpp
         embed/kernels/kernels_attention.cpp
+        embed/kernels/kernels_coop.cpp
+        embed/tensor_path.cpp
 )
 target_link_libraries(lc-example-embedding PUBLIC luisa::compute)
 target_link_libraries(lc-example-embedding PUBLIC luisa-compute-ext-yyjson-interface)

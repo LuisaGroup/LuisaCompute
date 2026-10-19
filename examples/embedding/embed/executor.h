@@ -82,11 +82,16 @@
 #include <luisa/runtime/stream.h>
 
 #include "kernels/kernels_attention.h"
+#include "kernels/kernels_coop.h"
 #include "kernels/kernels_embed.h"
+#include "kernels/kernels_embed_vec.h"
 #include "kernels/kernels_gemm.h"
 #include "kernels/kernels_heads.h"
+#include "kernels/kernels_heads_vec.h"
 #include "kernels/kernels_norm.h"
+#include "kernels/kernels_norm_vec.h"
 #include "package.h"
+#include "tensor_path.h"
 
 namespace luisa::embed {
 
@@ -287,6 +292,28 @@ private:
     ShaderFor<SoftmaxRowKernel> _attn_softmax;
     ShaderFor<AttentionPvKernel> _attn_pv;
     luisa::optional<ShaderFor<FlashAttentionKernel>> _flash;
+
+    // TENSOR-PATH OPTIMIZATION SHADERS (tensor_optimize.md 2.1/5.4; opt-in).
+    // These are compiled ONLY when the resolved path is Vector or Coop (never
+    // on Legacy -- the kill switch stays byte-identical and cheap to start).
+    // Default-constructed (empty) when unused; assigned in the ctor body.
+    TensorPath _tensor_path{TensorPath::Legacy};
+
+    // vec4 (float4) bandwidth/compute twins of the eager kernels above; bound
+    // with BufferView<float>::as<float4>() zero-copy views (H % 4 == 0).
+    ShaderFor<EmbedLookupVec4Kernel> _embed_vec4;
+    ShaderFor<ResidualAddVec4Kernel> _residual_vec4;
+    ShaderFor<LayerNormVec4Kernel> _layernorm_vec4;
+    ShaderFor<L2NormalizeVec4Kernel> _l2norm_vec4;
+    ShaderFor<DensePoolVec4Kernel> _dense_pool_vec4;
+    ShaderFor<SparseHeadVec4Kernel> _sparse_head_vec4;
+    ShaderFor<ColbertProjVec4Kernel> _colbert_proj_vec4;
+
+    // coop matvec projection (only compiled when the resolved path is Coop,
+    // which already guarantees fp32 weights). Bias / BiasGeluErf epilogues
+    // mirror _gemm_bias / _gemm_gelu; the config also feeds the host guards.
+    ShaderFor<CoopGemmKernel> _coop_gemm_bias, _coop_gemm_gelu;
+    CoopGemmConfig _coop_cfg{};
 
     // Grow-only per-worker pool.
     uint32_t _pool_rows{};// capacity in token rows (B*S)

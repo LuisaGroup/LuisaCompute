@@ -37,6 +37,16 @@
 // example of 2 * (64*16*4 B) = 8 KiB plus padding, which leaves >=3 blocks per
 // CU resident on the DX 32 KiB budget.
 //
+// VECTOR register family (`rbv_*`, tensor_optimize.md §4): a comparator variant
+// where the thread's N sub-tile is RN = 4 ADJACENT columns held as ONE float4
+// accumulator and both shared tiles are float4 arrays (16 B LDS/STS, a +1-slot
+// row pad). The A operand is broadcast from a scalar with make_float4() (no
+// as<float4> reinterpretation anywhere); the C store stays SCALAR because an
+// [M,N] fp32 row is only 4 B-aligned per column, so a vector store has no 16 B
+// alignment guarantee on dx/vk. reg_m = RM rows, reg_n is fixed at 4. The same
+// block = (tile_m/reg_m)*(tile_n/reg_n) derivation and the same ragged-edge
+// guard-elision discipline as the scalar register family apply (see the .cpp).
+//
 // Grid bound: dispatch x = (tiles along N) * block TOTAL threads, dispatch y =
 // tiles along M (or the swapped pair when swap_grid is set). The engine
 // envelope is 1 job <= 16383 padded rows (examples/embedding/embed/

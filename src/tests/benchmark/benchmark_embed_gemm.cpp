@@ -25,25 +25,104 @@
 //   ffn_down  A[rows,4096] @ B[4096,1024] + bias  (epilogue Bias)
 // rows = padded B*S; the plan's acceptance point is rows=4096 (B=8, S=512).
 //
+// The engine's GEMM variant table (gemm_tile_variant) is enumerated in full,
+// so the vector register-blocked `rbv_*` family (tensor_optimize.md §4) enters
+// this sweep automatically -- no special handling here.
+//
+// Phase 3 -- coop (cooperative-vector) matvec sweep (tensor_optimize.md §5.3,
+// Phase 2 "coop K-slab x N-tile matvec variant"): appended after the GEMM-table
+// sweep, mirroring its two-gate-before-timing discipline. It enumerates the coop
+// variant table (coop_gemm_variant, examples/embedding/embed/kernels/
+// kernels_coop.h -- 4 entries) and times those variants on the SAME four engine
+// shapes. The coop host contract (kernels_coop.h header) is stricter than the
+// tiled GEMM and the harness honours it:
+//   - fp32 weights ONLY. This benchmark already feeds synthetic fp32 host data,
+//     so it always allocates plain fp32 A/B/bias and binds them ZERO-COPY as
+//     compute::ByteBufferView{buf} (coop_api.md §4). If the engine ever grows a
+//     packed (bf16/fp16) weight path, coop variants are simply left on fp32 --
+//     packed formats MUST NOT enter coop (plan §1.3/§5.5); a printed note makes
+//     that explicit.
+//   - K % kslab == 0 and N % ntile == 0 are GUARANTEED BY THE CALLER (ragged
+//     K/N is rejected by the kernel with a device_assert -- there is no tail
+//     predicate). So the coop Phase-1 gate cannot reuse the ragged 37x69x53
+//     proxy the tiled GEMM uses; instead it gates on a small CLEAN shape
+//     M=37, N=64, K=128 (K=128 and N=64 are multiples of EVERY kslab/ntile in
+//     the coop table: kslab in {64,128}, ntile in {16,32}). NOTE: the plan
+//     text wrote "K=64" but the table ships coop_k128_n32_t1 (kslab=128), so
+//     K=64 would trip that variant's device_assert and the gate could never
+//     pass for it; K=128 = lcm(all kslabs) satisfies the stated intent
+//     ("multiples of every kslab/ntile"). M=37 keeps ragged-M coverage (the
+//     kernel guards it), verified FULLY against
+//     the fp64 reference with the same gate 1e-3*max(1,|ref|) on BOTH epilogues
+//     the coop v1 path emits (Bias, BiasGeluErf). Gate (b) is a 16-point sample
+//     on each timed shape (the same points as the tiled Phase-2 sample). A
+//     failed gate reports + skips timing and counts in failures -- no
+//     plausible-but-wrong numbers reach the table.
+//   - The four timed shapes have K,N in {1024,3072,4096}, all multiples of
+//     64/128, and every coop ntile <= 32, so they satisfy the contract; the
+//     harness still asserts this and skips a shape gracefully otherwise.
+//   - coop runs on DX / VK ONLY (plan §2/§5: cooperative vector is DX/VK only;
+//     CUDA and fallback have NO cooperative codegen path -- the CUDA AST
+//     backend and the fallback backend hit LUISA_NOT_IMPLEMENTED, which ABORTS
+//     the process rather than throwing). The harness therefore NEVER attempts a
+//     coop compile on a non-dx/vk backend: it reads the backend from the device
+//     and, for cuda/fallback/others, prints the skip reason and skips the whole
+//     coop section before touching the coop factory. The gate is by backend
+//     name (the task's scope). On vk coop is attempted directly -- the real
+//     per-driver cooperative-vector capability (VK_NV_cooperative_vector +
+//     fp32 + replicated composites) is the subject of the dedicated Phase-0
+//     probe test (test_embed_coop_probe.cpp), not this benchmark. On dx the
+//     PRIMARY device is created with DirectXDeviceConfigExt::UseExperimental()
+//     (SM 6.9) -- the experimental gate is process-global and must be set before
+//     ANY device is created, so it is folded into the first dx device (same as
+//     test_embed_coop_probe's make_test_device), which is the device the coop
+//     kernels then compile against. If ExperimentalFeaturesEnabled() comes back
+//     false (OS/runtime rejected the SM 6.9 feature), coop is skipped with the
+//     no-go reason so the coop compile -- which would abort via LUISA_ERROR --
+//     is never reached.
+//
 // Usage
 // -----
-//   benchmark_embed_gemm <backend:dx|vk|fallback> [options]
+//   benchmark_embed_gemm <backend:dx|vk|cuda|fallback> [options]
 //     --rows 512,4096        row counts to time (default 512,4096)
 //     --iters N              timed repetitions, min-of-N (default 10)
 //     --warmup N             untimed warm-up dispatches (default 3)
-//     --variants a,b,c       only these variant names (default: whole table)
+//     --variants a,b,c       only these variant names (default: whole GEMM +
+//                            coop tables). The list matches BOTH the tiled GEMM
+//                            variant names (naive_*, rb_*, rbv_* vec4 family --
+//                            rbv_* enters automatically) and the coop names
+//                            (coop_k64_n16_t1, coop_k64_n32_t1,
+//                            coop_k128_n32_t1, coop_k64_n32_t2).
 //     --shapes qkv,ffn_up    only these shapes (default: all four)
 //     --no-time              phase 1 only (correctness)
-//     --verify M N K [ep]    extra debug case on every selected variant
+//     --verify M N K [ep]    extra debug case on every selected tiled variant
 //                            (ep: 0 none, 1 bias, 2 gelu; default 1); prints
 //                            every mismatching (row, col)
 //     --csv FILE             append rows (header written once)
 //
+// Backends: dx, vk, cuda (legacy + rbv_* vector only; coop skipped with a
+// printed reason), and fallback (CPU oracle; coop skipped). CUDA is listed here
+// per tensor_optimize.md Phase 2 ("补齐其 CUDA 验证和使用说明") -- the tiled GEMM
+// sweep (legacy + vector rbv_*) runs on cuda; the coop section is dx/vk only.
+//
+// CSV column convention for coop rows (same columns as the tiled sweep):
+//   variant = the coop name; tile_n carries cfg.ntile, tile_k carries
+//   cfg.kslab, reg_n carries cfg.tokens_per_block, block carries
+//   kCoopGemmBlock (256); tile_m, reg_m, naive, swap_grid, shared_bytes are 0
+//   (the coop matvec tiles along K and N only -- one accumulator per thread,
+//   no M-tiling, no register-blocking, no shared-memory tile; bytes are
+//   register coop-vectors, not SMEM). grid_x = coop_gemm_dispatch_size_config
+//   total threads, grid_y = 1. The Phase-1 gate rows report shape="coop_proxy"
+//   (M=37,N=64,K=128) with proxy_bad set; timed rows carry sample_bad.
+//
 // Notes
 // -----
 // * dispatch() counts TOTAL threads, not blocks (lc_optimize trap #1) -- the
-//   geometry comes from the engine's own gemm_dispatch_size_config() so the
-//   harness can never disagree with the kernel.
+//   geometry comes from the engine's own gemm_dispatch_size_config() /
+//   coop_gemm_dispatch_size_config() so the harness can never disagree with the
+//   kernel.
+// * GFLOP/s uses the same 2*m*n*k formula for both the tiled and the coop
+//   variants (min-of-N ms).
 // * Debug builds carry a large fixed per-dispatch overhead; compare variants
 //   within one run/backend and re-measure in release before freezing the
 //   per-backend table (plan §7.2).
@@ -66,10 +145,23 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/buffer.h>
+#include <luisa/runtime/byte_buffer.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
+#ifdef _WIN32
+#include <luisa/backends/ext/dx_config_ext.h>
+#include <luisa/core/stl/memory.h>
+// Required by the D3D12 Agility SDK: these exports must be in the main .exe,
+// not in a loaded DLL, so the D3D12 loader can find the SDK runtime. The coop
+// dx device needs them to compile/run cooperative-vector (SM 6.9) kernels.
+// (Same mechanism as src/tests/unit/ast/test_cooperative_vector.cpp:29-32.)
+extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = 619;
+extern "C" __declspec(dllexport) const char *D3D12SDKPath = ".\\D3D12\\";
+#endif
+
 #include "embedding/embed/kernels/kernels_gemm.h"
+#include "embedding/embed/kernels/kernels_coop.h"
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -333,14 +425,146 @@ struct CaseBuffers {
     return bad;
 }
 
+//=== coop (cooperative-vector matvec) section ===================================
+// (tensor_optimize.md §5.3 / Phase 2). Mirrors the tiled Phase 1/2 structure but
+// against the coop variant table and the stricter coop host contract: fp32
+// weights, K % kslab == 0, N % ntile == 0, DX/VK only.
+
+// Compiled type of the engine CoopGemmKernel (same trick as GemmShader above,
+// kept local so the harness does not depend on the executor).
+using CoopShader = decltype(std::declval<Device &>().compile(std::declval<CoopGemmKernel>(),
+                                                              std::declval<ShaderOption &>()));
+
+#ifdef _WIN32
+// DX device config that turns on the experimental shader models (SM 6.9) the
+// cooperative-vector kernels require (tensor_optimize.md §2.2). Same pattern as
+// src/tests/integration/embedding/test_embed_coop_probe.cpp:168-201.
+class DXExperimentalConfigExt final : public DirectXDeviceConfigExt {
+public:
+    [[nodiscard]] bool UseExperimental() const noexcept override { return true; }
+};
+#endif
+
+// Create the primary device. On dx it is created with the experimental-SM-6.9
+// config ext (same as test_embed_coop_probe's make_test_device) so that the
+// coop kernels can actually compile on the SAME device the harness uses; on
+// every other backend the shared luisa::test::create_device() helper is used
+// unchanged. D3D12EnableExperimentalFeatures MUST be called before any device
+// is created, so folding the ext into the first dx device is the only correct
+// place to do it (a throwaway second device would find the feature gate
+// already locked by the first). `dx_experimental_enabled` (out) reports whether
+// the coop dx device got the SM 6.9 path (false -> coop is skipped, never
+// compiled, to avoid the uncatchable LUISA_ERROR abort inside the coop compile).
+[[nodiscard]] luisa::test::DeviceContext create_primary_device(int argc, char *argv[],
+                                                               luisa::string_view backend,
+                                                               bool &dx_experimental_enabled) {
+    dx_experimental_enabled = true;// non-dx: irrelevant, set true so coop is not gated on it
+#ifdef _WIN32
+    if (backend == "dx") {
+        const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : luisa::test::safe_argv0();
+        Context context{exe != nullptr && exe[0] != '\0' ? exe : "benchmark_embed_gemm"};
+        DeviceConfig config;
+        auto dx_config = luisa::make_unique<DXExperimentalConfigExt>();
+        auto *dx_config_ptr = dx_config.get();
+        config.extension = std::move(dx_config);
+        auto device = context.create_device("dx", &config);
+        luisa::test::log_test_backend("dx", device);
+        dx_experimental_enabled = dx_config_ptr->ExperimentalFeaturesEnabled();
+        return luisa::test::DeviceContext{std::move(context), std::move(device)};
+    }
+#else
+    static_cast<void>(backend);
+#endif
+    return luisa::test::create_device(argc, argv);
+}
+
+// Coop case buffers: the coop kernel takes opaque ByteBuffers (the coop ops
+// address operands by BYTE offset -- kernels_coop.h), so the same fp32 host
+// data as the tiled case is bound ZERO-COPY as ByteBufferView{buf}.
+struct CoopCaseBuffers {
+    uint32_t m, n, k;
+    GemmEpilogue ep;
+    luisa::vector<float> ha, hb, haux;
+    Buffer<float> a, b, c, aux;
+};
+
+[[nodiscard]] CoopCaseBuffers make_coop_case(Device &device, uint32_t m, uint32_t n, uint32_t k,
+                                             GemmEpilogue ep, float mag) {
+    CoopCaseBuffers cb;
+    cb.m = m;
+    cb.n = n;
+    cb.k = k;
+    cb.ep = ep;
+    Lcg rng{};
+    // Distinct seed from make_case() so coop and tiled sweeps validate against
+    // the same fp64 reference formula but on independent data.
+    rng.state = 0x85EBCA52u ^ (m << 24u) ^ (n << 12u) ^ (k << 2u) ^ static_cast<uint32_t>(ep);
+    cb.ha = make_inputs(rng, static_cast<size_t>(m) * k, -mag, mag);
+    cb.hb = make_inputs(rng, static_cast<size_t>(k) * n, -mag, mag);
+    cb.haux = make_inputs(rng, n, -mag, mag);// bias[N] (coop only emits Bias/BiasGeluErf)
+    cb.a = device.create_buffer<float>(cb.ha.size());
+    cb.b = device.create_buffer<float>(cb.hb.size());
+    cb.c = device.create_buffer<float>(static_cast<size_t>(m) * n);
+    cb.aux = device.create_buffer<float>(n);
+    return cb;
+}
+
+// Shape predicate the coop host contract requires of a timed shape: K a
+// multiple of kslab, N a multiple of ntile (ragged K/N is rejected by the
+// kernel; ragged M is handled by the per-token guard).
+[[nodiscard]] bool coop_shape_ok(const CoopGemmConfig &cfg, uint32_t n, uint32_t k) noexcept {
+    return cfg.kslab != 0u && cfg.ntile != 0u && (k % cfg.kslab) == 0u && (n % cfg.ntile) == 0u;
+}
+
+// Full comparison of every output element for a coop variant (small cases
+// only). The coop kernel reads A as x[M,K], B as weight[K,N] row-major, the
+// aux as bias[N]; the reference (ref_element) is the same A@B+bias formula.
+[[nodiscard]] uint32_t coop_verify_full(Stream &stream, const CoopShader &shader,
+                                        const CoopGemmConfig &cfg, CoopCaseBuffers &cb,
+                                        uint32_t max_report, float &worst) {
+    luisa::vector<float> got(cb.c.size(), 0.f);
+    stream << cb.a.copy_from(luisa::span{cb.ha})
+           << cb.b.copy_from(luisa::span{cb.hb})
+           << cb.aux.copy_from(luisa::span{cb.haux})
+           << shader(ByteBufferView{cb.a}, ByteBufferView{cb.b}, ByteBufferView{cb.aux},
+                     ByteBufferView{cb.c}, cb.m, cb.n, cb.k)
+                  // Kernel1D: dispatch() takes TOTAL threads (lc_optimize trap #1);
+                  // coop_gemm_dispatch_size_config returns uint2 {total,1}.
+                  .dispatch(coop_gemm_dispatch_size_config(cfg, cb.m).x)
+           << cb.c.copy_to(luisa::span{got})
+           << synchronize();
+    uint32_t bad = 0u;
+    worst = 0.f;
+    for (uint32_t i = 0u; i < cb.m; i++) {
+        for (uint32_t j = 0u; j < cb.n; j++) {
+            const auto ref = ref_element(cb.ha, cb.hb, cb.haux, cb.ep, i, j, cb.k, cb.n);
+            const auto idx = static_cast<size_t>(i) * cb.n + j;
+            const float d = std::abs(got[idx] - ref);
+            if (d > worst) {
+                worst = d;
+            }
+            if (!(d <= 1e-3f * std::max(1.f, std::abs(ref)))) {
+                if (bad < max_report) {
+                    LUISA_WARNING("  coop mismatch (m={}, n={}): got {:.6e} ref {:.6e} diff {:.3e}",
+                                  i, j, got[idx], ref, d);
+                }
+                bad++;
+            }
+        }
+    }
+    return bad;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
     const auto opt = parse_args(argc, argv);
-    auto [context, device] = luisa::test::create_device(argc, argv);
+    const auto backend = argc > 1 ? argv[1] : "?";
+    bool dx_experimental_enabled = true;
+    auto [context, device] = create_primary_device(argc, argv, luisa::string_view{backend},
+                                                   dx_experimental_enabled);
     auto stream = device.create_stream();
 
-    const auto backend = argc > 1 ? argv[1] : "?";
     LUISA_INFO("embed gemm sweep: backend {}, engine-resolved config '{}'", backend,
                gemm_resolved_config_source());
 
@@ -527,7 +751,217 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    LUISA_INFO("sweep done: {} variants, {} timed rows, {} mismatches total, csv: {}", vcount, timed_rows,
+    //--- phase 3: coop (cooperative-vector) matvec sweep ----------------------
+    // (tensor_optimize.md §5.3 / Phase 2). Runs on dx/vk ONLY: cooperative
+    // vector has no executable path on cuda/fallback/others, and the coop
+    // lowering there ABORTS (LUISA_NOT_IMPLEMENTED / LUISA_ERROR) rather than
+    // throwing -- so the whole section is skipped before touching the coop
+    // factory on any other backend. The gate is by backend name (the same name
+    // the device was created with); on dx a throwaway device created with
+    // DirectXDeviceConfigExt::UseExperimental() reports whether the SM 6.9
+    // experimental shader models actually got enabled (a DX machine without
+    // them would otherwise abort inside the coop compile).
+    {
+        const luisa::string_view backend_name{backend};
+        const bool coop_backend = backend_name == "dx" || backend_name == "vk";
+        bool coop_go = coop_backend;
+        if (coop_backend && backend_name == "dx") {
+            coop_go = dx_experimental_enabled;
+        }
+        if (!coop_go) {
+            const char *why = !coop_backend
+                                  ? "cooperative vector is DX/VK only (plan §2/§5); this backend has no coop codegen and the coop compile would abort"
+                                  : "DX experimental SM 6.9 features are not enabled on this system (plan §9); coop disabled";
+            LUISA_INFO("coop sweep: SKIPPED on backend '{}' -- {}.", backend_name, why);
+            if (csv_out) {
+                csv_out << backend << ",coop,0,0,0,0,0," << kCoopGemmBlock
+                        << ",0,0,(skipped),,0,0,0,0,0,0,0,0,0,0,0,0,0,0,SKIPPED\n";
+            }
+        } else {
+            const auto coop_vcount = coop_gemm_variant_count();
+            luisa::vector<std::optional<CoopShader>> coop_cache(coop_vcount * 5u);
+            const auto coop_cache_index = [](uint32_t vi, GemmEpilogue ep) noexcept {
+                return vi * 5u + static_cast<uint32_t>(ep);
+            };
+            auto coop_shader_for = [&](uint32_t ci, GemmEpilogue ep) -> CoopShader & {
+                auto &slot = coop_cache[coop_cache_index(ci, ep)];
+                if (!slot.has_value()) {
+                    const auto *ccfg = coop_gemm_variant(ci);
+                    slot.emplace(device.compile(
+                        make_coop_gemm_kernel(ep, *ccfg, ccfg->name, GemmWeightFormat::Fp32),
+                        compute::ShaderOption{.name = ccfg->name}));
+                }
+                return *slot;
+            };
+            LUISA_INFO("coop sweep: backend {} (coop GO), {} coop variants.", backend_name, coop_vcount);
+
+            //--- coop phase 1: clean-shape correctness gate (ragged K/N N/A) --
+            // M=37 (ragged M is guarded in-kernel), N=64, K=128: K/N are
+            // multiples of every coop kslab {64,128} / ntile {16,32}. coop
+            // rejects ragged K/N by contract (device_assert), so the tiled
+            // 37x69x53 proxy cannot be reused; gate on both emitted epilogues.
+            constexpr uint32_t kCoopProxyM = 37u, kCoopProxyN = 64u, kCoopProxyK = 128u;
+            luisa::vector<char> coop_proxy_ok(coop_vcount, 0);// 1 == passed
+            {
+                auto cb_bias = make_coop_case(device, kCoopProxyM, kCoopProxyN, kCoopProxyK,
+                                              GemmEpilogue::Bias, 1.f);
+                auto cb_gelu = make_coop_case(device, kCoopProxyM, kCoopProxyN, kCoopProxyK,
+                                              GemmEpilogue::BiasGeluErf, 1.f);
+                for (auto ci = 0u; ci < coop_vcount; ci++) {
+                    const auto *ccfg = coop_gemm_variant(ci);
+                    if (!selected(opt.variants, ccfg->name)) {
+                        continue;
+                    }
+                    // fp32-only: the coop host contract forbids packed half/bf16
+                    // (plan §1.3/§5.5); this harness feeds synthetic fp32 host
+                    // data, so it always binds plain fp32 buffers (see the header
+                    // note). No packed path is taken here even if the engine adds
+                    // one later.
+                    float w1 = 0.f, w2 = 0.f;
+                    const auto bad1 = coop_verify_full(stream, coop_shader_for(ci, GemmEpilogue::Bias),
+                                                       *ccfg, cb_bias, 4u, w1);
+                    const auto bad2 = coop_verify_full(stream,
+                                                       coop_shader_for(ci, GemmEpilogue::BiasGeluErf),
+                                                       *ccfg, cb_gelu, 4u, w2);
+                    const auto bad = bad1 + bad2;
+                    const auto worst = std::max(w1, w2);
+                    coop_proxy_ok[ci] = bad == 0u ? 1 : 0;
+                    failures += bad;
+                    LUISA_INFO("coop {}: proxy 37x64x128 bias_bad={} gelu_bad={} worst={:.3e} [{}]",
+                               ccfg->name, bad1, bad2, worst, bad == 0u ? "PASS" : "FAIL");
+                    if (csv_out) {
+                        const auto disp = coop_gemm_dispatch_size_config(*ccfg, kCoopProxyM);
+                        csv_out << backend << ',' << ccfg->name << ",0," << ccfg->ntile << ','
+                                << ccfg->kslab << ",0," << ccfg->tokens_per_block << ','
+                                << kCoopGemmBlock << ",0,0,coop_proxy,"
+                                << gemm_epilogue_name(GemmEpilogue::Bias) << ",0," << kCoopProxyM
+                                << ',' << kCoopProxyN << ',' << kCoopProxyK << ',' << disp.x << ','
+                                << disp.y << ",0," << bad << ",0," << worst << ",0,0,0,0,"
+                                << (bad == 0u ? "PASS" : "FAIL") << '\n';
+                    }
+                }
+            }
+
+            //--- coop phase 2: timed engine shapes ----------------------------
+            if (opt.time) {
+                for (const auto &shape : kShapes) {
+                    if (!selected(opt.shapes, shape.name)) {
+                        continue;
+                    }
+                    // coop epilogues are Bias / BiasGeluErf only; the four engine
+                    // shapes are all Bias/BiasGeluErf, so nothing is dropped here.
+                    for (const auto m : opt.rows) {
+                        auto cb = make_coop_case(device, m, shape.n, shape.k, shape.ep, 1.f);
+                        for (auto ci = 0u; ci < coop_vcount; ci++) {
+                            const auto *ccfg = coop_gemm_variant(ci);
+                            if (!selected(opt.variants, ccfg->name)) {
+                                continue;
+                            }
+                            if (coop_proxy_ok[ci] == 0u) {
+                                continue;// already reported in coop phase 1
+                            }
+                            // Ragged-K/N guard (coop contract). All four engine
+                            // shapes have K,N in {1024,3072,4096} (multiples of
+                            // 64/128) and every coop ntile <= 32, so this holds;
+                            // skip gracefully otherwise.
+                            if (!coop_shape_ok(*ccfg, shape.n, shape.k)) {
+                                LUISA_INFO("  coop {:<16} rows={:<5} skipped: shape K={} N={} not a "
+                                           "multiple of kslab={} ntile={} (ragged K/N -> tiled GEMM)",
+                                           ccfg->name, m, shape.k, shape.n, ccfg->kslab, ccfg->ntile);
+                                continue;
+                            }
+                            auto &shader = coop_shader_for(ci, shape.ep);
+                            const auto disp = coop_gemm_dispatch_size_config(*ccfg, m);
+
+                            // Sampled ground truth on the timed shape (same 16
+                            // points as the tiled phase-2 sample).
+                            luisa::vector<float> out_row(shape.n, 0.f);
+                            uint32_t sample_bad = 0u;
+                            {
+                                stream << cb.a.copy_from(luisa::span{cb.ha})
+                                       << cb.b.copy_from(luisa::span{cb.hb})
+                                       << cb.aux.copy_from(luisa::span{cb.haux})
+                                       << shader(ByteBufferView{cb.a}, ByteBufferView{cb.b},
+                                                 ByteBufferView{cb.aux}, ByteBufferView{cb.c}, m,
+                                                 shape.n, shape.k)
+                                              .dispatch(disp.x)
+                                       << synchronize();
+                                const uint32_t rows[] = {0u, m / 3u, m / 2u, m - 1u};
+                                const uint32_t cols[] = {0u, shape.n / 4u, shape.n / 2u, shape.n - 1u};
+                                for (const auto i : rows) {
+                                    stream << cb.c.view(static_cast<size_t>(i) * shape.n, shape.n)
+                                                  .copy_to(luisa::span{out_row})
+                                           << synchronize();
+                                    for (const auto j : cols) {
+                                        const auto ref = ref_element(cb.ha, cb.hb, cb.haux, shape.ep,
+                                                                     i, j, shape.k, shape.n);
+                                        const float d = std::abs(out_row[j] - ref);
+                                        if (!(d <= 1e-3f * std::max(1.f, std::abs(ref)))) {
+                                            if (sample_bad < 4u) {
+                                                LUISA_WARNING(
+                                                    "  coop sample mismatch (m={}, n={}): got {:.6e} ref {:.6e}",
+                                                    i, j, out_row[j], ref);
+                                            }
+                                            sample_bad++;
+                                        }
+                                    }
+                                }
+                            }
+
+                            double ms_min = 0.0, ms_med = 0.0, gflops = 0.0;
+                            uint32_t iters_run = 0u;
+                            if (sample_bad == 0u) {
+                                const auto enqueue = [&] {
+                                    stream << shader(ByteBufferView{cb.a}, ByteBufferView{cb.b},
+                                                     ByteBufferView{cb.aux}, ByteBufferView{cb.c}, m,
+                                                     shape.n, shape.k)
+                                                  .dispatch(disp.x);
+                                };
+                                for (auto w = 0u; w < opt.warmup; w++) {
+                                    enqueue();
+                                    stream << synchronize();
+                                }
+                                luisa::vector<double> samples;
+                                for (auto it = 0u; it < opt.iters; it++) {
+                                    Clock clock;
+                                    enqueue();
+                                    stream << synchronize();
+                                    samples.emplace_back(clock.toc());
+                                    iters_run++;
+                                }
+                                const auto st = summarize(std::move(samples));
+                                ms_min = st.min;
+                                ms_med = st.median;
+                                gflops = 2.0 * static_cast<double>(m) * shape.n * shape.k /
+                                         (ms_min * 1.0e6);
+                                timed_rows++;
+                            } else {
+                                failures += sample_bad;
+                            }
+
+                            LUISA_INFO("  coop {:<16} rows={:<5} grid={}x{:<5} kslab={} ntile={} tpb={} "
+                                       "sample_bad={} min={:.3f}ms med={:.3f}ms {:.1f} GFLOPS [{}]",
+                                       ccfg->name, m, disp.x, disp.y, ccfg->kslab, ccfg->ntile,
+                                       ccfg->tokens_per_block, sample_bad, ms_min, ms_med, gflops,
+                                       sample_bad == 0u ? "PASS" : "FAIL");
+                            if (csv_out) {
+                                csv_out << backend << ',' << ccfg->name << ",0," << ccfg->ntile << ','
+                                        << ccfg->kslab << ",0," << ccfg->tokens_per_block << ','
+                                        << kCoopGemmBlock << ",0,0," << shape.name << ','
+                                        << gemm_epilogue_name(shape.ep) << ',' << m << ',' << m << ','
+                                        << shape.n << ',' << shape.k << ',' << disp.x << ',' << disp.y
+                                        << ",0,0," << sample_bad << ",0," << iters_run << ',' << ms_min
+                                        << ',' << ms_med << ',' << gflops << ','
+                                        << (sample_bad == 0u ? "PASS" : "FAIL") << '\n';
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    LUISA_INFO("sweep done: gemm {} variants, {} timed rows, {} mismatches total, csv: {}", vcount, timed_rows,
                failures, opt.csv.empty() ? "(none)" : opt.csv.string());
     expect(failures == 0u) << luisa::format("gemm sweep found {} mismatching outputs", failures);
     return 0;

@@ -907,6 +907,9 @@ test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
   embed_test("test_embed_e2e", "integration/embedding/test_embed_e2e.cpp")
   embed_test("test_embed_retrieval", "integration/embedding/test_embed_retrieval.cpp")
   embed_test("test_embed_robustness", "integration/embedding/test_embed_robustness.cpp")
+  -- Phase-0 tensor/coop probes (tensor_optimize.md Phase 0)
+  embed_test("test_embed_tensor_micro", "integration/embedding/test_embed_tensor_micro.cpp")
+  embed_test("test_embed_coop_probe", "integration/embedding/test_embed_coop_probe.cpp")
 
 -- standalone CUDA tensor dispatch example: raw CUDA runtime + driver API with
 -- runtime NVRTC JIT (kernel source is a C++ raw string; no .cu compilation).
