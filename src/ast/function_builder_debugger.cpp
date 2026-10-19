@@ -536,6 +536,18 @@ private:
         reject(CallOp::MBARRIER_TRY_WAIT_PARITY, "mbarrier");
         reject(CallOp::FENCE_PROXY_ASYNC_ACQUIRE, "async proxy fence");
         reject(CallOp::FENCE_PROXY_ASYNC_RELEASE, "async proxy fence");
+        reject(CallOp::MBARRIER_ARRIVE, "mbarrier");
+        reject(CallOp::MBARRIER_ARRIVE_NO_COMPLETE, "mbarrier");
+        reject(CallOp::MBARRIER_EXPECT_TX, "mbarrier");
+        reject(CallOp::MBARRIER_TEST_WAIT_PARITY, "mbarrier");
+        reject(CallOp::FENCE_MBARRIER_INIT, "mbarrier");
+        reject(CallOp::FENCE_PROXY_ASYNC, "async proxy fence");
+        reject(CallOp::FENCE_PROXY_ASYNC_GENERIC_ACQUIRE, "async proxy fence");
+        reject(CallOp::FENCE_PROXY_ASYNC_GENERIC_RELEASE, "async proxy fence");
+        reject(CallOp::BARRIER_CLUSTER_ARRIVE, "cluster barrier");
+        reject(CallOp::BARRIER_CLUSTER_ARRIVE_RELAXED, "cluster barrier");
+        reject(CallOp::BARRIER_CLUSTER_WAIT, "cluster barrier");
+        reject(CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE, "cluster barrier");
         if (f.use_cooperative_operations()) {
             LUISA_ERROR(
                 "The debug function generator does not support function "

@@ -944,6 +944,18 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::MBARRIER_TRY_WAIT_PARITY: _scratch << "lc_mbarrier_try_wait_parity"; break;
         case CallOp::FENCE_PROXY_ASYNC_ACQUIRE: _scratch << "lc_fence_proxy_async_acquire"; break;
         case CallOp::FENCE_PROXY_ASYNC_RELEASE: _scratch << "lc_fence_proxy_async_release"; break;
+        case CallOp::MBARRIER_ARRIVE: _scratch << "lc_mbarrier_arrive"; break;
+        case CallOp::MBARRIER_ARRIVE_NO_COMPLETE: _scratch << "lc_mbarrier_arrive_no_complete"; break;
+        case CallOp::MBARRIER_EXPECT_TX: _scratch << "lc_mbarrier_expect_tx"; break;
+        case CallOp::MBARRIER_TEST_WAIT_PARITY: _scratch << "lc_mbarrier_test_wait_parity"; break;
+        case CallOp::FENCE_MBARRIER_INIT: _scratch << "lc_fence_mbarrier_init"; break;
+        case CallOp::FENCE_PROXY_ASYNC: _scratch << "lc_fence_proxy_async"; break;
+        case CallOp::FENCE_PROXY_ASYNC_GENERIC_ACQUIRE: _scratch << "lc_fence_proxy_async_generic_acquire"; break;
+        case CallOp::FENCE_PROXY_ASYNC_GENERIC_RELEASE: _scratch << "lc_fence_proxy_async_generic_release"; break;
+        case CallOp::BARRIER_CLUSTER_ARRIVE: _scratch << "lc_barrier_cluster_arrive"; break;
+        case CallOp::BARRIER_CLUSTER_ARRIVE_RELAXED: _scratch << "lc_barrier_cluster_arrive_relaxed"; break;
+        case CallOp::BARRIER_CLUSTER_WAIT: _scratch << "lc_barrier_cluster_wait"; break;
+        case CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE: _scratch << "lc_barrier_cluster_wait_acquire"; break;
         case CallOp::ADDRESS_OF: _scratch << "lc_address_of"; break;
         case CallOp::ATOMIC_EXCHANGE: _scratch << "lc_atomic_exchange"; break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "lc_atomic_compare_exchange"; break;

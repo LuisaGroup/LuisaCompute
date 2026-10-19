@@ -606,10 +606,26 @@ enum struct CallOp : uint32_t {
     // [(accel) -> uint32 instance_count]. Enables device-side instance-index
     // bounds guards (see FunctionDebugger) and the Accel::size() DSL query.
     ACCEL_SIZE,// (accel): uint
+
+    // Appended to preserve the numeric values of all existing public ops.
+    // Extended mbarrier / proxy-fence / cluster-barrier support for the CUTLASS
+    // Blackwell Cluster Launch Control programming model (PTX ISA 8.6, SM 10.0+).
+    MBARRIER_ARRIVE, // (bar: ref<uint64>, count: uint): void — mbarrier.arrive.release.cluster.shared::cta
+    MBARRIER_ARRIVE_NO_COMPLETE, // (bar: ref<uint64>, count: uint): void — mbarrier.arrive.noComplete (arrive-drop)
+    MBARRIER_EXPECT_TX, // (bar: ref<uint64>, tx_bytes: uint): void — mbarrier.expect_tx.relaxed.cta
+    MBARRIER_TEST_WAIT_PARITY, // (bar: ref<uint64>, phase: int): bool — non-blocking mbarrier.test_wait.parity
+    FENCE_MBARRIER_INIT, // (): void — fence.mbarrier_init.release.cluster
+    FENCE_PROXY_ASYNC, // (): void — plain fence.proxy.async
+    FENCE_PROXY_ASYNC_GENERIC_ACQUIRE, // (): void — fence.proxy.async::generic.acquire.sync_restrict
+    FENCE_PROXY_ASYNC_GENERIC_RELEASE, // (): void — fence.proxy.async::generic.release.sync_restrict
+    BARRIER_CLUSTER_ARRIVE, // (): void — barrier.cluster.arrive
+    BARRIER_CLUSTER_ARRIVE_RELAXED, // (): void — barrier.cluster.arrive.relaxed
+    BARRIER_CLUSTER_WAIT, // (): void — barrier.cluster.wait
+    BARRIER_CLUSTER_WAIT_ACQUIRE, // (): void — barrier.cluster.wait.acquire
 };
 
 static constexpr size_t call_op_count =
-    to_underlying(CallOp::ACCEL_SIZE) + 1u;
+    to_underlying(CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -731,8 +747,14 @@ static constexpr size_t call_op_count =
 /// Returns whether the operation is a cluster launch control or mbarrier operation.
 [[nodiscard]] constexpr auto uses_cluster_launch_control(CallOp op) noexcept {
     auto v = to_underlying(op);
-    return v >= to_underlying(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL) &&
-           v <= to_underlying(CallOp::FENCE_PROXY_ASYNC_RELEASE);
+    constexpr auto clc_begin = to_underlying(CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL);
+    constexpr auto clc_end = to_underlying(CallOp::FENCE_PROXY_ASYNC_RELEASE);
+    constexpr auto mbarrier_begin = to_underlying(CallOp::MBARRIER_ARRIVE);
+    constexpr auto mbarrier_end = to_underlying(CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE);
+    static_assert(mbarrier_end == mbarrier_begin + 11u,
+                  "The appended mbarrier/cluster-barrier CallOp block must be contiguous.");
+    return (v >= clc_begin && v <= clc_end) ||
+           (v >= mbarrier_begin && v <= mbarrier_end);
 }
 
 class Expression;
@@ -913,7 +935,19 @@ public:
                test(CallOp::MBARRIER_ARRIVE_EXPECT_TX) ||
                test(CallOp::MBARRIER_TRY_WAIT_PARITY) ||
                test(CallOp::FENCE_PROXY_ASYNC_ACQUIRE) ||
-               test(CallOp::FENCE_PROXY_ASYNC_RELEASE);
+               test(CallOp::FENCE_PROXY_ASYNC_RELEASE) ||
+               test(CallOp::MBARRIER_ARRIVE) ||
+               test(CallOp::MBARRIER_ARRIVE_NO_COMPLETE) ||
+               test(CallOp::MBARRIER_EXPECT_TX) ||
+               test(CallOp::MBARRIER_TEST_WAIT_PARITY) ||
+               test(CallOp::FENCE_MBARRIER_INIT) ||
+               test(CallOp::FENCE_PROXY_ASYNC) ||
+               test(CallOp::FENCE_PROXY_ASYNC_GENERIC_ACQUIRE) ||
+               test(CallOp::FENCE_PROXY_ASYNC_GENERIC_RELEASE) ||
+               test(CallOp::BARRIER_CLUSTER_ARRIVE) ||
+               test(CallOp::BARRIER_CLUSTER_ARRIVE_RELAXED) ||
+               test(CallOp::BARRIER_CLUSTER_WAIT) ||
+               test(CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE);
     }
 };
 

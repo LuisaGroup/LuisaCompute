@@ -158,6 +158,20 @@ LUISA_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Ty
             .result = v};
 }
 
+// CLC/mbarrier wrappers take shared-memory barrier objects: the DSL passes
+// a reference to a Shared<T> array (type array<T, N>), not a bare scalar.
+// Accept either the bare element type or a shared array of that element.
+[[nodiscard]] bool is_barrier_ref(const Type *t) noexcept {
+    return t->is_uint64() ||
+           (t->is_array() && t->element()->is_uint64());
+}
+[[nodiscard]] bool is_clc_response_ref(const Type *t) noexcept {
+    auto is_uint4 = [](const Type *u) noexcept {
+        return u->is_uint32_vector() && u->dimension() == 4u;
+    };
+    return is_uint4(t) || (t->is_array() && is_uint4(t->element()));
+}
+
 LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept {
     switch (op) {
         case CallOp::UNDEFINED: {
@@ -543,48 +557,44 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
         case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL:
         case CallOp::CLUSTER_LAUNCH_CONTROL_TRY_CANCEL_MULTICAST: {
             LUISA_ASSERT(args.size() == 2 &&
-                             args[0]->type()->is_uint32() &&
-                             args[0]->type()->is_vector() &&
-                             args[0]->type()->dimension() == 4 &&
-                             args[1]->type()->is_uint64(),
-                         "CLC try_cancel: expected (uint4 result, uint64 bar).");
+                         is_clc_response_ref(args[0]->type()) &&
+                         is_barrier_ref(args[1]->type()),
+                                              "CLC try_cancel: expected (uint4 result, uint64 bar).");
             break;
         }
         case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_IS_CANCELED: {
             LUISA_ASSERT(args.size() == 1 &&
-                             args[0]->type()->is_uint32() &&
-                             args[0]->type()->dimension() == 4,
-                         "CLC query_is_canceled: expected (uint4 result).");
+                         is_clc_response_ref(args[0]->type()),
+                     "CLC query_is_canceled: expected (uint4 result).");
             break;
         }
         case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_X:
         case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Y:
         case CallOp::CLUSTER_LAUNCH_CONTROL_QUERY_GET_CTAD_Z: {
             LUISA_ASSERT(args.size() == 1 &&
-                             args[0]->type()->is_uint32() &&
-                             args[0]->type()->dimension() == 4,
-                         "CLC query_get_ctaid: expected (uint4 result).");
+                         is_clc_response_ref(args[0]->type()),
+                     "CLC query_get_ctaid: expected (uint4 result).");
             break;
         }
         case CallOp::MBARRIER_INIT: {
             LUISA_ASSERT(args.size() == 2 &&
-                             args[0]->type()->is_uint64() &&
-                             args[1]->type()->is_uint32(),
-                         "MBARRIER_INIT: expected (uint64 bar, uint count).");
+                           is_barrier_ref(args[0]->type()) &&
+                           args[1]->type()->is_uint32(),
+                       "MBARRIER_ARRIVE[_NO_COMPLETE]: expected (uint64 bar, uint count).");
             break;
         }
         case CallOp::MBARRIER_ARRIVE_EXPECT_TX: {
             LUISA_ASSERT(args.size() == 2 &&
-                             args[0]->type()->is_uint64() &&
-                             args[1]->type()->is_uint32(),
-                         "MBARRIER_ARRIVE_EXPECT_TX: expected (uint64 bar, uint tx_bytes).");
+                           is_barrier_ref(args[0]->type()) &&
+                           args[1]->type()->is_uint32(),
+                       "MBARRIER_EXPECT_TX: expected (uint64 bar, uint tx_bytes).");
             break;
         }
           case CallOp::MBARRIER_TRY_WAIT_PARITY: {
               LUISA_ASSERT(args.size() == 2 &&
-                               args[0]->type()->is_uint64() &&
-                               args[1]->type()->is_int32(),
-                           "MBARRIER_TRY_WAIT_PARITY: expected (uint64 bar, int phase).");
+                           is_barrier_ref(args[0]->type()) &&
+                           args[1]->type()->is_int32(),
+                       "MBARRIER_TEST_WAIT_PARITY: expected (uint64 bar, int phase).");
               break;
           }
           case CallOp::ACCEL_SIZE: {

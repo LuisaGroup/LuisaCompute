@@ -2159,6 +2159,73 @@ inline Int clc_query_get_ctaid_z(const Shared<uint4> &result) noexcept {
         {result.expression()}));
 }
 
+/// Arrive on mbarrier (optionally with count).
+inline void mbarrier_arrive(const Shared<ulong> &bar, Expr<uint> count) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::MBARRIER_ARRIVE, {bar.expression(), count.expression()});
+}
+
+/// Arrive-drop on mbarrier without completing the phase.
+inline void mbarrier_arrive_no_complete(const Shared<ulong> &bar, Expr<uint> count) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::MBARRIER_ARRIVE_NO_COMPLETE, {bar.expression(), count.expression()});
+}
+
+/// Bump the mbarrier transaction count (before the async response lands).
+inline void mbarrier_expect_tx(const Shared<ulong> &bar, Expr<uint> tx_bytes) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::MBARRIER_EXPECT_TX, {bar.expression(), tx_bytes.expression()});
+}
+
+/// Non-blocking test-wait on mbarrier parity. Returns true when the phase matches.
+inline Bool mbarrier_test_wait_parity(const Shared<ulong> &bar, Expr<int> phase) noexcept {
+    return def<bool>(detail::FunctionBuilder::current()->call(
+        Type::of<bool>(), CallOp::MBARRIER_TEST_WAIT_PARITY,
+        {bar.expression(), phase.expression()}));
+}
+
+/// Fence mbarrier initialization for cluster visibility.
+inline void fence_mbarrier_init() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::FENCE_MBARRIER_INIT, {});
+}
+
+/// Plain async-proxy fence (generic-proxy smem writes visible to async proxy).
+inline void fence_proxy_async() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::FENCE_PROXY_ASYNC, {});
+}
+
+/// Async-proxy generic fence acquire.
+inline void fence_proxy_async_generic_acquire() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::FENCE_PROXY_ASYNC_GENERIC_ACQUIRE, {});
+}
+
+/// Async-proxy generic fence release.
+inline void fence_proxy_async_generic_release() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::FENCE_PROXY_ASYNC_GENERIC_RELEASE, {});
+}
+
+/// Cluster barrier arrive (release semantics).
+inline void cluster_barrier_arrive() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::BARRIER_CLUSTER_ARRIVE, {});
+}
+
+/// Cluster barrier arrive (relaxed semantics).
+inline void cluster_barrier_arrive_relaxed() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::BARRIER_CLUSTER_ARRIVE_RELAXED, {});
+}
+
+/// Cluster barrier wait.
+inline void cluster_barrier_wait() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::BARRIER_CLUSTER_WAIT, {});
+}
+
+/// Cluster barrier wait (acquire semantics).
+inline void cluster_barrier_wait_acquire() noexcept {
+    detail::FunctionBuilder::current()->call(CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE, {});
+}
+
 // warp intrinsics
 [[nodiscard]] inline auto warp_is_first_active_lane() noexcept {
     return def<bool>(

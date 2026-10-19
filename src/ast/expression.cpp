@@ -99,12 +99,16 @@ void CallExpr::_mark() const noexcept {
                 break;
             case CallOp::MBARRIER_INIT:
             case CallOp::MBARRIER_ARRIVE_EXPECT_TX:
+            case CallOp::MBARRIER_ARRIVE:
+            case CallOp::MBARRIER_ARRIVE_NO_COMPLETE:
+            case CallOp::MBARRIER_EXPECT_TX:
                 _arguments[0]->mark(Usage::WRITE);
                 for (size_t i = 1; i < _arguments.size(); i++) {
                     _arguments[i]->mark(Usage::READ);
                 }
                 break;
             case CallOp::MBARRIER_TRY_WAIT_PARITY:
+            case CallOp::MBARRIER_TEST_WAIT_PARITY:
                 _arguments[0]->mark(Usage::READ_WRITE);
                 for (size_t i = 1; i < _arguments.size(); i++) {
                     _arguments[i]->mark(Usage::READ);

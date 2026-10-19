@@ -22,7 +22,7 @@ using namespace boost::ut::literals;
 void test_clc_vector_scalar_multiply(Device &device) {
     constexpr auto N = 1024 * 1024u;
     constexpr auto block_size = 256u;
-    constexpr auto num_blocks = 64u;
+    constexpr auto num_tiles = N / block_size;// one block per tile (CLC model)
 
     luisa::vector<float> host(N);
     for (auto i = 0u; i < N; ++i) {
@@ -89,7 +89,8 @@ void test_clc_vector_scalar_multiply(Device &device) {
     };
 
     auto shader = device.compile(kernel);
-    stream << shader(buf, N).dispatch(num_blocks) << synchronize();
+    // dispatch size is in THREADS: the grid must hold one block per tile
+    stream << shader(buf, N).dispatch(num_tiles * block_size) << synchronize();
 
     luisa::vector<float> result(N);
     stream << buf.copy_to(luisa::span{result}) << synchronize();
@@ -109,7 +110,7 @@ void test_clc_vector_scalar_multiply(Device &device) {
 void test_clc_work_stealing_helper(Device &device) {
     constexpr auto N = 512u;
     constexpr auto block_size = 64u;
-    constexpr auto num_blocks = 4u; // fewer blocks than needed for work stealing
+    constexpr auto num_tiles = N / block_size;// one block per tile (CLC model)
 
     luisa::vector<float> host(N);
     for (auto i = 0u; i < N; ++i) {
@@ -132,7 +133,9 @@ void test_clc_work_stealing_helper(Device &device) {
     };
 
     auto shader = device.compile(kernel);
-    stream << shader(buf, N).dispatch(num_blocks) << synchronize();
+    // dispatch size is in THREADS: the grid must hold one block per tile;
+    // workers cancel pending launches and steal their tiles
+    stream << shader(buf, N).dispatch(num_tiles * block_size) << synchronize();
 
     luisa::vector<float> result(N);
     stream << buf.copy_to(luisa::span{result}) << synchronize();
@@ -163,4 +166,16 @@ static inline const auto reg = [] {
     return 0;
 }();
 
-int main() {}
+int main(int argc, char *argv[]) {
+    // Invoke the tests directly from main (the empty-main + static-`_test`
+    // pattern never handed argv[1] to the exit-time runner, so this binary
+    // historically ran zero device asserts). Mirrors test_async_copy_cuda.cpp.
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    auto &device = dc->device;
+    test_clc_vector_scalar_multiply(device);
+    test_clc_work_stealing_helper(device);
+    return 0;
+}

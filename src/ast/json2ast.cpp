@@ -1154,7 +1154,11 @@ private:
         }
         if (op == CallOp::MBARRIER_INIT ||
             op == CallOp::MBARRIER_ARRIVE_EXPECT_TX ||
-            op == CallOp::MBARRIER_TRY_WAIT_PARITY) {
+            op == CallOp::MBARRIER_TRY_WAIT_PARITY ||
+            op == CallOp::MBARRIER_ARRIVE ||
+            op == CallOp::MBARRIER_ARRIVE_NO_COMPLETE ||
+            op == CallOp::MBARRIER_EXPECT_TX ||
+            op == CallOp::MBARRIER_TEST_WAIT_PARITY) {
             return require(2u, true);
         }
         switch (op) {

@@ -1052,6 +1052,7 @@ luisa_compute_add_test(test_async_copy_cuda           unit/runtime/test_async_co
 # unit/runtime/test_hip_shader_cache.cpp and unit/runtime/test_vk_shader_cache.cpp
 # (backend artifact/PSO reuse). All three inject a BinaryIO via DeviceConfig.
 luisa_compute_add_test(test_cluster_launch_control  unit/runtime/test_cluster_launch_control.cpp)
+luisa_compute_add_test(test_mbarrier_fence unit/runtime/test_mbarrier_fence.cpp LABELS "unit;unit_runtime")
 
 # --- unit/runtime: standalone tests (need backend, NOT auto-run via CTest) ---
 luisa_compute_add_test(test_accel_build_modes unit/runtime/test_accel_build_modes.cpp)

@@ -2465,75 +2465,235 @@ __device__ void lc_synchronize_block() noexcept {
 
 // === Cluster Launch Control (CUDA Blackwell SM 10.0+) ===
 
-// Initialize mbarrier with arrival count
-__device__ inline void lc_mbarrier_init(lc_ulong *bar, lc_uint count) noexcept {
-    asm("mbarrier.init.shared.b64 [%0], %1;"
-        :: "l"(bar), "r"(count));
+// The DSL passes Shared<T> objects as lc_array<T, N> references; the barrier
+// address is the shared address of element 0.
+template<size_t N>
+__device__ inline void lc_mbarrier_init(lc_array<lc_ulong, N> &bar, lc_uint count) noexcept {
+    auto *p = &bar[0];
+    asm volatile("mbarrier.init.shared.b64 [%0], %1;"
+                 :: "r"((unsigned)__cvta_generic_to_shared(p)), "r"(count)
+                 : "memory");
 }
 
 // Arrive on mbarrier with expected transaction count
+template<size_t N>
 __device__ inline void lc_mbarrier_arrive_expect_tx(
-    lc_ulong *bar, lc_uint tx_bytes) noexcept {
-    asm("mbarrier.arrive.expect_tx.shared.b64 _, [%0], %1;"
-        :: "l"(bar), "r"(tx_bytes));
+    lc_array<lc_ulong, N> &bar, lc_uint tx_bytes) noexcept {
+    auto *p = &bar[0];
+    asm volatile("mbarrier.arrive.expect_tx.release.cta.shared::cta.b64 _, [%0], %1;"
+                 :: "r"((unsigned)__cvta_generic_to_shared(p)), "r"(tx_bytes)
+                 : "memory");
 }
 
 // Try-wait on mbarrier with parity
+template<size_t N>
 __device__ inline bool lc_mbarrier_try_wait_parity(
-    lc_ulong *bar, lc_uint phase) noexcept {
+    lc_array<lc_ulong, N> &bar, lc_uint phase) noexcept {
+    auto *p = &bar[0];
     lc_uint result;
-    asm("mbarrier.try_wait.parity.shared.b64 %0, [%1], %2;"
-        : "=r"(result) : "l"(bar), "r"(phase));
+    asm volatile(
+        "{\n\t"
+        ".reg .pred P_OUT;\n\t"
+        "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P_OUT, [%1], %2;\n\t"
+        "selp.b32 %0, 1, 0, P_OUT;\n\t"
+        "}"
+        : "=r"(result)
+        : "r"((unsigned)__cvta_generic_to_shared(p)), "r"(phase)
+        : "memory");
     return result != 0;
 }
 
 // Proxy fence acquire (before cancellation)
 __device__ inline void lc_fence_proxy_async_acquire() noexcept {
-    asm("fence.proxy.async.acquire;");
+    // ptxas rejects the non-canonical fence.proxy.async.acquire/release
+    // modifiers; the plain fence.proxy.async is the canonical form (the only
+    // async-proxy fence) and is what CUTLASS emits on both sides.
+    asm volatile("fence.proxy.async;" ::: "memory");
 }
 
 // Proxy fence release (after reading result)
 __device__ inline void lc_fence_proxy_async_release() noexcept {
-    asm("fence.proxy.async.release;");
+    asm volatile("fence.proxy.async;" ::: "memory");
+}
+
+// === Extended mbarrier / proxy-fence / cluster-barrier (CUTLASS CLC pipeline support, PTX ISA 8.6) ===
+
+// Arrive on mbarrier with count (cluster-scope release semantics)
+template<size_t N>
+__device__ inline void lc_mbarrier_arrive(lc_array<lc_ulong, N> &bar, lc_uint count) noexcept {
+    auto *p = &bar[0];
+    asm volatile("mbarrier.arrive.release.cluster.shared::cta.b64 _, [%0], %1;"
+                 :: "r"((unsigned)__cvta_generic_to_shared(p)), "r"(count)
+                 : "memory");
+}
+
+// Arrive-drop on mbarrier without completing the phase (state kept in a register)
+template<size_t N>
+__device__ inline void lc_mbarrier_arrive_no_complete(lc_array<lc_ulong, N> &bar, lc_uint count) noexcept {
+    auto *p = &bar[0];
+    lc_ulong state;
+    asm volatile("mbarrier.arrive.noComplete.shared.b64 %0, [%1], %2;"
+                 : "=l"(state)
+                 : "r"((unsigned)__cvta_generic_to_shared(p)), "r"(count)
+                 : "memory");
+}
+
+// Set the expected transaction count of an mbarrier phase
+template<size_t N>
+__device__ inline void lc_mbarrier_expect_tx(lc_array<lc_ulong, N> &bar, lc_uint tx_bytes) noexcept {
+    auto *p = &bar[0];
+    asm volatile("mbarrier.expect_tx.relaxed.cta.shared::cta.b64 [%0], %1;"
+                 :: "r"((unsigned)__cvta_generic_to_shared(p)), "r"(tx_bytes)
+                 : "memory");
+}
+
+// Non-blocking test-wait on mbarrier parity
+template<size_t N>
+__device__ inline bool lc_mbarrier_test_wait_parity(
+    lc_array<lc_ulong, N> &bar, lc_uint phase) noexcept {
+    auto *p = &bar[0];
+    lc_uint result;
+    asm volatile(
+        "{\n\t"
+        ".reg .pred P_OUT;\n\t"
+        "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P_OUT, [%1], %2;\n\t"
+        "selp.b32 %0, 1, 0, P_OUT;\n\t"
+        "}"
+        : "=r"(result)
+        : "r"((unsigned)__cvta_generic_to_shared(p)), "r"(phase)
+        : "memory");
+    return result != 0;
+}
+
+// Make mbarrier initializations visible to the whole cluster
+__device__ inline void lc_fence_mbarrier_init() noexcept {
+    asm volatile("fence.mbarrier_init.release.cluster;" ::: "memory");
+}
+
+// Plain async-proxy fence (generic-proxy smem writes visible to async proxy)
+__device__ inline void lc_fence_proxy_async() noexcept {
+    asm volatile("fence.proxy.async;" ::: "memory");
+}
+
+// Async-proxy generic acquire fence, restricted to shared::cluster / cluster scope
+__device__ inline void lc_fence_proxy_async_generic_acquire() noexcept {
+    asm volatile("fence.proxy.async::generic.acquire.sync_restrict::shared::cluster.cluster;" ::: "memory");
+}
+
+// Async-proxy generic release fence, restricted to shared::cta / cluster scope
+__device__ inline void lc_fence_proxy_async_generic_release() noexcept {
+    asm volatile("fence.proxy.async::generic.release.sync_restrict::shared::cta.cluster;" ::: "memory");
+}
+
+// Cluster barrier arrive (release semantics)
+__device__ inline void lc_barrier_cluster_arrive() noexcept {
+    asm volatile("barrier.cluster.arrive;" ::: "memory");
+}
+
+// Cluster barrier arrive (relaxed semantics)
+__device__ inline void lc_barrier_cluster_arrive_relaxed() noexcept {
+    asm volatile("barrier.cluster.arrive.relaxed;" ::: "memory");
+}
+
+// Cluster barrier wait
+__device__ inline void lc_barrier_cluster_wait() noexcept {
+    asm volatile("barrier.cluster.wait;" ::: "memory");
+}
+
+// Cluster barrier wait (acquire semantics)
+__device__ inline void lc_barrier_cluster_wait_acquire() noexcept {
+    asm volatile("barrier.cluster.wait.acquire;" ::: "memory");
 }
 
 // Try cancel — single thread block via invoke_one
-__device__ inline void lc_clc_try_cancel(lc_uint4 *result, lc_ulong *bar) noexcept {
-    asm("clusterlaunchcontrol.try_cancel.shared.b64 [%0], [%1];"
-        :: "l"(result), "l"(bar));
+template<size_t N, size_t M>
+__device__ inline void lc_clc_try_cancel(lc_array<lc_uint4, N> &result, lc_array<lc_ulong, M> &bar) noexcept {
+    auto *p = &result[0];
+    auto *b = &bar[0];
+    asm volatile("clusterlaunchcontrol.try_cancel.async.shared::cta.mbarrier::complete_tx::bytes.b128 [%0], [%1];"
+                 :: "r"((unsigned)__cvta_generic_to_shared(p)), "r"((unsigned)__cvta_generic_to_shared(b))
+                 : "memory");
 }
 
 // Try cancel — multicast (cluster-wide)
-__device__ inline void lc_clc_try_cancel_multicast(lc_uint4 *result, lc_ulong *bar) noexcept {
-    asm("clusterlaunchcontrol.try_cancel.multicast.shared.b64 [%0], [%1];"
-        :: "l"(result), "l"(bar));
+template<size_t N, size_t M>
+__device__ inline void lc_clc_try_cancel_multicast(lc_array<lc_uint4, N> &result, lc_array<lc_ulong, M> &bar) noexcept {
+    auto *p = &result[0];
+    auto *b = &bar[0];
+    asm volatile("clusterlaunchcontrol.try_cancel.async.shared::cta.mbarrier::complete_tx::bytes.multicast::cluster::all.b128 [%0], [%1];"
+                 :: "r"((unsigned)__cvta_generic_to_shared(p)), "r"((unsigned)__cvta_generic_to_shared(b))
+                 : "memory");
 }
 
 // Query — is canceled
-__device__ inline bool lc_clc_query_is_canceled(lc_uint4 result) noexcept {
+template<size_t N>
+__device__ inline bool lc_clc_query_is_canceled(lc_array<lc_uint4, N> &result) noexcept {
+    lc_uint4 value = result[0];
     lc_uint r;
-    asm("clusterlaunchcontrol.query_cancel.is_canceled.b32 %0, [%1];"
-        : "=r"(r) : "l"(&result));
+    asm volatile(
+        "{\n\t"
+        ".reg .b128 B128_try_cancel_response;\n\t"
+        "mov.b128 B128_try_cancel_response, {%1, %2};\n\t"
+        "{\n\t"
+        ".reg .pred P_OUT;\n\t"
+        "clusterlaunchcontrol.query_cancel.is_canceled.pred.b128 P_OUT, B128_try_cancel_response;\n\t"
+        "selp.b32 %0, 1, 0, P_OUT;\n\t"
+        "}\n\t"
+        "}"
+        : "=r"(r)
+        : "l"((*reinterpret_cast<longlong2 *>(&value)).x),
+          "l"((*reinterpret_cast<longlong2 *>(&value)).y)
+        : "memory");
     return r != 0;
 }
 
 // Query — get first ctaid x/y/z
-__device__ inline int lc_clc_query_get_ctaid_x(lc_uint4 result) noexcept {
+template<size_t N>
+__device__ inline int lc_clc_query_get_ctaid_x(lc_array<lc_uint4, N> &result) noexcept {
+    lc_uint4 value = result[0];
     int bx;
-    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_x.s32 %0, [%1];"
-        : "=r"(bx) : "l"(&result));
+    asm volatile(
+        "{\n\t"
+        ".reg .b128 B128_try_cancel_response;\n\t"
+        "mov.b128 B128_try_cancel_response, {%1, %2};\n\t"
+        "clusterlaunchcontrol.query_cancel.get_first_ctaid::x.b32.b128 %0, B128_try_cancel_response;\n\t"
+        "}"
+        : "=r"(bx)
+        : "l"((*reinterpret_cast<longlong2 *>(&value)).x),
+          "l"((*reinterpret_cast<longlong2 *>(&value)).y)
+        : "memory");
     return bx;
 }
-__device__ inline int lc_clc_query_get_ctaid_y(lc_uint4 result) noexcept {
+template<size_t N>
+__device__ inline int lc_clc_query_get_ctaid_y(lc_array<lc_uint4, N> &result) noexcept {
+    lc_uint4 value = result[0];
     int by;
-    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_y.s32 %0, [%1];"
-        : "=r"(by) : "l"(&result));
+    asm volatile(
+        "{\n\t"
+        ".reg .b128 B128_try_cancel_response;\n\t"
+        "mov.b128 B128_try_cancel_response, {%1, %2};\n\t"
+        "clusterlaunchcontrol.query_cancel.get_first_ctaid::y.b32.b128 %0, B128_try_cancel_response;\n\t"
+        "}"
+        : "=r"(by)
+        : "l"((*reinterpret_cast<longlong2 *>(&value)).x),
+          "l"((*reinterpret_cast<longlong2 *>(&value)).y)
+        : "memory");
     return by;
 }
-__device__ inline int lc_clc_query_get_ctaid_z(lc_uint4 result) noexcept {
+template<size_t N>
+__device__ inline int lc_clc_query_get_ctaid_z(lc_array<lc_uint4, N> &result) noexcept {
+    lc_uint4 value = result[0];
     int bz;
-    asm("clusterlaunchcontrol.query_cancel.get_first_ctaid_z.s32 %0, [%1];"
-        : "=r"(bz) : "l"(&result));
+    asm volatile(
+        "{\n\t"
+        ".reg .b128 B128_try_cancel_response;\n\t"
+        "mov.b128 B128_try_cancel_response, {%1, %2};\n\t"
+        "clusterlaunchcontrol.query_cancel.get_first_ctaid::z.b32.b128 %0, B128_try_cancel_response;\n\t"
+        "}"
+        : "=r"(bz)
+        : "l"((*reinterpret_cast<longlong2 *>(&value)).x),
+          "l"((*reinterpret_cast<longlong2 *>(&value)).y)
+        : "memory");
     return bz;
 }
 
