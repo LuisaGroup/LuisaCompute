@@ -637,11 +637,14 @@ target_include_directories(luisa-compute-ext-stb-interface INTERFACE
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext>)
 target_link_libraries(luisa-compute-ext INTERFACE luisa-compute-ext-stb-interface)
 
-luisa_compute_install_extension(luisa-compute-ext-stb-interface HEADER_FILES
-        stb/stb/stb_image.h
-        stb/stb/stb_image_resize2.h
-        stb/stb/stb_image_write.h
-        HEADER_DESTINATION stb)
+# upstream stb moved stb_image_resize2.h out of the submodule; this tree keeps
+  # a copy under src/ext/stb/compat so <stb/stb_image_resize2.h> still resolves
+  # for both the build interface and the installed package.
+  luisa_compute_install_extension(luisa-compute-ext-stb-interface HEADER_FILES
+          stb/stb/stb_image.h
+          stb/compat/stb/stb_image_resize2.h
+          stb/stb/stb_image_write.h
+          HEADER_DESTINATION stb)
 
 # glslang
 # Vulkan's backend-private compute kernels are compiled to SPIR-V during the

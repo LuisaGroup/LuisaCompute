@@ -110,7 +110,8 @@ def substitute(text, matrix):
 
     def repl(match):
         expr = match.group(1).strip()
-        m = re.fullmatch(r"matrix\.([A-Za-z_][A-Za-z0-9_.]*)", expr)
+        # Matrix keys may contain '-' (e.g. `cuda-keyring` in build-cmake.yml).
+        m = re.fullmatch(r"matrix\.([A-Za-z_][A-Za-z0-9_.-]*)", expr)
         if not m:
             raise ValueError(f"unsupported expression: ${{{{ {expr} }}}}")
         value = matrix
@@ -124,6 +125,24 @@ def substitute(text, matrix):
 def host_os():
     s = platform.system()
     return {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(s, s)
+
+
+def host_arch():
+    machine = platform.machine().lower()
+    return {"amd64": "x86_64", "x86_64": "x86_64",
+            "arm64": "aarch64", "aarch64": "aarch64"}.get(machine, machine)
+
+
+def arch_matches(requested, host):
+    """Whether a matrix `platform.arch` can be built on this host.
+
+    The workflow's Ubuntu matrix contains both an x86_64 and an aarch64 entry;
+    the latter needs an arm runner, so a local x86_64 host must skip it instead
+    of trying to cross-compile the whole tree.
+    """
+    wanted = {"x86_64": {"x86_64", "amd64", "x64"},
+              "aarch64": {"aarch64", "arm64"}}.get(requested, {requested})
+    return host_arch() in wanted
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +187,36 @@ def job_os(job_name, job, matrix):
 # ---------------------------------------------------------------------------
 
 def find_vcvars():
-    patterns = [
-        r"C:\Program Files\Microsoft Visual Studio\2022\*\VC\Auxiliary\Build\vcvars64.bat",
-        r"C:\Program Files\Microsoft Visual Studio\2019\*\VC\Auxiliary\Build\vcvars64.bat",
-        r"C:\Program Files (x86)\Microsoft Visual Studio\2019\*\VC\Auxiliary\Build\vcvars64.bat",
-    ]
+    """Locate vcvars64.bat for the newest local Visual Studio installation.
+
+    ``vswhere`` (shipped with every VS 2017+ installer) is authoritative and
+    survives new VS release years; the glob list is only a fallback for
+    stripped-down installations that lack it.
+    """
+    vswhere = os.path.join(
+        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        "Microsoft Visual Studio", "Installer", "vswhere.exe",
+    )
+    if os.path.isfile(vswhere):
+        try:
+            out = subprocess.run(
+                [vswhere, "-latest", "-products", "*", "-prerelease",
+                 "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                 "-property", "installationPath"],
+                capture_output=True, text=True, timeout=60,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        if out:
+            candidate = Path(out.splitlines()[0].strip()) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
+            if candidate.is_file():
+                return str(candidate)
+
+    patterns = []
+    for year in ("2022", "2025", "2026", "2019"):
+        for base in (r"C:\Program Files", r"C:\Program Files (x86)"):
+            patterns.append(
+                rf"{base}\Microsoft Visual Studio\{year}\*\VC\Auxiliary\Build\vcvars64.bat")
     for pattern in patterns:
         matches = sorted(m for m in glob.glob(pattern) if os.path.isfile(m))
         if matches:
@@ -180,12 +224,60 @@ def find_vcvars():
     return None
 
 
+_MSVC_ENV = None
+
+
+def msvc_environment():
+    """Return the environment that vcvars64.bat produces.
+
+    ``ilammy/msvc-dev-cmd`` only exports the MSVC toolchain into the following
+    steps of the job; it does not change the machine. Steps that the workflow
+    declares as ``shell: pwsh`` therefore need this environment injected, or
+    they run without a usable ``rc``/``mt``/``INCLUDE`` and fail to configure.
+    """
+    global _MSVC_ENV
+    if _MSVC_ENV is not None:
+        return _MSVC_ENV or None
+    vcvars = find_vcvars()
+    if not vcvars:
+        _MSVC_ENV = {}
+        return None
+    try:
+        out = subprocess.run(
+            f'cmd /c "call "{vcvars}" >nul && set"',
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=300,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        _MSVC_ENV = {}
+        return None
+    env = dict(os.environ)
+    for line in out.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key:
+            env[key] = value
+    _MSVC_ENV = env
+    return env or None
+
+
 class WslRunner:
     """Execute bash steps inside WSL from a Windows host."""
+
+    # The WSL resolver can hand back a CGNAT (100.64/10) address for
+    # github.com, which is unreachable from the distro; the SDK FetchContent
+    # downloads then fail with "Could not resolve host" even though the Windows
+    # side reaches GitHub fine. Pin the known-good addresses for this session.
+    HOSTS_MARKER = "# luisa-run-ci"
+    HOSTS_PINS = (
+        ("github.com", "140.82.121.4"),
+        ("objects.githubusercontent.com", "185.199.108.133"),
+        ("codeload.github.com", "140.82.121.10"),
+    )
 
     def __init__(self, distro=None):
         self.distro = distro or self._default_distro()
         self.posix_root = self._to_posix(ROOT)
+        self._pinned = False
 
     @staticmethod
     def _default_distro():
@@ -207,6 +299,46 @@ class WslRunner:
         ).stdout.strip()
         return out
 
+    def _reachable(self, host):
+        code = subprocess.run(
+            ["wsl", "-d", self.distro, "--", "bash", "-c",
+             f"timeout 12 bash -c 'cat < /dev/null > /dev/tcp/{host}/443'"],
+            capture_output=True,
+        ).returncode
+        return code == 0
+
+    def pin_hosts(self):
+        """Temporarily pin GitHub addresses when the distro cannot reach it.
+
+        WSL rewrites ``/etc/hosts`` on every boot, so this is done per run and
+        the marker line lets ``unpin_hosts`` remove exactly what was added.
+        """
+        if self._pinned:
+            return
+        self._pinned = True
+        if self._reachable("github.com"):
+            return
+        entries = "\n".join(f"{ip} {name}" for name, ip in self.HOSTS_PINS)
+        script = (
+            f"grep -qF '{self.HOSTS_MARKER}' /etc/hosts || "
+            f"printf '\\n%s\\n{entries}\\n' '{self.HOSTS_MARKER}' >> /etc/hosts"
+        )
+        subprocess.run(["wsl", "-d", self.distro, "-u", "root", "--",
+                        "bash", "-c", script], capture_output=True)
+        if self._reachable("github.com"):
+            log(f"WSL {self.distro}: pinned GitHub hosts (DNS returned an "
+                f"unreachable address)")
+
+    def unpin_hosts(self):
+        if not self._pinned:
+            return
+        self._pinned = False
+        script = (f"sed -i '/{self.HOSTS_MARKER}/d' /etc/hosts; "
+                  + "; ".join(f"sed -i '\\#{name} {ip}#d' /etc/hosts"
+                              for name, ip in self.HOSTS_PINS))
+        subprocess.run(["wsl", "-d", self.distro, "-u", "root", "--",
+                        "bash", "-c", script], capture_output=True)
+
     def bash(self, script_path):
         rel = script_path.relative_to(ROOT).as_posix()
         cmd = ["wsl", "-d", self.distro, "--",
@@ -215,7 +347,28 @@ class WslRunner:
         return subprocess.run(cmd).returncode
 
 
-def run_step(step, matrix, env, tmp_dir, wsl):
+def augment_script(script, cmake_args):
+    """Append locally supplied cmake configure arguments to a step script.
+
+    Any ``cmake ... -S <src> ... -B <build>`` configure invocation is extended
+    with ``--cmake-arg`` values. The workflow uses backslash continuations, so a
+    configure command can span several physical lines; the arguments go right
+    after the ``cmake`` token, which keeps such multi-line commands valid. Build
+    and test commands never match ``-S``/``--preset`` and stay untouched.
+    """
+    if not cmake_args:
+        return script
+    extra = " ".join(f'"{arg}"' for arg in cmake_args)
+    out = []
+    for line in script.splitlines():
+        stripped = line.strip()
+        is_configure = stripped.startswith("cmake ") and (
+            re.search(r"\s-S\s", stripped) or stripped.startswith("cmake --preset"))
+        out.append(line.replace("cmake ", f"cmake {extra} ", 1) if is_configure else line)
+    return "\n".join(out) + ("\n" if script.endswith("\n") else "")
+
+
+def run_step(step, matrix, env, tmp_dir, wsl, cmake_args=()):
     """Run a single step; returns the exit code (0 for skipped actions)."""
     name = step.get("name") or "Run"
     label = f"----- step: {name}"
@@ -232,11 +385,15 @@ def run_step(step, matrix, env, tmp_dir, wsl):
         return 0
 
     script = substitute(step["run"], matrix)
+    script = augment_script(script, cmake_args)
     shell = step.get("shell")
 
     if env == "linux":
         script_path = tmp_dir / "step.sh"
-        script_path.write_text(script, encoding="utf-8")
+        # GitHub's YAML block scalars keep `\n`; writing through Path on a
+        # Windows host would emit `\r\n` (the default newline translation) and
+        # bash then sees `sudo apt-get update\r` -> "Invalid operation update".
+        script_path.write_text(script.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
         if host_os() == "windows":
             log(f"{label} (bash via WSL: {wsl.distro})")
             return wsl.bash(script_path)
@@ -245,21 +402,33 @@ def run_step(step, matrix, env, tmp_dir, wsl):
                                str(script_path)], cwd=ROOT).returncode
 
     if env == "windows":
+        step_env = msvc_environment()
+        # `msvc-dev-cmd` only affects the steps that follow it, so mirror that
+        # by exporting the MSVC environment into every Windows step instead of
+        # relying on the ambient PATH.
         if shell == "cmd" or (shell is None and os.name == "nt"):
             bat = tmp_dir / "step.bat"
             vcvars = find_vcvars()
             prefix = f'call "{vcvars}" >nul && ' if vcvars else ""
-            bat.write_text(script, encoding="utf-8")
+            # cmd.exe requires CRLF for multi-line blocks such as IF (...).
+            bat.write_text(script.replace("\r\n", "\n"), encoding="utf-8", newline="\r\n")
             log(f"{label} (cmd)")
-            return subprocess.run(f'{prefix}"{bat}"', shell=True, cwd=ROOT).returncode
+            return subprocess.run(f'{prefix}"{bat}"', shell=True, cwd=ROOT,
+                                  env=step_env or os.environ).returncode
         # pwsh (or default on non-Windows host pretending to be Windows)
         ps1 = tmp_dir / "step.ps1"
-        ps1.write_text(script, encoding="utf-8")
+        ps1.write_text(script.replace("\r\n", "\n"), encoding="utf-8", newline="\r\n")
         exe = shutil.which("pwsh") or shutil.which("powershell")
         if exe:
             log(f"{label} (pwsh)")
-            return subprocess.run([exe, "-NoProfile", "-File", str(ps1)],
-                                  cwd=ROOT).returncode
+            # GitHub's pwsh wrapper fails the step on the last exit code, which
+            # is not PowerShell's default. Enable it so a failed native command
+            # actually fails the job instead of being reported as a pass.
+            return subprocess.run(
+                [exe, "-NoProfile", "-Command",
+                 f"$ErrorActionPreference = 'Stop'; "
+                 f"& '{ps1}'; exit $LASTEXITCODE"],
+                cwd=ROOT, env=step_env or os.environ).returncode
         log(f"{label} (skip: no PowerShell found for step: {name})")
         return 0
 
@@ -295,7 +464,8 @@ def cleanup(run_tmp, preexisting):
     return removed
 
 
-def run_matrix_entry(workflow_name, job_name, job, matrix, keep, wsl_distro):
+def run_matrix_entry(workflow_name, job_name, job, matrix, keep, wsl_distro,
+                     cmake_args=()):
     env = job_os(job_name, job, matrix)
     host = host_os()
     parts = [f"{k}={v}" for k, v in matrix.items()]
@@ -308,10 +478,20 @@ def run_matrix_entry(workflow_name, job_name, job, matrix, keep, wsl_distro):
     if env == "windows" and host != "windows":
         log(f"SKIP: Windows job cannot run on a {host} host.")
         return None
+    requested_arch = str(matrix.get("platform", {}).get("arch", "")) if isinstance(
+        matrix.get("platform"), dict) else ""
+    if requested_arch and not arch_matches(requested_arch, host):
+        log(f"SKIP: matrix requests arch={requested_arch}, host is {host}.")
+        return None
 
     wsl = None
     if env == "linux" and host == "windows":
         wsl = WslRunner(wsl_distro)
+        if requested_arch and not arch_matches(requested_arch, "linux"):
+            log(f"SKIP: matrix requests arch={requested_arch}, "
+                f"WSL distro {wsl.distro} is {host_arch()}.")
+            return None
+        wsl.pin_hosts()
 
     # Snapshot which generated paths already exist so cleanup is non-destructive.
     generated = [ROOT / p for p in GENERATED_PATHS]
@@ -328,7 +508,7 @@ def run_matrix_entry(workflow_name, job_name, job, matrix, keep, wsl_distro):
             if not step_enabled(step, matrix):
                 log(f"----- step: {step.get('name') or 'Run'} (skipped by if-condition)")
                 continue
-            code = run_step(step, matrix, env, tmp_dir, wsl)
+            code = run_step(step, matrix, env, tmp_dir, wsl, cmake_args)
             if code != 0:
                 # Any failing step fails the job (fail-fast: false in the
                 # workflow only governs other matrix entries, handled by
@@ -336,7 +516,12 @@ def run_matrix_entry(workflow_name, job_name, job, matrix, keep, wsl_distro):
                 log(f"step failed with exit code {code}")
                 ok = False
                 break
+    except Exception as exc:  # noqa: BLE001 - report, do not abort the run
+        log(f"step raised {type(exc).__name__}: {exc}")
+        ok = False
     finally:
+        if wsl is not None:
+            wsl.unpin_hosts()
         if keep:
             log(f"cleanup skipped (--keep); temp dir kept at {tmp_dir}")
         else:
@@ -377,6 +562,12 @@ def parse_args(argv=None):
                    help="list the expanded matrix entries and exit")
     p.add_argument("--dry-run", action="store_true",
                    help="print the steps that would run without executing them")
+    p.add_argument("--cmake-arg", action="append", default=[], metavar="ARG",
+                   help="extra argument appended to every `cmake -S ... -B ...` "
+                        "configure line, e.g. --cmake-arg "
+                        "-DLUISA_COMPUTE_VK_SDK_DIR=/path/to/sdk. Useful when a "
+                        "sandboxed WSL cannot download the SDK archives that "
+                        "upstream CI fetches from GitHub (repeatable).")
     return p.parse_args(argv)
 
 
@@ -431,7 +622,8 @@ def main(argv=None):
 
     results = []
     for name, job_name, job, matrix in entries:
-        ok = run_matrix_entry(name, job_name, job, matrix, args.keep, args.wsl_distro)
+        ok = run_matrix_entry(name, job_name, job, matrix, args.keep,
+                              args.wsl_distro, args.cmake_arg)
         results.append((f"{name}/{job_name}/{matrix}", ok))
         if ok is False and not args.keep_going:
             log("\naborting remaining entries (use --keep-going to emulate fail-fast: false)")

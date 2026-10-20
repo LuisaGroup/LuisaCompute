@@ -3,6 +3,24 @@ find_package(CUDAToolkit 12.1 COMPONENTS cuda_driver nvrtc_static)
 if (CUDAToolkit_FOUND)
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
 
+    # The static NVRTC/nvPTX archives shipped with CUDA 13.4 are compiled with
+    # the static CRT (`/FAILIFMISMATCH:"RuntimeLibrary=MT_StaticRelease"`), so a
+    # host tool that links them with the default `/MD` fails with LNK2038/LNK2005
+    # errors (MSVC link.exe) or a `/failifmismatch` error (lld-link/clang). This
+    # applies to every Windows toolchain, not just MSVC. `lc-nvrtc` in
+    # src/backends/cuda/xmake.lua solves the same problem with `runtime = "MT"`.
+    set(LUISA_COMPUTE_CUDA_STATIC_NVRTC_HOST_RUNTIME "")
+    if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "MSVC|Clang")
+        set(LUISA_COMPUTE_CUDA_STATIC_NVRTC_HOST_RUNTIME MultiThreaded)
+    endif ()
+
+    function(luisa_compute_cuda_configure_nvrtc_host_tool target)
+        if (LUISA_COMPUTE_CUDA_STATIC_NVRTC_HOST_RUNTIME)
+            set_property(TARGET ${target} PROPERTY
+                    MSVC_RUNTIME_LIBRARY "${LUISA_COMPUTE_CUDA_STATIC_NVRTC_HOST_RUNTIME}")
+        endif ()
+    endfunction()
+
     # embed CUDA sources with luisa_embed_device_lib
     file(GLOB LUISA_COMPUTE_CUDA_DEVICE_LIB_SOURCES CONFIGURE_DEPENDS cuda_builtin/*.cu cuda_builtin/*.h)
     add_custom_target(luisa-compute-backend-cuda-embed
@@ -118,6 +136,7 @@ if (CUDAToolkit_FOUND)
     # nvrtc standalone compiler
     add_executable(luisa-cuda-nvrtc-standalone-compiler cuda_nvrtc_compiler.cpp)
     target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE CUDA::nvrtc_static)
+    luisa_compute_cuda_configure_nvrtc_host_tool(luisa-cuda-nvrtc-standalone-compiler)
     set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES OUTPUT_NAME "luisa_nvrtc")
     if (UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_link_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
@@ -149,6 +168,7 @@ if (CUDAToolkit_FOUND)
             add_executable(luisa-cuda-tile-compiler cuda_tile_ir_compiler.cpp)
             target_compile_features(luisa-cuda-tile-compiler PRIVATE cxx_std_20)
             target_link_libraries(luisa-cuda-tile-compiler PRIVATE CUDA::nvrtc_static)
+            luisa_compute_cuda_configure_nvrtc_host_tool(luisa-cuda-tile-compiler)
             if (UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
                 target_compile_options(luisa-cuda-tile-compiler PRIVATE -stdlib=libstdc++)
                 target_link_options(luisa-cuda-tile-compiler PRIVATE -stdlib=libstdc++)
