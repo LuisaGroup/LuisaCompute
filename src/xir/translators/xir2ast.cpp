@@ -395,6 +395,15 @@ namespace detail {
         case ThreadGroupOp::WARP_READ_LANE: return CallOp::WARP_READ_LANE;
         case ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE: return CallOp::WARP_READ_FIRST_ACTIVE_LANE;
         case ThreadGroupOp::SYNCHRONIZE_BLOCK: return CallOp::SYNCHRONIZE_BLOCK;
+        // Device-side CUDA graph control (CUDA-only; see cuda_device_graph.h).
+        case ThreadGroupOp::GRAPH_SET_CONDITIONAL: return CallOp::GRAPH_SET_CONDITIONAL;
+        case ThreadGroupOp::GRAPH_LAUNCH: return CallOp::GRAPH_LAUNCH;
+        case ThreadGroupOp::GET_CURRENT_GRAPH_EXEC: return CallOp::GET_CURRENT_GRAPH_EXEC;
+        case ThreadGroupOp::GRAPH_NODE_SET_PARAM: return CallOp::GRAPH_NODE_SET_PARAM;
+        case ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM: return CallOp::GRAPH_NODE_SET_GRID_DIM;
+        case ThreadGroupOp::GRAPH_NODE_SET_ENABLED: return CallOp::GRAPH_NODE_SET_ENABLED;
+        case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE: return CallOp::GRID_DEPENDENCY_SYNCHRONIZE;
+        case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: return CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION;
     }
     LUISA_ERROR_WITH_LOCATION("Unsupported thread-group operation {}.", xir::to_string(op));
 }

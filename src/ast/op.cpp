@@ -597,15 +597,66 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
                        "MBARRIER_TEST_WAIT_PARITY: expected (uint64 bar, int phase).");
               break;
           }
-          case CallOp::ACCEL_SIZE: {
-              if (!(return_type == Type::of<uint32_t>() &&
-                    args.size() == 1u &&
-                    args[0]->type()->is_accel())) [[unlikely]] {
-                  LUISA_ERROR("ACCEL_SIZE expects (accel) and returns uint32.");
-              }
-              break;
-          }
-          default: break;
+        case CallOp::ACCEL_SIZE: {
+            if (!(return_type == Type::of<uint32_t>() &&
+                  args.size() == 1u &&
+                  args[0]->type()->is_accel())) [[unlikely]] {
+                LUISA_ERROR("ACCEL_SIZE expects (accel) and returns uint32.");
+            }
+            break;
+        }
+        case CallOp::GRAPH_SET_CONDITIONAL: {
+            LUISA_ASSERT(args.size() == 2u &&
+                             args[0]->type()->is_uint64() &&
+                             args[1]->type()->is_uint32(),
+                         "GRAPH_SET_CONDITIONAL: expected (uint64 handle, uint value).");
+            break;
+        }
+        case CallOp::GRAPH_LAUNCH: {
+            LUISA_ASSERT(args.size() == 2u &&
+                             args[0]->type()->is_uint64() &&
+                             args[1]->type()->is_uint32(),
+                         "GRAPH_LAUNCH: expected (uint64 exec, uint mode).");
+            break;
+        }
+        case CallOp::GET_CURRENT_GRAPH_EXEC: {
+            LUISA_ASSERT(args.empty() && return_type == Type::of<uint64_t>(),
+                         "GET_CURRENT_GRAPH_EXEC: expected () -> uint64.");
+            break;
+        }
+        case CallOp::GRAPH_NODE_SET_PARAM: {
+            LUISA_ASSERT(args.size() == 4u &&
+                             args[0]->type()->is_uint64() &&
+                             args[1]->type()->is_uint64() &&
+                             args[2]->type()->is_uint64() &&
+                             args[3]->type()->is_uint64(),
+                         "GRAPH_NODE_SET_PARAM: expected (uint64 node, uint64 offset, "
+                         "uint64 src_device_addr, uint64 size).");
+            break;
+        }
+        case CallOp::GRAPH_NODE_SET_GRID_DIM: {
+            LUISA_ASSERT(args.size() == 4u &&
+                             args[0]->type()->is_uint64() &&
+                             args[1]->type()->is_uint32() &&
+                             args[2]->type()->is_uint32() &&
+                             args[3]->type()->is_uint32(),
+                         "GRAPH_NODE_SET_GRID_DIM: expected (uint64 node, uint x, uint y, uint z).");
+            break;
+        }
+        case CallOp::GRAPH_NODE_SET_ENABLED: {
+            LUISA_ASSERT(args.size() == 2u &&
+                             args[0]->type()->is_uint64() &&
+                             args[1]->type()->is_bool(),
+                         "GRAPH_NODE_SET_ENABLED: expected (uint64 node, bool enabled).");
+            break;
+        }
+        case CallOp::GRID_DEPENDENCY_SYNCHRONIZE:
+        case CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: {
+            LUISA_ASSERT(args.empty(),
+                         "Device-side grid dependency control takes no arguments.");
+            break;
+        }
+        default: break;
     }
 }
 

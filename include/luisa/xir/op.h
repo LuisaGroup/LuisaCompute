@@ -518,6 +518,19 @@ enum class ThreadGroupOp {
     RASTER_SET_Z_DEPTH,              // (float): void
     RASTER_SET_Z_DEPTH_GREATER_EQUAL,// (float): void
     RASTER_SET_Z_DEPTH_LESS_EQUAL,   // (float): void
+
+    // Keep these appended so existing serialized ThreadGroupOp values remain
+    // stable. Device-side CUDA graph control mirrors the tail of
+    // luisa::compute::CallOp (CUDA device runtime, CUDA 12.0+); see
+    // cuda_device_graph.h. Only the CUDA AST backend lowers them so far.
+    GRAPH_SET_CONDITIONAL,                  // (uint64 handle, uint value): void
+    GRAPH_LAUNCH,                           // (uint64 exec, uint mode): void
+    GET_CURRENT_GRAPH_EXEC,                 // (): uint64
+    GRAPH_NODE_SET_PARAM,                   // (uint64 node, uint64 offset, uint64 src_device_addr, uint64 size): void
+    GRAPH_NODE_SET_GRID_DIM,                // (uint64 node, uint x, uint y, uint z): void
+    GRAPH_NODE_SET_ENABLED,                 // (uint64 node, bool enabled): void
+    GRID_DEPENDENCY_SYNCHRONIZE,            // (): void
+    TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, // (): void
 };
 
 #include <luisa/xir/op_to_string.inl.h>

@@ -622,10 +622,25 @@ enum struct CallOp : uint32_t {
     BARRIER_CLUSTER_ARRIVE_RELAXED, // (): void — barrier.cluster.arrive.relaxed
     BARRIER_CLUSTER_WAIT, // (): void — barrier.cluster.wait
     BARRIER_CLUSTER_WAIT_ACQUIRE, // (): void — barrier.cluster.wait.acquire
+
+    // Appended to preserve the numeric values of all existing public ops.
+    // Device-side CUDA graph control (CUDA device runtime; see
+    // cuda_device_graph.h for the device ABI and the version gates). These are
+    // CUDA-only ops: the AST carries them through to the CUDA AST backend, and
+    // every other backend/host path rejects them exactly like it rejects the
+    // other CUDA-only ops (CLUSTER_LAUNCH_CONTROL_*, MBARRIER_*, ...).
+    GRAPH_SET_CONDITIONAL,   // (uint64 handle, uint value) -> void ; CUDA >= 12.3
+    GRAPH_LAUNCH,            // (uint64 exec, uint mode) -> void ; CUDA >= 12.0, mode 0/1/2
+    GET_CURRENT_GRAPH_EXEC,  // () -> uint64 ; inline PTX
+    GRAPH_NODE_SET_PARAM,    // (uint64 node, uint64 offset, uint64 src_device_addr, uint64 size) -> void ; CUDA >= 12.4
+    GRAPH_NODE_SET_GRID_DIM, // (uint64 node, uint x, uint y, uint z) -> void ; CUDA >= 12.4
+    GRAPH_NODE_SET_ENABLED,  // (uint64 node, bool enabled) -> void ; CUDA >= 12.4
+    GRID_DEPENDENCY_SYNCHRONIZE, // () -> void ; inline PTX, CUDA >= 12.0
+    TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, // () -> void ; inline PTX, CUDA >= 12.0
 };
 
 static constexpr size_t call_op_count =
-    to_underlying(CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE) + 1u;
+    to_underlying(CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -953,6 +968,6 @@ public:
 
   };// namespace luisa::compute
 
-  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, UNDEFINED)
+  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION)
 
 #endif// LUISA_AST_OP_H

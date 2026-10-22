@@ -516,6 +516,15 @@ template<typename IndexAt>
         case ThreadGroupOp::WARP_PREFIX_SUM:
         case ThreadGroupOp::WARP_PREFIX_PRODUCT:
         case ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE: return count == 1u;
+        // Device-side CUDA graph control (CUDA-only; see cuda_device_graph.h).
+        case ThreadGroupOp::GRAPH_SET_CONDITIONAL: return count == 2u;
+        case ThreadGroupOp::GRAPH_LAUNCH: return count == 2u;
+        case ThreadGroupOp::GET_CURRENT_GRAPH_EXEC: return count == 0u;
+        case ThreadGroupOp::GRAPH_NODE_SET_PARAM: return count == 4u;
+        case ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM: return count == 4u;
+        case ThreadGroupOp::GRAPH_NODE_SET_ENABLED: return count == 2u;
+        case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE: return count == 0u;
+        case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: return count == 0u;
     }
     return false;
 }
@@ -572,7 +581,7 @@ template<typename Enum>
             return enum_value_between(
                 static_cast<const ThreadGroupInst *>(instruction)->op(),
                 ThreadGroupOp::SHADER_EXECUTION_REORDER,
-                ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
+                ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION);
         case DerivedInstructionTag::RESOURCE_QUERY:
             return enum_value_between(
                 static_cast<const ResourceQueryInst *>(instruction)->op(),

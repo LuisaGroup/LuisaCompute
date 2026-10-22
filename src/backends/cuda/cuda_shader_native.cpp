@@ -23,12 +23,31 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
                   metadata.block_size.z},
       _bound_arguments{std::move(bound_arguments)} {
 
+    // A generated PTX module only needs the CUDA device runtime (cudadevrt)
+    // when it references one of the entry points that live there. Everything
+    // else keeps the plain-PTX load path, which also keeps the loaded module
+    // image usable for cross-backend import.
+    auto requires_device_runtime = [](luisa::string_view ptx) noexcept {
+        constexpr luisa::string_view device_runtime_symbols[]{
+            "kernel_launcher",               // indirect dispatch
+            "cudaGraphSetConditional",       // device-side graph control
+            "cudaGraphLaunch",               // device-side graph launch
+            "cudaGraphKernelNodeSetParam",   // device-side graph node mutation
+            "cudaGraphKernelNodeSetEnabled", // device-side graph node mutation
+            "cudaGraphKernelNodeSetGridDim", // device-side graph node mutation
+        };
+        for (auto symbol : device_runtime_symbols) {
+            if (ptx.find(symbol) != luisa::string_view::npos) { return true; }
+        }
+        return false;
+    };
     auto load_ptx = [&](const void *ptx, size_t ptx_size) noexcept {
         auto devrt = device->cudadevrt_library();
-        if (devrt.empty() || luisa::string_view{static_cast<const char *>(ptx), ptx_size}.find("kernel_launcher") == luisa::string_view::npos) {
+        if (devrt.empty() || !requires_device_runtime(luisa::string_view{static_cast<const char *>(ptx), ptx_size})) {
             LUISA_WARNING_WITH_LOCATION(
                 "CUDA Device Runtime library is not linked. "
-                "Indirect dispatch will not be available for this kernel.");
+                "Indirect dispatch and device-side graph control will not be "
+                "available for this kernel.");
             if (auto ret = cuModuleLoadData(&_module, ptx); ret != CUDA_SUCCESS) { return ret; }
             LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
             return CUDA_SUCCESS;

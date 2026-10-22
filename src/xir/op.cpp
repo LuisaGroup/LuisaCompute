@@ -437,7 +437,6 @@ ResourceQueryOp resource_query_op_from_string(luisa::string_view name) noexcept 
         {"texture3d_size"sv, ResourceQueryOp::TEXTURE3D_SIZE},
         {"bindless_buffer_size"sv, ResourceQueryOp::BINDLESS_BUFFER_SIZE},
         {"bindless_byte_buffer_size"sv, ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE},
-        {"accel_size"sv, ResourceQueryOp::ACCEL_SIZE},
         {"bindless_texture2d_size"sv, ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE},
         {"bindless_texture3d_size"sv, ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE},
         {"bindless_texture2d_size_level"sv, ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL},
@@ -481,6 +480,7 @@ ResourceQueryOp resource_query_op_from_string(luisa::string_view name) noexcept 
         {"ray_tracing_trace_any_motion_blur"sv, ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR},
         {"ray_tracing_query_all_motion_blur"sv, ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR},
         {"ray_tracing_query_any_motion_blur"sv, ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR},
+        {"accel_size"sv, ResourceQueryOp::ACCEL_SIZE},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown resource_query operation: {}.", name);
@@ -722,6 +722,14 @@ luisa::string_view to_string(ThreadGroupOp op) noexcept {
         case ThreadGroupOp::RASTER_SET_Z_DEPTH: return "raster_set_z_depth"sv;
         case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL: return "raster_set_z_depth_greater_equal"sv;
         case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL: return "raster_set_z_depth_less_equal"sv;
+        case ThreadGroupOp::GRAPH_SET_CONDITIONAL: return "graph_set_conditional"sv;
+        case ThreadGroupOp::GRAPH_LAUNCH: return "graph_launch"sv;
+        case ThreadGroupOp::GET_CURRENT_GRAPH_EXEC: return "get_current_graph_exec"sv;
+        case ThreadGroupOp::GRAPH_NODE_SET_PARAM: return "graph_node_set_param"sv;
+        case ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM: return "graph_node_set_grid_dim"sv;
+        case ThreadGroupOp::GRAPH_NODE_SET_ENABLED: return "graph_node_set_enabled"sv;
+        case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE: return "grid_dependency_synchronize"sv;
+        case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: return "trigger_programmatic_launch_completion"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown thread_group operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -755,6 +763,14 @@ ThreadGroupOp thread_group_op_from_string(luisa::string_view name) noexcept {
         {"raster_set_z_depth"sv, ThreadGroupOp::RASTER_SET_Z_DEPTH},
         {"raster_set_z_depth_greater_equal"sv, ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL},
         {"raster_set_z_depth_less_equal"sv, ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL},
+        {"graph_set_conditional"sv, ThreadGroupOp::GRAPH_SET_CONDITIONAL},
+        {"graph_launch"sv, ThreadGroupOp::GRAPH_LAUNCH},
+        {"get_current_graph_exec"sv, ThreadGroupOp::GET_CURRENT_GRAPH_EXEC},
+        {"graph_node_set_param"sv, ThreadGroupOp::GRAPH_NODE_SET_PARAM},
+        {"graph_node_set_grid_dim"sv, ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM},
+        {"graph_node_set_enabled"sv, ThreadGroupOp::GRAPH_NODE_SET_ENABLED},
+        {"grid_dependency_synchronize"sv, ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE},
+        {"trigger_programmatic_launch_completion"sv, ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown thread_group operation: {}.", name);

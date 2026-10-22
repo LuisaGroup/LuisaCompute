@@ -956,6 +956,15 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BARRIER_CLUSTER_ARRIVE_RELAXED: _scratch << "lc_barrier_cluster_arrive_relaxed"; break;
         case CallOp::BARRIER_CLUSTER_WAIT: _scratch << "lc_barrier_cluster_wait"; break;
         case CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE: _scratch << "lc_barrier_cluster_wait_acquire"; break;
+        // Device-side CUDA graph control (see cuda_builtin/cuda_device_graph.h).
+        case CallOp::GRAPH_SET_CONDITIONAL: _scratch << "lc_cuda_graph_set_conditional"; break;
+        case CallOp::GRAPH_LAUNCH: _scratch << "lc_cuda_graph_launch"; break;
+        case CallOp::GET_CURRENT_GRAPH_EXEC: _scratch << "lc_cuda_get_current_graph_exec"; break;
+        case CallOp::GRAPH_NODE_SET_PARAM: _scratch << "lc_cuda_graph_node_set_param"; break;
+        case CallOp::GRAPH_NODE_SET_GRID_DIM: _scratch << "lc_cuda_graph_node_set_grid_dim"; break;
+        case CallOp::GRAPH_NODE_SET_ENABLED: _scratch << "lc_cuda_graph_node_set_enabled"; break;
+        case CallOp::GRID_DEPENDENCY_SYNCHRONIZE: _scratch << "lc_cuda_grid_dependency_synchronize"; break;
+        case CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: _scratch << "lc_cuda_trigger_programmatic_launch_completion"; break;
         case CallOp::ADDRESS_OF: _scratch << "lc_address_of"; break;
         case CallOp::ATOMIC_EXCHANGE: _scratch << "lc_atomic_exchange"; break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "lc_atomic_compare_exchange"; break;

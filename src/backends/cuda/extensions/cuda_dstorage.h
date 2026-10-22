@@ -1,5 +1,12 @@
 #pragma once
 
+// X11's X.h defines `None` as a macro; this header names the
+// DStorageCompression::None enumerator below, so follow the same guard as
+// dstorage_ext_interface.h.
+#ifdef None
+#undef None
+#endif
+
 #include <luisa/backends/ext/dstorage_ext_interface.h>
 #include "../cuda_device.h"
 

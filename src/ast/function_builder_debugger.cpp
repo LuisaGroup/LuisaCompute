@@ -548,6 +548,16 @@ private:
         reject(CallOp::BARRIER_CLUSTER_ARRIVE_RELAXED, "cluster barrier");
         reject(CallOp::BARRIER_CLUSTER_WAIT, "cluster barrier");
         reject(CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE, "cluster barrier");
+        // Device-side CUDA graph control: the debug transform cannot instrument
+        // host-graph mutation or device-side launches.
+        reject(CallOp::GRAPH_SET_CONDITIONAL, "device-side CUDA graph control");
+        reject(CallOp::GRAPH_LAUNCH, "device-side CUDA graph launch");
+        reject(CallOp::GET_CURRENT_GRAPH_EXEC, "device-side CUDA graph control");
+        reject(CallOp::GRAPH_NODE_SET_PARAM, "device-side CUDA graph host-node mutation");
+        reject(CallOp::GRAPH_NODE_SET_GRID_DIM, "device-side CUDA graph host-node mutation");
+        reject(CallOp::GRAPH_NODE_SET_ENABLED, "device-side CUDA graph host-node mutation");
+        reject(CallOp::GRID_DEPENDENCY_SYNCHRONIZE, "programmatic grid dependency");
+        reject(CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, "programmatic grid dependency");
         if (f.use_cooperative_operations()) {
             LUISA_ERROR(
                 "The debug function generator does not support function "

@@ -1161,6 +1161,21 @@ private:
             op == CallOp::MBARRIER_TEST_WAIT_PARITY) {
             return require(2u, true);
         }
+        // Device-side CUDA graph control (CUDA-only; see cuda_device_graph.h).
+        if (op == CallOp::GRAPH_SET_CONDITIONAL ||
+            op == CallOp::GRAPH_LAUNCH ||
+            op == CallOp::GRAPH_NODE_SET_ENABLED) {
+            return require(2u, true);
+        }
+        if (op == CallOp::GRAPH_NODE_SET_PARAM ||
+            op == CallOp::GRAPH_NODE_SET_GRID_DIM) {
+            return require(4u, true);
+        }
+        if (op == CallOp::GET_CURRENT_GRAPH_EXEC ||
+            op == CallOp::GRID_DEPENDENCY_SYNCHRONIZE ||
+            op == CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION) {
+            return require(0u, true);
+        }
         switch (op) {
             case CallOp::BUFFER_VOLATILE_WRITE:
             case CallOp::BUFFER_WRITE:

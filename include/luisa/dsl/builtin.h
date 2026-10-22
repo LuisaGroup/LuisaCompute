@@ -2050,6 +2050,92 @@ inline void sync_block() noexcept {
         CallOp::SYNCHRONIZE_BLOCK, {});
 }
 
+// CUDA graph device control (CUDA device runtime)
+//
+// These wrappers expose the device-side CUDA graph API (see
+// src/backends/cuda/cuda_builtin/cuda_device_graph.h for the device ABI and the
+// toolkit version gates). They are CUDA-only: the CUDA AST backend lowers them
+// to the device runtime entry points, and every other backend rejects them the
+// same way it rejects the other CUDA-only operations.
+//
+// All handles are the raw device-side values: the graph exec token returned by
+// `current_graph_exec()` (or a `uint64` kernel argument filled by the host), a
+// `cudaGraphConditionalHandle` value and a `cudaGraphDeviceNode_t` value, both
+// passed in as `uint64` kernel arguments created on the host.
+
+/// Destination stream of a device-side graph launch.
+enum class GraphLaunchMode : uint {
+    FIRE_AND_FORGET = 0u,
+    TAIL = 1u,
+    SIBLING = 2u,
+};
+
+/// Set the condition value of the conditional node owning `handle` (CUDA >= 12.3).
+inline void set_graph_conditional(Expr<uint64_t> handle, Expr<uint> value) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::GRAPH_SET_CONDITIONAL,
+        {handle.expression(), value.expression()});
+}
+
+/// Launch the graph execution `exec_token` from device code (CUDA >= 12.0).
+inline void graph_device_launch(Expr<uint64_t> exec_token, Expr<uint> mode) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::GRAPH_LAUNCH,
+        {exec_token.expression(), mode.expression()});
+}
+
+/// Launch the graph execution `exec_token` into the given target stream
+/// (CUDA >= 12.0).
+inline void graph_device_launch(Expr<uint64_t> exec_token, GraphLaunchMode mode) noexcept {
+    graph_device_launch(std::move(exec_token), static_cast<uint>(mode));
+}
+
+/// The graph exec token of the device-side graph execution that launched the
+/// current grid, or zero when the kernel was not launched from a graph.
+[[nodiscard]] inline Expr<uint64_t> current_graph_exec() noexcept {
+    return def<uint64_t>(detail::FunctionBuilder::current()->call(
+        Type::of<uint64_t>(), CallOp::GET_CURRENT_GRAPH_EXEC, {}));
+}
+
+/// Update the parameters of graph node `node` (CUDA >= 12.4); `src_address` is
+/// the 64-bit device address of the new parameter data.
+inline void graph_node_set_param(Expr<uint64_t> node, Expr<uint64_t> offset,
+                                 Expr<uint64_t> src_address, Expr<uint64_t> size) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::GRAPH_NODE_SET_PARAM,
+        {node.expression(), offset.expression(),
+         src_address.expression(), size.expression()});
+}
+
+/// Update the grid dimensions of kernel node `node` (CUDA >= 12.4).
+inline void graph_node_set_grid_dim(Expr<uint64_t> node, Expr<uint> x,
+                                    Expr<uint> y, Expr<uint> z) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::GRAPH_NODE_SET_GRID_DIM,
+        {node.expression(), x.expression(),
+         y.expression(), z.expression()});
+}
+
+/// Enable or disable kernel node `node` (CUDA >= 12.4).
+inline void graph_node_set_enabled(Expr<uint64_t> node, Expr<bool> enabled) noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::GRAPH_NODE_SET_ENABLED,
+        {node.expression(), enabled.expression()});
+}
+
+/// Block the calling thread until all direct grid dependencies have completed
+/// (CUDA >= 12.0).
+inline void grid_dependency_synchronize() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::GRID_DEPENDENCY_SYNCHRONIZE, {});
+}
+
+/// Signal that the dependent grids of this grid may be scheduled (CUDA >= 12.0).
+inline void trigger_programmatic_launch_completion() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, {});
+}
+
 // async copy (CUDA cp.async, CC 8.0+)
 
 /// Initiate an async copy from global to shared memory (CUDA: cp.async).

@@ -1416,7 +1416,16 @@ constexpr std::array thread_group_wire_ops{
     wire_op(ThreadGroupOp::SYNCHRONIZE_BLOCK, "synchronize_block"sv),
     wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH, "raster_set_z_depth"sv),
     wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL, "raster_set_z_depth_greater_equal"sv),
-    wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL, "raster_set_z_depth_less_equal"sv)};
+    wire_op(ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL, "raster_set_z_depth_less_equal"sv),
+    // Device-side CUDA graph control (CUDA-only; see cuda_device_graph.h).
+    wire_op(ThreadGroupOp::GRAPH_SET_CONDITIONAL, "graph_set_conditional"sv),
+    wire_op(ThreadGroupOp::GRAPH_LAUNCH, "graph_launch"sv),
+    wire_op(ThreadGroupOp::GET_CURRENT_GRAPH_EXEC, "get_current_graph_exec"sv),
+    wire_op(ThreadGroupOp::GRAPH_NODE_SET_PARAM, "graph_node_set_param"sv),
+    wire_op(ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM, "graph_node_set_grid_dim"sv),
+    wire_op(ThreadGroupOp::GRAPH_NODE_SET_ENABLED, "graph_node_set_enabled"sv),
+    wire_op(ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE, "grid_dependency_synchronize"sv),
+    wire_op(ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, "trigger_programmatic_launch_completion"sv)};
 
 template<typename Op, size_t N>
 [[nodiscard]] luisa::optional<int64_t>
@@ -3506,6 +3515,15 @@ public:
         case ThreadGroupOp::WARP_PREFIX_SUM:
         case ThreadGroupOp::WARP_PREFIX_PRODUCT:
         case ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE: return count == 1u;
+        // Device-side CUDA graph control (CUDA-only; see cuda_device_graph.h).
+        case ThreadGroupOp::GRAPH_SET_CONDITIONAL: return count == 2u;
+        case ThreadGroupOp::GRAPH_LAUNCH: return count == 2u;
+        case ThreadGroupOp::GET_CURRENT_GRAPH_EXEC: return count == 0u;
+        case ThreadGroupOp::GRAPH_NODE_SET_PARAM: return count == 4u;
+        case ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM: return count == 4u;
+        case ThreadGroupOp::GRAPH_NODE_SET_ENABLED: return count == 2u;
+        case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE: return count == 0u;
+        case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: return count == 0u;
     }
     return false;
 }
@@ -4694,6 +4712,32 @@ template<typename OperandSpan>
                     return type == operands[0]->type() && operands[1]->type()->is_uint32();
                 case ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE:
                     return type != nullptr && type == operands[0]->type();
+                // Device-side CUDA graph control (CUDA-only; see
+                // cuda_device_graph.h).
+                case ThreadGroupOp::GRAPH_SET_CONDITIONAL:
+                    return type == nullptr && operands[0]->type()->is_uint64() &&
+                           operands[1]->type()->is_uint32();
+                case ThreadGroupOp::GRAPH_LAUNCH:
+                    return type == nullptr && operands[0]->type()->is_uint64() &&
+                           operands[1]->type()->is_uint32();
+                case ThreadGroupOp::GET_CURRENT_GRAPH_EXEC:
+                    return type != nullptr && type->is_uint64();
+                case ThreadGroupOp::GRAPH_NODE_SET_PARAM:
+                    return type == nullptr && operands[0]->type()->is_uint64() &&
+                           operands[1]->type()->is_uint64() &&
+                           operands[2]->type()->is_uint64() &&
+                           operands[3]->type()->is_uint64();
+                case ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM:
+                    return type == nullptr && operands[0]->type()->is_uint64() &&
+                           operands[1]->type()->is_uint32() &&
+                           operands[2]->type()->is_uint32() &&
+                           operands[3]->type()->is_uint32();
+                case ThreadGroupOp::GRAPH_NODE_SET_ENABLED:
+                    return type == nullptr && operands[0]->type()->is_uint64() &&
+                           operands[1]->type()->is_bool();
+                case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE:
+                case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION:
+                    return type == nullptr;
             }
             return false;
         }
