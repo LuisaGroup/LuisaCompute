@@ -35,11 +35,14 @@
 #include <unistd.h>
 #endif
 
+#include <llvm/Config/llvm-config.h>
+#include <llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Support/Error.h>
 #include <llvm/Support/raw_ostream.h>
 
 #include <luisa/ast/type_registry.h>
@@ -15264,6 +15267,8 @@ void bindless_uniform_gradient_probe(
 
     using Entry = void(
         const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    SIMDCompiledKernel candidate_w8;
+    SIMDCompiledKernel oracle_w8;
     for (auto width : {2u, 4u, 8u, 16u}) {
         auto candidate = compile_simd_kernel(
             kernel.function()->function(), width,
@@ -15292,11 +15297,6 @@ void bindless_uniform_gradient_probe(
                   oracle.schedule_block_count);
             CHECK(candidate.convergence_point_count + 1u ==
                   oracle.convergence_point_count);
-            if (width == 8u &&
-                candidate.target_triple.starts_with("x86_64")) {
-                CHECK(candidate.assembly.find("gather") !=
-                      std::string::npos);
-            }
         } else {
             CHECK(candidate.buffer_read_latency_hidden_diamond_count ==
                   0u);
@@ -15340,7 +15340,42 @@ void bindless_uniform_gradient_probe(
         for (auto index = count; index < candidate_output.size(); index++) {
             CHECK(candidate_output[index] == 0xdeadbeefu);
         }
+        std::cout << "[pass] buffer-read latency hiding W" << width
+                  << " candidate/oracle, scalar reference and tail canaries\n";
+        if (width == 8u) {
+            candidate_w8 = std::move(candidate);
+            oracle_w8 = std::move(oracle);
+        }
     }
+
+    // The pass statistics and metadata test check the latency-hiding rewrite.
+    // Require portable masked-vector reads as well, but leave native opcode
+    // selection to LLVM's host-specific legality and cost model: x86_64 alone
+    // does not guarantee a gather instruction. Audit codegen only after every
+    // width has completed the numerical and inactive-lane checks above.
+    CHECK(candidate_w8.llvm_ir.find("call <8 x i32> @llvm.masked.gather") !=
+          std::string::npos);
+    CHECK(oracle_w8.llvm_ir.find("call <8 x i32> @llvm.masked.gather") !=
+          std::string::npos);
+    auto host = ::llvm::orc::JITTargetMachineBuilder::detectHost();
+    if (!host) {
+        std::cerr << ::llvm::toString(host.takeError()) << '\n';
+        return false;
+    }
+    std::cout << "[codegen] buffer-read latency hiding W8: LLVM="
+              << LLVM_VERSION_STRING << ", target=" << candidate_w8.target_triple
+              << ", cpu=" << host->getCPU()
+              << ", features=" << host->getFeatures().getString() << '\n'
+              << "[codegen] assembly gather token: candidate="
+              << (candidate_w8.assembly.find("gather") != std::string::npos)
+              << ", oracle="
+              << (oracle_w8.assembly.find("gather") != std::string::npos) << '\n';
+    // CTest retains this evidence even on success; opcode choice is an audit,
+    // not a substitute for a throughput measurement or the checks above.
+    std::cout << "[codegen] latency-hiding candidate assembly:\n"
+              << candidate_w8.assembly
+              << "[codegen] latency-hiding oracle assembly:\n"
+              << oracle_w8.assembly;
     return true;
 }
 
