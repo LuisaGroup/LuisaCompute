@@ -376,6 +376,19 @@ static auto test_type_numeric_boundaries_registration = [] {
         expect(eq(byte_buffer->description(), luisa::string_view{"buffer<void>"}));
     };
 
+    "type_parser_preserves_two_byte_structure_layout"_test = [] {
+        auto type = Type::from("struct<2,half,ushort>");
+        expect(type->is_structure());
+        expect(eq(type->size(), size_t{4u}));
+        expect(eq(type->alignment(), size_t{2u}));
+        auto members = type->members();
+        expect(eq(members.size(), size_t{2u}));
+        if (members.size() == 2u) {
+            expect(members[0] == Type::of<half>());
+            expect(members[1] == Type::of<ushort>());
+        }
+    };
+
 #if __has_include(<unistd.h>) && __has_include(<sys/wait.h>)
     "type_parser_rejects_narrowing_and_layout_overflow_with_diagnostics"_test = [] {
         constexpr std::array invalid_descriptions{
@@ -384,9 +397,10 @@ static auto test_type_numeric_boundaries_registration = [] {
             "texture<65538,float>",
             "coopvec_ref<4,65536>",
             "struct<0,uint>",
-            // Two-byte aggregate alignment is intentionally outside the
-            // cross-backend/DXC-compatible structure ABI.
-            "struct<2,half,ushort>",
+            "struct<3,half,ushort>",
+            "struct<32,uint>",
+            "struct<1,half>",
+            "struct<2,uint>",
             "struct<65536,uint>",
             "array<void,1>",
             "vector<void,2>",
