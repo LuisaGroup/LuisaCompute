@@ -1,3 +1,20 @@
+#ifdef SPV
+// Explicit SPIR-V atomics avoid unsupported HLSL float Interlocked overloads.
+[[vk::ext_extension("SPV_EXT_shader_atomic_float_add")]]
+[[vk::ext_capability(6033)]]
+[[vk::ext_instruction(6035)]]
+float _lc_spv_atomic_add([[vk::ext_reference]] float target,uint scope,uint semantics,float value);
+[[vk::ext_extension("SPV_EXT_shader_atomic_float_min_max")]]
+[[vk::ext_capability(5612)]]
+[[vk::ext_instruction(5614)]]
+float _lc_spv_atomic_min([[vk::ext_reference]] float target,uint scope,uint semantics,float value);
+[[vk::ext_extension("SPV_EXT_shader_atomic_float_min_max")]]
+[[vk::ext_capability(5612)]]
+[[vk::ext_instruction(5615)]]
+float _lc_spv_atomic_max([[vk::ext_reference]] float target,uint scope,uint semantics,float value);
+[[vk::ext_instruction(229)]]
+float _lc_spv_atomic_exchange([[vk::ext_reference]] float target,uint scope,uint semantics,float value);
+#endif
 #define _INF_f (1.#INF)
 SamplerState s_0;
 SamplerState s_1;
@@ -42,9 +59,8 @@ template<typename T>
 T _asinh(T v){return log(v+sqrt(v*v+1.0));}
 template<typename T>
 T _atanh(T v){return 0.5*log((1.0+v)/(1.0-v));}
-// Exact IEEE-754 binary32 remainder for SPIR-V targets. Some Vulkan drivers
-// lower OpFRem through a rounded quotient, which loses the remainder when the
-// exponent gap exceeds the float32 significand.
+// Exact IEEE-754 binary32 remainder. Quotient-based DXIL/SPIR-V lowering
+// loses the remainder when the exponent gap exceeds the float32 significand.
 float _lc_fmod_scalar(float x,float y){
 uint xb=asuint(x),yb=asuint(y);
 uint ax=xb&0x7fffffffu,ay=yb&0x7fffffffu;
@@ -81,6 +97,22 @@ float _lc_fmod(float x,float y){return _lc_fmod_scalar(x,y);}
 float2 _lc_fmod(float2 x,float2 y){return float2(_lc_fmod_scalar(x.x,y.x),_lc_fmod_scalar(x.y,y.y));}
 float3 _lc_fmod(float3 x,float3 y){return float3(_lc_fmod_scalar(x.x,y.x),_lc_fmod_scalar(x.y,y.y),_lc_fmod_scalar(x.z,y.z));}
 float4 _lc_fmod(float4 x,float4 y){return float4(_lc_fmod_scalar(x.x,y.x),_lc_fmod_scalar(x.y,y.y),_lc_fmod_scalar(x.z,y.z),_lc_fmod_scalar(x.w,y.w));}
+// Integer exponents retain their full width and the sign of negative bases.
+template<typename T,typename E>
+T _lc_powi(T base,E exponent){
+bool negative=exponent<(E)0;
+uint64_t magnitude=negative?(uint64_t)(-(exponent+(E)1))+(uint64_t)1:(uint64_t)exponent;
+// Invert first: a reciprocal taken after the loop can lose finite results
+// when the positive power underflows (including flush-to-zero) or overflows.
+if(negative){base=(T)1/base;}
+T result=(T)1;
+[loop] while(magnitude!=(uint64_t)0){
+if((magnitude&(uint64_t)1)!=(uint64_t)0){result=result*base;}
+magnitude>>=1;
+if(magnitude!=(uint64_t)0){base=base*base;}
+}
+return result;
+}
 template<typename T>
 T _exp10(T v){return pow(10,v);};
 template<typename T>
@@ -114,6 +146,12 @@ float2 _Mul(float2x2 b,float2 a){return a.x*b[0]+a.y*b[1];}
 float16_t4 _Mul(float16_t4x4 b,float16_t4 a){return a.x*b[0]+a.y*b[1]+a.z*b[2]+a.w*b[3];}
 float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return (a.x*b[0]+a.y*b[1]+a.z*b[2]).xyz;}
 float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return a.x*b[0]+a.y*b[1];}
+float2 _Mul(float2 a,float2x2 b){return float2(dot(a,b[0]),dot(a,b[1]));}
+float3 _Mul(float3 a,float3x4 b){return float3(dot(a,b[0].xyz),dot(a,b[1].xyz),dot(a,b[2].xyz));}
+float4 _Mul(float4 a,float4x4 b){return float4(dot(a,b[0]),dot(a,b[1]),dot(a,b[2]),dot(a,b[3]));}
+float16_t2 _Mul(float16_t2 a,float16_t2x2 b){return float16_t2(dot(a,b[0]),dot(a,b[1]));}
+float16_t3 _Mul(float16_t3 a,float16_t3x4 b){return float16_t3(dot(a,b[0].xyz),dot(a,b[1].xyz),dot(a,b[2].xyz));}
+float16_t4 _Mul(float16_t4 a,float16_t4x4 b){return float16_t4(dot(a,b[0]),dot(a,b[1]),dot(a,b[2]),dot(a,b[3]));}
 struct _wbool3 {bool3 v; bool a;};
 struct _wfloat3 {float3 v; float a;};
 struct _wfloat16_t3 {float16_t3 v; float16_t a;};

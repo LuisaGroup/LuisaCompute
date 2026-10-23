@@ -9,6 +9,7 @@
 
 #include <llvm/AsmParser/Parser.h>
 #include <llvm/IR/Attributes.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
@@ -63,7 +64,7 @@ void run_hip_ipo_pipeline(llvm::Module &module) {
     pipeline.run(module, module_analyses);
 }
 
-static auto suite = [] {
+static auto hip_callable_abi_tests = [] {
     "HIP final attributes preserve explicit generated noinline"_test = [] {
         llvm::LLVMContext context;
         auto module = parse_module(context, R"(
@@ -1370,10 +1371,14 @@ static auto suite = [] {
             for (auto &block : *specialized) {
                 expect(!llvm::isa<llvm::SwitchInst>(
                     block.getTerminator()));
+#if LLVM_VERSION_MAJOR >= 24
+                expect(!llvm::isa<llvm::CondBrInst>(block.getTerminator()));
+#else
                 if (auto *branch = llvm::dyn_cast<llvm::BranchInst>(
                         block.getTerminator())) {
                     expect(!branch->isConditional());
                 }
+#endif
             }
         }
 
@@ -1616,11 +1621,15 @@ static auto suite = [] {
         expect(dispatch->arg_size() == 3u);
     };
     return 0;
-}();
+};
 
 }// namespace
+
+void run_hip_late_inline_tests();
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
+    hip_callable_abi_tests();
+    run_hip_late_inline_tests();
 }

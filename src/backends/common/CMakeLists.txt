@@ -195,9 +195,12 @@ function(luisa_compute_link_llvm_into_backend backend)
     # templates a backend happens to instantiate today. LLVM with RTTI enabled
     # needs no override: LuisaCompute's normal compiler policy remains valid.
     if (DEFINED LLVM_ENABLE_RTTI AND NOT LLVM_ENABLE_RTTI)
-        target_compile_options(${LUISA_LINK_LLVM_TARGET} PRIVATE
-                "$<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang,GNU>:-fno-rtti>"
-                "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/GR->")
+        if (MSVC)
+            target_compile_options(${LUISA_LINK_LLVM_TARGET} PRIVATE /GR-)
+        else ()
+            target_compile_options(${LUISA_LINK_LLVM_TARGET} PRIVATE
+                    "$<$<COMPILE_LANG_AND_ID:CXX,Clang,AppleClang,GNU>:-fno-rtti>")
+        endif ()
     endif ()
 
     # llvm_map_components_to_libnames() deliberately turns unknown component

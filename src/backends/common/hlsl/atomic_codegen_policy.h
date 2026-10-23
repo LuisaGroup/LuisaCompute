@@ -11,12 +11,10 @@ enum class HlslAtomicLowering {
     UNSUPPORTED,
 };
 
-// The bundled DXC lowers float atomics on typed buffers (RWBuffer /
-// RWStructuredBuffer<float>) natively for both DXIL and Vulkan SPIR-V:
-// InterlockedAdd/Min/Max/Exchange accept float operands and map to the
-// corresponding atomic instructions. Only float compare-exchange still
-// requires the bitwise CAS intrinsic, which DXC only accepts on
-// RWByteAddressBuffer - keep it fail-closed on the SPIR-V route.
+// SPIR-V float RMW operations use explicit native SPIR-V opcodes, not HLSL
+// Interlocked overloads. Float compare-exchange remains unsupported here;
+// its bitwise pointer reinterpretation needs a separate buffer-view contract.
+// DXIL uses bitwise float compare-exchange loops for arithmetic RMW operations.
 [[nodiscard]] constexpr HlslAtomicLowering plan_hlsl_atomic_lowering(
     luisa::compute::CallOp op, bool is_float32,
     bool is_spirv) noexcept {

@@ -1222,6 +1222,12 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             }
             auto result = make_float_constant(1.0);
             auto factor = operand(0);
+            if (negative != spv::NoResult) {
+                // Invert the base before exponentiation: the positive power
+                // can underflow even when the negative power is finite.
+                auto reciprocal = _builder.createBinOp(spv::Op::OpFDiv, type, result, factor);
+                factor = _builder.createTriOp(spv::Op::OpSelect, type, negative, reciprocal, factor);
+            }
             for (uint32_t bit = 0u; bit < exponent_width; ++bit) {
                 auto mask = make_exponent_constant(uint64_t{1} << bit);
                 auto masked = _builder.createBinOp(spv::Op::OpBitwiseAnd, exponent_unsigned_type, magnitude, mask);
@@ -1231,10 +1237,6 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 if (bit + 1u < exponent_width) {
                     factor = _builder.createBinOp(spv::Op::OpFMul, type, factor, factor);
                 }
-            }
-            if (negative != spv::NoResult) {
-                auto reciprocal = _builder.createBinOp(spv::Op::OpFDiv, type, make_float_constant(1.0), result);
-                result = _builder.createTriOp(spv::Op::OpSelect, type, negative, reciprocal, result);
             }
             id = result;
             break;

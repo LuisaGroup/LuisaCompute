@@ -75,6 +75,18 @@ foreach(_template hiprt.h hiprtew.h)
 endforeach()
 
 # ---------------------------------------------------------------------------
+# Generate a compatibility overlay rather than mutating the HIPRT submodule.
+# New hipcc supplies device placement new even when emitting LLVM bitcode.
+file(READ "${HIPRT_SOURCE_DIR}/hiprt/impl/hiprt_device_impl.h" _hiprt_device_impl)
+string(REPLACE
+    "#if defined( __HIPCC_RTC__ ) || ( defined( HIPRT_BITCODE_LINKING ) && defined( __KERNELCC__ ) )"
+    "#if !defined( __CLANG_CUDA_WRAPPERS_NEW ) && ( defined( __HIPCC_RTC__ ) || ( defined( HIPRT_BITCODE_LINKING ) && defined( __KERNELCC__ ) ) )"
+    _hiprt_device_impl "${_hiprt_device_impl}")
+file(MAKE_DIRECTORY "${_hiprt_generated_dir}/hiprt/impl")
+file(CONFIGURE
+    OUTPUT "${_hiprt_generated_dir}/hiprt/impl/hiprt_device_impl.h"
+    CONTENT "${_hiprt_device_impl}" @ONLY)
+
 # 4. Determine GPU architectures for bitcode compilation
 # ---------------------------------------------------------------------------
 # When HIPRT_GPU_ARCHS is set externally (e.g. -DHIPRT_GPU_ARCHS="gfx1201"),
@@ -113,7 +125,15 @@ message(STATUS "[HIPRT from source] Target architectures: ${_hiprt_gpu_archs}")
 set(_hiprt_bitcode_dir "${CMAKE_CURRENT_BINARY_DIR}/hiprt_bitcodes")
 file(MAKE_DIRECTORY "${_hiprt_bitcode_dir}")
 
-set(_hiprt_bc_file "${_hiprt_bitcode_dir}/${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_linux.bc")
+if(WIN32)
+    set(HIPRT_FROM_SOURCE_PLATFORM win)
+    set(_hiprt_os_define -DHIPCC_OS_WINDOWS)
+else()
+    set(HIPRT_FROM_SOURCE_PLATFORM linux)
+    set(_hiprt_os_define -DHIPCC_OS_LINUX)
+endif()
+
+set(_hiprt_bc_file "${_hiprt_bitcode_dir}/${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_${HIPRT_FROM_SOURCE_PLATFORM}.bc")
 set(_hiprt_hipfb_file "${_hiprt_bitcode_dir}/${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd.hipfb")
 set(_hiprt_oro_hipfb_file "${_hiprt_bitcode_dir}/oro_compiled_kernels.hipfb")
 
@@ -131,7 +151,8 @@ endif()
 
 set(_hiprt_common_flags -O3 -std=c++17 -ffast-math -parallel-jobs=15
     -DHIPRT_MATRIX_FRAME=1
-    "-I${hip_INCLUDE_DIRS}")
+    -I "${_hiprt_generated_dir}"
+    -I "${hip_INCLUDE_DIRS}")
 if(_LIBCXX_INCLUDE_DIR)
     list(APPEND _hiprt_common_flags -stdlib=libc++ "-isystem${_LIBCXX_INCLUDE_DIR}")
 endif()
@@ -154,14 +175,14 @@ add_custom_command(
         ${_hiprt_common_flags}
         ${_hiprt_offload_args}
         -fgpu-rdc -c --gpu-bundle-output -c -emit-llvm
-        "-I${HIPRT_SOURCE_DIR}/contrib/Orochi/"
-        "-I${HIPRT_SOURCE_DIR}"
-        -DHIPRT_BITCODE_LINKING -DHIPCC_OS_LINUX
+        -I "${HIPRT_SOURCE_DIR}/contrib/Orochi/"
+        -I "${HIPRT_SOURCE_DIR}"
+        -DHIPRT_BITCODE_LINKING ${_hiprt_os_define}
         -o "${_hiprt_bc_file}"
     DEPENDS ${_hiprt_kernel_dependencies}
             ${_orochi_kernel_dependencies}
     WORKING_DIRECTORY "${HIPRT_SOURCE_DIR}"
-    COMMENT "[HIPRT] Compiling bitcode bundle: ${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_linux.bc"
+    COMMENT "[HIPRT] Compiling bitcode bundle: ${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_${HIPRT_FROM_SOURCE_PLATFORM}.bc"
     VERBATIM)
 
 # 5b. Fat binary (.hipfb) - precompiled BVH build kernels
@@ -174,8 +195,8 @@ add_custom_command(
         -mllvm -amdgpu-early-inline-all=false
         -mllvm -amdgpu-function-calls=true
         --genco
-        "-I${HIPRT_SOURCE_DIR}"
-        -DHIPRT_BITCODE_LINKING -DHIPCC_OS_LINUX
+        -I "${HIPRT_SOURCE_DIR}"
+        -DHIPRT_BITCODE_LINKING ${_hiprt_os_define}
         -o "${_hiprt_hipfb_file}"
     DEPENDS ${_hiprt_kernel_dependencies}
     WORKING_DIRECTORY "${HIPRT_SOURCE_DIR}"
@@ -190,9 +211,9 @@ add_custom_command(
         ${_hiprt_common_flags}
         ${_hiprt_offload_args}
         --genco
-        "-I${HIPRT_SOURCE_DIR}/contrib/Orochi/"
+        -I "${HIPRT_SOURCE_DIR}/contrib/Orochi/"
         -include hip/hip_runtime.h
-        -DHIPRT_BITCODE_LINKING -DHIPCC_OS_LINUX
+        -DHIPRT_BITCODE_LINKING ${_hiprt_os_define}
         -o "${_hiprt_oro_hipfb_file}"
     DEPENDS ${_orochi_kernel_dependencies}
     WORKING_DIRECTORY "${HIPRT_SOURCE_DIR}"
@@ -250,6 +271,7 @@ target_include_directories(hiprt_from_source PUBLIC
     "${_hiprt_generated_dir}")
 
 target_compile_definitions(hiprt_from_source PRIVATE
+    $<$<PLATFORM_ID:Windows>:__WINDOWS__>
     HIPRT_EXPORTS
     __USE_HIP__
     HIPRT_PUBLIC_REPO
@@ -259,6 +281,8 @@ target_compile_definitions(hiprt_from_source PRIVATE
 
 if(UNIX)
     target_link_libraries(hiprt_from_source PRIVATE pthread dl)
+elseif(WIN32)
+    target_link_libraries(hiprt_from_source PRIVATE version)
 endif()
 
 # Depend on bitcode compilation

@@ -403,9 +403,36 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MIN:
             str << "min"sv;
             break;
-        case CallOp::POW:
+        case CallOp::POW: {
+            auto exponent_type = args[1]->type();
+            auto element = exponent_type->is_vector() ? exponent_type->element() : exponent_type;
+            if (element->is_int() || element->is_uint()) {
+                auto vector_result = expr->type()->is_vector();
+                auto lanes = vector_result ? expr->type()->dimension() : 1u;
+                if (vector_result) {
+                    GetTypeName(*expr->type(), str, Usage::READ);
+                    str << '(';
+                }
+                for (auto lane = 0u; lane < lanes; lane++) {
+                    if (lane != 0u) { str << ','; }
+                    str << "_lc_powi("sv;
+                    for (auto arg = 0u; arg < 2u; arg++) {
+                        if (arg != 0u) { str << ','; }
+                        str << '(';
+                        args[arg]->accept(vis);
+                        str << ')';
+                        if (args[arg]->type()->is_vector()) {
+                            str << '.' << "xyzw"[lane];
+                        }
+                    }
+                    str << ')';
+                }
+                if (vector_result) { str << ')'; }
+                return;
+            }
             str << "pow"sv;
             break;
+        }
         case CallOp::CLZ:
             LUISA_DEBUG_ASSERT(args.size() == 1);
             // CLZ always returns uint (32-bit) per DSL semantics,
@@ -604,6 +631,29 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             auto rootVar = static_cast<RefExpr const *>(args[0]);
             if ((expr->type()->is_float() && expr->op() != CallOp::ATOMIC_EXCHANGE) || expr->op() == CallOp::ATOMIC_COMPARE_EXCHANGE) {
                 mark_coherent(args[0]);
+            }
+            if (opt->isSpirv && expr->type()->is_float32() &&
+                expr->op() != CallOp::ATOMIC_COMPARE_EXCHANGE) {
+                // Keep the resource reference at the call site. Passing an
+                // RWStructuredBuffer through a helper can leave DXC's synthetic
+                // counter pointers in invalid logical-addressing SPIR-V.
+                switch (expr->op()) {
+                    case CallOp::ATOMIC_EXCHANGE: str << "_lc_spv_atomic_exchange("sv; break;
+                    case CallOp::ATOMIC_FETCH_ADD:
+                    case CallOp::ATOMIC_FETCH_SUB: str << "_lc_spv_atomic_add("sv; break;
+                    case CallOp::ATOMIC_FETCH_MIN: str << "_lc_spv_atomic_min("sv; break;
+                    case CallOp::ATOMIC_FETCH_MAX: str << "_lc_spv_atomic_max("sv; break;
+                    default: LUISA_ERROR_WITH_LOCATION("Invalid floating-point atomic operation.");
+                }
+                AccessChain chain{expr->op(), rootVar->variable(), args.subspan(0u, args.size() - 1u), true};
+                chain.emit_access(args, str, vis);
+                // Workgroup/device scope and relaxed memory ordering.
+                str << (rootVar->variable().is_shared() ? ",2u,0u,"sv : ",1u,0u,"sv);
+                if (expr->op() == CallOp::ATOMIC_FETCH_SUB) { str << "-("sv; }
+                args.back()->accept(vis);
+                if (expr->op() == CallOp::ATOMIC_FETCH_SUB) { str << ')'; }
+                str << ')';
+                return;
             }
             auto &chain = opt->GetAtomicFunc(vis.f, expr->op(), rootVar->variable(), expr->type(), args);
             chain.call_this_func(args, str, vis);

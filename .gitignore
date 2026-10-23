@@ -381,3 +381,6 @@ native_shader_output/
 # Kimix LSP bridge unit tests (local only, never committed)
 scripts/tests/
 !.kimix/config.json
+
+# Versioned backend CI environment and build helpers
+!scripts/ci/*.ps1

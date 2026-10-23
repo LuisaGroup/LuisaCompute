@@ -239,10 +239,8 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
         .access_place = '$',
         .args_place = '@',
         .temp_type_place = '#'};
-    // The bundled DXC lowers float add/sub/min/max/exchange natively for
-    // DXIL and Vulkan SPIR-V alike; float compare-exchange needs the
-    // bitwise CAS intrinsic (DXIL) or a RWByteAddressBuffer view (SPIR-V),
-    // so it stays fail-closed on the SPIR-V route.
+    // SPIR-V uses explicit atomic opcodes; HLSL float Interlocked overloads
+    // are not consistently supported by the bundled Windows/Linux DXC builds.
     auto lowering = plan_hlsl_atomic_lowering(
         op, retType->is_float32(), isSpirv);
     if (lowering == HlslAtomicLowering::UNSUPPORTED) [[unlikely]] {

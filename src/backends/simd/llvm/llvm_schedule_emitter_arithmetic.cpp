@@ -538,6 +538,15 @@ namespace luisa::compute::simd::detail {
             case xir::ArithmeticOp::BINARY_DIV:
             case xir::ArithmeticOp::MATRIX_COMP_DIV: {
                 if (is_float) { return _builder.CreateFDiv(lhs, rhs); }
+#if LLVM_VERSION_MAJOR >= 23
+                if (varying) {
+                    auto *value = intrinsic(
+                        is_signed ? ::llvm::Intrinsic::masked_sdiv :
+                                    ::llvm::Intrinsic::masked_udiv,
+                        {lhs, rhs, _active_mask});
+                    return sanitize_inactive_integer(value, 0u);
+                }
+#endif
                 // Integer division/remainder may lower to trapping host
                 // instructions. Inactive vector lanes are semantically
                 // absent, so make both operands defined before executing the
@@ -549,6 +558,15 @@ namespace luisa::compute::simd::detail {
             }
             case xir::ArithmeticOp::BINARY_MOD: {
                 if (is_float) { return _builder.CreateFRem(lhs, rhs); }
+#if LLVM_VERSION_MAJOR >= 23
+                if (varying) {
+                    auto *value = intrinsic(
+                        is_signed ? ::llvm::Intrinsic::masked_srem :
+                                    ::llvm::Intrinsic::masked_urem,
+                        {lhs, rhs, _active_mask});
+                    return sanitize_inactive_integer(value, 0u);
+                }
+#endif
                 lhs = sanitize_inactive_integer(lhs, 0u);
                 rhs = sanitize_inactive_integer(rhs, 1u);
                 return is_signed ? _builder.CreateSRem(lhs, rhs) :

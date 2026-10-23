@@ -88,7 +88,7 @@ void test_scalar_vector_broadcast(Device &device) {
     std::array<float2, 1u> step_result{};
     std::array<float2, 1u> nan_step_result{};
     std::array<float2, 1u> smoothstep_result{};
-    auto shader = device.compile(kernel, ShaderOption{.enable_fast_math = false});
+    auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .enable_fast_math = false});
     stream << lower.copy_from(luisa::span{lower_source})
            << upper.copy_from(luisa::span{upper_source})
            << edge0.copy_from(luisa::span{edge0_source})
@@ -217,7 +217,7 @@ void test_integer_power(Device &device) {
     std::array vector_exponent_source{int2{-2, 3}};
     std::array<float, 2u> scalar_result{};
     std::array<float2, 2u> vector_result{};
-    auto shader = device.compile(kernel, ShaderOption{.enable_fast_math = false});
+    auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .enable_fast_math = false});
     stream << scalar_base.copy_from(luisa::span{scalar_base_source})
            << signed_exponent.copy_from(luisa::span{signed_exponent_source})
            << unsigned_exponent.copy_from(luisa::span{unsigned_exponent_source})
@@ -237,6 +237,27 @@ void test_integer_power(Device &device) {
     expect(approx(vector_result[0].y, -0.125f));
     expect(approx(vector_result[1].x, 0.25f));
     expect(approx(vector_result[1].y, 27.0f));
+
+    // The expected result is normal and finite. Computing the positive power
+    // before taking its reciprocal can flush 2^-127 to zero on GPU backends.
+    // Inverting the base first keeps every intermediate value normal.
+    scalar_base_source[0] = 0.5f;
+    signed_exponent_source[0] = -127;
+    vector_base_source[0] = float2{0.5f, -0.5f};
+    stream << scalar_base.copy_from(luisa::span{scalar_base_source})
+           << signed_exponent.copy_from(luisa::span{signed_exponent_source})
+           << vector_base.copy_from(luisa::span{vector_base_source})
+           << shader(scalar_base, signed_exponent, unsigned_exponent,
+                     vector_base, vector_exponent,
+                     scalar_output, vector_output)
+                  .dispatch(1u)
+           << scalar_output.copy_to(luisa::span{scalar_result})
+           << vector_output.copy_to(luisa::span{vector_result})
+           << synchronize();
+    auto finite_power = std::ldexp(1.0f, 127);
+    expect(scalar_result[0] == finite_power) << "scalar negative power: " << scalar_result[0];
+    expect(vector_result[0].x == finite_power) << "positive vector power: " << vector_result[0].x;
+    expect(vector_result[0].y == -finite_power) << "negative vector power: " << vector_result[0].y;
 }
 
 void test_matrix_operations(Device &device) {
@@ -266,7 +287,7 @@ void test_matrix_operations(Device &device) {
     std::array vector_source{float2{5.0f, 6.0f}};
     std::array<float2, 2u> vector_result{};
     std::array<float, 1u> scalar_result{};
-    auto shader = device.compile(kernel, ShaderOption{.enable_fast_math = false});
+    auto shader = device.compile(kernel, ShaderOption{.enable_cache = false, .enable_fast_math = false});
     stream << matrix_input.copy_from(luisa::span{matrix_source})
            << vector_input.copy_from(luisa::span{vector_source})
            << shader(matrix_input, vector_input,

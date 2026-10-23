@@ -17970,6 +17970,7 @@ template<typename T>
 }// namespace
 
 int main() {
+    std::cout << std::unitbuf;
     struct Test {
         luisa::string_view name;
         bool (*run)();
@@ -18168,6 +18169,7 @@ int main() {
     };
     auto failures = 0u;
     for (auto test : tests) {
+        std::cout << "[run] " << test.name << '\n';
         if (test.run()) {
             std::cout << "[pass] " << test.name << '\n';
         } else {

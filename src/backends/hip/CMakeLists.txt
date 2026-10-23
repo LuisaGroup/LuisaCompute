@@ -136,7 +136,7 @@ if (hip_FOUND)
     # kernel header changes and the backend shared library does not relink.
     add_custom_target(luisa-compute-hiprt-runtime-artifacts
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${HIPRT_FROM_SOURCE_BITCODE_DIR}/${HIPRT_FROM_SOURCE_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_linux.bc"
+            "${HIPRT_FROM_SOURCE_BITCODE_DIR}/${HIPRT_FROM_SOURCE_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_${HIPRT_FROM_SOURCE_PLATFORM}.bc"
             "${HIPRT_FROM_SOURCE_BITCODE_DIR}/${HIPRT_FROM_SOURCE_LIB_NAME}_${HIP_VERSION_STR}_amd.hipfb"
             "${HIPRT_FROM_SOURCE_BITCODE_DIR}/oro_compiled_kernels.hipfb"
             $<TARGET_FILE_DIR:luisa-compute-backend-hip>
@@ -144,7 +144,7 @@ if (hip_FOUND)
     add_dependencies(luisa-compute-backend-hip
             luisa-compute-hiprt-runtime-artifacts)
     install(FILES
-            "${HIPRT_FROM_SOURCE_BITCODE_DIR}/${HIPRT_FROM_SOURCE_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_linux.bc"
+            "${HIPRT_FROM_SOURCE_BITCODE_DIR}/${HIPRT_FROM_SOURCE_LIB_NAME}_${HIP_VERSION_STR}_amd_lib_${HIPRT_FROM_SOURCE_PLATFORM}.bc"
             "${HIPRT_FROM_SOURCE_BITCODE_DIR}/${HIPRT_FROM_SOURCE_LIB_NAME}_${HIP_VERSION_STR}_amd.hipfb"
             "${HIPRT_FROM_SOURCE_BITCODE_DIR}/oro_compiled_kernels.hipfb"
             DESTINATION ${CMAKE_INSTALL_BINDIR})

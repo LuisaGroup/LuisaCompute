@@ -52,7 +52,7 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         auto element = expr->type()->is_vector() ?
                            expr->type()->element() :
                            expr->type();
-        str << (util->opt->isSpirv && element->is_float32() ?
+        str << (element->is_float32() ?
                     "_lc_fmod("sv :
                     "fmod("sv);
         expr->lhs()->accept(*this);

@@ -693,33 +693,40 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Regression: LLVM integer div/rem may lower to trapping scalar
-        // instructions even when a zero divisor exists only in an inactive
-        // tail lane. Sanitization therefore has to happen before the vector
-        // operation; masking the result afterwards is too late.
+        // Inactive tail lanes have zero divisors. LLVM 23+ uses masked
+        // div/rem; older LLVM sanitizes operands before executing div/rem.
+        // Check signed/unsigned quotient and remainder across packet widths.
         auto tail_threads = width == 1u ? 1u : width - 1u;
         auto tail_input = device.create_buffer<uint>(tail_threads);
-        auto tail_output = device.create_buffer<uint>(tail_threads);
+        auto tail_output = device.create_buffer<uint2>(tail_threads);
+        auto tail_signed_output = device.create_buffer<int2>(tail_threads);
         Kernel1D tail_kernel = [width](
                                    BufferUInt input,
-                                   BufferUInt result) noexcept {
+                                   BufferUInt2 result,
+                                   BufferInt2 signed_result) noexcept {
             set_block_size(32u, 1u, 1u);
             set_warp_size(static_cast<uint8_t>(width));
             auto divisor = input.read(dispatch_x());
-            result.write(dispatch_x(), 17u % divisor);
+            auto signed_divisor = cast<int>(divisor);
+            result.write(dispatch_x(), make_uint2(17u / divisor, 17u % divisor));
+            signed_result.write(dispatch_x(), make_int2(
+                -17 / signed_divisor, -17 % signed_divisor));
         };
         auto tail_shader = device.compile(tail_kernel);
         luisa::vector<uint> tail_divisors(tail_threads, 3u);
-        luisa::vector<uint> tail_host(tail_threads, 0u);
+        luisa::vector<uint2> tail_host(tail_threads);
+        luisa::vector<int2> tail_signed_host(tail_threads);
         stream << tail_input.copy_from(luisa::span{tail_divisors})
-               << tail_shader(tail_input, tail_output).dispatch(tail_threads)
+               << tail_shader(tail_input, tail_output, tail_signed_output).dispatch(tail_threads)
                << tail_output.copy_to(luisa::span{tail_host})
+               << tail_signed_output.copy_to(luisa::span{tail_signed_host})
                << synchronize();
-        for (auto value : tail_host) {
-            expect(value == 2u)
-                << "inactive SIMD tail lane reached integer remainder";
+        for (auto i = 0u; i < tail_threads; i++) {
+            expect(tail_host[i].x == 5u && tail_host[i].y == 2u)
+                << "inactive SIMD lane reached unsigned division/remainder";
+            expect(tail_signed_host[i].x == -5 && tail_signed_host[i].y == -2)
+                << "inactive SIMD lane reached signed division/remainder";
         }
-
         // Clock is sampled once at each dynamic packet/cohort. Assertion
         // reduction must treat inactive tail lanes as true: their synthesized
         // dispatch IDs intentionally fail the source predicate below.

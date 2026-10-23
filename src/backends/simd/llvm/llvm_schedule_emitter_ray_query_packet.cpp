@@ -247,7 +247,12 @@ ScheduleEmitter::_ray_query_output_surface_filter_ray_packet_for_call(
         ::llvm::Intrinsic::getDeclaration(
 #endif
             &_module, ::llvm::Intrinsic::masked_compressstore,
+#if LLVM_VERSION_MAJOR >= 23
+            // LLVM 23 made the destination address space an overload parameter.
+            {wide_lane_type, call_packet->getType()});
+#else
             {wide_lane_type});
+#endif
     auto emit_narrow_packet = [&](uint32_t packet_width) noexcept {
         auto *narrow_lane_type = ::llvm::FixedVectorType::get(
             _builder.getInt32Ty(), packet_width);

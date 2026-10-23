@@ -243,6 +243,32 @@ void AccessChain::gen_func_impl(Function f, CodegenUtility *util, TemplateFuncti
     }
     builder << "}\n"sv;
 }
+void AccessChain::emit_access(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const {
+    args[0]->accept(visitor);
+    auto is_shared = _root_var.is_shared();
+    for (auto i = size_t{0u}; i < _nodes.size(); i++) {
+        _nodes[i].multi_visit(
+            [&](AccessNode const &node) {
+                if (node.is_cooperative_vector) {
+                    builder << ".Get("sv;
+                    args[i + 1u]->accept(visitor);
+                    builder << ')';
+                } else {
+                    if (node.is_matrix) { builder << ".m"sv; }
+                    else if (node.is_covered_class && !is_shared) { builder << ".v"sv; }
+                    builder << '[';
+                    args[i + 1u]->accept(visitor);
+                    builder << ']';
+                    if (i > 0u && node.is_array) { is_shared = false; }
+                }
+            },
+            [&](MemberNode const &node) {
+                builder << ".v"sv;
+                vstd::to_string(node.member_index, builder);
+                is_shared = false;
+            });
+    }
+}
 void AccessChain::call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const {
     builder << _func_name << '(';
     LUISA_DEBUG_ASSERT(!args.empty() && !_nodes.empty() && args.size() > _nodes.size());

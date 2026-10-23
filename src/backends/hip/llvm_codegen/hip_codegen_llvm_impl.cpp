@@ -25,6 +25,9 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/ModRef.h>
 #include <llvm/TargetParser/TargetParser.h>
+#if __has_include(<llvm/TargetParser/AMDGPUTargetParser.h>)
+#include <llvm/TargetParser/AMDGPUTargetParser.h>
+#endif
 #include <llvm/MC/MCSubtargetInfo.h>
 
 #include <algorithm>
@@ -537,7 +540,11 @@ void HIPCodegenLLVMImpl::_link_native_include() noexcept {
     // definition to the TargetMachine configuration used for the whole shader.
     auto target_cpu = _target_machine->getTargetCPU();
     auto target_features = _target_machine->getTargetFeatureString();
+#if LLVM_VERSION_MAJOR >= 23
+    auto subtarget = &_target_machine->getMCSubtargetInfo();
+#else
     auto subtarget = _target_machine->getMCSubtargetInfo();
+#endif
     LUISA_ASSERT(subtarget != nullptr,
                  "HIP target machine does not expose subtarget information.");
     for (auto &function : *native_module) {

@@ -18,7 +18,7 @@ llvm::InlineParams hip_module_priority_inline_params(
     llvm::OptimizationLevel level) noexcept {
 #if LLVM_VERSION_MAJOR >= 23
     auto params = llvm::getInlineParamsFromOptLevel(
-        level.getSpeedupLevel());
+        static_cast<unsigned>(level));
 #else
     auto params = llvm::getInlineParams(
         level.getSpeedupLevel(), level.getSizeLevel());

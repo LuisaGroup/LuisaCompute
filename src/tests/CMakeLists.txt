@@ -353,7 +353,7 @@ if (TARGET luisa-compute-backend-hip)
     target_include_directories(test_hip_shader_link_options PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
             ${CMAKE_CURRENT_SOURCE_DIR}/../backends/hip)
-    target_link_libraries(test_hip_shader_link_options PRIVATE hip::host)
+    target_link_libraries(test_hip_shader_link_options PRIVATE hip::host luisa-compute-core)
     add_test(NAME test_hip_shader_link_options
             COMMAND test_hip_shader_link_options)
     set_tests_properties(test_hip_shader_link_options PROPERTIES

@@ -164,6 +164,9 @@ struct DxcSpirvAtomicFacts {
     bool validated{false};
     size_t compare_exchange_count{0u};
     size_t float_add_count{0u};
+    size_t float_min_count{0u};
+    size_t float_max_count{0u};
+    size_t exchange_count{0u};
     size_t integer_add_count{0u};
     vstd::string error;
 };
@@ -205,6 +208,9 @@ struct DxcSpirvAtomicFacts {
                 } else if (opcode == spv::Op::OpAtomicIAdd) {
                     ++facts.integer_add_count;
                 }
+                if (opcode == spv::OpAtomicFMinEXT) { ++facts.float_min_count; }
+                if (opcode == spv::OpAtomicFMaxEXT) { ++facts.float_max_count; }
+                if (opcode == spv::OpAtomicExchange) { ++facts.exchange_count; }
                 offset += instruction_word_count;
             }
         },
@@ -231,9 +237,8 @@ int main(int argc, char *argv[]) {
     };
 
     "hlsl_float_atomic_codegen_respects_spirv_boundary"_test = [argv] {
-        // The bundled DXC lowers float add/sub/min/max/exchange natively
-        // for Vulkan SPIR-V; only float compare-exchange stays unsupported
-        // on the HLSL-to-SPIR-V route.
+        // Explicit SPIR-V declarations must compile to native float atomics.
+        // Float compare-exchange remains outside this buffer-view contract.
         expect(
             lc::hlsl::plan_hlsl_atomic_lowering(
                 CallOp::ATOMIC_COMPARE_EXCHANGE, true, true) ==
@@ -259,6 +264,10 @@ int main(int argc, char *argv[]) {
                                     BufferFloat old_values) noexcept {
             old_values.write(
                 0u, values.atomic(0u).fetch_add(1.0f));
+            old_values.write(1u, values.atomic(0u).fetch_sub(1.0f));
+            old_values.write(2u, values.atomic(0u).fetch_min(1.0f));
+            old_values.write(3u, values.atomic(0u).fetch_max(1.0f));
+            old_values.write(4u, values.atomic(0u).exchange(1.0f));
         };
         auto function = buffer_kernel.function()->function();
         auto dx_software = lc::hlsl::CodegenUtility{}.Codegen(
@@ -280,7 +289,7 @@ int main(int argc, char *argv[]) {
         auto spirv_native = lc::hlsl::CodegenUtility{}.Codegen(
             function, {}, 0u, true, false, false);
         auto spirv_program = spirv_native.result.view();
-        expect(contains(spirv_program, "InterlockedAdd("));
+        expect(contains(spirv_program, "_lc_spv_atomic_add("));
         expect(!contains(
             spirv_program, "InterlockedCompareExchangeFloatBitwise("));
         auto float_dxc = compile_and_inspect_dxc_spirv(
@@ -288,7 +297,10 @@ int main(int argc, char *argv[]) {
             luisa::filesystem::path{argv[0]}.parent_path());
         expect(float_dxc.compiled) << float_dxc.error;
         expect(float_dxc.validated) << float_dxc.error;
-        expect(float_dxc.float_add_count > 0u);
+        expect(float_dxc.float_add_count >= 2u);
+        expect(float_dxc.float_min_count > 0u);
+        expect(float_dxc.float_max_count > 0u);
+        expect(float_dxc.exchange_count > 0u);
         expect(eq(float_dxc.compare_exchange_count, 0u));
 
         Kernel1D integer_kernel = [](BufferUInt values,

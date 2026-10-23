@@ -41,7 +41,7 @@ template<typename Instruction>
     return count;
 }
 
-static auto suite = [] {
+static auto hip_late_inline_tests = [] {
     "HIP late inlining promotes newly nonescaping scalar and vector state"_test = [] {
         llvm::LLVMContext context;
         auto module = parse_module(context, R"(
@@ -266,6 +266,8 @@ static auto suite = [] {
         }
     };
     return 0;
-}();
+};
 
 }// namespace
+
+void run_hip_late_inline_tests() { hip_late_inline_tests(); }

@@ -44,7 +44,13 @@
 #include <luisa/core/stl/functional.h>
 #include <luisa/core/stl/string.h>
 #include <llvm/Config/llvm-config.h>
+#pragma push_macro("NO_ERROR")
+#undef NO_ERROR
 #include <llvm/TargetParser/TargetParser.h>
+#if __has_include(<llvm/TargetParser/AMDGPUTargetParser.h>)
+#include <llvm/TargetParser/AMDGPUTargetParser.h>
+#endif
+#pragma pop_macro("NO_ERROR")
 #include "llvm_codegen/hip_codegen_llvm.h"
 #endif
 

@@ -9,6 +9,7 @@
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Transforms/IPO/MergeFunctions.h>
 #include <llvm/Transforms/Scalar/SROA.h>
@@ -609,8 +610,24 @@ specialize_marked_constant_integer_arguments(
         // not see through the formerly dynamic parameter. Delegate semantic
         // equivalence (including attributes and constants) to LLVM's own
         // function comparator instead of inventing a backend hash.
+#if LLVM_VERSION_MAJOR >= 24
+        llvm::LoopAnalysisManager loop_analyses;
+        llvm::FunctionAnalysisManager function_analyses;
+        llvm::CGSCCAnalysisManager cgscc_analyses;
+        llvm::ModuleAnalysisManager module_analyses;
+        llvm::PassBuilder builder;
+        builder.registerLoopAnalyses(loop_analyses);
+        builder.registerFunctionAnalyses(function_analyses);
+        builder.registerCGSCCAnalyses(cgscc_analyses);
+        builder.registerModuleAnalyses(module_analyses);
+        builder.crossRegisterProxies(loop_analyses, function_analyses,
+                                     cgscc_analyses, module_analyses);
+        auto merged = llvm::MergeFunctionsPass::runOnFunctions(
+            specialized_functions, module_analyses);
+#else
         auto merged = llvm::MergeFunctionsPass::runOnFunctions(
             specialized_functions);
+#endif
         stats.merged_clone_count = merged.size();
     }
     return stats;

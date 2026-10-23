@@ -1,0 +1,174 @@
+name: build-backends
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fallback:
+        description: Build and test the fallback CPU backend
+        type: boolean
+        default: true
+      simd:
+        description: Build and test the SIMD CPU backend
+        type: boolean
+        default: true
+      hip:
+        description: Build HIP and its LLVM AMDGPU codegen
+        type: boolean
+        default: true
+      vulkan:
+        description: Build Vulkan
+        type: boolean
+        default: true
+      dx:
+        description: Build DirectX
+        type: boolean
+        default: true
+      llvm_spirv:
+        description: Experimental LLVM SPIR-V compile only (no GPU resource tests)
+        type: boolean
+        default: false
+      gpu_tests:
+        description: Run on a prepared Windows AMD gfx120X self-hosted runner
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backends-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  llvm-cpu:
+    name: CPU / LLVM ${{ matrix.llvm }} / fallback + SIMD
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm: [20, 21, 22, 23, 24]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Prepare LLVM, Embree and TBB
+        env:
+          LLVM_VERSION: ${{ matrix.llvm }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake python3 libembree-dev libtbb-dev uuid-dev libzstd-dev zlib1g-dev
+          wget -q https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+          sudo bash /tmp/llvm.sh "$LLVM_VERSION"
+          sudo apt-get install -y "llvm-$LLVM_VERSION-dev" "libclang-$LLVM_VERSION-dev"
+          "clang-$LLVM_VERSION" --version
+          "llvm-config-$LLVM_VERSION" --version
+      - name: Configure and fully build selected CPU backends
+        env:
+          LLVM_VERSION: ${{ matrix.llvm }}
+          ENABLE_FALLBACK: ${{ github.event_name != 'workflow_dispatch' || inputs.fallback }}
+          ENABLE_SIMD: ${{ github.event_name != 'workflow_dispatch' || inputs.simd }}
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="clang-$LLVM_VERSION" \
+            -DCMAKE_CXX_COMPILER="clang++-$LLVM_VERSION" \
+            -DLLVM_DIR="/usr/lib/llvm-$LLVM_VERSION/lib/cmake/llvm" \
+            -DLUISA_COMPUTE_ENABLE_FALLBACK="$ENABLE_FALLBACK" \
+            -DLUISA_COMPUTE_ENABLE_SIMD="$ENABLE_SIMD" \
+            -DLUISA_COMPUTE_ENABLE_HIP=OFF -DLUISA_COMPUTE_ENABLE_CUDA=OFF \
+            -DLUISA_COMPUTE_ENABLE_DX=OFF -DLUISA_COMPUTE_ENABLE_METAL=OFF \
+            -DLUISA_COMPUTE_ENABLE_VULKAN=OFF -DLUISA_COMPUTE_ENABLE_GUI=OFF \
+            -DLUISA_COMPUTE_ENABLE_VK_XIR_SPIRV=OFF \
+            -DLUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV=OFF \
+            -DLUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES=OFF \
+            -DLUISA_COMPUTE_BUILD_TESTS=ON 2>&1 | tee configure.log
+          cmake --build build --parallel 4 2>&1 | tee build.log
+      - name: Run CPU numerical and compiler regressions
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure --no-tests=error --timeout 120 \
+            -L '^(unit_core|unit_xir|unit_fallback|unit_simd|unit_llvm)$' \
+            --output-junit cpu-tests.xml 2>&1 | tee cpu-tests.log
+      - name: Run SIMD width and inactive-lane numerical regression
+        if: github.event_name != 'workflow_dispatch' || inputs.simd
+        run: |
+          set -euo pipefail
+          ctest --test-dir build --output-on-failure --no-tests=error --timeout 120 \
+            -R '^test_simd_runtime_widths$' --output-junit simd-width-tests.xml \
+            2>&1 | tee simd-width-tests.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: llvm-${{ matrix.llvm }}-cpu-results
+          path: |
+            *.log
+            build/CMakeCache.txt
+            build/cpu-tests.xml
+            build/simd-width-tests.xml
+            build/Testing/Temporary/
+
+  windows-backends:
+    # Hardware execution is opt-in and never runs untrusted PRs on a self-hosted machine.
+    if: github.event_name == 'workflow_dispatch'
+    name: Windows / selected backends / ROCm LLVM 24
+    runs-on: ${{ fromJSON(inputs.gpu_tests && '["self-hosted","Windows","X64","luisa-amd-gfx120x"]' || '["windows-2025"]') }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: .ci/deps
+          key: windows-backend-deps-${{ hashFiles('scripts/ci/prepare-windows-backends.ps1') }}
+      - name: Prepare pinned official LLVM/HIP, Embree and TBB packages
+        run: ./scripts/ci/prepare-windows-backends.ps1
+      - name: Prepare Vulkan SDK
+        if: inputs.vulkan
+        uses: johnnynunez/setup-vulkan-sdk@v1
+        with:
+          vulkan-query-version: 1.4.363.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+      - name: Configure, fully build, then test
+        env:
+          ENABLE_FALLBACK: ${{ inputs.fallback }}
+          ENABLE_SIMD: ${{ inputs.simd }}
+          ENABLE_HIP: ${{ inputs.hip }}
+          ENABLE_VULKAN: ${{ inputs.vulkan }}
+          ENABLE_DX: ${{ inputs.dx }}
+          ENABLE_LLVM_SPIRV: ${{ inputs.llvm_spirv }}
+          RUN_GPU_TESTS: ${{ inputs.gpu_tests }}
+        run: |
+          ./scripts/ci/build-windows-backends.ps1 `
+            -Fallback ([bool]::Parse($env:ENABLE_FALLBACK)) `
+            -Simd ([bool]::Parse($env:ENABLE_SIMD)) `
+            -Hip ([bool]::Parse($env:ENABLE_HIP)) `
+            -Vulkan ([bool]::Parse($env:ENABLE_VULKAN)) `
+            -Dx ([bool]::Parse($env:ENABLE_DX)) `
+            -LlvmSpirv ([bool]::Parse($env:ENABLE_LLVM_SPIRV)) `
+            -RunGpuTests ([bool]::Parse($env:RUN_GPU_TESTS))
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-backends-results
+          path: |
+            build-backends/*.log
+            build-backends/CMakeCache.txt
+            build-backends/*.xml
+            build-backends/Testing/Temporary/
+            .ci/deps/environment.json

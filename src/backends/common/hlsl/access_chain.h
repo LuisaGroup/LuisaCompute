@@ -57,6 +57,7 @@ public:
     bool operator!=(AccessChain const &node) const { return !operator==(node); }
 
     void gen_func_impl(Function f, CodegenUtility *util, TemplateFunction const &tmp, luisa::span<Expression const *const> args, vstd::StringBuilder &builder);
+    void emit_access(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const;
     void call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const;
 };
 struct AccessHash {
