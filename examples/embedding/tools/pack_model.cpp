@@ -699,15 +699,30 @@ private:
                         storage,
                         tensor,
                         list };
+    struct map_entry;
     struct value {
+        value() noexcept;
+        value(v_kind kind) noexcept;
+        ~value() noexcept;
+        value(const value &);
+        value(value &&) noexcept;
+        value &operator=(const value &);
+        value &operator=(value &&) noexcept;
+
         v_kind kind = v_kind::none;
         bool b = false;
         int64_t i = 0;
         std::string s;         // global id / storage key
         std::vector<value> seq;// tuple, list, dict keys (values are implicit)
-        std::vector<std::pair<std::string, value>> map;
+        std::vector<map_entry> map;
         pickle_tensor tensor;
         std::string storage_type;// storage value
+    };
+    // vector supports an incomplete element type; pair's constraints can
+    // instantiate value's special members before the recursive pair is complete.
+    struct map_entry {
+        std::string first;
+        value second;
     };
 
     [[noreturn]] void fail(const char *what) { PACK_FATAL("%s: pickle error: %s", _name.c_str(), what); }
@@ -1085,6 +1100,16 @@ private:
     std::vector<value> _memo;
     value _root;
 };
+
+// Define special members only after both recursive value types are complete.
+// Default copying keeps pickle memo entries independent; moving stays noexcept.
+pickle_reader::value::value() noexcept = default;
+pickle_reader::value::value(v_kind kind) noexcept : kind{kind} {}
+pickle_reader::value::~value() noexcept = default;
+pickle_reader::value::value(const value &) = default;
+pickle_reader::value::value(value &&) noexcept = default;
+pickle_reader::value &pickle_reader::value::operator=(const value &) = default;
+pickle_reader::value &pickle_reader::value::operator=(value &&) noexcept = default;
 
 // One torch .pt checkpoint holding a state_dict of {weight:[out,in], bias:[out]}.
 struct pt_head {
@@ -2027,7 +2052,15 @@ namespace pack_model_detail {
 // minimal JSON reader (plan §3.3 --check path: golden_tokens.json, config.json)
 // ---------------------------------------------------------------------------
 
+struct json_entry;
 struct json_value {
+    json_value() noexcept;
+    ~json_value() noexcept;
+    json_value(const json_value &);
+    json_value(json_value &&) noexcept;
+    json_value &operator=(const json_value &);
+    json_value &operator=(json_value &&) noexcept;
+
     enum class kind { null,
                       boolean,
                       number,
@@ -2038,15 +2071,29 @@ struct json_value {
     bool boolean = false;
     std::string str;
     std::vector<json_value> arr;
-    std::vector<std::pair<std::string, json_value>> obj;
+    std::vector<json_entry> obj;
 
-    const json_value *at(const std::string &key) const {
-        for (const auto &[k, v] : obj) {
-            if (k == key) return &v;
-        }
-        return nullptr;
-    }
+    const json_value *at(const std::string &key) const;
 };
+
+struct json_entry {
+    std::string first;
+    json_value second;
+};
+
+json_value::json_value() noexcept = default;
+json_value::~json_value() noexcept = default;
+json_value::json_value(const json_value &) = default;
+json_value::json_value(json_value &&) noexcept = default;
+json_value &json_value::operator=(const json_value &) = default;
+json_value &json_value::operator=(json_value &&) noexcept = default;
+
+const json_value *json_value::at(const std::string &key) const {
+    for (const auto &[k, v] : obj) {
+        if (k == key) return &v;
+    }
+    return nullptr;
+}
 
 class json_parser {
 public:
