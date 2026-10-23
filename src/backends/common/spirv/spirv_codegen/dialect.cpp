@@ -1162,11 +1162,23 @@ private:
                         is_shuffle_value(value_type) &&
                         result_type == value_type;
                 break;
-            case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK:
-                expected = "no operands and no result";
-                valid = inst->operand_count() == 0u && result_type == nullptr;
-                break;
-        }
+        case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK:
+            expected = "no operands and no result";
+            valid = inst->operand_count() == 0u && result_type == nullptr;
+            break;
+        case xir::ThreadGroupOp::GRAPH_SET_CONDITIONAL:
+        case xir::ThreadGroupOp::GRAPH_LAUNCH:
+        case xir::ThreadGroupOp::GET_CURRENT_GRAPH_EXEC:
+        case xir::ThreadGroupOp::GRAPH_NODE_SET_PARAM:
+        case xir::ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM:
+        case xir::ThreadGroupOp::GRAPH_NODE_SET_ENABLED:
+        case xir::ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE:
+        case xir::ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION:
+            // Unreachable: the support query above rejects these CUDA-only
+            // ops before validation. Kept explicit so the switch stays
+            // exhaustive under -Wswitch.
+            break;
+    }
         if (!valid) {
             _error(
                 function, block, inst,
@@ -2681,6 +2693,17 @@ spirv_xir_dialect_support(xir::ThreadGroupOp op) noexcept {
         case xir::ThreadGroupOp::WARP_READ_LANE:
         case xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE:
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK: return supported();
+        case xir::ThreadGroupOp::GRAPH_SET_CONDITIONAL:
+        case xir::ThreadGroupOp::GRAPH_LAUNCH:
+        case xir::ThreadGroupOp::GET_CURRENT_GRAPH_EXEC:
+        case xir::ThreadGroupOp::GRAPH_NODE_SET_PARAM:
+        case xir::ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM:
+        case xir::ThreadGroupOp::GRAPH_NODE_SET_ENABLED:
+        case xir::ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE:
+        case xir::ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION:
+            return unsupported(
+                "device-side CUDA graph control operations are CUDA-only and "
+                "have no SPIR-V equivalent in this code generator");
     }
     return unknown();
 }
