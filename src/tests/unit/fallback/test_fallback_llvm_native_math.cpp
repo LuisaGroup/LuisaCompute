@@ -470,7 +470,7 @@ template<typename Options>
             for (auto *instruction : {product, sum}) {
                 auto flags = instruction->getFastMathFlags();
                 if (native) {
-                    CHECK(flags == original_flags);
+                    CHECK(!(flags != original_flags));
                 } else if (fast_math) {
                     CHECK(flags.isFast());
                     CHECK(flags.allowContract());
@@ -527,7 +527,7 @@ template<typename Options>
         CHECK(function->getFnAttribute("no-trapping-math").getValueAsString() == "true");
         auto expected_plain_flags = plain_flags;
         if (fusion == Fusion::Fast) { expected_plain_flags.setAllowContract(true); }
-        CHECK(plain->getFastMathFlags() == expected_plain_flags);
+        CHECK(!(plain->getFastMathFlags() != expected_plain_flags));
         CHECK(!plain->getFastMathFlags().noInfs());
         uint32_t implicit_count = 0u;
         uint32_t explicit_count = 0u;
@@ -543,7 +543,7 @@ template<typename Options>
                 if (flags.allowContract()) {
                     ::llvm::FastMathFlags only_contract;
                     only_contract.setAllowContract(true);
-                    CHECK(flags == only_contract);
+                    CHECK(!(flags != only_contract));
                     contract_products++;
                 } else {
                     CHECK(!flags.any());
