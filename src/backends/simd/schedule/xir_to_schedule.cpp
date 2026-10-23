@@ -1892,6 +1892,9 @@ private:
                         phi);
                     continue;
                 }
+                // Mapping an incoming value can insert into _value_ids and
+                // rehash the map, invalidating destination_iter.
+                auto destination = destination_iter->second;
                 for (auto incoming_index = size_t{0u};
                      incoming_index < phi->incoming_count();
                      incoming_index++) {
@@ -1909,7 +1912,7 @@ private:
                     }
                     assignments_by_edge[edge_key].emplace_back(
                         EdgeAssignment{
-                            .destination = destination_iter->second,
+                            .destination = destination,
                             .source = *source,
                         });
                 }

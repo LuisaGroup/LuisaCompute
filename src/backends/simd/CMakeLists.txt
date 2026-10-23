@@ -7,6 +7,8 @@ if (DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
             "${CMAKE_MSVC_RUNTIME_LIBRARY}")
 endif ()
 find_package(LLVM CONFIG REQUIRED)
+separate_arguments(_luisa_simd_llvm_definitions NATIVE_COMMAND
+        "${LLVM_DEFINITIONS}")
 if (_luisa_simd_had_msvc_runtime_library)
     set(CMAKE_MSVC_RUNTIME_LIBRARY
             "${_luisa_simd_project_msvc_runtime_library}")
@@ -122,14 +124,19 @@ target_include_directories(luisa-compute-simd-llvm
         ${CMAKE_CURRENT_SOURCE_DIR}/schedule)
 target_include_directories(luisa-compute-simd-llvm SYSTEM PUBLIC
         ${LLVM_INCLUDE_DIRS})
+luisa_compute_get_llvm_static_crt_libraries(
+        luisa-compute-simd-llvm _luisa_simd_llvm_static_crt_libraries)
+
 target_link_libraries(luisa-compute-simd-llvm
         PUBLIC luisa-compute-simd-schedule
-        PRIVATE ${_luisa_simd_llvm_libraries}
+        PRIVATE ${_luisa_simd_llvm_static_crt_libraries}
+        ${_luisa_simd_llvm_libraries}
         embree)
+# Public LLVM headers require the same ABI definitions in their consumers.
+# In particular, LLVM 21 enables EXPERIMENTAL_KEY_INSTRUCTIONS in its SDK.
 target_compile_definitions(luisa-compute-simd-llvm
-        PRIVATE
-        ${LLVM_DEFINITIONS}
-        LUISA_COMPUTE_SIMD_EMBREE_VERSION=${embree_VERSION_MAJOR})
+        PUBLIC ${_luisa_simd_llvm_definitions}
+        PRIVATE LUISA_COMPUTE_SIMD_EMBREE_VERSION=${embree_VERSION_MAJOR})
 set_target_properties(luisa-compute-simd-llvm PROPERTIES
         POSITION_INDEPENDENT_CODE ON
         UNITY_BUILD OFF)

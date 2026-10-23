@@ -369,8 +369,10 @@ if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
         target_link_libraries(test_hip_floating_remainder PRIVATE LLVM)
     else ()
         llvm_map_components_to_libnames(_hip_floating_remainder_llvm_libs core support)
+        luisa_compute_get_llvm_static_crt_libraries(
+                test_hip_floating_remainder _hip_test_static_crt_libraries)
         target_link_libraries(test_hip_floating_remainder PRIVATE
-                ${_hip_floating_remainder_llvm_libs})
+                ${_hip_test_static_crt_libraries} ${_hip_floating_remainder_llvm_libs})
     endif ()
     luisa_compute_add_test(test_hip_callable_abi unit/core/test_hip_callable_abi.cpp LABELS "unit;unit_core")
     target_sources(test_hip_callable_abi PRIVATE
@@ -385,9 +387,25 @@ if (TARGET luisa-compute-backend-hip AND LLVM_FOUND)
     else ()
         llvm_map_components_to_libnames(_hip_callable_abi_llvm_libs
                 core asmparser support transformutils analysis passes ipo)
+        luisa_compute_get_llvm_static_crt_libraries(
+                test_hip_callable_abi _hip_test_static_crt_libraries)
         target_link_libraries(test_hip_callable_abi PRIVATE
-                ${_hip_callable_abi_llvm_libs})
+                ${_hip_test_static_crt_libraries} ${_hip_callable_abi_llvm_libs})
     endif ()
+    # These tests compile LLVM-facing HIP sources independently of the
+    # backend, so they must inherit the same SDK ABI definitions and RTTI mode.
+    separate_arguments(_hip_test_llvm_definitions NATIVE_COMMAND
+            "${LLVM_DEFINITIONS}")
+    foreach (_hip_llvm_test IN ITEMS test_hip_floating_remainder test_hip_callable_abi)
+        target_compile_definitions(${_hip_llvm_test} PRIVATE ${_hip_test_llvm_definitions})
+        if (DEFINED LLVM_ENABLE_RTTI AND NOT LLVM_ENABLE_RTTI)
+            if (MSVC)
+                target_compile_options(${_hip_llvm_test} PRIVATE /GR-)
+            else ()
+                target_compile_options(${_hip_llvm_test} PRIVATE -fno-rtti)
+            endif ()
+        endif ()
+    endforeach ()
 endif ()
 if (TARGET luisa-compute-backend-cuda AND LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN)
     # Discover the same cached SDK as the backend; this test does not load CUDA.

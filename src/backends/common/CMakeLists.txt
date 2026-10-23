@@ -107,6 +107,22 @@ function(luisa_compute_link_wayland_if_enabled backend)
     endif ()
 endfunction()
 
+# Static LLVM packages may include rpmalloc's malloc/free replacements in
+# LLVMSupport. With /MT, extracting them before the CRT makes LLVM consumers
+# free containers from Luisa DLLs with a different allocator. Resolve the
+# matching UCRT first, before the LLVM archives, while leaving /MD unchanged.
+function(luisa_compute_get_llvm_static_crt_libraries target output)
+    set(_luisa_llvm_static_crt_libraries "")
+    if (MSVC)
+        set(_luisa_llvm_target_runtime
+                "$<TARGET_GENEX_EVAL:${target},$<TARGET_PROPERTY:${target},MSVC_RUNTIME_LIBRARY>>")
+        list(APPEND _luisa_llvm_static_crt_libraries
+                "$<$<STREQUAL:${_luisa_llvm_target_runtime},MultiThreaded>:libucrt.lib>"
+                "$<$<STREQUAL:${_luisa_llvm_target_runtime},MultiThreadedDebug>:libucrtd.lib>")
+    endif ()
+    set(${output} "${_luisa_llvm_static_crt_libraries}" PARENT_SCOPE)
+endfunction()
+
 # luisa_compute_link_llvm_into_backend(
 #     backend [TARGET target] [REQUIRED] COMPONENTS llvm_components...)
 function(luisa_compute_link_llvm_into_backend backend)
@@ -128,6 +144,12 @@ function(luisa_compute_link_llvm_into_backend backend)
         message(STATUS "LLVM not found, skipping LLVM linking for backend ${backend}")
         return()
     endif ()
+
+    # SDK definitions can affect LLVM's C++ object layout (for example,
+    # EXPERIMENTAL_KEY_INSTRUCTIONS in LLVM 21). Save the installed package's
+    # flags before HandleLLVMOptions recomputes LLVM build-time options.
+    separate_arguments(_luisa_llvm_package_definitions NATIVE_COMMAND
+            "${LLVM_DEFINITIONS}")
 
     # FindZLIB can resolve Apple's SDK copy and publish
     # <SDK>/usr/include through ZLIB::ZLIB. Propagating that directory as an
@@ -308,10 +330,15 @@ function(luisa_compute_link_llvm_into_backend backend)
         # avoid re-exporting symbols from LLVM
         target_link_libraries(${LUISA_LINK_LLVM_TARGET} PRIVATE "-Wl,--exclude-libs,ALL" ${LLVM_LIBS})
     else ()
-        target_link_libraries(${LUISA_LINK_LLVM_TARGET} PRIVATE ${LLVM_LIBS})
+        luisa_compute_get_llvm_static_crt_libraries(
+                ${LUISA_LINK_LLVM_TARGET} _luisa_llvm_static_crt_libraries)
+        target_link_libraries(${LUISA_LINK_LLVM_TARGET} PRIVATE
+                ${_luisa_llvm_static_crt_libraries} ${LLVM_LIBS})
     endif ()
 
-    target_compile_definitions(${LUISA_LINK_LLVM_TARGET} PRIVATE ${LUISA_LINK_LLVM_DEFINITIONS})
+    target_compile_definitions(${LUISA_LINK_LLVM_TARGET} PRIVATE
+            ${_luisa_llvm_package_definitions}
+            ${LUISA_LINK_LLVM_DEFINITIONS})
 
     # return LUISA_COMPUTE_${backend.upper}_LINKED_LLVM=ON to the caller
     string(TOUPPER ${backend} backend_upper)
