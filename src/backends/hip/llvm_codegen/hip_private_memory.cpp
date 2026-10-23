@@ -14,7 +14,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Operator.h>
 #include <llvm/IR/PassInstrumentation.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../../common/llvm_pass_builder.h"
 #include <llvm/Support/Error.h>
 #include <llvm/Target/TargetMachine.h>
 
@@ -247,9 +247,9 @@ void run_scalar_cleanup(llvm::Module &module,
     llvm::CGSCCAnalysisManager cgscc_analyses;
     llvm::ModuleAnalysisManager module_analyses;
     llvm::PassInstrumentationCallbacks instrumentation;
-    llvm::PassBuilder builder{
-        target_machine, llvm::PipelineTuningOptions{}, luisa::nullopt,
-        &instrumentation};
+    auto builder = luisa::compute::detail::make_llvm_pass_builder(
+        module.getContext(), target_machine, llvm::PipelineTuningOptions{},
+        luisa::nullopt, &instrumentation);
     builder.registerModuleAnalyses(module_analyses);
     builder.registerCGSCCAnalyses(cgscc_analyses);
     builder.registerFunctionAnalyses(function_analyses);

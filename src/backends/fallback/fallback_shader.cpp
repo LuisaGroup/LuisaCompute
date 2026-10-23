@@ -24,7 +24,7 @@
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../common/llvm_pass_builder.h"
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Operator.h>
 
@@ -880,7 +880,8 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     PTO.SLPVectorization = !use_minimal_optimization;
     PTO.LoopUnrolling = true;
     PTO.MergeFunctions = true;
-    ::llvm::PassBuilder PB{_target_machine.get(), PTO};
+    auto PB = luisa::compute::detail::make_llvm_pass_builder(
+        llvm_module->getContext(), _target_machine.get(), PTO);
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
     PB.registerFunctionAnalyses(FAM);

@@ -6,7 +6,7 @@
 
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/OptimizationLevel.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../common/llvm_pass_builder.h"
 #include <llvm/Support/raw_ostream.h>
 
 #include <luisa/core/logging.h>
@@ -62,7 +62,8 @@ void optimize_module(llvm::Module &module) noexcept {
     llvm::ModuleAnalysisManager module_analysis;
     llvm::PipelineTuningOptions tuning;
     tuning.LoopUnrolling = false;
-    llvm::PassBuilder pass_builder{nullptr, tuning};
+    auto pass_builder = luisa::compute::detail::make_llvm_pass_builder(
+        module.getContext(), nullptr, tuning);
     pass_builder.registerModuleAnalyses(module_analysis);
     pass_builder.registerCGSCCAnalyses(cgscc_analysis);
     pass_builder.registerFunctionAnalyses(function_analysis);

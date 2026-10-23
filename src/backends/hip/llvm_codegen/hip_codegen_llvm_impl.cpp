@@ -12,7 +12,7 @@
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../../common/llvm_pass_builder.h"
 #include <llvm/IR/PassInstrumentation.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Module.h>
@@ -1163,9 +1163,9 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
     // order from cloning one consumer of a still-shared generated callable.
     configure_hip_cgscc_canonicalization_inlining(PTO);
     llvm::PassInstrumentationCallbacks instrumentation;
-    llvm::PassBuilder PB{
-        _target_machine, PTO, luisa::nullopt,
-        &instrumentation};
+    auto PB = luisa::compute::detail::make_llvm_pass_builder(
+        _llvm_module->getContext(), _target_machine, PTO, luisa::nullopt,
+        &instrumentation);
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
     PB.registerFunctionAnalyses(FAM);

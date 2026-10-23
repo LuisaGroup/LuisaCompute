@@ -10,7 +10,7 @@
 #include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Passes/OptimizationLevel.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../common/llvm_pass_builder.h"
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/LoopUtils.h>
@@ -220,7 +220,8 @@ void optimize_llvm_module(llvm::Module &module) noexcept {
     // unrolling substantially increased AIR size and register pressure for
     // arithmetic kernels, so keep the same division of responsibility here.
     tuning.LoopUnrolling = false;
-    llvm::PassBuilder pass_builder{nullptr, tuning};
+    auto pass_builder = luisa::compute::detail::make_llvm_pass_builder(
+        module.getContext(), nullptr, tuning);
     pass_builder.registerModuleAnalyses(module_analysis);
     pass_builder.registerCGSCCAnalyses(cgscc_analysis);
     pass_builder.registerFunctionAnalyses(function_analysis);

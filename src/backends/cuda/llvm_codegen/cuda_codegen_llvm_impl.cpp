@@ -15,7 +15,7 @@
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../../common/llvm_pass_builder.h"
 
 #include <luisa/xir/passes/resource_origin.h>
 #include <luisa/core/clock.h>
@@ -260,7 +260,8 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
         PTO.SLPVectorization = true;
         PTO.LoopUnrolling = true;
         PTO.MergeFunctions = true;
-        llvm::PassBuilder PB{_target_machine, PTO};
+        auto PB = luisa::compute::detail::make_llvm_pass_builder(
+            _llvm_module->getContext(), _target_machine, PTO);
         PB.registerModuleAnalyses(MAM);
         PB.registerCGSCCAnalyses(CGAM);
         PB.registerFunctionAnalyses(FAM);

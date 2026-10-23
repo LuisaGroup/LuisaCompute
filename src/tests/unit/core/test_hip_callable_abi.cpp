@@ -14,7 +14,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../../../backends/common/llvm_pass_builder.h"
 #include <llvm/Support/SourceMgr.h>
 #include <llvm/Transforms/Scalar/EarlyCSE.h>
 #include <luisa/core/stl/memory.h>
@@ -46,8 +46,8 @@ void run_hip_ipo_pipeline(llvm::Module &module) {
     llvm::CGSCCAnalysisManager cgscc_analyses;
     llvm::ModuleAnalysisManager module_analyses;
     llvm::PassInstrumentationCallbacks instrumentation;
-    llvm::PassBuilder builder{
-        nullptr, options, luisa::nullopt, &instrumentation};
+    auto builder = luisa::compute::detail::make_llvm_pass_builder(
+        module.getContext(), nullptr, options, luisa::nullopt, &instrumentation);
     builder.registerModuleAnalyses(module_analyses);
     builder.registerCGSCCAnalyses(cgscc_analyses);
     builder.registerFunctionAnalyses(function_analyses);
@@ -709,7 +709,7 @@ static auto hip_callable_abi_tests = [] {
         llvm::FunctionAnalysisManager function_analyses;
         llvm::CGSCCAnalysisManager cgscc_analyses;
         llvm::ModuleAnalysisManager module_analyses;
-        llvm::PassBuilder builder;
+        auto builder = luisa::compute::detail::make_llvm_pass_builder(module->getContext());
         builder.registerModuleAnalyses(module_analyses);
         builder.registerCGSCCAnalyses(cgscc_analyses);
         builder.registerFunctionAnalyses(function_analyses);

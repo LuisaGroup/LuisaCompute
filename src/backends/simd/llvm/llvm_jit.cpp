@@ -17,7 +17,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Verifier.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../../common/llvm_pass_builder.h"
 #include <llvm/Support/Error.h>
 #include <llvm/Support/CodeGen.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -182,7 +182,8 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
     ::llvm::FunctionAnalysisManager function_analyses;
     ::llvm::CGSCCAnalysisManager cgscc_analyses;
     ::llvm::ModuleAnalysisManager module_analyses;
-    ::llvm::PassBuilder pass_builder{_target_machine.get()};
+    auto pass_builder = luisa::compute::detail::make_llvm_pass_builder(
+        module.getContext(), _target_machine.get());
     pass_builder.registerModuleAnalyses(module_analyses);
     pass_builder.registerCGSCCAnalyses(cgscc_analyses);
     pass_builder.registerFunctionAnalyses(function_analyses);

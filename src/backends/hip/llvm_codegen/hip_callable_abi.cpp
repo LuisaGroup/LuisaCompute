@@ -10,7 +10,7 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Config/llvm-config.h>
-#include <llvm/Passes/PassBuilder.h>
+#include "../../common/llvm_pass_builder.h"
 #include <llvm/Transforms/IPO/MergeFunctions.h>
 #include <llvm/Transforms/Scalar/SROA.h>
 #include <llvm/Transforms/Utils/Cloning.h>
@@ -615,7 +615,7 @@ specialize_marked_constant_integer_arguments(
         llvm::FunctionAnalysisManager function_analyses;
         llvm::CGSCCAnalysisManager cgscc_analyses;
         llvm::ModuleAnalysisManager module_analyses;
-        llvm::PassBuilder builder;
+        auto builder = luisa::compute::detail::make_llvm_pass_builder(module.getContext());
         builder.registerLoopAnalyses(loop_analyses);
         builder.registerFunctionAnalyses(function_analyses);
         builder.registerCGSCCAnalyses(cgscc_analyses);
@@ -939,7 +939,7 @@ inline_unique_oversized_generated_callables(
         // Re-form SSA only in surviving modified callers. Use LLVM's access
         // proof, preserve the CFG, and leave escaped/volatile storage intact.
         llvm::FunctionAnalysisManager analyses;
-        llvm::PassBuilder{}.registerFunctionAnalyses(analyses);
+        luisa::compute::detail::make_llvm_pass_builder(module.getContext()).registerFunctionAnalyses(analyses);
         llvm::FunctionPassManager cleanup;
         cleanup.addPass(llvm::SROAPass{llvm::SROAOptions::PreserveCFG});
         for (auto &function : module) {
