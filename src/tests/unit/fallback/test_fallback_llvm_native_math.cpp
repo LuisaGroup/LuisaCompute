@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -17,6 +18,7 @@
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
@@ -202,6 +204,9 @@ void add_math_callable(
         "fallback-native-math", *context);
     static_cast<void>(fallback::luisa_fallback_backend_codegen(
         *context, module.get(), &xir_module, fast_math));
+    for (auto &function : *module) {
+        fallback::apply_fallback_math_function_options(function, fast_math);
+    }
     return {std::move(context), std::move(module), 0u};
 }
 
@@ -239,6 +244,9 @@ void add_math_callable(
         "fallback-radix-pow", *context);
     static_cast<void>(fallback::luisa_fallback_backend_codegen(
         *context, module.get(), &xir_module, fast_math));
+    for (auto &function : *module) {
+        fallback::apply_fallback_math_function_options(function, fast_math);
+    }
     return {std::move(context), std::move(module),
             info.radix_pow_count};
 }
@@ -399,17 +407,234 @@ template<size_t Width, Operation Op>
     return true;
 }
 
+template<typename Options>
+[[nodiscard]] bool check_legacy_math_target_options() {
+    Options precise_options;
+    fallback::apply_fallback_math_target_options(precise_options, false);
+    Options fast_options;
+    fallback::apply_fallback_math_target_options(fast_options, true);
+    // Newer LLVM snapshots encode this policy only in IR. Keep checking the
+    // legacy fields where present, without treating a missing field as a pass
+    // for the IR and numerical regressions below.
+    if constexpr (requires { precise_options.AllowFPOpFusion; }) {
+        using Fusion = decltype(precise_options.AllowFPOpFusion);
+        CHECK(precise_options.AllowFPOpFusion == Fusion::Standard);
+        CHECK(fast_options.AllowFPOpFusion == Fusion::Fast);
+    }
+    if constexpr (requires { precise_options.NoTrappingFPMath; }) {
+        CHECK(precise_options.NoTrappingFPMath);
+        CHECK(fast_options.NoTrappingFPMath);
+    }
+    return true;
+}
+
+[[nodiscard]] bool check_math_function_options() {
+    ::llvm::LLVMContext context;
+    ::llvm::Module module{"fallback-fp-policy", context};
+    auto *float_type = ::llvm::Type::getFloatTy(context);
+    auto *type = ::llvm::FunctionType::get(
+        float_type, {float_type, float_type, float_type}, false);
+    constexpr std::array inherited_fast_attributes{
+        "unsafe-fp-math", "no-infs-fp-math", "no-nans-fp-math",
+        "no-signed-zeros-fp-math", "approx-func-fp-math"};
+    for (auto fast_math : {false, true}) {
+        for (auto kind : {0u, 1u, 2u}) {
+            auto *function = ::llvm::Function::Create(
+                type, ::llvm::GlobalValue::ExternalLinkage, "fp_policy", module);
+            auto *entry = ::llvm::BasicBlock::Create(context, "entry", function);
+            ::llvm::IRBuilder<> builder{entry};
+            auto *product = ::llvm::cast<::llvm::Instruction>(
+                builder.CreateFMul(function->getArg(0u), function->getArg(1u)));
+            auto *sum = ::llvm::cast<::llvm::Instruction>(
+                builder.CreateFAdd(product, function->getArg(2u)));
+            builder.CreateRet(sum);
+            auto native = kind == 2u;
+            if (kind != 0u) {
+                // Models attributes retained when parsing compiler-produced
+                // builtin bitcode; clearing instruction FMF alone is not enough.
+                for (auto attribute : inherited_fast_attributes) {
+                    function->addFnAttr(attribute, "true");
+                }
+            }
+            ::llvm::FastMathFlags original_flags;
+            if (native) {
+                function->addFnAttr("luisa.cpu.native_math");
+                original_flags.setAllowContract(true);
+            } else {
+                original_flags = ::llvm::FastMathFlags::getFast();
+            }
+            product->setFastMathFlags(original_flags);
+            sum->setFastMathFlags(original_flags);
+            fallback::apply_fallback_math_function_options(*function, fast_math);
+            CHECK(function->getFnAttribute("no-trapping-math").getValueAsString() == "true");
+            for (auto *instruction : {product, sum}) {
+                auto flags = instruction->getFastMathFlags();
+                if (native) {
+                    CHECK(flags == original_flags);
+                } else if (fast_math) {
+                    CHECK(flags.isFast());
+                    CHECK(flags.allowContract());
+                } else {
+                    CHECK(!flags.any());
+                }
+            }
+            if (!native && !fast_math) {
+                for (auto attribute : inherited_fast_attributes) {
+                    CHECK(!function->hasFnAttribute(attribute));
+                }
+            }
+            if (native) {
+                for (auto attribute : inherited_fast_attributes) {
+                    CHECK(function->getFnAttribute(attribute).getValueAsString() == "true");
+                }
+            }
+        }
+    }
+    CHECK(!::llvm::verifyModule(module, &::llvm::errs()));
+    return true;
+}
+
+[[nodiscard]] bool check_common_fusion_options() {
+    using Fusion = luisa::compute::detail::LLVMFPOpFusion;
+    ::llvm::LLVMContext context;
+    ::llvm::Module module{"llvm-fusion-policy", context};
+    auto *float_type = ::llvm::Type::getFloatTy(context);
+    auto *type = ::llvm::FunctionType::get(
+        float_type, {float_type, float_type, float_type}, false);
+    for (auto fusion : {Fusion::Strict, Fusion::Standard, Fusion::Fast}) {
+        auto *function = ::llvm::Function::Create(
+            type, ::llvm::GlobalValue::ExternalLinkage, "fusion", module);
+        auto *entry = ::llvm::BasicBlock::Create(context, "entry", function);
+        ::llvm::IRBuilder<> builder{entry};
+        auto *a = function->getArg(0u);
+        auto *b = function->getArg(1u);
+        auto *c = function->getArg(2u);
+        auto *plain = ::llvm::cast<::llvm::Instruction>(builder.CreateFAdd(a, b));
+        ::llvm::FastMathFlags plain_flags;
+        plain_flags.setNoNaNs(true);
+        plain_flags.setNoSignedZeros(true);
+        plain->setFastMathFlags(plain_flags);
+        auto *implicit = ::llvm::cast<::llvm::Instruction>(
+            builder.CreateIntrinsic(::llvm::Intrinsic::fmuladd, {float_type}, {a, b, c}));
+        auto *contracted = ::llvm::cast<::llvm::Instruction>(
+            builder.CreateIntrinsic(::llvm::Intrinsic::fmuladd, {float_type}, {a, b, c}));
+        contracted->setHasAllowContract(true);
+        auto *explicit_fma = builder.CreateIntrinsic(::llvm::Intrinsic::fma, {float_type}, {a, b, c});
+        auto *sum = builder.CreateFAdd(implicit, contracted);
+        sum = builder.CreateFAdd(sum, explicit_fma);
+        builder.CreateRet(builder.CreateFAdd(sum, plain));
+        luisa::compute::detail::apply_llvm_fp_function_options(*function, fusion);
+        CHECK(function->getFnAttribute("no-trapping-math").getValueAsString() == "true");
+        auto expected_plain_flags = plain_flags;
+        if (fusion == Fusion::Fast) { expected_plain_flags.setAllowContract(true); }
+        CHECK(plain->getFastMathFlags() == expected_plain_flags);
+        CHECK(!plain->getFastMathFlags().noInfs());
+        uint32_t implicit_count = 0u;
+        uint32_t explicit_count = 0u;
+        uint32_t contract_products = 0u;
+        uint32_t precise_products = 0u;
+        for (auto &instruction : *entry) {
+            if (auto *intrinsic = ::llvm::dyn_cast<::llvm::IntrinsicInst>(&instruction)) {
+                implicit_count += intrinsic->getIntrinsicID() == ::llvm::Intrinsic::fmuladd;
+                explicit_count += intrinsic->getIntrinsicID() == ::llvm::Intrinsic::fma;
+            }
+            if (instruction.getOpcode() == ::llvm::Instruction::FMul) {
+                auto flags = instruction.getFastMathFlags();
+                if (flags.allowContract()) {
+                    ::llvm::FastMathFlags only_contract;
+                    only_contract.setAllowContract(true);
+                    CHECK(flags == only_contract);
+                    contract_products++;
+                } else {
+                    CHECK(!flags.any());
+                    precise_products++;
+                }
+            }
+        }
+        CHECK(explicit_count == 1u);
+        if (fusion == Fusion::Strict) {
+            CHECK(implicit_count == 0u);
+            CHECK(contract_products == 1u && precise_products == 1u);
+        } else {
+            CHECK(implicit_count == 2u);
+            CHECK(contract_products == 0u && precise_products == 0u);
+            CHECK(implicit->getFastMathFlags().allowContract() == (fusion == Fusion::Fast));
+            CHECK(contracted->getFastMathFlags().allowContract());
+        }
+    }
+    CHECK(!::llvm::verifyModule(module, &::llvm::errs()));
+    return true;
+}
+
+[[nodiscard]] bool check_precise_arithmetic_contract() {
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>("fallback-fp-contract", *context);
+    auto *float_type = ::llvm::Type::getFloatTy(*context);
+    auto *pointer_type = ::llvm::PointerType::get(*context, 0u);
+    auto *type = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(*context),
+        {float_type, float_type, float_type, pointer_type}, false);
+    auto *function = ::llvm::Function::Create(
+        type, ::llvm::GlobalValue::ExternalLinkage, "fp_contract_entry", *module);
+    auto *entry = ::llvm::BasicBlock::Create(*context, "entry", function);
+    ::llvm::IRBuilder<> builder{entry};
+    auto *a = function->getArg(0u);
+    auto *b = function->getArg(1u);
+    auto *c = function->getArg(2u);
+    auto *product = builder.CreateFMul(a, b);
+    std::array<::llvm::Value *, 6u> results{
+        builder.CreateFAdd(product, c),
+        builder.CreateIntrinsic(::llvm::Intrinsic::fma, {float_type}, {a, b, c}),
+        product,
+        builder.CreateFDiv(::llvm::ConstantFP::get(float_type, 1.0), a),
+        builder.CreateUIToFP(builder.CreateFCmpUNO(a, a), float_type),
+        builder.CreateIntrinsic(::llvm::Intrinsic::fmuladd, {float_type}, {a, b, c})};
+    for (auto i = size_t{0u}; i < results.size(); i++) {
+        auto *address = builder.CreateGEP(
+            float_type, function->getArg(3u), builder.getInt64(i));
+        builder.CreateAlignedStore(results[i], address, ::llvm::Align{4u});
+    }
+    builder.CreateRetVoid();
+    fallback::apply_fallback_math_function_options(*function, false);
+    luisa::compute::detail::apply_llvm_fp_function_options(
+        *function, luisa::compute::detail::LLVMFPOpFusion::Strict);
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    simd::LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = void(float, float, float, float *);
+    auto function_pointer = reinterpret_cast<Entry *>(jit.lookup("fp_contract_entry"));
+    CHECK(function_pointer != nullptr);
+    std::array<float, 6u> output{};
+    // Inputs cross the JIT boundary at runtime. The rounded product is 1,
+    // whereas an explicit fused operation retains the negative 2^-46 residue.
+    function_pointer(0x1.000002p0f, 0x1.fffffcp-1f, -1.0f, output.data());
+    CHECK(output[0u] == 0.0f && !std::signbit(output[0u]));
+    CHECK(output[1u] == -0x1p-46f);
+    CHECK(output[5u] == 0.0f && !std::signbit(output[5u]));
+    function_pointer(-0.0f, 1.0f, 0.0f, output.data());
+    CHECK(output[2u] == 0.0f && std::signbit(output[2u]));
+    CHECK(std::isinf(output[3u]) && std::signbit(output[3u]));
+    auto infinity = std::numeric_limits<float>::infinity();
+    function_pointer(infinity, 1.0f, -infinity, output.data());
+    CHECK(std::isnan(output[0u]) && std::isnan(output[1u]));
+    CHECK(output[2u] == infinity);
+    CHECK(output[3u] == 0.0f && !std::signbit(output[3u]));
+    function_pointer(-infinity, 1.0f, 0.0f, output.data());
+    CHECK(output[2u] == -infinity);
+    CHECK(output[3u] == 0.0f && std::signbit(output[3u]));
+    function_pointer(std::numeric_limits<float>::quiet_NaN(), 1.0f, 0.0f, output.data());
+    CHECK(std::isnan(output[0u]) && std::isnan(output[1u]));
+    CHECK(std::isnan(output[2u]) && std::isnan(output[3u]));
+    CHECK(output[4u] == 1.0f);
+    return true;
+}
+
 [[nodiscard]] bool run() {
-    ::llvm::TargetOptions precise_options;
-    fallback::apply_fallback_math_target_options(
-        precise_options, false);
-    CHECK(precise_options.AllowFPOpFusion ==
-          ::llvm::FPOpFusion::Standard);
-    ::llvm::TargetOptions fast_options;
-    fallback::apply_fallback_math_target_options(
-        fast_options, true);
-    CHECK(fast_options.AllowFPOpFusion ==
-          ::llvm::FPOpFusion::Fast);
+    CHECK(check_legacy_math_target_options<::llvm::TargetOptions>());
+    CHECK(check_math_function_options());
+    CHECK(check_common_fusion_options());
+    CHECK(check_precise_arithmetic_contract());
 
     for (auto fast_math : {false, true}) {
         auto shape = make_math_module(fast_math);

@@ -16,6 +16,7 @@
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include "../../common/llvm_pass_builder.h"
+#include "../../common/llvm_target_options.h"
 
 #include <luisa/xir/passes/resource_origin.h>
 #include <luisa/core/clock.h>
@@ -83,9 +84,10 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
     // create target machine
     _target_machine = [this] {
         llvm::TargetOptions options;
-        options.NoTrappingFPMath = true;
+        luisa::compute::detail::apply_llvm_fp_target_options(
+            options, _config.enable_fast_math ? luisa::compute::detail::LLVMFPOpFusion::Fast :
+                                         luisa::compute::detail::LLVMFPOpFusion::Strict);
         if (_config.enable_fast_math) {
-            options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
 #if LLVM_VERSION_MAJOR < 22
             options.UnsafeFPMath = true;
 #endif
@@ -100,7 +102,6 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
             options.ApproxFuncFPMath = true;
 #endif
         } else {
-            options.AllowFPOpFusion = llvm::FPOpFusion::Strict;
 #if LLVM_VERSION_MAJOR < 22
             options.UnsafeFPMath = false;
 #endif
@@ -212,6 +213,9 @@ void CUDACodegenLLVMImpl::_dump_module(const luisa::filesystem::path &path) cons
 
 void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback callback) noexcept {
 
+    for (auto &function : *_llvm_module) {
+        luisa::compute::detail::apply_llvm_fp_function_options(function, luisa::compute::detail::LLVMFPOpFusion::Standard);
+    }
     // add fast-math flags to FPMathOperators
     if (_config.enable_fast_math) {
         for (auto &f : *_llvm_module) {
@@ -300,6 +304,16 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
         if (any_not_inlined) {
             LUISA_VERBOSE("Running secondary optimization passes to inline device functions...");
             do_optimize();
+        }
+    }
+    // Legacy Strict was a codegen policy, not an IR optimization flag. Leave
+    // old SDKs on that path, and lower remaining fmuladd only after the IR
+    // pipeline when the installed SDK no longer has the target option.
+    if constexpr (!luisa::compute::detail::llvm_has_fp_fusion_target_option<>) {
+        if (!_config.enable_fast_math) {
+            for (auto &function : *_llvm_module) {
+                luisa::compute::detail::apply_llvm_fp_function_options(function, luisa::compute::detail::LLVMFPOpFusion::Strict);
+            }
         }
     }
 }

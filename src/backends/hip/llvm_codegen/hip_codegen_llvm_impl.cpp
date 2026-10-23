@@ -13,6 +13,7 @@
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
 #include "../../common/llvm_pass_builder.h"
+#include "../../common/llvm_target_options.h"
 #include <llvm/IR/PassInstrumentation.h>
 #include <llvm/IR/Dominators.h>
 #include <llvm/IR/Module.h>
@@ -337,10 +338,9 @@ void HIPCodegenLLVMImpl::_initialize() noexcept {
     }();
 
     llvm::TargetOptions options;
-    options.NoTrappingFPMath = true;
-    if (_config.enable_fast_math) {
-        options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
-    }
+    luisa::compute::detail::apply_llvm_fp_target_options(
+        options, _config.enable_fast_math ? luisa::compute::detail::LLVMFPOpFusion::Fast :
+                                     luisa::compute::detail::LLVMFPOpFusion::Standard);
 
     auto opt_level = llvm::CodeGenOptLevel::Default;
     switch (_config.opt_level) {
@@ -1016,6 +1016,9 @@ void HIPCodegenLLVMImpl::_dump_module(const luisa::filesystem::path &path) const
 
 void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
 
+    for (auto &function : *_llvm_module) {
+        luisa::compute::detail::apply_llvm_fp_function_options(function, luisa::compute::detail::LLVMFPOpFusion::Standard);
+    }
     if (_config.enable_fast_math) {
         for (auto &f : *_llvm_module) {
             for (auto &bb : f) {

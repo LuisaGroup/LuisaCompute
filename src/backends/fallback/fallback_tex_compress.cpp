@@ -23,6 +23,7 @@
 #include "fallback_stream.h"
 #include "fallback_command_queue.h"
 #include "fallback_tex_compress.h"
+#include "fallback_llvm_options.h"
 
 namespace luisa::compute::fallback {
 
@@ -162,21 +163,11 @@ public:
         ::llvm::orc::LLJITBuilder jit_builder;
         if (auto host = ::llvm::orc::JITTargetMachineBuilder::detectHost()) {
             ::llvm::TargetOptions options;
-#if LLVM_VERSION_MAJOR <= 21
-            options.UnsafeFPMath = true;
-            options.ApproxFuncFPMath = true;
-#endif
-#if LLVM_VERSION_MAJOR <= 22
-            options.NoInfsFPMath = true;
-            options.NoNaNsFPMath = true;
-            options.NoSignedZerosFPMath = true;
-#endif
-            options.NoTrappingFPMath = true;
-            options.AllowFPOpFusion = ::llvm::FPOpFusion::Fast;
+            apply_fallback_math_target_options(options, true);
             options.EnableIPRA = false;// true causes crash
             options.StackSymbolOrdering = true;
             options.TrapUnreachable = false;
-            options.EnableMachineFunctionSplitter = true;
+            luisa::compute::detail::enable_llvm_machine_function_splitting(options);
             options.EnableMachineOutliner = false;
             options.NoTrapAfterNoreturn = true;
             host->setOptions(options);
@@ -227,6 +218,12 @@ public:
 #else
         llvm_module->setTargetTriple(_target_machine->getTargetTriple().str());
 #endif
+
+        // The embedded bitcode already carries its arithmetic FMF. Preserve
+        // those flags and the former target-wide Fast contraction permission.
+        for (auto &function : *llvm_module) {
+            luisa::compute::detail::apply_llvm_fp_function_options(function, luisa::compute::detail::LLVMFPOpFusion::Fast);
+        }
 
         // compile to machine code
         auto m = llvm::orc::ThreadSafeModule(std::move(llvm_module), std::move(llvm_ctx));

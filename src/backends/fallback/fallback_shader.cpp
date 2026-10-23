@@ -798,30 +798,8 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     llvm_module->setTargetTriple(_target_machine->getTargetTriple().str());
 #endif
 
-    // Dispatch establishes f32 FTZ/DAZ for the complete JIT call tree.
-    // Native-math helpers share that environment, but retain their own FMF.
-    for (auto &&f : *llvm_module) {
-        if (option.enable_fast_math && !f.isDeclaration()) {
-#if LLVM_VERSION_MAJOR >= 23
-            auto environment = llvm::DenormalFPEnv{
-                llvm::DenormalMode::getDynamic(),
-                llvm::DenormalMode::getPreserveSign()};
-            llvm::AttrBuilder attributes{*llvm_ctx};
-            attributes.addDenormalFPEnvAttr(environment);
-            f.addFnAttrs(attributes);
-#else
-            f.addFnAttr("denormal-fp-math", "dynamic,dynamic");
-            f.addFnAttr("denormal-fp-math-f32", "preserve-sign,preserve-sign");
-#endif
-        }
-        if (f.hasFnAttribute("luisa.cpu.native_math")) { continue; }
-        for (auto &&bb : f) {
-            for (auto &&inst : bb) {
-                if (llvm::isa<llvm::FPMathOperator>(inst)) {
-                    inst.setFast(option.enable_fast_math);
-                }
-            }
-        }
+    for (auto &function : *llvm_module) {
+        apply_fallback_math_function_options(function, option.enable_fast_math);
     }
 
     if (LUISA_SHOULD_DUMP_LLVM_IR) {
@@ -1133,7 +1111,7 @@ void FallbackShader::_initialize_target_machine_jit(const ShaderOption &option) 
 #else
         options.TrapUnreachable = false;
 #endif
-        options.EnableMachineFunctionSplitter = true;
+        luisa::compute::detail::enable_llvm_machine_function_splitting(options);
         options.EnableMachineOutliner = false;
         options.NoTrapAfterNoreturn = true;
         host->setOptions(options);
