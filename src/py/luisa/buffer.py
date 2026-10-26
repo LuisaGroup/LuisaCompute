@@ -427,8 +427,18 @@ class IndirectDispatchBuffer:
     def __init__(self, size: int):
         buffer = get_global_device().impl().create_dispatch_buffer(size)
         self.size = size
-        self.bytesize = buffer.size_bytes()
-        self.stride = buffer.element_stride()
+        # NOTE: the C++ `ResourceCreationInfo` binding (since commit e687e22cd,
+        # "Make py support external resource") no longer exposes the former
+        # `BufferCreationInfo` accessors `size_bytes()` / `element_stride()`, so
+        # they cannot be queried here.  Mirror the canonical DSL binding in
+        # src/dsl/dispatch_indirect.cpp, which passes `buffer.capacity()` (the
+        # record count, not a byte size) as the `buffer_binding` size field --
+        # the indirect-dispatch backend `binding(offset, size)` interprets it as
+        # an element count: min(offset + size, capacity()).  `stride` is unused
+        # for indirect buffers (it is only read for AABB/vertex buffers in
+        # accel.py), so keep it informational.
+        self.bytesize = size  # == capacity, matches the canonical DSL binding
+        self.stride = 4        # uint word size; not consumed for this resource
         # instantiate buffer on device
         self.handle = buffer.handle()
 

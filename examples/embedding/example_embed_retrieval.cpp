@@ -20,6 +20,7 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/string.h>
 
+#include "embedding/embed/retrieval_disk_cache.h"
 #include "embedding/embed/retrieval_rpc.h"
 #include "embedding/embed/retrieval_service.h"
 #include "embedding/embed/session.h"
@@ -59,6 +60,7 @@ void print_command_help() {
     std::cout
         << "commands:\n"
         << "  load <directory> [<extension-list>]   recursively index; default .txt,.md\n"
+        << "    unchanged files are served from the on-disk cache (.lc_embed_cache*)\n"
         << "  unload <loaded-root-directory>       unload exactly one loaded root\n"
         << "  query [--top <N>] <query text>       rank files; default top 5, N in [1,100]\n"
         << "  update <file-or-subdirectory>        explicitly re-index changed content\n"
@@ -241,6 +243,7 @@ void print_load(const embed::RetrievalLoadResult &result) {
     std::cout << "loaded " << result.root
               << " extensions=" << join_extensions(result.extensions)
               << " added=" << result.added
+              << " cached=" << result.cached
               << " skipped=" << result.skipped
               << " failed=" << result.failed
               << " total_documents=" << result.total_documents << '\n';
@@ -258,6 +261,7 @@ void print_update(const embed::RetrievalUpdateResult &result) {
               << " updated=" << result.updated
               << " removed=" << result.removed
               << " unchanged=" << result.unchanged
+              << " cached=" << result.cached
               << " failed=" << result.failed
               << " total_documents=" << result.total_documents << '\n';
 }
@@ -489,6 +493,11 @@ int main(int argc, char *argv[]) {
     embed::RetrievalService service{[session = session.get()](luisa::string_view text) {
         return session->encode(text).dense;
     }};
+    // On-disk embedding cache: unchanged files in an indexed directory are
+    // served from .lc_embed_cache/ (via DStorage when the backend provides
+    // DStorageExt) instead of being re-encoded on the next load.
+    embed::DiskEmbedCache disk_cache{&device};
+    service.set_embed_cache(&disk_cache);
     if (options.server) {
         return run_server(service, options);
     }

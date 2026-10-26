@@ -16,6 +16,10 @@ public:
         : _index{std::move(encode)} {}
     ~RetrievalService() noexcept = default;
 
+    // Optional disk cache for directory import; nullptr disables it. Not owned,
+    // must outlive the service. Call before serving requests.
+    void set_embed_cache(RetrievalEmbedCache *cache) noexcept { _index.set_embed_cache(cache); }
+
     RetrievalService(const RetrievalService &) = delete;
     RetrievalService(RetrievalService &&) = delete;
     RetrievalService &operator=(const RetrievalService &) = delete;

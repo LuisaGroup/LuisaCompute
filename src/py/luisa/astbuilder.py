@@ -24,6 +24,153 @@ class VariableInfo:
         self.is_arg = is_arg
 
 
+# ---------------------------------------------------------------------------
+# Host-side (python-level) constant evaluation.
+#
+# The native C++ DSL resolves ``if`` / ``while`` / ``switch`` conditions that are
+# known on the host and erases the unselected branch during AST construction
+# (see lc_api skill: "Native `if` on a host variable -- the unselected branch is
+# erased during AST construction").  A previously-removed C++ ast-evaluator used
+# to provide this; we restore an equivalent, deliberately narrow python version
+# so that e.g. ``if ConstantFlag: <illegal code>`` is eliminated before the body
+# is ever name-checked.
+#
+# We only fold pure python ``int``/``bool`` literals combined with basic operators.
+# Anything involving a device value (a buffer read, dispatch_id, a function
+# argument, ...) evaluates to ``_HOST_UNSET`` and is left as a real GPU branch.
+# ---------------------------------------------------------------------------
+_HOST_UNSET = object()
+_INT32_LO = -(1 << 31)
+_INT32_HI = (1 << 31) - 1
+
+
+def _as_int(v):
+    return int(v) if isinstance(v, bool) else v
+
+
+def _int_ok(v):
+    # accept python bool/int whose integer value fits int32 (device `int`); reject
+    # floats and out-of-range ints so we never disagree with the GPU codegen.
+    if isinstance(v, bool) or isinstance(v, int):
+        return _INT32_LO <= _as_int(v) <= _INT32_HI
+    return False
+
+
+def _host_binop(op, a, b):
+    a, b = _as_int(a), _as_int(b)
+    try:
+        if op is ast.Add:
+            r = a + b
+        elif op is ast.Sub:
+            r = a - b
+        elif op is ast.Mult:
+            r = a * b
+        elif op is ast.FloorDiv:
+            if b == 0:
+                return _HOST_UNSET
+            r = a // b
+        elif op is ast.Mod:
+            if b == 0:
+                return _HOST_UNSET
+            r = a % b
+        elif op is ast.LShift:
+            r = a << b
+        elif op is ast.RShift:
+            r = a >> b
+        elif op is ast.BitAnd:
+            r = a & b
+        elif op is ast.BitOr:
+            r = a | b
+        elif op is ast.BitXor:
+            r = a ^ b
+        elif op is ast.Pow:
+            if b < 0:
+                return _HOST_UNSET
+            r = a ** b
+        else:
+            return _HOST_UNSET
+    except Exception:
+        return _HOST_UNSET
+    return r if _int_ok(r) else _HOST_UNSET
+
+
+def _host_cmp(op, a, b):
+    if op is ast.Eq:
+        return a == b
+    if op is ast.NotEq:
+        return a != b
+    if op is ast.Lt:
+        return a < b
+    if op is ast.LtE:
+        return a <= b
+    if op is ast.Gt:
+        return a > b
+    if op is ast.GtE:
+        return a >= b
+    return _HOST_UNSET
+
+
+def host_eval(node):
+    """Return a python int/bool constant for a pure-constant expression, or
+    ``_HOST_UNSET`` if it cannot be resolved on the host."""
+    t = type(node)
+    if t is ast.Constant:
+        return node.value if _int_ok(node.value) else _HOST_UNSET
+    if t is ast.Name:
+        if node.id in ctx().host_constants:
+            return ctx().host_constants[node.id]
+        cv = ctx().closure_variable.get(node.id, _HOST_UNSET)
+        if cv is not _HOST_UNSET and _int_ok(cv):
+            return cv
+        return _HOST_UNSET
+    if t is ast.UnaryOp:
+        v = host_eval(node.operand)
+        if v is _HOST_UNSET:
+            return _HOST_UNSET
+        if type(node.op) is ast.UAdd:
+            return v
+        if type(node.op) is ast.USub:
+            r = -_as_int(v)
+            return r if _int_ok(r) else _HOST_UNSET
+        if type(node.op) is ast.Not:
+            return not v
+        if type(node.op) is ast.Invert:
+            r = ~_as_int(v)
+            return r if _int_ok(r) else _HOST_UNSET
+        return _HOST_UNSET
+    if t is ast.BinOp:
+        a = host_eval(node.left)
+        b = host_eval(node.right)
+        if a is _HOST_UNSET or b is _HOST_UNSET:
+            return _HOST_UNSET
+        return _host_binop(type(node.op), a, b)
+    if t is ast.Compare:
+        if len(node.ops) != 1:
+            return _HOST_UNSET
+        a = host_eval(node.left)
+        b = host_eval(node.comparators[0])
+        if a is _HOST_UNSET or b is _HOST_UNSET:
+            return _HOST_UNSET
+        return _host_cmp(type(node.ops[0]), a, b)
+    if t is ast.BoolOp:
+        vals = [host_eval(x) for x in node.values]
+        if any(v is _HOST_UNSET for v in vals):
+            return _HOST_UNSET
+        if type(node.op) is ast.And:
+            r = True
+            for v in vals:
+                r = r and bool(v)
+            return r
+        if type(node.op) is ast.Or:
+            r = False
+            for v in vals:
+                r = r or bool(v)
+            return r
+        return _HOST_UNSET
+    return _HOST_UNSET
+
+
+
 # Visit AST of the python functions; computes the following for each expression node:
 # node.dtype: type of the expression
 # node.expr: the expression as defined in the function builder
@@ -219,6 +366,9 @@ class ASTVisitor:
             return dtype, val, None
         if dtype == str:
             return dtype, val, 'r'
+        if dtype is int and isinstance(val, int) and not isinstance(val, bool):
+            dtype, lctype, expr = _build_int_literal(_int_literal_dtype(val), val)
+            return dtype, expr, 'r'
         lctype = to_lctype(dtype)
         if lctype.is_basic():
             return dtype, lcapi.builder().literal(lctype, val), 'r'
@@ -266,7 +416,10 @@ class ASTVisitor:
         elif node.id in ctx().default_arg_values:
             default_val = ctx().default_arg_values[node.id]
             node.dtype = dtype_of(default_val)
-            node.expr = lcapi.builder().literal(to_lctype(node.dtype), default_val)
+            if node.dtype is int and isinstance(default_val, int) and not isinstance(default_val, bool):
+                node.dtype, _, node.expr = _build_int_literal(_int_literal_dtype(default_val), default_val)
+            else:
+                node.expr = lcapi.builder().literal(to_lctype(node.dtype), default_val)
             node.lr = 'r'
         else:
             val = ctx().closure_variable.get(node.id)
@@ -279,11 +432,16 @@ class ASTVisitor:
 
     @staticmethod
     def build_Constant(node):
-        node.dtype = dtype_of(node.value)
-        if node.dtype is str:
-            node.expr = node.value
+        if isinstance(node.value, int) and not isinstance(node.value, bool):
+            # widen/ synthesise int literals that overflow or would be rounded by
+            # the C++ float-greedy literal binding (see _build_int_literal)
+            node.dtype, _, node.expr = _build_int_literal(_int_literal_dtype(node.value), node.value)
         else:
-            node.expr = lcapi.builder().literal(to_lctype(node.dtype), node.value)
+            node.dtype = dtype_of(node.value)
+            if node.dtype is str:
+                node.expr = node.value
+            else:
+                node.expr = lcapi.builder().literal(to_lctype(node.dtype), node.value)
         node.lr = 'r'
 
     @staticmethod
@@ -359,10 +517,20 @@ class ASTVisitor:
         build(node.value)
         if len(node.targets) == 1:
             build.build_assign_pair(node.targets[0], node.value)
+            # Track python-level constants of simple `name = <const>` assignments
+            # so that `if name:` can be folded as a macro branch later.
+            if type(node.targets[0]) is ast.Name:
+                hv = host_eval(node.value)
+                if hv is _HOST_UNSET:
+                    ctx().host_constants.pop(node.targets[0].id, None)
+                else:
+                    ctx().host_constants[node.targets[0].id] = hv
         else:  # chained assignment
             wrap_with_tmp_var(node.value)
             for targ in node.targets:
                 build.build_assign_pair(targ, node.value)
+                if type(targ) is ast.Name:
+                    ctx().host_constants.pop(targ.id, None)
 
     @staticmethod
     def build_AugAssign(node):
@@ -370,6 +538,9 @@ class ASTVisitor:
         build(node.value)
         dtype, expr = builtin_bin_op(type(node.op), node.target, node.value)
         lcapi.builder().assign(node.target.expr, expr)
+        # an augmented assignment produces a device value; drop any host constant
+        if type(node.target) is ast.Name:
+            ctx().host_constants.pop(node.target.id, None)
 
     @staticmethod
     def build_UnaryOp(node):
@@ -421,6 +592,15 @@ class ASTVisitor:
 
     @staticmethod
     def build_If(node):
+        # Macro branch: if the test is a pure host (python) constant, resolve it
+        # here and build ONLY the taken branch -- the unselected branch is erased
+        # before codegen, so it may even contain illegal / undeclared names.
+        cond = host_eval(node.test)
+        if cond is not _HOST_UNSET:
+            taken = node.body if cond else node.orelse
+            for x in taken:
+                build(x)
+            return
         # condition
         build(node.test)
         if node.test.dtype != bool:
@@ -624,3 +804,64 @@ class ASTVisitor:
 
 
 build = ASTVisitor()
+
+
+def _int_literal_dtype(v):
+    """Pick the luisa scalar dtype for a python ``int`` literal, mirroring C++
+    integer-literal typing.  The value keeps dtype ``int`` whenever it fits
+    int32 (so all existing programs are unchanged); only literals that would
+    overflow int32 -- and therefore abort in the C++ literal binding's
+    range check (src/py/export_runtime.cpp:789) -- are widened to ``uint`` /
+    ``long`` / ``ulong``.  ``bool`` is handled by the caller."""
+    if -(1 << 31) <= v <= (1 << 31) - 1:
+        return int
+    if 0 <= v <= (1 << 32) - 1:
+        return uint
+    if -(1 << 63) <= v <= (1 << 63) - 1:
+        return long
+    if 0 <= v <= (1 << 64) - 1:
+        return ulong
+    raise TypeError(f"integer literal {v} is out of range for any supported scalar type")
+
+
+def _build_int_literal(dtype, value):
+    """Build a luisa scalar integer literal of ``dtype`` for a python int.
+
+    The C++ ``FunctionBuilder::literal`` binding takes a ``std::variant`` whose
+    *float* alternative greedily captures python ``int`` objects (pybind converts
+    via ``PyFloat_AsDouble``).  Any integer that is not exactly representable as
+    an IEEE-754 binary32 mantissa is therefore silently rounded (e.g.
+    2654435800 -> 2654435840) and ``0xFFFFFFFF`` overflows and aborts in the
+    binding's round-trip check.  We keep the direct ``literal`` call for values
+    that survive the float round-trip unchanged (this covers every small literal
+    and is behaviour-identical to before), and otherwise synthesise the exact
+    value from base-2**16 device-integer digits (each < 2**24, hence float-exact,
+    combined with exact device ``ulong`` arithmetic, constant-folded by codegen
+    so the generated value is exact and costs nothing at runtime).
+    """
+    lctype = to_lctype(dtype)
+    import struct
+    try:
+        # the C++ variant greedily packs python ints through its `float`
+        # (binary32) alternative; the literal is faithful only when value is
+        # exactly representable as float32 (== ~24-bit mantissa).
+        f32 = struct.unpack('f', struct.pack('f', float(value)))[0]
+        faithful = (int(f32) == value)
+    except (OverflowError, ValueError):
+        faithful = False
+    if faithful:
+        return dtype, lctype, lcapi.builder().literal(lctype, value)
+    # two's-complement 64-bit bit pattern, built in ulong then cast to dtype
+    bits = value & ((1 << 64) - 1)
+    ulong_t = to_lctype(ulong)
+    base = 1 << 16
+    expr = lcapi.builder().literal(ulong_t, 0)
+    for shift in (48, 32, 16, 0):
+        digit = (bits >> shift) & 0xFFFF  # <= 0xFFFF: float-exact literal
+        mul = lcapi.builder().binary(ulong_t, lcapi.BinaryOp.MUL, expr,
+                                     lcapi.builder().literal(ulong_t, base))
+        expr = lcapi.builder().binary(ulong_t, lcapi.BinaryOp.ADD, mul,
+                                      lcapi.builder().literal(ulong_t, digit))
+    if dtype is not ulong:
+        expr = lcapi.builder().cast(lctype, lcapi.CastOp.STATIC, expr)
+    return dtype, lctype, expr

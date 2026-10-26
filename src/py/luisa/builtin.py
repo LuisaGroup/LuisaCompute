@@ -349,9 +349,17 @@ def _builtin_call(*args):
 
 @BuiltinFuncBuilder
 def set_block_size(x, y, z):
+    from .astbuilder import host_eval, _HOST_UNSET
     values = []
     for a in [x, y, z]:
-        values.append(a.value)
+        # block size must be a host (python) integer constant. This includes
+        # python literals (`ast.Constant`) as well as simple names that resolve
+        # to host int constants (e.g. `set_block_size(block_size, block_size, 1)`
+        # where block_size is a module-level constant).
+        v = host_eval(a)
+        if v is _HOST_UNSET:
+            raise TypeError("set_block_size arguments must be int constants")
+        values.append(v)
     for i in range(3):
         if not type(values[i]) in {int, uint}:
             raise TypeError(f"set_block_size argument {i} must be int or uint")

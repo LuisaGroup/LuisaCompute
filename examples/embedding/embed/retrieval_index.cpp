@@ -423,7 +423,9 @@ RetrievalStatus RetrievalIndex::_encode(
 RetrievalStatus RetrievalIndex::_apply_file(
     const luisa::string &root_key,
     const luisa::filesystem::path &file,
-    FileOutcome &outcome) {
+    FileOutcome &outcome,
+    bool &cache_hit) {
+    cache_hit = false;
     luisa::filesystem::path display;
     luisa::filesystem::path comparison;
     luisa::string key;
@@ -442,9 +444,20 @@ RetrievalStatus RetrievalIndex::_apply_file(
         return {};
     }
     luisa::vector<float> embedding;
-    status = _encode(contents, embedding);
-    if (!status.ok()) {
-        return status;
+    if (_embed_cache != nullptr && _embed_cache->load(display, contents, embedding) &&
+        (_dimension == 0u || embedding.size() == _dimension) &&
+        std::ranges::all_of(embedding, [](const float v) { return std::isfinite(v); })) {
+        // Served from the disk cache: the encoder stays untouched.
+        cache_hit = true;
+    } else {
+        embedding.clear();
+        status = _encode(contents, embedding);
+        if (!status.ok()) {
+            return status;
+        }
+        if (_embed_cache != nullptr) {
+            _embed_cache->store(display, contents, embedding);
+        }
     }
     DocumentRecord document;
     document.path = display;
@@ -521,12 +534,18 @@ RetrievalLoadResult RetrievalIndex::load(
     _roots.emplace(key, std::move(record));
     result.root = _display_path(display);
 
+    if (_embed_cache != nullptr) {
+        _embed_cache->begin_directory(
+            display,
+            luisa::span<const luisa::string>{result.extensions.data(), result.extensions.size()});
+    }
     auto discovery = _discover(display, result.extensions);
     result.skipped = discovery.skipped;
     result.failed = discovery.failed;
     for (const auto &file : discovery.files) {
         FileOutcome outcome = FileOutcome::added;
-        status = _apply_file(key, file, outcome);
+        bool cache_hit = false;
+        status = _apply_file(key, file, outcome, cache_hit);
         if (!status.ok()) {
             result.failed++;
             LUISA_WARNING("retrieval load skipped '{}': {}", _display_path(file), status.message);
@@ -535,6 +554,12 @@ RetrievalLoadResult RetrievalIndex::load(
         if (outcome == FileOutcome::added) {
             result.added++;
         }
+        if (cache_hit) {
+            result.cached++;
+        }
+    }
+    if (_embed_cache != nullptr) {
+        _embed_cache->end_directory();
     }
     result.total_documents = _documents.size();
     return result;
@@ -620,7 +645,16 @@ RetrievalUpdateResult RetrievalIndex::_update_file(
         return result;
     }
     FileOutcome outcome = FileOutcome::unchanged;
-    auto status = _apply_file(root_key, display_path, outcome);
+    if (_embed_cache != nullptr) {
+        _embed_cache->begin_directory(
+            display_path,
+            luisa::span<const luisa::string>{root.extensions.data(), root.extensions.size()});
+    }
+    bool cache_hit = false;
+    auto status = _apply_file(root_key, display_path, outcome, cache_hit);
+    if (_embed_cache != nullptr) {
+        _embed_cache->end_directory();
+    }
     if (!status.ok()) {
         result.failed = 1u;
         LUISA_WARNING("retrieval update failed for '{}': {}", result.path, status.message);
@@ -629,6 +663,9 @@ RetrievalUpdateResult RetrievalIndex::_update_file(
             case FileOutcome::added: result.added = 1u; break;
             case FileOutcome::updated: result.updated = 1u; break;
             case FileOutcome::unchanged: result.unchanged = 1u; break;
+        }
+        if (cache_hit) {
+            result.cached = 1u;
         }
     }
     result.total_documents = _documents.size();
@@ -642,6 +679,11 @@ RetrievalUpdateResult RetrievalIndex::_update_directory(
     const luisa::string &root_key) {
     RetrievalUpdateResult result;
     result.path = _display_path(display_path);
+    if (_embed_cache != nullptr) {
+        _embed_cache->begin_directory(
+            display_path,
+            luisa::span<const luisa::string>{root.extensions.data(), root.extensions.size()});
+    }
     DiscoveryResult discovery;
     std::error_code ec;
     const bool is_directory = luisa::filesystem::is_directory(display_path, ec);
@@ -653,7 +695,8 @@ RetrievalUpdateResult RetrievalIndex::_update_directory(
     }
     for (const auto &file : discovery.files) {
         FileOutcome outcome = FileOutcome::unchanged;
-        auto status = _apply_file(root_key, file, outcome);
+        bool cache_hit = false;
+        auto status = _apply_file(root_key, file, outcome, cache_hit);
         if (!status.ok()) {
             result.failed++;
             LUISA_WARNING("retrieval update failed for '{}': {}", _display_path(file), status.message);
@@ -663,6 +706,9 @@ RetrievalUpdateResult RetrievalIndex::_update_directory(
             case FileOutcome::added: result.added++; break;
             case FileOutcome::updated: result.updated++; break;
             case FileOutcome::unchanged: result.unchanged++; break;
+        }
+        if (cache_hit) {
+            result.cached++;
         }
     }
 
@@ -687,6 +733,9 @@ RetrievalUpdateResult RetrievalIndex::_update_directory(
     result.removed = remove_keys.size();
     if (_documents.empty()) {
         _dimension = 0u;
+    }
+    if (_embed_cache != nullptr) {
+        _embed_cache->end_directory();
     }
     result.total_documents = _documents.size();
     return result;

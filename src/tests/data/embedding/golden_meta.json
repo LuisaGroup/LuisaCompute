@@ -1,0 +1,532 @@
+{
+  "model": "bge-m3 (XLM-RoBERTa, 24L/1024H/16heads)",
+  "max_seq_len": 512,
+  "count": 184,
+  "corpus_escapes": "corpus.txt lines escape backslash, \\n and \\r; readers must unescape",
+  "onnx": {
+    "ir_version": 6,
+    "opset": 11,
+    "nodes": 2495,
+    "initializers": 389
+  },
+  "dense": {
+    "file": "golden_dense.bin",
+    "rows": 184,
+    "dim": 1024,
+    "dtype": "float32-le",
+    "definition": "ONNX sentence_embedding output (CLS pool + L2 norm)"
+  },
+  "sha256": {
+    "onnx/model.onnx": "f84251230831afb359ab26d9fd37d5936d4d9bb5d1d5410e66442f630f24435b",
+    "onnx/model.onnx_data": "1eebfb28493f67bba03ce0ef64bfdc7fc5a3bd9d7493f818bb1d78cd798416b4",
+    "tokenizer.json": "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08",
+    "sparse_linear.pt": "45c93804d2142b8f6d7ec6914ae23a1eee9c6a1d27d83d908a20d2afb3595ad9",
+    "colbert_linear.pt": "19bfbae397c2b7524158c919d0e9b19393c5639d098f0a66932c91ed8f5f9abb",
+    "pytorch_model.bin": "b5e0ce3470abf5ef3831aa1bd5553b486803e83251590ab7ff35a117cf6aad38"
+  },
+  "truncated_sentences": [
+    182,
+    183
+  ],
+  "token_embeddings": {
+    "file": "golden_te.bin",
+    "dtype": "float32-le",
+    "entries": [
+      {
+        "i": 0,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 0
+      },
+      {
+        "i": 1,
+        "rows": 11,
+        "dim": 1024,
+        "offset_bytes": 61440
+      },
+      {
+        "i": 2,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 106496
+      },
+      {
+        "i": 3,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 167936
+      },
+      {
+        "i": 4,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 237568
+      },
+      {
+        "i": 5,
+        "rows": 19,
+        "dim": 1024,
+        "offset_bytes": 307200
+      },
+      {
+        "i": 6,
+        "rows": 20,
+        "dim": 1024,
+        "offset_bytes": 385024
+      },
+      {
+        "i": 7,
+        "rows": 18,
+        "dim": 1024,
+        "offset_bytes": 466944
+      },
+      {
+        "i": 8,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 540672
+      },
+      {
+        "i": 9,
+        "rows": 19,
+        "dim": 1024,
+        "offset_bytes": 602112
+      }
+    ]
+  },
+  "colbert": {
+    "file": "golden_colbert.bin",
+    "dtype": "float32-le",
+    "definition": "per-token L2-normalized colbert_linear output, special tokens dropped",
+    "entries": [
+      {
+        "i": 0,
+        "rows": 13,
+        "dim": 1024,
+        "offset_bytes": 0
+      },
+      {
+        "i": 1,
+        "rows": 9,
+        "dim": 1024,
+        "offset_bytes": 53248
+      },
+      {
+        "i": 2,
+        "rows": 13,
+        "dim": 1024,
+        "offset_bytes": 90112
+      },
+      {
+        "i": 3,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 143360
+      },
+      {
+        "i": 4,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 204800
+      },
+      {
+        "i": 5,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 266240
+      },
+      {
+        "i": 6,
+        "rows": 18,
+        "dim": 1024,
+        "offset_bytes": 335872
+      },
+      {
+        "i": 7,
+        "rows": 16,
+        "dim": 1024,
+        "offset_bytes": 409600
+      },
+      {
+        "i": 8,
+        "rows": 13,
+        "dim": 1024,
+        "offset_bytes": 475136
+      },
+      {
+        "i": 9,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 528384
+      }
+    ]
+  },
+  "layers": {
+    "file": "golden_layers.bin",
+    "dtype": "float32-le",
+    "note": "layer 0 = embedding output, layer k = encoder layer k-1 output (post-LN), layer 24 = final LN output",
+    "entries": [
+      {
+        "i": 0,
+        "layer": 0,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 0
+      },
+      {
+        "i": 0,
+        "layer": 1,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 61440
+      },
+      {
+        "i": 0,
+        "layer": 2,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 122880
+      },
+      {
+        "i": 0,
+        "layer": 3,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 184320
+      },
+      {
+        "i": 0,
+        "layer": 4,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 245760
+      },
+      {
+        "i": 0,
+        "layer": 5,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 307200
+      },
+      {
+        "i": 0,
+        "layer": 6,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 368640
+      },
+      {
+        "i": 0,
+        "layer": 7,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 430080
+      },
+      {
+        "i": 0,
+        "layer": 8,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 491520
+      },
+      {
+        "i": 0,
+        "layer": 9,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 552960
+      },
+      {
+        "i": 0,
+        "layer": 10,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 614400
+      },
+      {
+        "i": 0,
+        "layer": 11,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 675840
+      },
+      {
+        "i": 0,
+        "layer": 12,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 737280
+      },
+      {
+        "i": 0,
+        "layer": 13,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 798720
+      },
+      {
+        "i": 0,
+        "layer": 14,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 860160
+      },
+      {
+        "i": 0,
+        "layer": 15,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 921600
+      },
+      {
+        "i": 0,
+        "layer": 16,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 983040
+      },
+      {
+        "i": 0,
+        "layer": 17,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 1044480
+      },
+      {
+        "i": 0,
+        "layer": 18,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 1105920
+      },
+      {
+        "i": 0,
+        "layer": 19,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 1167360
+      },
+      {
+        "i": 0,
+        "layer": 20,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 1228800
+      },
+      {
+        "i": 0,
+        "layer": 21,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 1290240
+      },
+      {
+        "i": 0,
+        "layer": 22,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 1351680
+      },
+      {
+        "i": 0,
+        "layer": 23,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 1413120
+      },
+      {
+        "i": 0,
+        "layer": 24,
+        "rows": 15,
+        "dim": 1024,
+        "offset_bytes": 1474560
+      },
+      {
+        "i": 3,
+        "layer": 0,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 1536000
+      },
+      {
+        "i": 3,
+        "layer": 1,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 1605632
+      },
+      {
+        "i": 3,
+        "layer": 2,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 1675264
+      },
+      {
+        "i": 3,
+        "layer": 3,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 1744896
+      },
+      {
+        "i": 3,
+        "layer": 4,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 1814528
+      },
+      {
+        "i": 3,
+        "layer": 5,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 1884160
+      },
+      {
+        "i": 3,
+        "layer": 6,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 1953792
+      },
+      {
+        "i": 3,
+        "layer": 7,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2023424
+      },
+      {
+        "i": 3,
+        "layer": 8,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2093056
+      },
+      {
+        "i": 3,
+        "layer": 9,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2162688
+      },
+      {
+        "i": 3,
+        "layer": 10,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2232320
+      },
+      {
+        "i": 3,
+        "layer": 11,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2301952
+      },
+      {
+        "i": 3,
+        "layer": 12,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2371584
+      },
+      {
+        "i": 3,
+        "layer": 13,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2441216
+      },
+      {
+        "i": 3,
+        "layer": 14,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2510848
+      },
+      {
+        "i": 3,
+        "layer": 15,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2580480
+      },
+      {
+        "i": 3,
+        "layer": 16,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2650112
+      },
+      {
+        "i": 3,
+        "layer": 17,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2719744
+      },
+      {
+        "i": 3,
+        "layer": 18,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2789376
+      },
+      {
+        "i": 3,
+        "layer": 19,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2859008
+      },
+      {
+        "i": 3,
+        "layer": 20,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2928640
+      },
+      {
+        "i": 3,
+        "layer": 21,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 2998272
+      },
+      {
+        "i": 3,
+        "layer": 22,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 3067904
+      },
+      {
+        "i": 3,
+        "layer": 23,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 3137536
+      },
+      {
+        "i": 3,
+        "layer": 24,
+        "rows": 17,
+        "dim": 1024,
+        "offset_bytes": 3207168
+      }
+    ]
+  },
+  "tokenizer_json": "tokenizer.json (copy of bge-m3 tokenizer.json; load target for engine tests)",
+  "reference_fixes": [
+    {
+      "date": "2026-10-17",
+      "file": "golden_sparse.json",
+      "sha256": "effc4042acff8a2c7d55c983ededec32f07da3b22500d4116c2f9cfab042c145",
+      "cause": "generator indexed row 0 of the [L,1] per-token sparse head output (kept only the <s> token's scalar, keyed by position) instead of keying every token's scalar by its own id with id>2 filtered. Frozen inputs (golden_te.bin, golden_tokens.json) unchanged; no engine-derived data used. Cross-checked against HF bge-m3 semantics and the engine's invariants before accepting (test-plan review addition (a) -- reference bug repair, not a tolerance change).",
+      "generator_version": "1.1"
+    }
+  ],
+  "generator_version": "1.1"
+}

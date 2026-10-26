@@ -19,6 +19,7 @@
 #include <luisa/core/mathematics.h>
 #include <luisa/core/stl/filesystem.h>
 
+#include "embedding/embed/retrieval_disk_cache.h"
 #include "embedding/embed/retrieval_index.h"
 
 using namespace luisa;
@@ -365,6 +366,175 @@ void reg_failed_reencode_preserves_document() {
     };
 }
 
+void reg_disk_cache_roundtrip() {
+    "retrieval_index_disk_cache_roundtrip"_test = [] {
+        TempDirectory temporary;
+        const auto root = temporary.path() / "root";
+        write_file(root / "a.txt", "alpha");
+        write_file(root / "nested" / "b.md", "beta");
+        write_file(root / "c.txt", "gamma");
+
+        // First import encodes everything and persists the cache artifacts.
+        DiskEmbedCache cache{nullptr};// host-only fallback reads (no device)
+        FakeEncoder encoder;
+        {
+            RetrievalIndex index{encoder.callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok());
+            expect(loaded.added == 3u && loaded.cached == 0u && loaded.failed == 0u);
+            expect(encoder.calls == 3u);
+        }
+        std::error_code ec;
+        expect(luisa::filesystem::is_regular_file(root / ".lc_embed_cache.json", ec) && !ec);
+        const auto cache_dir = root / ".lc_embed_cache";
+        size_t binaries = 0u;
+        for (luisa::filesystem::directory_iterator it{cache_dir}, end; it != end; it.increment(ec)) {
+            expect(!ec);
+            const auto name = it->path().filename().string();
+            expect(name.size() == 36u && name.ends_with(".bin"));
+            binaries++;
+        }
+        expect(binaries == 3u);
+
+        // Second import of the same directory: every file is served from the
+        // disk cache and the encoder is never invoked.
+        {
+            DiskEmbedCache second_cache{nullptr};
+            FakeEncoder second_encoder;
+            RetrievalIndex index{second_encoder.callback()};
+            index.set_embed_cache(&second_cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok());
+            expect(loaded.added == 3u && loaded.cached == 3u && loaded.failed == 0u);
+            expect(second_encoder.calls == 0u) << "unchanged files must not be re-encoded";
+            const auto query = index.query("alpha", 3u);
+            expect(query.status.ok() && query.hits.size() == 3u);
+            if (!query.hits.empty()) {
+                expect(query.hits.front().path == utf8_path(root / "a.txt"));
+                expect(luisa::abs(query.hits.front().score - 1.0) < 1e-12);
+            }
+        }
+
+        // A changed file re-encodes; unchanged siblings still hit the cache.
+        write_file(root / "c.txt", "gamma v2");
+        {
+            DiskEmbedCache third_cache{nullptr};
+            FakeEncoder third_encoder;
+            RetrievalIndex index{third_encoder.callback()};
+            index.set_embed_cache(&third_cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok());
+            expect(loaded.added == 3u && loaded.cached == 2u && loaded.failed == 0u);
+            expect(third_encoder.calls == 1u);
+        }
+
+        // The update path keeps the cache consistent: a file modified after
+        // import is re-encoded once and its cache entry is refreshed, so the
+        // next cold load serves the whole directory from disk again.
+        {
+            DiskEmbedCache fourth_cache{nullptr};
+            FakeEncoder fourth_encoder;
+            RetrievalIndex index{fourth_encoder.callback()};
+            index.set_embed_cache(&fourth_cache);
+            expect(index.load(root).status.ok());
+            expect(fourth_encoder.calls == 0u);
+            write_file(root / "c.txt", "gamma v4");
+            const auto updated = index.update(root);
+            expect(updated.status.ok());
+            expect(updated.updated == 1u && updated.unchanged == 2u);
+            expect(updated.cached == 0u && updated.failed == 0u);
+            expect(fourth_encoder.calls == 1u);
+        }
+        {
+            DiskEmbedCache fifth_cache{nullptr};
+            FakeEncoder fifth_encoder;
+            RetrievalIndex index{fifth_encoder.callback()};
+            index.set_embed_cache(&fifth_cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok());
+            expect(loaded.added == 3u && loaded.cached == 3u && loaded.failed == 0u);
+            expect(fifth_encoder.calls == 0u);
+        }
+    };
+}
+
+void reg_disk_cache_invalidation() {
+    "retrieval_index_disk_cache_invalidation"_test = [] {
+        TempDirectory temporary;
+        const auto root = temporary.path() / "root";
+        const auto file = root / "a.txt";
+        write_file(file, "alpha");
+        write_file(root / "b.txt", "beta");
+
+        DiskEmbedCache cache{nullptr};
+        FakeEncoder encoder;
+        {
+            RetrievalIndex index{encoder.callback()};
+            index.set_embed_cache(&cache);
+            expect(index.load(root).status.ok());
+            expect(encoder.calls == 2u);
+        }
+
+        // Deleting the binary cache files turns every hit into a re-encode.
+        luisa::vector<luisa::filesystem::path> binaries;
+        std::error_code ec;
+        for (luisa::filesystem::directory_iterator it{root / ".lc_embed_cache"}, end;
+             it != end; it.increment(ec)) {
+            expect(!ec);
+            binaries.push_back(it->path());
+        }
+        expect(binaries.size() == 2u);
+        for (const auto &binary : binaries) {
+            expect(luisa::filesystem::remove(binary, ec) && !ec);
+        }
+        {
+            DiskEmbedCache second_cache{nullptr};
+            FakeEncoder second_encoder;
+            RetrievalIndex index{second_encoder.callback()};
+            index.set_embed_cache(&second_cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok() && loaded.cached == 0u && loaded.added == 2u);
+            expect(second_encoder.calls == 2u);
+        }
+
+        // A mismatched embedding dimension invalidates the entry: once the
+        // index dimension is established by a fresh encode, cache entries with
+        // a different geometry must not poison the index.
+        {
+            DiskEmbedCache third_cache{nullptr};
+            size_t calls = 0u;
+            RetrievalIndex index{[&calls](luisa::string_view text) {
+                calls++;
+                const float marker = text.find("beta") != luisa::string_view::npos ? 1.0f : 0.0f;
+                return luisa::vector<float>{1.0f, marker};// 2-dim vs cached 3-dim
+            }};
+            index.set_embed_cache(&third_cache);
+            write_file(file, "alpha v2");// forces the first encode at 2-dim
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok() && loaded.cached == 0u && loaded.added == 2u);
+            expect(calls == 2u) << "stale-dimension cache entries must be re-encoded";
+            const auto query = index.query("beta", 2u);
+            expect(query.status.ok() && query.hits.size() == 2u);
+            if (!query.hits.empty()) {
+                expect(query.hits.front().path == utf8_path(root / "b.txt"));
+            }
+        }
+
+        // Corrupt meta JSON is ignored gracefully (full re-encode, no crash).
+        write_file(root / ".lc_embed_cache.json", "{ not json");
+        {
+            DiskEmbedCache fourth_cache{nullptr};
+            FakeEncoder fourth_encoder;
+            RetrievalIndex index{fourth_encoder.callback()};
+            index.set_embed_cache(&fourth_cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok() && loaded.cached == 0u && loaded.added == 2u);
+            expect(fourth_encoder.calls == 2u);
+        }
+    };
+}
+
 void reg_embedding_validation() {
     "retrieval_index_embedding_validation"_test = [] {
         TempDirectory temporary;
@@ -410,5 +580,7 @@ int main(int argc, char *argv[]) {
     reg_subdirectory_update();
     reg_failed_reencode_preserves_document();
     reg_embedding_validation();
+    reg_disk_cache_roundtrip();
+    reg_disk_cache_invalidation();
     return 0;
 }

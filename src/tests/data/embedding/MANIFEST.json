@@ -1,0 +1,30 @@
+{
+  "schema": "embedding-test-manifest/v1",
+  "model": "bge-m3 (XLM-RoBERTa, 24L/1024H/16heads)",
+  "rule": "References are frozen. Never regenerate goldens to make a test pass (embedding_model_test_plan.md §1.1). Regenerate only on a deliberate model/config change, with this manifest updated in the same commit.",
+  "generator": {
+    "script": "scripts/embedding/gen_goldens.py",
+    "version": "1.0",
+    "environment": "dev-only: python 3.14 + onnxruntime + onnx + tokenizers + torch (cpu) + transformers + sentencepiece"
+  },
+  "tolerances": {
+    "tokenizer": "exact token-id match",
+    "fp32_cosine_per_sentence": 0.9999,
+    "fp32_cosine_mean": 0.99999,
+    "bf16_cosine": 0.999,
+    "kernel_max_abs_diff": {
+      "gemm": 1e-3,
+      "layernorm": 1e-5,
+      "attention": 1e-4,
+      "embed_lookup": 1e-5,
+      "heads": 1e-4
+    },
+    "layer_trace_max_abs_diff": 1e-3,
+    "retrieval_topk": 10,
+    "retrieval_recall_at_10": 1.0,
+    "retrieval_tie_epsilon": 1e-5,
+    "retrieval_ndcg_alert_drop": 0.005
+  },
+  "files": "per-file layouts and row counts: see golden_meta.json",
+  "sha256": "model-file hashes (model.onnx, model.onnx_data, tokenizer.json, sparse_linear.pt, colbert_linear.pt, pytorch_model.bin): see golden_meta.json"
+}

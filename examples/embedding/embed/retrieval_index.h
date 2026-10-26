@@ -45,6 +45,7 @@ struct RetrievalLoadResult {
     luisa::string root;
     luisa::vector<luisa::string> extensions;
     size_t added{};
+    size_t cached{};
     size_t skipped{};
     size_t failed{};
     size_t total_documents{};
@@ -64,6 +65,7 @@ struct RetrievalUpdateResult {
     size_t updated{};
     size_t removed{};
     size_t unchanged{};
+    size_t cached{};
     size_t failed{};
     size_t total_documents{};
 };
@@ -71,6 +73,33 @@ struct RetrievalUpdateResult {
 struct RetrievalQueryResult {
     RetrievalStatus status;
     luisa::vector<RetrievalHit> hits;
+};
+
+// Optional disk-cache hook for directory import (retrieval example): consulted
+// per file before the encoder runs, so files whose content hash is already
+// cached skip the encode and are served from disk instead. The index calls
+// begin/end_directory around every directory session (load/update); all
+// methods run on the service thread with the index lock held.
+class RetrievalEmbedCache {
+public:
+    virtual ~RetrievalEmbedCache() noexcept = default;
+
+    // Starts a directory session. `root` is the canonical display root.
+    virtual void begin_directory(
+        const luisa::filesystem::path &root,
+        luisa::span<const luisa::string> extensions) noexcept = 0;
+    // Serves the cached embedding for `contents` of `file`; false on a miss.
+    [[nodiscard]] virtual bool load(
+        const luisa::filesystem::path &file,
+        luisa::string_view contents,
+        luisa::vector<float> &embedding) noexcept = 0;
+    // Persists a freshly encoded embedding for `file`.
+    virtual void store(
+        const luisa::filesystem::path &file,
+        luisa::string_view contents,
+        luisa::span<const float> embedding) noexcept = 0;
+    // Ends the directory session; persist meta information here.
+    virtual void end_directory() noexcept = 0;
 };
 
 class RetrievalIndex {
@@ -108,6 +137,9 @@ public:
 
     [[nodiscard]] size_t document_count() const noexcept { return _documents.size(); }
     [[nodiscard]] size_t root_count() const noexcept { return _roots.size(); }
+
+    // Optional disk cache; nullptr (default) disables caching. Not owned.
+    void set_embed_cache(RetrievalEmbedCache *cache) noexcept { _embed_cache = cache; }
 
 private:
     struct RootRecord {
@@ -166,7 +198,8 @@ private:
     [[nodiscard]] RetrievalStatus _apply_file(
         const luisa::string &root_key,
         const luisa::filesystem::path &file,
-        FileOutcome &outcome);
+        FileOutcome &outcome,
+        bool &cache_hit);
     [[nodiscard]] RetrievalUpdateResult _update_file(
         const luisa::filesystem::path &display_path,
         const luisa::string &comparison_key,
@@ -179,6 +212,7 @@ private:
         const luisa::string &root_key);
 
     RetrievalEncodeCallback _encode_callback;
+    RetrievalEmbedCache *_embed_cache{nullptr};
     luisa::unordered_map<luisa::string, RootRecord> _roots;
     luisa::unordered_map<luisa::string, DocumentRecord> _documents;
     size_t _dimension{};

@@ -77,6 +77,12 @@ class FuncInstanceInfo:
             **_closure_vars.builtins
         }
         self.local_variable = {}  # dict: name -> VariableInfo(dtype, expr, is_arg)
+        # Host-side (python-level) constant values of locally-assigned names, used
+        # by the AST builder to fold macro branches (``if <python-constant>:``).
+        # This mirrors the native DSL behaviour where ``if``/``while``/``switch``
+        # on a host-resolvable condition is resolved on the host and the
+        # unselected branch is erased before codegen (so it may even be illegal).
+        self.host_constants = {}  # dict: name -> python int/bool constant value
         self.default_arg_values = self._capture_default_arg_values(func.pyfunc)
         self.function = None
         self.shader_handle = None

@@ -159,8 +159,15 @@ def init_headless(backend_name=None, shader_path=None):
 
 
 def del_device():
+    # Reset the attribute to None (do NOT `del` it): `init`/`init_headless` guard
+    # on `globalvars.vars is not None`, so deleting the attribute entirely would
+    # make the *next* init() raise AttributeError instead of re-creating a fresh
+    # context/device.  Assigning None lets the old `Vars` be collected (running
+    # its `__del__`, which tears down stream/device/context in the correct order)
+    # while keeping the module attribute present, so a device can be destroyed
+    # and re-initialized within the same process.
     if globalvars.vars is not None:
-        del globalvars.vars
+        globalvars.vars = None
 
 
 def synchronize(stream=None):

@@ -224,6 +224,7 @@ private:
             }
         }
         response.add_uint(object, "added", result.added);
+        response.add_uint(object, "cached", result.cached);
         response.add_uint(object, "skipped", result.skipped);
         response.add_uint(object, "failed", result.failed);
         response.add_uint(object, "total_documents", result.total_documents);
@@ -249,6 +250,7 @@ private:
         response.add_uint(object, "updated", result.updated);
         response.add_uint(object, "removed", result.removed);
         response.add_uint(object, "unchanged", result.unchanged);
+        response.add_uint(object, "cached", result.cached);
         response.add_uint(object, "failed", result.failed);
         response.add_uint(object, "total_documents", result.total_documents);
     }

@@ -35,7 +35,10 @@ def backward(*x):
         x_grad = x[1].expr
     x0 = x[0].expr
     lcapi.builder().call(lcapi.CallOp.GRADIENT_MARKER, [x0, x_grad])
-    return None, lcapi.builder().call(lcapi.CallOp.BACKWARD, [x0])
+    # BACKWARD takes no operands: the seed value is attached via GRADIENT_MARKER
+    # above (see src/xir/translators/ast2xir.cpp CallOp::BACKWARD ->
+    # "Backward call takes no XIR operands; use gradient_marker for seed.").
+    return None, lcapi.builder().call(lcapi.CallOp.BACKWARD, [])
 
 
 @BuiltinFuncBuilder
