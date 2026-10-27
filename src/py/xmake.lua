@@ -15,7 +15,7 @@ on_load(function(target)
 	local function rela(p)
 		return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
 	end
-	target:add("includedirs", rela("../ext/stb/"), rela("../ext/pybind11/include"))
+	target:add("includedirs", rela("../ext/pybind11/include"))
 end)
 
 _config_project({
@@ -23,8 +23,9 @@ _config_project({
 	enable_exception = true
 })
 lc_set_pcxxheader("lcpy_pch.h")
+add_cxflags("/bigobj", {tools = "cl"})
 add_headerfiles("*.h")
 add_files("*.cpp")
-add_deps("lc-runtime", "lc-gui")
+add_deps("lc-runtime", "lc-gui", "stb-image")
 set_extension(".pyd")
 target_end()
