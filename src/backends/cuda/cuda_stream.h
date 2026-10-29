@@ -51,6 +51,19 @@ private:
     CUstream _stream{};
     spin_mutex _dispatch_mutex;
 
+    // Staging blocks (upload/download pool views) go back to their pool through a
+    // CUevent recorded at the end of the submission that used them, not through a
+    // cuLaunchHostFunc + callback-thread round trip: the fence is queried by the
+    // next dispatch()/synchronize().
+    struct StagingBatch {
+        CUevent event{};
+        luisa::vector<CUDACallbackContext *> contexts;
+    };
+    spin_mutex _staging_mutex;
+    luisa::vector<StagingBatch> _pending_staging;
+    luisa::vector<CUevent> _free_events;
+    void _reclaim_staging(bool all) noexcept;
+
 private:
     using LogCallback = DeviceInterface::StreamLogCallback;
     LogCallback _log_callback;
@@ -68,6 +81,9 @@ public:
     void signal(CUDAEvent *event, uint64_t value) noexcept;
     void wait(CUDAEvent *event, uint64_t value) noexcept;
     void callback(CallbackContainer &&callbacks) noexcept;
+    /// Return staging pool views to the pool once the stream has passed this
+    /// submission, without a host callback (records one CUevent).
+    void defer_recycle(luisa::vector<CUDACallbackContext *> &&contexts) noexcept;
     void set_name(luisa::string &&name) noexcept;
     void set_log_callback(LogCallback callback) noexcept;
 };

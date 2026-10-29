@@ -7,6 +7,13 @@
 
 namespace luisa::compute::cuda {
 
+namespace cuda_buffer_detail {
+/// Hand every cached device block of the calling thread's context back to the driver.
+/// Called when a CUDA device is destroyed: a block is only valid inside the address
+/// space of the context that allocated it, so it must not outlive that context.
+void flush_cached_device_blocks() noexcept;
+}// namespace cuda_buffer_detail
+
 class CUDABufferBase {
 
 private:

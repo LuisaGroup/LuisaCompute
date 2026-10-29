@@ -90,8 +90,12 @@ CUDAStream::~CUDAStream() noexcept {
     _callback_cv.notify_one();
     // wait for the stream to finish
     LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
+    _reclaim_staging(true);
     // wait for the callback thread to stop
     _callback_thread.join();
+    // destroy the events before the stream they were recorded on
+    for (auto event : _free_events) { LUISA_CHECK_CUDA(cuEventDestroy(event)); }
+    _free_events.clear();
     // destroy the stream
     LUISA_CHECK_CUDA(cuStreamDestroy(_stream));
 }
@@ -99,6 +103,11 @@ CUDAStream::~CUDAStream() noexcept {
 void CUDAStream::synchronize() noexcept {
     auto ticket = _current_ticket.load();
     LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
+    // Only reclaim what the stream has provably passed: a concurrent dispatch() on
+    // another thread may have recorded a fresh event between cuStreamSynchronize()
+    // and this call, and forcing it would hand its block back to the pool while the
+    // copies that use it are still queued.
+    _reclaim_staging(false);
     auto wait_iterations = 0u;
     constexpr auto max_wait_iterations_before_yield = 1024u;
     for (;;) {// TODO: is spinning good enough?
@@ -136,6 +145,54 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     }
 }
 
+void CUDAStream::defer_recycle(luisa::vector<CUDACallbackContext *> &&contexts) noexcept {
+    if (contexts.empty()) { return; }
+    std::scoped_lock lock{_staging_mutex};
+    auto event = [this] {
+        if (!_free_events.empty()) {
+            auto e = _free_events.back();
+            _free_events.pop_back();
+            return e;
+        }
+        CUevent e{};
+        LUISA_CHECK_CUDA(cuEventCreate(&e, CU_EVENT_DISABLE_TIMING));
+        return e;
+    }();
+    // Recorded after every command of this submission, so the block is only
+    // reusable once the copies that read (upload) or wrote (download) it are
+    // complete.  A stream event is a semaphore write, ~free next to the host
+    // callback it replaces.
+    LUISA_CHECK_CUDA(cuEventRecord(event, _stream));
+    _pending_staging.emplace_back(StagingBatch{.event = event,
+                                                .contexts = std::move(contexts)});
+}
+
+void CUDAStream::_reclaim_staging(bool all) noexcept {
+    std::scoped_lock lock{_staging_mutex};
+    if (_pending_staging.empty()) { return; }
+    auto keep = size_t{0u};
+    for (auto i = size_t{0u}; i < _pending_staging.size(); i++) {
+        auto &batch = _pending_staging[i];
+        auto done = all;
+        if (!done) {
+            auto result = cuEventQuery(batch.event);
+            if (result == CUDA_SUCCESS) {
+                done = true;
+            } else if (result != CUDA_ERROR_NOT_READY) {
+                LUISA_CHECK_CUDA(result);
+            }
+        }
+        if (done) {
+            for (auto &&context : batch.contexts) { context->recycle(); }
+            _free_events.emplace_back(batch.event);
+        } else {
+            if (keep != i) { _pending_staging[keep] = std::move(batch); }
+            keep++;
+        }
+    }
+    _pending_staging.resize(keep);
+}
+
 void CUDAStream::signal(CUDAEvent *event, uint64_t value) noexcept {
     event->signal(_stream, value);
 }
@@ -159,6 +216,7 @@ void CUDAStream::set_log_callback(LogCallback callback) noexcept {
 }
 
 void CUDAStream::dispatch(CommandList &&command_list) noexcept {
+    _reclaim_staging(false);
     CUDACommandEncoder encoder{this};
     auto commands = command_list.steal_commands();
     auto callbacks = command_list.steal_callbacks();

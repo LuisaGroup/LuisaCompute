@@ -58,6 +58,11 @@ void CUDACommandEncoder::commit(CommandList::CallbackContainer &&user_callbacks)
             UserCallbackContext::create(
                 std::move(user_callbacks)));
     }
+    // Staging blocks first: the event is recorded before any user-callback host
+    // func, and it is what makes the block reusable (no cuLaunchHostFunc needed).
+    if (auto deferred = std::move(_deferred); !deferred.empty()) {
+        _stream->defer_recycle(std::move(deferred));
+    }
     if (auto callbacks = std::move(_callbacks); !callbacks.empty()) {
         _stream->callback(std::move(callbacks));
     }

@@ -1651,6 +1651,13 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
         // what keeps consecutive submissions from switching contexts), so drop it
         // here: releasing a context that is still bound would leave this thread
         // pointing at a deinitialized context.
+        // Cached device blocks belong to this context's address space, so hand them
+        // back while it is still alive; otherwise they would be leaked and, worse,
+        // reused by a context that is re-created later on the same device.
+        {
+            ContextGuard guard{_context};
+            cuda_buffer_detail::flush_cached_device_blocks();
+        }
         CUcontext bound = nullptr;
         if (cuCtxGetCurrent(&bound) == CUDA_SUCCESS && bound == _context) {
             LUISA_CHECK_CUDA(cuCtxSetCurrent(nullptr));

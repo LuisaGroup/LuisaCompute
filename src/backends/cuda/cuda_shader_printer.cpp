@@ -59,26 +59,30 @@ CUDAShaderPrinter::Binding CUDAShaderPrinter::encode(CUDACommandEncoder &encoder
         .capacity = print_buffer_content_capacity,
         .content = 0ull,
     };
-    encoder.with_download_pool_no_fallback(
-        print_buffer_capacity,
-        [&b, &encoder, this](CUDAHostBufferPool::View *temp) noexcept {
-            if (temp == nullptr) {
-                static thread_local bool warned = false;
-                if (!warned) {
-                    LUISA_WARNING_WITH_LOCATION(
-                        "Failed to allocate temporary buffer for shader "
-                        "printer. Printing is disabled this time. Consecutive "
-                        "warnings would be suppressed to avoid flooding.");
-                    warned = true;
-                }
-                return;
-            }
-            *reinterpret_cast<size_t *>(temp->address()) = 0ul;
-            LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(&b.content, temp->address(), 0u));
-            encoder.add_callback(Callback::create(
-                this, temp->address(),
-                encoder.stream()->log_callback()));
-        });
+    // NOTE: the printing callback *reads* the staging block from the host, so the block
+    // must not travel through the stream-event staging path (`with_download_pool*`):
+    // that path may return the block to the pool as soon as the device-side copies are
+    // complete, i.e. possibly before the callback thread has printed it.  Both contexts
+    // are therefore enqueued as host callbacks here -- printer first, view second -- so
+    // the view is recycled strictly after the data has been consumed.
+    auto temp = encoder.stream()->download_pool()->allocate(print_buffer_capacity, false);
+    if (temp == nullptr) {
+        static thread_local bool warned = false;
+        if (!warned) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to allocate temporary buffer for shader "
+                "printer. Printing is disabled this time. Consecutive "
+                "warnings would be suppressed to avoid flooding.");
+            warned = true;
+        }
+        return b;
+    }
+    *reinterpret_cast<size_t *>(temp->address()) = 0ul;
+    LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(&b.content, temp->address(), 0u));
+    encoder.add_callback(Callback::create(
+        this, temp->address(),
+        encoder.stream()->log_callback()));
+    encoder.add_callback(temp);
     return b;
 }
 

@@ -22,6 +22,8 @@ class CUDACommandEncoder : public MutableCommandVisitor {
 private:
     CUDAStream *_stream;
     luisa::vector<CUDACallbackContext *> _callbacks;
+    // Staging views, reclaimed by a stream event instead of a host callback.
+    luisa::vector<CUDACallbackContext *> _deferred;
 
 private:
     void visit(DStorageReadCommand *command) noexcept;
@@ -55,14 +57,14 @@ public:
     void with_upload_buffer(size_t size, F &&f) noexcept {
         auto upload_buffer = _stream->upload_pool()->allocate(size);
         f(upload_buffer);
-        _callbacks.emplace_back(upload_buffer);
+        _deferred.emplace_back(upload_buffer);
     }
 
     template<typename F>
     void with_download_pool(size_t size, F &&f) noexcept {
         auto download_buffer = _stream->download_pool()->allocate(size);
         f(download_buffer);
-        _callbacks.emplace_back(download_buffer);
+        _deferred.emplace_back(download_buffer);
     }
 
     template<typename F>
@@ -70,7 +72,7 @@ public:
         auto upload_buffer = _stream->upload_pool()->allocate(size, false);
         f(upload_buffer);
         if (upload_buffer) {
-            _callbacks.emplace_back(upload_buffer);
+            _deferred.emplace_back(upload_buffer);
         }
     }
 
@@ -79,7 +81,7 @@ public:
         auto download_buffer = _stream->download_pool()->allocate(size, false);
         f(download_buffer);
         if (download_buffer) {
-            _callbacks.emplace_back(download_buffer);
+            _deferred.emplace_back(download_buffer);
         }
     }
 };
