@@ -67,6 +67,7 @@ public:
     [[nodiscard]] virtual uint32_t vocab_size() const noexcept = 0;
     [[nodiscard]] virtual uint32_t embedding_dim() const noexcept = 0;
     [[nodiscard]] virtual uint32_t max_positions() const noexcept = 0;
+    [[nodiscard]] virtual bool has_vision() const noexcept = 0;
 
     virtual ~Package() = default;
 };

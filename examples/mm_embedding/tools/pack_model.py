@@ -210,6 +210,54 @@ def main():
         print("Warning: embedding_projection not found, identity/dummy used.")
         canonical_tensors.append(("embedding_proj", np.eye(512, 768, dtype=np.float32)))
 
+    # 5. Vision Encoder weights (~170M params, 195 tensors)
+    v_patch_proj = get_raw("vision_tower.patch_embedder.input_proj.weight")
+    v_pos_table = get_raw("vision_tower.patch_embedder.position_embedding_table")
+    if v_patch_proj is not None and v_pos_table is not None:
+        print("Packaging Vision Tower tensors...")
+        # v_patch_proj is [768, 768] (out_features, in_features) -> transpose to [768, 768]
+        canonical_tensors.append(("vision.patch_embed.proj", v_patch_proj.T))
+        # v_pos_table is [2, 10240, 768]
+        canonical_tensors.append(("vision.patch_embed.pos_table", v_pos_table))
+
+        for i in range(16):
+            pfx = f"vision_tower.encoder.layers.{i}."
+            v_in_norm = get_raw(pfx + "input_layernorm.weight")
+            v_q_proj = get_raw(pfx + "self_attn.q_proj.linear.weight").T
+            v_k_proj = get_raw(pfx + "self_attn.k_proj.linear.weight").T
+            v_v_proj = get_raw(pfx + "self_attn.v_proj.linear.weight").T
+            v_q_norm = get_raw(pfx + "self_attn.q_norm.weight")
+            v_k_norm = get_raw(pfx + "self_attn.k_norm.weight")
+            v_out_proj = get_raw(pfx + "self_attn.o_proj.linear.weight").T
+            v_post_attn_norm = get_raw(pfx + "post_attention_layernorm.weight")
+            v_pre_ffn_norm = get_raw(pfx + "pre_feedforward_layernorm.weight")
+            v_gate_proj = get_raw(pfx + "mlp.gate_proj.linear.weight").T
+            v_up_proj = get_raw(pfx + "mlp.up_proj.linear.weight").T
+            v_down_proj = get_raw(pfx + "mlp.down_proj.linear.weight").T
+            v_post_ffn_norm = get_raw(pfx + "post_feedforward_layernorm.weight")
+
+            canonical_tensors.extend([
+                (f"vision.layer{i}.input_norm", v_in_norm),
+                (f"vision.layer{i}.q_proj", v_q_proj),
+                (f"vision.layer{i}.k_proj", v_k_proj),
+                (f"vision.layer{i}.v_proj", v_v_proj),
+                (f"vision.layer{i}.q_norm", v_q_norm),
+                (f"vision.layer{i}.k_norm", v_k_norm),
+                (f"vision.layer{i}.out_proj", v_out_proj),
+                (f"vision.layer{i}.post_attn_norm", v_post_attn_norm),
+                (f"vision.layer{i}.pre_ffn_norm", v_pre_ffn_norm),
+                (f"vision.layer{i}.gate_proj", v_gate_proj),
+                (f"vision.layer{i}.up_proj", v_up_proj),
+                (f"vision.layer{i}.down_proj", v_down_proj),
+                (f"vision.layer{i}.post_ffn_norm", v_post_ffn_norm),
+            ])
+
+        # Connector projection: Linear(768, 512, bias=False) -> weight [512, 768] -> transpose to [768, 512]
+        v_conn_proj = get_raw("embed_vision.embedding_projection.weight")
+        if v_conn_proj is not None:
+            canonical_tensors.append(("vision.connector.proj", v_conn_proj.T))
+        print(f"Vision Tower added: 195 tensors (Total: {len(canonical_tensors)} tensors)")
+
     prec_id = PRECISION_MAP[args.precision]
     print(f"Preparing binary package ({len(canonical_tensors)} tensors, precision={args.precision})...")
 

@@ -113,6 +113,9 @@ public:
     [[nodiscard]] uint32_t vocab_size() const noexcept override { return kVocabSize; }
     [[nodiscard]] uint32_t embedding_dim() const noexcept override { return _embedding_dim; }
     [[nodiscard]] uint32_t max_positions() const noexcept override { return kMaxPositions; }
+    [[nodiscard]] bool has_vision() const noexcept override {
+        return find("vision.patch_embed.proj") != nullptr;
+    }
 };
 
 } // namespace

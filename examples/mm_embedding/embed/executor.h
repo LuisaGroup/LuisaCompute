@@ -3,14 +3,15 @@
 //
 // Manages device buffers, shader compilation, activation pools, and records
 // the complete EmbeddingGemma-2 forward pass into compute::CommandList:
-// 1. Token embedding lookup + embed scaling (sqrt(512))
-// 2. 24 Transformer layers (RMSNorm, RoPE, GQA, GeGLU, alternating post-norms)
-// 3. Final RMSNorm
-// 4. Sequence mask-aware Mean Pooling
-// 5. Projection (512 -> 768)
-// 6. Matryoshka Representation Learning (MRL) truncation + L2 Normalization
+// 1. Vision Tower (Phase 2): Patch embedding, 16 ViT layers, 2D pooling, connector
+// 2. Token embedding lookup + embed scaling (sqrt(512))
+// 3. 24 Transformer layers (RMSNorm, RoPE, GQA, GeGLU, alternating post-norms)
+// 4. Final RMSNorm
+// 5. Sequence mask-aware Mean Pooling
+// 6. Projection (512 -> 768)
+// 7. Matryoshka Representation Learning (MRL) truncation + L2 Normalization
 //
-// Includes modular interface hooks for Phase 2 (Vision) and Phase 3 (Audio).
+// Supports Selective Encoder Loading: vision encoder can be toggled on/off to save VRAM.
 
 #include <cstdint>
 
@@ -27,13 +28,17 @@
 namespace luisa::mm_embed {
 
 struct MultimodalInputs {
-    compute::BufferView<float> vision_embeds{};// [B * num_patches, 512]
-    compute::BufferView<float> audio_embeds{}; // [B * num_frames, 512]
+    compute::BufferView<float> vision_embeds{};// [num_soft_tokens, 512]
+    uint32_t vision_start_idx{2u};             // Token index where soft tokens are inserted
+    uint32_t num_vision_tokens{256u};          // Number of soft tokens
 };
 
 class Executor {
 public:
-    static luisa::unique_ptr<Executor> create(compute::Device &device, const Package &package);
+    static luisa::unique_ptr<Executor> create(
+        compute::Device &device,
+        const Package &package,
+        bool enable_vision = true);
 
     virtual ~Executor() = default;
 
@@ -41,6 +46,32 @@ public:
     Executor(Executor &&) = delete;
     Executor &operator=(const Executor &) = delete;
     Executor &operator=(Executor &&) = delete;
+
+    [[nodiscard]] virtual bool has_vision() const noexcept = 0;
+
+    /**
+     * Records the vision tower forward pass into cmd_list.
+     *
+     * @param cmd_list Destination command list.
+     * @param pixel_values Scaled patches buffer [B * max_patches * 768] (floats in [0, 1]).
+     * @param position_ids Patch 2D position coordinates [B * max_patches * 2] (int32).
+     * @param out_soft_tokens Destination device buffer for projected soft tokens [B * num_soft_tokens * 512].
+     * @param B Batch size (typically 1).
+     * @param num_patches_w Number of active patches horizontally (e.g. 48 for 768px).
+     * @param num_patches_h Number of active patches vertically (e.g. 48 for 768px).
+     * @param max_patches Max patches with padding (2520).
+     * @param num_soft_tokens Number of output soft tokens (e.g. 256 for 48x48, 253 for 69x33).
+     */
+    virtual void record_vision_encode(
+        compute::CommandList &cmd_list,
+        compute::BufferView<float> pixel_values,
+        compute::BufferView<int32_t> position_ids,
+        compute::BufferView<float> out_soft_tokens,
+        uint32_t B = 1u,
+        uint32_t num_patches_w = 48u,
+        uint32_t num_patches_h = 48u,
+        uint32_t max_patches = 2520u,
+        uint32_t num_soft_tokens = 256u) = 0;
 
     /**
      * Records the text embedding forward pass into cmd_list.
@@ -52,7 +83,7 @@ public:
      * @param B Batch size.
      * @param S Sequence length (padded to bucket or batch max).
      * @param target_dim Output MRL dimension (e.g. 768, 512, 256, 128).
-     * @param mm_inputs Optional multimodal embeddings (Phase 2/3 hook).
+     * @param mm_inputs Optional multimodal soft token embeddings to scatter into input sequence.
      */
     virtual void record_encode(
         compute::CommandList &cmd_list,

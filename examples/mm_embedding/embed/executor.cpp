@@ -14,6 +14,7 @@
 #include "mm_embedding/embed/kernels/kernels_norm.h"
 #include "mm_embedding/embed/kernels/kernels_pool.h"
 #include "mm_embedding/embed/kernels/kernels_rope.h"
+#include "mm_embedding/embed/kernels/kernels_vision.h"
 
 namespace luisa::mm_embed {
 
@@ -67,11 +68,30 @@ struct LayerWeights {
     float layer_scalar{1.0f};
 };
 
+struct VisionLayerWeights {
+    compute::Buffer<float> input_norm;
+    compute::Buffer<float> q_proj;
+    compute::Buffer<float> k_proj;
+    compute::Buffer<float> v_proj;
+    compute::Buffer<float> q_norm;
+    compute::Buffer<float> k_norm;
+    compute::Buffer<float> out_proj;
+    compute::Buffer<float> post_attn_norm;
+    compute::Buffer<float> pre_ffn_norm;
+    compute::Buffer<float> gate_proj;
+    compute::Buffer<float> up_proj;
+    compute::Buffer<float> down_proj;
+    compute::Buffer<float> post_ffn_norm;
+};
+
 class ExecutorImpl final : public Executor {
 public:
     compute::Device &_device;
+    bool _enable_vision{false};
 
-    // Weight buffers
+    [[nodiscard]] bool has_vision() const noexcept override { return _enable_vision; }
+
+    // Text Weight buffers
     compute::Buffer<float> word_embeddings;
     compute::Buffer<float> ple_proj;
     compute::Buffer<float> ple_norm;
@@ -79,10 +99,16 @@ public:
     compute::Buffer<float> embedding_proj;
     luisa::vector<LayerWeights> layers;
 
+    // Vision Weight buffers (Selective Encoder Loading)
+    compute::Buffer<float> v_patch_proj;
+    compute::Buffer<float> v_pos_table;
+    compute::Buffer<float> v_connector_proj;
+    luisa::vector<VisionLayerWeights> vision_layers;
+
     template<typename K>
     using ShaderFor = decltype(std::declval<compute::Device &>().compile(std::declval<K>()));
 
-    // Compiled shaders
+    // Compiled text shaders
     ShaderFor<EmbedLookupKernel> shader_embed_lookup;
     ShaderFor<RMSNormKernel> shader_rmsnorm;
     ShaderFor<RMSNormNoWeightKernel> shader_rmsnorm_no_weight;
@@ -98,7 +124,15 @@ public:
     ShaderFor<MeanPoolKernel> shader_mean_pool;
     ShaderFor<MRLNormalizeKernel> shader_mrl_normalize;
 
-    // Workspace activations
+    // Compiled vision shaders
+    ShaderFor<ScalePixelsKernel> shader_scale_pixels;
+    ShaderFor<AddPatchPosEmbedKernel> shader_add_patch_pos_embed;
+    ShaderFor<AxialRoPEKernel> shader_axial_rope;
+    ShaderFor<VisionPoolKernel> shader_vision_pool;
+    ShaderFor<ScatterSoftTokensKernel> shader_scatter_soft_tokens;
+    ShaderFor<MaskFromPosKernel> shader_mask_from_pos;
+
+    // Text workspace activations
     compute::Buffer<float> _h0;
     compute::Buffer<float> _h_norm;
     compute::Buffer<float> _ple_all;
@@ -126,6 +160,29 @@ public:
     size_t _max_batch{0};
     size_t _max_s{0};
 
+    // Vision workspace activations
+    compute::Buffer<float> _v_scaled_pixels;
+    compute::Buffer<float> _v_h0;
+    compute::Buffer<float> _v_h_norm;
+    compute::Buffer<float> _v_q_buf;
+    compute::Buffer<float> _v_k_buf;
+    compute::Buffer<float> _v_v_buf;
+    compute::Buffer<float> _v_logits;
+    compute::Buffer<float> _v_attn_ctx;
+    compute::Buffer<float> _v_attn_out;
+    compute::Buffer<float> _v_attn_norm;
+    compute::Buffer<float> _v_ffn_norm;
+    compute::Buffer<float> _v_gate_buf;
+    compute::Buffer<float> _v_up_buf;
+    compute::Buffer<float> _v_mlp_act;
+    compute::Buffer<float> _v_mlp_out;
+    compute::Buffer<float> _v_mlp_norm;
+    compute::Buffer<float> _v_mask;
+    compute::Buffer<float> _v_pooled;
+    compute::Buffer<float> _v_pooled_norm;
+
+    size_t _max_patches{0};
+
     explicit ExecutorImpl(compute::Device &device) noexcept : _device(device) {}
 
     void ensure_workspace(uint32_t B, uint32_t S) {
@@ -140,7 +197,6 @@ public:
 
         constexpr size_t H = 512;
         constexpr size_t I = 2048;
-        // Max head_dim is 512 (for full attention layers) * 4 heads = 2048
         constexpr size_t max_q_dim = 2048;
         constexpr size_t max_kv_dim = 512;
 
@@ -168,6 +224,171 @@ public:
         _proj_out = _device.create_buffer<float>(_max_batch * 768);
     }
 
+    void ensure_vision_workspace(uint32_t max_patches) {
+        if (max_patches <= _max_patches) {
+            return;
+        }
+        _max_patches = max_patches;
+        constexpr size_t H = 768;
+        constexpr size_t I = 3072;
+        constexpr size_t num_heads = 12;
+
+        _v_scaled_pixels = _device.create_buffer<float>(_max_patches * H);
+        _v_h0 = _device.create_buffer<float>(_max_patches * H);
+        _v_h_norm = _device.create_buffer<float>(_max_patches * H);
+        _v_q_buf = _device.create_buffer<float>(_max_patches * H);
+        _v_k_buf = _device.create_buffer<float>(_max_patches * H);
+        _v_v_buf = _device.create_buffer<float>(_max_patches * H);
+        _v_logits = _device.create_buffer<float>(num_heads * _max_patches * _max_patches);
+        _v_attn_ctx = _device.create_buffer<float>(_max_patches * H);
+        _v_attn_out = _device.create_buffer<float>(_max_patches * H);
+        _v_attn_norm = _device.create_buffer<float>(_max_patches * H);
+        _v_ffn_norm = _device.create_buffer<float>(_max_patches * H);
+        _v_gate_buf = _device.create_buffer<float>(_max_patches * I);
+        _v_up_buf = _device.create_buffer<float>(_max_patches * I);
+        _v_mlp_act = _device.create_buffer<float>(_max_patches * I);
+        _v_mlp_out = _device.create_buffer<float>(_max_patches * H);
+        _v_mlp_norm = _device.create_buffer<float>(_max_patches * H);
+        _v_mask = _device.create_buffer<float>(_max_patches);
+        _v_pooled = _device.create_buffer<float>(280 * H);
+        _v_pooled_norm = _device.create_buffer<float>(280 * H);
+    }
+
+    void record_vision_encode(
+        compute::CommandList &cmd_list,
+        compute::BufferView<float> pixel_values,
+        compute::BufferView<int32_t> position_ids,
+        compute::BufferView<float> out_soft_tokens,
+        uint32_t B,
+        uint32_t num_patches_w,
+        uint32_t num_patches_h,
+        uint32_t max_patches,
+        uint32_t num_soft_tokens) override {
+
+        if (!_enable_vision) {
+            LUISA_ERROR("record_vision_encode: Vision encoder is not loaded (Selective Encoder Loading)");
+        }
+
+        ensure_vision_workspace(max_patches);
+
+        constexpr uint32_t H = 768u;
+        constexpr uint32_t I = 3072u;
+        constexpr uint32_t num_heads = 12u;
+        constexpr uint32_t head_dim = 64u;
+        constexpr float rope_theta = 100.0f;
+        // Pooling scale factor: sqrt(768) / 9.0
+        constexpr float scale_pool = 3.079201435678004f;
+
+        // 1. Rescale pixels: [-1.0, 1.0]
+        cmd_list << shader_scale_pixels(pixel_values, _v_scaled_pixels, max_patches * H)
+                        .dispatch(max_patches * H);
+
+        // 2. Patch embedding GEMM: [max_patches, 768] * [768, 768] -> [max_patches, 768]
+        cmd_list << shader_gemm(_v_scaled_pixels, v_patch_proj, _v_h0, max_patches, H, H)
+                        .dispatch(gemm_dispatch_size(max_patches, H));
+
+        // 3. Add 2D position embeddings
+        cmd_list << shader_add_patch_pos_embed(_v_h0, v_pos_table, position_ids, H, 10240u)
+                        .dispatch(H, max_patches);
+
+        // 4. Generate attention mask from position_ids
+        cmd_list << shader_mask_from_pos(position_ids, _v_mask, max_patches)
+                        .dispatch(max_patches);
+
+        // 5. 16 Transformer layers
+        for (uint32_t l = 0u; l < 16u; l++) {
+            const auto &layer = vision_layers[l];
+
+            // (a) Input RMSNorm
+            cmd_list << shader_rmsnorm(_v_h0, _v_h_norm, layer.input_norm, H, 1e-6f)
+                            .dispatch(max_patches * kNormBlock);
+
+            // (b) Q, K, V projections
+            cmd_list << shader_gemm(_v_h_norm, layer.q_proj, _v_q_buf, max_patches, H, H)
+                            .dispatch(gemm_dispatch_size(max_patches, H));
+            cmd_list << shader_gemm(_v_h_norm, layer.k_proj, _v_k_buf, max_patches, H, H)
+                            .dispatch(gemm_dispatch_size(max_patches, H));
+            cmd_list << shader_gemm(_v_h_norm, layer.v_proj, _v_v_buf, max_patches, H, H)
+                            .dispatch(gemm_dispatch_size(max_patches, H));
+
+            // (c) Q, K, V RMSNorm
+            cmd_list << shader_rmsnorm(_v_q_buf, _v_q_buf, layer.q_norm, head_dim, 1e-6f)
+                            .dispatch(max_patches * num_heads * kNormBlock);
+            cmd_list << shader_rmsnorm(_v_k_buf, _v_k_buf, layer.k_norm, head_dim, 1e-6f)
+                            .dispatch(max_patches * num_heads * kNormBlock);
+            cmd_list << shader_rmsnorm_no_weight(_v_v_buf, _v_v_buf, head_dim, 1e-6f)
+                            .dispatch(max_patches * num_heads * kNormBlock);
+
+            // (d) 2D Axial RoPE on Q and K
+            cmd_list << shader_axial_rope(_v_q_buf, _v_q_buf, position_ids, num_heads, head_dim, rope_theta)
+                            .dispatch(16u, max_patches * num_heads);
+            cmd_list << shader_axial_rope(_v_k_buf, _v_k_buf, position_ids, num_heads, head_dim, rope_theta)
+                            .dispatch(16u, max_patches * num_heads);
+
+            // (e) Attention Scores + Softmax + PV
+            cmd_list << shader_gqa_scores(_v_q_buf, _v_k_buf, _v_mask, _v_logits,
+                                          max_patches, num_heads, num_heads, head_dim,
+                                          1.0f, 0u, 0u, -1e9f)
+                            .dispatch(max_patches, num_heads * max_patches);
+
+            cmd_list << shader_softmax_row(_v_logits, max_patches)
+                            .dispatch(kAttentionBlock, num_heads * max_patches);
+
+            cmd_list << shader_gqa_pv(_v_v_buf, _v_logits, _v_attn_ctx,
+                                      max_patches, num_heads, num_heads, head_dim)
+                            .dispatch(head_dim, num_heads * max_patches);
+
+            // (f) Out projection GEMM
+            cmd_list << shader_gemm(_v_attn_ctx, layer.out_proj, _v_attn_out, max_patches, H, H)
+                            .dispatch(gemm_dispatch_size(max_patches, H));
+
+            // (g) Post-attn RMSNorm + Residual add
+            cmd_list << shader_rmsnorm(_v_attn_out, _v_attn_norm, layer.post_attn_norm, H, 1e-6f)
+                            .dispatch(max_patches * kNormBlock);
+            cmd_list << shader_residual_add(_v_h0, _v_attn_norm, _v_h0, max_patches * H)
+                            .dispatch(max_patches * H);
+
+            // (h) Pre-FFN RMSNorm
+            cmd_list << shader_rmsnorm(_v_h0, _v_ffn_norm, layer.pre_ffn_norm, H, 1e-6f)
+                            .dispatch(max_patches * kNormBlock);
+
+            // (i) MLP projections
+            cmd_list << shader_gemm(_v_ffn_norm, layer.gate_proj, _v_gate_buf, max_patches, I, H)
+                            .dispatch(gemm_dispatch_size(max_patches, I));
+            cmd_list << shader_gemm(_v_ffn_norm, layer.up_proj, _v_up_buf, max_patches, I, H)
+                            .dispatch(gemm_dispatch_size(max_patches, I));
+
+            // (j) GeGLU activation
+            cmd_list << shader_geglu(_v_gate_buf, _v_up_buf, _v_mlp_act, max_patches * I)
+                            .dispatch(max_patches * I);
+
+            // (k) Down projection GEMM
+            cmd_list << shader_gemm(_v_mlp_act, layer.down_proj, _v_mlp_out, max_patches, H, I)
+                            .dispatch(gemm_dispatch_size(max_patches, H));
+
+            // (l) Post-FFN RMSNorm + Residual add
+            cmd_list << shader_rmsnorm(_v_mlp_out, _v_mlp_norm, layer.post_ffn_norm, H, 1e-6f)
+                            .dispatch(max_patches * kNormBlock);
+            cmd_list << shader_residual_add(_v_h0, _v_mlp_norm, _v_h0, max_patches * H)
+                            .dispatch(max_patches * H);
+        }
+
+        // 6. 2D Spatial Pooling (3x3 grid average + sqrt(768)) -> soft tokens
+        uint32_t grid_w_soft = num_patches_w / 3u;
+        uint32_t grid_h_soft = num_patches_h / 3u;
+        uint32_t patch_stride = num_patches_w;
+        cmd_list << shader_vision_pool(_v_h0, _v_pooled, grid_w_soft, grid_h_soft, patch_stride, H, scale_pool)
+                        .dispatch(H, num_soft_tokens);
+
+        // 7. Connector pre-norm (without scale)
+        cmd_list << shader_rmsnorm_no_weight(_v_pooled, _v_pooled_norm, H, 1e-6f)
+                        .dispatch(num_soft_tokens * kNormBlock);
+
+        // 8. Connector projection: [num_soft_tokens, 768] * [768, 512] -> [num_soft_tokens, 512]
+        cmd_list << shader_gemm(_v_pooled_norm, v_connector_proj, out_soft_tokens, num_soft_tokens, 512u, H)
+                        .dispatch(gemm_dispatch_size(num_soft_tokens, 512u));
+    }
+
     void record_encode(
         compute::CommandList &cmd_list,
         compute::BufferView<uint32_t> input_ids,
@@ -189,8 +410,14 @@ public:
         cmd_list << shader_embed_lookup(input_ids, word_embeddings, _h0, H, embed_scale)
                         .dispatch(H, total_tokens);
 
+        // 1.5. Scatter multimodal vision soft tokens if provided
+        if (mm_inputs.vision_embeds.size() > 0 && mm_inputs.num_vision_tokens > 0) {
+            cmd_list << shader_scatter_soft_tokens(
+                _h0, mm_inputs.vision_embeds, mm_inputs.vision_start_idx, mm_inputs.num_vision_tokens, H)
+                .dispatch(H, mm_inputs.num_vision_tokens);
+        }
+
         // 2. Global PLE projection & normalization
-        // ple_proj: [512, 12288] pre-scaled by 512**-0.5
         cmd_list << shader_gemm(_h0, ple_proj, _ple_all, total_tokens, 24u * H, H)
                         .dispatch(gemm_dispatch_size(total_tokens, 24u * H));
         uint32_t total_ple_rows = total_tokens * 24u;
@@ -206,7 +433,6 @@ public:
         for (uint32_t i = 0u; i < 24u; i++) {
             const auto &layer = layers[i];
 
-            // Layer configuration: layers 5, 11, 17, 23 are full attention
             bool is_full = (i == 5u || i == 11u || i == 17u || i == 23u);
             uint32_t head_dim = is_full ? 512u : 256u;
             uint32_t num_q_heads = 4u;
@@ -214,7 +440,7 @@ public:
             float rope_theta = is_full ? 1000000.0f : 10000.0f;
             uint32_t is_sliding = is_full ? 0u : 1u;
             uint32_t sliding_window = 512u;
-            float qk_scale = 1.0f; // Scale is 1.0 in EmbeddingGemma-2
+            float qk_scale = 1.0f;
 
             uint32_t q_dim = num_q_heads * head_dim;
             uint32_t kv_dim = num_kv_heads * head_dim;
@@ -329,7 +555,7 @@ public:
 
 }// namespace
 
-luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Package &package) {
+luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Package &package, bool enable_vision) {
     auto exec = luisa::make_unique<ExecutorImpl>(device);
     auto upload_stream = device.create_stream(compute::StreamTag::COMPUTE);
     compute::CommandList upload_cmds;
@@ -382,14 +608,14 @@ luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Pack
         return buf;
     };
 
-    // Upload global weights
+    // Upload global text weights
     exec->word_embeddings = upload_tensor("emb.word");
     exec->ple_proj = upload_tensor("ple.proj");
     exec->ple_norm = upload_tensor("ple.norm");
     exec->final_norm = upload_tensor("final_norm");
     exec->embedding_proj = upload_tensor("embedding_proj");
 
-    // Upload 24 layer weights
+    // Upload 24 text layer weights
     exec->layers.resize(24);
     for (uint32_t i = 0; i < 24; i++) {
         auto &l = exec->layers[i];
@@ -424,9 +650,40 @@ luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Pack
         }
     }
 
+    // Selective Encoder Loading: Vision Tower
+    if (enable_vision && package.has_vision()) {
+        LUISA_INFO("Executor: Selective Encoder Loading -> initializing Vision Tower (~170M params)...");
+        exec->v_patch_proj = upload_tensor("vision.patch_embed.proj");
+        exec->v_pos_table = upload_tensor("vision.patch_embed.pos_table");
+        exec->v_connector_proj = upload_tensor("vision.connector.proj");
+
+        exec->vision_layers.resize(16);
+        for (uint32_t i = 0; i < 16; i++) {
+            auto &vl = exec->vision_layers[i];
+            vl.input_norm = upload_tensor(luisa::format("vision.layer{}.input_norm", i));
+            vl.q_proj = upload_tensor(luisa::format("vision.layer{}.q_proj", i));
+            vl.k_proj = upload_tensor(luisa::format("vision.layer{}.k_proj", i));
+            vl.v_proj = upload_tensor(luisa::format("vision.layer{}.v_proj", i));
+            vl.q_norm = upload_tensor(luisa::format("vision.layer{}.q_norm", i));
+            vl.k_norm = upload_tensor(luisa::format("vision.layer{}.k_norm", i));
+            vl.out_proj = upload_tensor(luisa::format("vision.layer{}.out_proj", i));
+            vl.post_attn_norm = upload_tensor(luisa::format("vision.layer{}.post_attn_norm", i));
+            vl.pre_ffn_norm = upload_tensor(luisa::format("vision.layer{}.pre_ffn_norm", i));
+            vl.gate_proj = upload_tensor(luisa::format("vision.layer{}.gate_proj", i));
+            vl.up_proj = upload_tensor(luisa::format("vision.layer{}.up_proj", i));
+            vl.down_proj = upload_tensor(luisa::format("vision.layer{}.down_proj", i));
+            vl.post_ffn_norm = upload_tensor(luisa::format("vision.layer{}.post_ffn_norm", i));
+        }
+
+        exec->_enable_vision = true;
+    } else {
+        LUISA_INFO("Executor: Selective Encoder Loading -> Vision Tower skipped (text-only mode).");
+        exec->_enable_vision = false;
+    }
+
     upload_stream << upload_cmds.commit() << compute::synchronize();
 
-    // Compile all kernels once
+    // Compile core text kernels
     exec->shader_embed_lookup = device.compile(make_embed_lookup_kernel());
     exec->shader_rmsnorm = device.compile(make_rmsnorm_kernel());
     exec->shader_rmsnorm_no_weight = device.compile(make_rmsnorm_no_weight_kernel());
@@ -441,8 +698,19 @@ luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Pack
     exec->shader_scale_add = device.compile(make_scale_add_kernel());
     exec->shader_mean_pool = device.compile(make_mean_pool_kernel());
     exec->shader_mrl_normalize = device.compile(make_mrl_normalize_kernel());
+    exec->shader_scatter_soft_tokens = device.compile(make_scatter_soft_tokens_kernel());
 
-    LUISA_INFO("Executor: successfully initialized and compiled all kernels");
+    // Compile vision kernels if enabled
+    if (exec->_enable_vision) {
+        exec->shader_scale_pixels = device.compile(make_scale_pixels_kernel());
+        exec->shader_add_patch_pos_embed = device.compile(make_add_patch_pos_embed_kernel());
+        exec->shader_axial_rope = device.compile(make_axial_rope_kernel());
+        exec->shader_vision_pool = device.compile(make_vision_pool_kernel());
+        exec->shader_mask_from_pos = device.compile(make_mask_from_pos_kernel());
+    }
+
+    LUISA_INFO("Executor: successfully initialized and compiled all kernels (vision={})",
+               exec->_enable_vision ? "enabled" : "disabled");
 
     return exec;
 }

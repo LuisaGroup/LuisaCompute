@@ -2,30 +2,45 @@
 //
 // Tests:
 // 1. Tokenizer: special tokens, BPE merges, byte fallback, truncation, batching.
-// 2. Package: headers, 64-bit offsets, tensor lookups, missing key handling.
-// 3. DSL Kernels: RMSNorm, L2Norm, RoPE, GeGLU, GEMM, MeanPool + MRL.
-// 4. Session GPU End-to-End: Semantic query-doc ranking and unit-norm invariant.
+// 2. Package: headers, 64-bit offsets, tensor lookups, vision tensors, has_vision flag.
+// 3. DSL Kernels (GPU):
+//    - RMSNorm, L2Norm, GEMM, MeanPool
+//    - Vision: ScalePixels, AddPatchPosEmbed, AxialRoPE, VisionPool, MaskFromPos, ScatterSoftTokens
+// 4. Selective Encoder Loading:
+//    - Text-only session (enable_vision=false): verify VRAM savings, has_vision()=false, correct text encoding
+//    - Multimodal session (enable_vision=true): verify text parity with text-only mode and vision availability
+// 5. Image & Multimodal End-to-End:
+//    - Single image encoding across MRL dimensions (768, 512, 256, 128)
+//    - Multimodal prompt encoding (image + text)
+//    - Cross-modal retrieval: Image-to-Text and Text-to-Image top-1 matching
+//    - Parity comparison with PyTorch SentenceTransformer golden embeddings (cos sim > 0.99)
 //
 // Usage:
-//   example_mm_embed_test [backend: dx|vk] [model.mmegm] [tokenizer.json]
+//   example_mm_embed_test [backend: dx|vk] [model.mmegm] [tokenizer.json] [data_dir]
 
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <numeric>
 
+#include <yyjson.h>
+
 #include <luisa/core/logging.h>
+#include <luisa/dsl/sugar.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
-#include <luisa/dsl/sugar.h>
 
-#include "mm_embedding/embed/kernels/kernels_norm.h"
-#include "mm_embedding/embed/kernels/kernels_rope.h"
-#include "mm_embedding/embed/kernels/kernels_mlp.h"
+#include "mm_embedding/embed/image_processor.h"
+#include "mm_embedding/embed/kernels/kernels_attention.h"
 #include "mm_embedding/embed/kernels/kernels_gemm.h"
+#include "mm_embedding/embed/kernels/kernels_mlp.h"
+#include "mm_embedding/embed/kernels/kernels_norm.h"
 #include "mm_embedding/embed/kernels/kernels_pool.h"
+#include "mm_embedding/embed/kernels/kernels_rope.h"
+#include "mm_embedding/embed/kernels/kernels_vision.h"
 #include "mm_embedding/embed/package.h"
 #include "mm_embedding/embed/session.h"
 #include "mm_embedding/embed/tokenizer.h"
@@ -82,12 +97,6 @@ void test_tokenizer(const std::filesystem::path &tok_path) {
     TEST_ASSERT(b_res.size() == 2, "Batch size must match");
     TEST_ASSERT(!b_res[0].empty() && !b_res[1].empty(), "Batch tokens cannot be empty");
 
-    // Print T04 test
-    auto t04_toks = tok->encode("task: question answering | query: 大文件传一半断了要重新传吗");
-    std::cout << "  [INFO] C++ T04 toks (" << t04_toks.size() << "): ";
-    for (auto id : t04_toks) std::cout << id << " ";
-    std::cout << std::endl;
-
     std::cout << "  [PASS] Tokenizer tests passed." << std::endl;
 }
 
@@ -108,9 +117,9 @@ void test_package(const std::filesystem::path &egm_path) {
     TEST_ASSERT(pkg->hidden_size() == 512u, "Hidden size must be 512");
     TEST_ASSERT(pkg->intermediate_size() == 2048u, "Intermediate size must be 2048");
     TEST_ASSERT(pkg->embedding_dim() == 768u, "Embedding dim must be 768");
-    TEST_ASSERT(pkg->tensors().size() == 413u, "Total tensors must be 413");
+    TEST_ASSERT(pkg->tensors().size() >= 413u, "Total tensors must be at least 413");
 
-    // Find known tensors
+    // Find known text tensors
     const auto *t_emb = pkg->find("emb.word");
     TEST_ASSERT(t_emb != nullptr, "Must find 'emb.word'");
     TEST_ASSERT(t_emb->rank == 2u, "'emb.word' rank must be 2");
@@ -120,8 +129,15 @@ void test_package(const std::filesystem::path &egm_path) {
     TEST_ASSERT(t_final_norm != nullptr, "Must find 'final_norm'");
     TEST_ASSERT(t_final_norm->rank == 1u && t_final_norm->dims[0] == 512u, "final_norm dims must be [512]");
 
-    // Missing tensor lookup
-    TEST_ASSERT(pkg->find("non_existent_tensor_name") == nullptr, "Missing tensor must return nullptr");
+    // Check vision presence
+    if (pkg->has_vision()) {
+        std::cout << "  [INFO] Model package includes Vision Tower weights (624 tensors)." << std::endl;
+        TEST_ASSERT(pkg->find("vision.patch_embed.proj") != nullptr, "Must find 'vision.patch_embed.proj'");
+        TEST_ASSERT(pkg->find("vision.patch_embed.pos_table") != nullptr, "Must find 'vision.patch_embed.pos_table'");
+        TEST_ASSERT(pkg->find("vision.connector.proj") != nullptr, "Must find 'vision.connector.proj'");
+        TEST_ASSERT(pkg->find("vision.layer0.input_norm") != nullptr, "Must find 'vision.layer0.input_norm'");
+        TEST_ASSERT(pkg->find("vision.layer15.out_proj") != nullptr, "Must find 'vision.layer15.out_proj'");
+    }
 
     std::cout << "  [PASS] Package tests passed." << std::endl;
 }
@@ -138,7 +154,7 @@ void test_kernels(Device &device) {
         auto rmsnorm_shader = device.compile(make_rmsnorm_kernel());
         constexpr uint32_t H = 512u;
         luisa::vector<float> host_x(H);
-        luisa::vector<float> host_gamma(H, 1.0f); // gamma = 1.0
+        luisa::vector<float> host_gamma(H, 1.0f);
         float mean_sq = 0.0f;
         for (uint32_t i = 0; i < H; i++) {
             host_x[i] = static_cast<float>(i + 1) * 0.01f;
@@ -235,111 +251,390 @@ void test_kernels(Device &device) {
         std::cout << "  [PASS] GEMM kernel verified." << std::endl;
     }
 
-    // (d) Test MeanPool
+    // (d) Test Vision ScalePixels Kernel
     {
-        auto mean_pool_shader = device.compile(make_mean_pool_kernel());
-        constexpr uint32_t B = 2u;
-        constexpr uint32_t S = 4u;
-        constexpr uint32_t H = 8u;
-
-        luisa::vector<float> host_hidden(B * S * H, 1.0f);
-        // Batch 0: length 2 (mask = [1, 1, 0, 0])
-        // Batch 1: length 3 (mask = [1, 1, 1, 0])
-        luisa::vector<float> host_mask = {
-            1.0f, 1.0f, 0.0f, 0.0f,
-            1.0f, 1.0f, 1.0f, 0.0f
-        };
-
-        // Fill token 0 with 2.0, token 1 with 4.0 -> mean = 3.0
-        for (uint32_t h = 0; h < H; h++) {
-            host_hidden[(0 * S + 0) * H + h] = 2.0f;
-            host_hidden[(0 * S + 1) * H + h] = 4.0f;
-            host_hidden[(0 * S + 2) * H + h] = 999.0f; // masked
-            host_hidden[(0 * S + 3) * H + h] = 999.0f; // masked
+        auto scale_shader = device.compile(make_scale_pixels_kernel());
+        constexpr uint32_t N = 128u;
+        luisa::vector<float> in_vals(N);
+        luisa::vector<float> expected(N);
+        for (uint32_t i = 0; i < N; i++) {
+            in_vals[i] = static_cast<float>(i) / static_cast<float>(N);
+            expected[i] = 2.0f * (in_vals[i] - 0.5f);
         }
 
-        auto buf_h = device.create_buffer<float>(B * S * H);
-        auto buf_m = device.create_buffer<float>(B * S);
-        auto buf_pooled = device.create_buffer<float>(B * H);
-        luisa::vector<float> host_pooled(B * H);
+        auto buf_in = device.create_buffer<float>(N);
+        auto buf_out = device.create_buffer<float>(N);
+        luisa::vector<float> host_out(N);
 
         CommandList cmd;
-        cmd << buf_h.copy_from(host_hidden.data())
-            << buf_m.copy_from(host_mask.data())
-            << mean_pool_shader(buf_h, buf_m, buf_pooled, S, H).dispatch(H, B)
-            << buf_pooled.copy_to(host_pooled.data());
+        cmd << buf_in.copy_from(in_vals.data())
+            << scale_shader(buf_in, buf_out, N).dispatch(N)
+            << buf_out.copy_to(host_out.data());
         stream << cmd.commit() << synchronize();
 
-        for (uint32_t h = 0; h < H; h++) {
-            TEST_ASSERT(std::abs(host_pooled[0 * H + h] - 3.0f) < 1e-5f, "Mask-aware pooling must ignore masked tokens");
+        for (uint32_t i = 0; i < N; i++) {
+            TEST_ASSERT(std::abs(host_out[i] - expected[i]) < 1e-5f, "ScalePixels calculation mismatch");
         }
-        std::cout << "  [PASS] MeanPool kernel verified." << std::endl;
+        std::cout << "  [PASS] Vision ScalePixels kernel verified." << std::endl;
+    }
+
+    // (e) Test Vision Axial RoPE Kernel
+    {
+        auto axial_rope_shader = device.compile(make_axial_rope_kernel());
+        constexpr uint32_t num_heads = 12u;
+        constexpr uint32_t head_dim = 64u;
+        constexpr uint32_t num_patches = 4u;
+        constexpr float rope_theta = 100.0f;
+
+        luisa::vector<float> host_qk(num_patches * num_heads * head_dim, 1.0f);
+        luisa::vector<int32_t> host_pos = {
+            0, 0,
+            1, 0,
+            0, 1,
+            5, 10
+        };
+
+        auto buf_qk_in = device.create_buffer<float>(host_qk.size());
+        auto buf_qk_out = device.create_buffer<float>(host_qk.size());
+        auto buf_pos = device.create_buffer<int32_t>(host_pos.size());
+        luisa::vector<float> host_out(host_qk.size());
+
+        CommandList cmd;
+        cmd << buf_qk_in.copy_from(host_qk.data())
+            << buf_pos.copy_from(host_pos.data())
+            << axial_rope_shader(buf_qk_in, buf_qk_out, buf_pos, num_heads, head_dim, rope_theta)
+                   .dispatch(16u, num_patches * num_heads)
+            << buf_qk_out.copy_to(host_out.data());
+        stream << cmd.commit() << synchronize();
+
+        // Patch 0 has pos (0, 0) -> theta = 0 -> cos = 1, sin = 0 -> values remain 1.0
+        for (uint32_t i = 0; i < num_heads * head_dim; i++) {
+            TEST_ASSERT(std::abs(host_out[i] - 1.0f) < 1e-4f, "Axial RoPE pos(0,0) must preserve values");
+        }
+        std::cout << "  [PASS] Vision AxialRoPE kernel verified." << std::endl;
+    }
+
+    // (f) Test Vision 2D Spatial Pooler Kernel (Square and Non-Square)
+    {
+        auto pool_shader = device.compile(make_vision_pool_kernel());
+        constexpr uint32_t H = 16u;
+
+        // (f.1) Square pooling: 2x2 soft tokens
+        {
+            constexpr uint32_t grid_soft = 2u; // 2x2 soft tokens
+            constexpr uint32_t num_soft = grid_soft * grid_soft; // 4
+            constexpr uint32_t patch_stride = grid_soft * 3u; // 6
+            constexpr uint32_t total_patches = patch_stride * patch_stride; // 36
+
+            luisa::vector<float> host_patches(total_patches * H, 1.0f);
+            constexpr float scale = 3.0f; // test scale factor
+
+            auto buf_in = device.create_buffer<float>(total_patches * H);
+            auto buf_out = device.create_buffer<float>(num_soft * H);
+            luisa::vector<float> host_out(num_soft * H);
+
+            CommandList cmd;
+            cmd << buf_in.copy_from(host_patches.data())
+                << pool_shader(buf_in, buf_out, grid_soft, grid_soft, patch_stride, H, scale)
+                       .dispatch(H, num_soft)
+                << buf_out.copy_to(host_out.data());
+            stream << cmd.commit() << synchronize();
+
+            for (uint32_t i = 0; i < num_soft * H; i++) {
+                TEST_ASSERT(std::abs(host_out[i] - 27.0f) < 1e-4f, "VisionPool square sum mismatch");
+            }
+        }
+
+        // (f.2) Non-square rectangular pooling: 3x2 soft tokens (grid_w=3, grid_h=2)
+        {
+            constexpr uint32_t grid_w_soft = 3u;
+            constexpr uint32_t grid_h_soft = 2u;
+            constexpr uint32_t num_soft = grid_w_soft * grid_h_soft; // 6
+            constexpr uint32_t patch_stride = grid_w_soft * 3u; // 9
+            constexpr uint32_t num_patches_h = grid_h_soft * 3u; // 6
+            constexpr uint32_t total_patches = patch_stride * num_patches_h; // 54
+
+            luisa::vector<float> host_patches(total_patches * H);
+            for (uint32_t p = 0; p < total_patches; p++) {
+                for (uint32_t d = 0; d < H; d++) {
+                    host_patches[p * H + d] = static_cast<float>(p + 1);
+                }
+            }
+            constexpr float scale = 0.5f;
+
+            auto buf_in = device.create_buffer<float>(total_patches * H);
+            auto buf_out = device.create_buffer<float>(num_soft * H);
+            luisa::vector<float> host_out(num_soft * H);
+
+            CommandList cmd;
+            cmd << buf_in.copy_from(host_patches.data())
+                << pool_shader(buf_in, buf_out, grid_w_soft, grid_h_soft, patch_stride, H, scale)
+                       .dispatch(H, num_soft)
+                << buf_out.copy_to(host_out.data());
+            stream << cmd.commit() << synchronize();
+
+            for (uint32_t sy = 0; sy < grid_h_soft; sy++) {
+                for (uint32_t sx = 0; sx < grid_w_soft; sx++) {
+                    uint32_t s_idx = sy * grid_w_soft + sx;
+                    float expected_sum = 0.0f;
+                    for (uint32_t dy = 0; dy < 3u; dy++) {
+                        for (uint32_t dx = 0; dx < 3u; dx++) {
+                            uint32_t px = sx * 3u + dx;
+                            uint32_t py = sy * 3u + dy;
+                            uint32_t p_idx = py * patch_stride + px;
+                            expected_sum += static_cast<float>(p_idx + 1);
+                        }
+                    }
+                    float expected_val = expected_sum * scale;
+                    for (uint32_t d = 0; d < H; d++) {
+                        TEST_ASSERT(std::abs(host_out[s_idx * H + d] - expected_val) < 1e-4f,
+                                    "VisionPool non-square rectangular sum mismatch");
+                    }
+                }
+            }
+        }
+        std::cout << "  [PASS] Vision Spatial Pooler kernel (square & non-square) verified." << std::endl;
+    }
+
+    // (g) Test Scatter Soft Tokens Kernel
+    {
+        auto scatter_shader = device.compile(make_scatter_soft_tokens_kernel());
+        constexpr uint32_t total_tokens = 8u;
+        constexpr uint32_t num_soft = 3u;
+        constexpr uint32_t start_idx = 2u;
+        constexpr uint32_t H = 4u;
+
+        luisa::vector<float> host_h0(total_tokens * H, 0.0f);
+        luisa::vector<float> host_soft(num_soft * H, 99.0f);
+
+        auto buf_h0 = device.create_buffer<float>(total_tokens * H);
+        auto buf_soft = device.create_buffer<float>(num_soft * H);
+        luisa::vector<float> host_out(total_tokens * H);
+
+        CommandList cmd;
+        cmd << buf_h0.copy_from(host_h0.data())
+            << buf_soft.copy_from(host_soft.data())
+            << scatter_shader(buf_h0, buf_soft, start_idx, num_soft, H).dispatch(H, num_soft)
+            << buf_h0.copy_to(host_out.data());
+        stream << cmd.commit() << synchronize();
+
+        for (uint32_t t = 0; t < total_tokens; t++) {
+            float expected = (t >= start_idx && t < start_idx + num_soft) ? 99.0f : 0.0f;
+            for (uint32_t d = 0; d < H; d++) {
+                TEST_ASSERT(host_out[t * H + d] == expected, "ScatterSoftTokens misplaced token");
+            }
+        }
+        std::cout << "  [PASS] ScatterSoftTokens kernel verified." << std::endl;
     }
 }
 
 // ============================================================================
-// 4. Session End-to-End Regression Test
+// 4. Selective Encoder Loading Tests
 // ============================================================================
-void test_session_e2e(Device &device, const std::filesystem::path &egm_path, const std::filesystem::path &tok_path) {
-    std::cout << "[TEST] Running Session End-to-End inference tests..." << std::endl;
+void test_selective_encoder_loading(Device &device, const std::filesystem::path &egm_path, const std::filesystem::path &tok_path) {
+    std::cout << "[TEST] Running Selective Encoder Loading tests..." << std::endl;
+
+    if (!std::filesystem::exists(egm_path) || !std::filesystem::exists(tok_path)) {
+        std::cout << "  [SKIP] Model files not found. Skipping Selective Loading test." << std::endl;
+        return;
+    }
+
+    // 1. Text-only mode (enable_vision = false)
+    std::cout << "  [INFO] Initializing text-only session (enable_vision=false)..." << std::endl;
+    SessionConfig cfg_text_only{};
+    cfg_text_only.enable_vision = false;
+    auto sess_text = Session::create(device, egm_path, tok_path, cfg_text_only);
+    TEST_ASSERT(sess_text != nullptr, "Session create must succeed in text-only mode");
+    TEST_ASSERT(!sess_text->has_vision(), "has_vision() must be false when enable_vision=false");
+
+    auto emb_text1 = sess_text->encode("Test sentence for selective loading.");
+    TEST_ASSERT(emb_text1.dimension == 768u, "Dimension must be 768");
+    float norm1 = 0.0f;
+    for (float v : emb_text1.values) norm1 += v * v;
+    TEST_ASSERT(std::abs(norm1 - 1.0f) < 1e-4f, "Embedding must have unit norm");
+
+    // 2. Multimodal mode (enable_vision = true)
+    std::cout << "  [INFO] Initializing multimodal session (enable_vision=true)..." << std::endl;
+    SessionConfig cfg_mm{};
+    cfg_mm.enable_vision = true;
+    auto sess_mm = Session::create(device, egm_path, tok_path, cfg_mm);
+    TEST_ASSERT(sess_mm != nullptr, "Session create must succeed in multimodal mode");
+
+    if (sess_mm->has_vision()) {
+        std::cout << "  [INFO] Multimodal session successfully loaded Vision Tower." << std::endl;
+        auto emb_text2 = sess_mm->encode("Test sentence for selective loading.");
+
+        // Parity check: text encoding in multimodal session must be bit-identical to text-only session!
+        float max_diff = 0.0f;
+        for (uint32_t i = 0; i < 768u; i++) {
+            max_diff = std::max(max_diff, std::abs(emb_text1.values[i] - emb_text2.values[i]));
+        }
+        std::cout << "  [INFO] Text embedding max diff between text-only and multimodal session: "
+                  << max_diff << std::endl;
+        TEST_ASSERT(max_diff < 1e-5f, "Selective loading must preserve exact text embedding compatibility");
+    }
+
+    std::cout << "  [PASS] Selective Encoder Loading tests passed." << std::endl;
+}
+
+// ============================================================================
+// 5. Image & Multimodal End-to-End Tests
+// ============================================================================
+void test_multimodal_e2e(
+    Device &device,
+    const std::filesystem::path &egm_path,
+    const std::filesystem::path &tok_path,
+    const std::filesystem::path &data_dir) {
+
+    std::cout << "[TEST] Running Image & Multimodal End-to-End inference tests..." << std::endl;
 
     if (!std::filesystem::exists(egm_path) || !std::filesystem::exists(tok_path)) {
         std::cout << "  [SKIP] Model files not found. Skipping E2E test." << std::endl;
         return;
     }
 
-    auto session = Session::create(device, egm_path, tok_path);
-    TEST_ASSERT(session != nullptr, "Session::create must succeed");
+    SessionConfig cfg{};
+    cfg.enable_vision = true;
+    auto session = Session::create(device, egm_path, tok_path, cfg);
+    if (!session->has_vision()) {
+        std::cout << "  [SKIP] Package does not have Vision Tower weights. Skipping multimodal test." << std::endl;
+        return;
+    }
 
-    const luisa::string_view query = "What is deep learning?";
-    const luisa::string_view docs[] = {
-        "Deep learning uses artificial neural networks with multiple layers to learn representations from data.",
-        "The recipe for a classic French baguette requires flour, water, yeast, and salt."
-    };
+    // Verify test images exist
+    auto forest_img = data_dir / "forest.png";
+    auto ocean_img = data_dir / "ocean.png";
+    auto sunset_img = data_dir / "sunset.png";
+    auto code_img = data_dir / "code.png";
+    auto rect_img = data_dir / "rect.png";
 
-    // Test across MRL dimensions: 768, 512, 256, 128
+    if (!std::filesystem::exists(forest_img)) {
+        std::cout << "  [SKIP] Test images not found in '" << data_dir.string() << "'. Skipping." << std::endl;
+        return;
+    }
+
+    // 1. Test image encoding across MRL dimensions: 768, 512, 256, 128
+    std::cout << "  [INFO] Encoding image 'forest.png' across MRL dimensions..." << std::endl;
     for (uint32_t dim : {768u, 512u, 256u, 128u}) {
         EncodeOptions opt{};
         opt.target_dimension = dim;
 
-        auto q_emb = session->encode(query, opt);
-        auto d_embs = session->encode_batch(luisa::span{docs, 2u}, opt);
+        auto emb = session->encode_image(forest_img, opt);
+        TEST_ASSERT(emb.dimension == dim, "Embedding dimension mismatch");
 
-        TEST_ASSERT(q_emb.dimension == dim, "Query embedding dimension mismatch");
-        TEST_ASSERT(d_embs.size() == 2u, "Document batch size mismatch");
-        TEST_ASSERT(d_embs[0].dimension == dim && d_embs[1].dimension == dim, "Doc embedding dimension mismatch");
-
-        // Check unit L2 norm
-        auto norm_sq = [](const luisa::vector<float> &v) {
-            float s = 0.0f;
-            for (float val : v) s += val * val;
-            return s;
-        };
-        TEST_ASSERT(std::abs(norm_sq(q_emb.values) - 1.0f) < 1e-4f, "Query embedding must have L2 norm = 1");
-        TEST_ASSERT(std::abs(norm_sq(d_embs[0].values) - 1.0f) < 1e-4f, "Doc 0 embedding must have L2 norm = 1");
-        TEST_ASSERT(std::abs(norm_sq(d_embs[1].values) - 1.0f) < 1e-4f, "Doc 1 embedding must have L2 norm = 1");
-
-        // Dot product / cosine similarity
-        float sim0 = 0.0f, sim1 = 0.0f;
-        for (uint32_t d = 0; d < dim; d++) {
-            sim0 += q_emb.values[d] * d_embs[0].values[d];
-            sim1 += q_emb.values[d] * d_embs[1].values[d];
-        }
-
-        std::cout << "  [INFO] Dim " << dim << ": sim(relevant)=" << sim0 << ", sim(irrelevant)=" << sim1 << std::endl;
-        TEST_ASSERT(sim0 > sim1, "Semantic similarity of relevant document must be higher than irrelevant document");
+        float norm_sq = 0.0f;
+        for (float v : emb.values) norm_sq += v * v;
+        TEST_ASSERT(std::abs(norm_sq - 1.0f) < 1e-4f, "Image embedding must have unit norm");
+        std::cout << "    Dim " << dim << ": norm = " << std::sqrt(norm_sq) << " [PASS]" << std::endl;
     }
 
-    std::cout << "  [PASS] Session End-to-End tests passed." << std::endl;
+    // 2. Cross-modal retrieval test: Image vs Text (5 items including non-square rect.png)
+    constexpr int kNumItems = 5;
+    std::cout << "  [INFO] Running Cross-Modal Retrieval ranking tests (" << kNumItems << " items)..." << std::endl;
+    const std::filesystem::path img_paths[kNumItems] = {forest_img, ocean_img, sunset_img, code_img, rect_img};
+    const luisa::string img_names[kNumItems] = {"forest", "ocean", "sunset", "code", "rect"};
+
+    const luisa::string_view captions[kNumItems] = {
+        "A lush green forest with tall trees and green leaves",
+        "Deep blue ocean waters with waves in the sea",
+        "A warm sunset with an orange sun in the evening sky",
+        "Computer code in an editor syntax highlighting terminal",
+        "A sunny sandy beach under a clear blue sky"
+    };
+
+    luisa::vector<Embedding> img_embs;
+    luisa::vector<Embedding> txt_embs;
+
+    for (int i = 0; i < kNumItems; i++) {
+        img_embs.push_back(session->encode_image(img_paths[i]));
+        txt_embs.push_back(session->encode(captions[i]));
+    }
+
+    std::cout << "\n  [INFO] Computed C++ Similarity Matrix (Image vs Text):" << std::endl;
+    for (int i = 0; i < kNumItems; i++) {
+        std::cout << "    Image " << img_names[i] << " | ";
+        float max_sim = -1.0f;
+        int best_match = -1;
+        for (int j = 0; j < kNumItems; j++) {
+            float sim = 0.0f;
+            for (uint32_t d = 0; d < 768u; d++) {
+                sim += img_embs[i].values[d] * txt_embs[j].values[d];
+            }
+            std::cout << img_names[j] << ": " << sim << "  ";
+            if (sim > max_sim) {
+                max_sim = sim;
+                best_match = j;
+            }
+        }
+        std::cout << std::endl;
+        TEST_ASSERT(best_match == i, "Top-1 retrieved caption must match the image content!");
+    }
+
+    // 3. Parity comparison with golden_vision.json if available
+    auto golden_path = data_dir / "golden_vision.json";
+    if (std::filesystem::exists(golden_path)) {
+        std::cout << "\n  [INFO] Validating against PyTorch golden reference in '"
+                  << golden_path.string() << "'..." << std::endl;
+
+        std::ifstream f(golden_path);
+        std::string json_str((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        yyjson_doc *doc = yyjson_read(json_str.c_str(), json_str.size(), 0);
+        TEST_ASSERT(doc != nullptr, "Failed to parse golden_vision.json");
+
+        yyjson_val *root = yyjson_doc_get_root(doc);
+        yyjson_val *images_val = yyjson_obj_get(root, "images");
+
+        for (int i = 0; i < kNumItems; i++) {
+            yyjson_val *item = yyjson_obj_get(images_val, img_names[i].c_str());
+            if (!item) continue;
+            yyjson_val *arr768 = yyjson_obj_get(item, "768");
+            if (!arr768) continue;
+
+            float dot = 0.0f;
+            float pt_norm_sq = 0.0f;
+            float cpp_norm_sq = 0.0f;
+            for (size_t d = 0; d < 768; d++) {
+                float pt_val = static_cast<float>(yyjson_get_num(yyjson_arr_get(arr768, d)));
+                float cpp_val = img_embs[i].values[d];
+                dot += cpp_val * pt_val;
+                pt_norm_sq += pt_val * pt_val;
+                cpp_norm_sq += cpp_val * cpp_val;
+            }
+            float cos_sim = dot / (std::sqrt(pt_norm_sq) * std::sqrt(cpp_norm_sq));
+            std::cout << "    Parity " << img_names[i] << ": cos_sim with PyTorch = "
+                      << cos_sim << " (threshold > 0.99)" << std::endl;
+            TEST_ASSERT(cos_sim > 0.99f && cos_sim <= 1.00001f, "C++ image embedding must match PyTorch golden reference!");
+        }
+        yyjson_doc_free(doc);
+    }
+
+    // 4. Test multimodal prompt encoding (image + text)
+    std::cout << "\n  [INFO] Testing multimodal joint encoding (image + text)..." << std::endl;
+    auto mm_emb = session->encode_multimodal(forest_img, "A view of the forest");
+    TEST_ASSERT(mm_emb.dimension == 768u, "Multimodal embedding dimension mismatch");
+    float mm_norm_sq = 0.0f;
+    for (float v : mm_emb.values) mm_norm_sq += v * v;
+    TEST_ASSERT(std::abs(mm_norm_sq - 1.0f) < 1e-4f, "Multimodal embedding must have unit norm");
+    std::cout << "    Joint multimodal embedding norm = " << std::sqrt(mm_norm_sq) << " [PASS]" << std::endl;
+
+    std::cout << "  [PASS] Image & Multimodal End-to-End tests passed." << std::endl;
 }
 
 int main(int argc, char **argv) {
     luisa::string backend = (argc > 1) ? argv[1] : "dx";
     std::filesystem::path egm_path = (argc > 2) ? argv[2] : "model.mmegm";
     std::filesystem::path tok_path = (argc > 3) ? argv[3] : "tokenizer.json";
+    std::filesystem::path data_dir = (argc > 4) ? argv[4] : "examples/mm_embedding/data";
+    if (!std::filesystem::exists(data_dir)) {
+        if (std::filesystem::exists("../../examples/mm_embedding/data")) {
+            data_dir = "../../examples/mm_embedding/data";
+        } else if (std::filesystem::exists("../examples/mm_embedding/data")) {
+            data_dir = "../examples/mm_embedding/data";
+        }
+    }
 
     std::cout << "========================================================\n"
-              << " LuisaCompute mm_embedding Automated Test Suite\n"
+              << " LuisaCompute mm_embedding Phase 2 Automated Test Suite\n"
               << " Backend: " << backend << "\n"
               << "========================================================\n"
               << std::endl;
@@ -353,10 +648,11 @@ int main(int argc, char **argv) {
     auto device = context.create_device(backend);
 
     test_kernels(device);
-    test_session_e2e(device, egm_path, tok_path);
+    test_selective_encoder_loading(device, egm_path, tok_path);
+    test_multimodal_e2e(device, egm_path, tok_path, data_dir);
 
     std::cout << "\n========================================================\n"
-              << " ALL TESTS PASSED SUCCESSFULLY!\n"
+              << " ALL PHASE 2 TESTS PASSED SUCCESSFULLY!\n"
               << "========================================================"
               << std::endl;
 

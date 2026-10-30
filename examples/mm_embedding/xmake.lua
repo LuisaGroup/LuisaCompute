@@ -7,7 +7,7 @@ target("lc-example-mm-embedding")
     })
     add_files("embed/*.cpp", "embed/kernels/*.cpp")
     add_includedirs("$(projectdir)/examples", "$(projectdir)/src/ext/yyjson/src")
-    add_deps("lc-runtime", "lc-dsl", "lc-vstl", "lc-yyjson")
+    add_deps("lc-runtime", "lc-dsl", "lc-vstl", "lc-yyjson", "stb-image")
     add_includedirs("$(projectdir)/src/ext/yyjson/src", {
         public = true
     })
@@ -55,4 +55,25 @@ target("example_mm_embed_test")
     add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/mm_embedding")
     add_deps("lc-example-mm-embedding")
 target_end()
+
+target("example_mm_embed_vision")
+    add_deps("lc-backends-dummy", {inherit = false, links = false})
+    _config_project({
+        project_kind = "binary"
+    })
+    add_files("example_mm_embed_vision.cpp")
+    add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/mm_embedding")
+    add_deps("lc-example-mm-embedding")
+target_end()
+
+target("example_mm_embed_bench")
+    add_deps("lc-backends-dummy", {inherit = false, links = false})
+    _config_project({
+        project_kind = "binary"
+    })
+    add_files("example_mm_embed_bench.cpp")
+    add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/mm_embedding")
+    add_deps("lc-example-mm-embedding")
+target_end()
+
 
