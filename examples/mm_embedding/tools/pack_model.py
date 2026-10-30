@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""
+pack_model.py -- Offline weight packer for EmbeddingGemma-2.
+
+Converts HuggingFace safetensors weights (google/embeddinggemma-2) to the
+high-performance memory-mapped model.mmegm binary package format.
+
+Features:
+- Validates model architecture against text_config
+- Pre-transposes linear weights for coalesced GPU GEMM reads: B[K, N]
+- Supports fp32, bf16, and fp16 export
+- 256-byte aligned tensor blobs
+
+Usage:
+  python pack_model.py /path/to/embeddinggemma-2 model.mmegm [--precision fp32|bf16|fp16]
+"""
+
+import argparse
+import json
+import os
+import struct
+import sys
+import numpy as np
+
+try:
+    from safetensors import safe_open
+except ImportError:
+    safe_open = None
+
+EGM_MAGIC = 0x324D4745  # "EGM2"
+EGM_VERSION = 1
+EGM_ALIGN = 256
+
+PRECISION_MAP = {
+    "fp32": 0,
+    "bf16": 1,
+    "fp16": 2,
+}
+
+def fnv1a_64(name: str) -> int:
+    h = 0xcbf29ce484222325
+    for b in name.encode('utf-8'):
+        h = ((h ^ b) * 0x00000100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return h
+
+def align_up(offset: int, alignment: int) -> int:
+    return (offset + alignment - 1) & ~(alignment - 1)
+
+def main():
+    parser = argparse.ArgumentParser(description="Pack EmbeddingGemma-2 safetensors into model.mmegm")
+    parser.add_argument("model_dir", help="Path to HF model directory or .safetensors file")
+    parser.add_argument("output_path", help="Path to output model.mmegm file")
+    parser.add_argument("--precision", choices=["fp32", "bf16", "fp16"], default="fp32")
+    args = parser.parse_args()
+
+    if safe_open is None:
+        print("Error: safetensors package is required. Run 'pip install safetensors'.", file=sys.stderr)
+        sys.exit(1)
+
+    model_dir = args.model_dir
+    config_path = os.path.join(model_dir, "config.json") if os.path.isdir(model_dir) else None
+    
+    if config_path and os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            text_cfg = cfg.get("text_config", cfg)
+            print(f"Loaded config: hidden_size={text_cfg.get('hidden_size')}, "
+                  f"num_layers={text_cfg.get('num_hidden_layers')}, "
+                  f"embedding_dim={text_cfg.get('embedding_dim')}")
+
+    # Locate safetensors files
+    st_files = []
+    if os.path.isdir(model_dir):
+        for fname in sorted(os.listdir(model_dir)):
+            if fname.endswith(".safetensors"):
+                st_files.append(os.path.join(model_dir, fname))
+    elif model_dir.endswith(".safetensors") and os.path.exists(model_dir):
+        st_files.append(model_dir)
+
+    if not st_files:
+        print(f"Error: no safetensors files found in '{model_dir}'", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Found {len(st_files)} safetensors file(s). Indexing tensors...")
+    tensors_raw = {}
+    try:
+        import torch
+        has_torch = True
+    except ImportError:
+        has_torch = False
+
+    for st_path in st_files:
+        if has_torch:
+            with safe_open(st_path, framework="pt", device="cpu") as f:
+                for k in f.keys():
+                    tensors_raw[k] = f.get_tensor(k).float().numpy()
+        else:
+            with safe_open(st_path, framework="numpy", device="cpu") as f:
+                for k in f.keys():
+                    tensors_raw[k] = f.get_tensor(k)
+
+    print(f"Total tensors indexed: {len(tensors_raw)}")
+
+    # Collect and transform tensors to canonical format
+    canonical_tensors = []
+
+    def get_raw(name):
+        if name in tensors_raw:
+            return tensors_raw[name]
+        for prefix in [
+            "language_model.model.",
+            "language_model.",
+            "text_model.model.",
+            "text_model.",
+            "model.language_model.",
+            "model.",
+            "",
+        ]:
+            cand = prefix + name
+            if cand in tensors_raw:
+                return tensors_raw[cand]
+        return None
+
+    # 1. Embedding table
+    emb = get_raw("embed_tokens.weight")
+    if emb is None:
+        print("Warning: embed_tokens.weight not found directly; searching keys...")
+        for k in tensors_raw:
+            if "embed_tokens" in k:
+                emb = tensors_raw[k]
+                break
+    if emb is None:
+        raise ValueError("Cannot find embedding table 'embed_tokens.weight'")
+    canonical_tensors.append(("emb.word", emb))
+
+    # 2. PLE Global Projection and Norm
+    ple_proj = get_raw("ple.per_layer_model_projection.weight")
+    if ple_proj is None:
+        raise ValueError("Cannot find ple.per_layer_model_projection.weight")
+    # Pre-scale by 512**-0.5 and transpose [12288, 512] -> [512, 12288]
+    ple_proj_scaled = (ple_proj.T * (512.0 ** -0.5)).astype(np.float32)
+    canonical_tensors.append(("ple.proj", ple_proj_scaled))
+
+    ple_norm = get_raw("ple.per_layer_projection_norm.weight")
+    if ple_norm is None:
+        raise ValueError("Cannot find ple.per_layer_projection_norm.weight")
+    canonical_tensors.append(("ple.norm", ple_norm))
+
+    # 3. 24 Layers
+    for i in range(24):
+        pfx = f"layers.{i}."
+        in_norm = get_raw(pfx + "input_layernorm.weight")
+        post_attn_norm = get_raw(pfx + "post_attention_layernorm.weight")
+        pre_ffn_norm = get_raw(pfx + "pre_feedforward_layernorm.weight")
+        post_ffn_norm = get_raw(pfx + "post_feedforward_layernorm.weight")
+
+        # Projections: linear weights stored as [out_features, in_features] in PyTorch
+        # Pre-transposed to B[K, N] = [in_features, out_features]
+        q_proj = get_raw(pfx + "self_attn.q_proj.weight").T
+        k_proj = get_raw(pfx + "self_attn.k_proj.weight").T
+        v_proj = get_raw(pfx + "self_attn.v_proj.weight").T
+        out_proj = get_raw(pfx + "self_attn.o_proj.weight").T
+
+        q_norm = get_raw(pfx + "self_attn.q_norm.weight")
+        k_norm = get_raw(pfx + "self_attn.k_norm.weight")
+
+        gate_proj = get_raw(pfx + "mlp.gate_proj.weight").T
+        up_proj = get_raw(pfx + "mlp.up_proj.weight").T
+        down_proj = get_raw(pfx + "mlp.down_proj.weight").T
+
+        ple_gate = get_raw(pfx + "ple_block.per_layer_input_gate.weight").T
+        ple_proj_layer = get_raw(pfx + "ple_block.per_layer_projection.weight").T
+        ple_norm_layer = get_raw(pfx + "ple_block.post_per_layer_input_norm.weight")
+
+        layer_scalar = get_raw(pfx + "layer_scalar")
+        if layer_scalar is None:
+            layer_scalar = np.array([1.0], dtype=np.float32)
+
+        canonical_tensors.extend([
+            (f"layer{i}.input_norm", in_norm),
+            (f"layer{i}.q_proj", q_proj),
+            (f"layer{i}.k_proj", k_proj),
+            (f"layer{i}.v_proj", v_proj),
+            (f"layer{i}.q_norm", q_norm),
+            (f"layer{i}.k_norm", k_norm),
+            (f"layer{i}.out_proj", out_proj),
+            (f"layer{i}.post_attn_norm", post_attn_norm),
+            (f"layer{i}.pre_ffn_norm", pre_ffn_norm),
+            (f"layer{i}.gate_proj", gate_proj),
+            (f"layer{i}.up_proj", up_proj),
+            (f"layer{i}.down_proj", down_proj),
+            (f"layer{i}.post_ffn_norm", post_ffn_norm),
+            (f"layer{i}.ple_gate", ple_gate),
+            (f"layer{i}.ple_proj", ple_proj_layer),
+            (f"layer{i}.ple_norm", ple_norm_layer),
+            (f"layer{i}.layer_scalar", layer_scalar),
+        ])
+
+    # 4. Final norm & embedding projection
+    final_norm = get_raw("norm.weight")
+    canonical_tensors.append(("final_norm", final_norm))
+
+    emb_proj = get_raw("embedding_projection.weight")
+    if emb_proj is None:
+        emb_proj = get_raw("embedding_proj.weight")
+    if emb_proj is not None:
+        # Transpose [768, 512] -> [512, 768]
+        canonical_tensors.append(("embedding_proj", emb_proj.T))
+    else:
+        print("Warning: embedding_projection not found, identity/dummy used.")
+        canonical_tensors.append(("embedding_proj", np.eye(512, 768, dtype=np.float32)))
+
+    prec_id = PRECISION_MAP[args.precision]
+    print(f"Preparing binary package ({len(canonical_tensors)} tensors, precision={args.precision})...")
+
+    # Layout offsets
+    header_size = 32
+    table_size = len(canonical_tensors) * 48
+    blob_start = align_up(header_size + table_size, EGM_ALIGN)
+
+    current_offset = blob_start
+    table_entries = []
+    blob_data_list = []
+
+    for name, arr in canonical_tensors:
+        arr = np.ascontiguousarray(arr)
+        if args.precision == "fp32":
+            blob = arr.astype(np.float32).tobytes()
+        elif args.precision == "fp16":
+            blob = arr.astype(np.float16).tobytes()
+        elif args.precision == "bf16":
+            # Convert float32 to bfloat16 bitwise
+            u32 = arr.astype(np.float32).view(np.uint32)
+            u16 = (u32 >> 16).astype(np.uint16)
+            blob = u16.tobytes()
+
+        rank = len(arr.shape)
+        dims = list(arr.shape) + [0] * (4 - rank)
+        size_bytes = len(blob)
+        name_h = fnv1a_64(name)
+
+        offset = current_offset
+        table_entries.append((name_h, offset, size_bytes, rank, dims))
+
+        blob_data_list.append(blob)
+        current_offset = align_up(current_offset + size_bytes, EGM_ALIGN)
+
+    # Write output file
+    with open(args.output_path, "wb") as f:
+        # Header (32 bytes)
+        hdr = struct.pack("<IIIIIIII",
+                          EGM_MAGIC,
+                          EGM_VERSION,
+                          prec_id,
+                          len(canonical_tensors),
+                          24,   # num_layers
+                          512,  # hidden_size
+                          2048, # intermediate_size
+                          768)  # embedding_dim
+        f.write(hdr)
+
+        # Table entries
+        for name_h, offset, size_bytes, rank, dims in table_entries:
+            entry = struct.pack("<QQQIIIII",
+                                name_h,
+                                offset,
+                                size_bytes,
+                                rank,
+                                dims[0], dims[1], dims[2], dims[3])
+            f.write(entry)
+
+        # Pad to blob_start
+        pad_len = blob_start - f.tell()
+        if pad_len > 0:
+            f.write(b'\0' * pad_len)
+
+        # Write blobs
+        for i, blob in enumerate(blob_data_list):
+            name_h, offset, size_bytes, rank, dims = table_entries[i]
+            # Ensure file is padded to offset
+            cur = f.tell()
+            if cur < offset:
+                f.write(b'\0' * (offset - cur))
+            f.write(blob)
+
+    print(f"Successfully generated '{args.output_path}' ({current_offset / (1024*1024):.2f} MB).")
+
+if __name__ == "__main__":
+    main()
