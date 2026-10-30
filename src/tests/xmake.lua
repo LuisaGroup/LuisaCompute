@@ -908,6 +908,11 @@ test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
           add_syslinks("ws2_32")
       end
   end)
+  -- C-FFI shared library front-end (examples/embedding/api): host-only, it
+  -- drives every exported step in callback mode, so it needs no GPU/model.
+  embed_test("test_embed_retrieval_api", "unit/embedding/test_embed_retrieval_api.cpp", true, function()
+      add_deps("example_embed_retrieval_lib")
+  end)
   embed_test("test_embed_kernel_robust", "integration/embedding/test_embed_kernel_robust.cpp")
   embed_test("test_embed_e2e", "integration/embedding/test_embed_e2e.cpp")
   embed_test("test_embed_retrieval", "integration/embedding/test_embed_retrieval.cpp")

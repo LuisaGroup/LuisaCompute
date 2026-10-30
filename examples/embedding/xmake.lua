@@ -30,6 +30,26 @@ target("example_embed_pack_model")
     add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/embedding")
 target_end()
 
+-- C-FFI front-end for the retrieval steps: a shared library that exports
+-- initialize / load-dir / query / update / unload / encode as documented C
+-- functions (api/example_embed_retrieval_lib.h, api/README.md), so a host in
+-- any language can drive the retriever through its own FFI instead of the
+-- interactive console.
+target("example_embed_retrieval_lib")
+    add_deps("lc-backends-dummy", {inherit = false, links = false})
+    _config_project({
+        project_kind = "shared"
+    })
+    add_files("api/*.cpp")
+    add_headerfiles("api/*.h")
+    add_defines("EXAMPLE_EMBED_RETRIEVAL_LIB_BUILD")
+    add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/embedding")
+    add_includedirs("$(projectdir)/examples/embedding/api", {
+        public = true
+    })
+    add_deps("lc-example-embedding", "lc-runtime", "lc-dsl", "lc-vstl")
+target_end()
+
 -- Interactive incremental retrieval REPL and newline-delimited JSON-RPC server.
 target("example_embed_retrieval")
     add_deps("lc-backends-dummy", {inherit = false, links = false})

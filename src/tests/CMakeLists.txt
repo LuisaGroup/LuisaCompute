@@ -1768,6 +1768,12 @@ luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cp
   luisa_compute_add_embed_test(test_embed_retrieval_rpc
           unit/embedding/test_embed_retrieval_rpc.cpp "unit;unit_embedding")
   target_compile_definitions(test_embed_retrieval_rpc PRIVATE LUISA_EMBED_HOST_ONLY=1)
+  # C-FFI shared library front-end (examples/embedding/api): host-only, it
+  # drives every exported step in callback mode, so it needs no GPU/model.
+  luisa_compute_add_embed_test(test_embed_retrieval_api
+          unit/embedding/test_embed_retrieval_api.cpp "unit;unit_embedding")
+  target_compile_definitions(test_embed_retrieval_api PRIVATE LUISA_EMBED_HOST_ONLY=1)
+  target_link_libraries(test_embed_retrieval_api PRIVATE example_embed_retrieval_lib)
   if (WIN32)
       target_link_libraries(test_embed_retrieval_rpc PRIVATE ws2_32)
   endif ()

@@ -167,3 +167,28 @@ test_embed_retrieval_rpc
 They use deterministic fake embeddings and are registered under CTest labels
 `unit;unit_embedding`. Existing fixtures under `src/tests/data/embedding` are not
 used or regenerated.
+
+## C-FFI library (`example_embed_retrieval_lib`)
+
+The console and the JSON-RPC server are not the only front ends. The same steps
+are exported as a documented C ABI from a shared library so any host language
+can drive the retriever through its FFI:
+
+```text
+example_embed_retrieval_lib.h     eer_context_create / load_dir / query /
+                                  update_path / unload_dir / encode_text / destroy
+```
+
+One call per console command, C scalars and UTF-8 strings only, caller-owned
+result structs released with the matching `*_free`. Besides the model-backed
+"engine mode" it also supports a GPU-free "callback mode" where the host
+supplies the dense encoder, which is how it is unit-tested
+(`test_embed_retrieval_api`, host-only, no model required).
+
+```bash
+xmake build example_embed_retrieval_lib
+xmake run test_embed_retrieval_api
+```
+
+Full per-step contract, error table, ownership rules and C / Python `ctypes`
+examples: [`api/README.md`](api/README.md).

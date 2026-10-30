@@ -30,6 +30,23 @@ target_include_directories(lc-example-embedding PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/examples)
 
+# C-FFI front-end: exports the retrieval steps (initialize / load-dir / query /
+# update / unload / encode) as a documented C ABI so any host language can drive
+# the retriever through its own FFI. See api/example_embed_retrieval_lib.h.
+if (UNIX)
+    # The engine is a static lib; on ELF/Mach-O platforms its objects must be
+    # position independent before they can be linked into our shared library.
+    set_target_properties(lc-example-embedding PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif ()
+add_library(example_embed_retrieval_lib SHARED api/example_embed_retrieval_lib.cpp)
+target_compile_definitions(example_embed_retrieval_lib PRIVATE EXAMPLE_EMBED_RETRIEVAL_LIB_BUILD)
+target_link_libraries(example_embed_retrieval_lib PRIVATE lc-example-embedding)
+target_link_libraries(example_embed_retrieval_lib PUBLIC luisa::compute)
+target_include_directories(example_embed_retrieval_lib PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/api
+        ${CMAKE_SOURCE_DIR}/examples)
+
 luisa_compute_add_executable(example_embed_pack_model tools/pack_model.cpp)
 target_include_directories(example_embed_pack_model PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
