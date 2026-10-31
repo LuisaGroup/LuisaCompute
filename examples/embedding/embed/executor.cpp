@@ -33,6 +33,7 @@
 #include "kernels/kernels_heads_vec.h"
 #include "kernels/kernels_norm.h"
 #include "kernels/kernels_norm_vec.h"
+#include "quantization.h"
 #include "tensor_path.h"
 
 namespace luisa::embed {
@@ -86,9 +87,26 @@ const Tensor &require_tensor(const Package &p, const luisa::string &name) {
     return p == PackagePrecision::bf16 ? bf16_up(h) : fp16_up(h);
 }
 
-// The GEMM weight matrices of one layer (the tensors uploaded packed-half in
-// the convert-on-read mode; every other tensor goes through the host
-// upconverter -- see the WeightStore class comment in executor.h).
+// Fail-closed access to a v3 tensor's quantized payload. The loader already
+// validated the table entry (package.cpp: finite, > 0), but the upload path
+// re-checks so a consumer can never dequantize with an invalid scale or read a
+// null blob (package.h "exactly one typed view is non-null" contract).
+void require_int8_payload(const Tensor &t, luisa::string_view name) {
+    if (!int8_scale_is_valid(t.int8_scale)) [[unlikely]] {
+        LUISA_ERROR("embedding WeightStore: int8 tensor '{}' carries the invalid per-tensor scale {} "
+                    "(must be finite and > 0; fail-closed).",
+                    name, t.int8_scale);
+    }
+    if (t.int8_data == nullptr) [[unlikely]] {
+        LUISA_ERROR("embedding WeightStore: int8 tensor '{}' has no int8 blob (loader contract violation).",
+                    name);
+    }
+}
+
+// The GEMM weight matrices of one layer (the tensors uploaded packed in the
+// convert/dequantize-on-read mode: packed half for a v2 package, packed int8
+// words for a v3 package; every other tensor goes through the host
+// upconverter/dequantizer -- see the WeightStore class comment in executor.h).
 constexpr bool is_gemm_weight(luisa::string_view name) noexcept {
     // "layer{i}.qkv" / ".attn.out" / ".ffn.up" / ".ffn.down" -- NOT the
     // ".qkv.bias"/".ffn.up.bias" siblings, and not head.* (their kernels are
@@ -114,6 +132,23 @@ constexpr bool is_gemm_weight(luisa::string_view name) noexcept {
 [[nodiscard]] bool embed_fuse_pool_enabled() noexcept {
     static const bool on = [] {
         const auto *raw = std::getenv("EMBED_N1_FUSE_POOL");
+        return raw == nullptr || luisa::string_view{raw} != luisa::string_view{"0"};
+    }();
+    return on;
+}
+
+// Opt plan C3: fused residual_add + layernorm. Default ON; EMBED_FUSE_RESIDUAL_LN=0
+// restores the legacy `residual_add` -> `layernorm` pair's dispatch sequence
+// unchanged (kill switch for perf A/B and the toggle-regression gate). Pure
+// dispatch fusion on the value side: the fused kernel caches the fp32 residual
+// row in shared memory and reuses make_layernorm_kernel()'s exact
+// reduction/expression order, so the output is NUMERICALLY EQUIVALENT to the
+// pair within a focused 1e-5 ABSOLUTE tolerance and never a numerical change --
+// but NOT bit-identical (dx re-emits ~1 ULP against the two-kernel pair; see
+// kernels_norm.h).
+[[nodiscard]] bool embed_fuse_residual_ln_enabled() noexcept {
+    static const bool on = [] {
+        const auto *raw = std::getenv("EMBED_FUSE_RESIDUAL_LN");
         return raw == nullptr || luisa::string_view{raw} != luisa::string_view{"0"};
     }();
     return on;
@@ -282,11 +317,24 @@ WeightStore::WeightStore(Device &device, const Package &package)
                     L, _hidden, _heads);
     }
 
-    // --- weight-format toggle (opt plan §3.1 G7 / §4 Q1-Q2) ------------------
+    // --- weight-format toggle (opt plan §3.1 G7 / §4 Q1-Q2; INT8 quantization
+    // phase 3) ----------------------------------------------------------------
     // auto-detect from the package; LUISA_EMBED_WEIGHTS may force the fp32
-    // A/B arm or re-interpret -- mismatches are refused loudly.
-    const bool pkg_half = _pkg_precision != PackagePrecision::fp32;
+    // A/B arm or re-interpret -- mismatches are refused loudly. `pkg_half`
+    // means bf16/fp16 ONLY: a v3 int8 package is a SEPARATE format with its own
+    // upload layout (see the WeightStore class comment in executor.h).
+    const bool pkg_half = _pkg_precision == PackagePrecision::bf16 || _pkg_precision == PackagePrecision::fp16;
+    const bool pkg_int8 = _pkg_precision == PackagePrecision::int8;
     bool packed_half = pkg_half;// upload v2 blobs verbatim + convert-on-read
+    bool packed_int8 = pkg_int8;// upload v3 [scale|codes] words + dequant-on-read
+    // Phase 1b: a v1 fp32 package + bf16/fp16 has no packed blob to upload, so
+    // its four per-layer GEMM matrices are CONVERTED ON THE DEVICE once at
+    // construction (fp32 staging -> make_pack_half_kernel -> packed words). That
+    // is a third mode of its own -- neither `packed_half` (nothing packed is
+    // uploaded) nor the fp32 path (the GEMM B operand ends up packed) -- and it
+    // leaves every non-GEMM tensor fp32.
+    bool fp32_pack_half = false;
+    GemmWeightFormat fp32_pack_wf = GemmWeightFormat::Fp32;
     if (const auto *env = std::getenv("LUISA_EMBED_WEIGHTS"); env != nullptr && env[0] != '\0') {
         luisa::string req;
         req.reserve(6u);
@@ -300,26 +348,64 @@ WeightStore::WeightStore(Device &device, const Package &package)
             want = PackagePrecision::bf16;
         } else if (req == "fp16") {
             want = PackagePrecision::fp16;
+        } else if (req == "int8") {
+            want = PackagePrecision::int8;
         } else [[unlikely]] {
-            LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" is not fp32|bf16|fp16 (fail-closed).", env);
+            LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" is not fp32|bf16|fp16|int8 (fail-closed).", env);
         }
-        if (!pkg_half && want != PackagePrecision::fp32) [[unlikely]] {
-            LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" asks for the {} convert-on-read "
-                        "kernel path, but the package is fp32 (v1) -- its blobs are not packed-half buffers; "
-                        "pack a v2 --precision {} package to use it.",
-                        env, req, req);
+        if (!pkg_half && !pkg_int8 && want == PackagePrecision::int8) [[unlikely]] {
+            LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" asks for the int8 (v3) device path, "
+                        "but the package is fp32 (v1) -- fp32 -> int8 needs a per-tensor calibrated scale that "
+                        "only the packer computes, so the device never re-quantizes weights (fail-closed); "
+                        "pack a v3 --precision int8 package to use it.",
+                        env);
+        }
+        if (!pkg_half && !pkg_int8) {
+            // v1 fp32 + bf16/fp16 (phase 1b): supported, but only through the
+            // one-shot device conversion below -- the fp32 blob is never
+            // reinterpreted as packed words.
+            fp32_pack_half = want != PackagePrecision::fp32;
+            fp32_pack_wf = want == PackagePrecision::bf16 ? GemmWeightFormat::Bf16 : GemmWeightFormat::Fp16;
         }
         if (pkg_half && want != PackagePrecision::fp32 && want != _pkg_precision) [[unlikely]] {
+            if (want == PackagePrecision::int8) {
+                LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" asks for the quantized (v3 int8) "
+                            "device path, but the package is half-precision '{}' (v2) -- its blobs are "
+                            "16-bit elements, not signed int8 codes with a per-tensor scale; pack a v3 "
+                            "--precision int8 package to use it.",
+                            env, package_precision_name(_pkg_precision));
+            }
             LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" disagrees with the package "
                         "format '{}' (bf16 and fp16 bit patterns must not be reinterpreted across).",
                         env, package_precision_name(_pkg_precision));
         }
+        if (pkg_int8 && (want == PackagePrecision::bf16 || want == PackagePrecision::fp16)) [[unlikely]] {
+            LUISA_ERROR("embedding WeightStore: LUISA_EMBED_WEIGHTS=\"{}\" asks for the {} device path, but the "
+                        "package is int8 (v3) -- its blobs are signed int8 codes plus a per-tensor scale, "
+                        "which must never be reinterpreted as 16-bit elements; pack a v2 --precision {} "
+                        "package to use it.",
+                        env, req, req);
+        }
         packed_half = pkg_half && want != PackagePrecision::fp32;
+        packed_int8 = pkg_int8 && want != PackagePrecision::fp32;
         LUISA_INFO("embedding WeightStore: package precision '{}', LUISA_EMBED_WEIGHTS='{}' -> device mode '{}'.",
                    package_precision_name(_pkg_precision), env,
-                   pkg_half ? (packed_half ? "packed-half convert-on-read" : "fp32 convert-on-upload (A/B)") : "fp32");
+                   pkg_int8 ? (packed_int8 ? "packed-int8 dequantize-on-read" : "fp32 dequantize-on-upload (A/B)")
+                   : pkg_half ? (packed_half ? "packed-half convert-on-read" : "fp32 convert-on-upload (A/B)")
+                   : fp32_pack_half ? "device fp32 -> packed-half conversion (v1 package, one-shot staging)"
+                                    : "fp32");
     }
-    if (pkg_half && packed_half) {
+    if (pkg_int8 && packed_int8) {
+        LUISA_INFO("embedding WeightStore: int8 package '{}' -> the four per-layer GEMM matrices uploaded as "
+                   "v3 [scale | four signed codes per word] blobs ({} B/elt), dequantized as q * scale at "
+                   "the kernel B-tile load; every other tensor dequantized host-side once. fp32 "
+                   "accumulation unchanged (no int8 arithmetic on the device).",
+                   package_precision_name(_pkg_precision), 1);
+    } else if (pkg_int8) {
+        LUISA_INFO("embedding WeightStore: int8 package '{}' in fp32 A/B mode -- every tensor dequantized "
+                   "host-side once at upload (q * scale), fp32 kernel path.",
+                   package_precision_name(_pkg_precision));
+    } else if (pkg_half && packed_half) {
         LUISA_INFO("embedding WeightStore: half-precision package '{}' -> GEMM weights uploaded packed "
                    "({} B/elt), converted at the kernel B-tile load; fp32 accumulation unchanged.",
                    package_precision_name(_pkg_precision), 2);
@@ -327,22 +413,116 @@ WeightStore::WeightStore(Device &device, const Package &package)
         LUISA_INFO("embedding WeightStore: half-precision package '{}' in fp32 A/B mode -- every tensor "
                    "up-converted at upload, fp32 kernel path.",
                    package_precision_name(_pkg_precision));
+    } else if (fp32_pack_half) {
+        LUISA_INFO("embedding WeightStore: fp32 (v1) package -> the four per-layer GEMM matrices are packed "
+                   "ONCE on the device (fp32 staging -> make_pack_half_kernel -> the exact v2 packed-word "
+                   "layout, bit-identical to the packer) and then read by the packed-half GEMM path. Every "
+                   "other tensor stays fp32, the fp32 staging copies are released as soon as the conversion "
+                   "retires (they are not kept for the session), and fp32 accumulation is unchanged.");
     }
-    _gemm_format = (pkg_half && packed_half) ? (_pkg_precision == PackagePrecision::bf16 ? GemmWeightFormat::Bf16 : GemmWeightFormat::Fp16) : GemmWeightFormat::Fp32;
+    if (packed_int8) {
+        _gemm_format = GemmWeightFormat::Int8;
+    } else if (pkg_half && packed_half) {
+        _gemm_format = _pkg_precision == PackagePrecision::bf16 ? GemmWeightFormat::Bf16 : GemmWeightFormat::Fp16;
+    } else if (fp32_pack_half) {
+        _gemm_format = fp32_pack_wf;
+    } else {
+        _gemm_format = GemmWeightFormat::Fp32;
+    }
+    if (fp32_pack_half) {
+        LUISA_INFO("embedding WeightStore: GEMM B operand stored as '{}' (device-packed from the v1 fp32 "
+                   "package).",
+                   gemm_weight_format_name(_gemm_format));
+    }
+
+    // Phase 1b: the ONLY mode that needs an fp32 -> packed-half converter is the
+    // v1 fp32 package converted on the device -- a v2 package already carries
+    // packed words, a v3 package is int8, and the fp32 arms read plain fp32 B.
+    // The shader is therefore compiled here and only here; the store owns it for
+    // its lifetime because the pack dispatches are recorded from it
+    // (record_upload is const and may run long after construction).
+    if (fp32_pack_half) {
+        const luisa::string pack_name = luisa::format("pack_half_{}", gemm_weight_format_name(_gemm_format));
+        ShaderOption pack_opt;
+        pack_opt.name = pack_name.c_str();
+        _pack_half = _device.compile(make_pack_half_kernel(_gemm_format), pack_opt);
+    }
+
+    // Reserve the conversion bookkeeping BEFORE the first Buffer pointer is
+    // taken: UploadItem/PackItem store raw pointers to elements of these vectors
+    // (`_conversion_sources`) and to the Layer members, so a later reallocation
+    // would leave the recorded uploads/pack dispatches pointing at freed
+    // storage. Four converted GEMM matrices per layer, nothing on every other
+    // path.
+    if (fp32_pack_half) {
+        _packs.reserve(static_cast<size_t>(L) * 4u);
+        _conversion_sources.reserve(static_cast<size_t>(L) * 4u);
+    }
 
     // Role-aware tensor acquisition. allow_packed tensors (the four GEMM weight
-    // matrices per layer) keep the packed-half device layout in the
-    // convert-on-read mode; everything else -- and every tensor in the fp32
-    // A/B mode -- is up-converted host-side at construction time. The
-    // conversion results live in _owned_scratch for the store's lifetime, so
-    // the upload spans borrow from storage owned by this WeightStore (the same
-    // "outlives the recorded commands" contract as the Package image).
+    // matrices per layer) keep the packed device layout in the packed modes
+    // (packed half for a v2 package -- or for a v1 fp32 package converted on the
+    // device, phase 1b --, packed int8 words for a v3 package); everything else
+    // -- and every tensor in the fp32 A/B mode -- is up-converted (half) or
+    // dequantized (int8, q * scale via quantization.h) host-side at construction
+    // time. The conversion results live in _owned_scratch for the store's
+    // lifetime, so the upload spans borrow from storage owned by this
+    // WeightStore (the same "outlives the recorded commands" contract as the
+    // Package image).
     const auto load_weight = [&](const luisa::string &name, Buffer<float> &dst, bool allow_packed) {
         const auto &t = require_tensor(package, name);
         const auto n = static_cast<size_t>(t.element_count());
         if (_pkg_precision == PackagePrecision::fp32) {
+            if (allow_packed && fp32_pack_half) {
+                // Phase 1b: v1 fp32 source -> device-packed half B operand.
+                // `dst` plays exactly the role it has in the v2 packed arm (the
+                // packed word buffer an Executor binds), so the steady state and
+                // the compiled GEMM kernels are the already-reviewed packed-half
+                // ones; only the PRODUCTION of the words differs (a device pack
+                // kernel here, a raw blob memcpy there). The fp32 copy in
+                // `_conversion_sources` is transient: it is the pack kernel's
+                // source and is handed to the Scheduler, which frees it as soon
+                // as the conversion retires.
+                const auto words = (n + 1u) / 2u;
+                dst = _device.create_buffer<float>(words);
+                dst.set_name(luisa::format("embed_packed_{}", name));
+                // The staging element address must stay stable for the pointers
+                // below, so the reservation above is a hard requirement, not an
+                // optimization: fail loudly instead of recording a dangling
+                // upload/pack pair.
+                if (_conversion_sources.size() == _conversion_sources.capacity()) [[unlikely]] {
+                    LUISA_ERROR("embedding WeightStore: conversion staging reservation exhausted ({} buffers); "
+                                "the fp32 -> packed-half staging must be reserved before any Buffer pointer "
+                                "is taken.",
+                                _conversion_sources.size());
+                }
+                _conversion_sources.emplace_back(_device.create_buffer<float>(n));
+                auto &staging = _conversion_sources.back();// reserved above -> stable
+                staging.set_name(luisa::format("embed_pack_src_{}", name));
+                _uploads.push_back(UploadItem{&staging, t.data, n});
+                _packs.push_back(PackItem{&staging, &dst, n});
+                _conversion_bytes += n * sizeof(float);
+                return;
+            }
             dst = _device.create_buffer<float>(n);
             _uploads.push_back(UploadItem{&dst, t.data, n});
+            return;
+        }
+        if (allow_packed && packed_int8) {
+            // v3 device layout (kernels_gemm.h INT8 contract): word 0 = the
+            // positive per-tensor scale, words 1.. = the logical row-major
+            // [K,N] codes, four signed int8 per word, little-endian. One raw
+            // memcpy of the blob behind the scale word; the zero-initialized
+            // scratch keeps the 1..3 tail bytes of the last word zero (the
+            // kernel never reads them, but the buffer is fully initialized).
+            require_int8_payload(t, name);
+            const auto words = 1u + (n + 3u) / 4u;
+            dst = _device.create_buffer<float>(words);
+            _owned_scratch.emplace_back(words, 0.0f);
+            auto &scratch = _owned_scratch.back();
+            scratch[0] = t.int8_scale;
+            std::memcpy(scratch.data() + 1, t.int8_data, n);
+            _uploads.push_back(UploadItem{&dst, scratch.data(), words});
             return;
         }
         if (allow_packed && packed_half) {
@@ -358,8 +538,18 @@ WeightStore::WeightStore(Device &device, const Package &package)
         dst = _device.create_buffer<float>(n);
         _owned_scratch.emplace_back(n);
         auto &scratch = _owned_scratch.back();
-        for (size_t i = 0u; i < n; i++) {
-            scratch[i] = half_up(t.half_data[i], _pkg_precision);
+        if (_pkg_precision == PackagePrecision::int8) {
+            // v3 host dequantization (fp32 A/B arm, and every non-GEMM tensor
+            // in the packed arm): q * scale, once, through quantization.h --
+            // which also re-validates the stored scale (fail-closed).
+            require_int8_payload(t, name);
+            int8_dequantize_tensor(luisa::span<const int8_t>{t.int8_data, n},
+                                   luisa::span<float>{scratch.data(), n},
+                                   t.int8_scale);
+        } else {
+            for (size_t i = 0u; i < n; i++) {
+                scratch[i] = half_up(t.half_data[i], _pkg_precision);
+            }
         }
         _uploads.push_back(UploadItem{&dst, scratch.data(), n});
     };
@@ -391,8 +581,18 @@ WeightStore::WeightStore(Device &device, const Package &package)
 
     load_weight("head.sparse.w", _sparse_w, false);// [H,1] == plain [H] dot vector
     {
+        // Scalar bias: never a device buffer, but it follows the same rule as
+        // the head weight above (host-side dequantize/upcast; int8 via
+        // quantization.h int8_dequantize == q * scale).
         const auto &sb = require_tensor(package, "head.sparse.b");
-        _sparse_b = _pkg_precision == PackagePrecision::fp32 ? sb.data[0] : half_up(sb.half_data[0], _pkg_precision);
+        if (_pkg_precision == PackagePrecision::fp32) {
+            _sparse_b = sb.data[0];
+        } else if (_pkg_precision == PackagePrecision::int8) {
+            require_int8_payload(sb, "head.sparse.b");
+            _sparse_b = int8_dequantize(sb.int8_data[0], sb.int8_scale);
+        } else {
+            _sparse_b = half_up(sb.half_data[0], _pkg_precision);
+        }
     }
     load_weight("head.colbert.w", _colbert_w, false);
     load_weight("head.colbert.b", _colbert_b, false);
@@ -402,6 +602,42 @@ void WeightStore::record_upload(CommandList &cl) const {
     for (const auto &u : _uploads) {
         cl << u.buffer->view().copy_from(luisa::span{u.src, u.count});
     }
+    if (_packs.empty()) {
+        return;// no conversion on this path: nothing but the uploads above
+    }
+    // Phase 1b: pack the fp32 staging copies just queued into the persistent
+    // packed-half destinations, ON THE DEVICE, in the same command list. One
+    // dispatch per converted GEMM matrix, so the init stream's weights_ready
+    // fence also covers the conversion -- no worker can observe a half-written
+    // B operand, and no host-side packing (nor a second full-size fp32 set)
+    // is ever needed. Cost and commands: zero on every other path.
+    if (!_pack_half.has_value()) [[unlikely]] {
+        LUISA_ERROR("embedding WeightStore: {} recorded pack dispatch(es) but owns no fp32 -> packed-half "
+                    "shader (internal contract violation).",
+                    _packs.size());
+    }
+    const auto &pack = *_pack_half;
+    for (const auto &p : _packs) {
+        const auto count = static_cast<uint32_t>(p.count);
+        // dispatch() counts TOTAL threads: pack_half_dispatch_size rounds the
+        // ceil(count / 2) word-threads up to whole blocks (kernels_gemm.h).
+        cl << pack(p.src->view(), p.dst->view(), count)
+                  .dispatch(pack_half_dispatch_size(count));
+    }
+}
+
+WeightStore::ConversionStaging WeightStore::take_conversion_sources() noexcept {
+    ConversionStaging out;
+    out.bytes = _conversion_bytes;
+    out.sources = std::move(_conversion_sources);
+    // Moved-from: keep the member empty and reusable, and report 0 bytes from
+    // here on (the handoff is one-shot; a second take returns nothing).
+    _conversion_sources.clear();
+    _conversion_bytes = 0u;
+    // `_packs` still holds the staging addresses it was recorded with; that is
+    // fine by contract -- record_upload() has already emitted the dispatches, and
+    // the handoff is documented as happening after it.
+    return out;
 }
 
 Executor::Executor(Device &device, const WeightStore &weights, compute::Stream &owner_stream) noexcept
@@ -414,8 +650,12 @@ Executor::Executor(Device &device, const WeightStore &weights, compute::Stream &
     };
 
     // GEMM kernels are compiled in the B-operand format the WeightStore
-    // uploads (opt plan §3.1 G7): Fp32 -> the historical bit-identical path;
-    // Bf16/Fp16 -> the convert-on-read packed-B load (fp32 accumulation).
+    // uploads (opt plan §3.1 G7; INT8 quantization phase 3): Fp32 -> the
+    // historical bit-identical path; Bf16/Fp16 -> the convert-on-read packed-B
+    // load; Int8 -> the v3 [scale | codes] dequantize-on-read load. Both packed
+    // arms accumulate in fp32, so the only difference between the compiled
+    // shaders is the B-tile decode step, and the shader name carries the
+    // format suffix ("gemm_bias_int8") for profiling.
     const auto gemm_wf = _weights.gemm_weight_format();
     const luisa::string wf_sfx = gemm_wf == GemmWeightFormat::Fp32 ? luisa::string{} : luisa::format("_{}", gemm_weight_format_name(gemm_wf));
     const auto gname = [&wf_sfx](luisa::string_view base) {
@@ -425,8 +665,23 @@ Executor::Executor(Device &device, const WeightStore &weights, compute::Stream &
     _embed = compile(make_embed_lookup_kernel(), "emb_lookup");
     _gemm_bias = compile(make_gemm_kernel(GemmEpilogue::Bias, gemm_wf), gname("gemm_bias").c_str());
     _gemm_gelu = compile(make_gemm_kernel(GemmEpilogue::BiasGeluErf, gemm_wf), gname("gemm_bias_gelu_erf").c_str());
-    _residual = compile(make_residual_add_kernel(), "residual_add");
-    _layernorm = compile(make_layernorm_kernel(), "layernorm");
+
+    //--- opt plan C3: residual + layernorm --------------------------------
+    // The two (residual_add, layernorm) pairs per encoder layer collapse to one
+    // fused dispatch each. Whether the fusion is legal is a property of the
+    // WEIGHTS (the row length H is fixed per WeightStore), so the decision is
+    // made here, once: exactly one of the two shader sets is compiled. A
+    // recorder that branched the other way would either dispatch a shader it
+    // never compiled or pay a compile it cannot use, so record_encode branches
+    // on this very flag.
+    _fuse_residual_ln = embed_fuse_residual_ln_enabled() &&
+                        residual_layernorm_supported(_weights.hidden_size());
+    if (_fuse_residual_ln) {
+        _residual_layernorm = compile(make_residual_layernorm_kernel(), "residual_layernorm");
+    } else {
+        _residual = compile(make_residual_add_kernel(), "residual_add");
+        _layernorm = compile(make_layernorm_kernel(), "layernorm");
+    }
     _l2norm = compile(make_l2_normalize_kernel(), "l2_normalize");
     _slice_cls = compile(make_slice_cls_kernel(), "slice_cls");
     _dense_pool = compile(make_dense_pool_kernel(), "dense_pool");
@@ -440,9 +695,8 @@ Executor::Executor(Device &device, const WeightStore &weights, compute::Stream &
     // _flash stays unset: lazily compiled on the first S > 1024 encode (M4).
 
     //--- tensor-path selection (tensor_optimize.md 2.1/5.4) -------------------
-    // Legacy (the default; LUISA_EMBED_TENSOR_PATH unset -> Legacy) issues the
-    // byte-identical dispatch sequence and compiles NONE of the shaders below,
-    // so the default startup stays as cheap as before. Only a Vector/Coop
+    // Legacy (the default; LUISA_EMBED_TENSOR_PATH unset -> Legacy) compiles NONE
+    // of the vector/coop shaders below. Only a Vector/Coop
     // request pays the extra compiles. resolve_tensor_path() never returns Coop
     // when cooperative support is absent (it errors on an explicit coop
     // request, falls back to Vector on auto), so coop here already implies the
@@ -466,19 +720,21 @@ Executor::Executor(Device &device, const WeightStore &weights, compute::Stream &
         _colbert_proj_vec4 = compile(make_colbert_proj_vec4_kernel(), "colbert_proj_vec4");
 
         // coop is a projection replacement only; its matvec reads plain fp32
-        // weights and cannot reinterpret the packed half/bf16 B operand
-        // (tensor_optimize.md 1.3: no BF16 coop; 5.5: half formats gated on
-        // fp32 correctness). When the WeightStore uploaded packed weights, a
-        // coop-resolved path is demoted to Vector BEFORE any coop shader is
-        // compiled (the coop factory would assert wf == Fp32 otherwise).
+        // weights and cannot reinterpret ANY packed B operand -- packed half
+        // (bf16/fp16) or packed int8 ([scale | codes]) alike
+        // (tensor_optimize.md 1.3: no BF16 coop; 5.5: non-fp32 formats gated on
+        // fp32 correctness). The demotion is therefore written against
+        // "not Fp32", not against a specific packed format, and it happens
+        // BEFORE any coop shader is compiled (the coop factory would assert
+        // wf == Fp32 otherwise).
         if (_tensor_path == TensorPath::Coop && gemm_wf != GemmWeightFormat::Fp32) {
             LUISA_WARNING("embedding tensor path: requested/resolved 'coop' but the WeightStore "
-                          "holds packed '{}' GEMM weights; the coop matvec requires fp32 weights "
-                          "(plan 1.3/5.5), so demoting to 'vector'. Set LUISA_EMBED_WEIGHTS=fp32 "
-                          "to keep coop on this package.",
+                          "holds '{}' (non-fp32) GEMM weights; the coop matvec requires fp32 "
+                          "weights (plan 1.3/5.5), so demoting to 'vector'. Set "
+                          "LUISA_EMBED_WEIGHTS=fp32 to keep coop on this package.",
                           gemm_weight_format_name(gemm_wf));
             _tensor_path = TensorPath::Vector;
-            path_reason = luisa::format("coop demoted to vector: packed '{}' weights cannot enter the coop path",
+            path_reason = luisa::format("coop demoted to vector: '{}' weights cannot enter the coop path",
                                         gemm_weight_format_name(gemm_wf));
         }
 
@@ -517,6 +773,26 @@ Executor::Executor(Device &device, const WeightStore &weights, compute::Stream &
                                            : gemm_resolved_config_source();
         LUISA_INFO("embedding executor tensor path: resolved='{}', gemm_variant='{}', weight_format='{}'.",
                    tensor_path_name(_tensor_path), gemm_src, gemm_weight_format_name(gemm_wf));
+    }
+    {
+        // opt plan C3 decision (see the compile block above). Reported once so a
+        // perf A/B cannot silently compare two different modes: 'fused' is the
+        // default, the legacy pair is either the kill switch or the shared-cache
+        // contract's H bound.
+        if (_fuse_residual_ln) {
+            LUISA_INFO("embedding executor residual+layernorm: fused 'residual_layernorm' "
+                       "(H={}, 1 dispatch per pair; kill switch EMBED_FUSE_RESIDUAL_LN=0).",
+                       _weights.hidden_size());
+        } else {
+            // Named local keeps the .c_str() alive across the log call.
+            const luisa::string reason = !embed_fuse_residual_ln_enabled()
+                                             ? luisa::string{"EMBED_FUSE_RESIDUAL_LN=0"}
+                                             : luisa::format("H={} > kResidualNormMaxHidden={}",
+                                                             _weights.hidden_size(), kResidualNormMaxHidden);
+            LUISA_INFO("embedding executor residual+layernorm: legacy pair "
+                       "'residual_add'+'layernorm' (reason: {}).",
+                       reason.c_str());
+        }
     }
 }
 
@@ -772,6 +1048,20 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
         // definition above). The layer-entry running hidden stays in _h0: both
         // residual forms take a=_h0, and LN's result never lands there until
         // LN2 writes the next layer's running value.
+        //
+        // Opt plan C3: on the Legacy path (and on the ragged vector shapes that
+        // stay scalar) the pair is ONE fused dispatch that caches the residual
+        // row in shared memory -- see kernels_norm.h. It writes the SAME slot as
+        // the legacy pair (`_h1` here, `_h0` for LN2 below), so buffer routing
+        // and every downstream read are unchanged; `_tmp2` simply goes unused on
+        // that path. Numerically equivalent to the pair within the focused 1e-5
+        // ABSOLUTE tolerance (test_embed_kernel_layernorm) and with the same
+        // reduction order -- NOT bit-identical (dx re-emits ~1 ULP on the fused
+        // form), so this is a rounding-level substitution, not an exact one.
+        // EMBED_FUSE_RESIDUAL_LN=0 (or H > kResidualNormMaxHidden) takes the
+        // else branch and restores the legacy pair's dispatch sequence
+        // unchanged; the choice is fixed in the ctor and both branches only ever
+        // reference a shader that was compiled for it.
         if (rn_vec) {
             cl << _residual_vec4(v4_win(_h0, 0u, rf * H), v4_win(_tmp1, 0u, rf * H),
                                  v4_win(_tmp2, 0u, rf * H),
@@ -781,6 +1071,15 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
                                   v4_at0(lw.ln1_gamma), v4_at0(lw.ln1_beta),
                                   H, kEmbedLayerNormEps)
                       .dispatch(static_cast<uint>(rf * kNormVecBlock));
+        } else if (_fuse_residual_ln) [[likely]] {
+            // a=_h0, b=_tmp1, out=_h1: no read-after-write overlap (and even an
+            // aliased out would be safe -- the residual row is cached before the
+            // first write). dispatch() = TOTAL THREADS, one block per row.
+            cl << _residual_layernorm(_h0.view(0, rf * H), _tmp1.view(0, rf * H),
+                                      _h1.view(0, rf * H),
+                                      lw.ln1_gamma.view(), lw.ln1_beta.view(),
+                                      H, kEmbedLayerNormEps)
+                      .dispatch(static_cast<uint>(rf * kNormBlock));
         } else {
             cl << _residual(_h0.view(0, rf * H), _tmp1.view(0, rf * H),
                             _tmp2.view(0, rf * H), rf * H)
@@ -816,6 +1115,10 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
         }
         // residual2 + LN2 (vec path: _tmp2 (post-LN1) + _tmp1 -> _h0, LN2
         // normalizes _h0 in place; legacy: _h1 + _tmp1 -> _tmp2, LN2 -> _h0).
+        // Fused (C3): a=_h1 (post-LN1), b=_tmp1 (ffn.down), out=_h0 -- the same
+        // slots the legacy pair uses, so _h0 carries the next layer's running
+        // hidden and the trace slot below is unchanged (_tmp2, the legacy
+        // residual1/LN2 slot, simply goes unused on this path).
         if (rn_vec) {
             cl << _residual_vec4(v4_win(_tmp2, 0u, rf * H), v4_win(_tmp1, 0u, rf * H),
                                  v4_win(_h0, 0u, rf * H),
@@ -825,6 +1128,12 @@ void Executor::record_encode(CommandList &cl, const EncodeJob &job) {
                                   v4_at0(lw.ln2_gamma), v4_at0(lw.ln2_beta),
                                   H, kEmbedLayerNormEps)
                       .dispatch(static_cast<uint>(rf * kNormVecBlock));
+        } else if (_fuse_residual_ln) [[likely]] {
+            cl << _residual_layernorm(_h1.view(0, rf * H), _tmp1.view(0, rf * H),
+                                      _h0.view(0, rf * H),
+                                      lw.ln2_gamma.view(), lw.ln2_beta.view(),
+                                      H, kEmbedLayerNormEps)
+                      .dispatch(static_cast<uint>(rf * kNormBlock));
         } else {
             cl << _residual(_h1.view(0, rf * H), _tmp1.view(0, rf * H),
                             _tmp2.view(0, rf * H), rf * H)

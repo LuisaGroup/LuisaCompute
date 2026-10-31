@@ -2459,7 +2459,13 @@ luisa::fiber::counter cnt(0); luisa::fiber::async_parallel(cnt, 100, [](uint32_t
 luisa::fiber::parallel(1000, []{}, /*internal_jobs=*/10);
 
 uint32_t n = luisa::fiber::worker_thread_count();
+uint64_t id = luisa::fiber::get_id(); // current fiber, or OS thread if unbound
 ```
+
+Use `get_id()` rather than `std::this_thread::get_id()` for fiber ownership or
+reentrancy checks: fibers can migrate between worker OS threads when they yield,
+whereas the fiber identity remains stable. The fiber and thread key spaces are
+distinct, so ids can be compared directly.
 
 #### Defer
 ```cpp

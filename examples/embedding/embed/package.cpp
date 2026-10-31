@@ -13,6 +13,16 @@
 // elements (RNE from fp32 at pack time), size_bytes = prod(dims)*2. The v1
 // fp32 path is unchanged byte-for-byte.
 //
+// VERSION 3 (INT8 quantization, phase 1): same layout with version=3 and
+// precision = 3 (per-tensor symmetric int8). Every blob is exactly
+// prod(dims) signed int8 bytes (no per-blob header, size_bytes = prod(dims)),
+// and the tensor's positive fp32 scale is stored in the reserved trailing
+// 4 bytes of its 48-byte table entry (entry offset 44, IEEE-754 LE). v1/v2
+// entries keep those bytes zero; this loader reads them only for v3 and
+// rejects a scale that is nonfinite or <= 0 (fail-closed). The quantization
+// math itself lives in embed/quantization.h; v3 blobs are exposed through
+// Tensor::int8_data/int8_scale and never through data/half_data.
+//
 // Loading strategy (documented choice; package.h: "Blobs stay on disk (mapped)
 // or are read on demand — implementation choice"): the whole file is read once
 // into a single host allocation (2.27 GiB for bge-m3 fp32 — simplest and fine
@@ -26,10 +36,11 @@
 //
 // Validation is fail-closed and loud: every deviation from the spec
 // (magic / unknown version / v1-with-precision!=0 / v2-with-precision==0 /
-// precision > 2 / tensor_count != 296 / table structural inconsistency /
-// canonical-name or emission-order mismatch / dims disagreeing with the
-// bge-m3 hyper-parameters / file size) raises LUISA_ERROR with the offending
-// values. Version 2 accepts precision 1 (bf16) / 2 (fp16) only.
+// precision > 3 / v3-with-precision!=3 / tensor_count != 296 / table
+// structural inconsistency / canonical-name or emission-order mismatch / dims
+// disagreeing with the bge-m3 hyper-parameters / file size / an invalid v3
+// scale) raises LUISA_ERROR with the offending values. Version 2 accepts
+// precision 1 (bf16) / 2 (fp16) only; version 3 accepts precision 3 only.
 //
 // Hyper-parameter cross-check: the packer stores no constants beyond the table,
 // so the architecture (24 layers, 1024 hidden, 4096 intermediate, 250002 vocab,
@@ -42,6 +53,7 @@
 // STORE" list.
 #include "embedding/embed/package.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -59,6 +71,7 @@ const char *package_precision_name(PackagePrecision p) noexcept {
         case PackagePrecision::fp32: return "fp32";
         case PackagePrecision::bf16: return "bf16";
         case PackagePrecision::fp16: return "fp16";
+        case PackagePrecision::int8: return "int8";
     }
     return "unknown";
 }
@@ -76,12 +89,18 @@ namespace {
 // --- format constants (mirror the packer spec; pack_model.cpp kBgm*) -----
 constexpr uint32_t kBgmVersion = 1u;
 constexpr uint32_t kBgmVersionHalf = 2u;// opt plan §4 Q1/Q2
+constexpr uint32_t kBgmVersionInt8 = 3u;// INT8 quantization, phase 1
 constexpr uint32_t kBgmPrecisionFp32 = 0u;
 constexpr uint32_t kBgmPrecisionBf16 = 1u;
 constexpr uint32_t kBgmPrecisionFp16 = 2u;
+constexpr uint32_t kBgmPrecisionInt8 = 3u;
 constexpr uint64_t kBgmAlign = 256ull;
 constexpr uint64_t kBgmHeaderBytes = 16ull;
 constexpr uint64_t kBgmEntryBytes = 48ull;
+// Byte offset of the reserved trailing 4 bytes inside a 48-byte table entry:
+// 8 (hash) + 8 (offset) + 8 (size_bytes) + 4 (rank) + 4*4 (dims) == 44. Zero for
+// v1/v2; the per-tensor fp32 INT8 scale for v3.
+constexpr uint64_t kBgmEntryReservedOffset = 44ull;
 
 // --- bge-m3 architecture constants (format spec "RUNTIME CONSTANTS THE
 // PACKER DOES NOT STORE", verified against bge-m3/config.json, plan §0) ----
@@ -261,8 +280,9 @@ void PackageImpl::_fill(const std::filesystem::path &bgm_file) {
         LUISA_ERROR("bad magic in \"{}\": not a BGM3 package", bgm_file.string());
     }
     const auto version = read_le32(_image + 4u);
-    if (version != kBgmVersion && version != kBgmVersionHalf) {
-        LUISA_ERROR("unsupported BGM3 version {} in \"{}\" (this loader implements v1 fp32 and v2 half-precision packages)",
+    if (version != kBgmVersion && version != kBgmVersionHalf && version != kBgmVersionInt8) {
+        LUISA_ERROR("unsupported BGM3 version {} in \"{}\" (this loader implements v1 fp32, "
+                    "v2 half-precision and v3 int8 packages)",
                     version, bgm_file.string());
     }
     const auto precision = read_le32(_image + 8u);
@@ -273,17 +293,33 @@ void PackageImpl::_fill(const std::filesystem::path &bgm_file) {
     }
     if (version == kBgmVersion && precision != kBgmPrecisionFp32) {
         LUISA_ERROR("unsupported precision {} in \"{}\": v1 is fp32 only "
-                    "(bf16 = precision 1 and fp16 = precision 2 packages are version 2)",
+                    "(bf16 = precision 1 and fp16 = precision 2 packages are version 2, "
+                    "int8 = precision 3 packages are version 3)",
                     precision, bgm_file.string());
     }
-    const PackagePrecision pkg_precision = precision == kBgmPrecisionBf16 ? PackagePrecision::bf16 : precision == kBgmPrecisionFp16 ? PackagePrecision::fp16 :
-                                                                                                                                      PackagePrecision::fp32;
-    if (precision != kBgmPrecisionFp32 && precision != kBgmPrecisionBf16 && precision != kBgmPrecisionFp16) {
-        LUISA_ERROR("unsupported precision {} in \"{}\" (0 = fp32, 1 = bf16, 2 = fp16 are the only defined modes)",
+    if (version == kBgmVersionInt8 && precision != kBgmPrecisionInt8) {
+        LUISA_ERROR("unsupported BGM3 version {} with precision {} in \"{}\": v3 packages are int8 only "
+                    "(precision 3)",
+                    version, precision, bgm_file.string());
+    }
+    if (version != kBgmVersionInt8 && precision == kBgmPrecisionInt8) {
+        LUISA_ERROR("precision 3 (int8) in \"{}\" requires BGM3 version 3, not version {}",
+                    bgm_file.string(), version);
+    }
+    if (precision != kBgmPrecisionFp32 && precision != kBgmPrecisionBf16 &&
+        precision != kBgmPrecisionFp16 && precision != kBgmPrecisionInt8) {
+        LUISA_ERROR("unsupported precision {} in \"{}\" (0 = fp32, 1 = bf16, 2 = fp16, 3 = int8 are the "
+                    "only defined modes)",
                     precision, bgm_file.string());
     }
+    const PackagePrecision pkg_precision =
+        precision == kBgmPrecisionBf16 ? PackagePrecision::bf16 : precision == kBgmPrecisionFp16 ? PackagePrecision::fp16 :
+        precision == kBgmPrecisionInt8                                 ? PackagePrecision::int8 :
+                                                                        PackagePrecision::fp32;
     _precision = pkg_precision;
-    const uint64_t elem_bytes = pkg_precision == PackagePrecision::fp32 ? 4ull : 2ull;
+    const uint64_t elem_bytes = pkg_precision == PackagePrecision::int8 ? 1ull :
+                                pkg_precision == PackagePrecision::fp32 ? 4ull :
+                                                                         2ull;
     const auto count = read_le32(_image + 12u);
     const auto expected = expected_table();
     if (count != static_cast<uint32_t>(expected.size())) {
@@ -361,7 +397,25 @@ void PackageImpl::_fill(const std::filesystem::path &bgm_file) {
         payload += size_bytes;
 
         Tensor t;
-        if (elem_bytes == 4ull) {
+        if (pkg_precision == PackagePrecision::int8) {
+            // v3: the reserved trailing 4 bytes of the entry carry the per-tensor
+            // fp32 scale (IEEE-754, little-endian). Reject a scale that is not
+            // finite and positive -- fail-closed, since q*scale is the only
+            // dequantization the engine ever performs. v1/v2 entries keep these
+            // bytes zero and are deliberately not checked for it (that would
+            // change the accepted v1/v2 input set for no benefit: the version /
+            // precision pair already discriminates the format).
+            const auto scale_bits = read_le32(p + kBgmEntryReservedOffset);
+            float scale;
+            std::memcpy(&scale, &scale_bits, sizeof(scale));
+            if (!(std::isfinite(scale) && scale > 0.0f)) {
+                LUISA_ERROR("tensor '{}' of \"{}\": the v3 int8 scale {} (0x{:08x}) is not finite and "
+                            "positive (fail-closed)",
+                            e.name, bgm_file.string(), scale, scale_bits);
+            }
+            t.int8_data = reinterpret_cast<const int8_t *>(_image + offset);
+            t.int8_scale = scale;
+        } else if (elem_bytes == 4ull) {
             t.data = reinterpret_cast<const float *>(_image + offset);
         } else {// 256-byte blob offsets keep the uint16 pointer aligned too
             t.half_data = reinterpret_cast<const uint16_t *>(_image + offset);

@@ -1,5 +1,8 @@
 // Interactive whole-file embedding retrieval console and TCP JSON-RPC server
-// (retrieval plan phases 2-4; target example_embed_retrieval). The existing
+// (retrieval plan phases 2-4; hybrid model-backed retrieval phase H2; target
+// example_embed_retrieval). Every indexed document and every query is encoded by
+// the bge-m3 Session with the sparse head enabled, and the index fuses the dense
+// dot product with the sparse lexical cosine (0.7 / 0.3). The existing
 // example_embed_text executable and its command-line contract are independent.
 
 #include <charconv>
@@ -13,6 +16,7 @@
 #include <system_error>
 #include <thread>
 
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/runtime/context.h>
@@ -67,7 +71,8 @@ void print_command_help() {
         << "  help                                 show this grammar\n"
         << "  quit | exit                          leave the console\n"
         << "Use quotes for spaces and \\\" for a quoted quote. Backslashes otherwise remain literal.\n"
-        << "One file has one embedding; default encoding truncates at 512 tokens.\n";
+        << "One hybrid embedding per file; default encoding truncates at 512 tokens.\n"
+        << "Scores are 0.7 * dense cosine + 0.3 * sparse (lexical) cosine.\n";
 }
 
 [[nodiscard]] bool parse_uint32(luisa::string_view text, uint32_t &value) noexcept {
@@ -463,6 +468,11 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Session::create submits its scheduler workers through luisa::fiber, which
+    // requires a scheduler bound to this thread (same contract as
+    // example_embed_text). Without it every model-backed run aborts inside
+    // marl before the first encode.
+    luisa::fiber::scheduler fiber_scheduler;
     compute::Context context{argv[0]};
     LUISA_INFO("example_embed_retrieval: selecting backend '{}'", options.backend);
     auto device = context.create_device(options.backend);
@@ -486,16 +496,33 @@ int main(int argc, char *argv[]) {
     // Fully initialize and drain the backend execution path once at startup.
     // This also makes an encode-free REPL session follow the same orderly
     // scheduler/backend teardown path as a session that served retrieval calls.
+    // The warm-up stays dense-only on purpose: it exercises the same kernels the
+    // hybrid encode runs first and keeps startup cost independent of the sparse
+    // head's readback path.
     if (session->encode("retrieval session warmup").dense.empty()) {
         std::cerr << "error: Session warm-up returned an empty dense embedding\n";
         return 1;
     }
-    embed::RetrievalService service{[session = session.get()](luisa::string_view text) {
-        return session->encode(text).dense;
-    }};
+    // Model-backed retrieval is hybrid (retrieval plan phase H2): every text is
+    // encoded with the sparse head enabled, so the index scores documents as
+    // 0.7 * dense dot + 0.3 * sparse cosine. Returning a RetrievalEmbedding (not
+    // a plain dense vector) is what selects the hybrid RetrievalService overload.
+    embed::RetrievalService service{
+        [session = session.get()](luisa::string_view text) -> embed::RetrievalEmbedding {
+            embed::EncodeOptions options;
+            options.want_sparse = true;
+            auto encoded = session->encode(text, options);
+            embed::RetrievalEmbedding embedding;
+            embedding.dense = std::move(encoded.dense);
+            embedding.sparse = std::move(encoded.sparse);
+            return embedding;
+        }};
     // On-disk embedding cache: unchanged files in an indexed directory are
     // served from .lc_embed_cache/ (via DStorage when the backend provides
-    // DStorageExt) instead of being re-encoded on the next load.
+    // DStorageExt) instead of being re-encoded on the next load. Hybrid entries
+    // also persist a <md5>.sparse.bin sidecar; an entry without one (for example
+    // a directory indexed by an older dense-only build) is re-encoded so the
+    // sparse half can be filled in.
     embed::DiskEmbedCache disk_cache{&device};
     service.set_embed_cache(&disk_cache);
     if (options.server) {

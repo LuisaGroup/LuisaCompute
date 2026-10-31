@@ -40,6 +40,78 @@ using LayerNormKernel = compute::Kernel1D<void(compute::Buffer<float> /*x*/,
 
 [[nodiscard]] LayerNormKernel make_layernorm_kernel() noexcept;
 
+//--- fused residual_add + layernorm (opt plan C3) ---------------------------
+// The per-layer `residual Add (#7)` -> `LayerNorm (#2)` pair runs twice per
+// encoder layer as 2 dispatches that together traverse the row plane SEVEN times
+// (residual_add: 2 reads + 1 write; layernorm: 3 reads + 1 write, because its
+// mean/var/normalize passes each re-read x from global -- and x is the plane the
+// residual just wrote). This kernel does it in ONE launch and THREE traversals
+// (2 reads for the residual operands, 1 write for the result): it computes the
+// fp32 residual r = a + b once, caches the whole row in Shared<float>, and runs
+// the SAME three passes as make_layernorm_kernel() over the cache. It also drops
+// the residual plane round-trip entirely, so the intermediate never leaves the
+// SM.
+//
+// NUMERICALLY EQUIVALENT to `make_residual_add_kernel()` followed by
+// `make_layernorm_kernel()`, within a focused 1e-5 ABSOLUTE tolerance -- it
+// preserves the pair's REDUCTION ORDER exactly: the residual is the same
+// IEEE-754 fp32 add of the same two operands (caching the value on chip instead
+// of in global memory does not round it again), the per-thread strided
+// accumulation order is unchanged, and the shared-memory halving-tree reduction
+// order and the final expression order `((r - mean) * inv) * gamma + beta` are
+// verbatim copies of the layernorm kernel's; no warp collectives are involved
+// either.
+//
+// That is NOT a bit-identity claim, and this header does not make one: the same
+// op sequence emitted as one kernel instead of two lets a backend re-emit the
+// rounding differently (measured on dx: ~1-ULP differences, e.g. pair
+// -0.13910183 vs fused -0.13910185), so bit-exact agreement is not a property
+// of the fusion on every backend. The gate is therefore
+// test_embed_kernel_layernorm's explicit absolute tolerance of 1e-5 (see
+// check_residual_layernorm()), which pins the value that does hold: the fusion
+// is a rounding-level substitution, never a numerical change.
+//
+// H <= kResidualNormMaxHidden is a HARD host contract (see that constant): the
+// shared cache is sized at compile time, so a longer row must stay on the legacy
+// pair -- residual_layernorm_supported() is the host-side predicate the executor
+// uses to pick between them. Out may alias `a` (or `b`): the whole residual row
+// is cached before the first write to `out`, and the pass-1/pass-2 block
+// reductions are barrier-separated, so no thread can write `out` while another
+// still needs to read `a`/`b`.
+//
+// Launch: one block per row, block kNormBlock; dispatch(rows * kNormBlock)
+// TOTAL THREADS (lc_optimize trap #1 -- dispatch() counts threads, not blocks).
+// Rows come from a flattened block index, so a host that must dodge the DX
+// 65535-group cap can dispatch a 2D grid without changing the kernel
+// (lc_optimize trap #2, same convention as make_layernorm_kernel()).
+//
+// out[row*H + h] = LN(a[row*H + h] + b[row*H + h]) with the row length H and
+// eps as runtime args, so one compilation serves every shape in the contract.
+// Buffers: a [rows*H], b [rows*H], out [rows*H], gamma [H], beta [H].
+using ResidualLayerNormKernel = compute::Kernel1D<void(compute::Buffer<float> /*a*/,
+                                                       compute::Buffer<float> /*b*/,
+                                                       compute::Buffer<float> /*out*/,
+                                                       compute::Buffer<float> /*gamma*/,
+                                                       compute::Buffer<float> /*beta*/,
+                                                       uint32_t /*H*/,
+                                                       float /*eps*/)>;
+
+// Residual-row cache capacity of the fused kernel, in floats. bge-m3's
+// hidden_size is 1024 with a single production package, so 4 KiB of shared
+// memory covers every real shape; together with the 256-float reduction tree
+// (1 KiB) the kernel requests 5 KiB per block, far inside the 32 KiB HLSL/DX
+// floor (lc_optimize §4.7 rule 6). The bound is static because Shared<float> is
+// sized at kernel-compile time, hence the host contract.
+inline constexpr uint kResidualNormMaxHidden = 1024u;
+
+// Host predicate: true iff the fused kernel is legal for row length h. The
+// executor falls back to the legacy residual_add + layernorm pair otherwise
+// (numerically equivalent within 1e-5 either way, so the choice is purely a
+// matter of traffic).
+[[nodiscard]] bool residual_layernorm_supported(uint32_t h) noexcept;
+
+[[nodiscard]] ResidualLayerNormKernel make_residual_layernorm_kernel() noexcept;
+
 // l2_normalize: y[row] = x[row] / max(||x[row]||_2, 1e-12). Buffers: x [rows*H],
 // y [rows*H]. Scalar: H (row length).
 using L2NormalizeKernel = compute::Kernel1D<void(compute::Buffer<float> /*x*/,

@@ -19,7 +19,7 @@ The engine has four compute paths for the projection / elementwise hot spots
 
 | Path | Name | What it is |
 |---|---|---|
-| `Legacy` | `legacy` | Verbatim current kernel selection. **The kill switch (plan §9): byte-identical dispatch sequence, compiles none of the new shaders, always available on every backend.** |
+| `Legacy` | `legacy` | Scalar kernel selection. **The kill switch (plan §9): compiles none of the vec4/coop shaders, always available on every backend.** |
 | `Vector` | `vector` | Plain float4 / DOT / FMA vector ops: the `*_vec4` bandwidth/compute twins plus the `rbv_*` vector register-blocked GEMM family. Eligible on DX / VK / CUDA. |
 | `Coop` | `coop` | Cooperative-vector matvec projections (`kernels_coop.h`). **DX and VK ONLY.** An explicit request the device cannot satisfy is a hard startup error — never a silent fallback (plan §2.1). |
 | `Auto` | `auto` | `coop` when the full capability query passes, `vector` otherwise, with the fallback reason logged. |

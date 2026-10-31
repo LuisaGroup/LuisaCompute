@@ -9,8 +9,18 @@
 //
 // Legs (plan §4.2 items):
 //  1. Dense parity, ALL 184 corpus sentences vs golden_dense.bin (sync path):
-//     per-sentence cosine >= 0.9999 AND mean cosine >= 0.99999. Worst cosine
-//     and its sentence index are reported via LUISA_INFO.
+//     per-sentence cosine >= the package gate AND mean cosine >= the package
+//     mean gate. The gates follow the probed AND pair-validated BGM3
+//     (version, precision) header -- never "non-v2 therefore fp32":
+//       v1 fp32             -> 0.9999 per sentence / 0.99999 mean (unchanged)
+//       v2 bf16 | fp16      -> 0.999  per sentence / 0.9995  mean (unchanged)
+//       v3 int8 (symmetric) -> 0.98   per sentence / 0.99    mean (new; int8 is
+//                              substantially more lossy -- measured real-model
+//                              full-corpus worst 0.987085 -- so 0.98 catches a
+//                              material regression without claiming fp32/half
+//                              accuracy)
+//     Worst cosine and its sentence index are reported via LUISA_INFO, and every
+//     leg prints the gate actually selected (no hardcoded tolerance text).
 //  2. Sparse + colbert heads vs goldens for sentences 0..9 (EncodeOptions
 //     want_sparse / want_colbert, scheduler.h). Sparse: the §4.2 gate is an
 //     exact (token_id, weight>0) set match within 1e-4 per weight against
@@ -31,7 +41,8 @@
 //     gates the engine-side §4.2 invariants instead: every emitted id > 2
 //     (specials dropped), every weight > 0, emitted ids are contained in the
 //     tokenizer's interior content-id multiset, and sparse/colbert outputs are
-//     bit-reproducible across re-encodes. Colbert: per-token cosine >= 0.9999
+//     bit-reproducible across re-encodes. Colbert: per-token cosine >= the
+//     package gate (0.9999 fp32 / 0.999 half / 0.98 int8, i.e. `golden_gate`)
 //     vs golden_colbert.bin (layouts read from golden_meta.json at runtime) --
 //     unaffected by the sparse defect and gated strictly.
 //  3. Length-bucket coverage {<=128, <=512, <=2048, <=8192}: corpus token
@@ -44,10 +55,13 @@
 //     cross-backend fallback-oracle equality instead of golden parity -- say-so
 //     is printed on every leg. Cross-backend oracle equality is implemented by
 //     dumping each bucket representative's dense vector to
-//     <temp>/embed_e2e_<backend>_bucket_dense.bin and comparing against any
-//     other backend's dump (cosine >= 0.99999, plan §6 cross-backend numerical
-//     policy; the fallback dump is the deterministic oracle). Short (<=512)
-//     bucket reps additionally get the batch-padded path parity at full bit
+//     <temp>/embed_e2e_<backend>[_<precision>]_bucket_dense.bin (precision tag
+//     "bf16"/"fp16"/"int8"; fp32 keeps the historical untagged name) and
+//     comparing against any other backend's dump of the SAME package precision
+//     (cosine >= 0.99999, plan §6 cross-backend numerical policy; the fallback
+//     dump is the deterministic oracle). That gate is precision-INDEPENDENT by
+//     design -- the other backend runs the same package. Short (<=512) bucket
+//     reps additionally get the batch-padded path parity at full bit
 //     identity.
 //  4. Boundary lengths 127/128/129/511/512/513 tokens, synthesized by token
 //     repeat: text(L) = join(" ", "the" x (L-2)) so ids = [0] + "the"^(L-2) +
@@ -112,8 +126,11 @@
 //     run everywhere.
 //  c) Cross-backend oracle equality for golden-less sentences uses temp-dir
 //     dump files (see leg 3). Dumps are deterministic scratch artifacts keyed
-//     by backend name; delete <temp>/embed_e2e_*_bucket_dense.bin after a
-//     deliberate golden/model regeneration.
+//     by backend name AND package precision (embed_e2e_<backend>_<tag>_
+//     bucket_dense.bin, tag = bf16|fp16|int8, untagged for fp32), so an int8 run
+//     can never be compared against an fp32/half artifact. Delete
+//     <temp>/embed_e2e_*_bucket_dense.bin after a deliberate golden/model
+//     regeneration.
 //  d) Session uses P=2 workers (engine default, Session::create) so the async
 //     path exercises scheduler coalescing / bucket padding; bit-identity
 //     against the exact-length sync path is gated as designed (plan §4.2).
@@ -505,30 +522,65 @@ bool read_dump(const std::filesystem::path &p, DumpFile &out) {
 }
 
 std::filesystem::path dump_path_for(const char *backend, luisa::string_view precision_tag) {
-    // O-G: cross-backend dumps are keyed by package precision too -- a
-    // half-precision run must never be compared against an fp32 artifact
-    // (fp32 keeps the historical file name, precision_tag == "").
+    // O-G / quant: cross-backend dumps are keyed by package precision too -- a
+    // half (bf16/fp16) or int8 run must never be compared against an fp32
+    // artifact, nor against another precision's artifact (fp32 keeps the
+    // historical file name, precision_tag == "").
     return std::filesystem::temp_directory_path() /
            (luisa::string{"embed_e2e_"} + backend + (precision_tag.empty() ? luisa::string{} : luisa::string{"_"} + luisa::string{precision_tag}) + "_bucket_dense.bin");
 }
-// Read the 12-byte BGM3 header (magic/version/precision) so the golden
-// cosine gates follow the PACKAGE format (opt plan §4/§5: >= 0.9999 fp32 /
-// >= 0.999 bf16-fp16 on the SAME goldens). The package is the source of
-// truth; a header mismatch with the engine loader surfaces there anyway.
-void probe_package_precision(const std::filesystem::path &bgm, uint32_t &version, uint32_t &precision) {
-    version = 0u;
-    precision = 0xFFFFFFFFu;
+// Read the 16-byte BGM3 header (magic/version/precision) so the golden cosine
+// gates follow the PACKAGE format. The package is the source of truth; a header
+// mismatch with the engine loader surfaces there anyway.
+struct PackageHeader {
+    uint32_t version = 0u;
+    uint32_t precision = 0u;
+    bool magic_ok = false;
+};
+
+PackageHeader probe_package_header(const std::filesystem::path &bgm) {
+    PackageHeader h;
     if (auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
-        uint8_t hdr[16] = {};
-        const auto got = std::fread(hdr, 1u, 16u, f);
+        uint8_t raw[16] = {};
+        const auto got = std::fread(raw, 1u, 16u, f);
         std::fclose(f);
-        if (got == 16u && hdr[0] == 'B' && hdr[1] == 'G' && hdr[2] == 'M' && hdr[3] == '3') {
-            version = static_cast<uint32_t>(hdr[4]) | (static_cast<uint32_t>(hdr[5]) << 8u) |
-                      (static_cast<uint32_t>(hdr[6]) << 16u) | (static_cast<uint32_t>(hdr[7]) << 24u);
-            precision = static_cast<uint32_t>(hdr[8]) | (static_cast<uint32_t>(hdr[9]) << 8u) |
-                        (static_cast<uint32_t>(hdr[10]) << 16u) | (static_cast<uint32_t>(hdr[11]) << 24u);
+        if (got == 16u && raw[0] == 'B' && raw[1] == 'G' && raw[2] == 'M' && raw[3] == '3') {
+            h.magic_ok = true;
+            h.version = static_cast<uint32_t>(raw[4]) | (static_cast<uint32_t>(raw[5]) << 8u) |
+                        (static_cast<uint32_t>(raw[6]) << 16u) | (static_cast<uint32_t>(raw[7]) << 24u);
+            h.precision = static_cast<uint32_t>(raw[8]) | (static_cast<uint32_t>(raw[9]) << 8u) |
+                          (static_cast<uint32_t>(raw[10]) << 16u) | (static_cast<uint32_t>(raw[11]) << 24u);
         }
     }
+    return h;
+}
+
+// Gate families (opt plan §4 Q1/§5 + int8 quantization phase 1).
+enum class PackageKind { fp32, half, int8 };
+
+// Classify the probed (version, precision) PAIR with the loader's accepted table
+// (embed/package.cpp): v1 + 0 = fp32, v2 + 1|2 = bf16|fp16, v3 + 3 =
+// per-tensor symmetric int8. Any other pair is rejected loudly instead of being
+// mapped onto a known gate family -- in particular "not v2" must never mean
+// either fp32 or int8.
+PackageKind classify_package(const PackageHeader &h, const std::filesystem::path &bgm) {
+    if (!h.magic_ok) {
+        LUISA_WARNING("package \"{}\" has no readable BGM3 header; keeping the fp32 gates until the loader reports the real error",
+                      bgm.string());
+        return PackageKind::fp32;
+    }
+    if (h.version == 1u && h.precision == 0u) {
+        return PackageKind::fp32;
+    }
+    if (h.version == 2u && (h.precision == 1u || h.precision == 2u)) {
+        return PackageKind::half;
+    }
+    if (h.version == 3u && h.precision == 3u) {
+        return PackageKind::int8;
+    }
+    LUISA_ERROR("unsupported BGM3 version {} precision {} in \"{}\": v1 is fp32 only (precision 0), "
+                "v2 is bf16|fp16 only (precision 1|2), v3 is int8 only (precision 3)",
+                h.version, h.precision, bgm.string());
 }
 
 luisa::vector<float> encode_dense(Session &session, const luisa::string &text, uint32_t max_seq_len = 512u) {
@@ -553,20 +605,41 @@ int main(int argc, char *argv[]) {
 
     const std::filesystem::path data_dir{LUISA_EMBED_TEST_DATA_DIR};
     const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]} : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
-    // O-G precision gating: golden-parity gates from the package header
-    // (fp32: unchanged 0.9999 / 0.99999; bf16|fp16: 0.999 per sentence /
-    // 0.9995 mean -- opt plan §4 Q1 and §5). Engine-vs-engine and cross-
-    // backend gates (bit identity, 0.99999 dump parity) are precision-
-    // INDEPENDENT and unchanged; dump artifacts are precision-keyed.
-    uint32_t pkg_version = 0u, pkg_precision = 0u;
-    probe_package_precision(bgm, pkg_version, pkg_precision);
-    const bool pkg_half = pkg_version == 2u && pkg_precision != 0u;
-    const float golden_gate = pkg_half ? 0.999f : 0.9999f;
-    const float golden_mean_gate = pkg_half ? 0.9995f : 0.99999f;
-    const luisa::string precision_tag = pkg_half ? (pkg_precision == 1u ? "bf16" : "fp16") : luisa::string{};
-    LUISA_INFO("test_embed_e2e: package \"{}\" BGM3 v{} precision {} -> golden gate {:.4f} (mean {:.4f}){}",
-               bgm.string(), pkg_version, pkg_precision, golden_gate, golden_mean_gate,
-               pkg_half ? " (half-precision package, opt plan §4)" : "");
+    // O-G / quant precision gating: golden-parity gates from the package header,
+    // probed as a (version, precision) PAIR and validated against the loader's
+    // accepted table.
+    //   fp32  (v1, precision 0)          : 0.9999 / 0.99999 (unchanged)
+    //   half  (v2, precision 1 = bf16,
+    //                 precision 2 = fp16) : 0.999  / 0.9995  (unchanged)
+    //   int8  (v3, precision 3 = per-tensor symmetric int8): 0.98 / 0.99 (new;
+    //         substantially more lossy than fp32/half -- measured real-model
+    //         full-corpus worst 0.987085, so 0.98 catches material regressions
+    //         without pretending fp32/half accuracy)
+    // Engine-vs-engine and cross-backend gates (bit identity, 0.99999 dump
+    // parity) are precision-INDEPENDENT and unchanged; dump artifacts are
+    // precision-keyed (fp32 keeps the untagged historical name).
+    const auto pkg_header = probe_package_header(bgm);
+    const auto pkg_kind = classify_package(pkg_header, bgm);
+    const uint32_t pkg_version = pkg_header.version;
+    const uint32_t pkg_precision = pkg_header.precision;
+    const bool pkg_half = pkg_kind == PackageKind::half;
+    const bool pkg_int8 = pkg_kind == PackageKind::int8;
+    // non-fp32 (quantized) package: low-precision tolerances apply
+    const bool pkg_quantized = pkg_half || pkg_int8;
+    const float golden_gate = pkg_int8 ? 0.98f : (pkg_half ? 0.999f : 0.9999f);
+    const float golden_mean_gate = pkg_int8 ? 0.99f : (pkg_half ? 0.9995f : 0.99999f);
+    luisa::string precision_tag;
+    if (pkg_half) {
+        precision_tag = (pkg_precision == 1u ? "bf16" : "fp16");
+    } else if (pkg_int8) {
+        precision_tag = "int8";
+    }
+    LUISA_INFO("test_embed_e2e: package \"{}\" BGM3 v{} precision {} -> {} package; golden gate {:.4f} per sentence "
+               "(mean {:.5f}); dump precision tag \"{}\"",
+               bgm.string(), pkg_version, pkg_precision,
+               (pkg_int8 ? "int8 (v3, per-tensor symmetric)" : (pkg_half ? "half-precision (v2)" : "fp32 (v1)")),
+               golden_gate, golden_mean_gate,
+               (precision_tag.empty() ? luisa::string{"none (fp32 historical dump name)"} : precision_tag));
 
     luisa::compute::Clock total_clock;
 
@@ -756,24 +829,25 @@ int main(int argc, char *argv[]) {
                    "colbert gate: per-token cosine >= {:.4f} (strict, golden-backed)",
                    sparse_inv_fail, sparse_contain_fail, sparse_det_fail + colbert_det_fail,
                    sparse_set_fail + sparse_weight_fail,
-                   (golden_degenerate ? "dormant: golden degenerate" : (pkg_half ? "MEASURED, report-only: the 1e-4 sparse set-match gate is the "
-                                                                                   "fp32 retrieval gate (opt plan §4: retrieval heads stay fp32-only "
-                                                                                   "unless parity holds -- see counts and per-pair rows)" :
-                                                                                   "ENFORCED")),
+                   (golden_degenerate ? "dormant: golden degenerate" : (pkg_quantized ? "MEASURED, report-only: the 1e-4 sparse set-match gate is the "
+                                                                                        "fp32 retrieval gate (opt plan §4: retrieval heads stay fp32-only "
+                                                                                        "unless parity holds -- see counts and per-pair rows)" :
+                                                                                        "ENFORCED")),
                    colbert_shape_fail, colbert_fail, worst_colbert, golden_gate);
         expect(sparse_inv_fail == 0u) << "LEG2: sparse pairs respect the (id>2, weight>0) contract";
         expect(sparse_contain_fail == 0u) << "LEG2: sparse ids are interior content ids";
         expect(sparse_det_fail == 0u) << "LEG2: sparse head bit-reproducible";
         expect(colbert_det_fail == 0u) << "LEG2: colbert head bit-reproducible";
-        // O-G: the strict sparse set-match gate (ids identical + weights within
-        // 1e-4 of the fp32 golden) is the RETRIEVAL gate; for a half-precision
-        // package the quantized sparse head cannot hold 1e-4 (bf16 ulp of the
-        // head weight ~5e-4). It stays enforced for fp32 and is REPORTED for
-        // half packages (the counts above and the per-pair LUISA_INFO rows are
-        // the measured delta). Dense-row parity (LEG1) is the authoritative
-        // half-package gate per opt plan §4 Q1.
-        expect(sparse_set_fail == 0u || pkg_half) << "LEG2: sparse set sizes match golden (strict gate, fp32-enforced)";
-        expect(sparse_weight_fail == 0u || pkg_half) << "LEG2: sparse pair (id, weight) match within 1e-4 (strict gate, fp32-enforced)";
+        // O-G / quant: the strict sparse set-match gate (ids identical + weights
+        // within 1e-4 of the fp32 golden) is the RETRIEVAL gate; a non-fp32
+        // package cannot hold 1e-4 on that head (bf16 ulp of the head weight
+        // ~5e-4; per-tensor symmetric int8 is coarser still). It stays enforced
+        // for fp32 and is REPORTED for half AND int8 packages (the counts above
+        // and the per-pair LUISA_INFO rows are the measured delta). Dense-row
+        // parity (LEG1) is the authoritative quantized-package gate per opt plan
+        // §4 Q1.
+        expect(sparse_set_fail == 0u || pkg_quantized) << "LEG2: sparse set sizes match golden (strict gate, fp32-enforced)";
+        expect(sparse_weight_fail == 0u || pkg_quantized) << "LEG2: sparse pair (id, weight) match within 1e-4 (strict gate, fp32-enforced)";
         expect(colbert_shape_fail == 0u) << "LEG2: colbert row counts match goldens";
         expect(colbert_fail == 0u) << ("LEG2: every colbert token cosine >= " + luisa::format("{:.4f}", golden_gate));
     }

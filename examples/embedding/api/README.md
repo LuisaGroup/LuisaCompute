@@ -54,15 +54,25 @@ void       eer_context_destroy(eer_context *context);
 * Zero the `eer_create_info`, set `struct_size = sizeof(eer_create_info)`, then
   set only the fields you need. Strings are UTF-8 and are copied.
 * **Engine mode** (`info.encode == NULL`): `model_path` and `tokenizer_path` are
-  required regular files, `backend` names the plugin (`"vk"` when omitted, plus
-  `"dx"`, `"cuda"`, `"fallback"`, `"simd"`, `"metal"`), and `num_workers` is the
-  scheduler worker count (`0` → 2). Creation loads the weights, compiles the
-  kernels and — unless `EER_CREATE_SKIP_WARMUP` is set — performs one warm-up
-  encode, exactly like the executable.
+    required regular files, `backend` names the plugin (`"vk"` when omitted, plus
+    `"dx"`, `"cuda"`, `"fallback"`, `"simd"`, `"metal"`), and `num_workers` is the
+    scheduler worker count (`0` → 2). Creation loads the weights, compiles the
+    kernels and — unless `EER_CREATE_SKIP_WARMUP` is set — performs one warm-up
+    encode, exactly like the executable. Engine mode is **hybrid**: every document
+    and query is encoded with `EncodeOptions{max_seq_len = 512, want_sparse =
+    true}`, so one forward pass yields the dense CLS vector plus the BGE-M3 sparse
+    lexical weights, and the index scores
+    `0.7 * dense_cosine + 0.3 * sparse_cosine`. The warm-up encode stays
+    dense-only.
 * **Callback mode** (`info.encode != NULL`): a host-supplied dense encoder
-  replaces the model session. No model, no tokenizer, no backend, no GPU. This is
-  how the library is tested and how embedders that already produce vectors reuse
-  the index/ranking/disk cache.
+    replaces the model session. No model, no tokenizer, no backend, no GPU. This is
+    how the library is tested and how embedders that already produce vectors reuse
+    the index/ranking/disk cache. Callback mode stays **dense-only**: the encoder
+    returns one dense vector per text, ranking is the plain dense dot product, and
+    the disk cache records no sparse sidecar — byte-identical to the pre-hybrid
+    behavior. The two modes are selected structurally (which `RetrievalService`
+    constructor the library builds), so a callback can never be treated as a
+    hybrid encoder with an empty sparse half.
 * `program_path` points at the directory holding the backend modules
   (`luisa-vk.dll`, ...). `NULL`/`""` resolves to the current executable, which is
   what a plain executable would pass as `argv[0]`; a host that loads the library
@@ -94,6 +104,16 @@ not match the rule), `failed` (read/encode errors; the successfully indexed
 siblings are kept), `total_documents`, the canonical `root` and the normalized
 `extensions` rule that now governs it.
 
+The cache layout is `<root>/.lc_embed_cache.json` (per-file content hash, size,
+mtime, dimension, and `sparse_count` for hybrid entries),
+`<root>/.lc_embed_cache/<md5>.bin` (the dense embedding) and — hybrid entries only
+— `<root>/.lc_embed_cache/<md5>.sparse.bin` (the canonical sparse
+`(uint32 token_id, float weight)` pairs, 8 bytes each). In engine mode a hit needs
+both halves, so a directory indexed by an older dense-only build (no `sparse_count`,
+no sidecar) reports `cached = 0` on its first hybrid `load` while it is re-encoded
+and the sidecars are written. In callback mode no sidecar is ever written and the
+layout is exactly the pre-hybrid one.
+
 A root owns its rule and cannot be loaded twice or nested inside another loaded
 root; `unload` it first to change the rule. The root is canonicalized, so a path
 that does not exist or is not a directory is `EER_STATUS_INVALID_ARGUMENT`.
@@ -108,10 +128,20 @@ eer_status eer_query(eer_context *context, const char *utf8_text,
 
 Ranks every indexed document against the query text. The text is given as
 `(pointer, byte length)` and need not be NUL-terminated; `top_k == 0` selects
-`EER_DEFAULT_TOP_K` (5) and values above `EER_MAX_TOP_K` (100) are rejected.
-Dense embeddings are L2-normalized, so `eer_hit::score` is a cosine similarity in
-`[-1, 1]`; hits are sorted by descending score, ties broken by ascending canonical
-path. Querying an empty corpus, or an empty/blank text, is a recoverable
+`EER_DEFAULT_TOP_K` (5) and values above `EER_MAX_TOP_K` (100) are rejected. Hits
+are sorted by descending score, ties broken by ascending canonical path. The
+`eer_hit::score` field is one JSON/C `double` in both modes; only its meaning
+depends on the mode:
+
+* engine mode (hybrid): `0.7 * dense_cosine + 0.3 * sparse_cosine`. Dense vectors
+  are L2-normalized by the session, so their dot product is the cosine; the sparse
+  weights are canonicalized (duplicate token ids merged by a double-precision sum,
+  exact zeros dropped, sorted by token id, L2-normalized) so the sparse term is a
+  cosine in `[0, 1]`. The fused score is therefore in `[-0.7, 1]`.
+* callback mode (dense only): the unchanged dense dot product, a cosine in
+  `[-1, 1]`.
+
+Querying an empty corpus, or an empty/blank text, is a recoverable
 `EER_STATUS_OPERATIONAL` / `EER_STATUS_INVALID_ARGUMENT` — never "match
 everything".
 
@@ -153,6 +183,12 @@ Encodes one text without touching the index. Pass `embedding == NULL` with
 `embedding_capacity == 0` to query the dimension only. Useful to pre-compute
 query vectors, to check the model dimension, or to verify a host encoder.
 
+The output is always the dense vector only — the sparse lexical half is not
+exported through this entry point, so the contract is unchanged by hybrid
+retrieval. In engine mode the sparse head is not computed here (only the indexing
+and query paths that need the fused score enable it); in callback mode this simply
+forwards the host encoder.
+
 ### Host encoder (`callback mode`)
 
 ```c
@@ -167,6 +203,12 @@ Return `EER_ENCODE_OK` after writing `*embedding_dimension` finite floats, or
 retries once, up to 16384 floats) — anything else counts as a failed encode. The
 callback runs on the calling thread inside the index lock and must not re-enter
 the same context. Embeddings must have one consistent dimension per index.
+
+Callback mode is dense-only, and that is a hard boundary rather than a policy: the
+ABI exports no sparse weights, so the library builds the dense `RetrievalService`
+for it. Its scores, its cache files and its `eer_encode_text` output are exactly
+what they were before hybrid retrieval existed. To get hybrid ranking, use engine
+mode (or the executable) with a bge-m3 package.
 
 ## Memory ownership
 
@@ -345,6 +387,15 @@ It drives the library in callback mode with deterministic encoders and checks:
 * per-file encoder-failure accounting, and the host-encoder buffer retry plus its
   16384-float cap.
 
+Because the test stays in callback mode, it also pins the promise that hybrid
+retrieval did not change the dense path: the recorded rankings and exact scores of
+a host encoder are the pre-hybrid ones. Hybrid fusion itself (weighted dense +
+sparse cosine, sparse canonicalization, sidecar hit/miss/re-encode) is covered by
+the host-only `test_embed_retrieval_index`, which drives the same engine code with
+deterministic dense + sparse encoders.
+
 For a run against a real model, use the executable
 (`xmake run example_embed_retrieval --model ... --tokenizer ...`) or call
-`eer_context_create` in engine mode from your host.
+`eer_context_create` in engine mode from your host. Retrieval quality depends on
+the corpus and on the package precision (fp32 > bf16/fp16 > int8 for both halves);
+no fixed hit rate is promised.

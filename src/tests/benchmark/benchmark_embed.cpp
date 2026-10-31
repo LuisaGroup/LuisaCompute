@@ -383,9 +383,11 @@ void run_executor_bench(Device &device, const Options &opt, luisa::string_view b
 
     Stream stream = device.create_stream();
     luisa::embed::WeightStore weights{device, *package};
-    CommandList upload;
-    weights.record_upload(upload);
-    stream << std::move(upload).commit() << synchronize();
+        CommandList upload;
+        weights.record_upload(upload);
+        auto conversion_staging = weights.take_conversion_sources();
+        stream << std::move(upload).commit() << synchronize();
+        conversion_staging.sources.clear();
 
     Clock compile_clock;
     luisa::embed::Executor executor{device, weights, stream};

@@ -1,7 +1,11 @@
 // Test for embedding/embed/retrieval_index.h — host-only whole-file retrieval.
 // This test covers extension filtering, recursive discovery, deterministic dense
 // ranking, root ownership, exact-content incremental updates, deletion handling,
-// and per-file encode-failure rollback. No model, device, or backend is used.
+// and per-file encode-failure rollback. It also covers phase H1 hybrid retrieval:
+// 0.7/0.3 dense+sparse fusion, sparse canonicalization (sort/merge/normalize),
+// empty and malformed sparse vectors, and the hybrid disk-cache sidecar
+// (<md5>.sparse.bin) round trip, invalidation, and dense-mode compatibility.
+// No model, device, or backend is used.
 // Run: xmake run test_embed_retrieval_index
 #include "ut/ut.hpp"
 
@@ -11,8 +15,10 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <utility>
 
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
@@ -111,6 +117,147 @@ struct FakeEncoder {
         };
     }
 };
+
+// Hybrid fake encoder (phase H1): deterministic dense + sparse outputs keyed by
+// a keyword in the text, so the tests can predict the fused score exactly.
+//
+//   "query"    -> dense {1, 0, 0}           sparse {(10, 0.6), (20, 0.8)} (unit norm)
+//   "alpha"    -> dense {1, 0, 0}           sparse {(10, 1)}
+//   "beta"     -> dense {1, 0, 0}           sparse {(20, 1)}
+//   "gamma"    -> dense {0, 1, 0}           sparse {(20, 1)}
+//   "delta"    -> dense {0.5, 0.5, 0}       sparse {} (no lexical evidence)
+//   "dupquery" -> dense {1, 0, 0}           sparse {(5, 2), (5, 2), (9, 0)}
+//   "dupdoc"   -> dense {1, 0, 0}           sparse {(5, 1), (5, 3), (9, 0)}
+//   otherwise  -> dense {0, 0, 1}           sparse {}
+//
+// With `bad_weights` set (1 = negative, 2 = NaN, 3 = +Inf) any text containing
+// "bad" returns that malformed sparse weight instead.
+struct FakeHybridEncoder {
+    size_t calls{};
+    luisa::vector<luisa::string> inputs;
+    int bad_weights{};
+
+    [[nodiscard]] RetrievalEmbedding embedding_for(luisa::string_view text) const {
+        const auto contains = [text](luisa::string_view keyword) {
+            return text.find(keyword) != luisa::string_view::npos;
+        };
+        RetrievalEmbedding embedding;
+        if (bad_weights != 0 && contains("bad")) {
+            const auto weight = bad_weights == 1   ? -1.0f
+                                : bad_weights == 2 ? std::numeric_limits<float>::quiet_NaN()
+                                                   : std::numeric_limits<float>::infinity();
+            embedding.dense = {1.0f, 0.0f, 0.0f};
+            embedding.sparse = {{42u, 1.0f}, {7u, weight}};
+            return embedding;
+        }
+        if (contains("dupquery")) {
+            embedding.dense = {1.0f, 0.0f, 0.0f};
+            embedding.sparse = {{5u, 2.0f}, {9u, 0.0f}, {5u, 2.0f}};
+            return embedding;
+        }
+        if (contains("dupdoc")) {
+            embedding.dense = {1.0f, 0.0f, 0.0f};
+            embedding.sparse = {{5u, 1.0f}, {9u, 0.0f}, {5u, 3.0f}};
+            return embedding;
+        }
+        if (contains("query")) {
+            embedding.dense = {1.0f, 0.0f, 0.0f};
+            embedding.sparse = {{10u, 0.6f}, {20u, 0.8f}};
+            return embedding;
+        }
+        if (contains("alpha")) {
+            embedding.dense = {1.0f, 0.0f, 0.0f};
+            embedding.sparse = {{10u, 1.0f}};
+            return embedding;
+        }
+        if (contains("beta")) {
+            embedding.dense = {1.0f, 0.0f, 0.0f};
+            embedding.sparse = {{20u, 1.0f}};
+            return embedding;
+        }
+        if (contains("gamma")) {
+            embedding.dense = {0.0f, 1.0f, 0.0f};
+            embedding.sparse = {{20u, 1.0f}};
+            return embedding;
+        }
+        if (contains("delta")) {
+            embedding.dense = {0.5f, 0.5f, 0.0f};
+            return embedding;// empty sparse vector: valid, no lexical evidence
+        }
+        embedding.dense = {0.0f, 0.0f, 1.0f};
+        return embedding;
+    }
+
+    [[nodiscard]] RetrievalHybridEncodeCallback callback() {
+        return [this](luisa::string_view text) -> RetrievalEmbedding {
+            calls++;
+            inputs.emplace_back(text);
+            return embedding_for(text);
+        };
+    }
+
+    // Dense half only, for the dense-vs-hybrid comparisons and for the
+    // dense-only cache metadata tests.
+    [[nodiscard]] RetrievalEncodeCallback dense_callback() {
+        return [this](luisa::string_view text) -> luisa::vector<float> {
+            calls++;
+            inputs.emplace_back(text);
+            return embedding_for(text).dense;
+        };
+    }
+};
+
+[[nodiscard]] luisa::string read_text_file(const luisa::filesystem::path &path) {
+    std::ifstream stream{path, std::ios::binary | std::ios::ate};
+    if (!stream.is_open()) {
+        expect(false) << "cache artifact should be readable";
+        return {};
+    }
+    const auto end = stream.tellg();
+    if (end < 0) {
+        return {};
+    }
+    luisa::string text;
+    text.resize(static_cast<size_t>(end));
+    stream.seekg(0, std::ios::beg);
+    if (!text.empty()) {
+        stream.read(text.data(), static_cast<std::streamsize>(text.size()));
+    }
+    return text;
+}
+
+// Lists the dense (`<md5>.bin`, 36 chars) or sparse (`<md5>.sparse.bin`, 43
+// chars) cache artifacts, sorted by file name for deterministic comparison.
+[[nodiscard]] luisa::vector<luisa::filesystem::path> list_cache_files(
+    const luisa::filesystem::path &cache_dir, bool sparse) {
+    luisa::vector<luisa::filesystem::path> files;
+    std::error_code ec;
+    for (luisa::filesystem::directory_iterator it{cache_dir}, end; it != end; it.increment(ec)) {
+        if (ec) {
+            break;
+        }
+        const auto path = it->path();
+        const auto name = path.filename().string();
+        const bool is_sparse = name.ends_with(".sparse.bin");
+        if (is_sparse != sparse) {
+            continue;
+        }
+        if (name.size() == (is_sparse ? 43u : 36u)) {
+            files.push_back(path);
+        }
+    }
+    luisa::sort(files.begin(), files.end(), [](const auto &a, const auto &b) {
+        return a.filename().string() < b.filename().string();
+    });
+    return files;
+}
+
+[[nodiscard]] size_t file_bytes(const luisa::filesystem::path &path) {
+    std::error_code ec;
+    const auto bytes = luisa::filesystem::file_size(path, ec);
+    expect(!ec) << "cache artifact size should be readable";
+    return ec ? 0u : static_cast<size_t>(bytes);
+}
 
 void reg_extension_discovery() {
     "retrieval_index_extension_discovery"_test = [] {
@@ -567,6 +714,437 @@ void reg_embedding_validation() {
     };
 }
 
+// ---------------------------------------------------------------------------
+// Phase H1: hybrid dense + sparse retrieval
+// ---------------------------------------------------------------------------
+
+void reg_hybrid_fusion_ranking() {
+    "retrieval_index_hybrid_fusion_ranking"_test = [] {
+        TempDirectory temporary;
+        const auto root = temporary.path() / "root";
+        write_file(root / "alpha.txt", "alpha");
+        write_file(root / "beta.txt", "beta");
+        write_file(root / "gamma.txt", "gamma");
+        write_file(root / "delta.txt", "delta");
+        write_file(root / "dup_a.txt", "alpha");// ties with alpha.txt and dup_b.txt
+        write_file(root / "dup_b.txt", "alpha");
+
+        FakeHybridEncoder encoder;
+        RetrievalIndex index{encoder.callback()};
+        expect(index.hybrid()) << "the hybrid callback must select hybrid mode";
+        const auto loaded = index.load(root);
+        expect(loaded.status.ok());
+        expect(loaded.added == 6u && loaded.failed == 0u);
+        expect(encoder.calls == 6u);
+
+        // Query dense {1,0,0} / sparse {(10, 0.6), (20, 0.8)}.
+        // Predicted fused scores: beta 0.7*1 + 0.3*0.8 = 0.94,
+        // alpha 0.7*1 + 0.3*0.6 = 0.88, delta 0.7*0.5 = 0.35,
+        // gamma 0.7*0 + 0.3*0.8 = 0.24.
+        const auto result = index.query("query", 6u);
+        expect(result.status.ok());
+        expect(result.hits.size() == 6u);
+        if (result.hits.size() == 6u) {
+            const auto alpha = utf8_path(root / "alpha.txt");
+            const auto beta = utf8_path(root / "beta.txt");
+            // Sparse evidence moves beta above alpha; the three alpha documents
+            // keep their deterministic path tie-break.
+            expect(result.hits[0].path == beta);
+            expect(result.hits[1].path == alpha);
+            expect(result.hits[2].path == utf8_path(root / "dup_a.txt"));
+            expect(result.hits[3].path == utf8_path(root / "dup_b.txt"));
+            expect(result.hits[4].path == utf8_path(root / "delta.txt"));
+            expect(result.hits[5].path == utf8_path(root / "gamma.txt"));
+            expect(luisa::abs(result.hits[0].score - 0.94) < 1e-6);
+            expect(luisa::abs(result.hits[1].score - 0.88) < 1e-6);
+            expect(luisa::abs(result.hits[2].score - 0.88) < 1e-6);
+            expect(luisa::abs(result.hits[3].score - 0.88) < 1e-6);
+            // Dense-only document: the sparse term contributes exactly zero.
+            expect(luisa::abs(result.hits[4].score -
+                              kRetrievalDenseWeight * 0.5) < 1e-6);
+            // Sparse-only document: it has no dense overlap with the query.
+            expect(luisa::abs(result.hits[5].score -
+                              kRetrievalSparseWeight * 0.8) < 1e-6);
+        }
+        const auto top1 = index.query("query", 1u);
+        expect(top1.status.ok() && top1.hits.size() == 1u);
+        if (!top1.hits.empty()) {
+            expect(top1.hits.front().path == utf8_path(root / "beta.txt"));
+        }
+
+        // The same encoder restricted to its dense half must reproduce the old
+        // dense-only ranking (alpha first: the 1.0 tie breaks on the path).
+        FakeHybridEncoder dense_probe;
+        RetrievalIndex dense_index{dense_probe.dense_callback()};
+        expect(!dense_index.hybrid());
+        expect(dense_index.load(root).status.ok());
+        const auto dense_result = dense_index.query("query", 6u);
+        expect(dense_result.status.ok() && dense_result.hits.size() == 6u);
+        if (dense_result.hits.size() == 6u) {
+            expect(dense_result.hits[0].path == utf8_path(root / "alpha.txt"));
+            expect(dense_result.hits[1].path == utf8_path(root / "beta.txt"));
+            expect(luisa::abs(dense_result.hits[0].score - 1.0) < 1e-12);
+            expect(luisa::abs(dense_result.hits[1].score - 1.0) < 1e-12);
+            expect(luisa::abs(dense_result.hits[4].score - 0.5) < 1e-12);
+            expect(luisa::abs(dense_result.hits[5].score) < 1e-12);
+            expect(dense_result.hits[0].path != result.hits[0].path)
+                << "hybrid fusion must change the ranking of this corpus";
+        }
+    };
+}
+
+void reg_hybrid_sparse_canonicalization() {
+    "retrieval_index_hybrid_sparse_canonicalization"_test = [] {
+        // Sorting, duplicate merging (double sum), zero dropping, normalization.
+        luisa::vector<std::pair<uint32_t, float>> input{
+            {7u, 1.0f}, {5u, 1.0f}, {7u, 1.0f}, {11u, 0.0f}};
+        luisa::vector<std::pair<uint32_t, float>> canonical;
+        auto status = RetrievalIndex::canonicalize_sparse(
+            luisa::span<const std::pair<uint32_t, float>>{input.data(), input.size()}, canonical);
+        expect(status.ok());
+        expect(canonical.size() == 2u);
+        if (canonical.size() == 2u) {
+            expect(canonical[0].first == 5u && canonical[1].first == 7u)
+                << "canonical vectors are sorted by token id";
+            // {(5,1),(7,2)} / sqrt(5)
+            expect(luisa::abs(canonical[0].second - 0.4472136f) < 1e-6f);
+            expect(luisa::abs(canonical[1].second - 0.8944272f) < 1e-6f);
+        }
+        luisa::vector<std::pair<uint32_t, float>> again;
+        status = RetrievalIndex::canonicalize_sparse(
+            luisa::span<const std::pair<uint32_t, float>>{canonical.data(), canonical.size()}, again);
+        expect(status.ok() && again.size() == canonical.size());
+        for (size_t i = 0u; i < again.size() && i < canonical.size(); i++) {
+            expect(again[i].first == canonical[i].first) << "canonicalization is idempotent";
+            expect(luisa::abs(again[i].second - canonical[i].second) < 1e-6f);
+        }
+
+        // Empty and all-zero vectors are valid with norm zero.
+        luisa::vector<std::pair<uint32_t, float>> nothing;
+        status = RetrievalIndex::canonicalize_sparse(
+            luisa::span<const std::pair<uint32_t, float>>{}, nothing);
+        expect(status.ok() && nothing.empty());
+        luisa::vector<std::pair<uint32_t, float>> zeros{{1u, 0.0f}, {2u, 0.0f}};
+        luisa::vector<std::pair<uint32_t, float>> zero_canonical;
+        status = RetrievalIndex::canonicalize_sparse(
+            luisa::span<const std::pair<uint32_t, float>>{zeros.data(), zeros.size()},
+            zero_canonical);
+        expect(status.ok() && zero_canonical.empty());
+
+        // Malformed weights are recoverable errors.
+        const auto rejects = [&canonical](luisa::vector<std::pair<uint32_t, float>> raw) {
+            const auto rejected = RetrievalIndex::canonicalize_sparse(
+                luisa::span<const std::pair<uint32_t, float>>{raw.data(), raw.size()},
+                canonical);
+            return !rejected.ok() && rejected.code == RetrievalErrorCode::operational;
+        };
+        expect(rejects({{1u, -0.5f}})) << "negative weights are rejected";
+        expect(rejects({{1u, std::numeric_limits<float>::quiet_NaN()}}))
+            << "NaN weights are rejected";
+        expect(rejects({{1u, std::numeric_limits<float>::infinity()}}))
+            << "infinite weights are rejected";
+        expect(rejects({{1u, -std::numeric_limits<float>::infinity()}}))
+            << "negative infinite weights are rejected";
+        const auto huge = std::numeric_limits<float>::max();
+        expect(rejects({{1u, huge}, {1u, huge}}))
+            << "duplicate sums that overflow the weight range are rejected";
+
+        // Duplicate tokens collapse end to end: {(5,1),(5,3)} and {(5,2),(5,2)}
+        // are the same canonical vector, so the fusion hits its 1.0 ceiling.
+        TempDirectory temporary;
+        const auto root = temporary.path() / "root";
+        write_file(root / "dupdoc.txt", "dupdoc");
+        write_file(root / "other.txt", "gamma");
+        FakeHybridEncoder encoder;
+        RetrievalIndex index{encoder.callback()};
+        expect(index.load(root).status.ok());
+        const auto result = index.query("dupquery", 1u);
+        expect(result.status.ok() && result.hits.size() == 1u);
+        if (!result.hits.empty()) {
+            expect(result.hits.front().path == utf8_path(root / "dupdoc.txt"));
+            expect(luisa::abs(result.hits.front().score - 1.0) < 1e-6);
+        }
+    };
+}
+
+void reg_hybrid_sparse_failures_and_rollback() {
+    "retrieval_index_hybrid_sparse_failures"_test = [] {
+        // Malformed sparse weights are recoverable: the offending file fails and
+        // every sibling still indexes.
+        TempDirectory temporary;
+        const auto root = temporary.path() / "root";
+        const auto file = root / "good.txt";
+        write_file(file, "alpha");
+        write_file(root / "bad.txt", "bad negative");
+        FakeHybridEncoder encoder;
+        encoder.bad_weights = 1;// negative weight
+        RetrievalIndex index{encoder.callback()};
+        const auto loaded = index.load(root);
+        expect(loaded.status.ok());
+        expect(loaded.added == 1u && loaded.failed == 1u && loaded.total_documents == 1u);
+        expect(index.document_count() == 1u);
+
+        // A failed re-encode must keep the previously committed document whole
+        // (dense and sparse): the transaction is per file.
+        auto query = index.query("query", 2u);
+        expect(query.status.ok() && query.hits.size() == 1u);
+        if (!query.hits.empty()) {
+            expect(luisa::abs(query.hits.front().score - 0.88) < 1e-6);
+        }
+        write_file(file, "bad negative v2");
+        auto updated = index.update(file);
+        expect(updated.status.ok());
+        expect(updated.failed == 1u && updated.updated == 0u && updated.added == 0u);
+        expect(updated.total_documents == 1u);
+        query = index.query("query", 2u);
+        expect(query.status.ok() && query.hits.size() == 1u);
+        if (!query.hits.empty()) {
+            expect(query.hits.front().path == utf8_path(file));
+            expect(luisa::abs(query.hits.front().score - 0.88) < 1e-6)
+                << "a failed update must preserve the old dense + sparse embedding";
+        }
+
+        // NaN and +Inf weights fail the same way and leave the document intact.
+        const int bad_modes[] = {2, 3};
+        for (const auto mode : bad_modes) {
+            encoder.bad_weights = mode;
+            write_file(file, mode == 2 ? "bad nan" : "bad inf");
+            updated = index.update(file);
+            expect(updated.status.ok());
+            expect(updated.failed == 1u && updated.updated == 0u);
+            expect(index.document_count() == 1u);
+            query = index.query("query", 2u);
+            expect(query.status.ok() && query.hits.size() == 1u);
+            if (!query.hits.empty()) {
+                expect(luisa::abs(query.hits.front().score - 0.88) < 1e-6);
+            }
+        }
+
+        // Recovery: a clean encoder commits the new content.
+        encoder.bad_weights = 0;
+        write_file(file, "beta");
+        updated = index.update(file);
+        expect(updated.status.ok() && updated.updated == 1u && updated.failed == 0u);
+        query = index.query("beta", 1u);
+        expect(query.status.ok() && query.hits.size() == 1u);
+        if (!query.hits.empty()) {
+            expect(query.hits.front().path == utf8_path(file));
+            expect(luisa::abs(query.hits.front().score - 1.0) < 1e-6);
+        }
+    };
+}
+
+void reg_hybrid_disk_cache_roundtrip() {
+    "retrieval_index_hybrid_disk_cache_roundtrip"_test = [] {
+        TempDirectory temporary;
+        const auto root = temporary.path() / "root";
+        write_file(root / "a.txt", "alpha");
+        write_file(root / "nested" / "b.md", "beta");
+        write_file(root / "c.txt", "gamma");
+        write_file(root / "d.txt", "delta");// empty sparse vector -> zero-byte sidecar
+
+        luisa::vector<RetrievalHit> first_hits;
+        {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok());
+            expect(loaded.added == 4u && loaded.cached == 0u && loaded.failed == 0u);
+            expect(encoder.calls == 4u);
+            const auto result = index.query("query", 4u);
+            expect(result.status.ok() && result.hits.size() == 4u);
+            first_hits = result.hits;
+        }
+
+        const auto cache_dir = root / ".lc_embed_cache";
+        const auto dense_files = list_cache_files(cache_dir, false);
+        const auto sparse_files = list_cache_files(cache_dir, true);
+        expect(dense_files.size() == 4u);
+        expect(sparse_files.size() == 4u) << "one sparse sidecar per hybrid encode";
+        size_t empty_sidecars = 0u;
+        size_t sidecar_records = 0u;
+        for (const auto &path : sparse_files) {
+            const auto bytes = file_bytes(path);
+            if (bytes == 0u) {
+                empty_sidecars++;
+            } else {
+                expect(bytes % 8u == 0u) << "sidecars hold 8-byte records";
+                sidecar_records += bytes / 8u;
+            }
+        }
+        expect(empty_sidecars == 1u) << "the empty sparse vector has a zero-byte sidecar";
+        expect(sidecar_records == 3u) << "alpha/beta/gamma carry one pair each";
+        const auto meta = read_text_file(root / ".lc_embed_cache.json");
+        expect(meta.find("sparse_count") != luisa::string::npos)
+            << "hybrid metadata records the sidecar pair counts";
+
+        // Second load: every file is a hybrid hit and the encoder is untouched.
+        {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok());
+            expect(loaded.added == 4u && loaded.cached == 4u && loaded.failed == 0u);
+            expect(encoder.calls == 0u) << "hybrid hits require zero encoder calls";
+            const auto result = index.query("query", 4u);
+            expect(result.status.ok() && result.hits.size() == first_hits.size());
+            for (size_t i = 0u; i < result.hits.size() && i < first_hits.size(); i++) {
+                expect(result.hits[i].path == first_hits[i].path)
+                    << "hybrid ranking must survive the cache round trip";
+                expect(luisa::abs(result.hits[i].score - first_hits[i].score) < 1e-6);
+            }
+        }
+
+        // Collect the three non-empty sidecars (sorted by name) to invalidate one
+        // at a time: alpha, beta and gamma.
+        luisa::vector<luisa::filesystem::path> non_empty;
+        for (const auto &path : sparse_files) {
+            if (file_bytes(path) != 0u) {
+                non_empty.push_back(path);
+            }
+        }
+        expect(non_empty.size() == 3u);
+
+        const auto run_partial_load = [&root, &cache_dir](size_t expected_cached,
+                                                          size_t expected_calls) {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok() && loaded.failed == 0u);
+            expect(loaded.cached == expected_cached);
+            expect(encoder.calls == expected_calls);
+            expect(list_cache_files(cache_dir, false).size() == 4u)
+                << "dense .bin artifacts must not be added or removed";
+            expect(list_cache_files(cache_dir, true).size() == 4u)
+                << "every hybrid entry keeps a sidecar";
+            return index.query("query", 4u);
+        };
+
+        // Deleting a sparse sidecar forces a re-encode of both halves for that file.
+        if (non_empty.size() == 3u) {
+            std::error_code ec;
+            expect(luisa::filesystem::remove(non_empty[0], ec) && !ec);
+            const auto result = run_partial_load(3u, 1u);
+            expect(result.status.ok() && result.hits.size() == 4u);
+        }
+
+        // A corrupt (NaN) weight in an otherwise correctly sized sidecar is a miss.
+        if (non_empty.size() == 3u) {
+            const luisa::string garbage(8u, static_cast<char>(0xff));
+            write_file(non_empty[1], garbage);
+            const auto result = run_partial_load(3u, 1u);
+            expect(result.status.ok() && result.hits.size() == 4u);
+        }
+
+        // A truncated sidecar (size/count mismatch) is a miss as well.
+        if (non_empty.size() == 3u) {
+            write_file(non_empty[2], luisa::string_view{"\x01\x02\x03\x04", 4u});
+            const auto result = run_partial_load(3u, 1u);
+            expect(result.status.ok() && result.hits.size() == 4u);
+        }
+
+        // Everything was repaired along the way: the cache is fully warm again.
+        {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok() && loaded.cached == 4u && loaded.failed == 0u);
+            expect(encoder.calls == 0u);
+            const auto result = index.query("query", 4u);
+            expect(result.status.ok() && result.hits.size() == first_hits.size());
+            for (size_t i = 0u; i < result.hits.size() && i < first_hits.size(); i++) {
+                expect(result.hits[i].path == first_hits[i].path);
+                expect(luisa::abs(result.hits[i].score - first_hits[i].score) < 1e-6);
+            }
+        }
+    };
+}
+
+void reg_hybrid_cache_requires_sidecar() {
+    "retrieval_index_hybrid_cache_dense_only_metadata"_test = [] {
+        TempDirectory temporary;
+        const auto root = temporary.path() / "root";
+        write_file(root / "a.txt", "alpha");
+        write_file(root / "b.txt", "beta");
+        const auto cache_dir = root / ".lc_embed_cache";
+
+        // A dense-only import keeps the v1 layout: dense .bin files, no sidecars.
+        {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.dense_callback()};
+            index.set_embed_cache(&cache);
+            expect(index.load(root).status.ok());
+            expect(encoder.calls == 2u);
+        }
+        const auto dense_before = list_cache_files(cache_dir, false);
+        expect(dense_before.size() == 2u);
+        expect(list_cache_files(cache_dir, true).empty())
+            << "dense-only stores must never create sparse sidecars";
+        expect(read_text_file(root / ".lc_embed_cache.json").find("sparse_count") ==
+               luisa::string::npos);
+
+        // That v1 metadata stays a dense-mode hit.
+        {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.dense_callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok() && loaded.cached == 2u && loaded.failed == 0u);
+            expect(encoder.calls == 0u);
+        }
+
+        // Hybrid mode misses on it: the dense half alone is not a hybrid hit.
+        {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok());
+            expect(loaded.added == 2u && loaded.cached == 0u && loaded.failed == 0u);
+            expect(encoder.calls == 2u) << "a missing sparse sidecar forces a full re-encode";
+        }
+        const auto dense_after = list_cache_files(cache_dir, false);
+        expect(dense_after.size() == dense_before.size())
+            << "re-encoding must not change the number of dense .bin files";
+        for (size_t i = 0u; i < dense_after.size() && i < dense_before.size(); i++) {
+            expect(dense_after[i].filename().string() == dense_before[i].filename().string())
+                << "dense .bin names are the content MD5s and must be unchanged";
+        }
+        expect(list_cache_files(cache_dir, true).size() == 2u);
+
+        // With sidecars present both modes hit; dense loads ignore them.
+        {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.dense_callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok() && loaded.cached == 2u);
+            expect(encoder.calls == 0u);
+        }
+        {
+            DiskEmbedCache cache{nullptr};
+            FakeHybridEncoder encoder;
+            RetrievalIndex index{encoder.callback()};
+            index.set_embed_cache(&cache);
+            const auto loaded = index.load(root);
+            expect(loaded.status.ok() && loaded.cached == 2u);
+            expect(encoder.calls == 0u);
+        }
+    };
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -582,5 +1160,10 @@ int main(int argc, char *argv[]) {
     reg_embedding_validation();
     reg_disk_cache_roundtrip();
     reg_disk_cache_invalidation();
+    reg_hybrid_fusion_ranking();
+    reg_hybrid_sparse_canonicalization();
+    reg_hybrid_sparse_failures_and_rollback();
+    reg_hybrid_disk_cache_roundtrip();
+    reg_hybrid_cache_requires_sidecar();
     return 0;
 }

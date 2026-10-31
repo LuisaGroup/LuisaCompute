@@ -46,7 +46,13 @@ luisa::unique_ptr<Session> Session::create(Device &device,
                                            const std::filesystem::path &tokenizer_json,
                                            uint32_t num_workers) {
 
+    // The private ctor requires placement new in this member's access context.
+    // Match luisa::unique_ptr's allocator-backed default_delete in EASTL builds.
+#ifdef LUISA_USE_SYSTEM_STL
     auto session = luisa::unique_ptr<Session>{new Session{}};
+#else
+    auto session = luisa::unique_ptr<Session>{new (luisa::allocate_with_allocator<Session>()) Session{}};
+#endif
     session->_device = &device;
 
     session->_package = Package::load(bgm_package);

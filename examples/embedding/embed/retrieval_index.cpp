@@ -1,6 +1,7 @@
 // Host-side retrieval index implementation (retrieval plan phase 1): canonical
 // path ownership, deterministic discovery/ranking, and transactional incremental
-// updates with per-file failure isolation.
+// updates with per-file failure isolation. Phase H1 adds hybrid dense + sparse
+// lexical scoring (fused 0.7 / 0.3) on top of the unchanged dense path.
 
 #include "retrieval_index.h"
 
@@ -113,6 +114,9 @@ namespace {
 
 RetrievalIndex::RetrievalIndex(RetrievalEncodeCallback encode) noexcept
     : _encode_callback{std::move(encode)} {}
+
+RetrievalIndex::RetrievalIndex(RetrievalHybridEncodeCallback encode) noexcept
+    : _hybrid_encode_callback{std::move(encode)}, _hybrid{true} {}
 
 luisa::vector<luisa::string> RetrievalIndex::default_extensions() {
     return {".txt", ".md"};
@@ -393,30 +397,163 @@ const RetrievalIndex::RootRecord *RetrievalIndex::_find_owning_root(
     return nullptr;
 }
 
-RetrievalStatus RetrievalIndex::_encode(
-    luisa::string_view text,
-    luisa::vector<float> &embedding) const {
-    if (!_encode_callback) {
-        return make_error(RetrievalErrorCode::operational,
-                          "no embedding encoder is configured");
+RetrievalStatus RetrievalIndex::canonicalize_sparse(
+    luisa::span<const std::pair<uint32_t, float>> input,
+    luisa::vector<std::pair<uint32_t, float>> &output) {
+    luisa::vector<std::pair<uint32_t, float>> entries;
+    entries.reserve(input.size());
+    for (const auto &entry : input) {
+        const auto weight = entry.second;
+        if (!std::isfinite(weight)) {
+            return make_error(RetrievalErrorCode::operational,
+                              luisa::format("sparse embedding contains a non-finite weight for token {}",
+                                            entry.first));
+        }
+        if (weight < 0.0f) {
+            return make_error(RetrievalErrorCode::operational,
+                              luisa::format("sparse embedding contains a negative weight {} for token {}",
+                                            weight, entry.first));
+        }
+        if (weight == 0.0f) {
+            continue;// exact zeros carry no lexical evidence
+        }
+        entries.emplace_back(entry.first, weight);
     }
-    auto candidate = _encode_callback(text);
-    if (candidate.empty()) {
+    // Sort by token id (weight as a tie-break so duplicate merging below is
+    // order-canonical, hence deterministic).
+    luisa::sort(entries.begin(), entries.end(), [](const auto &a, const auto &b) {
+        if (a.first != b.first) {
+            return a.first < b.first;
+        }
+        return a.second < b.second;
+    });
+    luisa::vector<std::pair<uint32_t, float>> merged;
+    merged.reserve(entries.size());
+    double squared_norm = 0.0;
+    size_t index = 0u;
+    while (index < entries.size()) {
+        const auto token = entries[index].first;
+        double sum = 0.0;
+        size_t next = index;
+        while (next < entries.size() && entries[next].first == token) {
+            sum += static_cast<double>(entries[next].second);
+            next++;
+        }
+        if (!std::isfinite(sum)) {
+            return make_error(RetrievalErrorCode::operational,
+                              luisa::format("sparse embedding weight sum for token {} is not finite",
+                                            token));
+        }
+        const auto combined = static_cast<float>(sum);
+        if (!std::isfinite(combined)) {
+            return make_error(RetrievalErrorCode::operational,
+                              luisa::format("sparse embedding weight sum for token {} is not representable",
+                                            token));
+        }
+        if (combined > 0.0f) {// also drops sums that underflowed to zero
+            merged.emplace_back(token, combined);
+            squared_norm += static_cast<double>(combined) * static_cast<double>(combined);
+        }
+        index = next;
+    }
+    if (merged.empty()) {
+        // Empty / all-zero input: a valid sparse vector with norm zero.
+        output.clear();
+        return {};
+    }
+    if (!std::isfinite(squared_norm) || !(squared_norm > 0.0)) {
+        return make_error(RetrievalErrorCode::operational,
+                          "sparse embedding norm is not finite or not positive");
+    }
+    const auto scale = 1.0 / std::sqrt(squared_norm);
+    for (auto &entry : merged) {
+        entry.second = static_cast<float>(static_cast<double>(entry.second) * scale);
+    }
+    output = std::move(merged);
+    return {};
+}
+
+double RetrievalIndex::_sparse_dot(
+    luisa::span<const std::pair<uint32_t, float>> lhs,
+    luisa::span<const std::pair<uint32_t, float>> rhs) noexcept {
+    double dot = 0.0;
+    size_t i = 0u;
+    size_t j = 0u;
+    while (i < lhs.size() && j < rhs.size()) {
+        if (lhs[i].first < rhs[j].first) {
+            i++;
+        } else if (rhs[j].first < lhs[i].first) {
+            j++;
+        } else {
+            dot += static_cast<double>(lhs[i].second) *
+                   static_cast<double>(rhs[j].second);
+            i++;
+            j++;
+        }
+    }
+    return dot;
+}
+
+RetrievalStatus RetrievalIndex::_validate_dense(
+    luisa::span<const float> dense) const {
+    if (dense.empty()) {
         return make_error(RetrievalErrorCode::operational,
                           "encoder returned an empty dense embedding");
     }
-    if (_dimension != 0u && candidate.size() != _dimension) {
+    if (_dimension != 0u && dense.size() != _dimension) {
         return make_error(RetrievalErrorCode::operational,
                           luisa::format("embedding dimension {} does not match index dimension {}",
-                                        candidate.size(), _dimension));
+                                        dense.size(), _dimension));
     }
-    for (const auto value : candidate) {
+    for (const auto value : dense) {
         if (!std::isfinite(value)) {
             return make_error(RetrievalErrorCode::operational,
                               "encoder returned a non-finite dense embedding");
         }
     }
-    embedding = std::move(candidate);
+    return {};
+}
+
+RetrievalStatus RetrievalIndex::_encode(
+    luisa::string_view text,
+    RetrievalEmbedding &embedding) const {
+    if (_hybrid) {
+        if (!_hybrid_encode_callback) {
+            return make_error(RetrievalErrorCode::operational,
+                              "no embedding encoder is configured");
+        }
+        auto candidate = _hybrid_encode_callback(text);
+        auto status = _validate_dense(
+            luisa::span<const float>{candidate.dense.data(), candidate.dense.size()});
+        if (!status.ok()) {
+            return status;
+        }
+        luisa::vector<std::pair<uint32_t, float>> sparse;
+        status = canonicalize_sparse(
+            luisa::span<const std::pair<uint32_t, float>>{candidate.sparse.data(),
+                                                          candidate.sparse.size()},
+            sparse);
+        if (!status.ok()) {
+            // Negative / non-finite sparse weights are recoverable encoder errors:
+            // the caller keeps the previous document (see _apply_file).
+            return status;
+        }
+        embedding.dense = std::move(candidate.dense);
+        embedding.sparse = std::move(sparse);
+        return {};
+    }
+    if (!_encode_callback) {
+        return make_error(RetrievalErrorCode::operational,
+                          "no embedding encoder is configured");
+    }
+    auto candidate = _encode_callback(text);
+    auto status = _validate_dense(
+        luisa::span<const float>{candidate.data(), candidate.size()});
+    if (!status.ok()) {
+        return status;
+    }
+    embedding.dense = std::move(candidate);
+    embedding.sparse.clear();
     return {};
 }
 
@@ -443,22 +580,58 @@ RetrievalStatus RetrievalIndex::_apply_file(
         outcome = FileOutcome::unchanged;
         return {};
     }
-    luisa::vector<float> embedding;
-    if (_embed_cache != nullptr && _embed_cache->load(display, contents, embedding) &&
-        (_dimension == 0u || embedding.size() == _dimension) &&
-        std::ranges::all_of(embedding, [](const float v) { return std::isfinite(v); })) {
-        // Served from the disk cache: the encoder stays untouched.
-        cache_hit = true;
-    } else {
-        embedding.clear();
+    RetrievalEmbedding embedding;
+    bool served_from_cache = false;
+    if (_embed_cache != nullptr) {
+        luisa::vector<float> dense;
+        if (_embed_cache->load(display, contents, dense) &&
+            (_dimension == 0u || dense.size() == _dimension) &&
+            std::ranges::all_of(dense, [](const float v) { return std::isfinite(v); })) {
+            if (!_hybrid) {
+                // Dense-only: the cached dense vector is the whole entry.
+                embedding.dense = std::move(dense);
+                served_from_cache = true;
+            } else {
+                // Hybrid: the hit needs BOTH the dense record and a valid sparse
+                // sidecar; otherwise both halves are re-encoded below.
+                luisa::vector<std::pair<uint32_t, float>> sparse;
+                luisa::vector<std::pair<uint32_t, float>> canonical;
+                const bool sparse_hit =
+                    _embed_cache->load_sparse(display, contents, sparse) &&
+                    canonicalize_sparse(
+                        luisa::span<const std::pair<uint32_t, float>>{sparse.data(),
+                                                                     sparse.size()},
+                        canonical)
+                        .ok();
+                if (sparse_hit) {
+                    embedding.dense = std::move(dense);
+                    embedding.sparse = std::move(canonical);
+                    served_from_cache = true;
+                }
+            }
+        }
+    }
+    if (!served_from_cache) {
+        embedding = RetrievalEmbedding{};
         status = _encode(contents, embedding);
         if (!status.ok()) {
             return status;
         }
         if (_embed_cache != nullptr) {
-            _embed_cache->store(display, contents, embedding);
+            _embed_cache->store(
+                display, contents,
+                luisa::span<const float>{embedding.dense.data(), embedding.dense.size()});
+            if (_hybrid) {
+                // Sidecars are only ever written after a successful hybrid encode,
+                // so dense-only operation keeps the cache layout untouched.
+                _embed_cache->store_sparse(
+                    display, contents,
+                    luisa::span<const std::pair<uint32_t, float>>{embedding.sparse.data(),
+                                                                  embedding.sparse.size()});
+            }
         }
     }
+    cache_hit = served_from_cache;
     DocumentRecord document;
     document.path = display;
     document.comparison_path = comparison;
@@ -467,7 +640,7 @@ RetrievalStatus RetrievalIndex::_apply_file(
     document.text = std::move(contents);
     document.embedding = std::move(embedding);
     if (_dimension == 0u) {
-        _dimension = document.embedding.size();
+        _dimension = document.embedding.dense.size();
     }
     if (existing == _documents.end()) {
         _documents.emplace(key, std::move(document));
@@ -822,7 +995,7 @@ RetrievalQueryResult RetrievalIndex::query(luisa::string_view text, uint32_t top
                                    "cannot query an empty document corpus");
         return result;
     }
-    luisa::vector<float> query_embedding;
+    RetrievalEmbedding query_embedding;
     auto status = _encode(text, query_embedding);
     if (!status.ok()) {
         result.status = std::move(status);
@@ -831,16 +1004,28 @@ RetrievalQueryResult RetrievalIndex::query(luisa::string_view text, uint32_t top
     result.hits.reserve(_documents.size());
     for (const auto &entry : _documents) {
         const auto &document = entry.second;
-        if (document.embedding.size() != query_embedding.size()) {
+        if (document.embedding.dense.size() != query_embedding.dense.size()) {
             result.status = make_error(RetrievalErrorCode::operational,
                                        "index contains inconsistent embedding dimensions");
             result.hits.clear();
             return result;
         }
+        // Dense term: identical arithmetic to the dense-only index, so dense-mode
+        // scores stay bit-for-bit what they were.
         double score = 0.0;
-        for (size_t i = 0u; i < query_embedding.size(); i++) {
-            score += static_cast<double>(query_embedding[i]) *
-                     static_cast<double>(document.embedding[i]);
+        for (size_t i = 0u; i < query_embedding.dense.size(); i++) {
+            score += static_cast<double>(query_embedding.dense[i]) *
+                     static_cast<double>(document.embedding.dense[i]);
+        }
+        if (_hybrid) {
+            // Sparse term: two-pointer cosine over canonical vectors (both norms
+            // are 1), fused with the dense dot per phase H1.
+            const auto cosine = _sparse_dot(
+                luisa::span<const std::pair<uint32_t, float>>{query_embedding.sparse.data(),
+                                                              query_embedding.sparse.size()},
+                luisa::span<const std::pair<uint32_t, float>>{document.embedding.sparse.data(),
+                                                              document.embedding.sparse.size()});
+            score = kRetrievalDenseWeight * score + kRetrievalSparseWeight * cosine;
         }
         result.hits.push_back(RetrievalHit{document.display_path, score});
     }

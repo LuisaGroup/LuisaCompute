@@ -5,7 +5,9 @@
 // engine's path/string types, runs one engine step, and copies the result back
 // into caller-owned C structs. The engine sources are untouched; the steps
 // mirror example_embed_retrieval.cpp (load/unload/query/update) and add a
-// host-encoder mode that runs without a GPU.
+// host-encoder mode that runs without a GPU. Engine mode scores hybrid
+// (0.7 * dense dot + 0.3 * sparse cosine, phase H2); callback mode stays
+// dense-only because the host encoder supplies a dense vector only.
 
 #include "example_embed_retrieval_lib.h"
 
@@ -13,6 +15,7 @@
 #include <cstring>
 #include <system_error>
 
+#include <luisa/core/fiber.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/format.h>
@@ -37,6 +40,9 @@ struct eer_context {
     uint64_t magic{live_magic};
     luisa::unique_ptr<luisa::compute::Context> context;
     luisa::unique_ptr<luisa::compute::Device> device;
+    // Engine mode binds a fiber scheduler for Session's worker pool. Declared
+    // before session so the session is destroyed first (reverse member order).
+    luisa::unique_ptr<luisa::fiber::scheduler> fiber_scheduler;
     luisa::unique_ptr<luisa::embed::Session> session;
     luisa::unique_ptr<luisa::embed::DiskEmbedCache> disk_cache;
     luisa::unique_ptr<luisa::embed::RetrievalService> service;
@@ -180,12 +186,47 @@ constexpr char kVersionString[] =
     return embedding;
 }
 
-// The single encoder the index sees: the host callback in callback mode, the
-// model session otherwise.
+// The single dense encoder the public C ABI sees: the host callback in callback
+// mode, the model session otherwise. eer_encode_text keeps calling this, so its
+// dense-only output contract is unchanged by hybrid retrieval.
 [[nodiscard]] luisa::vector<float> encode_text(eer_context *context, string_view text) {
     if (context->encode_fn != nullptr) { return encode_with_host_callback(context, text); }
     auto embedding = context->session->encode(text);
     return std::move(embedding.dense);
+}
+
+// Model-backed dense + sparse encode (retrieval plan phase H2). Only ever used
+// in engine mode, where a Session exists: the sparse head is switched on and both
+// halves are moved into the retrieval embedding.
+[[nodiscard]] embed::RetrievalEmbedding encode_hybrid_text(eer_context *context, string_view text) {
+    embed::EncodeOptions options;
+    options.want_sparse = true;
+    auto encoded = context->session->encode(text, options);
+    embed::RetrievalEmbedding embedding;
+    embedding.dense = std::move(encoded.dense);
+    embedding.sparse = std::move(encoded.sparse);
+    return embedding;
+}
+
+// Dense-only service (callback mode, unchanged behavior): the host encoder
+// produces one dense vector per text and the index scores by plain dense dot
+// product. Wrapping the encoder in RetrievalEncodeCallback pins the dense
+// RetrievalService constructor, so an empty-sparse host callback can never be
+// mistaken for a hybrid encoder.
+[[nodiscard]] luisa::unique_ptr<embed::RetrievalService> make_dense_service(eer_context *context) {
+    return luisa::make_unique<embed::RetrievalService>(
+        embed::RetrievalEncodeCallback{[context](string_view text) {
+            return encode_text(context, text);
+        }});
+}
+
+// Hybrid service (engine mode, phase H2): scores are
+// kRetrievalDenseWeight * dense dot + kRetrievalSparseWeight * sparse cosine.
+[[nodiscard]] luisa::unique_ptr<embed::RetrievalService> make_hybrid_service(eer_context *context) {
+    return luisa::make_unique<embed::RetrievalService>(
+        embed::RetrievalHybridEncodeCallback{[context](string_view text) {
+            return encode_hybrid_text(context, text);
+        }});
 }
 
 }// namespace
@@ -272,6 +313,7 @@ eer_status eer_context_create(const eer_create_info *info,
         }
         context->backend_name = string{backend};
         context->device = luisa::make_unique<Device>(std::move(device));
+        context->fiber_scheduler = luisa::make_unique<luisa::fiber::scheduler>();
         context->session = embed::Session::create(
             *context->device, model_path, tokenizer_path, worker_count);
         if (context->session == nullptr) {
@@ -288,10 +330,11 @@ eer_status eer_context_create(const eer_create_info *info,
         }
     }
 
-    context->service = luisa::make_unique<embed::RetrievalService>(
-        [context = context.get()](string_view text) {
-            return encode_text(context, text);
-        });
+    // Encoder selection is structural, not data driven (retrieval plan phase H2):
+    // callback mode always builds the dense-only service, engine mode always builds
+    // the hybrid one (dense + BGE-M3 sparse lexical weights).
+    context->service = context->encode_fn == nullptr ? make_hybrid_service(context.get()) :
+                                                       make_dense_service(context.get());
 
     if (want_disk_cache) {
         // A null device selects the host-only cache path, which is what

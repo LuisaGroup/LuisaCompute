@@ -392,9 +392,13 @@ Tokenizer::~Tokenizer() = default;
 
 luisa::unique_ptr<Tokenizer> Tokenizer::load(const std::filesystem::path &tokenizer_json) {
 
-    // private ctor: constructed via the friend-context of load() only
-    // (std::make_unique would instantiate outside the class's access).
-    auto tkn = luisa::unique_ptr<Tokenizer>{new Tokenizer()};
+    // The private ctor requires placement new in this member's access context.
+    // Match luisa::unique_ptr's allocator-backed default_delete in EASTL builds.
+#ifdef LUISA_USE_SYSTEM_STL
+    auto tkn = luisa::unique_ptr<Tokenizer>{new Tokenizer{}};
+#else
+    auto tkn = luisa::unique_ptr<Tokenizer>{new (luisa::allocate_with_allocator<Tokenizer>()) Tokenizer{}};
+#endif
     auto impl = luisa::make_unique<Impl>();
 
     yyjson_read_err rerr;

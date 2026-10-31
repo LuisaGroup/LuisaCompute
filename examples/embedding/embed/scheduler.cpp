@@ -125,7 +125,7 @@ bool b1_readback_barrier_enabled() noexcept {
 }
 }// namespace
 
-Scheduler::Scheduler(Device &device, const WeightStore &weights, const SchedulerConfig &cfg) noexcept
+Scheduler::Scheduler(Device &device, WeightStore &weights, const SchedulerConfig &cfg) noexcept
     : _device{device}, _weights{weights}, _cfg{cfg} {
 
     if (_cfg.num_workers == 0u) {
@@ -137,9 +137,23 @@ Scheduler::Scheduler(Device &device, const WeightStore &weights, const Scheduler
     // this, weights are read-only and the common case stays event-free.
     _weights_ready = _device.create_timeline_event();
     _init_stream = _device.create_stream(compute::StreamTag::COMPUTE);
+    // Phase 1b staging (see scheduler.h): a v1 fp32 package with a bf16/fp16
+    // request packs its GEMM matrices on the device, which needs a transient fp32
+    // copy of each. Those copies are handed to THIS object so they can be freed
+    // as soon as the conversion retires; keeping them in the WeightStore would
+    // pin ~1.1 GiB of fp32 weights for the whole session, and freeing them from a
+    // backend callback would not order against the init stream. Empty (and
+    // therefore free of cost) on every other package/toggle combination.
+    WeightStore::ConversionStaging staging;
     {
         auto cl = CommandList::create();
         _weights.record_upload(cl);
+        // Take ownership AFTER the recording (its pack bookkeeping borrows from
+        // the staging vector) and BEFORE the submission, so no command the init
+        // stream executes can outlive the store's ownership of the copies. Uses
+        // the (non-const) parameter, not the const _weights reference: the
+        // handoff is a construction-time mutation of the store's access.
+        staging = weights.take_conversion_sources();
         _init_stream << cl.commit();
     }
     _init_stream << _weights_ready.signal(1u);
@@ -155,6 +169,23 @@ Scheduler::Scheduler(Device &device, const WeightStore &weights, const Scheduler
         worker.done_ev = _device.create_event();
         worker.stream << _weights_ready.wait(1u);
         worker.executor = luisa::make_unique<Executor>(_device, _weights, worker.stream);
+    }
+
+    // The conversion (upload + pack dispatches) must be fully retired before the
+    // staging copies die. Doing it HERE -- after every Executor has compiled --
+    // makes the shader compilation overlap the GPU upload/conversion instead of
+    // serialising behind it, and it is the one explicit init-stream synchronize
+    // in this constructor: a session that converts nothing skips it entirely
+    // (nothing was handed over), so the common start-up path is unchanged.
+    if (!staging.empty()) {
+        _init_stream.synchronize();
+        LUISA_INFO("embedding scheduler: released {:.1f} MiB of transient fp32 conversion staging "
+                   "({} buffers) after the pack dispatches retired; the packed half-precision "
+                   "destinations stay resident.",
+                   static_cast<double>(staging.bytes) / (1024.0 * 1024.0), staging.sources.size());
+        // Explicit release: the fp32 copies go back to the allocator now, while
+        // the packed destinations (owned by the WeightStore) live on.
+        staging.sources.clear();
     }
 
     _dispatcher = luisa::fiber::async([this] { _dispatch_loop(); });

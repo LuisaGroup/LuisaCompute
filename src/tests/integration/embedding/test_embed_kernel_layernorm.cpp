@@ -38,9 +38,26 @@
 //   xmake run -o build/embed_a3 test_embed_kernel_layernorm dx
 //   xmake run -o build/embed_a3 test_embed_kernel_layernorm fallback
 //   (vk likewise; CI gate: dx + fallback)
+//
+// Opt plan C3: `residual_layernorm` (kernels_norm.h) is the fused replacement for
+// the `residual_add` -> `layernorm` pair the executor issues twice per encoder
+// layer. It is gated against the legacy PAIR on device with an explicit ABSOLUTE
+// tolerance of 1e-5 (kFusedAbsTol in check_residual_layernorm()), NOT with
+// bit-identity: the fused kernel preserves the pair's reduction order (same fp32
+// residual value cached in shared memory instead of materialized in global, same
+// per-thread strided accumulation order, same shared-halving reduction tree),
+// but emitting that sequence as one kernel instead of two lets dx re-emit the
+// rounding -- measured ~1-ULP differences (pair -0.13910183 vs fused
+// -0.13910185), so bit-exact agreement is not a property of the fusion and is
+// not asserted here. The check reports max_abs_diff separately for the
+// separate-out and the aliased-out case and fails above 1e-5. Shapes: ragged
+// H <= kResidualNormMaxHidden (the shared-cache contract) x rows {1, 3, 257},
+// with a separate out buffer AND with out aliasing `a`. See
+// check_residual_layernorm().
 #include "ut/ut.hpp"
 #include "test_device.h"
 
+#include "embedding/embed/kernels/kernels_gemm.h"
 #include "embedding/embed/kernels/kernels_norm.h"
 #include "embedding/embed/kernels/kernels_norm_vec.h"
 
@@ -544,6 +561,163 @@ void check_residual_add_vec4(Device &device, Stream &stream, Parity &parity) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Opt plan C3: fused residual_add + layernorm (`make_residual_layernorm_kernel`)
+// against the legacy residual_add -> layernorm PAIR, both on device.
+//
+// Gate: absolute tolerance kFusedAbsTol = 1e-5, twice per shape -- once with a
+// separate `out` buffer, once with `out` aliasing `a`. The tolerance is explicit
+// because bit-identity is NOT a property of the fusion: the fused kernel
+// recomputes the identical fp32 residual `a + b`, caches the row in
+// Shared<float>, and then replays make_layernorm_kernel()'s exact three passes /
+// strided accumulation order / shared-halving reduction order, yet one kernel
+// instead of two lets dx re-emit the rounding (~1 ULP: ref -0.13910183 vs fused
+// -0.13910185). What the gate does pin is that the fusion is a rounding-level
+// substitution and not a numerical change: max_abs_diff for the separate and the
+// aliased case is reported per shape and any deviation above 1e-5 fails.
+//
+// H sweep stays inside the shared-cache contract kResidualNormMaxHidden (=1024,
+// checked with residual_layernorm_supported()): {1, 2, 3} are far below the
+// 256-thread block (idle threads must contribute 0 and the cache indices must
+// still line up), {255, 256, 257} straddle the block boundary (last idle lane,
+// exact fit, first thread that needs a second strided iteration), {300}
+// overlaps the block by 44 lanes, {1023, 1024} pin both sides of the cache size.
+// rows {1, 3, 257}: one row, a few rows, and a row count whose launch spans
+// several blocks per row-group. Aliasing (`out == a`) is exercised even though
+// neither executor site aliases: it is exactly the property that lets the kernel
+// cache the residual instead of re-reading it, so this is where it is pinned.
+void check_residual_layernorm(Device &device, Stream &stream, Parity &parity) {
+    static constexpr uint32_t kH[] = {1u, 2u, 3u, 255u, 256u, 257u, 300u, 1023u, 1024u};
+    static constexpr uint32_t kRows[] = {1u, 3u, 257u};
+    constexpr float kEps = 1e-5f;// bge-m3 layer_norm_eps (config.json)
+    // Focused fused-vs-legacy gate. Explicitly ABSOLUTE (not ULP-relative, not
+    // bit-identity): the fusion keeps the pair's reduction order but not its
+    // per-kernel rounding, and dx lands ~1 ULP away from the two-kernel form.
+    constexpr float kFusedAbsTol = 1e-5f;
+
+    auto fused = device.compile(make_residual_layernorm_kernel());
+    auto residual = device.compile(make_residual_add_kernel());
+    auto ln = device.compile(make_layernorm_kernel());
+
+    for (const uint32_t h : kH) {
+        if (!residual_layernorm_supported(h)) {
+            // A sweep entry outside the contract is a test bug; fail loudly
+            // rather than dispatch a kernel that cannot serve the shape.
+            LUISA_WARNING("residual_layernorm: H={} is outside the shared-cache contract "
+                          "(kResidualNormMaxHidden={})",
+                          h, kResidualNormMaxHidden);
+            parity.cases++;
+            parity.failures++;
+            continue;
+        }
+        for (const uint32_t rows : kRows) {
+            const size_t count = static_cast<size_t>(rows) * h;
+            const uint32_t count32 = rows * h;// residual_add takes a uint element count
+
+            Lcg rng{};
+            rng.state = 0x4C330000u ^ (h << 8u) ^ rows;
+            luisa::vector<float> a(count);
+            luisa::vector<float> b(count);
+            for (size_t i = 0; i < count; i++) {
+                a[i] = rng.uniform(-1.f, 1.f);
+                b[i] = rng.uniform(-1.f, 1.f);
+            }
+            luisa::vector<float> gamma(h);
+            for (auto &f : gamma) {
+                f = rng.uniform(0.5f, 1.5f);
+            }
+            luisa::vector<float> beta(h);
+            for (auto &f : beta) {
+                f = rng.uniform(-0.5f, 0.5f);
+            }
+
+            auto a_buf = device.create_buffer<float>(count);
+            auto a_alias_buf = device.create_buffer<float>(count);// out aliases this
+            auto b_buf = device.create_buffer<float>(count);
+            auto g_buf = device.create_buffer<float>(h);
+            auto bb_buf = device.create_buffer<float>(h);
+            auto res_buf = device.create_buffer<float>(count);// legacy residual plane
+            auto ref_buf = device.create_buffer<float>(count);// legacy LN out
+            auto got_buf = device.create_buffer<float>(count);// fused, separate out
+
+            luisa::vector<float> ref(count, 0.f);
+            luisa::vector<float> got(count, 0.f);
+            luisa::vector<float> aliased(count, 0.f);
+
+            stream << a_buf.copy_from(luisa::span{a})
+                   << a_alias_buf.copy_from(luisa::span{a})
+                   << b_buf.copy_from(luisa::span{b})
+                   << g_buf.copy_from(luisa::span{gamma})
+                   << bb_buf.copy_from(luisa::span{beta})
+                   // legacy pair: residual_add materializes a+b, layernorm reads it
+                   << residual(a_buf.view(), b_buf.view(), res_buf.view(), count32)
+                          .dispatch(count32)// TOTAL threads, block 256
+                   << ln(res_buf.view(), ref_buf.view(), g_buf.view(), bb_buf.view(), h, kEps)
+                          .dispatch(rows * kNormBlock)// one block per row
+                   // fused: separate out buffer
+                   << fused(a_buf.view(), b_buf.view(), got_buf.view(), g_buf.view(),
+                            bb_buf.view(), h, kEps)
+                          .dispatch(rows * kNormBlock)// TOTAL threads, block per row
+                   // fused: out aliases a
+                   << fused(a_alias_buf.view(), b_buf.view(), a_alias_buf.view(),
+                            g_buf.view(), bb_buf.view(), h, kEps)
+                          .dispatch(rows * kNormBlock)
+                   << ref_buf.copy_to(luisa::span{ref})
+                   << got_buf.copy_to(luisa::span{got})
+                   << a_alias_buf.copy_to(luisa::span{aliased})
+                   << synchronize();
+
+            // Absolute deviation from the legacy pair, tracked per routing so a
+            // regression that grows the ~1-ULP dx gap shows up in the log even
+            // while it stays under kFusedAbsTol.
+            float max_sep = 0.f;
+            float max_alias = 0.f;
+            uint32_t bad_sep = 0u;
+            uint32_t bad_alias = 0u;
+            for (size_t i = 0; i < count; i++) {
+                const float d_sep = std::abs(got[i] - ref[i]);
+                const float d_alias = std::abs(aliased[i] - ref[i]);
+                if (d_sep > max_sep) {
+                    max_sep = d_sep;
+                }
+                if (d_alias > max_alias) {
+                    max_alias = d_alias;
+                }
+                if (!(d_sep <= kFusedAbsTol)) {
+                    bad_sep++;
+                }
+                if (!(d_alias <= kFusedAbsTol)) {
+                    bad_alias++;
+                }
+            }
+            LUISA_INFO("residual_layernorm rows={} H={}: max_abs_diff separate_out={:.3e} "
+                       "alias_a={:.3e} (tol {:.1e}); bad separate_out={} alias_a={} of {}",
+                       rows, h, max_sep, max_alias, kFusedAbsTol, bad_sep, bad_alias, count);
+            if (bad_sep != 0u || bad_alias != 0u) {
+                uint32_t shown = 0u;
+                for (size_t i = 0; i < count && shown < 4u; i++) {
+                    const float d_sep = std::abs(got[i] - ref[i]);
+                    const float d_alias = std::abs(aliased[i] - ref[i]);
+                    if (!(d_sep <= kFusedAbsTol) || !(d_alias <= kFusedAbsTol)) {
+                        LUISA_WARNING("residual_layernorm rows={} H={} idx {}: ref {} got {} "
+                                      "(|diff|={:.3e}) aliased {} (|diff|={:.3e})",
+                                      rows, h, i, ref[i], got[i], d_sep, aliased[i], d_alias);
+                        shown++;
+                    }
+                }
+            }
+            parity.cases++;
+            parity.failures += bad_sep + bad_alias;
+            const float worst = max_sep > max_alias ? max_sep : max_alias;
+            if (worst > parity.worst_abs_diff) {
+                parity.worst_abs_diff = worst;
+                parity.worst_h = h;
+                parity.worst_kernel = "residual_layernorm";
+            }
+        }
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -557,6 +731,7 @@ int main(int argc, char *argv[]) {
     check_l2_normalize_vec4(device, stream, parity);
     check_dense_pool_vec4(device, stream, parity);
     check_residual_add_vec4(device, stream, parity);
+    check_residual_layernorm(device, stream, parity);
 
     LUISA_INFO("norm gate: worst max-abs-diff {:.3e} at {} H={} over {} cases",
                parity.worst_abs_diff, parity.worst_kernel, parity.worst_h, parity.cases);

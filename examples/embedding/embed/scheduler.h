@@ -11,6 +11,21 @@
 //     the init stream signals the weights_ready TimelineEvent fence 1, and
 //     every worker stream issues weights_ready.wait(1) as its first command.
 //     After that the common case is event-free (weights immutable).
+//   - Weight-conversion lifetime (phase 1b; v1 fp32 package +
+//     LUISA_EMBED_WEIGHTS=bf16/fp16): packing the four per-layer GEMM matrices
+//     on the device needs a transient fp32 copy of each (~1.1 GiB for bge-m3).
+//     Those copies are ONE-SHOT. The Scheduler takes ownership of them from the
+//     WeightStore at construction (WeightStore::take_conversion_sources, called
+//     after record_upload() and before the command list is committed), keeps
+//     them alive while the pack dispatches run -- concurrently with the
+//     Executors' shader compilation, which is what makes the conversion overlap
+//     instead of serialising start-up -- and then, once the Executors are up,
+//     synchronizes the init stream ONCE and destroys them. They are
+//     deliberately neither retained by the WeightStore (that would hold the
+//     fp32 staging for the whole session) nor freed from a backend callback (the
+//     copies have to outlive the list, and a callback is not an ordering
+//     guarantee for the init stream). A session that converts nothing does not
+//     synchronize here at all.
 // - Dispatch: one dispatcher fiber/task. Acquire = non-blocking
 //     Event::is_completed() poll; queued requests are coalesced (FIFO per
 //     bucket, same padded sequence bucket + same completion kind) into one
@@ -93,7 +108,10 @@ struct ScheduledRequest {
 // this object and keep it alive until after the Scheduler is destroyed.
 class Scheduler {
 public:
-    Scheduler(compute::Device &device, const WeightStore &weights, const SchedulerConfig &cfg) noexcept;
+    // `weights` is non-const because the construction performs the one-shot
+    // handoff of the phase-1b fp32 conversion staging (see the header comment);
+    // the workers only ever read the store afterwards.
+    Scheduler(compute::Device &device, WeightStore &weights, const SchedulerConfig &cfg) noexcept;
     ~Scheduler() noexcept;// stops the dispatcher and drains in-flight jobs
 
     Scheduler(const Scheduler &) = delete;

@@ -10,13 +10,17 @@ optional cross-check against the ONNX external data, but is not required).
 Usage
   python pack_model_dev.py inspect <model.bgm> [--entries N] [--names]
       Parse and verify the BGM3 header + tensor table: magic/version/precision/
-      tensor_count, 256-byte blob alignment, size_bytes == prod(dims)*4, rank vs
-      dims, ascending non-overlapping offsets, blobs inside the file. Resolves
-      every name_hash back to the canonical name (FNV-1a-64 over the list below,
-      which mirrors the spec in pack_model.cpp) and prints the first N entries.
+      tensor_count, 256-byte blob alignment, size_bytes == prod(dims)*elem_size
+      (4 fp32 / 2 bf16|fp16 / 1 int8), rank vs dims, ascending non-overlapping
+      offsets, blobs inside the file, and -- for version 3 -- every per-tensor
+      int8 scale in the entry's reserved trailing 4 bytes (finite and > 0).
+      Resolves every name_hash back to the canonical name (FNV-1a-64 over the
+      list below, which mirrors the spec in pack_model.cpp) and prints the first
+      N entries.
 
   python pack_model_dev.py dump <model.bgm> <canonical name> <out.bin>
-      Extract one tensor blob (raw float32 little-endian) from a packed model.
+      Extract one tensor blob (raw little-endian elements: float32 for v1,
+      uint16 for v2, int8 for v3) from a packed model.
 
   python pack_model_dev.py dump-pt <file.pt> [--outdir DIR]
       List the tensors inside a torch .pt checkpoint (zip + pickle, stdlib only),
@@ -33,6 +37,7 @@ Usage
 import argparse
 import json
 import io
+import math
 import os
 import pickle
 import struct
@@ -40,6 +45,12 @@ import sys
 import zipfile
 
 LAYERS, HIDDEN, INTERMEDIATE = 24, 1024, 4096
+
+# BGM3 header precision field -> element bytes (pack_model.cpp format spec)
+PRECISION_BYTES = {0: 4, 1: 2, 2: 2, 3: 1}
+PRECISION_NAMES = {0: "fp32", 1: "bf16", 2: "fp16", 3: "int8"}
+# (version, precision) pairs the loaders accept
+VALID_VERSION_PRECISION = {(1, 0), (2, 1), (2, 2), (3, 3)}
 
 
 def canonical_names():
@@ -88,7 +99,10 @@ def read_table(path):
             name_hash, offset, size_bytes = struct.unpack("<QQQ", e[:24])
             rank = struct.unpack("<I", e[24:28])[0]
             dims = struct.unpack("<IIII", e[28:44])
-            entries.append(dict(hash=name_hash, offset=offset, size=size_bytes, rank=rank, dims=dims))
+            # reserved trailing 4 bytes: zero in v1/v2, the fp32 int8 scale in v3
+            scale = struct.unpack("<f", e[44:48])[0]
+            entries.append(dict(hash=name_hash, offset=offset, size=size_bytes, rank=rank,
+                                dims=dims, scale=scale))
     return size, version, precision, count, entries
 
 
@@ -96,12 +110,20 @@ def cmd_inspect(args):
     size, version, precision, count, entries = read_table(args.bgm)
     known = {fnv1a_64(n): n for n, _ in canonical_names()}
     shapes = {fnv1a_64(n): d for n, d in canonical_names()}
+    problems = []
+    esz = PRECISION_BYTES.get(precision)
     print(f"{args.bgm}: {size} bytes")
-    print(f"magic BGM3, version {version}, precision {'fp32' if precision == 0 else f'#{precision}'}, "
+    print(f"magic BGM3, version {version}, precision {PRECISION_NAMES.get(precision, f'#{precision}')}, "
           f"tensor_count {count}")
+    if esz is None:
+        problems.append(f"unknown precision field {precision} (0 fp32, 1 bf16, 2 fp16, 3 int8)")
+        esz = 4
+    if (version, precision) not in VALID_VERSION_PRECISION:
+        problems.append(f"(version, precision) = ({version}, {precision}) is not one of "
+                        f"{sorted(VALID_VERSION_PRECISION)}")
+    is_int8 = precision == 3
     print(f"table = 16 + 48*{count} = {16 + 48 * count} bytes; first blob expected at "
           f"{align_up(16 + 48 * count, 256)}")
-    problems = []
     expect_off = align_up(16 + 48 * count, 256)
     payload = 0
     for i, e in enumerate(entries):
@@ -115,8 +137,14 @@ def cmd_inspect(args):
             problems.append(f"[{i}] {name}: zero dim")
         if any(d != 0 for d in e["dims"][e["rank"]:]):
             problems.append(f"[{i}] {name}: dims beyond rank are not zero")
-        if e["size"] != elems * 4:
-            problems.append(f"[{i}] {name}: size {e['size']} != {elems}*4")
+        if e["size"] != elems * esz:
+            problems.append(f"[{i}] {name}: size {e['size']} != {elems}*{esz}")
+        if is_int8:
+            # per-tensor scale: finite and strictly positive (fail-closed)
+            if not (math.isfinite(e["scale"]) and e["scale"] > 0.0):
+                problems.append(f"[{i}] {name}: int8 scale {e['scale']!r} is not finite and positive")
+        elif e["scale"] != 0.0:
+            problems.append(f"[{i}] {name}: reserved trailing 4 bytes are not zero ({e['scale']!r})")
         if e["offset"] % 256:
             problems.append(f"[{i}] {name}: offset {e['offset']} is not 256-byte aligned")
         if e["offset"] != expect_off:
@@ -134,8 +162,9 @@ def cmd_inspect(args):
     print(f"  first {args.entries} table entries:")
     for i, e in enumerate(entries[: args.entries]):
         name = known.get(e["hash"], f"<unknown 0x{e['hash']:016x}>")
+        extra = f" scale {e['scale']:.9g}" if is_int8 else ""
         print(f"   [{i:3d}] {name:20s} hash 0x{e['hash']:016x} offset 0x{e['offset']:012x} "
-              f"size {e['size']:10d} rank {e['rank']} dims {e['dims'][:e['rank']]}")
+              f"size {e['size']:10d} rank {e['rank']} dims {e['dims'][:e['rank']]}{extra}")
     if args.names:
         print("  all canonical names (in table order):")
         for i, e in enumerate(entries):
@@ -156,7 +185,7 @@ def cmd_inspect(args):
 
 
 def cmd_dump(args):
-    _, _, _, _, entries = read_table(args.bgm)
+    _, _, precision, _, entries = read_table(args.bgm)
     want = fnv1a_64(args.name)
     hit = [e for e in entries if e["hash"] == want]
     if not hit:
@@ -167,7 +196,9 @@ def cmd_dump(args):
         blob = f.read(e["size"])
     with open(args.out, "wb") as f:
         f.write(blob)
-    print(f"wrote {args.out}: {e['size']} bytes, dims {e['dims'][:e['rank']]}")
+    fmt = {0: "float32", 1: "uint16 (bf16)", 2: "uint16 (fp16)", 3: "int8 codes"}.get(precision, "?")
+    extra = f", int8 scale {e['scale']:.9g}" if precision == 3 else ""
+    print(f"wrote {args.out}: {e['size']} bytes of {fmt}, dims {e['dims'][:e['rank']]}{extra}")
     return 0
 
 
@@ -264,7 +295,10 @@ def cmd_cross(args):
     m = onnx.load(os.path.join(args.model_dir, "onnx", "model.onnx"), load_external_data=False)
     inits = {i.name: i for i in m.graph.initializer}
     data = os.path.join(args.model_dir, "onnx", "model.onnx_data")
-    _, _, _, _, entries = read_table(args.bgm)
+    _, _, precision, _, entries = read_table(args.bgm)
+    if precision != 0:
+        raise SystemExit("the 'cross' subcommand compares raw fp32 bytes and only supports fp32 (v1) "
+                         "packages; use 'dump' for bf16/fp16/int8 packages")
     known = {fnv1a_64(n): n for n, _ in canonical_names()}
     name = known.get(fnv1a_64(args.name)) or args.name
     e = next(x for x in entries if x["hash"] == fnv1a_64(name))

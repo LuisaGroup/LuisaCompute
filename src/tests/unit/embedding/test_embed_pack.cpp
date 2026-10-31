@@ -28,15 +28,32 @@
 //     parsed back: header fields, name hashes, rank/dims, offsets and alignment,
 //     the file-size formula, padding bytes, payload bytes and the checksum
 //     aggregation all round-trip. Three fixtures (1 / 3 / 4 tensors) cover
-//     rank-1, rank-2, the 4-byte blob (maximum padding) and the exact-256-byte
-//     blob (zero padding).
+// rank-1, rank-2, the 4-byte blob (maximum padding) and the exact-256-byte
+// blob (zero padding).
+// (2b) INT8 quantization contract (BGM3 v3, INT8 quantization phase 1) through
+// embed/quantization.h -- model-independent and run BEFORE the model gate:
+// round-to-nearest-even ties (positive and negative), clamping into
+// [-127, +127], per-tensor scale = absmax/127 including the all-zero-tensor
+// 1.0 special case, the exact +-absmax mappings, odd and single-element
+// tensors, the round-trip error bound (<= scale/2), and the
+// dequantize-then-requantize fixed point -- every element cross-checked
+// against an independent reference implementation (double division +
+// std::nearbyint + clamp). Nonfinite input is fail-closed (LUISA_ERROR ->
+// abort) and is therefore exercised in spawned children, exactly like the
+// corrupt fixtures of (3).
 // (3) corrupt fixtures through embed::Package::load in a SPAWNED CHILD process
-//     (the rejection path is LUISA_ERROR -> std::abort, which is noreturn, so it
-//     cannot be observed in-process): bad magic, unsupported version,
-//     precision=1 (bf16, reserved for plan M7), a wrong tensor_count and a
-//     truncated table must each abort loudly with their own diagnostic; a
-//     control child loading the real package must exit 0. Child exit codes and
-//     log substrings are both checked, and the codes are printed as evidence.
+// (the rejection path is LUISA_ERROR -> std::abort, which is noreturn, so it
+// cannot be observed in-process): bad magic, unsupported version,
+// precision=1 (bf16, reserved for plan M7), a wrong tensor_count and a
+// truncated table must each abort loudly with their own diagnostic; a
+// control child loading the real package must exit 0. Child exit codes and
+// log substrings are both checked, and the codes are printed as evidence.
+// (4) optional INT8 (v3) package: pass a `--precision int8` package of the same
+// model as argv[2]. Every entry must expose int8_data only (never
+// data/half_data), size_bytes must equal element_count, the stored scale must
+// be finite and > 0, and the dequantized weights of five representative
+// tensors must agree with the fp32 package within half a quantization step.
+// Without argv[2] the group is skipped and the v1 gates are exactly as before.
 //
 // DEVIATION (documented): the task brief suggested loading the tiny synthetic
 // fixtures of (2) through embed::Package::load. That is impossible with the
@@ -58,15 +75,17 @@
 //   against a second independent whole-package reader; both agree with this C++
 //   test. Derived 2026-10-17 against model.bgm = 2271033600 bytes, 296 tensors.
 //
-// Run: xmake run test_embed_pack [D:/compute/bge-m3/bge-m3/model.bgm]
+// Run: xmake run test_embed_pack [D:/compute/bge-m3/bge-m3/model.bgm] [int8.bgm]
 #include "ut/ut.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <initializer_list>
+#include <limits>
 #include <system_error>
 
 #include <luisa/core/logging.h>
@@ -76,6 +95,7 @@
 #include <luisa/core/stl/vector.h>
 
 #include "embedding/embed/package.h"
+#include "embedding/embed/quantization.h"
 
 using namespace luisa;
 using namespace boost::ut;
@@ -806,6 +826,412 @@ void test_corrupt_fixtures_rejected(const luisa::string &exe,
     expect(mismatch_count == 0u)
         << "every malformed .bgm fixture must be rejected loudly by Package::load (nonzero child exit + its own diagnostic)";
 }
+
+// ---------------------------------------------------------------------
+// (2b) INT8 quantization contract (BGM3 v3, phase 1) -- model-independent
+// ---------------------------------------------------------------------
+// Independent reference for one value: double division (the spec's x/scale),
+// std::nearbyint (current rounding mode == ties-to-even) and the symmetric
+// clamp, so a test failure cannot come from a shared implementation.
+int reference_int8_code(float v, float scale) noexcept {
+    const double q = std::nearbyint(static_cast<double>(v) / static_cast<double>(scale));
+    if (q > 127.0) return 127;
+    if (q < -127.0) return -127;
+    return static_cast<int>(q);
+}
+
+// Quantizes/dequantizes one tensor and checks, element by element: the scale is
+// absmax/127, the codes agree with the independent reference, dequantization is
+// exactly code*scale, the round-trip error stays inside half a step, the
+// sign of every nonzero value survives, and quantizing the dequantized value
+// reproduces the same code (a fixed point).
+void check_tensor_quantization(luisa::string_view tag, const luisa::vector<float> &values,
+                               uint32_t &mismatch) {
+    luisa::vector<int8_t> codes(values.size(), int8_t{0});
+    const auto scale = luisa::embed::int8_quantize_tensor(
+        luisa::span<const float>{values.data(), values.size()},
+        luisa::span<int8_t>{codes.data(), codes.size()});
+    luisa::vector<float> back(values.size(), 0.0f);
+    luisa::embed::int8_dequantize_tensor(
+        luisa::span<const int8_t>{codes.data(), codes.size()},
+        luisa::span<float>{back.data(), back.size()}, scale);
+
+    float absmax = 0.0f;
+    for (const auto v : values) {
+        const auto a = std::fabs(v);
+        if (a > absmax) absmax = a;
+    }
+    // absmax/127, and exactly 1.0 for an all-zero tensor
+    const auto want_scale = absmax == 0.0f ? 1.0f : absmax / 127.0f;
+    if (!luisa::embed::int8_scale_is_valid(scale) || scale != want_scale) {
+        LUISA_WARNING("int8 [{}]: scale {:.9g} != absmax/127 {:.9g}", tag, scale, want_scale);
+        mismatch++;
+    }
+    // round-to-nearest-even step/2, plus the slack of the exact q*scale multiply
+    const auto tol = scale * 0.5001f;
+    float max_err = 0.0f;
+    for (size_t i = 0u; i < values.size(); i++) {
+        const auto want = reference_int8_code(values[i], scale);
+        if (static_cast<int>(codes[i]) != want) {
+            LUISA_WARNING("int8 [{}]: element {} (value {:.9g}) -> code {} but the reference says {}",
+                          tag, i, values[i], static_cast<int>(codes[i]), want);
+            mismatch++;
+        }
+        const auto want_back = static_cast<float>(codes[i]) * scale;
+        if (back[i] != want_back) {
+            LUISA_WARNING("int8 [{}]: element {} dequantized {:.9g} != code*scale {:.9g}", tag, i, back[i],
+                          want_back);
+            mismatch++;
+        }
+        const auto err = std::fabs(back[i] - values[i]);
+        if (err > max_err) max_err = err;
+        if (err > tol) {
+            LUISA_WARNING("int8 [{}]: element {} round-trip error {:.9g} exceeds half a step {:.9g}", tag, i,
+                          err, tol);
+            mismatch++;
+        }
+        if (values[i] != 0.0f && back[i] != 0.0f && ((values[i] > 0.0f) != (back[i] > 0.0f))) {
+            LUISA_WARNING("int8 [{}]: element {} sign flipped ({:.9g} -> {:.9g})", tag, i, values[i], back[i]);
+            mismatch++;
+        }
+        if (static_cast<int>(luisa::embed::int8_quantize(back[i], scale)) != static_cast<int>(codes[i])) {
+            LUISA_WARNING("int8 [{}]: element {} is not a fixed point (re-quantizing {:.9g} gave a new code)",
+                          tag, i, back[i]);
+            mismatch++;
+        }
+    }
+    LUISA_INFO("int8 [{}]: {} elements, scale {:.9g}, max |round-trip err| {:.6g} (half step {:.6g})", tag,
+               values.size(), scale, max_err, scale * 0.5f);
+}
+
+// child process entry for the fail-closed cases (LUISA_ERROR -> abort)
+int run_child_int8(const char *mode) {
+    luisa::vector<float> values{1.0f, 2.0f, 3.0f};
+    if (std::strcmp(mode, "nan") == 0) {
+        values[1] = std::numeric_limits<float>::quiet_NaN();
+    } else if (std::strcmp(mode, "inf") == 0) {
+        values[2] = std::numeric_limits<float>::infinity();
+    } else if (std::strcmp(mode, "bad-scale") == 0) {
+        luisa::vector<int8_t> codes{1, -1};
+        luisa::vector<float> out(2u, 0.0f);
+        luisa::embed::int8_dequantize_tensor(luisa::span<const int8_t>{codes.data(), codes.size()},
+                                             luisa::span<float>{out.data(), out.size()}, 0.0f);
+        std::printf("child: int8 dequantization accepted a zero scale\n");
+        std::fflush(stdout);
+        return 0;
+    } else {
+        std::fprintf(stderr, "child: unknown int8 case \"%s\"\n", mode);
+        return 2;
+    }
+    luisa::vector<int8_t> codes(values.size(), int8_t{0});
+    const auto scale = luisa::embed::int8_quantize_tensor(
+        luisa::span<const float>{values.data(), values.size()},
+        luisa::span<int8_t>{codes.data(), codes.size()});
+    std::printf("child: int8 quantization of a %s input returned scale %g (not fail-closed)\n", mode,
+                static_cast<double>(scale));
+    std::fflush(stdout);
+    return 0;
+}
+
+int spawn_child(const luisa::string &exe, luisa::string_view verb, luisa::string_view arg,
+                const std::filesystem::path &log_path) {
+    auto command = luisa::format("\"{}\" {} \"{}\" > \"{}\" 2>&1", exe, verb, arg, log_path.string());
+#ifdef _WIN32
+    command = luisa::format("\"{}\"", command);
+#endif
+    return std::system(command.c_str());
+}
+
+void test_int8_fail_closed(const luisa::string &exe, const std::filesystem::path &work_dir,
+                          uint32_t &mismatch) {
+    struct Case {
+        luisa::string_view mode;
+        luisa::string_view diagnostic;
+    };
+    static const Case cases[] = {
+        {"nan", "nonfinite"},
+        {"inf", "nonfinite"},
+        {"bad-scale", "not finite"},
+    };
+    for (const auto &c : cases) {
+        const auto log_path = work_dir / luisa::format("int8_{}.log", c.mode);
+        const auto status = spawn_child(exe, "--child-int8", c.mode, log_path);
+        const auto log = read_text_file(log_path);
+        LUISA_INFO("int8 fail-closed case \"{}\" -> child exit code {}", c.mode, static_cast<int>(status));
+        if (status == 0) {
+            LUISA_WARNING("int8 fail-closed case \"{}\" was ACCEPTED (child exited 0)", c.mode);
+            mismatch++;
+        }
+        if (log.find(c.diagnostic.data()) == luisa::string::npos) {
+            LUISA_WARNING("int8 fail-closed case \"{}\": child log does not contain \"{}\"; output:\n{}",
+                          c.mode, c.diagnostic, log);
+            mismatch++;
+        }
+    }
+}
+
+void test_int8_quantization_helpers(uint32_t &mismatch) {
+    namespace q = luisa::embed;
+    // --- (a) ties-to-even and clamping on the element primitive -------------
+    {
+        struct Case {
+            float v;
+            float scale;
+            int want;
+        };
+        static const Case cases[] = {
+            {0.5f, 1.0f, 0},
+            {-0.5f, 1.0f, 0},// ties go to the even neighbour
+            {1.5f, 1.0f, 2},
+            {-1.5f, 1.0f, -2},
+            {2.5f, 1.0f, 2},// 2 is even, 3 is not
+            {-2.5f, 1.0f, -2},
+            {3.5f, 1.0f, 4},
+            {-3.5f, 1.0f, -4},
+            {2.4f, 1.0f, 2},// nearest, never truncated
+            {-2.6f, 1.0f, -3},
+            {-2.4f, 1.0f, -2},
+            {0.4f, 1.0f, 0},
+            {-0.4f, 1.0f, 0},
+            {1.0f, 2.0f, 0},// the same ties through a non-unit scale
+            {3.0f, 2.0f, 2},
+            {-3.0f, 2.0f, -2},
+            {0.0f, 1.0f, 0},
+            {-0.0f, 1.0f, 0},
+            {126.5f, 1.0f, 126},// in range, still ties-to-even
+            {1000.0f, 1.0f, 127},// clamped; -128 is never emitted
+            {-1000.0f, 1.0f, -127},
+            {127.5f, 1.0f, 127},// would round to 128 -> clamped
+            {-127.5f, 1.0f, -127},// would round to -128 -> clamped
+        };
+        for (const auto &c : cases) {
+            const int got = static_cast<int>(q::int8_quantize(c.v, c.scale));
+            if (got != c.want) {
+                LUISA_WARNING("int8 rne: quantize({}, {}) = {} but {} is expected", c.v, c.scale, got, c.want);
+                mismatch++;
+            }
+        }
+    }
+    // --- (b) absmax -> scale, and scale validity ----------------------------
+    {
+        if (q::int8_scale_from_absmax(0.0f) != 1.0f) {
+            LUISA_WARNING("int8 scale: an all-zero tensor must use exactly 1.0, got {}",
+                          q::int8_scale_from_absmax(0.0f));
+            mismatch++;
+        }
+        if (q::int8_scale_from_absmax(1.0f) != 1.0f / 127.0f) {
+            LUISA_WARNING("int8 scale: absmax 1.0 must map to 1/127 exactly");
+            mismatch++;
+        }
+        if (q::int8_scale_from_absmax(12.7f) != 12.7f / 127.0f) {
+            LUISA_WARNING("int8 scale: absmax 12.7 must map to 12.7/127 exactly");
+            mismatch++;
+        }
+        if (q::int8_scale_is_valid(0.0f) || q::int8_scale_is_valid(-1.0f) ||
+            q::int8_scale_is_valid(std::numeric_limits<float>::quiet_NaN()) ||
+            q::int8_scale_is_valid(std::numeric_limits<float>::infinity())) {
+            LUISA_WARNING("int8 scale: 0 / negative / nonfinite scales must be invalid");
+            mismatch++;
+        }
+        if (!q::int8_scale_is_valid(1.0f) || !q::int8_scale_is_valid(1.0f / 127.0f)) {
+            LUISA_WARNING("int8 scale: positive finite scales must be valid");
+            mismatch++;
+        }
+    }
+    // --- (c) exact +-absmax mapping ----------------------------------------
+    {
+        luisa::vector<float> values{0.75f, -0.75f, 0.3f, -0.1f, 0.0f};
+        luisa::vector<int8_t> codes(values.size(), int8_t{0});
+        const auto scale = q::int8_quantize_tensor(luisa::span<const float>{values.data(), values.size()},
+                                                  luisa::span<int8_t>{codes.data(), codes.size()});
+        if (static_cast<int>(codes[0]) != 127 || static_cast<int>(codes[1]) != -127) {
+            LUISA_WARNING("int8 absmax: +-absmax must map to +-127, got {} and {}",
+                          static_cast<int>(codes[0]), static_cast<int>(codes[1]));
+            mismatch++;
+        }
+        if (codes[4] != int8_t{0}) {
+            LUISA_WARNING("int8 absmax: zero must map to code 0, got {}", static_cast<int>(codes[4]));
+            mismatch++;
+        }
+        if (q::int8_dequantize(codes[0], scale) != 0.75f) {
+            LUISA_WARNING("int8 absmax: dequantizing code 127 must give back the absmax exactly, got {}",
+                          q::int8_dequantize(codes[0], scale));
+            mismatch++;
+        }
+        check_tensor_quantization("normal/negative values, exact absmax", values, mismatch);
+    }
+    // --- (d) all-zero tensor ------------------------------------------------
+    {
+        luisa::vector<float> zeros(5u, 0.0f);// odd count on purpose
+        luisa::vector<int8_t> codes(zeros.size(), int8_t{127});// pre-poison
+        const auto scale = q::int8_quantize_tensor(luisa::span<const float>{zeros.data(), zeros.size()},
+                                                  luisa::span<int8_t>{codes.data(), codes.size()});
+        if (scale != 1.0f) {
+            LUISA_WARNING("int8 all-zero: scale must be exactly 1.0, got {}", scale);
+            mismatch++;
+        }
+        for (size_t i = 0u; i < codes.size(); i++) {
+            if (codes[i] != int8_t{0}) {
+                LUISA_WARNING("int8 all-zero: element {} got code {}", i, static_cast<int>(codes[i]));
+                mismatch++;
+            }
+        }
+        check_tensor_quantization("all-zero tensor", zeros, mismatch);
+    }
+    // --- (e) odd / single element tensors ----------------------------------
+    {
+        luisa::vector<float> one{-3.5f};
+        luisa::vector<int8_t> code(1u, int8_t{0});
+        const auto scale = q::int8_quantize_tensor(luisa::span<const float>{one.data(), one.size()},
+                                                  luisa::span<int8_t>{code.data(), code.size()});
+        if (static_cast<int>(code[0]) != -127 || scale != 3.5f / 127.0f) {
+            LUISA_WARNING("int8 single element: -3.5 must give code -127 and scale 3.5/127, got {} / {}",
+                          static_cast<int>(code[0]), scale);
+            mismatch++;
+        }
+        check_tensor_quantization("single element", one, mismatch);
+
+        luisa::vector<float> odd7{0.011f, -0.4f, 0.25f, -0.017f, 0.9f, -0.9f, 0.0f};
+        check_tensor_quantization("odd element count (7)", odd7, mismatch);
+
+        luisa::vector<float> odd15;
+        for (int i = 0; i < 15; i++) {
+            odd15.push_back(static_cast<float>(i - 7) * 0.125f);// -0.875 .. 0.875, odd count
+        }
+        check_tensor_quantization("odd element count (15)", odd15, mismatch);
+    }
+    // --- (f) round-trip dequantization on a spread of magnitudes ------------
+    {
+        luisa::vector<float> wide{0.0f, 1.0f, -1.0f, 0.5f, -0.5f, 63.5f, -63.5f, 0.001f, -0.001f, 127.0f, -127.0f};
+        check_tensor_quantization("round-trip spread", wide, mismatch);
+    }
+    expect(mismatch == 0u)
+        << "the INT8 quantization contract (scale = absmax/127, RNE ties-to-even, clamp +-127, "
+           "round-trip <= half a step) must hold";
+}
+// ---------------------------------------------------------------------
+// (4) optional INT8 (v3) package gate -- runs only when a second path is given
+// ---------------------------------------------------------------------
+// Loads the v3 package through the engine loader and checks the v3 contract
+// against the fp32 (v1) package of argv[1]: every entry exposes int8_data (and
+// never data/half_data), size_bytes == element_count, the stored scale is
+// finite and > 0, and the dequantized values of a few tensors agree with the
+// fp32 weights within half a quantization step + the multiply slack. A copy with
+// a NaN scale in entry 0 must be rejected by the loader (spawned child).
+void test_int8_package(const luisa::embed::Package &fp32_pkg, const luisa::string &v3_path,
+                       const luisa::string &exe, const std::filesystem::path &work_dir,
+                       uint32_t &mismatch) {
+    auto pkg = luisa::embed::Package::load(std::filesystem::path{v3_path});
+    if (pkg == nullptr) {
+        LUISA_ERROR("Package::load returned null for the int8 package \"{}\"", v3_path);
+    }
+    if (pkg->precision() != luisa::embed::PackagePrecision::int8) {
+        LUISA_WARNING("\"{}\": precision is {} but int8 was expected", v3_path,
+                      luisa::embed::package_precision_name(pkg->precision()));
+        mismatch++;
+    }
+    for (const auto &t : pkg->tensors()) {
+        if (t.int8_data == nullptr) {
+            LUISA_WARNING("\"{}\": a tensor has no int8_data view", v3_path);
+            mismatch++;
+        }
+        if (t.data != nullptr || t.half_data != nullptr) {
+            LUISA_WARNING("\"{}\": an int8 blob is also exposed through data/half_data", v3_path);
+            mismatch++;
+        }
+        if (t.size_bytes != t.element_count()) {
+            LUISA_WARNING("\"{}\": size_bytes {} != element_count {} (v3 blobs are 1 byte/element)",
+                          v3_path, t.size_bytes, t.element_count());
+            mismatch++;
+        }
+        if (!luisa::embed::int8_scale_is_valid(t.int8_scale)) {
+            LUISA_WARNING("\"{}\": a stored int8 scale is not finite and positive", v3_path);
+            mismatch++;
+        }
+    }
+    // cross-package agreement on a few representative tensors (rank-1, rank-2,
+    // embedding-sized and head-sized)
+    constexpr luisa::string_view kSpot[] = {"emb.ln.gamma", "emb.ln.beta", "layer0.qkv",
+                                            "layer0.ffn.up.bias", "head.colbert.b"};
+    for (const auto name : kSpot) {
+        const auto *q8 = pkg->find(name);
+        const auto *f32 = fp32_pkg.find(name);
+        if (q8 == nullptr || f32 == nullptr || f32->data == nullptr || q8->int8_data == nullptr) {
+            LUISA_WARNING("\"{}\": tensor '{}' is missing from one of the two packages", v3_path, name);
+            mismatch++;
+            continue;
+        }
+        if (q8->element_count() != f32->element_count()) {
+            LUISA_WARNING("\"{}\": tensor '{}' has {} elements but the fp32 package has {}", v3_path, name,
+                          q8->element_count(), f32->element_count());
+            mismatch++;
+            continue;
+        }
+        const auto n = static_cast<size_t>(q8->element_count());
+        luisa::vector<float> back(n, 0.0f);
+        luisa::embed::int8_dequantize_tensor(
+            luisa::span<const int8_t>{q8->int8_data, n}, luisa::span<float>{back.data(), n},
+            q8->int8_scale);
+        // RNE half step plus the exact q*scale multiply slack
+        const auto tol = q8->int8_scale * 0.5001f;
+        float max_err = 0.0f;
+        size_t bad = 0u;
+        for (size_t i = 0u; i < n; i++) {
+            const auto err = std::fabs(back[i] - f32->data[i]);
+            if (err > max_err) max_err = err;
+            if (err > tol) bad++;
+        }
+        LUISA_INFO("int8 package: '{}' ({} elements, scale {:.9g}) vs fp32: max |diff| {:.6g} "
+                   "(half step {:.6g}), {} element(s) outside the bound",
+                   name, n, q8->int8_scale, max_err, tol, bad);
+        if (bad != 0u) mismatch++;
+    }
+    // malformed stored scale: entry 0's reserved 4 bytes (entry offset 44) are
+    // patched to a quiet NaN in a copy; the loader must refuse it loudly
+    {
+        std::error_code fec;
+        const auto bad_path = work_dir / "int8_bad_scale.bgm";
+        std::filesystem::copy_file(std::filesystem::path{v3_path}, bad_path,
+                                   std::filesystem::copy_options::overwrite_existing, fec);
+        bool patched = false;
+        if (fec) {
+            LUISA_WARNING("cannot copy the int8 package for the malformed-scale case: {}", fec.message());
+            mismatch++;
+        } else if (auto *f = std::fopen(bad_path.string().c_str(), "r+b"); f != nullptr) {
+            const uint8_t nan_bits[4] = {0x00u, 0x00u, 0xc0u, 0x7fu};// float +NaN, little-endian
+            seek64(f, kBgmHeaderBytes + 44u);
+            patched = std::fwrite(nan_bits, 1u, 4u, f) == 4u;
+            std::fflush(f);
+            std::fclose(f);
+            if (!patched) {
+                LUISA_WARNING("cannot patch the int8 scale of the copy");
+                mismatch++;
+            }
+        } else {
+            LUISA_WARNING("cannot reopen the int8 copy for patching");
+            mismatch++;
+        }
+        if (patched) {
+            const auto log_path = work_dir / "int8_bad_scale.log";
+            const auto status = spawn_child(exe, "--child-load",
+                                            luisa::string{bad_path.string()}, log_path);
+            const auto log = read_text_file(log_path);
+            LUISA_INFO("int8 package with a NaN scale in entry 0 -> child exit code {}",
+                       static_cast<int>(status));
+            if (status == 0) {
+                LUISA_WARNING("a NaN int8 scale was ACCEPTED by Package::load (child exited 0)");
+                mismatch++;
+            }
+            if (log.find("not finite and positive") == luisa::string::npos) {
+                LUISA_WARNING("the malformed-scale child log lacks its diagnostic; output:\n{}", log);
+                mismatch++;
+            }
+        }
+    }
+    expect(mismatch == 0u)
+        << "a v3 package must expose int8-only typed views, a valid stored scale, and "
+           "dequantize within half a step of the fp32 weights";
+}
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -815,6 +1241,10 @@ int main(int argc, char *argv[]) {
     if (argc >= 3 && std::strcmp(argv[1], "--child-load") == 0) {
         return run_child_load(argv[2]);
     }
+    // child mode for the INT8 fail-closed cases (nonfinite weights, invalid scale)
+    if (argc >= 3 && std::strcmp(argv[1], "--child-int8") == 0) {
+        return run_child_int8(argv[2]);
+    }
 
     // this executable, captured before the argv[1] shift below (the corrupt
     // fixtures are loaded by re-spawning this same binary)
@@ -822,14 +1252,22 @@ int main(int argc, char *argv[]) {
 
     // argv[1] (optional) is the packed model path; the default pins the real
     // bge-m3 package the packer produced (plan §6 M2, dev environment), same
-    // convention as test_embed_package.cpp
+    // convention as test_embed_package.cpp. argv[2] (optional) is an INT8 (v3)
+    // package of the SAME model, which enables group (4); without it the group is
+    // skipped and the v1 gates are unchanged.
     luisa::string bgm_path{"D:/compute/bge-m3/bge-m3/model.bgm"};
+    luisa::string int8_bgm_path;
     if (argc > 1) {
         if (argv[1][0] == '\0') {
             std::fprintf(stderr, "test_embed_pack: empty package path\n");
             return 1;
         }
         bgm_path = luisa::string{argv[1]};
+        argc--;
+        argv++;
+    }
+    if (argc > 1 && argv[1][0] != '\0' && argv[1][0] != '-') {
+        int8_bgm_path = luisa::string{argv[1]};
         argc--;
         argv++;
     }
@@ -842,6 +1280,18 @@ int main(int argc, char *argv[]) {
     std::filesystem::create_directories(work_dir, ec);
 
     uint32_t early_mismatches = 0u;
+    // (2b) INT8 quantization contract -- needs no model file, and therefore runs
+    // before the model-presence gate below (which stays exactly as strict)
+    uint32_t int8_mismatches = 0u;
+    test_int8_quantization_helpers(int8_mismatches);
+    expect(int8_mismatches == 0u)
+        << "the model-independent INT8 quantization contract must hold (see (2b) in the file header)";
+    {
+        uint32_t int8_child_mismatches = 0u;
+        test_int8_fail_closed(exe, work_dir, int8_child_mismatches);
+        expect(int8_child_mismatches == 0u)
+            << "nonfinite INT8 inputs and invalid stored scales must be rejected loudly (nonzero child exit + diagnostic)";
+    }
     // (2) synthetic fixture round-trip -- needs no model file
     for (uint32_t k = 0u; k < 3u; k++) {
         test_synthetic_fixture_round_trip(k, early_mismatches);
@@ -898,6 +1348,20 @@ int main(int argc, char *argv[]) {
     int control_exit_code = -1;
     test_corrupt_fixtures_rejected(exe, work_dir, base, bgm_path, model_present,
                                    subprocess_mismatches, control_exit_code);
+
+    // (4) optional INT8 package gate (skipped unless a v3 path was given)
+    if (!int8_bgm_path.empty()) {
+        std::error_code iec;
+        if (!std::filesystem::exists(std::filesystem::path{int8_bgm_path}, iec) || iec) {
+            LUISA_WARNING("the int8 package \"{}\" does not exist; group (4) skipped", int8_bgm_path);
+        } else {
+            uint32_t int8_pkg_mismatches = 0u;
+            test_int8_package(*pkg, int8_bgm_path, exe, work_dir, int8_pkg_mismatches);
+        }
+    } else {
+        LUISA_INFO("test_embed_pack: v3/int8 package group skipped (pass a --precision int8 package as "
+                   "argv[2] to enable it)");
+    }
 
     std::filesystem::remove_all(work_dir, ec);
     return 0;

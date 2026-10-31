@@ -124,37 +124,117 @@ using LayerTraceCallback = luisa::function<void(uint32_t layer, luisa::compute::
 // Shared, immutable after upload, device-side copy of every packed tensor the
 // forward pass touches. Created once per device from a loaded Package.
 //
-// WEIGHT STORAGE FORMAT (optimization plan §3.1 G7 / §4 Q1-Q2, O-G): for a
-// half-precision package (BGM3 v2, package.h) the four GEMM weight matrices
-// per layer (qkv, attn.out, ffn.up, ffn.down) are uploaded VERBATIM as packed
-// halves -- ceil(n/2) device floats, two LE 16-bit elements per word (the
-// kernels_gemm.h packed-B contract) -- and converted bf16/fp16 -> fp32 at the
-// kernel B-tile load. FMA accumulation stays fp32; the conversion is storage-
-// only. Every other tensor (embeddings, biases, LN gamma/beta, head vectors)
-// is up-converted HOST-side once at upload into the fp32 device buffers its
-// (untouched, fp32) kernels expect: their per-encode traffic is O(rows) or
-// O(1), so halving their device footprint buys no steady-state bandwidth,
-// while the GEMM matrices are the >1 GB of weight traffic G7 targets.
-// Measured justification: embed_opt_log wave-2 rows (B=1 encode latency,
-// fp32 vs packed-bf16 in the same build, LUISA_EMBED_WEIGHTS toggle A/B).
+// WEIGHT STORAGE FORMAT (optimization plan §3.1 G7 / §4 Q1-Q2, O-G; INT8
+// quantization phase 3): three package generations reach this class (BGM3 v1
+// fp32, v2 bf16/fp16, v3 int8 -- package.h), and each maps to ONE explicit
+// device layout. Nothing is inferred from "the precision is not fp32": a half
+// package is uploaded packed-half and an int8 package is uploaded packed-int8,
+// and a request that does not match the package is refused (see the toggle
+// table below). The class-level `pkg_half` predicate in executor.cpp means
+// bf16/fp16 ONLY; int8 is the separate `pkg_int8` path.
 //
-// Toggle: env LUISA_EMBED_WEIGHTS=fp32|bf16|fp16 (read once per WeightStore,
-// logged; unknown values are a loud error):
-//   - package fp32 + unset/fp32  -> the historical path, byte-identical.
-//   - package fp32 + bf16/fp16   -> REFUSED (LUISA_ERROR): an fp32 blob is not
-//     a packed-half blob; the bf16 kernel path must never reinterpret it.
-//   - package half + unset       -> auto: packed upload + convert-on-read.
-//   - package half + fp32        -> A/B arm: convert everything on upload, fp32
-//     device buffers + fp32 kernels (measures the pure steady-state effect).
-//   - package half + other half  -> REFUSED (LUISA_ERROR): bit patterns differ.
+//   v2 half package, packed auto mode (unchanged since wave 2): the four GEMM
+//     weight matrices per layer (qkv, attn.out, ffn.up, ffn.down) are uploaded
+//     VERBATIM as packed halves -- ceil(n/2) device floats, two LE 16-bit
+//     elements per word (the kernels_gemm.h packed-B contract) -- and
+//     converted bf16/fp16 -> fp32 at the kernel B-tile load.
+//   v3 int8 package, packed auto mode (phase 3): the same four matrices are
+//     uploaded as 1 + ceil(n/4) device float words in the v3 layout
+//     [word 0 = the per-tensor positive scale | four signed int8 codes per
+//     word, little-endian] (kernels_gemm.h INT8 contract). The upload is the
+//     scale word written into zero-initialized owned scratch followed by an
+//     exact n-byte memcpy of the blob, then one luisa::span upload of all
+//     words, so the 1..3 unused tail bytes of the last word stay zero.
+// The kernel decodes `code * scale` at the B-tile fill.
+//   v1 fp32 package + bf16/fp16 (phase 1b): the same four matrices end up in
+//     the SAME packed-half layout, but produced on the DEVICE at construction
+//     time instead of copied from the blob -- each one is uploaded fp32 into a
+//     transient staging buffer and packed by make_pack_half_kernel()
+//     (kernels_gemm.h; bit-identical to the packer's blob), so the steady state
+//     is exactly the v2 packed auto mode above. The staging copies are
+//     ONE-SHOT: the Scheduler takes ownership (take_conversion_sources()) and
+//     destroys them as soon as the pack dispatches retire, because parking them
+//     in this store would keep ~1.1 GiB of fp32 GEMM weights resident for the
+//     whole session. Every other tensor stays plain fp32 (host upload, no
+//     conversion), and v1 + int8 remains REFUSED -- the device never
+//     re-quantizes weights. See the toggle table below.
+//   Every other tensor (embeddings, biases, LN gamma/beta, head vectors) is
+//     up-converted/dequantized HOST-side once at upload into the fp32 device
+//     buffers its (untouched, fp32) kernels expect -- in packed int8 mode that
+//   is q * scale through embed/quantization.h for emb.word/emb.pos, every
+//   bias, LN gamma/beta, head.colbert.* and the head.sparse.b scalar (which
+//   never becomes a device buffer). Their per-encode traffic is O(rows) or
+//   O(1), so shrinking their device footprint buys no steady-state bandwidth,
+//   while the GEMM matrices are the >1 GB of weight traffic G7 targets.
+//   BIASES, LN AND HEAD WEIGHTS STAY FP32 in every packed mode.
+//   Measured justification: embed_opt_log wave-2 rows (B=1 encode latency,
+//   fp32 vs packed-bf16 in the same build, LUISA_EMBED_WEIGHTS toggle A/B).
+//
+// ACCUMULATION IS FP32 IN EVERY MODE. bf16/fp16/int8 are STORAGE formats only:
+// the element is converted to fp32 before the multiply, the FMA chain, the
+// accumulators, the bias/residual operand and every activation stay fp32, and
+// there is NO integer/DP4A-style or half tensor-core arithmetic anywhere in
+// this engine (kernels_gemm.h header contract).
+//
+// Toggle: env LUISA_EMBED_WEIGHTS=fp32|bf16|fp16|int8 (case-insensitive; read
+// once per WeightStore, logged; unknown values are a loud error). Every
+// request is validated against the package format and mismatches fail closed:
+//   - package fp32 (v1) + unset/fp32       -> the historical path, byte-identical.
+//   - package fp32 (v1) + bf16/fp16       -> the phase-1b device conversion
+//     above: the four GEMM matrices are packed ONCE on the GPU (one-shot fp32
+//     staging), then read by the packed-half kernels; every other tensor stays
+//     fp32. Bit-identical to packing a v2 package of the same format.
+//   - package fp32 (v1) + int8            -> REFUSED (LUISA_ERROR): an fp32 blob
+//     is not a packed blob, and fp32 -> int8 needs a per-tensor calibrated scale
+//     that only the packer computes; the device never re-quantizes weights.
+//     Pack a v3 --precision int8 package instead.
+//   - package half (v2) + unset           -> auto: packed-half upload +
+//     convert-on-read.
+//   - package half (v2) + fp32            -> A/B arm: convert everything on
+//     upload, fp32 device buffers + fp32 kernels (measures the pure
+//     steady-state effect).
+//   - package half (v2) + the other half format or int8 -> REFUSED
+//     (LUISA_ERROR): the stored bit patterns are not interchangeable.
+//   - package int8 (v3) + unset/int8      -> auto: the v3 packed GEMM upload
+//     above, host-dequantized fp32 side tensors, and Executors that compile
+//     GemmWeightFormat::Int8 GEMM kernels.
+//   - package int8 (v3) + fp32            -> A/B arm: ALL tensors dequantized
+//     host-side once at upload (q * scale), fp32 device buffers + the original
+//     fp32 kernels (the un-quantized reference arm for quality comparisons).
+//   - package int8 (v3) + bf16/fp16       -> REFUSED (LUISA_ERROR): signed int8
+//     codes plus a scale are not 16-bit elements; pack a v2 package instead.
 class WeightStore {
 public:
     WeightStore(compute::Device &device, const Package &package);
 
     // Appends the host->device upload commands (one copy_from per tensor, via
     // luisa::span -- SAFE-mode compatible) to `cl`. The Package must outlive
-    // execution of these commands (Session keeps it alive).
+    // execution of these commands (Session keeps it alive). In the phase-1b
+    // v1 fp32 -> bf16/fp16 mode it ALSO appends one pack dispatch per converted
+    // GEMM matrix (fp32 staging -> packed destination), so those dispatches read
+    // the staging buffers: the list has to be fully retired before the staging
+    // is dropped (what the Scheduler does), and this call must precede
+    // take_conversion_sources() because the pack bookkeeping points into it.
     void record_upload(compute::CommandList &cl) const;
+
+    // The transient fp32 staging buffers of the v1 fp32 -> packed-half
+    // conversion, handed OFF to the caller (normally the Scheduler) exactly
+    // once. They have to stay alive until the pack dispatches recorded by
+    // record_upload() retire -- and no longer: a bge-m3 package stages ~1.1 GiB
+    // of fp32 GEMM weights, so whoever takes them is expected to synchronise the
+    // init stream and then drop them, instead of parking that cost in this store
+    // for the whole session. Empty for every other package/toggle combination
+    // (nothing converted => nothing to free, and no reason to synchronize).
+    struct ConversionStaging {
+        luisa::vector<compute::Buffer<float>> sources;// the transient fp32 copies
+        size_t bytes{};                              // their total size (log/diagnostics)
+        [[nodiscard]] bool empty() const noexcept { return sources.empty(); }
+    };
+    // One-shot: moves the staging buffers out and empties this store's view of
+    // them. Must be called AFTER record_upload() (whose pack items borrow from
+    // the staging) and BEFORE the fp32 copies are freed, i.e. after the
+    // conversion retires.
+    [[nodiscard]] ConversionStaging take_conversion_sources() noexcept;
 
     struct Layer {
         compute::Buffer<float> qkv, qkv_bias, attn_out, attn_out_bias;
@@ -178,8 +258,10 @@ public:
     [[nodiscard]] uint32_t head_dim() const noexcept { return _head_dim; }
     [[nodiscard]] uint32_t intermediate_size() const noexcept { return _inter; }
     // B-operand format the Executors on this store must compile their GEMM
-    // kernels with (Fp32 for an fp32 package or for the fp32 A/B override; the
-    // package format in the packed auto mode). See the class comment.
+    // kernels with (Fp32 for an fp32 package or for the fp32 A/B override of a
+    // half/int8 package; Bf16/Fp16 for a half package in packed auto mode OR for
+    // a v1 fp32 package converted on the device; Int8 for an int8 package in
+    // packed auto mode). See the class comment.
     [[nodiscard]] GemmWeightFormat gemm_weight_format() const noexcept { return _gemm_format; }
     // Package element format as loaded (for reporting; the effective device
     // layout follows gemm_weight_format()).
@@ -195,26 +277,54 @@ private:
     compute::Buffer<float> _sparse_w;
     float _sparse_b{};
     compute::Buffer<float> _colbert_w, _colbert_b;
-    // host->device upload bookkeeping (pointers into the members above or into
-    // _owned_scratch, stable because nothing is mutated after construction).
-    // `src` is fp32 package data, packed-half blob data (raw memcpy -- the
-    // v2 blob already IS the packed buffer), or fp32 host storage built by the
-    // half->fp32 upload conversion; `count` is always the number of DEVICE
-    // FLOATS to write (half a blob's element count when packed). Every src is
-    // held in storage owned by this WeightStore (package image, or
-    // _owned_scratch for the packed/copy-converted tensors -- the packed
-    // copy avoids reading the blob's 2-byte tail as floats).
+// host->device upload bookkeeping (pointers into the members above or into
+      // _owned_scratch, stable because nothing is mutated after construction).
+      // `src` is fp32 package data, a packed-half blob (raw memcpy -- the v2 blob
+    // already IS the packed buffer), a packed-int8 scratch image ([scale word |
+    // four code bytes per word], built in _owned_scratch), or fp32 host storage
+    // built by the half->fp32 / int8->fp32 upload conversion; `count` is always
+    // the number of DEVICE FLOATS to write (half a blob's element count when
+    // packed half, 1 + ceil(n/4) when packed int8). Every src is held in
+    // storage owned by this WeightStore (package image, or _owned_scratch for
+    // the packed/copy-converted tensors -- the packed copies avoid reading the
+    // blob's 2-byte (half) or 1-byte (int8) tail as floats).
     struct UploadItem {
         compute::Buffer<float> *buffer;
         const float *src;
         size_t count;
     };
     luisa::vector<UploadItem> _uploads;
-    // half -> fp32 upload-conversion results, alive until the upload commands
-    // retire (same lifetime contract as the Package; record_upload's host spans
-    // borrow from here). Only populated for a half package's non-GEMM tensors
-    // and for the fp32 A/B override of a half package.
+    // half -> fp32 / int8 -> fp32 upload-conversion (and packed-word) results,
+    // alive until the upload commands retire (same lifetime contract as the
+    // Package; record_upload's host spans borrow from here). Populated for a
+    // half or int8 package's non-GEMM tensors, for its packed GEMM word images,
+    // and for the fp32 A/B override of a half/int8 package.
     luisa::vector<luisa::vector<float>> _owned_scratch{};
+
+    // --- v1 fp32 -> packed-half device conversion (phase 1b) -------------------
+    // Populated ONLY when the toggle asks for bf16/fp16 on an fp32 (v1) package;
+    // empty on every other path, so the packed/int8/fp32 modes are untouched.
+    // `_pack_half` is the fp32 -> packed-word converter, compiled in the ctor
+    // only when there is something to convert, and owned here because
+    // record_upload() (const, possibly long after construction) records its
+    // dispatches. `_packs` mirrors `_uploads`: for every converted GEMM matrix it
+    // names the transient fp32 staging buffer (an element of
+    // `_conversion_sources`) and the persistent packed destination (the Layer
+    // member an Executor binds as the packed B operand, exactly as in the v2
+    // packed arm). Both vectors are RESERVED before the first Buffer pointer is
+    // taken, so the element addresses stay valid until the one-shot handoff.
+    struct PackItem {
+        compute::Buffer<float> *src;   // fp32 staging, `count` elements
+        compute::Buffer<float> *dst;   // packed words, ceil(count / 2)
+        size_t count;                  // logical fp32 elements
+    };
+    luisa::vector<PackItem> _packs{};
+    // The transient fp32 copies themselves -- the only storage here that is
+    // meant to die early (see take_conversion_sources()). Never destroyed from a
+    // backend callback and never kept for the session.
+    luisa::vector<compute::Buffer<float>> _conversion_sources{};
+    size_t _conversion_bytes{};// total fp32 staging bytes (for the release log)
+    luisa::optional<ShaderFor<PackHalfKernel>> _pack_half;
 };
 
 // One recorded forward pass. All spans are host pointers owned by the caller;
@@ -277,6 +387,23 @@ private:
     ShaderFor<GemmKernel> _gemm_bias, _gemm_gelu;
     ShaderFor<ResidualAddKernel> _residual;
     ShaderFor<LayerNormKernel> _layernorm;
+    // Opt plan C3: ONE dispatch that does residual_add + layernorm over a cached
+    // shared-memory residual row, numerically equivalent to the _residual +
+    // _layernorm pair above within a focused 1e-5 ABSOLUTE tolerance and with the
+    // same reduction order (kernels_norm.h "fused residual_add + layernorm"; not
+    // bit-identical -- dx re-emits ~1 ULP). Replaces both the residual1+LN1 and
+    // the residual2+LN2 pair on the Legacy path.
+    //
+    // Mode selection is settled in the constructor (H is fixed per WeightStore):
+    // exactly ONE of {_residual/_layernorm, _residual_layernorm} is compiled, so
+    // the default path never pays for a shader it cannot dispatch and the
+    // shader it does dispatch is always present. _fuse_residual_ln is the single
+    // source of truth for both the compile and the record-time branch -- they
+    // must never disagree. Off when EMBED_FUSE_RESIDUAL_LN=0 (kill switch:
+    // restores the legacy pair's dispatch sequence unchanged) or when the row
+    // length exceeds kResidualNormMaxHidden (shared-cache contract).
+    ShaderFor<ResidualLayerNormKernel> _residual_layernorm;
+    bool _fuse_residual_ln{};
     ShaderFor<L2NormalizeKernel> _l2norm;
     ShaderFor<SliceClsKernel> _slice_cls;
     ShaderFor<DensePoolKernel> _dense_pool;// fused slice_cls+l2 (plan §3.3 N1(b))

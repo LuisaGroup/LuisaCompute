@@ -212,6 +212,15 @@ static const auto test_embed_tokenizer_registration = [] {
                    goldens.size(), mismatch_count);
         expect(mismatch_count == 0u) << "all corpus sentences must exact-match the golden token ids";
     };
+
+    // Regression: destruction must not pass a CRT-heap pointer to mimalloc.
+    "bge_m3_tokenizer_load_destroy"_test = [] {
+        auto tkn = luisa::embed::Tokenizer::load(tokenizer_json_path());
+        expect(tkn != nullptr) << "tokenizer load must succeed";
+        if (tkn == nullptr) return;
+        tkn.reset();
+        expect(tkn == nullptr) << "reset() must release the tokenizer";
+    };
     return 0;
 }();
 

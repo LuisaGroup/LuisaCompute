@@ -2,9 +2,19 @@
 // import persists encoded results so unchanged files skip the encoder on the
 // next load. Per indexed directory it maintains
 //   * .lc_embed_cache.json   -- directory meta (yyjson): per-file content hash,
-//                              size, mtime, and embedding dimension;
+//                              size, mtime, and embedding dimension (plus
+//                              `sparse_count` for hybrid entries, below);
 //   * .lc_embed_cache/       -- one binary cache file per encoded result, named
-//                              by the MD5 of the file content.
+//                              by the MD5 of the file content;
+//   * <md5>.sparse.bin       -- hybrid-only sparse sidecar (phase H1): raw
+//                              (uint32 token_id, float weight) records, in the
+//                              order the index canonicalized them. It exists
+//                              only for entries written by a hybrid encode, so
+//                              dense-only caches stay byte-identical to before.
+// A hybrid hit needs both halves: a missing/corrupt sidecar (or one whose
+// `sparse_count` is absent from the meta, as in v1 dense-only metadata) forces
+// a re-encode of the dense and sparse vectors. A sidecar with zero bytes is a
+// valid empty sparse vector.
 // Cache hits are loaded incrementally (one DStorage read per file) through the
 // backend DStorageExt when it is available; otherwise a plain host read is
 // used. A null device selects the host path (tests, host-only frontends).
@@ -13,11 +23,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <system_error>
+#include <utility>
 
 #include <yyjson.h>
 
@@ -134,6 +147,93 @@ public:
         _meta_dirty = true;
     }
 
+    // Hybrid sidecar (phase H1): see the file header comment. A miss covers
+    // "no sidecar", "stale content hash", "wrong size/count", and "corrupt
+    // (non-finite or negative) weights"; the caller then re-encodes both halves.
+    [[nodiscard]] bool load_sparse(
+        const luisa::filesystem::path &file,
+        luisa::string_view contents,
+        luisa::vector<std::pair<uint32_t, float>> &sparse) noexcept override {
+        const auto key = _path_key(file);
+        const auto entry = _meta.find(key);
+        if (entry == _meta.end()) {
+            return false;
+        }
+        // v1 dense-only metadata carries no `sparse_count`: hybrid miss.
+        if (!entry->second.has_sparse) {
+            return false;
+        }
+        const auto digest = _hash(contents);
+        if (entry->second.md5 != digest) {
+            return false;
+        }
+        const auto count = entry->second.sparse_count;
+        const auto expected_bytes = count * sizeof(SparseRecord);
+        const auto path = _sparse_file(digest);
+        std::error_code ec;
+        const auto actual_bytes = luisa::filesystem::file_size(path, ec);
+        if (ec || actual_bytes != expected_bytes) {
+            return false;
+        }
+        luisa::vector<std::byte> bytes;
+        if (!_read_binary(path, bytes) || bytes.size() != expected_bytes) {
+            return false;
+        }
+        luisa::vector<std::pair<uint32_t, float>> loaded;
+        loaded.resize(count);
+        for (size_t i = 0u; i < count; i++) {
+            SparseRecord record{};
+            std::memcpy(&record, bytes.data() + i * sizeof(SparseRecord), sizeof(SparseRecord));
+            if (!std::isfinite(record.weight) || record.weight < 0.0f) {
+                return false;// corrupt sidecar entry
+            }
+            loaded[i] = std::pair<uint32_t, float>{record.token_id, record.weight};
+        }
+        sparse = std::move(loaded);
+        LUISA_VERBOSE("embed disk cache sparse hit: {} ({} pair(s))", key, count);
+        return true;
+    }
+
+    // Writes the sparse sidecar and records its pair count in the meta. Only
+    // ever called right after a successful hybrid encode (which stored the dense
+    // record first), so dense-only operation never creates sidecars.
+    void store_sparse(
+        const luisa::filesystem::path &file,
+        luisa::string_view contents,
+        luisa::span<const std::pair<uint32_t, float>> sparse) noexcept override {
+        const auto key = _path_key(file);
+        const auto digest = _hash(contents);
+        const auto entry = _meta.find(key);
+        if (entry == _meta.end() || entry->second.md5 != digest) {
+            LUISA_WARNING("embed disk cache: sparse sidecar written without a dense entry for '{}'",
+                          key);
+            return;
+        }
+        luisa::vector<SparseRecord> records;
+        records.reserve(sparse.size());
+        for (const auto &pair : sparse) {
+            records.push_back(SparseRecord{pair.first, pair.second});
+        }
+        const auto path = _sparse_file(digest);
+        std::ofstream stream{path, std::ios::binary | std::ios::trunc};
+        if (!stream.is_open()) {
+            LUISA_WARNING("embed disk cache: cannot write '{}'", _display(path));
+            return;
+        }
+        if (!records.empty()) {
+            stream.write(reinterpret_cast<const char *>(records.data()),
+                         static_cast<std::streamsize>(records.size() * sizeof(SparseRecord)));
+        }
+        stream.close();
+        if (!stream) {
+            LUISA_WARNING("embed disk cache: cannot write '{}'", _display(path));
+            return;
+        }
+        entry->second.has_sparse = true;
+        entry->second.sparse_count = sparse.size();
+        _meta_dirty = true;
+    }
+
     void end_directory() noexcept override {
         if (!_meta_dirty) {
             return;
@@ -170,6 +270,12 @@ public:
             yyjson_mut_obj_add(object, yyjson_mut_str(doc, "mtime"), yyjson_mut_sint(doc, meta.mtime));
             yyjson_mut_obj_add(object, yyjson_mut_str(doc, "md5"), yyjson_mut_strcpy(doc, meta.md5.c_str()));
             yyjson_mut_obj_add(object, yyjson_mut_str(doc, "dimension"), yyjson_mut_uint(doc, meta.dimension));
+            if (meta.has_sparse) {
+                // Present only for hybrid entries, so dense-only metadata stays
+                // byte-identical to the v1 format.
+                yyjson_mut_obj_add(object, yyjson_mut_str(doc, "sparse_count"),
+                                   yyjson_mut_uint(doc, meta.sparse_count));
+            }
         }
         size_t length = 0u;
         char *json = yyjson_mut_write(
@@ -192,11 +298,21 @@ public:
     }
 
 private:
+    // Raw sparse sidecar record (phase H1): 8 bytes, host byte order, exactly the
+    // layout <md5>.sparse.bin stores.
+    struct SparseRecord {
+        uint32_t token_id;
+        float weight;
+    };
+    static_assert(sizeof(SparseRecord) == 8u, "sparse sidecar record must be 8 bytes");
+
     struct FileMeta {
         luisa::string md5;
         size_t size{};
         int64_t mtime{};
         size_t dimension{};
+        size_t sparse_count{};// valid only when has_sparse
+        bool has_sparse{};   // meta carried `sparse_count` => sidecar was stored
     };
 
     [[nodiscard]] luisa::filesystem::path _cache_dir() const noexcept {
@@ -208,6 +324,11 @@ private:
     [[nodiscard]] luisa::filesystem::path _cache_file(const luisa::string &digest) const noexcept {
         auto name = digest;
         name += ".bin";
+        return _cache_dir() / luisa::filesystem::path{name};
+    }
+    [[nodiscard]] luisa::filesystem::path _sparse_file(const luisa::string &digest) const noexcept {
+        auto name = digest;
+        name += ".sparse.bin";
         return _cache_dir() / luisa::filesystem::path{name};
     }
 
@@ -334,6 +455,13 @@ private:
                 meta.size = yyjson_get_uint(yyjson_obj_get(object, "size"));
                 meta.mtime = yyjson_get_sint(yyjson_obj_get(object, "mtime"));
                 meta.dimension = yyjson_get_uint(yyjson_obj_get(object, "dimension"));
+                auto *sparse_count = yyjson_obj_get(object, "sparse_count");
+                if (yyjson_is_uint(sparse_count)) {
+                    // Hybrid entry: a sidecar exists with this many records (0 is
+                    // a valid empty sparse vector with a zero-byte sidecar).
+                    meta.has_sparse = true;
+                    meta.sparse_count = yyjson_get_uint(sparse_count);
+                }
                 if (meta.dimension != 0u) {
                     _meta.emplace(yyjson_get_str(path_value), std::move(meta));
                 }

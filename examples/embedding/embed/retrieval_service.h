@@ -1,8 +1,11 @@
 // Serialized command-service boundary shared by the retrieval REPL and JSON-RPC
-// server (retrieval plan phase 2). Frontends exchange only structured DTOs.
+// server (retrieval plan phase 2; hybrid encoder wiring phase H2). Frontends
+// exchange only structured DTOs, so the console grammar and the RPC schema are
+// identical for a dense-only and for a hybrid service.
 #pragma once
 
 #include <mutex>
+#include <utility>
 
 #include "retrieval_index.h"
 #include <luisa/core/stl/filesystem.h>
@@ -12,7 +15,16 @@ namespace luisa::embed {
 
 class RetrievalService {
 public:
+    // Dense-only service (unchanged behavior): the encoder returns one dense
+    // vector per text and scores are plain dense dot products.
     explicit RetrievalService(RetrievalEncodeCallback encode) noexcept
+        : _index{std::move(encode)} {}
+    // Hybrid service (phase H2): the encoder returns the dense vector plus the
+    // BGE-M3 sparse lexical weights, and scores fuse both halves. Which overload
+    // a call selects is decided by the callback's return type
+    // (RetrievalEmbedding vs luisa::vector<float>), never by the data: a dense
+    // callback cannot silently become a hybrid one.
+    explicit RetrievalService(RetrievalHybridEncodeCallback encode) noexcept
         : _index{std::move(encode)} {}
     ~RetrievalService() noexcept = default;
 

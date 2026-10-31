@@ -1,10 +1,20 @@
 // M3 end-to-end gate for the bge-m3 embedding engine (embedding_model_plan.md
 // §6 M3): Session-level encode of a pinned corpus subset through the full
 // executor graph (embed_lookup -> 24 x {GEMM/attention/GEMM/LN} -> slice_cls
-// -> l2_normalize), compared against golden_dense.bin (worst cosine >= 0.9999
-// on ALL sentences), PLUS the layer-trace oracle against golden_layers.bin
-// (per-layer max-abs-diff <= 1e-3 for corpus sentences 0 and 3 -- the D4
-// bisect oracle proving per-layer, not just final, correctness).
+// -> l2_normalize), compared against golden_dense.bin (worst cosine >= the
+// package gate on ALL sentences), PLUS the layer-trace oracle against
+// golden_layers.bin (per-layer max-abs-diff gate for corpus sentences 0 and 3
+// -- the D4 bisect oracle proving per-layer, not just final, correctness).
+//
+// Package-format gates (probed from the BGM3 header, (version, precision) PAIR
+// validated against the loader's accepted table -- never "non-v2 means fp32"):
+//   v1 fp32            : cosine >= 0.9999, per-layer <= 1e-3  (unchanged)
+//   v2 bf16 | fp16     : cosine >= 0.999,  per-layer <= 0.5   (unchanged)
+// v3 int8 (symmetric): cosine >= 0.98, per-layer <= 2.0 DIAGNOSTIC
+// regression gate (NOT a model-quality gate: per-tensor int8 trace drift can
+// approach O(1)); for v3 the DENSE cosine gate is the authoritative model-quality
+// gate and the 2.0 layer bound only catches gross upload/layout corruption
+// (measured v3 trace worst: 1.173 / 0.7301 on the two traced sentences).
 //
 // Attention: naive trio only (all corpus sentences fit S <= 512 after the
 // 512-token truncation); the flash path is never touched here (B2/M4).
@@ -137,6 +147,73 @@ constexpr uint32_t kTraceSentences[] = {0u, 3u};
 constexpr size_t kTraceSentenceRows[] = {15u, 17u};// golden_layers.bin rows (meta)
 constexpr size_t kTraceSentenceBase[] = {0u, 1536000u};
 
+// O-G / quant gates. fp32 v1 and half v2 numbers are the historical ones and
+// must not move; int8 v3 gets its own, honest tolerances.
+constexpr float kFp32GoldenGate = 0.9999f;
+constexpr float kHalfGoldenGate = 0.999f;
+constexpr float kInt8GoldenGate = 0.98f;
+constexpr float kFp32LayerGate = 1e-3f;
+constexpr float kHalfLayerGate = 0.5f;
+// v3 per-layer gate: DIAGNOSTIC/regression only (gross layout/upload
+// corruption), not a model-quality gate -- see the trace section.
+constexpr float kInt8LayerDiagnosticGate = 2.0f;
+
+// BGM3 package header probe. Layout (examples/embedding/embed/package.cpp is the
+// spec): magic 'B','G','M','3' | u32 version | u32 precision | u32 tensor_count.
+struct PackageHeader {
+    uint32_t version = 0u;
+    uint32_t precision = 0u;
+    bool magic_ok = false;
+};
+
+PackageHeader probe_package_header(const std::filesystem::path &bgm) {
+    PackageHeader h;
+    if (auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
+        uint8_t raw[16] = {};
+        const auto got = std::fread(raw, 1u, 16u, f);
+        std::fclose(f);
+        if (got == 16u && raw[0] == 'B' && raw[1] == 'G' && raw[2] == 'M' && raw[3] == '3') {
+            h.magic_ok = true;
+            h.version = static_cast<uint32_t>(raw[4]) | (static_cast<uint32_t>(raw[5]) << 8u) |
+                        (static_cast<uint32_t>(raw[6]) << 16u) | (static_cast<uint32_t>(raw[7]) << 24u);
+            h.precision = static_cast<uint32_t>(raw[8]) | (static_cast<uint32_t>(raw[9]) << 8u) |
+                          (static_cast<uint32_t>(raw[10]) << 16u) | (static_cast<uint32_t>(raw[11]) << 24u);
+        }
+    }
+    return h;
+}
+
+enum class PackageKind { fp32, half, int8 };
+
+// Validate the (version, precision) PAIR against the loader's accepted table
+// (v1 + 0 = fp32, v2 + 1|2 = bf16|fp16, v3 + 3 = per-tensor symmetric int8).
+// An unimplemented pair is rejected here instead of being silently mapped onto a
+// known gate family -- in particular "not v2" must never mean either fp32 or
+// int8.
+PackageKind classify_package(const std::filesystem::path &bgm) {
+    const auto h = probe_package_header(bgm);
+    if (!h.magic_ok) {
+        // No readable BGM3 header: Package::load raises the authoritative error
+        // right below (Session::create), so keep the fp32 gate here rather than
+        // guessing a low-precision one.
+        LUISA_WARNING("package \"{}\" has no readable BGM3 header; keeping the fp32 gates until the loader reports the real error",
+                      bgm.string());
+        return PackageKind::fp32;
+    }
+    if (h.version == 1u && h.precision == 0u) {
+        return PackageKind::fp32;
+    }
+    if (h.version == 2u && (h.precision == 1u || h.precision == 2u)) {
+        return PackageKind::half;
+    }
+    if (h.version == 3u && h.precision == 3u) {
+        return PackageKind::int8;
+    }
+    LUISA_ERROR("unsupported BGM3 version {} precision {} in \"{}\": v1 is fp32 only (precision 0), "
+                "v2 is bf16|fp16 only (precision 1|2), v3 is int8 only (precision 3)",
+                h.version, h.precision, bgm.string());
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -145,23 +222,16 @@ int main(int argc, char *argv[]) {
     luisa::test::log_test_backend(argv[1], device);
     const std::filesystem::path data_dir{LUISA_EMBED_TEST_DATA_DIR};
     const std::filesystem::path bgm = (argc > 2 ? std::filesystem::path{argv[2]} : std::filesystem::path{"D:/compute/bge-m3/bge-m3/model.bgm"});
-    // O-G precision gating (same policy as test_embed_e2e): the golden cosine
-    // gate follows the package header (0.9999 fp32 v1 / 0.999 half v2).
-    float golden_gate = 0.9999f;
-    {
-        uint32_t ver = 1u, prec = 0u;
-        if (auto *f = std::fopen(bgm.string().c_str(), "rb"); f != nullptr) {
-            uint8_t hdr[16] = {};
-            if (std::fread(hdr, 1u, 16u, f) == 16u && hdr[0] == 'B' && hdr[1] == 'G' && hdr[2] == 'M' && hdr[3] == '3') {
-                ver = static_cast<uint32_t>(hdr[4]) | (static_cast<uint32_t>(hdr[5]) << 8u) |
-                      (static_cast<uint32_t>(hdr[6]) << 16u) | (static_cast<uint32_t>(hdr[7]) << 24u);
-                prec = static_cast<uint32_t>(hdr[8]) | (static_cast<uint32_t>(hdr[9]) << 8u) |
-                       (static_cast<uint32_t>(hdr[10]) << 16u) | (static_cast<uint32_t>(hdr[11]) << 24u);
-            }
-            std::fclose(f);
-        }
-        golden_gate = (ver == 2u && prec != 0u) ? 0.999f : 0.9999f;
-    }
+    // O-G / quant precision gating (same policy as test_embed_e2e): the golden
+    // cosine gate follows the probed + pair-validated package format.
+    const auto pkg_kind = classify_package(bgm);
+    const bool pkg_half = pkg_kind == PackageKind::half;
+    const bool pkg_int8 = pkg_kind == PackageKind::int8;
+    const float golden_gate = pkg_int8 ? kInt8GoldenGate : (pkg_half ? kHalfGoldenGate : kFp32GoldenGate);
+    LUISA_INFO("test_embed_executor: package \"{}\" -> {} package, dense/worst cosine gate >= {:.4f}",
+               bgm.string(),
+               pkg_int8 ? "int8 (v3, per-tensor symmetric)" : (pkg_half ? "half-precision (v2)" : "fp32 (v1)"),
+               golden_gate);
     const auto corpus = load_corpus(data_dir);
     const auto gold_dense = read_f32_file(data_dir / "golden_dense.bin");
     const auto gold_layers = read_f32_file(data_dir / "golden_layers.bin");
@@ -191,8 +261,9 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("sentence {:3d}: cosine = {:.6f}", i, c);
         expect(c >= golden_gate) << "cosine >= package gate for sentence " << i;
     }
-    LUISA_INFO("M3 dense gate: 16 sentences, worst cosine = {:.6f} (sentence {}), gate >= 0.9999",
-               worst_cosine, worst_idx);
+    LUISA_INFO("M3 dense gate: 16 sentences, worst cosine = {:.6f} (sentence {}), gate >= {:.4f} ({})",
+               worst_cosine, worst_idx, golden_gate,
+               pkg_int8 ? "int8 v3 gate" : (pkg_half ? "half v2 gate" : "fp32 v1 gate"));
     expect(worst_cosine >= golden_gate) << "worst cosine gate";
 
     // ---- full-corpus timing (report evidence; every sentence gated too when
@@ -222,9 +293,9 @@ int main(int argc, char *argv[]) {
     // slot 0 and against golden_layers.bin layer 0. Separates
     // ids/tokenization errors, weight-upload errors, trace-plumbing errors and
     // golden-index errors.
-    const bool diag = std::getenv("BGEM3_DIAG") != nullptr && golden_gate >= 0.9999f;
-    if (std::getenv("BGEM3_DIAG") != nullptr && golden_gate < 0.9999f) {
-        LUISA_INFO("BGEM3_DIAG skipped: the host-side embedding reference reader below is fp32-blob-only (half packages use Tensor::half_data).");
+    const bool diag = std::getenv("BGEM3_DIAG") != nullptr && pkg_kind == PackageKind::fp32;
+    if (std::getenv("BGEM3_DIAG") != nullptr && pkg_kind != PackageKind::fp32) {
+        LUISA_INFO("BGEM3_DIAG skipped: the host-side embedding reference reader below is fp32-blob-only (v2 half packages expose Tensor::half_data, v3 int8 packages expose Tensor::int8_data + int8_scale); run it on a v1 fp32 package.");
     }
     luisa::vector<float> diag_ref;
     luisa::vector<uint32_t> diag_ids;
@@ -350,7 +421,19 @@ int main(int argc, char *argv[]) {
         // packages it widens to 0.5 -- still catches upload/layout corruption
         // (wrong-tensor mismatches are O(1)-O(10) diffs), not a softening of the
         // fp32 suite.
-        const float layer_gate = golden_gate >= 0.9999f ? 1e-3f : 0.5f;
+        // QUANT (v3 int8): per-tensor symmetric int8 is far more lossy than the
+        // half formats, so the traced drift against the fp32 golden trace is
+        // can approach O(1) (measured 1.173 and 0.7301 on the two traced sentences).
+        // The dense cosine gate above is authoritative for v3 model quality;
+        // kInt8LayerDiagnosticGate (2.0) only catches gross layout/upload
+        // corruption -- e.g. a wrong tensor scale, a wrong blob stride, or a
+        // missing dequantization (O(1e2)+ diffs). The DENSE golden cosine gate
+        // (>= 0.98 above, full corpus in test_embed_e2e) is the AUTHORITATIVE
+        // model-quality gate for int8; this per-layer number is not a quality
+        // claim. Every layer is still printed and compared on every package.
+        const float layer_gate = pkg_int8 ? kInt8LayerDiagnosticGate
+                                          : (pkg_half ? kHalfLayerGate : kFp32LayerGate);
+        const bool layer_gate_is_diagnostic = pkg_int8;
         for (uint32_t layer = 0; layer < 25u; layer++) {
             const float *golden = gold_layers.data() + kTraceSentenceBase[si] / 4u + static_cast<size_t>(layer) * stride;
             const auto &got = host[layer];
@@ -360,10 +443,19 @@ int main(int argc, char *argv[]) {
             }
             worst_layer_diff = std::max(worst_layer_diff, max_diff);
             LUISA_INFO("sentence {} layer {:2d}: max_abs_diff = {:.3e}", sent, layer, max_diff);
-            expect(max_diff <= layer_gate) << "layer " << layer << " diff <= gate (sentence " << sent << ")";
+            expect(max_diff <= layer_gate)
+                << (layer_gate_is_diagnostic ? "layer (int8 DIAGNOSTIC gate) " : "layer ")
+                << layer << " diff <= gate (sentence " << sent << ")";
         }
-        LUISA_INFO("sentence {} worst per-layer max-abs-diff = {:.3e} (gate <= {:.1e})",
-                   sent, worst_layer_diff, layer_gate);
+        if (layer_gate_is_diagnostic) {
+            LUISA_INFO("sentence {} worst per-layer max-abs-diff = {:.3e} (int8 DIAGNOSTIC/regression gate <= {:.1f}; "
+                       "the dense cosine gate >= {:.4f} is the AUTHORITATIVE model-quality gate -- per-tensor symmetric "
+                       "int8 trace drift approaching O(1) is expected and is not a model-quality statement)",
+                       sent, worst_layer_diff, layer_gate, golden_gate);
+        } else {
+            LUISA_INFO("sentence {} worst per-layer max-abs-diff = {:.3e} (gate <= {:.1e})",
+                       sent, worst_layer_diff, layer_gate);
+        }
     }
 
     return 0;

@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstdint>
+#include <functional>
+#include <thread>
+
 #include <marl/event.h>
 #include <marl/waitgroup.h>
 #include <marl/finally.h>
@@ -103,6 +107,18 @@ using future = Future<T>;
 inline uint32_t worker_thread_count() {
     return marl::Scheduler::get()->config().workerThread.count;
 }
+
+// Returns a stable identity for the current logical execution flow. Unlike
+// std::this_thread::get_id(), the fiber identity remains unchanged when the
+// fiber migrates between worker threads. Unbound threads use their thread id.
+[[nodiscard]] inline uint64_t get_id() noexcept {
+    constexpr auto fiber_tag = uint64_t{1} << 63;
+    if (auto fiber = marl::Scheduler::Fiber::current()) {
+        return reinterpret_cast<uint64_t>(fiber) | fiber_tag;
+    }
+    return std::hash<std::thread::id>{}(std::this_thread::get_id()) & ~fiber_tag;
+}
+
 template<class F>
     requires(std::is_invocable_v<F>)
 void schedule(F &&f) noexcept {

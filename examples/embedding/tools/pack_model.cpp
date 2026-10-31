@@ -34,12 +34,16 @@
 // offset  size  field
 // ------  ----  -------------------------------------------------------------
 // 0 4 magic 'B','G','M','3'
-// 4 4 u32 version = 1 (fp32) or 2 (half-precision, opt plan §4 Q1/Q2)
+// 4 4 u32 version = 1 (fp32), 2 (half-precision, opt plan §4 Q1/Q2) or
+//   3 (per-tensor symmetric int8, INT8 quantization phase 1)
 // 8 4 u32 precision = 0 (fp32 little-endian elements; the only v1 mode).
 //   Version 2 only: 1 = bf16, 2 = fp16 -- every blob is 2-byte
 //   little-endian elements, size_bytes = prod(dims) * 2
-//   (v1 must have precision 0; v2 must NOT have precision 0; both
-//   loaders reject mismatches loudly)
+//   Version 3 only: 3 = int8 -- every blob is exactly prod(dims)
+//   signed int8 bytes (size_bytes = prod(dims)), scale below
+//   (v1 must have precision 0; v2 must NOT have precision 0; v3 must
+//   have precision 3 and precision 3 requires v3; all loaders reject
+//   mismatches loudly)
 // 12 4 u32 tensor_count = N
 // 16 N*48  tensor table, N entries, in the emission order listed below
 // ... blobs: each tensor blob starts at a 256-byte aligned offset
@@ -51,8 +55,10 @@
 // (always a multiple of 256)
 // u64  size_bytes == prod(dims[0..rank-1]) * elem_size (4 for fp32/v1,
 // 2 for bf16/fp16/v2)
-// u32  rank number of meaningful dims (1 or 2 in v1/v2)
+// u32  rank number of meaningful dims (1 or 2 in v1/v2/v3)
 // u32  dims[4] outermost-first; entries beyond rank are 0
+// u32  reserved: zero in v1/v2; in v3 the per-tensor INT8 scale as an
+// IEEE-754 fp32 (positive, finite) -- see VERSION 3 below
 // Blobs are row-major (C-contiguous) tensors. Padding bytes between blobs are
 // zero. The file size is align_up(16 + 48*N, 256) + sum(align_up(size_i, 256)).
 // VERSION 2 ELEMENT ENCODING (pack_model --precision bf16|fp16; everything
@@ -70,6 +76,27 @@
 //   bf16/fp16 -> fp32 at the kernel B-tile load (FMA accumulation stays fp32;
 //   see kernels_gemm.h "WEIGHT FORMAT"). Other tensors are up-converted
 //   host-side once at upload. The conversion is exact in both directions.
+//
+// VERSION 3 ELEMENT ENCODING (pack_model --precision int8; names, order, dims,
+// alignment and the table layout are identical to v1/v2):
+// * Per-tensor symmetric quantization. For each tensor, over the SAME fp32
+//   values v1 would write:
+//     absmax = max |x|                      (a nonfinite x is a fatal error)
+//     scale  = absmax / 127                 (exactly 1.0 for an all-zero tensor)
+//     code   = clamp(RNE(x / scale), -127, +127)   (RNE = ties-to-even)
+//     dequantized value = code * scale
+//   -128 is never emitted, so the code range is symmetric. The blob is exactly
+//   prod(dims) signed int8 bytes with no per-blob header; the positive fp32
+//   scale is written into the entry's reserved trailing 4 bytes (offset 44).
+// The bge-m3 weights are all small (the pack run audits max |w| = 1.85 over the
+// whole model), so a per-tensor scale keeps ~7 significant bits of every weight.
+// * Runtime: the engine either uploads the codes and dequantizes at the
+//   weight-load point (q * scale, fp32 accumulation) or calls the shared
+//   host helper once. The math is mirrored bit-for-bit in
+//   examples/embedding/embed/quantization.h (that header is host-only engine
+//   code and this tool links no lc libraries, so the two copies must agree).
+// * --check dequantizes every blob on read-back, i.e. the internal fp32 forward
+//   measures the true int8 quantization effect end to end.
 //   u32  dims[4]      outermost-first; entries beyond rank are 0
 //
 // Blobs are row-major (C-contiguous) tensors. Padding bytes between blobs are
@@ -142,7 +169,7 @@
 //
 // CLI
 // pack_model <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump]
-// [--precision fp32|bf16|fp16]
+// [--precision fp32|bf16|fp16|int8]
 // <model_dir> directory containing onnx/model.onnx, onnx/model.onnx_data,
 // sparse_linear.pt, colbert_linear.pt and config.json (the
 // config is read for cross-checking only)
@@ -150,15 +177,21 @@
 // --check after packing, reopen the .bgm, run the internal naive CPU
 // fp32 forward over the first three corpus sentences and
 // compare against golden_dense.bin (requires --golden-dir).
-// Gate: cosine >= 0.9999 for an fp32 package, >= 0.999
-// for a half-precision one (opt plan §4 parity gates)
+// Gate: cosine >= 0.9999 for an fp32 package, >= 0.999 for a
+// half-precision (v2) one, >= 0.99 for an int8 (v3) one (opt
+// plan §4 parity gates; the int8 bound is the measured
+// per-tensor-quantization level of the dev model -- see
+// run_check)
 // --dump print the canonical-name -> source-initializer mapping table
 // --precision element format of the OUTPUT file (default fp32 = the
 // historical byte-identical v1 output). bf16/fp16 write
 // BGM3 v2 (see VERSION 2 above): every blob is
-// 2-byte RNE-quantized elements. The internal --check
-// forward dequantizes on read-back, so it measures the
-// true quantization effect end to end.
+// 2-byte RNE-quantized elements. int8 writes BGM3 v3
+// (see VERSION 3 above): every blob is prod(dims) signed
+// int8 codes plus one fp32 scale in the entry's reserved
+// bytes. The internal --check forward dequantizes on
+// read-back, so it measures the true quantization effect
+// end to end.
 //
 // Exit code: 0 on success, 1 on any fatal error (missing or unexpected
 // initializer, truncated data, alignment mismatch, parity mismatch, ...).
@@ -1545,20 +1578,60 @@ namespace pack_model_detail {
 
 constexpr uint32_t kBgmVersion = 1;
 constexpr uint32_t kBgmVersionHalf = 2;// opt plan §4 Q1/Q2 (bf16/fp16 blobs)
+constexpr uint32_t kBgmVersionInt8 = 3;// INT8 quantization phase 1 (int8 blobs)
 constexpr uint32_t kBgmPrecisionFp32 = 0;
 constexpr uint32_t kBgmPrecisionBf16 = 1;
 constexpr uint32_t kBgmPrecisionFp16 = 2;
+constexpr uint32_t kBgmPrecisionInt8 = 3;
 constexpr uint64_t kBgmAlign = 256;
+// reserved trailing 4 bytes of the 48-byte entry (8+8+8+4+16 == 44): zero for
+// v1/v2, the per-tensor fp32 INT8 scale for v3
+constexpr uint64_t kBgmEntryScaleOffset = 44;
 inline uint64_t bgm_elem_bytes(uint32_t precision) {
-    return precision == kBgmPrecisionFp32 ? 4ull : 2ull;
+    return precision == kBgmPrecisionFp32 ? 4ull : precision == kBgmPrecisionInt8 ? 1ull : 2ull;
 }
 inline const char *bgm_precision_name(uint32_t precision) {
     switch (precision) {
         case kBgmPrecisionFp32: return "fp32";
         case kBgmPrecisionBf16: return "bf16";
         case kBgmPrecisionFp16: return "fp16";
+        case kBgmPrecisionInt8: return "int8";
         default: return "invalid";
     }
+}
+// ---------------------------------------------------------------------------
+// int8 quantization codec (format spec "VERSION 3 ELEMENT ENCODING"). Mirrors
+// examples/embedding/embed/quantization.h bit for bit (that header is host-only
+// engine code; this target links no lc libraries, so the math is transcribed
+// here -- the same arrangement as the half-precision codecs below).
+// ---------------------------------------------------------------------------
+constexpr int kInt8QuantMax = 127;// symmetric range [-127, 127]; -128 unused
+constexpr float kInt8UnitScale = 1.0f;// scale of an all-zero tensor
+// round-to-nearest-even, done in double so the tie test is exact
+inline double int8_round_rne(double x) {
+    const double base = std::floor(x);
+    const double frac = x - base;
+    if (frac > 0.5) return base + 1.0;
+    if (frac < 0.5) return base;
+    return std::fmod(base, 2.0) == 0.0 ? base : base + 1.0;
+}
+inline int8_t int8_from_float(float v, float scale) {
+    const double q = int8_round_rne(static_cast<double>(v) / static_cast<double>(scale));
+    if (q > static_cast<double>(kInt8QuantMax)) return static_cast<int8_t>(kInt8QuantMax);
+    if (q < -static_cast<double>(kInt8QuantMax)) return static_cast<int8_t>(-kInt8QuantMax);
+    return static_cast<int8_t>(q);
+}
+inline float int8_to_float(int8_t q, float scale) { return static_cast<float>(q) * scale; }
+inline bool int8_scale_is_valid(float scale) { return std::isfinite(scale) && scale > 0.0f; }
+// absmax -> per-tensor scale (1.0 for an all-zero tensor); fail-closed
+inline float int8_scale_from_absmax(float absmax) {
+    PACK_CHECK(std::isfinite(absmax) && absmax >= 0.0f, "int8: invalid absmax %g (must be finite and >= 0)",
+               static_cast<double>(absmax));
+    if (absmax == 0.0f) return kInt8UnitScale;
+    const float scale = absmax / static_cast<float>(kInt8QuantMax);
+    PACK_CHECK(int8_scale_is_valid(scale), "int8: absmax %g yields the unrepresentable scale %g",
+               static_cast<double>(absmax), static_cast<double>(scale));
+    return scale;
 }
 // ---------------------------------------------------------------------------
 // half-precision codecs (format spec above). Quantization is round-to-nearest-
@@ -1656,7 +1729,9 @@ struct bgm_plan_entry {
 class bgm_writer {
 public:
     // precision: kBgmPrecisionFp32 (version 1, byte-identical to the
-    // historical output) | bf16 | fp16 (version 2, 2-byte RNE blobs).
+    // historical output) | bf16 | fp16 (version 2, 2-byte RNE blobs) | int8
+    // (version 3, 1-byte symmetric codes + a per-tensor fp32 scale registered
+    // through set_int8_absmax() before open()).
     explicit bgm_writer(std::string path, uint32_t precision = kBgmPrecisionFp32)
         : _path(std::move(path)), _precision(precision), _esz(bgm_elem_bytes(precision)) {}
     ~bgm_writer() { close(); }
@@ -1669,6 +1744,8 @@ public:
     // Assigns every blob offset (256-byte aligned) and remembers the total size.
     void plan(std::vector<bgm_plan_entry> entries) {
         _entries = std::move(entries);
+        _absmax.assign(_entries.size(), 0.0f);
+        _have_absmax.assign(_entries.size(), 0u);
         uint64_t off = align_up(16 + 48 * static_cast<uint64_t>(_entries.size()), kBgmAlign);
         for (auto &e : _entries) {
             e.offset = off;
@@ -1676,6 +1753,20 @@ public:
         }
         _total = off;
     }
+    // INT8 only: the tensor's absmax, measured by the caller over exactly the
+    // values write_entry() will produce. The scale (absmax/127) goes into the
+    // table entry, so it must be known BEFORE open() -- that is why the packer
+    // computes every absmax up front. write_entry() re-measures the absmax while
+    // quantizing and refuses to continue if it disagrees.
+    void set_int8_absmax(size_t idx, float absmax) {
+        PACK_CHECK(_precision == kBgmPrecisionInt8, "set_int8_absmax on a %s package",
+                   bgm_precision_name(_precision));
+        PACK_CHECK(idx < _absmax.size(), "set_int8_absmax: entry %zu out of range", idx);
+        (void)int8_scale_from_absmax(absmax);// validates (fail-closed)
+        _absmax[idx] = absmax;
+        _have_absmax[idx] = 1u;
+    }
+    float int8_scale_of(size_t idx) const { return int8_scale_from_absmax(_absmax[idx]); }
 
     uint64_t total_size() const { return _total; }
     size_t tensor_count() const { return _entries.size(); }
@@ -1684,11 +1775,12 @@ public:
         _f = std::fopen(_path.c_str(), "wb");
         PACK_CHECK(_f, "cannot open the output file '%s' for writing", _path.c_str());
         uint8_t header[16] = {'B', 'G', 'M', '3', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-        write_u32(header + 4, _precision == kBgmPrecisionFp32 ? kBgmVersion : kBgmVersionHalf);
+        write_u32(header + 4, _precision == kBgmPrecisionFp32 ? kBgmVersion : _precision == kBgmPrecisionInt8 ? kBgmVersionInt8 :
+                                                                                                                kBgmVersionHalf);
         write_u32(header + 8, _precision);
         write_u32(header + 12, static_cast<uint32_t>(_entries.size()));
         put(header, sizeof(header));
-        std::vector<uint8_t> table(48 * _entries.size());
+        std::vector<uint8_t> table(48 * _entries.size());// zero-filled: v1/v2 reserved bytes stay 0
         for (size_t i = 0; i < _entries.size(); i++) {
             const auto &e = _entries[i];
             uint8_t *p = table.data() + i * 48;
@@ -1698,6 +1790,14 @@ public:
             std::memcpy(p + 16, &e.size_bytes, 8);
             write_u32(p + 24, e.rank);
             for (int d = 0; d < 4; d++) write_u32(p + 28 + 4 * static_cast<size_t>(d), e.dims[d]);
+            if (_precision == kBgmPrecisionInt8) {// v3: scale in the reserved bytes
+                PACK_CHECK(_have_absmax[i] != 0u, "int8 package: no absmax was registered for entry %zu ('%s')",
+                           i, e.name.c_str());
+                const float scale = int8_scale_of(i);
+                PACK_CHECK(int8_scale_is_valid(scale), "int8 package: '%s' got the invalid scale %g", e.name.c_str(),
+                           static_cast<double>(scale));
+                std::memcpy(p + kBgmEntryScaleOffset, &scale, sizeof(scale));
+            }
         }
         put(table.data(), table.size());
         pad_to(_entries.empty() ? kBgmAlign : _entries.front().offset);
@@ -1705,12 +1805,21 @@ public:
     // Writes the blob of plan entry `idx`; `fill` produces exactly the expected
     // number of floats, so the 1 GB word table can be streamed in row chunks.
     // For a half package the floats are RNE-quantized to 2-byte elements here
-    // (and the running max |w| is audited for the fp16 range check).
+    // (and the running max |w| is audited for the fp16 range check); for an int8
+    // package they are quantized to 1-byte symmetric codes with the scale
+    // registered by set_int8_absmax() (and the absmax is re-measured to prove the
+    // registered scale belongs to this data).
     template<class Fn>
     void write_entry(size_t idx, uint64_t rows_per_call, Fn &&fill) {
         const auto &e = _entries[idx];
         PACK_CHECK(tell64(_f) == e.offset, "'%s': the writer is at %llu but the plan says %llu", e.name.c_str(),
                    static_cast<unsigned long long>(tell64(_f)), static_cast<unsigned long long>(e.offset));
+        const bool int8 = _precision == kBgmPrecisionInt8;
+        const float int8_scale = int8 ? int8_scale_of(idx) : 1.0f;// also asserts it was registered
+        if (int8) {
+            PACK_CHECK(_have_absmax[idx] != 0u, "int8 package: no absmax was registered for '%s'", e.name.c_str());
+        }
+        float entry_absmax = 0.0f;
         const uint64_t total_rows = e.dims[0];
         std::vector<float> buf;
         for (uint64_t row = 0; row < total_rows; row += rows_per_call) {
@@ -1725,7 +1834,19 @@ public:
                 const double ax = std::abs(static_cast<double>(x));
                 if (ax > _max_abs) _max_abs = ax;
             }
-            if (_esz == 2ull) {
+            if (int8) {
+                _ibuf.resize(buf.size());
+                for (size_t j = 0; j < buf.size(); j++) {
+                    const float x = buf[j];
+                    PACK_CHECK(std::isfinite(x),
+                               "'%s': nonfinite value at row %llu element %zu -- int8 quantization is fail-closed",
+                               e.name.c_str(), static_cast<unsigned long long>(row), j);
+                    _ibuf[j] = int8_from_float(x, int8_scale);
+                    const float a = std::fabs(x);
+                    if (a > entry_absmax) entry_absmax = a;
+                }
+                put(reinterpret_cast<const uint8_t *>(_ibuf.data()), _ibuf.size());
+            } else if (_esz == 2ull) {
                 _hbuf.resize(buf.size());
                 for (size_t j = 0; j < buf.size(); j++) {
                     _hbuf[j] = _precision == kBgmPrecisionBf16 ? f32_to_bf16_rne(buf[j]) : f32_to_f16_rne(buf[j]);
@@ -1734,6 +1855,11 @@ public:
             } else {
                 put(reinterpret_cast<const uint8_t *>(buf.data()), buf.size() * 4);
             }
+        }
+        if (int8) {// the registered scale must belong to exactly this data
+            PACK_CHECK(entry_absmax == _absmax[idx],
+                       "int8 package: '%s' was registered with absmax %.9g but the quantized data has absmax %.9g",
+                       e.name.c_str(), static_cast<double>(_absmax[idx]), static_cast<double>(entry_absmax));
         }
         pad_to(align_up(e.offset + e.size_bytes, kBgmAlign));
     }
@@ -1784,11 +1910,14 @@ private:
     std::FILE *_f = nullptr;
     std::vector<bgm_plan_entry> _entries;
     uint64_t _total = 0;
-    uint32_t _precision = kBgmPrecisionFp32;
-    uint64_t _esz = 4;
-    double _max_abs = 0.0;
-    std::vector<uint16_t> _hbuf;// half-chunk staging (_esz == 2)
-};
+        uint32_t _precision = kBgmPrecisionFp32;
+        uint64_t _esz = 4;
+        double _max_abs = 0.0;
+        std::vector<uint16_t> _hbuf;// half-chunk staging (_esz == 2)
+        std::vector<int8_t> _ibuf;// int8-chunk staging (_esz == 1)
+        std::vector<float> _absmax;// per-entry absmax (int8 scale source)
+        std::vector<uint8_t> _have_absmax;// 1 when set_int8_absmax() ran
+    };
 
 // ---------------------------------------------------------------------------
 // emission plan: canonical names, ranks and dims in file order
@@ -2007,16 +2136,93 @@ void run_pack(const std::string &model_dir, const std::string &out_path, const c
              return s;
          }()),
          static_cast<unsigned long long>(writer.total_size()));
-    writer.open();
 
-    // emb.word: streamed in row chunks with the token-type row folded in
-    writer.write_entry(0, 4096, [&](uint64_t row, uint64_t rows, std::vector<float> &buf) {
+    // emb.word row-chunk fill (token-type row 0 folded in). Shared by the int8
+    // absmax pre-pass below and the writer's streaming write, so both see
+    // exactly the same values.
+    const auto fill_emb_word = [&](uint64_t row, uint64_t rows, std::vector<float> &buf) {
         weights.load_rows(word_t, row, rows, buf);
         for (uint64_t r = 0; r < rows; r++) {
             float *dst = buf.data() + static_cast<size_t>(r) * kHidden;
             for (int c = 0; c < kHidden; c++) dst[c] += type_row[static_cast<size_t>(c)];
         }
-    });
+    };
+
+    if (precision == kBgmPrecisionInt8) {
+        // VERSION 3 element encoding: per-tensor symmetric int8. The scale lives
+        // in the table entry, so every absmax must be known BEFORE open() writes
+        // the table. All payloads except emb.word are already in memory; emb.word
+        // is streamed a second time through the same fill lambda (one extra ~1 GB
+        // read of the source, an offline cost only).
+        const auto plan = build_plan(precision);
+        std::vector<const std::vector<float> *> payloads(plan.size(), nullptr);
+        payloads[1] = &pos;
+        payloads[2] = &emb_ln_g;
+        payloads[3] = &emb_ln_b;
+        for (int i = 0; i < kNumLayers; i++) {
+            const auto &P = layers[static_cast<size_t>(i)];
+            const size_t base = static_cast<size_t>(4 + i * 12);
+            payloads[base + 0] = &P.qkv;
+            payloads[base + 1] = &P.qkv_b;
+            payloads[base + 2] = &P.attn_out;
+            payloads[base + 3] = &P.attn_out_b;
+            payloads[base + 4] = &P.ln1_g;
+            payloads[base + 5] = &P.ln1_b;
+            payloads[base + 6] = &P.ffn_up;
+            payloads[base + 7] = &P.ffn_up_b;
+            payloads[base + 8] = &P.ffn_down;
+            payloads[base + 9] = &P.ffn_down_b;
+            payloads[base + 10] = &P.ln2_g;
+            payloads[base + 11] = &P.ln2_b;
+        }
+        const size_t head_base = 4 + static_cast<size_t>(kNumLayers) * 12;
+        payloads[head_base + 0] = &sparse_w;
+        payloads[head_base + 1] = &sparse.bias;
+        payloads[head_base + 2] = &colbert_w;
+        payloads[head_base + 3] = &colbert.bias;
+
+        const auto absmax_of = [](const std::vector<float> &v) {
+            float a = 0.0f;
+            for (const float x : v) {
+                PACK_CHECK(std::isfinite(x), "int8 quantization: nonfinite weight value %g (fail-closed)",
+                           static_cast<double>(x));
+                const float ax = std::fabs(x);
+                if (ax > a) a = ax;
+            }
+            return a;
+        };
+        // emb.word: the only streamed tensor (entry 0)
+        {
+            float a = 0.0f;
+            std::vector<float> buf;
+            const uint64_t rows = static_cast<uint64_t>(kVocab);
+            const uint64_t chunk = 4096;
+            for (uint64_t row = 0; row < rows; row += chunk) {
+                const uint64_t n = std::min(chunk, rows - row);
+                buf.clear();
+                fill_emb_word(row, n, buf);
+                const float c = absmax_of(buf);
+                if (c > a) a = c;
+            }
+            writer.set_int8_absmax(0u, a);
+        }
+        for (size_t i = 1; i < plan.size(); i++) {
+            PACK_CHECK(payloads[i] != nullptr, "int8 quantization: no source payload for entry %zu ('%s')", i,
+                       plan[i].name.c_str());
+            PACK_CHECK(static_cast<uint64_t>(payloads[i]->size()) == plan[i].size_bytes,
+                       "int8 quantization: '%s' has %zu elements but the plan says %llu bytes",
+                       plan[i].name.c_str(), payloads[i]->size(),
+                       static_cast<unsigned long long>(plan[i].size_bytes));
+            writer.set_int8_absmax(i, absmax_of(*payloads[i]));
+        }
+        info("int8: per-tensor absmax measured for all %zu tensors (scale = absmax/127, stored in the "
+             "table entry's reserved 4 bytes)\n",
+             plan.size());
+    }
+    writer.open();
+
+    // emb.word: streamed in row chunks with the token-type row folded in
+    writer.write_entry(0, 4096, fill_emb_word);
     writer.write_entry(1, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = pos; });
     writer.write_entry(2, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = emb_ln_g; });
     writer.write_entry(3, [&](uint64_t, uint64_t, std::vector<float> &buf) { buf = emb_ln_b; });
@@ -2270,6 +2476,7 @@ struct bgm_entry_view {
     uint64_t size_bytes = 0;
     uint32_t rank = 0;
     uint32_t dims[4] = {0, 0, 0, 0};
+    float scale = 1.0f;// v3 only: per-tensor int8 scale (1 otherwise)
     uint64_t num_elements() const {
         uint64_t n = 1;
         for (uint32_t d = 0; d < rank; d++) n *= dims[d];
@@ -2289,17 +2496,26 @@ public:
         _version = read_le32(header + 4);
         _precision = read_le32(header + 8);
         _count = read_le32(header + 12);
-        // v1 = fp32 blobs; v2 = half blobs (bf16/fp16) -- format spec above.
+        // v1 = fp32 blobs; v2 = half blobs (bf16/fp16); v3 = int8 codes + a
+        // per-tensor scale in the entry's reserved bytes -- format spec above.
         // Mirrors embed::Package::load (package.cpp) so --check reads exactly
         // what the engine accepts.
-        PACK_CHECK(_version == kBgmVersion || _version == kBgmVersionHalf, "unsupported BGM3 version %u", _version);
+        PACK_CHECK(_version == kBgmVersion || _version == kBgmVersionHalf || _version == kBgmVersionInt8,
+                   "unsupported BGM3 version %u", _version);
         if (_version == kBgmVersion) {
             PACK_CHECK(_precision == kBgmPrecisionFp32,
-                       "unsupported precision %u (0 = fp32 is the only v1 mode; bf16/fp16 are version 2)", _precision);
-        } else {
+                       "unsupported precision %u (0 = fp32 is the only v1 mode; bf16/fp16 are version 2, "
+                       "int8 is version 3)",
+                       _precision);
+        } else if (_version == kBgmVersionHalf) {
             PACK_CHECK(_precision == kBgmPrecisionBf16 || _precision == kBgmPrecisionFp16,
                        "unsupported precision %u for version 2 (1 = bf16, 2 = fp16)", _precision);
+        } else {
+            PACK_CHECK(_precision == kBgmPrecisionInt8,
+                       "unsupported precision %u for version 3 (3 = int8 is the only v3 mode)", _precision);
         }
+        PACK_CHECK(_precision != kBgmPrecisionInt8 || _version == kBgmVersionInt8,
+                   "precision 3 (int8) requires BGM3 version 3, not version %u", _version);
         _esz = bgm_elem_bytes(_precision);
         PACK_CHECK(_count > 0 && _count < (1u << 20), "implausible tensor_count %u", _count);
         PACK_CHECK(static_cast<uint64_t>(16) + 48ull * _count <= _size, "the tensor table does not fit in the file");
@@ -2315,6 +2531,14 @@ public:
             std::memcpy(&e.size_bytes, p + 16, 8);
             e.rank = read_le32(p + 24);
             for (int d = 0; d < 4; d++) e.dims[d] = read_le32(p + 28 + 4 * static_cast<size_t>(d));
+            if (_precision == kBgmPrecisionInt8) {
+                // v3: the reserved trailing 4 bytes hold the per-tensor fp32 scale
+                const uint32_t bits = read_le32(p + kBgmEntryScaleOffset);
+                std::memcpy(&e.scale, &bits, sizeof(e.scale));
+                PACK_CHECK(int8_scale_is_valid(e.scale),
+                           "entry %u: int8 scale %g (0x%08x) is not finite and positive", i,
+                           static_cast<double>(e.scale), bits);
+            }
             // table sanity: alignment, rank, size/dims consistency, ordering
             PACK_CHECK(e.rank >= 1 && e.rank <= 4, "entry %u: rank %u out of range", i, e.rank);
             PACK_CHECK(e.offset % kBgmAlign == 0, "entry %u: offset %llu is not 256-byte aligned", i,
@@ -2364,6 +2588,10 @@ public:
         std::vector<float> out(static_cast<size_t>(elems));
         if (_esz == 4ull) {
             read_at(e.offset, out.data(), static_cast<size_t>(e.size_bytes));
+        } else if (_esz == 1ull) {// v3: dequantize with the tensor's own scale
+            _raw.assign(static_cast<size_t>(e.size_bytes), 0u);
+            read_at(e.offset, _raw.data(), static_cast<size_t>(e.size_bytes));
+            decode_int8(_raw, out.data(), e.scale);
         } else {
             _raw.assign(static_cast<size_t>(e.size_bytes), 0u);
             read_at(e.offset, _raw.data(), static_cast<size_t>(e.size_bytes));
@@ -2379,6 +2607,10 @@ public:
         const uint64_t nelem = rows * cols;
         if (_esz == 4ull) {
             read_at(e.offset + row * cols * 4, dst, static_cast<size_t>(nelem * 4));
+        } else if (_esz == 1ull) {
+            _raw.assign(static_cast<size_t>(nelem), 0u);
+            read_at(e.offset + row * cols, _raw.data(), static_cast<size_t>(nelem));
+            decode_int8(_raw, dst, e.scale);
         } else {
             _raw.assign(static_cast<size_t>(nelem * 2), 0u);
             read_at(e.offset + row * cols * 2, _raw.data(), static_cast<size_t>(nelem * 2));
@@ -2387,6 +2619,13 @@ public:
     }
 
 private:
+    // v3 blob bytes -> fp32 (q * scale; the exact dequantization the engine
+    // performs, mirrored from examples/embedding/embed/quantization.h)
+    void decode_int8(const std::vector<uint8_t> &bytes, float *dst, float scale) const {
+        for (size_t i = 0; i < bytes.size(); i++) {
+            dst[i] = int8_to_float(static_cast<int8_t>(bytes[i]), scale);
+        }
+    }
     // v2 blob bytes -> fp32 (the exact upcasts of the format spec; the
     // engine's kernel-side load path performs the same conversion)
     void decode_halves(const std::vector<uint8_t> &bytes, float *dst) const {
@@ -2429,9 +2668,16 @@ void summarize_package(const bgm_reader &r) {
     const uint32_t show = std::min<uint32_t>(r.count(), 6u);
     for (uint32_t i = 0; i < show; i++) {
         const auto &e = r.entry(i);
-        info("  [%3u] %-14s hash 0x%016llx offset 0x%08llx size %llu B rank %u dims [%u,%u,%u,%u]\n", i,
-             name_of(e.hash).c_str(), static_cast<unsigned long long>(e.hash), static_cast<unsigned long long>(e.offset),
-             static_cast<unsigned long long>(e.size_bytes), e.rank, e.dims[0], e.dims[1], e.dims[2], e.dims[3]);
+        if (r.precision() == kBgmPrecisionInt8) {
+            info("  [%3u] %-14s hash 0x%016llx offset 0x%08llx size %llu B rank %u dims [%u,%u,%u,%u] int8 scale %.9g\n", i,
+                 name_of(e.hash).c_str(), static_cast<unsigned long long>(e.hash), static_cast<unsigned long long>(e.offset),
+                 static_cast<unsigned long long>(e.size_bytes), e.rank, e.dims[0], e.dims[1], e.dims[2], e.dims[3],
+                 static_cast<double>(e.scale));
+        } else {
+            info("  [%3u] %-14s hash 0x%016llx offset 0x%08llx size %llu B rank %u dims [%u,%u,%u,%u]\n", i,
+                 name_of(e.hash).c_str(), static_cast<unsigned long long>(e.hash), static_cast<unsigned long long>(e.offset),
+                 static_cast<unsigned long long>(e.size_bytes), e.rank, e.dims[0], e.dims[1], e.dims[2], e.dims[3]);
+        }
     }
     info("  ... (%u entries total; the last one is '%s')\n", r.count(), name_of(r.entry(r.count() - 1).hash).c_str());
     uint64_t aligned = 0;
@@ -2699,11 +2945,17 @@ void run_check(const std::string &out_path, const std::string &golden_dir, bool 
         worst = std::min(worst, c);
         worst_abs = std::max(worst_abs, max_abs);
     }
-    // Parity gate (opt plan §4 / §5): fp32 v1 >= 0.9999; a half-precision v2
-    // package carries real quantization noise and is gated >= 0.999 -- the
-    // cosine is measured against the SAME frozen fp32 goldens, with the
-    // dequantized weights feeding the identical fp32 forward pass.
-    const double gate = r.precision() == kBgmPrecisionFp32 ? 0.9999 : 0.999;
+    // Parity gate (opt plan §4 / §5): fp32 v1 >= 0.9999; v2 half >= 0.999; v3
+    // per-tensor int8 >= 0.99. The int8 gate is lower ON PURPOSE and measured, not
+    // guessed: every tensor (LayerNorm weights, biases and the embedding tables
+    // included) is quantized to 7-bit symmetric levels, which the dev model
+    // measures at 0.9920-0.9937 worst cosine against the SAME frozen fp32
+    // goldens, with the dequantized weights feeding the identical fp32 forward.
+    // 0.99 still catches any real regression (a broken scale, a byte swap or a
+    // mis-dequantized blob lands far below it).
+    const double gate = r.precision() == kBgmPrecisionFp32 ? 0.9999 :
+                        r.precision() == kBgmPrecisionInt8 ? 0.99 :
+                                                            0.999;
     PACK_CHECK(worst >= gate, "internal CPU forward parity FAILED (%s weights): worst cosine %.10f < %.4f (worst max-abs-diff %.3e)",
                r.precision_name(), worst, gate, worst_abs);
     info("parity gate passed (%s weights): worst cosine %.10f >= %.4f, worst max-abs-diff %.3e\n",
@@ -2737,7 +2989,7 @@ int main_impl(int argc, char **argv) {
         } else if (a == "--precision" || a.rfind("--precision=", 0) == 0) {
             std::string p = a.rfind("--precision=", 0) == 0 ? a.substr(std::strlen("--precision=")) : std::string{};
             if (p.empty()) {
-                PACK_CHECK(i + 1 < argc, "--precision needs an argument: fp32|bf16|fp16");
+                PACK_CHECK(i + 1 < argc, "--precision needs an argument: fp32|bf16|fp16|int8");
                 p = argv[++i];
             }
             if (p == "fp32") {
@@ -2746,18 +2998,22 @@ int main_impl(int argc, char **argv) {
                 precision = kBgmPrecisionBf16;
             } else if (p == "fp16") {
                 precision = kBgmPrecisionFp16;
+            } else if (p == "int8") {
+                precision = kBgmPrecisionInt8;
             } else {
-                PACK_CHECK(false, "--precision '%s' is not fp32|bf16|fp16", p.c_str());
+                PACK_CHECK(false, "--precision '%s' is not fp32|bf16|fp16|int8", p.c_str());
             }
         } else if (a == "-h" || a == "--help") {
-            info("usage: pack_model <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump] [--precision fp32|bf16|fp16]\n");
+            info("usage: pack_model <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump] "
+                 "[--precision fp32|bf16|fp16|int8]\n");
             return 0;
         } else {
             positional.push_back(a);
         }
     }
     PACK_CHECK(positional.size() == 2,
-               "expected <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump] [--precision fp32|bf16|fp16], "
+               "expected <model_dir> <out.bgm> [--golden-dir <dir>] [--check] [--dump] "
+               "[--precision fp32|bf16|fp16|int8], "
                "got %zu positional argument(s)",
                positional.size());
     std::string model_dir = positional[0];

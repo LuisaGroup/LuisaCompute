@@ -97,8 +97,43 @@
 //     fp32). A (activations), C and aux (bias/residual) stay plain fp32.
 //   - FMA accumulation stays fp32 in every variant: the conversion is
 //     storage-only (G7), NO half-precision arithmetic anywhere.
-//   - The conversion happens at the B-tile fill (once per staged element);
-//     register blocking (G4) amortizes it exactly like the fp32 loads.
+// - The conversion happens at the B-tile fill (once per staged element);
+// register blocking (G4) amortizes it exactly like the fp32 loads.
+// - The packed words themselves are produced by make_pack_half_kernel() (Phase
+// 1a, see the end of this header): fp32 weights -> the same word layout, bit
+// identical to tools/pack_model.cpp, so a device-packed buffer and a
+// packer-packed blob are interchangeable.
+//
+// INT8 WEIGHT STORAGE (GemmWeightFormat::Int8, the BGM3 v3 package precision
+// int8 == PackagePrecision::int8). Like Bf16/Fp16 this is STORAGE-ONLY: the
+// staged tile, the FMAs, the accumulators, the activations A, the bias/residual
+// operand aux and the output C all stay fp32, and the accumulation is a plain
+// fp32 FMA chain -- there is NO integer/DP4A accumulation anywhere. The single
+// difference from the fp32 path is that one staged B element is decoded from a
+// quantized code plus a per-tensor scale at the B-tile fill.
+//
+// Device B-buffer contract for Int8 (B is bound as a Buffer<float> view holding
+// `1 + ceil(K*N/4)` words):
+//   - word 0 stores the POSITIVE per-tensor fp32 scale (the same value the v3
+//     package keeps in its table entry, embed::Tensor::int8_scale; see
+//     embed/quantization.h for how the packer produces it),
+//   - the following words contain the logical row-major B[K,N] signed-int8
+//     elements in emission order e = k*N + n, packed four per 32-bit word,
+//     little-endian: element 4j+c (c = 0..3) lives in bits [8c+7:8c] of word
+//     1 + j,
+//   - a logical element e is decoded from word 1 + (e/4), byte e%4,
+//     sign-extended to int, converted to float and multiplied by the scale read
+//     from B.read(0),
+//   - any unused tail bytes of the last word are zero (the buffer is fully
+//     initialized). The kernel never reads them: every staged element index is
+//     < K*N and every out-of-range tile lane is zero-filled by the existing
+//     ragged guards, so a K*N not divisible by 4 is safe.
+// The scale is carried in the B buffer on purpose: this preserves the existing
+// GemmKernel signature (A, B, C, aux, M, N, K), so the executor's upload is one
+// raw copy of [scale | packed codes] and there is no extra kernel argument, no
+// separate scale plan and no host-side dequantization pre-pass. The scale is
+// read once per kernel invocation (B.read(0)) and threaded through the B-tile
+// fill, so it is not re-loaded per element.
 #pragma once
 #include <luisa/core/stl/string.h>
 #include <luisa/dsl/syntax.h>
@@ -130,9 +165,10 @@ enum class GemmWeightFormat : uint32_t {
     Fp32 = 0u,///< B is the logical [K][N] fp32 matrix (the original path)
     Bf16 = 1u,///< B packs two bf16 per fp32 word (see the header contract)
     Fp16 = 2u,///< B packs two fp16 per fp32 word
+    Int8 = 3u,///< word 0 = fp32 scale, then four signed int8 codes per word
 };
 
-// "fp32" / "bf16" / "fp16".
+// "fp32" / "bf16" / "fp16" / "int8".
 [[nodiscard]] const char *gemm_weight_format_name(GemmWeightFormat wf) noexcept;
 
 // Log/debug name of an epilogue flag (also used as the compiled kernel name).
@@ -225,5 +261,47 @@ using ResidualAddKernel = compute::Kernel1D<void(compute::Buffer<float> /*a*/,
                                                  uint32_t /*count*/)>;
 
 [[nodiscard]] ResidualAddKernel make_residual_add_kernel() noexcept;
+
+  // fp32 -> packed-half weight packer (Phase 1a). The B buffers read by the
+  // packed-half GEMM paths (Bf16/Fp16 above) can be produced on the DEVICE from
+  // a plain fp32 [K*N] weight matrix. That is what integrates the fp32-SOURCE
+  // path (Phase 1b): a v1 fp32 package plus LUISA_EMBED_WEIGHTS=bf16/fp16 packs
+  // its four per-layer GEMM matrices once at WeightStore construction
+  // (executor.cpp -> executor.h, take_conversion_sources()) and then runs the
+  // very same packed-half kernels a v2 package uses, over fp32 values converted
+  // on the device instead of half values read from a blob. It is explicitly NOT
+  // the v2 "fp32 A/B" arm: that arm up-converts a half blob to fp32 in order to
+  // run the fp32 kernels, so re-packing it here would defeat the arm.
+// Word layout is exactly the `load_b_element` contract: word j carries logical
+// element 2j in bits [15:0] and element 2j+1 in bits [31:16] (little-endian),
+// and for an odd element count the last word's HIGH HALF IS ZERO. The result is
+// therefore bit-identical to the packer (tools/pack_model.cpp
+// f32_to_bf16_rne / f32_to_f16_rne), i.e. a device-packed buffer can replace a
+// packer-packed blob.
+// Numerics: integer bit arithmetic only -- NO device half type, no float cast,
+// no half arithmetic. The rounding is the packer's explicit round-to-nearest-
+// even on the discarded mantissa bits, so fp32 subnormals, signed zero, finite
+// overflow to inf and NaN quieting all match it bit for bit (see the .cpp for
+// the line-by-line mapping and the one documented packer quirk).
+// `count` is the number of LOGICAL ELEMENTS (not words): the destination must
+// hold exactly (count + 1) / 2 packed words, every one of which the kernel
+// writes exactly once (no read-modify-write, so no pre-clearing needed).
+using PackHalfKernel = compute::Kernel1D<void(compute::Buffer<float> /*src fp32 [count]*/,
+                                              compute::Buffer<float> /*dst packed words*/,
+                                              uint32_t /*count, logical elements*/)>;
+
+// wf must be Bf16 or Fp16; every other format is fail-closed (LUISA_ERROR) --
+// there is no meaningful fp32 -> "fp32 packed" or -> int8 conversion here.
+[[nodiscard]] PackHalfKernel make_pack_half_kernel(GemmWeightFormat wf) noexcept;
+
+// Launch geometry of the pack kernel: block kPackHalfBlock (256), one thread per
+// packed WORD, and dispatch(x) counts TOTAL threads (lc_optimize trap #1). With
+// `count` = logical elements there are ceil(count/2) word-threads, so
+// pack_half_dispatch_size(count) = ceil(ceil(count/2)/256) * 256 -- i.e. the
+// ceil(count/2) words rounded up to whole 256-thread blocks. The kernel guards
+// the word index (w < ceil(count/2)), so a plain ceil(count/2) or any larger
+// dispatch is correct as well.
+inline constexpr uint kPackHalfBlock = 256u;
+[[nodiscard]] uint32_t pack_half_dispatch_size(uint32_t count) noexcept;
 
 }// namespace luisa::embed

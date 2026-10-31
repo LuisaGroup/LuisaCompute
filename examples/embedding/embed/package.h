@@ -18,6 +18,13 @@
 //   nearest-even from fp32 at pack time), size_bytes = prod(dims)*2. Names,
 //   order, dims, alignment and the table layout are identical to v1. The v1
 //   fp32 format stays byte-identical and is loaded by the same code path.
+// - VERSION 3 packages (INT8 quantization, phase 1): precision 3 = per-tensor
+//   symmetric int8. A blob is exactly prod(dims) signed int8 bytes (no per-blob
+//   header) and the tensor's positive fp32 scale occupies the reserved trailing
+//   4 bytes (entry offset 44) of its 48-byte table entry. Names, order, dims,
+//   alignment and the table layout are again identical to v1/v2; v1/v2 entries
+//   keep the reserved bytes zero. The scale is validated finite and > 0 on load
+//   (fail-closed) and the math lives in embed/quantization.h.
 #pragma once
 
 #include <cstdint>
@@ -31,24 +38,36 @@
 namespace luisa::embed {
 
 // Package element format, mirroring the header `precision` field (opt plan
-// §4 Q1/Q2). fp32 == BGM3 v1; bf16/fp16 == BGM3 v2.
+// §4 Q1/Q2). fp32 == BGM3 v1; bf16/fp16 == BGM3 v2; int8 == BGM3 v3
+// (per-tensor symmetric int8, see embed/quantization.h).
 enum class PackagePrecision : uint32_t {
     fp32 = 0u,
     bf16 = 1u,
     fp16 = 2u,
+    int8 = 3u,
 };
-// "fp32" / "bf16" / "fp16" (log/test reporting).
+// "fp32" / "bf16" / "fp16" / "int8" (log/test reporting).
 [[nodiscard]] const char *package_precision_name(PackagePrecision p) noexcept;
 
-// One tensor descriptor from the bgm table. `data` is a host-side view valid
-// for the lifetime of the Package (backed by the mapped/loaded blob).
-// For precision()==fp32 `data` is the float blob (as before, bit-identical
-// behavior); for a half package `half_data` carries the uint16 blob and
-// `data` is null (typed apart so an fp32 consumer of a half blob cannot
-// happen silently).
+// One tensor descriptor from the bgm table. The typed views are host-side
+// pointers valid for the lifetime of the Package (backed by the loaded blob):
+// exactly one of them is non-null, according to the package precision.
+// - fp32 package: `data` is the float blob (as before, bit-identical behavior).
+// - bf16/fp16 package: `half_data` carries the uint16 blob, `data` is null.
+// - int8 package: `int8_data` carries the signed int8 blob and `int8_scale` the
+//   per-tensor scale read from the table entry's reserved trailing 4 bytes;
+//   `data` and `half_data` are both null (typed apart so a consumer cannot
+//   mistake one format for another). Dequantization: q * int8_scale, see
+//   embed/quantization.h.
+// Fields not used by the package precision stay at their defaults (null / 0).
 struct Tensor {
     const float *data{};
     const uint16_t *half_data{};
+    const int8_t *int8_data{};
+    // Per-tensor INT8 scale (v3 only): always finite and > 0 when precision()
+    // is int8, 0 otherwise. Present in every entry so a consumer never needs a
+    // parallel array.
+    float int8_scale{};
     uint64_t size_bytes{};
     uint32_t rank{};
     uint32_t dims[4]{};// outermost-first; dims[i] == 0 for i >= rank

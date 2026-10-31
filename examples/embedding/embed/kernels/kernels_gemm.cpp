@@ -89,6 +89,19 @@
 // conversion runs once per staged element and is register-blocked away like
 // the load itself (G4: each staged value feeds RM or RN FMAs).
 //
+// INT8 weight storage (GemmWeightFormat::Int8, BGM3 v3): same storage-only
+// arrangement. `load_b_scale<Int8>` reads the positive per-tensor fp32 scale
+// from word 0 ONCE per kernel invocation, and `load_b_element<Int8>` reads word
+// 1 + e/4, takes byte e%4 (little-endian contract, kernels_gemm.h), sign-extends
+// it to int, converts to float and multiplies by that scale -- so the staged
+// tile, the FMA chain and every accumulator are still fp32 and the only change
+// against the fp32 path is one extra unpack per staged B element. For Fp32 /
+// Bf16 / Fp16 `load_b_scale` is the constant 1 folded away by `if constexpr`,
+// so their emitted code is unchanged. Ragged/tail safety is inherited from the
+// existing per-element fill guards: a staged lane only reads B when
+// `k < K && n < N`, i.e. its logical element index is < K*N, so the padding
+// bytes of the last packed word are never touched.
+//
 // Layout audit (plan §3.1 G2): B is the packed [K][N] weight (the packer
 // pre-transposes every weight, plan §3.3), so the tile fill walks N contiguously
 // -- a thread reads one B row's consecutive floats and consecutive threads of a
@@ -180,16 +193,48 @@ constexpr bool gemm_uses_bias(GemmEpilogue ep) noexcept {
     return compute::ite((h >> 15u) != 0u, -pos, pos);
 }
 
+// Per-tensor dequantization scale of an INT8 B buffer: word 0 of the packed
+// contract documented in kernels_gemm.h. For every other format there is no
+// scale, so this yields the multiplicative identity without touching the buffer
+// (`if constexpr`: the read is not emitted, so the fp32/bf16/fp16 codegen is
+// unchanged). Called ONCE per kernel invocation and threaded into the B-tile
+// fill, so the scale is a register value, not a per-element global load.
+template<GemmWeightFormat WF>
+[[nodiscard]] Var<float> load_b_scale(const compute::BufferFloat &B) noexcept {
+    if constexpr (WF == GemmWeightFormat::Int8) {
+        return B.read(0u);
+    } else {
+        static_cast<void>(B);
+        return def(1.0f);
+    }
+}
+
 // Load one logical B element e (= k*N + n of the packed [K][N] weight). The
 // Fp32 branch is the original `B.read(e)`; the half branches read the packed
 // word e/2 and up-convert the e%2 half (see kernels_gemm.h for the word
 // layout: element 2j in bits [15:0], element 2j+1 in bits [31:16], little-
-// endian -- the raw v2 blob uploaded without repacking).
+// endian -- the raw v2 blob uploaded without repacking). The Int8 branch reads
+// the packed int8 word 1 + e/4, picks byte e%4 (little-endian, same contract),
+// sign-extends it to int and multiplies by `scale` (word 0) -- storage-only
+// dequantization, the FMA and the accumulators stay fp32.
 template<GemmWeightFormat WF>
-[[nodiscard]] Var<float> load_b_element(const compute::BufferFloat &B, const Var<uint> &e) noexcept {
+[[nodiscard]] Var<float> load_b_element(const compute::BufferFloat &B, const Var<uint> &e,
+                                       const Var<float> &scale) noexcept {
     if constexpr (WF == GemmWeightFormat::Fp32) {
+        static_cast<void>(scale);
         return B.read(e);
+    } else if constexpr (WF == GemmWeightFormat::Int8) {
+        const Var<uint> word = compute::as<uint>(B.read(1u + (e >> 2u)));
+        const Var<uint> byte = (word >> ((e & 3u) * 8u)) & 0xffu;
+        // Sign extension written as a 256 subtract on the high-bit predicate:
+        // the byte -> int conversion stays explicit instead of relying on the
+        // backend lowering `>>` on a signed DSL value as an arithmetic shift.
+        const Var<int> code = compute::ite(byte >= 0x80u,
+                                           byte.cast<int>() - 256,
+                                           byte.cast<int>());
+        return code.cast<float>() * scale;
     } else {
+        static_cast<void>(scale);
         const Var w = compute::as<uint>(B.read(e >> 1u));
         if constexpr (WF == GemmWeightFormat::Bf16) {
             // bf16 -> fp32 is the exact bit extension (append 16 zero bits).
@@ -200,6 +245,71 @@ template<GemmWeightFormat WF>
             const Var h16 = compute::ite((e & 1u) == 0u, (w & 0xffffu), (w >> 16u));
             return dsl_fp16_upcast(h16);
         }
+    }
+}
+
+// fp32 bits -> packed 16-bit half bits (low half of the returned word; the
+// caller shifts/merges). Integer arithmetic only -- NO device half type and no
+// float conversion -- and a line-by-line mirror of tools/pack_model.cpp, so a
+// device-packed weight word is bit-identical to the packer's:
+//   bf16 (f32_to_bf16_rne): inf/NaN -> u >> 16 (a NaN additionally gets the
+//     quiet payload bit 22 set, so the round trip stays NaN); otherwise RNE on
+//     the 16 discarded mantissa bits, `u + 0x7fff + lsb` (which also rounds
+//     finite overflow to inf, exactly as RNE requires).
+//   fp16 (f32_to_f16_rne): sign kept separately, then
+//     e == 0xff  -> inf/NaN, mantissa 10 bits, quiet bit 9 (0x200) set for NaN;
+//     e >= 143   -> |v| >= 2^16, inf;
+//     e >= 113   -> normal, RNE on the 13 discarded bits, a carry out of the
+//                   10-bit mantissa bumps the exponent (top one -> inf);
+//     e >= 103   -> fp16 Subnormal, q = M >> (126 - e), RNE on the residue
+//                   (M = m | 0x800000, the implicit bit; q == 0x400 is the min
+//                   normal, correct bits);
+//     else       -> signed zero. NOTE this mirrors the packer's threshold, i.e.
+//                   e == 102 (|v| in (2^-25, 2^-24)) flushes to zero instead of
+//                   rounding up to the min subnormal 2^-24 -- kept identical on
+//                   purpose so device-packed and packer-packed blobs agree.
+// The `& 31` on the subnormal shift count only keeps the lanes the final select
+// discards inside the defined shift range (e.g. 1u << 126 would be undefined);
+// for e in [103, 112] the shift is 14..23 and the mask is a no-op.
+template<GemmWeightFormat WF>
+[[nodiscard]] Var<uint> pack_half_bits(const Var<float> &v) noexcept {
+    const Var<uint> u = compute::as<uint>(v);
+    if constexpr (WF == GemmWeightFormat::Bf16) {
+        const Var<bool> special = (u & 0x7f800000u) == 0x7f800000u;
+        const Var<uint> quieted = (u | 0x00400000u) >> 16u;
+        const Var<uint> lsb = (u >> 16u) & 1u;
+        const Var<uint> rounded = (u + 0x7fffu + lsb) >> 16u;
+        return compute::ite(special, compute::ite((u & 0x007fffffu) != 0u, quieted, u >> 16u), rounded);
+    } else {
+        static_assert(WF == GemmWeightFormat::Fp16, "unhandled GemmWeightFormat");
+        const Var<uint> sign = (u >> 16u) & 0x8000u;
+        const Var<uint> e = (u >> 23u) & 0xffu;
+        const Var<uint> m = u & 0x007fffffu;
+        // inf / NaN.
+        const Var<uint> infnan = sign | 0x7c00u |
+                                 compute::ite(m != 0u, 0x200u | ((m >> 13u) & 0x1ffu), def(0u));
+        // Normal: RNE on the 13 discarded mantissa bits.
+        const Var<uint> h0 = m >> 13u;
+        const Var<uint> r = m & 0x1fffu;
+        // Round-half-to-even written as `r + (h0 & 1) > 0x1000` (no logical
+        // operators: a scalar `&&`/`||` is not a DSL operation): r > 0x1000 wins,
+        // r == 0x1000 ties up only when h0 is odd, r < 0x1000 can never reach it.
+        const Var<uint> h = h0 + compute::ite(r + (h0 & 1u) > 0x1000u, 1u, 0u);
+        const Var<uint> normal = compute::ite(h == 0x400u,
+                                              sign | ((e - 111u) << 10u),
+                                              sign | ((e - 112u) << 10u) | h);
+        // fp16 Subnormal: q = M >> (126 - e), RNE on the residue (same
+        // tie-to-even trick: rs + (q & 1) > half).
+        const Var<uint> sh = (126u - e) & 31u;
+        const Var<uint> M = m | 0x800000u;
+        const Var<uint> rs = M & ((1u << sh) - 1u);
+        const Var<uint> q = M >> sh;
+        const Var<uint> half = 1u << (((126u - e) - 1u) & 31u);
+        const Var<uint> qr = q + compute::ite(rs + (q & 1u) > half, 1u, 0u);
+        return compute::ite(e == 0xffu, infnan,
+                            compute::ite(e >= 143u, sign | 0x7c00u,
+                                         compute::ite(e >= 113u, normal,
+                                                      compute::ite(e >= 103u, sign | qr, sign))));
     }
 }
 
@@ -242,6 +352,7 @@ const char *gemm_weight_format_name(GemmWeightFormat wf) noexcept {
         case GemmWeightFormat::Fp32: return "fp32";
         case GemmWeightFormat::Bf16: return "bf16";
         case GemmWeightFormat::Fp16: return "fp16";
+        case GemmWeightFormat::Int8: return "int8";
     }
     return "unknown";
 }
@@ -336,6 +447,10 @@ template<uint32_t TM, uint32_t TN, GemmWeightFormat WF, GemmEpilogue EP>
         compute::Shared<float> tile_a{T::a_elems};
         compute::Shared<float> tile_b{T::b_elems};
 
+        // INT8 dequantization scale (word 0 of the packed B contract); a
+        // constant 1 for every other format, so no code is emitted for them.
+        const Var<float> bscale = load_b_scale<WF>(B);
+
         const Var tid = thread_x();
         const Var tr = tid / TN;// row inside the output tile
         const Var tc = tid % TN;// column inside the tile (along N)
@@ -374,7 +489,7 @@ template<uint32_t TM, uint32_t TN, GemmWeightFormat WF, GemmEpilogue EP>
                 const Var ncol = block_id().x * TN + c;
                 compute::Float b_val;
                 $if ((k0 + r) < K & ncol < N) {
-                    b_val = load_b_element<WF>(B, (k0 + r) * N + ncol);
+                    b_val = load_b_element<WF>(B, (k0 + r) * N + ncol, bscale);
                 }
                 $else {
                     b_val = def(0.0f);
@@ -414,6 +529,7 @@ template<uint32_t TM, uint32_t TN>
         case GemmWeightFormat::Fp32: return build_naive_ep<TM, TN, GemmWeightFormat::Fp32>(ep, vname);
         case GemmWeightFormat::Bf16: return build_naive_ep<TM, TN, GemmWeightFormat::Bf16>(ep, vname);
         case GemmWeightFormat::Fp16: return build_naive_ep<TM, TN, GemmWeightFormat::Fp16>(ep, vname);
+        case GemmWeightFormat::Int8: return build_naive_ep<TM, TN, GemmWeightFormat::Int8>(ep, vname);
     }
     return build_naive_ep<TM, TN, GemmWeightFormat::Fp32>(ep, vname);
 }
@@ -498,19 +614,21 @@ template<bool GUARDED, typename IdxFun, typename OkFun>
     }
 }
 
-// Same as fill_float4_from but for the packed-half B operand: one scalar
+// Same as fill_float4_from but for the packed B operands: one scalar
 // `load_b_element<WF>` per component (which already does the word unpack +
-// exact up-convert; NO as<float4> reinterpretation of a packed pair, see the
-// file header -- each 16-bit half is converted separately and splatted into
-// its float4 lane).
+// exact up-convert / INT8 dequantization; NO as<float4> reinterpretation of a
+// packed pair, see the file header -- each stored element is decoded separately
+// and splatted into its float4 lane). `scale` is the INT8 per-tensor scale
+// (load_b_scale) and is unused by the fp32/bf16/fp16 formats.
 template<GemmWeightFormat WF, bool GUARDED, typename IdxFun, typename OkFun>
 [[nodiscard]] Var<float4> fill_float4_from_b(const compute::BufferFloat &B,
+                                             const Var<float> &scale,
                                              const IdxFun &idx, const OkFun &ok) noexcept {
     if constexpr (GUARDED) {
         const auto load = [&](uint32_t c) noexcept {
             compute::Float v;
             $if (ok(c)) {
-                v = load_b_element<WF>(B, idx(c));
+                v = load_b_element<WF>(B, idx(c), scale);
             }
             $else {
                 v = def(0.0f);
@@ -519,8 +637,8 @@ template<GemmWeightFormat WF, bool GUARDED, typename IdxFun, typename OkFun>
         };
         return make_float4(load(0u), load(1u), load(2u), load(3u));
     } else {
-        return make_float4(load_b_element<WF>(B, idx(0u)), load_b_element<WF>(B, idx(1u)),
-                           load_b_element<WF>(B, idx(2u)), load_b_element<WF>(B, idx(3u)));
+        return make_float4(load_b_element<WF>(B, idx(0u), scale), load_b_element<WF>(B, idx(1u), scale),
+                           load_b_element<WF>(B, idx(2u), scale), load_b_element<WF>(B, idx(3u), scale));
     }
 }
 
@@ -609,6 +727,10 @@ void reg_accumulate(const compute::BufferFloat &A, const compute::BufferFloat &B
     compute::Shared<float> tile_a{T::a_sh};
     compute::Shared<float> tile_b{T::b_sh};
 
+    // INT8 dequantization scale (word 0 of the packed B contract); identity for
+    // every other format, emitted as a constant so nothing changes for them.
+    const Var<float> bscale = load_b_scale<WF>(B);
+
     const Var grow = tid / T::cols;
     const Var gcol = tid % T::cols;
     // Slabs whose K range lies fully inside the matrix (K % TK != 0 -> the last
@@ -629,7 +751,7 @@ void reg_accumulate(const compute::BufferFloat &A, const compute::BufferFloat &B
         Each::template run<T::b_elems>(tid, [&](const Var<uint> &e) noexcept {
             const Var r = e / TN;// K row inside the slab
             const Var c = e % TN;// column along N (coalesced)
-            tile_b[r * T::bstride + c] = load_b_element<WF>(B, (k0 + r) * N + n0 + c);
+            tile_b[r * T::bstride + c] = load_b_element<WF>(B, (k0 + r) * N + n0 + c, bscale);
         });
     };
     const auto fill_guarded = [&](const Var<uint> &k0) noexcept {
@@ -650,7 +772,7 @@ void reg_accumulate(const compute::BufferFloat &A, const compute::BufferFloat &B
             const Var c = e % TN;
             compute::Float b_val;
             $if ((k0 + r) < K & (n0 + c) < N) {
-                b_val = load_b_element<WF>(B, (k0 + r) * N + n0 + c);
+                b_val = load_b_element<WF>(B, (k0 + r) * N + n0 + c, bscale);
             }
             $else {
                 b_val = def(0.0f);
@@ -778,6 +900,10 @@ void reg_vec_accumulate(const compute::BufferFloat &A, const compute::BufferFloa
     compute::Shared<float4> tile_a{T::a_sh4};
     compute::Shared<float4> tile_b{T::b_sh4};
 
+    // INT8 dequantization scale (word 0 of the packed B contract); identity for
+    // every other format, emitted as a constant so their code is unchanged.
+    const Var<float> bscale = load_b_scale<WF>(B);
+
     const Var grow = tid / T::cols;
     const Var gcol = tid % T::cols;
     const Var kfull = K / TK;
@@ -801,7 +927,7 @@ void reg_vec_accumulate(const compute::BufferFloat &A, const compute::BufferFloa
             const Var brow = (k0 + r) * N + n0 + c * 4u;
             const auto idx = [&](uint32_t q) noexcept { return brow + q; };
             const auto ok = [&](uint32_t) noexcept { return def(true); };
-            tile_b[r * T::bstride4 + c] = fill_float4_from_b<WF, false>(B, idx, ok);
+            tile_b[r * T::bstride4 + c] = fill_float4_from_b<WF, false>(B, bscale, idx, ok);
         });
     };
     // Guarded fill: per-lane predicates (ragged K tail or edge block). Each lane
@@ -824,7 +950,7 @@ void reg_vec_accumulate(const compute::BufferFloat &A, const compute::BufferFloa
             const auto ok = [&](uint32_t q) noexcept {
                 return (k0 + r) < K & (n0 + c * 4u + q) < N;
             };
-            tile_b[r * T::bstride4 + c] = fill_float4_from_b<WF, true>(B, idx, ok);
+            tile_b[r * T::bstride4 + c] = fill_float4_from_b<WF, true>(B, bscale, idx, ok);
         });
     };
 
@@ -973,6 +1099,7 @@ template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM, bool SWAP>
         case GemmWeightFormat::Fp32: return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Fp32>(ep, vname);
         case GemmWeightFormat::Bf16: return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Bf16>(ep, vname);
         case GemmWeightFormat::Fp16: return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Fp16>(ep, vname);
+        case GemmWeightFormat::Int8: return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Int8>(ep, vname);
     }
     return build_reg_vec_ep<TM, TN, TK, RM, SWAP, GemmWeightFormat::Fp32>(ep, vname);
 }
@@ -1026,6 +1153,7 @@ template<uint32_t TM, uint32_t TN, uint32_t TK, uint32_t RM, uint32_t RN, bool S
         case GemmWeightFormat::Fp32: return build_reg_ep<TM, TN, TK, RM, RN, SWAP, GemmWeightFormat::Fp32>(ep, vname);
         case GemmWeightFormat::Bf16: return build_reg_ep<TM, TN, TK, RM, RN, SWAP, GemmWeightFormat::Bf16>(ep, vname);
         case GemmWeightFormat::Fp16: return build_reg_ep<TM, TN, TK, RM, RN, SWAP, GemmWeightFormat::Fp16>(ep, vname);
+        case GemmWeightFormat::Int8: return build_reg_ep<TM, TN, TK, RM, RN, SWAP, GemmWeightFormat::Int8>(ep, vname);
     }
     return build_reg_ep<TM, TN, TK, RM, RN, SWAP, GemmWeightFormat::Fp32>(ep, vname);
 }
@@ -1355,6 +1483,61 @@ ResidualAddKernel make_residual_add_kernel() noexcept {
         };
     };
     return kernel;
+}
+
+namespace {
+
+// fp32 -> packed-half packer (Phase 1a, see kernels_gemm.h for the contract).
+// One thread per packed WORD: it converts the low element (2w) and, when the
+// logical count allows one, the high element (2w + 1), then merges the two
+// 16-bit halves little-endian. Odd tails leave the high half zero without a
+// divergent branch: the second read index is clamped back onto the low element
+// (always in range) and the value is discarded by the final select.
+template<GemmWeightFormat WF>
+[[nodiscard]] PackHalfKernel build_pack_half_kernel() noexcept {
+    using namespace luisa::compute;
+    constexpr const char *kName = WF == GemmWeightFormat::Bf16 ? "embed_pack_bf16" : "embed_pack_fp16";
+    PackHalfKernel kernel = [](compute::BufferFloat src, compute::BufferFloat dst,
+                               Var<uint> count) noexcept {
+        set_block_size(kPackHalfBlock, 1u, 1u);
+        set_name(kName);
+        // dispatch() counts TOTAL threads, not elements (lc_optimize trap #1):
+        // the word guard covers the rounded-up block tail. Same flattened 2D-grid
+        // idiom as residual_add, so a host-flattened launch stays correct too.
+        const Var tx = thread_x();
+        const Var bs = block_size().x;
+        const Var blk = dispatch_id().y * (dispatch_size().x / bs) + dispatch_id().x / bs;
+        const Var w = blk * bs + tx;
+        const Var words = (count + 1u) / 2u;
+        $if (w < words) {
+            const Var e0 = w * 2u;
+            const Var has_hi = e0 + 1u < count;
+            const Var lo = pack_half_bits<WF>(src.read(e0));
+            const Var hi = compute::ite(has_hi, pack_half_bits<WF>(src.read(compute::ite(has_hi, e0 + 1u, e0))), def(0u));
+            dst.write(w, compute::as<float>((lo & 0xffffu) | (hi << 16u)));
+        };
+    };
+    return kernel;
+}
+
+}// namespace
+
+PackHalfKernel make_pack_half_kernel(GemmWeightFormat wf) noexcept {
+    switch (wf) {
+        case GemmWeightFormat::Bf16: return build_pack_half_kernel<GemmWeightFormat::Bf16>();
+        case GemmWeightFormat::Fp16: return build_pack_half_kernel<GemmWeightFormat::Fp16>();
+        default: break;
+    }
+    // Fail-closed: Fp32 needs no packing and Int8 is a different (quantized)
+    // layout, so silently building "something" here would corrupt a weight.
+    LUISA_ERROR("embed pack: GemmWeightFormat {} cannot be produced by the fp32 -> packed-half "
+                "kernel; only bf16 and fp16 are half formats (fail-closed).",
+                static_cast<uint32_t>(wf));
+}
+
+uint32_t pack_half_dispatch_size(uint32_t count) noexcept {
+    const auto words = (count + 1u) / 2u;
+    return (words + kPackHalfBlock - 1u) / kPackHalfBlock * kPackHalfBlock;
 }
 
 }// namespace luisa::embed

@@ -71,15 +71,32 @@
 //     name (the task's scope). On vk coop is attempted directly -- the real
 //     per-driver cooperative-vector capability (VK_NV_cooperative_vector +
 //     fp32 + replicated composites) is the subject of the dedicated Phase-0
-//     probe test (test_embed_coop_probe.cpp), not this benchmark. On dx the
-//     PRIMARY device is created with DirectXDeviceConfigExt::UseExperimental()
-//     (SM 6.9) -- the experimental gate is process-global and must be set before
-//     ANY device is created, so it is folded into the first dx device (same as
-//     test_embed_coop_probe's make_test_device), which is the device the coop
-//     kernels then compile against. If ExperimentalFeaturesEnabled() comes back
-//     false (OS/runtime rejected the SM 6.9 feature), coop is skipped with the
-//     no-go reason so the coop compile -- which would abort via LUISA_ERROR --
-//     is never reached.
+//     probe test (test_embed_coop_probe.cpp), not this benchmark. On dx, WHEN a
+//     coop_* variant can be selected at all, the PRIMARY device is created with
+//     DirectXDeviceConfigExt::UseExperimental() (SM 6.9) -- the experimental
+//     gate is process-global and must be set before ANY device is created, so it
+//     is folded into the first dx device (same as test_embed_coop_probe's
+//     make_test_device), which is the device the coop kernels then compile
+//     against. If ExperimentalFeaturesEnabled() comes back false (OS/runtime
+//     rejected the SM 6.9 feature), coop is skipped with the no-go reason so the
+//     coop compile -- which would abort via LUISA_ERROR -- is never reached.
+//     Without coop in the selection (--variants naming only naive_*/rb_*/rbv_*
+//     GEMM variants) the ordinary device is created instead: asking for the
+//     SM 6.9 experimental features there can make D3D12CreateDevice fail with
+//     0x887e0003 on drivers that do not expose the preview runtime, and the
+//     tiled GEMM sweep has no use for them.
+//     The Agility-SDK selection is gated by that SAME condition -- gating only
+//     UseExperimental() is not enough. The executable exports D3D12SDKVersion
+//     (mutable, initialised to 0 == "system D3D12") plus D3D12SDKPath, and
+//     main raises the version to 619 immediately before device creation, and
+//     only when a coop_* variant is selected. An unconditional 619 tells the
+//     D3D12 loader to look for the 1.619 Agility runtime under D3D12SDKPath for
+//     EVERY device creation, so a GEMM-only run then fails D3D12CreateDevice
+//     with 0x887e0003 even though no experimental feature was requested (this
+//     tree ships no D3D12/ runtime next to the binary). The late write is
+//     honoured because the harness exe imports neither d3d12.dll nor dxgi.dll:
+//     the backend DLL -- the only d3d12.dll importer -- is loaded at the first
+//     device creation, i.e. after main has already set the value.
 //
 // Usage
 // -----
@@ -92,7 +109,11 @@
 //                            variant names (naive_*, rb_*, rbv_* vec4 family --
 //                            rbv_* enters automatically) and the coop names
 //                            (coop_k64_n16_t1, coop_k64_n32_t1,
-//                            coop_k128_n32_t1, coop_k64_n32_t2).
+//                            coop_k128_n32_t1, coop_k64_n32_t2). Listing no
+//                            coop_* name keeps the dx device non-experimental
+//                            AND leaves the D3D12SDKVersion export at 0, so a
+//                            GEMM-only sweep needs neither the SM 6.9 preview
+//                            runtime nor a shipped Agility SDK 1.619 runtime.
 //     --shapes qkv,ffn_up    only these shapes (default: all four)
 //     --no-time              phase 1 only (correctness)
 //     --verify M N K [ep]    extra debug case on every selected tiled variant
@@ -153,11 +174,32 @@
 #include <luisa/backends/ext/dx_config_ext.h>
 #include <luisa/core/stl/memory.h>
 // Required by the D3D12 Agility SDK: these exports must be in the main .exe,
-// not in a loaded DLL, so the D3D12 loader can find the SDK runtime. The coop
-// dx device needs them to compile/run cooperative-vector (SM 6.9) kernels.
-// (Same mechanism as src/tests/unit/ast/test_cooperative_vector.cpp:29-32.)
-extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = 619;
+// not in a loaded DLL, so the D3D12 loader can find the SDK runtime. Only the
+// coop dx device needs them, to compile/run cooperative-vector (SM 6.9)
+// kernels. (Same mechanism as src/tests/unit/ast/test_cooperative_vector.cpp:
+// 29-32, except that the version is gated at runtime -- see below.)
+//
+// D3D12SDKVersion is deliberately NOT const and starts at 0: 0 selects the
+// ordinary system D3D12 runtime, which is what every non-coop run (a GEMM-only
+// --variants sweep included) must use. Exporting 619 unconditionally makes the
+// D3D12 loader look for the 1.619 Agility runtime under D3D12SDKPath for EVERY
+// device creation; since this tree ships no D3D12/ runtime next to the binary,
+// that turns into D3D12CreateDevice 0x887e0003 even when the experimental
+// (SM 6.9) feature was never requested -- i.e. gating UseExperimental() alone
+// does not make a GEMM-only run work. create_primary_device() therefore raises
+// the value to kCoopAgilitySDKVersion before the first dx device is created,
+// and only when coop_requested()/want_coop is true. That write is seen by the
+// loader because this exe imports neither d3d12.dll nor dxgi.dll: the backend
+// DLL (the only d3d12.dll importer) is loaded at the first device creation,
+// long after main has run. D3D12SDKPath stays exported unconditionally -- the
+// loader only reads it when the version selects the Agility path.
+extern "C" __declspec(dllexport) uint32_t D3D12SDKVersion = 0u;
 extern "C" __declspec(dllexport) const char *D3D12SDKPath = ".\\D3D12\\";
+
+// Agility SDK 1.619 == the SM 6.9 / cooperative-vector runtime the coop dx
+// kernels need. Assigned to D3D12SDKVersion right before the coop device is
+// created (create_primary_device), never at static-init time.
+constexpr uint32_t kCoopAgilitySDKVersion = 619u;
 #endif
 
 #include "embedding/embed/kernels/kernels_gemm.h"
@@ -342,6 +384,29 @@ void split_names(const char *text, const F &f) {
     return false;
 }
 
+// Whether the --variants filter can select a cooperative-vector (coop_*) kernel.
+// Coop is the only section that needs the dx experimental SM 6.9 device, so the
+// device is created with DirectXDeviceConfigExt::UseExperimental() iff this is
+// true: an empty filter means "whole GEMM + coop tables" (coop selected), while
+// an explicit filter selects coop iff at least one name carries the coop table's
+// "coop_" prefix. A naive_/rb_/rbv_-only filter therefore keeps the ordinary
+// device. The SAME flag also gates the Agility-SDK selection (D3D12SDKVersion is
+// raised from 0 to 619 only when this returns true), so this predicate decides
+// both dx process-global gates, not just UseExperimental(). (Same matching rule
+// as selected(): the coop table names are exactly the coop_* names enumerated in
+// kernels_coop.h.)
+[[nodiscard]] bool coop_requested(const luisa::vector<luisa::string> &list) noexcept {
+    if (list.empty()) {
+        return true;
+    }
+    for (const auto &s : list) {
+        if (std::string_view{s}.starts_with("coop_")) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Compiled type of the engine's GemmKernel (same trick as embed/executor.h's
 // ShaderFor<K>, kept local so the harness does not depend on the executor).
 using GemmShader = decltype(std::declval<Device &>().compile(std::declval<GemmKernel>(),
@@ -445,22 +510,47 @@ public:
 };
 #endif
 
-// Create the primary device. On dx it is created with the experimental-SM-6.9
-// config ext (same as test_embed_coop_probe's make_test_device) so that the
-// coop kernels can actually compile on the SAME device the harness uses; on
-// every other backend the shared luisa::test::create_device() helper is used
-// unchanged. D3D12EnableExperimentalFeatures MUST be called before any device
-// is created, so folding the ext into the first dx device is the only correct
-// place to do it (a throwaway second device would find the feature gate
-// already locked by the first). `dx_experimental_enabled` (out) reports whether
-// the coop dx device got the SM 6.9 path (false -> coop is skipped, never
-// compiled, to avoid the uncatchable LUISA_ERROR abort inside the coop compile).
+// Create the primary device. On dx, when the filter can select a coop_* variant
+// (`want_coop`) the device is created with the experimental-SM-6.9 config ext
+// (same as test_embed_coop_probe's make_test_device) so that the coop kernels
+// can actually compile on the SAME device the harness uses; when the filter can
+// only reach the tiled GEMM variants the ordinary luisa::test::create_device()
+// device is used, since requesting the experimental features would fail
+// D3D12CreateDevice (0x887e0003) on drivers without the SM 6.9 preview runtime
+// for no benefit. D3D12EnableExperimentalFeatures MUST be called before any
+// device is created, so folding the ext into the first dx device is the only
+// correct place to do it (a throwaway second device would find the feature gate
+// already locked by the first). Two process-global gates are gated by
+// `want_coop`, not one: UseExperimental() (SM 6.9 feature) AND the D3D12
+// Agility-SDK selection -- D3D12SDKVersion is left at 0 (= system D3D12) for a
+// non-coop run, otherwise the loader would hunt for the 1.619 runtime under
+// D3D12SDKPath and D3D12CreateDevice would fail 0x887e0003 with no experimental
+// feature requested. `dx_experimental_enabled` (out) reports whether the coop
+// dx device got the SM 6.9 path (false -> coop is skipped, never compiled, to
+// avoid the uncatchable LUISA_ERROR abort inside the coop compile).
 [[nodiscard]] luisa::test::DeviceContext create_primary_device(int argc, char *argv[],
                                                                luisa::string_view backend,
+                                                               bool want_coop,
                                                                bool &dx_experimental_enabled) {
     dx_experimental_enabled = true;// non-dx: irrelevant, set true so coop is not gated on it
 #ifdef _WIN32
     if (backend == "dx") {
+        // Gate the Agility-SDK selection exactly like the feature above: the
+        // export stays 0 (= ordinary system D3D12) unless this run can reach a
+        // coop_* variant. Writing it here is early enough -- the exe imports
+        // neither d3d12.dll nor dxgi.dll, so the D3D12 loader only comes up
+        // with the backend DLL inside create_device(), below.
+        if (want_coop) {
+            D3D12SDKVersion = kCoopAgilitySDKVersion;
+        }
+        if (!want_coop) {
+            // Tiled GEMM only: neither process-global gate is touched -- no
+            // experimental feature is requested and D3D12SDKVersion keeps its
+            // initial 0, so the loader uses the ordinary system D3D12 and the
+            // device is created exactly like test_embed_kernel_gemm does.
+            dx_experimental_enabled = false;
+            return luisa::test::create_device(argc, argv);
+        }
         const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : luisa::test::safe_argv0();
         Context context{exe != nullptr && exe[0] != '\0' ? exe : "benchmark_embed_gemm"};
         DeviceConfig config;
@@ -474,6 +564,7 @@ public:
     }
 #else
     static_cast<void>(backend);
+    static_cast<void>(want_coop);
 #endif
     return luisa::test::create_device(argc, argv);
 }
@@ -560,9 +651,13 @@ struct CoopCaseBuffers {
 int main(int argc, char *argv[]) {
     const auto opt = parse_args(argc, argv);
     const auto backend = argc > 1 ? argv[1] : "?";
+    // Coop is the only consumer of the dx experimental (SM 6.9) device -- and of
+    // the Agility SDK 1.619 selection, which is gated by the same flag -- so the
+    // device creation is decided by the --variants filter (see coop_requested).
+    const bool want_coop = coop_requested(opt.variants);
     bool dx_experimental_enabled = true;
     auto [context, device] = create_primary_device(argc, argv, luisa::string_view{backend},
-                                                   dx_experimental_enabled);
+                                                   want_coop, dx_experimental_enabled);
     auto stream = device.create_stream();
 
     LUISA_INFO("embed gemm sweep: backend {}, engine-resolved config '{}'", backend,
@@ -757,21 +852,28 @@ int main(int argc, char *argv[]) {
     // lowering there ABORTS (LUISA_NOT_IMPLEMENTED / LUISA_ERROR) rather than
     // throwing -- so the whole section is skipped before touching the coop
     // factory on any other backend. The gate is by backend name (the same name
-    // the device was created with); on dx a throwaway device created with
-    // DirectXDeviceConfigExt::UseExperimental() reports whether the SM 6.9
-    // experimental shader models actually got enabled (a DX machine without
-    // them would otherwise abort inside the coop compile).
+    // the device was created with); on dx the primary device reports whether the
+    // SM 6.9 experimental shader models actually got enabled (a DX machine
+    // without them would otherwise abort inside the coop compile). The section
+    // is also skipped up front when the --variants filter names no coop_*
+    // variant: in that case the device was deliberately created WITHOUT the
+    // experimental config ext, so a "not enabled" verdict would be meaningless.
     {
         const luisa::string_view backend_name{backend};
         const bool coop_backend = backend_name == "dx" || backend_name == "vk";
-        bool coop_go = coop_backend;
-        if (coop_backend && backend_name == "dx") {
+        bool coop_go = coop_backend && want_coop;
+        if (coop_go && backend_name == "dx") {
             coop_go = dx_experimental_enabled;
         }
         if (!coop_go) {
-            const char *why = !coop_backend
-                                  ? "cooperative vector is DX/VK only (plan §2/§5); this backend has no coop codegen and the coop compile would abort"
-                                  : "DX experimental SM 6.9 features are not enabled on this system (plan §9); coop disabled";
+            luisa::string why;
+            if (!coop_backend) {
+                why = "cooperative vector is DX/VK only (plan §2/§5); this backend has no coop codegen and the coop compile would abort";
+            } else if (!want_coop) {
+                why = "--variants selects no coop_* variant (tiled GEMM only), so the experimental dx device is not requested";
+            } else {
+                why = "DX experimental SM 6.9 features are not enabled on this system (plan §9); coop disabled";
+            }
             LUISA_INFO("coop sweep: SKIPPED on backend '{}' -- {}.", backend_name, why);
             if (csv_out) {
                 csv_out << backend << ",coop,0,0,0,0,0," << kCoopGemmBlock
