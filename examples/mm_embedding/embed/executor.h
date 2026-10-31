@@ -28,9 +28,10 @@
 namespace luisa::mm_embed {
 
 struct MultimodalInputs {
-    compute::BufferView<float> vision_embeds{};// [num_vision_tokens, 512]
-    uint32_t vision_start_idx{2u};             // Token index where soft tokens are inserted
-    uint32_t num_vision_tokens{256u};          // Number of soft tokens
+    compute::BufferView<float> vision_embeds{};          // [num_vision_tokens, 512]
+    uint32_t vision_start_idx{2u};                       // Token index where soft tokens are inserted (contiguous)
+    uint32_t num_vision_tokens{256u};                    // Number of soft tokens
+    compute::BufferView<uint32_t> vision_token_indices{};// Sequence token indices for non-contiguous video placement
 
     compute::BufferView<float> audio_embeds{}; // [num_audio_tokens, 512]
     uint32_t audio_start_idx{2u};              // Token index where soft tokens are inserted
@@ -55,6 +56,12 @@ public:
     [[nodiscard]] virtual bool has_vision() const noexcept = 0;
     [[nodiscard]] virtual bool has_audio() const noexcept = 0;
 
+    struct VisionDebugActivations {
+        compute::BufferView<float> patch_embed{};  // [max_patches, 768]
+        compute::BufferView<float> layer0_out{};   // [max_patches, 768]
+        compute::BufferView<float> pooled_out{};   // [num_soft_tokens, 768]
+    };
+
     /**
      * Records the vision tower forward pass into cmd_list.
      *
@@ -67,6 +74,7 @@ public:
      * @param num_patches_h Number of active patches vertically (e.g. 48 for 768px).
      * @param max_patches Max patches with padding (2520).
      * @param num_soft_tokens Number of output soft tokens (e.g. 256 for 48x48, 253 for 69x33).
+     * @param debug_acts Optional buffer views to capture intermediate layer activations for testing.
      */
     virtual void record_vision_encode(
         compute::CommandList &cmd_list,
@@ -77,7 +85,8 @@ public:
         uint32_t num_patches_w = 48u,
         uint32_t num_patches_h = 48u,
         uint32_t max_patches = 2520u,
-        uint32_t num_soft_tokens = 256u) = 0;
+        uint32_t num_soft_tokens = 256u,
+        VisionDebugActivations *debug_acts = nullptr) = 0;
 
     struct AudioDebugActivations {
         compute::BufferView<float> subsample_proj{};   // [num_soft_tokens, 1024]

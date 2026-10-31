@@ -38,8 +38,14 @@ Google DeepMind's **EmbeddingGemma-2** (`google/embeddinggemma-2`) is an open mu
    - Tri-state **Selective Encoder Loading** (`enable_vision`, `enable_audio`), saving ~1.2 GB VRAM when audio is disabled.
    - Official audio sample benchmark & fine-grained layer-by-layer alignment against PyTorch.
 
-4. **Phase 4 (Video Modality Pipeline)**:
-   - Video multi-frame temporal sampling & embedding reusing the Phase 2 Vision Tower.
+4. **Phase 4 (Completed — Video Modality Pipeline)**:
+   - Video multi-frame temporal sampling and embedding reusing the Phase 2 Vision Tower (`Gemma4VisionModel`).
+   - Zero-dependency MP4/H.264 video decoding via native Windows Media Foundation (`mfreadwrite`, `mfplat`, `mfuuid`, `ole32`) and lossless PNG frame sequences.
+   - Dynamic aspect-ratio-preserving resizing with side multiple 48 (`pooling_kernel_size * patch_size`) fitting within the 140 soft tokens budget (`max_patches = 1260`).
+   - Temporal sampling matching Google's `EmbeddingGemma2VideoProcessor` (target FPS 1.0, maximum 32 frames, uniform sampling and overflow capping).
+   - 2D Spatial average pooling ($3 \times 3$ grid with scaling factor $\sqrt{768}/9$) and visual connector projection ($768 \to 512$).
+   - Interleaved multimodal prompt syntax supporting `<|video|>` token placeholder with frame delimiters `<|image>` (token ID 255999) and `<image|>` (token ID 258882).
+   - Multi-backend automated verification across DirectX 12, CUDA, and Vulkan.
 
 ---
 
@@ -232,7 +238,7 @@ $$
      Pre-RMSNorm $\to$ Pointwise Linear ($1024 \to 2048$) $\to$ SiLU GLU Gating $\to$ Causal 1D Depthwise Conv ($\text{kernel}=5, \text{stride}=1, \text{groups}=1024$) $\to$ Conv-RMSNorm $\to$ Pointwise Linear ($1024 \to 1024$).
 
 4. **Audio Connector Projection**:
-   Linear projection $W_{\text{audio\_proj}} \in \mathbb{R}^{1024 \times 1536}$ followed by $W_{\text{audio\_connector}} \in \mathbb{R}^{1536 \times 512}$ mapping conformer tokens into language embedding space, scattered between `<boa>` (id 257) and `<eoa>` (id 258) tokens.
+   Linear projection $W_{\text{audio-proj}} \in \mathbb{R}^{1024 \times 1536}$ followed by $W_{\text{audio-connector}} \in \mathbb{R}^{1536 \times 512}$ mapping conformer tokens into language embedding space, scattered between `<boa>` (id 257) and `<eoa>` (id 258) tokens.
 
 ---
 
@@ -330,7 +336,8 @@ examples/mm_embedding/
 ├── example_mm_embed_text.cpp          # Interactive text embedding demo
 ├── example_mm_embed_vision.cpp        # Interactive image and multimodal query demo
 ├── example_mm_embed_audio.cpp         # Interactive audio and multimodal speech demo
-├── example_mm_embed_test.cpp          # Automated unit & regression test suite
+├── example_mm_embed_video.cpp         # Interactive video and multimodal query demo
+├── example_mm_embed_test.cpp          # Automated unit & regression test suite (Phase 1-4)
 ├── example_mm_embed_bench.cpp         # Multimodal vision evaluation & benchmark harness
 ├── embed/
 │   ├── executor.h / .cpp              # Forward pass graph recorder & memory manager
@@ -339,6 +346,7 @@ examples/mm_embedding/
 │   ├── tokenizer.h / .cpp             # Pure C++ Gemma BPE tokenizer
 │   ├── image_processor.h / .cpp       # Catmull-Rom bicubic image downsampler & normalizer
 │   ├── audio_processor.h / .cpp       # 16kHz WAV decoder & 128-Mel STFT filterbank extractor
+│   ├── video_processor.h / .cpp       # Zero-dependency MP4/H.264 & frame sequence temporal sampler
 │   └── kernels/
 │       ├── kernels_norm.h / .cpp      # RMSNorm and L2Norm kernels
 │       ├── kernels_rope.h / .cpp      # RoPE rotary embedding kernels (1D & 2D Axial)
@@ -353,6 +361,8 @@ examples/mm_embedding/
     ├── dump_golden.py                 # PyTorch text golden generation script
     ├── dump_vision_golden.py          # PyTorch multimodal vision golden generation script
     ├── dump_audio_golden.py           # PyTorch multimodal audio golden generation script
+    ├── dump_video_golden.py           # PyTorch video golden & layer activation generation script
+    ├── build_video_dataset.py         # Multi-domain synthetic benchmark video generator
     ├── build_diverse_dataset.py       # Diverse 8-domain multimodal benchmark dataset builder
     ├── generate_test_multimodal_data.py # Multimodal synthetic test fixture generator
     ├── pack_model.cpp                 # C++ packaging & validation tool
@@ -369,10 +379,12 @@ examples/mm_embedding/
 xmake f -p windows -a x64 -m release
 
 # Build engine library, demos, tests, and benchmark harness
-xmake build lc-example-mm-embedding example_mm_embed_text example_mm_embed_vision example_mm_embed_audio example_mm_embed_test example_mm_embed_bench
+xmake build lc-example-mm-embedding example_mm_embed_text example_mm_embed_vision example_mm_embed_audio example_mm_embed_video example_mm_embed_test example_mm_embed_bench
 
-# Run automated unit and regression test suite
+# Run automated unit and regression test suite (DX12 / CUDA / Vulkan)
 xmake run example_mm_embed_test dx model.mmegm tokenizer.json
+xmake run example_mm_embed_test cuda model.mmegm tokenizer.json
+xmake run example_mm_embed_test vk model.mmegm tokenizer.json
 
 # Run text embedding demo
 xmake run example_mm_embed_text dx model.mmegm tokenizer.json
@@ -383,6 +395,9 @@ xmake run example_mm_embed_vision dx model.mmegm tokenizer.json input.jpg "A hig
 # Run interactive audio and multimodal embedding demo
 xmake run example_mm_embed_audio dx model.mmegm tokenizer.json speech.wav
 
+# Run interactive video and multimodal video embedding demo
+xmake run example_mm_embed_video dx model.mmegm tokenizer.json video.mp4 "A video of ocean waves: <|video|>"
+
 # Run multimodal vision benchmark harness
 xmake run example_mm_embed_bench dx model.mmegm tokenizer.json data/diverse_dataset.json data/golden_diverse_vision.json
 ```
@@ -390,7 +405,7 @@ xmake run example_mm_embed_bench dx model.mmegm tokenizer.json data/diverse_data
 ### Using CMake
 ```bash
 cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target example_mm_embed_text example_mm_embed_vision example_mm_embed_audio example_mm_embed_test example_mm_embed_bench
+cmake --build build --target example_mm_embed_text example_mm_embed_vision example_mm_embed_audio example_mm_embed_video example_mm_embed_test example_mm_embed_bench
 ```
 
 ### Selective Encoder Loading
@@ -418,6 +433,13 @@ The implementation has been strictly benchmarked and verified across **DirectX 1
 - **Audio Parity**: Cosine similarity against PyTorch golden references $> 0.99997$ across all MRL dimensions ($768, 512, 256, 128$).
 - **Audio Layer-by-Layer Alignment**: Fine-grained intermediate operator cosine parity $> 0.9994$ across `subsample_conv`, `layer0`, `layer11`, `output_proj`, and `connector`.
 - **Zero-Shot Audio-to-Text Retrieval**: Accurate ranking of speech candidates matching official Google examples (Top-1 match with similarity $0.8780$).
+- **Video Parity**: Cosine similarity against PyTorch golden references $> 0.99999$ across all MRL dimensions ($768, 512, 256, 128$).
+- **Video Layer-by-Layer Alignment**: Exact intermediate operator cosine parity across resampled pixels ($\cos = 1.0$), patch embeddings ($\cos = 1.0$), ViT Layer 0 ($\cos = 1.0$), Spatial Pooling ($\cos = 0.99997$), and visual connector soft tokens ($\cos = 0.99998$).
+- **Interleaved Multimodal Video**: Multimodal video + prompt embedding cosine parity $> 0.99999$ with PyTorch golden reference.
+- **Temporal Order Sensitivity**: Frame-shuffle sensitivity test confirming distinct embeddings on reversed frames ($\cos = 0.99976 < 0.9999$).
+- **Zero-Dependency MP4 Decoding**: Native Windows Media Foundation decoder matching uncompressed frame fixture with $\cos > 0.984$.
+- **Cross-Modal Video-to-Text Retrieval**: Benchmark retrieval across all 5 diverse test samples achieving 100% positive over hard-negative discrimination.
 - **Selective Loading Invariance**: Text embedding cosine difference between enabled and disabled encoder configurations is strictly $0.0$.
+
 
 

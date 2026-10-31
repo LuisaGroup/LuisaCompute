@@ -4,6 +4,7 @@ add_library(lc-example-mm-embedding STATIC
     embed/tokenizer.cpp
     embed/package.cpp
     embed/image_processor.cpp
+    embed/video_processor.cpp
     embed/audio_processor.cpp
     embed/session.cpp
     embed/executor.cpp
@@ -19,6 +20,9 @@ add_library(lc-example-mm-embedding STATIC
 target_link_libraries(lc-example-mm-embedding PUBLIC luisa::compute)
 target_link_libraries(lc-example-mm-embedding PUBLIC luisa-compute-ext-yyjson-interface)
 target_link_libraries(lc-example-mm-embedding PUBLIC luisa-compute-ext-stb-interface)
+if (WIN32)
+    target_link_libraries(lc-example-mm-embedding PUBLIC mfreadwrite mfplat mfuuid ole32)
+endif ()
 target_include_directories(lc-example-mm-embedding PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/examples)
@@ -56,6 +60,12 @@ target_include_directories(example_mm_embed_vision PRIVATE
 luisa_compute_add_executable(example_mm_embed_audio example_mm_embed_audio.cpp)
 target_link_libraries(example_mm_embed_audio PRIVATE lc-example-mm-embedding)
 target_include_directories(example_mm_embed_audio PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/examples)
+
+luisa_compute_add_executable(example_mm_embed_video example_mm_embed_video.cpp)
+target_link_libraries(example_mm_embed_video PRIVATE lc-example-mm-embedding)
+target_include_directories(example_mm_embed_video PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/examples)
 

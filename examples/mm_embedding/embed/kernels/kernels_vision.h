@@ -72,6 +72,19 @@ using ScatterSoftTokensKernel = compute::Kernel2D<void(
 
 [[nodiscard]] ScatterSoftTokensKernel make_scatter_soft_tokens_kernel() noexcept;
 
+// #5b: Scatter vision soft tokens at arbitrary sequence positions into sequence buffer
+// h0: [total_tokens * H] (H = 512)
+// soft_tokens: [num_soft_tokens * H]
+// token_indices: [num_soft_tokens]
+using ScatterIndexedTokensKernel = compute::Kernel2D<void(
+    compute::Buffer<float> /*h0*/,
+    compute::Buffer<float> /*soft_tokens*/,
+    compute::Buffer<uint32_t> /*token_indices*/,
+    uint32_t /*num_soft_tokens*/,
+    uint32_t /*H*/)>;
+
+[[nodiscard]] ScatterIndexedTokensKernel make_scatter_indexed_tokens_kernel() noexcept;
+
 // #6: Generate attention mask (1.0 = valid, 0.0 = pad) from position_ids
 using MaskFromPosKernel = compute::Kernel1D<void(
     compute::Buffer<int32_t> /*pos_ids*/,

@@ -8,6 +8,9 @@ target("lc-example-mm-embedding")
     add_files("embed/*.cpp", "embed/kernels/*.cpp")
     add_includedirs("$(projectdir)/examples", "$(projectdir)/src/ext/yyjson/src")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "lc-yyjson", "stb-image")
+    if is_plat("windows") then
+        add_syslinks("mfreadwrite", "mfplat", "mfuuid", "ole32")
+    end
     add_includedirs("$(projectdir)/src/ext/yyjson/src", {
         public = true
     })
@@ -72,6 +75,16 @@ target("example_mm_embed_audio")
         project_kind = "binary"
     })
     add_files("example_mm_embed_audio.cpp")
+    add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/mm_embedding")
+    add_deps("lc-example-mm-embedding")
+target_end()
+
+target("example_mm_embed_video")
+    add_deps("lc-backends-dummy", {inherit = false, links = false})
+    _config_project({
+        project_kind = "binary"
+    })
+    add_files("example_mm_embed_video.cpp")
     add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/mm_embedding")
     add_deps("lc-example-mm-embedding")
 target_end()

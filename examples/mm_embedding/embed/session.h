@@ -21,6 +21,8 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
+#include "mm_embedding/embed/video_processor.h"
+
 namespace luisa::mm_embed {
 
 class Package;
@@ -81,10 +83,22 @@ public:
         int channels = 3,
         const EncodeOptions &opt = {});
 
-    // Multimodal encoding (image + text)
+    // Multimodal encoding (image or video + text)
     [[nodiscard]] Embedding encode_multimodal(
-        const std::filesystem::path &image_path,
+        const std::filesystem::path &media_path,
         luisa::string_view prompt_text,
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_multimodal(
+        luisa::span<const std::filesystem::path> frame_paths,
+        luisa::string_view prompt_text,
+        const VideoConfig &cfg = {},
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_multimodal(
+        const std::filesystem::path &media_path,
+        luisa::string_view prompt_text,
+        const VideoConfig &cfg,
         const EncodeOptions &opt = {});
 
     // Audio encoding
@@ -102,6 +116,35 @@ public:
     [[nodiscard]] Embedding encode_multimodal_audio(
         const std::filesystem::path &audio_path,
         luisa::string_view prompt_text,
+        const EncodeOptions &opt = {});
+
+    // Video encoding
+    [[nodiscard]] Embedding encode_video(
+        const std::filesystem::path &video_path,
+        const VideoConfig &cfg = {},
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_video(
+        luisa::span<const std::filesystem::path> frame_paths,
+        const VideoConfig &cfg = {},
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_video_memory(
+        luisa::span<const RawVideoFrame> frames,
+        const VideoConfig &cfg = {},
+        const EncodeOptions &opt = {});
+
+    // Multimodal video encoding (video + text)
+    [[nodiscard]] Embedding encode_multimodal_video(
+        const std::filesystem::path &video_path,
+        luisa::string_view prompt_text,
+        const VideoConfig &cfg = {},
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_multimodal_video(
+        luisa::span<const std::filesystem::path> frame_paths,
+        luisa::string_view prompt_text,
+        const VideoConfig &cfg = {},
         const EncodeOptions &opt = {});
 
     [[nodiscard]] const Tokenizer &tokenizer() const noexcept;
@@ -134,6 +177,13 @@ private:
     // Persistent audio buffers
     compute::Buffer<float> _dev_audio_features;
     compute::Buffer<float> _dev_audio_soft_tokens;
+
+    // Persistent video buffers
+    compute::Buffer<float> _dev_video_pixel_values;
+    compute::Buffer<int32_t> _dev_video_position_ids;
+    compute::Buffer<float> _dev_video_soft_tokens;
+    compute::Buffer<uint32_t> _dev_video_token_indices;
+    luisa::vector<uint32_t> _host_video_token_indices;
 };
 
 }// namespace luisa::mm_embed

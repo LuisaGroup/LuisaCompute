@@ -182,6 +182,7 @@ public:
     ShaderFor<AxialRoPEKernel> shader_axial_rope;
     ShaderFor<VisionPoolKernel> shader_vision_pool;
     ShaderFor<ScatterSoftTokensKernel> shader_scatter_soft_tokens;
+    ShaderFor<ScatterIndexedTokensKernel> shader_scatter_indexed_tokens;
     ShaderFor<MaskFromPosKernel> shader_mask_from_pos;
 
     // Compiled audio shaders
@@ -349,7 +350,8 @@ public:
         uint32_t num_patches_w,
         uint32_t num_patches_h,
         uint32_t max_patches,
-        uint32_t num_soft_tokens) override {
+        uint32_t num_soft_tokens,
+        VisionDebugActivations *debug_acts) override {
 
         if (!_enable_vision) {
             LUISA_ERROR("record_vision_encode: Vision encoder is not loaded (Selective Encoder Loading)");
@@ -376,6 +378,10 @@ public:
         // 3. Add 2D position embeddings
         cmd_list << shader_add_patch_pos_embed(_v_h0, v_pos_table, position_ids, H, 10240u)
                         .dispatch(H, max_patches);
+
+        if (debug_acts && debug_acts->patch_embed) {
+            cmd_list << debug_acts->patch_embed.copy_from(_v_h0.view(0, max_patches * H));
+        }
 
         // 4. Generate attention mask from position_ids
         cmd_list << shader_mask_from_pos(position_ids, _v_mask, max_patches)
@@ -457,6 +463,10 @@ public:
                             .dispatch(max_patches * kNormBlock);
             cmd_list << shader_residual_add(_v_h0, _v_mlp_norm, _v_h0, max_patches * H)
                             .dispatch(max_patches * H);
+
+            if (l == 0u && debug_acts && debug_acts->layer0_out) {
+                cmd_list << debug_acts->layer0_out.copy_from(_v_h0.view(0, max_patches * H));
+            }
         }
 
         // 6. 2D Spatial Pooling (3x3 grid average + sqrt(768)) -> soft tokens
@@ -465,6 +475,10 @@ public:
         uint32_t patch_stride = num_patches_w;
         cmd_list << shader_vision_pool(_v_h0, _v_pooled, grid_w_soft, grid_h_soft, patch_stride, H, scale_pool)
                         .dispatch(H, num_soft_tokens);
+
+        if (debug_acts && debug_acts->pooled_out) {
+            cmd_list << debug_acts->pooled_out.copy_from(_v_pooled.view(0, num_soft_tokens * H));
+        }
 
         // 7. Connector pre-norm (without scale)
         cmd_list << shader_rmsnorm_no_weight(_v_pooled, _v_pooled_norm, H, 1e-6f)
@@ -733,9 +747,15 @@ public:
 
         // 1.5. Scatter multimodal vision soft tokens if provided
         if (mm_inputs.vision_embeds.size() > 0 && mm_inputs.num_vision_tokens > 0) {
-            cmd_list << shader_scatter_soft_tokens(
-                _h0, mm_inputs.vision_embeds, mm_inputs.vision_start_idx, mm_inputs.num_vision_tokens, H)
-                .dispatch(H, mm_inputs.num_vision_tokens);
+            if (mm_inputs.vision_token_indices.size() > 0) {
+                cmd_list << shader_scatter_indexed_tokens(
+                    _h0, mm_inputs.vision_embeds, mm_inputs.vision_token_indices, mm_inputs.num_vision_tokens, H)
+                    .dispatch(H, mm_inputs.num_vision_tokens);
+            } else {
+                cmd_list << shader_scatter_soft_tokens(
+                    _h0, mm_inputs.vision_embeds, mm_inputs.vision_start_idx, mm_inputs.num_vision_tokens, H)
+                    .dispatch(H, mm_inputs.num_vision_tokens);
+            }
         }
 
         // 1.6. Scatter multimodal audio soft tokens if provided
@@ -1096,6 +1116,7 @@ luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Pack
     exec->shader_mean_pool = device.compile(make_mean_pool_kernel());
     exec->shader_mrl_normalize = device.compile(make_mrl_normalize_kernel());
     exec->shader_scatter_soft_tokens = device.compile(make_scatter_soft_tokens_kernel());
+    exec->shader_scatter_indexed_tokens = device.compile(make_scatter_indexed_tokens_kernel());
 
     // Compile vision kernels if enabled
     if (exec->_enable_vision) {

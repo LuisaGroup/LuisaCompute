@@ -162,6 +162,27 @@ ScatterSoftTokensKernel make_scatter_soft_tokens_kernel() noexcept {
     return kernel;
 }
 
+ScatterIndexedTokensKernel make_scatter_indexed_tokens_kernel() noexcept {
+    using namespace luisa::compute;
+
+    ScatterIndexedTokensKernel kernel = [](BufferFloat h0, BufferFloat soft_tokens,
+                                           BufferUInt token_indices, Var<uint> num_soft_tokens,
+                                           Var<uint> H) noexcept {
+        set_block_size(16u, 16u, 1u);
+        set_name("scatter_indexed_tokens");
+
+        Var d = dispatch_x();
+        Var i = dispatch_y();
+
+        $if (d < H & i < num_soft_tokens) {
+            Var token_pos = token_indices.read(i);
+            Var val = soft_tokens.read(i * H + d);
+            h0.write(token_pos * H + d, val);
+        };
+    };
+    return kernel;
+}
+
 MaskFromPosKernel make_mask_from_pos_kernel() noexcept {
     using namespace luisa::compute;
 

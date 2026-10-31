@@ -35,6 +35,7 @@
 
 #include "mm_embedding/embed/image_processor.h"
 #include "mm_embedding/embed/audio_processor.h"
+#include "mm_embedding/embed/video_processor.h"
 #include "mm_embedding/embed/kernels/kernels_attention.h"
 #include "mm_embedding/embed/kernels/kernels_audio.h"
 #include "mm_embedding/embed/kernels/kernels_gemm.h"
@@ -1337,6 +1338,438 @@ void test_audio_e2e_and_golden(
     std::cout << "  [PASS] Audio End-to-End tests passed." << std::endl;
 }
 
+// ============================================================================
+// 8. Video Processor Unit Tests
+// ============================================================================
+void test_video_processor(const std::filesystem::path &data_dir) {
+    std::cout << "[TEST] Running VideoProcessor tests..." << std::endl;
+
+    // 1. Aspect ratio preserving target size for video budget (max_patches=1260, max_soft_tokens=140)
+    {
+        auto [w256, h256] = VideoProcessor::get_target_size(256u, 256u);
+        TEST_ASSERT(w256 % 48u == 0u && h256 % 48u == 0u, "Target dims must be multiples of 48 (16 * 3)");
+        uint32_t patches = (w256 / 16u) * (h256 / 16u);
+        TEST_ASSERT(patches <= 1260u, "Patches must not exceed max_patches budget");
+        TEST_ASSERT(w256 == 528u && h256 == 528u, "256x256 target size must be 528x528 (121 soft tokens)");
+        std::cout << "    Target size (256x256) -> " << w256 << "x" << h256 << " [PASS]" << std::endl;
+
+        auto [w640, h480] = VideoProcessor::get_target_size(640u, 480u);
+        TEST_ASSERT(w640 % 48u == 0u && h480 % 48u == 0u, "Target dims must be multiples of 48");
+        TEST_ASSERT((w640 / 16u) * (h480 / 16u) <= 1260u, "Patches budget respected");
+        TEST_ASSERT(w640 == 624u && h480 == 480u, "640x480 target size must be 624x480");
+        std::cout << "    Target size (640x480) -> " << w640 << "x" << h480 << " [PASS]" << std::endl;
+    }
+
+    // 2. Temporal frame sampling
+    {
+        VideoConfig cfg{};
+        cfg.fps = 1.0f;
+        cfg.max_frames = 32u;
+        cfg.overflow_strategy = VideoOverflowStrategy::Uniform;
+
+        // 16 frames at 4 fps -> duration = 4.0s -> 4 frames: [0, 4, 8, 12]
+        auto indices = VideoProcessor::sample_frame_indices(16u, 4.0, 4.0, cfg);
+        TEST_ASSERT(indices.size() == 4u, "Must sample 4 frames for 4s at 1fps");
+        TEST_ASSERT(indices[0] == 0u && indices[1] == 4u && indices[2] == 8u && indices[3] == 12u,
+                    "Sampled frame indices must be [0, 4, 8, 12]");
+        std::cout << "    Temporal 1fps sampling (16 frames @ 4fps) -> [0, 4, 8, 12] [PASS]" << std::endl;
+
+        // Overflow test: 32 frames sampled at 1fps with max_frames=8
+        cfg.max_frames = 8u;
+        cfg.overflow_strategy = VideoOverflowStrategy::Uniform;
+        auto sampled_overflow = VideoProcessor::sample_frame_indices(32u, 32.0, 1.0, cfg);
+        TEST_ASSERT(sampled_overflow.size() == 8u, "Uniform overflow must cap to max_frames (8)");
+        TEST_ASSERT(sampled_overflow.front() == 0u && sampled_overflow.back() == 31u, "Uniform overflow covers full range");
+        std::cout << "    Uniform overflow resampling (32 frames -> 8 frames budget) [PASS]" << std::endl;
+
+        // Edge case: max_frames = 1 (verifies no division by zero)
+        cfg.max_frames = 1u;
+        auto single_frame = VideoProcessor::sample_frame_indices(32u, 32.0, 1.0, cfg);
+        TEST_ASSERT(single_frame.size() == 1u && single_frame[0] == 0u, "max_frames=1 must return single frame without division by zero");
+        std::cout << "    Edge case max_frames=1 uniform sampling [PASS]" << std::endl;
+
+        // Edge case: empty input
+        auto empty_indices = VideoProcessor::sample_frame_indices(0u, 0.0, 0.0, cfg);
+        TEST_ASSERT(empty_indices.empty(), "total_frames=0 must return empty vector");
+        std::cout << "    Edge case total_frames=0 sampling [PASS]" << std::endl;
+
+        cfg.max_frames = 8u;
+        cfg.overflow_strategy = VideoOverflowStrategy::Truncate;
+        auto truncated = VideoProcessor::sample_frame_indices(32u, 32.0, 1.0, cfg);
+        TEST_ASSERT(truncated.size() == 8u && truncated.back() == 7u, "Truncate strategy caps to prefix");
+        std::cout << "    Truncate overflow capping [PASS]" << std::endl;
+    }
+
+    // 3. Raw in-memory frame processing
+    {
+        constexpr int W = 256;
+        constexpr int H = 256;
+        luisa::vector<uint8_t> frame0(W * H * 3, 100);
+        luisa::vector<uint8_t> frame1(W * H * 3, 200);
+
+        RawVideoFrame raw_frames[2]{};
+        raw_frames[0].rgb_bytes = frame0.data();
+        raw_frames[0].width = W;
+        raw_frames[0].height = H;
+        raw_frames[0].channels = 3;
+        raw_frames[0].timestamp_sec = 0.0;
+
+        raw_frames[1].rgb_bytes = frame1.data();
+        raw_frames[1].width = W;
+        raw_frames[1].height = H;
+        raw_frames[1].channels = 3;
+        raw_frames[1].timestamp_sec = 1.0;
+
+        VideoConfig cfg{};
+        cfg.fps = 1.0f;
+        auto proc = VideoProcessor::process_memory(raw_frames, cfg);
+        TEST_ASSERT(proc.num_frames == 2u, "Must process 2 raw frames");
+        TEST_ASSERT(proc.target_width == 528u && proc.target_height == 528u, "Target size must be 528x528");
+        TEST_ASSERT(proc.num_soft_tokens_per_frame == 121u, "528x528 must yield 121 soft tokens per frame");
+        TEST_ASSERT(proc.total_soft_tokens == 242u, "Total soft tokens must be 242");
+        TEST_ASSERT(proc.frames[0].position_ids[0] == 0 && proc.frames[0].position_ids[1] == 0, "First patch pos ID (0,0)");
+        std::cout << "    Raw in-memory frame processing verified [PASS]" << std::endl;
+    }
+
+    std::cout << "  [PASS] VideoProcessor tests passed." << std::endl;
+}
+
+// ============================================================================
+// 9. Video End-to-End & Golden Parity Tests
+// ============================================================================
+void test_video_e2e_and_golden(
+    Device &device,
+    const std::filesystem::path &egm_path,
+    const std::filesystem::path &tok_path,
+    const std::filesystem::path &data_dir) {
+
+    std::cout << "[TEST] Running Video End-to-End & PyTorch Golden Parity tests..." << std::endl;
+
+    if (!std::filesystem::exists(egm_path) || !std::filesystem::exists(tok_path)) {
+        std::cout << "  [SKIP] Model package or tokenizer not found. Skipping video test." << std::endl;
+        return;
+    }
+
+    SessionConfig cfg{};
+    cfg.enable_vision = true;
+    cfg.enable_audio = false;
+    auto session = Session::create(device, egm_path, tok_path, cfg);
+    if (!session->has_vision()) {
+        std::cout << "  [SKIP] Package does not have Vision Tower weights. Skipping video test." << std::endl;
+        return;
+    }
+
+    auto golden_path = data_dir / "golden_video.json";
+    if (!std::filesystem::exists(golden_path)) {
+        golden_path = data_dir / "video" / "golden_video_dataset.json";
+    }
+    if (!std::filesystem::exists(golden_path)) {
+        std::cout << "  [SKIP] golden_video.json not found in '" << data_dir.string() << "'. Skipping." << std::endl;
+        return;
+    }
+
+    std::cout << "  [INFO] Loading Golden Video Reference from '" << golden_path.string() << "'..." << std::endl;
+    std::ifstream f(golden_path);
+    std::string json_str((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    yyjson_doc *doc = yyjson_read(json_str.c_str(), json_str.size(), 0);
+    TEST_ASSERT(doc != nullptr, "Failed to parse golden_video.json");
+    yyjson_val *root = yyjson_doc_get_root(doc);
+
+    // 1. Fine-grained layer-by-layer alignment for sample_01_nature_ocean
+    auto fixture_dir = data_dir / "video" / "fixtures" / "sample_01_nature_ocean";
+    if (!std::filesystem::exists(fixture_dir)) {
+        fixture_dir = data_dir / "fixtures" / "sample_01_nature_ocean";
+    }
+
+    yyjson_val *layer_acts = yyjson_obj_get(root, "layer_activations");
+    yyjson_val *ocean_acts = layer_acts ? yyjson_obj_get(layer_acts, "sample_01_nature_ocean") : nullptr;
+
+    luisa::vector<std::filesystem::path> sampled_paths;
+    for (int idx : {0, 4, 8, 12}) {
+        char name_buf[64];
+        std::snprintf(name_buf, sizeof(name_buf), "frame_%04d.png", idx);
+        sampled_paths.push_back(fixture_dir / name_buf);
+    }
+
+    if (std::filesystem::exists(fixture_dir) && ocean_acts) {
+        std::cout << "\n  [INFO] Running Fine-Grained Layer-by-Layer Vision/Video Tower Alignment (sample_01_nature_ocean)..." << std::endl;
+
+        VideoConfig vcfg{};
+        vcfg.fps = 1.0f;
+        auto processed_video = VideoProcessor::process_frames(sampled_paths, vcfg);
+        TEST_ASSERT(processed_video.num_frames == 4u, "Must have 4 frames");
+        TEST_ASSERT(processed_video.target_width == 528u && processed_video.target_height == 528u, "528x528 target");
+
+        // 1a. Resampled pixel values check
+        yyjson_val *px_slice_val = yyjson_obj_get(ocean_acts, "pixel_values_slice");
+        if (px_slice_val && yyjson_is_arr(px_slice_val)) {
+            size_t n = yyjson_arr_size(px_slice_val);
+            float dot = 0.0f, c_norm = 0.0f, p_norm = 0.0f;
+            for (size_t i = 0; i < n; i++) {
+                float pt = static_cast<float>(yyjson_get_num(yyjson_arr_get(px_slice_val, i)));
+                float cp = processed_video.frames[0].pixel_values[i];
+                dot += cp * pt;
+                c_norm += cp * cp;
+                p_norm += pt * pt;
+            }
+            float cos_sim = dot / (std::sqrt(c_norm) * std::sqrt(p_norm) + 1e-12f);
+            std::cout << "    [Layer 1/6] Resampled Frame Pixels cos_sim: " << cos_sim << " (threshold > 0.999)" << std::endl;
+            TEST_ASSERT(cos_sim > 0.999f, "Resampled frame pixels match PyTorch reference");
+        }
+
+        // 1b. Patch embedding, ViT Layer 0, Pooling, and Soft Tokens
+        auto pkg = Package::load(egm_path);
+        auto exec = Executor::create(device, *pkg, true, false);
+
+        uint32_t max_p = processed_video.max_patches; // 1260
+        uint32_t num_soft = processed_video.num_soft_tokens_per_frame; // 16
+        auto buf_px = device.create_buffer<float>(max_p * 768u);
+        auto buf_pos = device.create_buffer<int32_t>(max_p * 2u);
+        auto buf_soft = device.create_buffer<float>(num_soft * 512u);
+        auto buf_patch_embed = device.create_buffer<float>(max_p * 768u);
+        auto buf_layer0 = device.create_buffer<float>(max_p * 768u);
+        auto buf_pooled = device.create_buffer<float>(num_soft * 768u);
+
+        Executor::VisionDebugActivations debug_acts{};
+        debug_acts.patch_embed = buf_patch_embed.view();
+        debug_acts.layer0_out = buf_layer0.view();
+        debug_acts.pooled_out = buf_pooled.view();
+
+        CommandList align_cmd;
+        align_cmd << buf_px.copy_from(processed_video.frames[0].pixel_values.data())
+                  << buf_pos.copy_from(processed_video.frames[0].position_ids.data());
+
+        exec->record_vision_encode(
+            align_cmd, buf_px.view(), buf_pos.view(), buf_soft.view(),
+            1u, processed_video.num_patches_w, processed_video.num_patches_h, max_p, num_soft,
+            &debug_acts);
+
+        luisa::vector<float> host_patch(max_p * 768u);
+        luisa::vector<float> host_layer0(max_p * 768u);
+        luisa::vector<float> host_pooled(num_soft * 768u);
+        luisa::vector<float> host_soft(num_soft * 512u);
+
+        align_cmd << buf_patch_embed.copy_to(host_patch.data())
+                  << buf_layer0.copy_to(host_layer0.data())
+                  << buf_pooled.copy_to(host_pooled.data())
+                  << buf_soft.copy_to(host_soft.data());
+
+        Stream align_stream = device.create_stream();
+        align_stream << align_cmd.commit() << synchronize();
+
+        auto compare_slice = [](const char *name, const luisa::vector<float> &cpp_data, yyjson_val *gold_val, float min_cos) {
+            if (!gold_val || !yyjson_is_arr(gold_val)) return;
+            size_t n = yyjson_arr_size(gold_val);
+            float dot = 0.0f, c_norm = 0.0f, p_norm = 0.0f;
+            for (size_t i = 0; i < n; i++) {
+                float pt = static_cast<float>(yyjson_get_num(yyjson_arr_get(gold_val, i)));
+                float cp = cpp_data[i];
+                dot += cp * pt;
+                c_norm += cp * cp;
+                p_norm += pt * pt;
+            }
+            float cos_sim = dot / (std::sqrt(c_norm) * std::sqrt(p_norm) + 1e-12f);
+            std::cout << "    [Layer " << name << "] cos_sim: " << cos_sim << " (threshold > " << min_cos << ")" << std::endl;
+            TEST_ASSERT(cos_sim > min_cos, "Layer alignment cosine similarity below threshold");
+        };
+
+        compare_slice("2/6 Patch Embedding + 2D Pos", host_patch, yyjson_obj_get(ocean_acts, "patch_embed_slice"), 0.999f);
+        compare_slice("3/6 ViT Layer 0 Output", host_layer0, yyjson_obj_get(ocean_acts, "vit_layer0_slice"), 0.999f);
+        compare_slice("4/6 Spatial Pooling Output", host_pooled, yyjson_obj_get(ocean_acts, "vit_layer15_slice"), 0.999f);
+        compare_slice("5/6 Connector Soft Tokens", host_soft, yyjson_obj_get(ocean_acts, "connector_soft_tokens_slice"), 0.999f);
+    }
+
+    // 2. End-to-end embedding comparison across MRL dimensions for sample_01_nature_ocean
+    std::cout << "\n  [INFO] Validating End-to-End Golden Embeddings across MRL dimensions (sample_01_nature_ocean)..." << std::endl;
+    yyjson_val *samples_obj = yyjson_obj_get(root, "samples");
+    yyjson_val *sample01 = samples_obj ? yyjson_obj_get(samples_obj, "sample_01_nature_ocean") : nullptr;
+    TEST_ASSERT(sample01 != nullptr, "sample_01_nature_ocean not found in golden_video.json");
+
+    yyjson_val *gold_embs = yyjson_obj_get(sample01, "embeddings");
+    Embedding cpp_emb_768{};
+    VideoConfig vcfg{};
+    vcfg.fps = 1.0f;
+
+    for (uint32_t dim : {768u, 512u, 256u, 128u}) {
+        EncodeOptions opt{};
+        opt.target_dimension = dim;
+        auto cpp_emb = session->encode_video(sampled_paths, vcfg, opt);
+        TEST_ASSERT(cpp_emb.dimension == dim, "Dimension mismatch");
+
+        float norm_sq = 0.0f;
+        for (float v : cpp_emb.values) norm_sq += v * v;
+        TEST_ASSERT(std::abs(norm_sq - 1.0f) < 1e-3f, "Unit norm required");
+
+        if (dim == 768u) cpp_emb_768 = cpp_emb;
+
+        std::string dim_str = std::to_string(dim);
+        yyjson_val *gold_arr = yyjson_obj_get(gold_embs, dim_str.c_str());
+        if (gold_arr && yyjson_is_arr(gold_arr)) {
+            float dot = 0.0f, c_norm = 0.0f, p_norm = 0.0f;
+            for (size_t d = 0; d < dim; d++) {
+                float pt = static_cast<float>(yyjson_get_num(yyjson_arr_get(gold_arr, d)));
+                float cp = cpp_emb.values[d];
+                dot += cp * pt;
+                c_norm += cp * cp;
+                p_norm += pt * pt;
+            }
+            float cos_sim = dot / (std::sqrt(c_norm) * std::sqrt(p_norm));
+            std::cout << "    [Layer 6/6 Final Embedding] MRL Dim " << dim << ": cos_sim with PyTorch = "
+                      << cos_sim << " (threshold > 0.995)" << std::endl;
+            TEST_ASSERT(cos_sim > 0.995f, "Final video embedding cosine similarity > 0.995 required");
+        }
+    }
+
+    // 3. Multimodal video query (interleaved <|video|>)
+    yyjson_val *mm_prompts = yyjson_obj_get(sample01, "multimodal_prompts");
+    if (mm_prompts) {
+        yyjson_val *mm_en = yyjson_obj_get(mm_prompts, "en");
+        if (mm_en) {
+            const char *prompt_str = yyjson_get_str(yyjson_obj_get(mm_en, "prompt"));
+            yyjson_val *gold_mm_emb = yyjson_obj_get(mm_en, "768");
+            if (prompt_str && gold_mm_emb) {
+                std::cout << "\n  [INFO] Testing Multimodal Video Query: \"" << prompt_str << "\"..." << std::endl;
+                auto mm_cpp = session->encode_multimodal_video(sampled_paths, prompt_str, vcfg);
+                TEST_ASSERT(mm_cpp.dimension == 768u, "Multimodal dimension 768");
+
+                float dot = 0.0f, c_norm = 0.0f, p_norm = 0.0f;
+                for (size_t d = 0; d < 768u; d++) {
+                    float pt = static_cast<float>(yyjson_get_num(yyjson_arr_get(gold_mm_emb, d)));
+                    float cp = mm_cpp.values[d];
+                    dot += cp * pt;
+                    c_norm += cp * cp;
+                    p_norm += pt * pt;
+                }
+                float cos_sim = dot / (std::sqrt(c_norm) * std::sqrt(p_norm));
+                std::cout << "    Interleaved Multimodal Query cos_sim with PyTorch = " << cos_sim
+                          << " (threshold > 0.995)" << std::endl;
+                TEST_ASSERT(cos_sim > 0.995f, "Multimodal video embedding must match PyTorch golden reference");
+
+                // Verify Session::encode_multimodal overloads produce identical result
+                auto mm_unified_paths = session->encode_multimodal(sampled_paths, prompt_str, vcfg);
+                TEST_ASSERT(mm_unified_paths.dimension == 768u, "Unified paths dimension 768");
+                float unified_dot = 0.0f;
+                for (size_t d = 0; d < 768u; d++) unified_dot += mm_cpp.values[d] * mm_unified_paths.values[d];
+                TEST_ASSERT(std::abs(unified_dot - 1.0f) < 1e-4f, "encode_multimodal(paths) must match encode_multimodal_video");
+                std::cout << "    encode_multimodal(frame_paths, prompt) unified dispatch verified [PASS]" << std::endl;
+
+                // Verify Session::encode_multimodal on standalone MP4 container with <|video|>
+                auto mp4_fixture = data_dir / "video" / "sample_01_nature_ocean.mp4";
+                if (std::filesystem::exists(mp4_fixture)) {
+                    auto mm_unified_file = session->encode_multimodal(mp4_fixture, prompt_str);
+                    TEST_ASSERT(mm_unified_file.dimension == 768u, "Unified file dimension 768");
+                    float file_dot = 0.0f;
+                    for (size_t d = 0; d < 768u; d++) file_dot += mm_cpp.values[d] * mm_unified_file.values[d];
+                    std::cout << "    encode_multimodal(mp4_file, prompt) cos_sim with frame sequence: " << file_dot << std::endl;
+                    TEST_ASSERT(file_dot > 0.98f, "encode_multimodal(mp4_file) must decode and embed <|video|> query");
+                    std::cout << "    encode_multimodal(video_path, prompt) <|video|> delimiter handling verified [PASS]" << std::endl;
+                }
+            }
+        }
+    }
+
+    // 4. Frame-shuffle sensitivity test
+    {
+        std::cout << "\n  [INFO] Running Frame-Shuffle Sensitivity Test..." << std::endl;
+        luisa::vector<std::filesystem::path> reversed_paths = sampled_paths;
+        std::reverse(reversed_paths.begin(), reversed_paths.end());
+        auto rev_emb = session->encode_video(reversed_paths, vcfg);
+
+        float shuffle_cos = 0.0f;
+        for (uint32_t d = 0; d < 768u; d++) {
+            shuffle_cos += cpp_emb_768.values[d] * rev_emb.values[d];
+        }
+        std::cout << "    Frame-Shuffle cos_sim(orig, reversed): " << shuffle_cos << " (< 0.9999)" << std::endl;
+        TEST_ASSERT(shuffle_cos < 0.9999f, "Reversed video frames must produce distinct embedding");
+        std::cout << "    [PASS] Frame-shuffle sensitivity verified (temporal ordering is preserved)." << std::endl;
+    }
+
+    // 5. Standalone MP4 Media Foundation video decoding test
+    auto mp4_path = data_dir / "video" / "sample_01_nature_ocean.mp4";
+    if (std::filesystem::exists(mp4_path)) {
+        std::cout << "\n  [INFO] Testing Standalone MP4 Media Foundation Decoder on '"
+                  << mp4_path.filename().string() << "'..." << std::endl;
+        auto mp4_emb = session->encode_video(mp4_path, vcfg);
+        TEST_ASSERT(mp4_emb.dimension == 768u, "MP4 embedding dimension must be 768");
+
+        float norm_sq = 0.0f;
+        for (float v : mp4_emb.values) norm_sq += v * v;
+        TEST_ASSERT(std::abs(norm_sq - 1.0f) < 1e-3f, "MP4 embedding must be unit norm");
+
+        float mp4_cos = 0.0f;
+        for (uint32_t d = 0; d < 768u; d++) {
+            mp4_cos += mp4_emb.values[d] * cpp_emb_768.values[d];
+        }
+        std::cout << "    MP4 vs Uncompressed Frames cos_sim = " << mp4_cos << " (threshold > 0.98)" << std::endl;
+        TEST_ASSERT(mp4_cos > 0.98f, "MP4 decoded embedding matches uncompressed frame fixture");
+        std::cout << "    [PASS] Standalone MP4 Media Foundation zero-dependency decoder verified." << std::endl;
+    }
+
+    // 6. Cross-Modal Video-to-Text Retrieval Ranking across all Benchmark Samples
+    {
+        std::cout << "\n  [INFO] Running Cross-Modal Video-to-Text Retrieval Ranking tests across samples..." << std::endl;
+        if (samples_obj && yyjson_is_obj(samples_obj)) {
+            size_t sample_idx = 0;
+            size_t sample_max = 0;
+            yyjson_val *key = nullptr;
+            yyjson_val *val = nullptr;
+            yyjson_obj_foreach(samples_obj, sample_idx, sample_max, key, val) {
+                const char *s_id = yyjson_get_str(key);
+                auto s_fixture = data_dir / "video" / "fixtures" / s_id;
+                if (!std::filesystem::exists(s_fixture)) continue;
+
+                luisa::vector<std::filesystem::path> s_paths;
+                for (int idx : {0, 4, 8, 12}) {
+                    char name_buf[64];
+                    std::snprintf(name_buf, sizeof(name_buf), "frame_%04d.png", idx);
+                    s_paths.push_back(s_fixture / name_buf);
+                }
+
+                auto v_emb = session->encode_video(s_paths, vcfg);
+
+                // Check positive caption similarity
+                yyjson_val *captions_obj = yyjson_obj_get(val, "captions");
+                if (captions_obj) {
+                    const char *cap_en = yyjson_get_str(yyjson_obj_get(captions_obj, "en"));
+                    float gold_sim = static_cast<float>(yyjson_get_num(yyjson_obj_get(captions_obj, "similarity_en")));
+                    if (cap_en) {
+                        auto txt_emb = session->encode(cap_en);
+                        float sim = 0.0f;
+                        for (uint32_t d = 0; d < 768u; d++) sim += v_emb.values[d] * txt_emb.values[d];
+                        std::cout << "    Sample [" << s_id << "] Caption Sim: " << sim << " (golden: " << gold_sim << ")" << std::endl;
+                        TEST_ASSERT(std::abs(sim - gold_sim) < 0.02f, "Caption similarity matches golden reference");
+                    }
+                }
+
+                // Check positive queries vs hard negatives
+                yyjson_val *queries_obj = yyjson_obj_get(val, "queries");
+                yyjson_val *negs_obj = yyjson_obj_get(val, "hard_negatives");
+                if (queries_obj && negs_obj) {
+                    yyjson_val *q_arr = yyjson_obj_get(queries_obj, "en");
+                    yyjson_val *neg_arr = yyjson_obj_get(negs_obj, "en");
+                    if (q_arr && neg_arr && yyjson_arr_size(q_arr) > 0 && yyjson_arr_size(neg_arr) > 0) {
+                        const char *pos_q = yyjson_get_str(yyjson_arr_get(q_arr, 0));
+                        const char *neg_q = yyjson_get_str(yyjson_arr_get(neg_arr, 0));
+                        auto pos_emb = session->encode(pos_q);
+                        auto neg_emb = session->encode(neg_q);
+                        float pos_sim = 0.0f, neg_sim = 0.0f;
+                        for (uint32_t d = 0; d < 768u; d++) {
+                            pos_sim += v_emb.values[d] * pos_emb.values[d];
+                            neg_sim += v_emb.values[d] * neg_emb.values[d];
+                        }
+                        std::cout << "      Positive Query: \"" << pos_q << "\" -> sim = " << pos_sim << "\n"
+                                  << "      Hard Negative:  \"" << neg_q << "\" -> sim = " << neg_sim << std::endl;
+                        TEST_ASSERT(pos_sim > neg_sim, "Positive query must score higher than hard negative!");
+                    }
+                }
+            }
+        }
+    }
+
+    yyjson_doc_free(doc);
+    std::cout << "  [PASS] Video End-to-End & PyTorch Golden Parity tests passed." << std::endl;
+}
+
 int main(int argc, char **argv) {
     luisa::string backend = (argc > 1) ? argv[1] : "dx";
     std::filesystem::path egm_path = (argc > 2) ? argv[2] : "model.mmegm";
@@ -1367,7 +1800,7 @@ int main(int argc, char **argv) {
     }
 
     std::cout << "========================================================\n"
-              << " LuisaCompute mm_embedding Phase 3 Automated Test Suite\n"
+              << " LuisaCompute mm_embedding Phase 4 Automated Test Suite\n"
               << " Backend: " << backend << "\n"
               << "========================================================\n"
               << std::endl;
@@ -1376,6 +1809,7 @@ int main(int argc, char **argv) {
     test_tokenizer(tok_path);
     test_package(egm_path);
     test_audio_processor(data_dir, egm_path);
+    test_video_processor(data_dir);
 
     // 2. GPU unit & regression tests
     Context context{argv[0]};
@@ -1385,9 +1819,10 @@ int main(int argc, char **argv) {
     test_selective_encoder_loading(device, egm_path, tok_path);
     test_multimodal_e2e(device, egm_path, tok_path, data_dir);
     test_audio_e2e_and_golden(device, egm_path, tok_path, data_dir);
+    test_video_e2e_and_golden(device, egm_path, tok_path, data_dir);
 
     std::cout << "\n========================================================\n"
-              << " ALL PHASE 3 AUDIO & VISION TESTS PASSED SUCCESSFULLY!\n"
+              << " ALL PHASE 4 VIDEO, AUDIO & VISION TESTS PASSED!\n"
               << "========================================================"
               << std::endl;
 
