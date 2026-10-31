@@ -15,6 +15,8 @@
  *	database integrity cannot be corrupted by stray pointer writes from
  *	application code.
  *
+ *	<B>See @ref upgrading if you used LMDB 0.9 previously.</b>
+ *
  *	The library is fully thread-aware and supports concurrent read/write
  *	access from multiple processes and threads. Data pages use a copy-on-
  *	write strategy so no active data pages are ever overwritten, which
@@ -136,7 +138,7 @@
  *
  *	@author	Howard Chu, Symas Corporation.
  *
- *	@copyright Copyright 2011-2021 Howard Chu, Symas Corp. All rights reserved.
+ *	@copyright Copyright 2011-2026 Howard Chu, Symas Corp. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted only as authorized by the OpenLDAP
@@ -187,6 +189,11 @@ typedef	mode_t	mdb_mode_t;
 # define MDB_FMT_Z	"z"			/**< printf/scanf format modifier for size_t */
 #endif
 
+#if !defined(MDB_RPAGE_CACHE) || (defined(MDB_VL32) && !(MDB_RPAGE_CACHE))
+/** Support #MDB_REMAP_CHUNKS. Implied by MDB_VL32. Define as 0 to disable. */
+#define MDB_RPAGE_CACHE	1
+#endif
+
 #ifndef MDB_VL32
 /** Unsigned type used for mapsize, entry counts and page/transaction IDs.
  *
@@ -219,17 +226,17 @@ typedef int mdb_filehandle_t;
 
 /** @defgroup mdb LMDB API
  *	@{
- *	@brief OpenLDAP Lightning Memory-Mapped Database Manager
+ *	@brief Symas Lightning Memory-Mapped Database Manager
  */
 /** @defgroup Version Version Macros
  *	@{
  */
 /** Library major version */
-#define MDB_VERSION_MAJOR	0
+#define MDB_VERSION_MAJOR	1
 /** Library minor version */
-#define MDB_VERSION_MINOR	9
+#define MDB_VERSION_MINOR	0
 /** Library patch version */
-#define MDB_VERSION_PATCH	70
+#define MDB_VERSION_PATCH	2
 
 /** Combine args a,b,c into a single integer for easy version comparisons */
 #define MDB_VERINT(a,b,c)	(((a) << 24) | ((b) << 16) | (c))
@@ -239,7 +246,7 @@ typedef int mdb_filehandle_t;
 	MDB_VERINT(MDB_VERSION_MAJOR,MDB_VERSION_MINOR,MDB_VERSION_PATCH)
 
 /** The release date of this library version */
-#define MDB_VERSION_DATE	"December 19, 2015"
+#define MDB_VERSION_DATE	"Aug 6, 2026"
 
 /** A stringifier for the version info */
 #define MDB_VERSTR(a,b,c,d)	"LMDB " #a "." #b "." #c ": (" d ")"
@@ -307,11 +314,40 @@ typedef int  (MDB_cmp_func)(const MDB_val *a, const MDB_val *b);
  */
 typedef void (MDB_rel_func)(MDB_val *item, void *oldptr, void *newptr, void *relctx);
 
+#if MDB_RPAGE_CACHE
+/** @brief A callback function used to encrypt/decrypt pages in the env.
+ *
+ * Encrypt or decrypt the data in src and store the result in dst using the
+ * provided key. The result must be the same number of bytes as the input.
+ * @param[in] src The input data to be transformed.
+ * @param[out] dst Storage for the result.
+ * @param[in] key An array of three values: key[0] is the encryption key,
+ * key[1] is the initialization vector, and key[2] is the authentication
+ * data, if any.
+ * @param[in] encdec 1 to encrypt, 0 to decrypt.
+ * @return A non-zero error value on failure and 0 on success.
+ */
+typedef int (MDB_enc_func)(const MDB_val *src, MDB_val *dst, const MDB_val *key, int encdec);
+
+/** @brief A callback function used to checksum pages in the env.
+ *
+ * Compute the checksum of the data in src and store the result in dst,
+ * An optional key may be used with keyed hash algorithms.
+ * @param[in] src The input data to be transformed.
+ * @param[out] dst Storage for the result.
+ * @param[in] key An encryption key, if encryption was configured. This
+ * parameter will be NULL if there is no key.
+ */
+typedef void (MDB_sum_func)(const MDB_val *src, MDB_val *dst, const MDB_val *key);
+#endif
+
 /** @defgroup	mdb_env	Environment Flags
  *	@{
  */
 	/** mmap at a fixed address (experimental) */
 #define MDB_FIXEDMAP	0x01
+	/** encrypted DB - read-only flag, set by #mdb_env_set_encrypt() */
+#define MDB_ENCRYPT		0x2000U
 	/** no environment directory */
 #define MDB_NOSUBDIR	0x4000
 	/** don't fsync after commit */
@@ -334,6 +370,8 @@ typedef void (MDB_rel_func)(MDB_val *item, void *oldptr, void *newptr, void *rel
 #define MDB_NOMEMINIT	0x1000000
 	/** use the previous snapshot rather than the latest one */
 #define MDB_PREVSNAPSHOT	0x2000000
+	/** don't use a single mmap, remap individual chunks (needs MDB_RPAGE_CACHE) */
+#define MDB_REMAP_CHUNKS	0x4000000
 /** @} */
 
 /**	@defgroup	mdb_dbi_open	Database Flags
@@ -482,8 +520,28 @@ typedef enum MDB_cursor_op {
 #define MDB_BAD_DBI		(-30780)
 	/** Unexpected problem - txn should abort */
 #define MDB_PROBLEM		(-30779)
+	/** Page checksum incorrect */
+#define MDB_BAD_CHECKSUM	(-30778)
+	/** Encryption/decryption failed */
+#define MDB_CRYPTO_FAIL		(-30777)
+	/** Environment encryption mismatch */
+#define MDB_ENV_ENCRYPTION	(-30776)
+	/** Transaction was already prepared */
+#define MDB_TXN_PENDING		(-30775)
+	/** Environment can't rollback the last transaction */
+#define MDB_CANT_ROLLBACK	(-30774)
+	/** Can't drop main DBI while other DBIs are open */
+#define MDB_DBIS_BUSY	(-30773)
+	/** Write was incomplete */
+#define MDB_SHORT_WRITE	(-30772)
+	/** Env is busy, can't use previous snapshot */
+#define MDB_ENV_BUSY	(-30771)
+	/** Env or txn is read-only, can't write */
+#define MDB_IS_READONLY	(-30770)
+	/** Requested map address is unavailable */
+#define MDB_ADDR_BUSY	(-30769)
 	/** The last defined error code */
-#define MDB_LAST_ERRCODE	MDB_PROBLEM
+#define MDB_LAST_ERRCODE	MDB_ADDR_BUSY
 /** @} */
 
 /** @brief Statistics for a database in the environment */
@@ -499,7 +557,7 @@ typedef struct MDB_stat {
 
 /** @brief Information about the environment */
 typedef struct MDB_envinfo {
-	void	*me_mapaddr;			/**< Address of map, if fixed */
+	void	*me_mapaddr;			/**< Address of map */
 	mdb_size_t	me_mapsize;				/**< Size of the data memory map */
 	mdb_size_t	me_last_pgno;			/**< ID of the last used page */
 	mdb_size_t	me_last_txnid;			/**< ID of the last committed transaction */
@@ -745,6 +803,55 @@ int  mdb_env_copy2(MDB_env *env, const char *path, unsigned int flags);
 	 */
 int  mdb_env_copyfd2(MDB_env *env, mdb_filehandle_t fd, unsigned int flags);
 
+	/** @brief Perform incremental dump of an LMDB environment to the
+	 *	specified file descriptor.
+	 *
+	 * This function may be used to make an incremental backup of an
+	 * existing environment.
+	 * @note This call can trigger significant file size growth if run in
+	 * parallel with write transactions, because it employs a read-only
+	 * transaction. See long-lived transactions under @ref caveats_sec.
+	 * @param[in] env An environment handle returned by #mdb_env_create(). It
+	 * must have already been opened successfully.
+	 * @param[in] fd The filedescriptor to write the copy to. It must
+	 * have already been opened for Write access.
+	 * @param[in] txnid The transaction ID of a previous backup. It must
+	 * be greater than zero.
+	 * @return A non-zero error value on failure and 0 on success.
+	 */
+int  mdb_env_incr_dumpfd(MDB_env *env, mdb_filehandle_t fd, size_t txnid);
+
+	/** @brief Perform incremental dump of an LMDB environment to the
+	 *	specified file.
+	 *
+	 * This function may be used to make an incremental backup of an
+	 * existing environment.
+	 * @note This call can trigger significant file size growth if run in
+	 * parallel with write transactions, because it employs a read-only
+	 * transaction. See long-lived transactions under @ref caveats_sec.
+	 * @param[in] env An environment handle returned by #mdb_env_create(). It
+	 * must have already been opened successfully.
+	 * @param[in] path The name of the file to write the copy to. It must
+	 * not already exist.
+	 * @param[in] txnid The transaction ID of a previous backup. It must
+	 * be greater than zero.
+	 * @return A non-zero error value on failure and 0 on success.
+	 */
+int  mdb_env_incr_dump(MDB_env *env, const char *path, size_t txnid);
+
+	/** @brief Reload an incremental dump of an LMDB environment from the
+	 *	specified file descriptor.
+	 *
+	 * This function may be used to load an incremental backup of an
+	 * existing environment.
+	 * @note No other tasks may access the environment while this runs.
+	 * @param[in] env An environment handle returned by #mdb_env_create(). It
+	 * must have already been opened successfully, using #MDB_WRITEMAP.
+	 * @param[in] fd The filedescriptor to read the backup from.
+	 * @return A non-zero error value on failure and 0 on success.
+	 */
+int  mdb_env_incr_loadfd(MDB_env *env, mdb_filehandle_t fd);
+
 	/** @brief Return statistics about the LMDB environment.
 	 *
 	 * @param[in] env An environment handle returned by #mdb_env_create()
@@ -884,6 +991,16 @@ int  mdb_env_get_fd(MDB_env *env, mdb_filehandle_t *fd);
 	 */
 int  mdb_env_set_mapsize(MDB_env *env, mdb_size_t size);
 
+
+	/** @brief Set the size of DB pages in bytes.
+	 *
+	 * The size defaults to the OS page size. Smaller or larger values may be
+	 * desired depending on the size of keys and values being used. Also, an
+	 * explicit size may need to be set when using filesystems like ZFS which
+	 * don't use the OS page size.
+	 */
+int  mdb_env_set_pagesize(MDB_env *env, int size);
+
 	/** @brief Set the maximum number of threads/reader slots for the environment.
 	 *
 	 * This defines the number of slots in the lock table that is used to track readers in the
@@ -937,7 +1054,7 @@ int  mdb_env_set_maxdbs(MDB_env *env, MDB_dbi dbs);
 
 	/** @brief Get the maximum size of keys and #MDB_DUPSORT data we can write.
 	 *
-	 * Depends on the compile-time constant #MDB_MAXKEYSIZE. Default 511.
+	 * Depends on the page size. Can only be used after #mdb_env_open().
 	 * See @ref MDB_val.
 	 * @param[in] env An environment handle returned by #mdb_env_create()
 	 * @return The maximum size of a key we can write
@@ -976,6 +1093,31 @@ typedef void MDB_assert_func(MDB_env *env, const char *msg);
 	 */
 int  mdb_env_set_assert(MDB_env *env, MDB_assert_func *func);
 
+#if MDB_RPAGE_CACHE
+	/** @brief Set encryption on an environment.
+	 *
+	 * This must be called before #mdb_env_open().
+	 * It implicitly sets #MDB_REMAP_CHUNKS on the env.
+	 * @param[in] env An environment handle returned by #mdb_env_create().
+	 * @param[in] func An #MDB_enc_func function.
+	 * @param[in] key The encryption key.
+	 * @param[in] size The size of authentication data in bytes, if any.
+	 * Set this to zero for unauthenticated encryption mechanisms.
+	 * @return A non-zero error value on failure and 0 on success.
+	 */
+int mdb_env_set_encrypt(MDB_env *env, MDB_enc_func *func, const MDB_val *key, unsigned int size);
+
+	/** @brief Set checksums on an environment.
+	 *
+	 * This must be called before #mdb_env_open().
+	 * @param[in] env An environment handle returned by #mdb_env_create().
+	 * @param[in] func An #MDB_sum_func function.
+	 * @param[in] size The size of computed checksum values, in bytes.
+	 * @return A non-zero error value on failure and 0 on success.
+	 */
+int mdb_env_set_checksum(MDB_env *env, MDB_sum_func *func, unsigned int size);
+#endif
+
 	/** @brief Create a transaction for use with the environment.
 	 *
 	 * The transaction handle may be discarded using #mdb_txn_abort() or #mdb_txn_commit().
@@ -989,6 +1131,10 @@ int  mdb_env_set_assert(MDB_env *env, MDB_assert_func *func);
 	 * as its parent. Transactions may be nested to any level. A parent
 	 * transaction and its cursors may not issue any other operations than
 	 * mdb_txn_commit and mdb_txn_abort while it has active child transactions.
+	 * @note A parent transaction with read-only child transactions must not
+	 * issue any operations while it has active child transactions, not even
+	 * #mdb_txn_commit() nor #mdb_txn_abort(). Child transactions must be
+	 * aborted prior to performing actions with the parent one.
 	 * @param[in] flags Special options for this transaction. This parameter
 	 * must be set to 0 or by bitwise OR'ing together one or more of the
 	 * values described here.
@@ -1033,6 +1179,14 @@ MDB_env *mdb_txn_env(MDB_txn *txn);
 	 */
 mdb_size_t mdb_txn_id(MDB_txn *txn);
 
+	/** @brief Retrieve the transaction's flags
+	 *
+	 * @param[in] txn A transaction handle returned by #mdb_txn_begin()
+	 * @param[out] flags Address where the flags will be returned.
+	 * @return A non-zero error value on failure and 0 on success.
+	 */
+int mdb_txn_flags(MDB_txn *txn, unsigned int *flags);
+
 	/** @brief Commit all the operations of a transaction into the database.
 	 *
 	 * The transaction handle is freed. It and its cursors must not be used
@@ -1051,6 +1205,55 @@ mdb_size_t mdb_txn_id(MDB_txn *txn);
 	 */
 int  mdb_txn_commit(MDB_txn *txn);
 
+	/** @brief Prepare to commit all the operations of a transaction into the database.
+	 *
+	 * This function exists to support two-phase commit protocols.
+	 * All writes in the transaction are persisted to storage, but the final
+	 * metapage update is not performed. All cursors on the transaction will be
+	 * closed. Only #mdb_txn_abort() or #mdb_txn_commit() are valid after this
+	 * call. It is assumed that once the regular data pages are successfully written
+	 * by this call, the metapage update from a subsequent commit cannot fail, but
+	 * hardware-level media failures could still break this assumption.
+	 * @param[in] txn A transaction handle returned by #mdb_txn_begin()
+	 * @return A non-zero error value on failure and 0 on success. Some possible
+	 * errors are:
+	 * <ul>
+	 *	<li>EINVAL - an invalid parameter was specified.
+	 *	<li>ENOSPC - no more disk space.
+	 *	<li>EIO - a low-level I/O error occurred while writing.
+	 *	<li>ENOMEM - out of memory.
+	 *	<li>#MDB_TXN_PENDING - the transaction has already been prepared.
+	 *		It can only be aborted or committed.
+	 * </ul>
+	 */
+int  mdb_txn_prepare(MDB_txn *txn);
+
+	/** @brief Rollback the last committed transaction in the environment.
+	 *
+	 * This function exists to support two-phase commit protocols.
+	 * The metapage update for the last committed transaction will be zeroed,
+	 * so its changes will be ignored. It should only be used when the local
+	 * phase of a multi-phase transaction has fully committed, but some other
+	 * remote phase which successfully prepared has failed to commit.
+	 * This function may not be called twice in a row. No other operations
+	 * may be performed on the environment, by any processes, between the
+	 * preceding #mdb_txn_commit() and this call.
+	 * @param[in] env An environment handle returned by #mdb_env_create().
+	 * @param[in] txnid The ID of the transaction to rollback, obtained from
+	 * #mdb_txn_id() on the previous transaction.
+	 * @return A non-zero error value on failure and 0 on success. Some possible
+	 * errors are:
+	 * <ul>
+	 *	<li>EINVAL - an invalid parameter was specified.
+	 *	<li>ENOSPC - no more disk space.
+	 *	<li>EIO - a low-level I/O error occurred while writing.
+	 *	<li>#MDB_CANT_ROLLBACK - a rollback has already been done, there is
+	 *		no other valid metapage to roll back to, or another transaction
+	 *		has already been committed over the specified txnid.
+	 * </ul>
+	 */
+int  mdb_env_rollback(MDB_env *env, mdb_size_t txnid);
+
 	/** @brief Abandon all the operations of the transaction instead of saving them.
 	 *
 	 * The transaction handle is freed. It and its cursors must not be used
@@ -1061,7 +1264,7 @@ int  mdb_txn_commit(MDB_txn *txn);
 	 */
 void mdb_txn_abort(MDB_txn *txn);
 
-	/** @brief Reset a read-only transaction.
+	/** @brief Reset a non-nested read-only transaction.
 	 *
 	 * Abort the transaction like #mdb_txn_abort(), but keep the transaction
 	 * handle. #mdb_txn_renew() may reuse the handle. This saves allocation
@@ -1080,11 +1283,11 @@ void mdb_txn_abort(MDB_txn *txn);
 	 */
 void mdb_txn_reset(MDB_txn *txn);
 
-	/** @brief Renew a read-only transaction.
+	/** @brief Renew a non-nested read-only transaction.
 	 *
 	 * This acquires a new reader lock for a transaction handle that had been
 	 * released by #mdb_txn_reset(). It must be called before a reset transaction
-	 * may be used again.
+	 * may be used again. Nested read-only transactions cannot be renewed.
 	 * @param[in] txn A transaction handle returned by #mdb_txn_begin()
 	 * @return A non-zero error value on failure and 0 on success. Some possible
 	 * errors are:
@@ -1123,6 +1326,8 @@ int  mdb_txn_renew(MDB_txn *txn);
 	 * To use named databases (with name != NULL), #mdb_env_set_maxdbs()
 	 * must be called before opening the environment.  Database names are
 	 * keys in the unnamed database, and may be read but not written.
+	 * @note Names are C strings and stored with their NUL terminator included.
+	 * In LMDB 0.9 the NUL terminator was omitted.
 	 *
 	 * @param[in] txn A transaction handle returned by #mdb_txn_begin()
 	 * @param[in] name The name of the database to open. If only a single
@@ -1468,6 +1673,13 @@ MDB_txn *mdb_cursor_txn(MDB_cursor *cursor);
 	 */
 MDB_dbi mdb_cursor_dbi(MDB_cursor *cursor);
 
+	/** @brief Check if the cursor is pointing to a named database record.
+	 *
+	 * @param[in] cursor A cursor handle returned by #mdb_cursor_open()
+	 * @return 1 if current record is a named database, 0 otherwise.
+	 */
+int mdb_cursor_is_db(MDB_cursor *cursor);
+
 	/** @brief Retrieve by cursor.
 	 *
 	 * This function retrieves key/data pairs from the database. The address and length
@@ -1639,12 +1851,81 @@ int	mdb_reader_list(MDB_env *env, MDB_msg_func *func, void *ctx);
 int	mdb_reader_check(MDB_env *env, int *dead);
 /**	@} */
 
+/** @defgroup crypto LMDB Encryption Helper API
+ *	@{
+ *	@brief Helpers for setting up encryption
+ */
+
+	/** @brief A function for converting a string into an encryption key.
+	 *
+	 * @param[in] passwd The string to be converted.
+	 * @param[in,out] key The resulting key. The caller must
+	 * provide the space for the key.
+	 * @return 0 on success, non-zero on failure.
+	 */
+typedef int (MDB_str2key_func)(const char *passwd, MDB_val *key);
+
+	/** @brief A structure for dynamically loaded crypto modules.
+	 *
+	 * This is the information that the command line tools expect
+	 * in order to operate on encrypted or checksummed environments.
+	 */
+typedef struct MDB_crypto_funcs {
+	MDB_str2key_func *mcf_str2key;
+	MDB_enc_func *mcf_encfunc;
+	MDB_sum_func *mcf_sumfunc;
+	int mcf_keysize;	/**< The size of an encryption key, in bytes */
+	int mcf_esumsize;	/**< The size of the MAC, for authenticated encryption */
+	int mcf_sumsize;	/**< The size of the checksum, for plain checksums */
+} MDB_crypto_funcs;
+
+	/** @brief The function that returns the #MDB_crypto_funcs structure.
+	 *
+	 * The command line tools expect this function to be named "MDB_crypto".
+	 * It must be exported by the dynamic module so that the tools can use it.
+	 * @return A pointer to a #MDB_crypto_funcs structure.
+	 */
+typedef MDB_crypto_funcs *(MDB_crypto_hooks)(void);
+
+	/** @brief Load a dynamically loadable module.
+	 *
+	 * @param[in] file The pathname of the module to load.
+	 * @param[in] symname The name of a symbol to resolve in the module.
+	 * @param[out] mcf_ptr The crypto hooks returned from the module.
+	 * @param[out] errmsg Messages for any errors from trying to load the module.
+	 * @return The handle to the loadable module that can be unloaded by #mdb_modunload(),
+	 * or NULL if loading failed.
+	 */
+void *mdb_modload(const char *file, const char *symname,
+			MDB_crypto_funcs **mcf_ptr, char **errmsg);
+
+	/** @brief Unload a dynamically loaded module.
+	 *
+	 * All environments that used the functions in the module must be closed
+	 * before unloading the module.
+	 * @param[in] handle The handle returned by #mdb_modload().
+	 */
+void mdb_modunload(void *handle);
+
+	/** @brief Set an environment to use the given crypto functions.
+	 *
+	 * This is just a wrapper around #mdb_env_set_encrypt() to ease use of
+	 * dynamically loaded crypto functions.
+	 * @param[in] env An environment handle returned by #mdb_env_create()
+	 * @param[in] mcf_ptr The crypto hooks retrieved by #mdb_modload().
+	 * @param[in] passphrase The secret used to generate the encryption key for the environment.
+	 */
+void mdb_modsetup(MDB_env *env, MDB_crypto_funcs *mcf_ptr, const char *passphrase);
+
+/**	@} */
+
 #ifdef __cplusplus
 }
 #endif
 /** @page tools LMDB Command Line Tools
 	The following describes the command line tools that are available for LMDB.
 	\li \ref mdb_copy_1
+	\li \ref mdb_drop_1
 	\li \ref mdb_dump_1
 	\li \ref mdb_load_1
 	\li \ref mdb_stat_1

@@ -3,8 +3,8 @@
 /* $OpenLDAP$ */
 /* This work is part of OpenLDAP Software <http://www.openldap.org/>.
  *
- * Copyright 2000-2021 The OpenLDAP Foundation.
- * Portions Copyright 2001-2021 Howard Chu, Symas Corp.
+ * Copyright 2000-2026 The OpenLDAP Foundation.
+ * Portions Copyright 2001-2026 Howard Chu, Symas Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -355,7 +355,38 @@ int mdb_mid2l_append( MDB_ID2L ids, MDB_ID2 *id )
 	return 0;
 }
 
-#ifdef MDB_VL32
+MDB_ID2L mdb_mid2l_alloc(int num)
+{
+	MDB_ID2L ids = malloc((num+2) * sizeof(MDB_ID2));
+	if (ids) {
+		ids->mid = num;
+		ids++;
+		ids->mid = 0;
+	}
+	return ids;
+}
+
+void mdb_mid2l_free(MDB_ID2L ids)
+{
+	if (ids)
+		free(ids-1);
+}
+
+int mdb_mid2l_need( MDB_ID2L *idp, unsigned num )
+{
+	MDB_ID2L ids = *idp;
+	num += ids[0].mid;
+	if (num > ids[-1].mid) {
+		num = (num + num/4 + (256 + 2)) & -256;
+		if (!(ids = realloc(ids-1, num * sizeof(MDB_ID2))))
+			return ENOMEM;
+		ids[0].mid = num - 2;
+		*idp = ids+1;
+	}
+	return 0;
+}
+
+#if MDB_RPAGE_CACHE
 unsigned mdb_mid3l_search( MDB_ID3L ids, MDB_ID id )
 {
 	/*
@@ -415,7 +446,7 @@ int mdb_mid3l_insert( MDB_ID3L ids, MDB_ID3 *id )
 
 	return 0;
 }
-#endif /* MDB_VL32 */
+#endif /* MDB_RPAGE_CACHE */
 
 /** @} */
 /** @} */
