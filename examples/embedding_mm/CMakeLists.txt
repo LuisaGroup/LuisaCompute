@@ -5,15 +5,18 @@ add_library(lc-example-embedding-mm STATIC
     embed/package.cpp
     embed/feature_loader.cpp
     embed/session.cpp
-    embed/executor.cpp
-    embed/kernels/kernels_norm.cpp
-    embed/kernels/kernels_rope.cpp
-    embed/kernels/kernels_mlp.cpp
-    embed/kernels/kernels_attention.cpp
-    embed/kernels/kernels_pool.cpp
-    embed/kernels/kernels_gemm.cpp
-    embed/kernels/kernels_vision.cpp
-    embed/kernels/kernels_audio.cpp
+    embed/ops/ops_gemm.cpp
+    embed/ops/ops_norm.cpp
+    embed/ops/ops_rope.cpp
+    embed/ops/ops_attention.cpp
+    embed/ops/ops_mlp.cpp
+    embed/ops/ops_conv.cpp
+    embed/ops/ops_pool.cpp
+    embed/ops/ops_embed.cpp
+    embed/models/vision_tower.cpp
+    embed/models/audio_tower.cpp
+    embed/models/language_model.cpp
+    embed/models/embedding_gemma2.cpp
 )
 target_link_libraries(lc-example-embedding-mm PUBLIC luisa::compute)
 target_link_libraries(lc-example-embedding-mm PUBLIC luisa-compute-ext-yyjson-interface)

@@ -1,9 +1,42 @@
-// embedding_mm engine -- Mask-aware Mean Pooling, MRL truncation, and L2 normalization implementation.
-#include "embedding_mm/embed/kernels/kernels_pool.h"
+// embedding_mm engine -- Vision 2D Spatial Pooling, Sequence Mean Pooling, and MRL Normalization implementations.
+#include "embedding_mm/embed/ops/ops_pool.h"
 
 #include <luisa/dsl/sugar.h>
 
 namespace luisa::embed_mm {
+
+VisionPoolKernel make_vision_pool_kernel() noexcept {
+    using namespace luisa::compute;
+
+    VisionPoolKernel kernel = [](BufferFloat in_hidden, BufferFloat out_pooled,
+                                 Var<uint> grid_w_soft, Var<uint> grid_h_soft,
+                                 Var<uint> patch_stride_w, Var<uint> H,
+                                 Var<float> scale_factor) noexcept {
+        set_block_size(16u, 16u, 1u);
+        set_name("vision_pool");
+
+        Var d = dispatch_x();
+        Var s = dispatch_y();
+        Var total_soft = dispatch_size().y;
+
+        $if (d < H & s < total_soft) {
+            Var x_prime = s % grid_w_soft;
+            Var y_prime = s / grid_w_soft;
+
+            Var sum = def(0.0f);
+            for (uint32_t dy = 0u; dy < 3u; dy++) {
+                for (uint32_t dx = 0u; dx < 3u; dx++) {
+                    Var patch_x = x_prime * 3u + dx;
+                    Var patch_y = y_prime * 3u + dy;
+                    Var patch_idx = patch_y * patch_stride_w + patch_x;
+                    sum += in_hidden.read(patch_idx * H + d);
+                }
+            }
+            out_pooled.write(s * H + d, sum * scale_factor);
+        };
+    };
+    return kernel;
+}
 
 MeanPoolKernel make_mean_pool_kernel() noexcept {
     using namespace luisa::compute;

@@ -1,5 +1,5 @@
-// embedding_mm engine -- normalization kernel implementations.
-#include "embedding_mm/embed/kernels/kernels_norm.h"
+// embedding_mm engine -- Normalization operator implementations.
+#include "embedding_mm/embed/ops/ops_norm.h"
 
 #include <luisa/dsl/sugar.h>
 
@@ -35,7 +35,6 @@ RMSNormKernel make_rmsnorm_kernel() noexcept {
             return total;
         };
 
-        // Pass 1: compute sum(x^2)
         Var s = def(0.0f);
         Var h = tx;
         $while (h < H) {
@@ -46,7 +45,6 @@ RMSNormKernel make_rmsnorm_kernel() noexcept {
         Var mean_sq = block_sum(s) / Hf;
         Var inv_rms = 1.0f / sqrt(mean_sq + eps);
 
-        // Pass 2: scale and write with gamma
         h = tx;
         $while (h < H) {
             Var v = x.read(base + h);
@@ -88,7 +86,6 @@ RMSNormNoWeightKernel make_rmsnorm_no_weight_kernel() noexcept {
             return total;
         };
 
-        // Pass 1: compute sum(x^2)
         Var s = def(0.0f);
         Var h = tx;
         $while (h < H) {
@@ -99,7 +96,6 @@ RMSNormNoWeightKernel make_rmsnorm_no_weight_kernel() noexcept {
         Var mean_sq = block_sum(s) / Hf;
         Var inv_rms = 1.0f / sqrt(mean_sq + eps);
 
-        // Pass 2: write
         h = tx;
         $while (h < H) {
             Var v = x.read(base + h);

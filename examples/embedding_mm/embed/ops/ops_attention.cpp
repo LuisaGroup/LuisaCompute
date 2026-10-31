@@ -1,5 +1,5 @@
-// embedding_mm engine -- Grouped-Query Attention (GQA) implementations.
-#include "embedding_mm/embed/kernels/kernels_attention.h"
+// embedding_mm engine -- Attention operator implementations.
+#include "embedding_mm/embed/ops/ops_attention.h"
 
 #include <luisa/dsl/sugar.h>
 
@@ -42,7 +42,6 @@ GQAScoresKernel make_gqa_scores_kernel() noexcept {
 
             Var score = dot * scale;
 
-            // Apply padding & sliding window masks
             Var is_masked = def(mask.read(b * S + ki) == 0.0f);
             $if (is_sliding != 0u) {
                 Var diff = def(0u);
@@ -109,7 +108,6 @@ SoftmaxRowKernel make_softmax_row_kernel() noexcept {
             return total;
         };
 
-        // Pass 1: max(logits)
         Var m = def(-1e30f);
         Var i = tx;
         $while (i < S) {
@@ -118,7 +116,6 @@ SoftmaxRowKernel make_softmax_row_kernel() noexcept {
         };
         Var row_max = block_max(m);
 
-        // Pass 2: sum(exp(logits - row_max))
         Var s = def(0.0f);
         i = tx;
         $while (i < S) {
@@ -130,7 +127,6 @@ SoftmaxRowKernel make_softmax_row_kernel() noexcept {
         Var row_sum = block_sum(s);
         Var inv_sum = 1.0f / max(row_sum, 1e-12f);
 
-        // Pass 3: normalize
         i = tx;
         $while (i < S) {
             logits.write(base + i, logits.read(base + i) * inv_sum);
@@ -174,6 +170,129 @@ GQAPvKernel make_gqa_pv_kernel() noexcept {
 
             Var out_offset = (b * S + qi) * (num_q_heads * head_dim) + h_q * head_dim + d;
             out.write(out_offset, sum);
+        };
+    };
+    return kernel;
+}
+
+AudioScaleQKKernel make_audio_scale_qk_kernel() noexcept {
+    using namespace luisa::compute;
+
+    AudioScaleQKKernel kernel = [](BufferFloat q,
+                                   BufferFloat k,
+                                   BufferFloat per_dim_scale,
+                                   Var<uint> T,
+                                   Var<uint> num_heads,
+                                   Var<uint> head_dim,
+                                   Var<float> q_scale,
+                                   Var<float> k_scale) noexcept {
+        set_block_size(128u, 1u, 1u);
+        set_name("audio_scale_qk");
+
+        Var ch = dispatch_x();
+        Var t = dispatch_y();
+
+        Var H = num_heads * head_dim;
+        $if (ch < H & t < T) {
+            Var d = ch % head_dim;
+            Var pds = per_dim_scale.read(d);
+            Var sp = def(0.0f);
+            $if (pds > 20.0f) {
+                sp = pds;
+            }
+            $else {
+                sp = log(1.0f + exp(pds));
+            };
+
+            Var q_idx = t * H + ch;
+            q.write(q_idx, q.read(q_idx) * (q_scale * sp));
+            k.write(q_idx, k.read(q_idx) * k_scale);
+        };
+    };
+    return kernel;
+}
+
+AudioChunkedAttentionKernel make_audio_chunked_attention_kernel() noexcept {
+    using namespace luisa::compute;
+
+    AudioChunkedAttentionKernel kernel = [](BufferFloat q,
+                                            BufferFloat k,
+                                            BufferFloat v,
+                                            BufferFloat rel_k,
+                                            BufferFloat out_attn,
+                                            Var<uint> T,
+                                            Var<uint> num_heads,
+                                            Var<uint> head_dim,
+                                            Var<uint> chunk_size,
+                                            Var<float> softcap) noexcept {
+        set_block_size(8u, 16u, 1u);
+        set_name("audio_chunked_attention");
+
+        Var h = dispatch_x();
+        Var t_q = dispatch_y();
+
+        $if (h < num_heads & t_q < T) {
+            Var H = num_heads * head_dim;
+            Var b = t_q / chunk_size;
+            Var i = t_q % chunk_size;
+
+            Local<float> logits{24u};
+            Local<uint> valids{24u};
+
+            Var max_logit = def(-1e9f);
+
+            $for (j, 24u) {
+                Var t_k = b.cast<int>() * chunk_size.cast<int>() - 12 + j.cast<int>();
+                Var is_valid = (t_k >= 0) & (t_k < T.cast<int>()) & (j <= 12u + i) & (j > i);
+                valids[j] = is_valid.cast<uint>();
+
+                Var logit = def(-1e9f);
+                $if (is_valid) {
+                    Var ac = def(0.0f);
+                    $for (d, head_dim) {
+                        Var q_val = q.read(t_q * H + h * head_dim + d);
+                        Var k_val = k.read(t_k.cast<uint>() * H + h * head_dim + d);
+                        ac += q_val * k_val;
+                    };
+
+                    Var p = j - i;
+                    Var bd = def(0.0f);
+                    $if (p < 13u) {
+                        $for (d, head_dim) {
+                            Var q_val = q.read(t_q * H + h * head_dim + d);
+                            Var rk_val = rel_k.read(p * H + h * head_dim + d);
+                            bd += q_val * rk_val;
+                        };
+                    };
+
+                    logit = tanh((ac + bd) * (1.0f / softcap)) * softcap;
+                    $if (logit > max_logit) {
+                        max_logit = logit;
+                    };
+                };
+                logits[j] = logit;
+            };
+
+            Var sum_exp = def(0.0f);
+            $for (j, 24u) {
+                $if (valids[j] != 0u) {
+                    sum_exp += exp(logits[j] - max_logit);
+                };
+            };
+            Var inv_sum_exp = 1.0f / max(sum_exp, 1e-12f);
+
+            $for (d, head_dim) {
+                Var acc = def(0.0f);
+                $for (j, 24u) {
+                    $if (valids[j] != 0u) {
+                        Var t_k = (b.cast<int>() * chunk_size.cast<int>() - 12 + j.cast<int>()).cast<uint>();
+                        Var weight = exp(logits[j] - max_logit) * inv_sum_exp;
+                        Var v_val = v.read(t_k * H + h * head_dim + d);
+                        acc += weight * v_val;
+                    };
+                };
+                out_attn.write(t_q * H + h * head_dim + d, acc);
+            };
         };
     };
     return kernel;

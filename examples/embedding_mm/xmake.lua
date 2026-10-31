@@ -5,7 +5,7 @@ target("lc-example-embedding-mm")
     _config_project({
         project_kind = "static"
     })
-    add_files("embed/*.cpp", "embed/kernels/*.cpp")
+    add_files("embed/*.cpp", "embed/ops/*.cpp", "embed/models/*.cpp")
     add_includedirs("$(projectdir)/examples", "$(projectdir)/src/ext/yyjson/src")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "lc-yyjson")
     add_includedirs("$(projectdir)/src/ext/yyjson/src", {
