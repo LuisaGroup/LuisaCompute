@@ -157,7 +157,7 @@ end)
           add_files("ml/attention_kernels.cpp", "ml/attention_host_data.cpp", "ml/attention_cpu_reference.cpp", "ml/attention_runner.cpp", "ml/paged_attention.cpp")
       end)
       includes("embedding")
-      includes("mm_embedding")
+      includes("embedding_mm")
     includes("compute/tokenize")
     includes("compute/compact")
 

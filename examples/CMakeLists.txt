@@ -218,7 +218,7 @@ luisa_compute_add_example(example_software_lbvh_test
   # bge-m3 embedding engine (static lib + packer; tests in src/tests, demo at M6)
   add_subdirectory(embedding)
   # google embeddinggemma-2 multimodal embedding engine
-  add_subdirectory(mm_embedding)
+  add_subdirectory(embedding_mm)
 luisa_compute_add_example(example_multi_head_attention
         ml/multi_head_attention.cpp
         ml/attention_kernels.cpp
