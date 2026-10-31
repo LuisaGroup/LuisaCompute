@@ -249,6 +249,7 @@ public:
     compute::Buffer<float> _v_pooled_norm;
 
     size_t _max_patches{0};
+    size_t _max_vision_soft{0};
 
     // Audio workspace activations
     compute::Buffer<float> _audio_sub0;
@@ -311,14 +312,48 @@ public:
         _proj_out = _device.create_buffer<float>(_max_batch * 768);
     }
 
-    void ensure_vision_workspace(uint32_t max_patches) {
-        if (max_patches <= _max_patches) {
+    void dispatch_rmsnorm(compute::CommandList &cmd_list,
+                          const compute::Buffer<float> &x,
+                          const compute::Buffer<float> &y,
+                          const compute::Buffer<float> &gamma,
+                          uint32_t num_rows, uint32_t H, float eps) {
+        constexpr uint32_t kMaxRows = 32768u;
+        for (uint32_t r = 0u; r < num_rows; r += kMaxRows) {
+            uint32_t chunk = std::min(kMaxRows, num_rows - r);
+            cmd_list << shader_rmsnorm(x.view(r * H, chunk * H),
+                                       y.view(r * H, chunk * H),
+                                       gamma, H, eps)
+                            .dispatch(chunk * kNormBlock);
+        }
+    }
+
+    void dispatch_rmsnorm_no_weight(compute::CommandList &cmd_list,
+                                    const compute::Buffer<float> &x,
+                                    const compute::Buffer<float> &y,
+                                    uint32_t num_rows, uint32_t H, float eps) {
+        constexpr uint32_t kMaxRows = 32768u;
+        for (uint32_t r = 0u; r < num_rows; r += kMaxRows) {
+            uint32_t chunk = std::min(kMaxRows, num_rows - r);
+            cmd_list << shader_rmsnorm_no_weight(x.view(r * H, chunk * H),
+                                                 y.view(r * H, chunk * H),
+                                                 H, eps)
+                            .dispatch(chunk * kNormBlock);
+        }
+    }
+
+    void ensure_vision_workspace(uint32_t max_patches, uint32_t num_soft_tokens = 280u) {
+        size_t needed_soft = std::max<size_t>({280u, num_soft_tokens, (max_patches + 8u) / 9u});
+        if (max_patches <= _max_patches && needed_soft <= _max_vision_soft) {
             return;
         }
-        _max_patches = max_patches;
+        _max_patches = std::max<size_t>(_max_patches, max_patches);
+        _max_vision_soft = std::max<size_t>(_max_vision_soft, needed_soft);
         constexpr size_t H = 768;
         constexpr size_t I = 3072;
         constexpr size_t num_heads = 12;
+
+        constexpr size_t kMaxVisionAttnRows = 30240u;
+        size_t attn_rows = std::min<size_t>(num_heads * _max_patches, kMaxVisionAttnRows);
 
         _v_scaled_pixels = _device.create_buffer<float>(_max_patches * H);
         _v_h0 = _device.create_buffer<float>(_max_patches * H);
@@ -326,7 +361,7 @@ public:
         _v_q_buf = _device.create_buffer<float>(_max_patches * H);
         _v_k_buf = _device.create_buffer<float>(_max_patches * H);
         _v_v_buf = _device.create_buffer<float>(_max_patches * H);
-        _v_logits = _device.create_buffer<float>(num_heads * _max_patches * _max_patches);
+        _v_logits = _device.create_buffer<float>(attn_rows * _max_patches);
         _v_attn_ctx = _device.create_buffer<float>(_max_patches * H);
         _v_attn_out = _device.create_buffer<float>(_max_patches * H);
         _v_attn_norm = _device.create_buffer<float>(_max_patches * H);
@@ -337,8 +372,8 @@ public:
         _v_mlp_out = _device.create_buffer<float>(_max_patches * H);
         _v_mlp_norm = _device.create_buffer<float>(_max_patches * H);
         _v_mask = _device.create_buffer<float>(_max_patches);
-        _v_pooled = _device.create_buffer<float>(280 * H);
-        _v_pooled_norm = _device.create_buffer<float>(280 * H);
+        _v_pooled = _device.create_buffer<float>(_max_vision_soft * H);
+        _v_pooled_norm = _device.create_buffer<float>(_max_vision_soft * H);
     }
 
     void record_vision_encode(
@@ -357,7 +392,7 @@ public:
             LUISA_ERROR("record_vision_encode: Vision encoder is not loaded (Selective Encoder Loading)");
         }
 
-        ensure_vision_workspace(max_patches);
+        ensure_vision_workspace(max_patches, num_soft_tokens);
 
         constexpr uint32_t H = 768u;
         constexpr uint32_t I = 3072u;
@@ -404,12 +439,9 @@ public:
                             .dispatch(gemm_dispatch_size(max_patches, H));
 
             // (c) Q, K, V RMSNorm
-            cmd_list << shader_rmsnorm(_v_q_buf, _v_q_buf, layer.q_norm, head_dim, 1e-6f)
-                            .dispatch(max_patches * num_heads * kNormBlock);
-            cmd_list << shader_rmsnorm(_v_k_buf, _v_k_buf, layer.k_norm, head_dim, 1e-6f)
-                            .dispatch(max_patches * num_heads * kNormBlock);
-            cmd_list << shader_rmsnorm_no_weight(_v_v_buf, _v_v_buf, head_dim, 1e-6f)
-                            .dispatch(max_patches * num_heads * kNormBlock);
+            dispatch_rmsnorm(cmd_list, _v_q_buf, _v_q_buf, layer.q_norm, max_patches * num_heads, head_dim, 1e-6f);
+            dispatch_rmsnorm(cmd_list, _v_k_buf, _v_k_buf, layer.k_norm, max_patches * num_heads, head_dim, 1e-6f);
+            dispatch_rmsnorm_no_weight(cmd_list, _v_v_buf, _v_v_buf, max_patches * num_heads, head_dim, 1e-6f);
 
             // (d) 2D Axial RoPE on Q and K
             cmd_list << shader_axial_rope(_v_q_buf, _v_q_buf, position_ids, num_heads, head_dim, rope_theta)
@@ -417,18 +449,23 @@ public:
             cmd_list << shader_axial_rope(_v_k_buf, _v_k_buf, position_ids, num_heads, head_dim, rope_theta)
                             .dispatch(16u, max_patches * num_heads);
 
-            // (e) Attention Scores + Softmax + PV
-            cmd_list << shader_gqa_scores(_v_q_buf, _v_k_buf, _v_mask, _v_logits,
-                                          max_patches, num_heads, num_heads, head_dim,
-                                          1.0f, 0u, 0u, -1e9f)
-                            .dispatch(max_patches, num_heads * max_patches);
+            // (e) Attention Scores + Softmax + PV (chunked across query-head rows to stay within 65535 grid & 32-bit buffer limits)
+            constexpr uint32_t kMaxVisionAttnRows = 30240u;
+            uint32_t total_attn_rows = num_heads * max_patches;
+            for (uint32_t row_off = 0u; row_off < total_attn_rows; row_off += kMaxVisionAttnRows) {
+                uint32_t chunk_rows = std::min(kMaxVisionAttnRows, total_attn_rows - row_off);
+                cmd_list << shader_gqa_scores(_v_q_buf, _v_k_buf, _v_mask, _v_logits,
+                                              max_patches, num_heads, num_heads, head_dim,
+                                              1.0f, 0u, 0u, -1e9f, row_off)
+                                .dispatch(max_patches, chunk_rows);
 
-            cmd_list << shader_softmax_row(_v_logits, max_patches)
-                            .dispatch(kAttentionBlock, num_heads * max_patches);
+                cmd_list << shader_softmax_row(_v_logits, max_patches)
+                                .dispatch(kAttentionBlock, chunk_rows);
 
-            cmd_list << shader_gqa_pv(_v_v_buf, _v_logits, _v_attn_ctx,
-                                      max_patches, num_heads, num_heads, head_dim)
-                            .dispatch(head_dim, num_heads * max_patches);
+                cmd_list << shader_gqa_pv(_v_v_buf, _v_logits, _v_attn_ctx,
+                                          max_patches, num_heads, num_heads, head_dim, row_off)
+                                .dispatch(head_dim, chunk_rows);
+            }
 
             // (f) Out projection GEMM
             cmd_list << shader_gemm(_v_attn_ctx, layer.out_proj, _v_attn_out, max_patches, H, H)
@@ -438,7 +475,7 @@ public:
             cmd_list << shader_rmsnorm(_v_attn_out, _v_attn_norm, layer.post_attn_norm, H, 1e-6f)
                             .dispatch(max_patches * kNormBlock);
             cmd_list << shader_residual_add(_v_h0, _v_attn_norm, _v_h0, max_patches * H)
-                            .dispatch(max_patches * H);
+                            .dispatch(std::min(max_patches * H, 32768u * kMLPBlock));
 
             // (h) Pre-FFN RMSNorm
             cmd_list << shader_rmsnorm(_v_h0, _v_ffn_norm, layer.pre_ffn_norm, H, 1e-6f)
@@ -452,7 +489,7 @@ public:
 
             // (j) GeGLU activation
             cmd_list << shader_geglu(_v_gate_buf, _v_up_buf, _v_mlp_act, max_patches * I)
-                            .dispatch(max_patches * I);
+                            .dispatch(std::min(max_patches * I, 32768u * kMLPBlock));
 
             // (k) Down projection GEMM
             cmd_list << shader_gemm(_v_mlp_act, layer.down_proj, _v_mlp_out, max_patches, H, I)
@@ -462,7 +499,7 @@ public:
             cmd_list << shader_rmsnorm(_v_mlp_out, _v_mlp_norm, layer.post_ffn_norm, H, 1e-6f)
                             .dispatch(max_patches * kNormBlock);
             cmd_list << shader_residual_add(_v_h0, _v_mlp_norm, _v_h0, max_patches * H)
-                            .dispatch(max_patches * H);
+                            .dispatch(std::min(max_patches * H, 32768u * kMLPBlock));
 
             if (l == 0u && debug_acts && debug_acts->layer0_out) {
                 cmd_list << debug_acts->layer0_out.copy_from(_v_h0.view(0, max_patches * H));
@@ -760,9 +797,15 @@ public:
 
         // 1.6. Scatter multimodal audio soft tokens if provided
         if (mm_inputs.audio_embeds.size() > 0 && mm_inputs.num_audio_tokens > 0) {
-            cmd_list << shader_scatter_soft_tokens(
-                _h0, mm_inputs.audio_embeds, mm_inputs.audio_start_idx, mm_inputs.num_audio_tokens, H)
-                .dispatch(H, mm_inputs.num_audio_tokens);
+            if (mm_inputs.audio_token_indices.size() > 0) {
+                cmd_list << shader_scatter_indexed_tokens(
+                    _h0, mm_inputs.audio_embeds, mm_inputs.audio_token_indices, mm_inputs.num_audio_tokens, H)
+                    .dispatch(H, mm_inputs.num_audio_tokens);
+            } else {
+                cmd_list << shader_scatter_soft_tokens(
+                    _h0, mm_inputs.audio_embeds, mm_inputs.audio_start_idx, mm_inputs.num_audio_tokens, H)
+                    .dispatch(H, mm_inputs.num_audio_tokens);
+            }
         }
 
         // 2. Global PLE projection & normalization
@@ -806,12 +849,9 @@ public:
                             .dispatch(gemm_dispatch_size(total_tokens, kv_dim));
 
             // (c) Q, K, V RMSNorm
-            cmd_list << shader_rmsnorm(_q_buf, _q_buf, layer.q_norm, head_dim, 1e-6f)
-                            .dispatch(total_tokens * num_q_heads * kNormBlock);
-            cmd_list << shader_rmsnorm(_k_buf, _k_buf, layer.k_norm, head_dim, 1e-6f)
-                            .dispatch(total_tokens * num_kv_heads * kNormBlock);
-            cmd_list << shader_rmsnorm_no_weight(_v_buf, _v_buf, head_dim, 1e-6f)
-                            .dispatch(total_tokens * num_kv_heads * kNormBlock);
+            dispatch_rmsnorm(cmd_list, _q_buf, _q_buf, layer.q_norm, total_tokens * num_q_heads, head_dim, 1e-6f);
+            dispatch_rmsnorm(cmd_list, _k_buf, _k_buf, layer.k_norm, total_tokens * num_kv_heads, head_dim, 1e-6f);
+            dispatch_rmsnorm_no_weight(cmd_list, _v_buf, _v_buf, total_tokens * num_kv_heads, head_dim, 1e-6f);
 
             // (d) RoPE on Q and K
             uint32_t q_half_pairs = total_tokens * num_q_heads * (head_dim / 2u);
@@ -824,14 +864,14 @@ public:
             // (e) GQA Attention Scores + Softmax + PV
             cmd_list << shader_gqa_scores(_q_buf, _k_buf, attention_mask, _logits,
                                           S, num_q_heads, num_kv_heads, head_dim,
-                                          qk_scale, is_sliding, sliding_window, -1e9f)
+                                          qk_scale, is_sliding, sliding_window, -1e9f, 0u)
                             .dispatch(S, B * num_q_heads * S);
 
             cmd_list << shader_softmax_row(_logits, S)
                             .dispatch(kAttentionBlock, B * num_q_heads * S);
 
             cmd_list << shader_gqa_pv(_v_buf, _logits, _attn_ctx,
-                                      S, num_q_heads, num_kv_heads, head_dim)
+                                      S, num_q_heads, num_kv_heads, head_dim, 0u)
                             .dispatch(head_dim, B * num_q_heads * S);
 
             // (f) Attention Out GEMM
@@ -842,7 +882,7 @@ public:
             cmd_list << shader_rmsnorm(_attn_out, _attn_norm, layer.post_attn_norm, H, 1e-6f)
                             .dispatch(total_tokens * kNormBlock);
             cmd_list << shader_residual_add(_h0, _attn_norm, _h0, total_tokens * H)
-                            .dispatch(total_tokens * H);
+                            .dispatch(std::min(total_tokens * H, 32768u * kMLPBlock));
 
             // (h) Pre-FFN RMSNorm
             cmd_list << shader_rmsnorm(_h0, _ffn_norm, layer.pre_ffn_norm, H, 1e-6f)
@@ -856,7 +896,7 @@ public:
 
             // (j) GeGLU activation
             cmd_list << shader_geglu(_gate_buf, _up_buf, _mlp_act, total_tokens * I)
-                            .dispatch(total_tokens * I);
+                            .dispatch(std::min(total_tokens * I, 32768u * kMLPBlock));
 
             // (k) MLP Down projection
             cmd_list << shader_gemm(_mlp_act, layer.down_proj, _mlp_out, total_tokens, H, I)
@@ -866,13 +906,13 @@ public:
             cmd_list << shader_rmsnorm(_mlp_out, _mlp_norm, layer.post_ffn_norm, H, 1e-6f)
                             .dispatch(total_tokens * kNormBlock);
             cmd_list << shader_residual_add(_h0, _mlp_norm, _h0, total_tokens * H)
-                            .dispatch(total_tokens * H);
+                            .dispatch(std::min(total_tokens * H, 32768u * kMLPBlock));
 
             // (m) PLE Block
             cmd_list << shader_gemm(_h0, layer.ple_gate, _ple_gate_buf, total_tokens, H, H)
                             .dispatch(gemm_dispatch_size(total_tokens, H));
             cmd_list << shader_ple_gate(_ple_gate_buf, _ple_all, _ple_gated, i, total_tokens, H)
-                            .dispatch(total_tokens * H);
+                            .dispatch(std::min(total_tokens * H, 32768u * kMLPBlock));
             cmd_list << shader_gemm(_ple_gated, layer.ple_proj, _ple_out, total_tokens, H, H)
                             .dispatch(gemm_dispatch_size(total_tokens, H));
             cmd_list << shader_rmsnorm(_ple_out, _ple_norm_buf, layer.ple_norm, H, 1e-6f)
@@ -880,7 +920,7 @@ public:
 
             // (n) Residual Add + Layer Scalar
             cmd_list << shader_scale_add(_h0, _ple_norm_buf, _h0, layer.layer_scalar, total_tokens * H)
-                            .dispatch(total_tokens * H);
+                            .dispatch(std::min(total_tokens * H, 32768u * kMLPBlock));
         }
 
         // 4. Final RMSNorm

@@ -31,11 +31,12 @@ struct MultimodalInputs {
     compute::BufferView<float> vision_embeds{};          // [num_vision_tokens, 512]
     uint32_t vision_start_idx{2u};                       // Token index where soft tokens are inserted (contiguous)
     uint32_t num_vision_tokens{256u};                    // Number of soft tokens
-    compute::BufferView<uint32_t> vision_token_indices{};// Sequence token indices for non-contiguous video placement
+    compute::BufferView<uint32_t> vision_token_indices{};// Sequence token indices for non-contiguous placement
 
-    compute::BufferView<float> audio_embeds{}; // [num_audio_tokens, 512]
-    uint32_t audio_start_idx{2u};              // Token index where soft tokens are inserted
-    uint32_t num_audio_tokens{77u};            // Number of audio soft tokens
+    compute::BufferView<float> audio_embeds{};          // [num_audio_tokens, 512]
+    uint32_t audio_start_idx{2u};                       // Token index where soft tokens are inserted
+    uint32_t num_audio_tokens{77u};                     // Number of audio soft tokens
+    compute::BufferView<uint32_t> audio_token_indices{};// Sequence token indices for non-contiguous placement
 };
 
 class Executor {

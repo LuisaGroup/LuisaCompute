@@ -2,14 +2,13 @@
 #include "embedding_mm/embed/session.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <luisa/core/logging.h>
 #include <luisa/runtime/command_list.h>
 
-#include "embedding_mm/embed/audio_processor.h"
 #include "embedding_mm/embed/executor.h"
-#include "embedding_mm/embed/image_processor.h"
-#include "embedding_mm/embed/video_processor.h"
+#include "embedding_mm/embed/feature_loader.h"
 #include "embedding_mm/embed/package.h"
 #include "embedding_mm/embed/tokenizer.h"
 
@@ -22,6 +21,31 @@ const Tokenizer &Session::tokenizer() const noexcept { return *_tokenizer; }
 const Package &Session::package() const noexcept { return *_package; }
 bool Session::has_vision() const noexcept { return _has_vision; }
 bool Session::has_audio() const noexcept { return _has_audio; }
+
+float Session::similarity(const Embedding &a, const Embedding &b) noexcept {
+    size_t dim = std::min(a.values.size(), b.values.size());
+    float dot = 0.0f;
+    for (size_t i = 0; i < dim; i++) {
+        dot += a.values[i] * b.values[i];
+    }
+    return dot;
+}
+
+luisa::vector<luisa::vector<float>> Session::similarity_matrix(
+    luisa::span<const Embedding> queries,
+    luisa::span<const Embedding> candidates) noexcept {
+    luisa::vector<luisa::vector<float>> mat;
+    mat.reserve(queries.size());
+    for (const auto &q : queries) {
+        luisa::vector<float> row;
+        row.reserve(candidates.size());
+        for (const auto &c : candidates) {
+            row.push_back(similarity(q, c));
+        }
+        mat.push_back(std::move(row));
+    }
+    return mat;
+}
 
 luisa::unique_ptr<Session> Session::create(
     compute::Device &device,
@@ -57,6 +81,38 @@ Embedding Session::encode(luisa::string_view text, const EncodeOptions &opt) {
     return std::move(batch_res[0]);
 }
 
+Embedding Session::encode_query(luisa::string_view query, const EncodeOptions &opt) {
+    luisa::string formatted = "task: search result | query: ";
+    formatted.append(query);
+    return encode(formatted, opt);
+}
+
+Embedding Session::encode_document(luisa::string_view document, luisa::string_view title, const EncodeOptions &opt) {
+    luisa::string formatted = "title: ";
+    formatted.append(title);
+    formatted.append(" | text: ");
+    formatted.append(document);
+    return encode(formatted, opt);
+}
+
+luisa::vector<Embedding> Session::encode_documents(
+    luisa::span<const luisa::string_view> documents,
+    const EncodeOptions &opt) {
+    luisa::vector<luisa::string> formatted_strs;
+    formatted_strs.reserve(documents.size());
+    luisa::vector<luisa::string_view> views;
+    views.reserve(documents.size());
+    for (auto doc : documents) {
+        luisa::string s = "title: none | text: ";
+        s.append(doc);
+        formatted_strs.push_back(std::move(s));
+    }
+    for (const auto &s : formatted_strs) {
+        views.push_back(s);
+    }
+    return encode_batch(views, opt);
+}
+
 luisa::vector<Embedding> Session::encode_batch(
     luisa::span<const luisa::string_view> texts,
     const EncodeOptions &opt) {
@@ -68,7 +124,6 @@ luisa::vector<Embedding> Session::encode_batch(
     uint32_t B = static_cast<uint32_t>(texts.size());
     auto tokenized = _tokenizer->encode_batch(texts, opt.max_length);
 
-    // Determine common padded sequence length S
     uint32_t max_seq = 0;
     for (const auto &toks : tokenized) {
         max_seq = std::max(max_seq, static_cast<uint32_t>(toks.size()));
@@ -80,7 +135,6 @@ luisa::vector<Embedding> Session::encode_batch(
     uint32_t target_dim = opt.target_dimension;
     size_t total_tokens = static_cast<size_t>(B) * S;
 
-    // Prepare host input_ids and attention_mask using persistent host vectors
     _host_ids.assign(total_tokens, _tokenizer->pad_id());
     _host_mask.assign(total_tokens, 0.0f);
 
@@ -93,7 +147,6 @@ luisa::vector<Embedding> Session::encode_batch(
         }
     }
 
-    // Reuse persistent device buffers
     if (!_dev_ids || _dev_ids.size() < total_tokens) {
         _dev_ids = _device->create_buffer<uint32_t>(total_tokens);
         _dev_mask = _device->create_buffer<float>(total_tokens);
@@ -131,100 +184,18 @@ luisa::vector<Embedding> Session::encode_batch(
     return result;
 }
 
-Embedding Session::encode_image(const std::filesystem::path &image_path, const EncodeOptions &opt) {
+Embedding Session::encode_image(const std::filesystem::path &image_feat_path, const EncodeOptions &opt) {
     if (!_has_vision) {
         LUISA_ERROR("Session::encode_image: Vision Encoder is disabled (Selective Encoder Loading)");
     }
-    auto processed = ImageProcessor::process_file(image_path);
-
-    // Image tokens: [<bos>, <|image>, <|image|> * num_soft_tokens, <image|>, <eos>]
-    // <bos> = 2, <|image> = 255999, <|image|> = 258880, <image|> = 258882, <eos> = 1
-    uint32_t num_soft = processed.num_soft_tokens;
-    uint32_t S = 1u + 1u + num_soft + 1u + 1u; // 260
-    uint32_t target_dim = opt.target_dimension;
-
-    _host_ids.clear();
-    _host_ids.reserve(S);
-    _host_ids.push_back(_tokenizer->bos_id()); // 2
-    _host_ids.push_back(255999u);              // <|image> (BOI)
-    for (uint32_t i = 0; i < num_soft; i++) {
-        _host_ids.push_back(258880u);          // <|image|> (soft token placeholder)
-    }
-    _host_ids.push_back(258882u);              // <image|> (EOI)
-    _host_ids.push_back(_tokenizer->eos_id()); // 1
-
-    _host_mask.assign(S, 1.0f);
-
-    // Prepare persistent vision buffers
-    size_t pixel_elems = processed.max_patches * 768u;
-    size_t pos_elems = processed.max_patches * 2u;
-    size_t soft_elems = num_soft * 512u;
-
-    if (!_dev_pixel_values || _dev_pixel_values.size() < pixel_elems) {
-        _dev_pixel_values = _device->create_buffer<float>(pixel_elems);
-        _dev_position_ids = _device->create_buffer<int32_t>(pos_elems);
-        _dev_soft_tokens = _device->create_buffer<float>(280u * 512u);
-    }
-    if (!_dev_ids || _dev_ids.size() < S) {
-        _dev_ids = _device->create_buffer<uint32_t>(S);
-        _dev_mask = _device->create_buffer<float>(S);
-    }
-    if (!_dev_out || _dev_out.size() < target_dim) {
-        _dev_out = _device->create_buffer<float>(target_dim);
-    }
-    _host_out.resize(target_dim);
-
-    auto dev_px_view = _dev_pixel_values.view(0, pixel_elems);
-    auto dev_pos_view = _dev_position_ids.view(0, pos_elems);
-    auto dev_soft_view = _dev_soft_tokens.view(0, soft_elems);
-    auto dev_ids_view = _dev_ids.view(0, S);
-    auto dev_mask_view = _dev_mask.view(0, S);
-    auto dev_out_view = _dev_out.view(0, target_dim);
-
-    compute::CommandList cmd_list;
-    // 1. Upload image pixels and position coordinates
-    cmd_list << dev_px_view.copy_from(processed.pixel_values.data())
-             << dev_pos_view.copy_from(processed.position_ids.data());
-
-    // 2. Vision forward pass -> soft tokens [256, 512]
-    _executor->record_vision_encode(
-        cmd_list, dev_px_view, dev_pos_view, dev_soft_view,
-        1u, processed.num_patches_w, processed.num_patches_h, processed.max_patches, num_soft);
-
-    // 3. Upload prompt token IDs and attention mask
-    cmd_list << dev_ids_view.copy_from(_host_ids.data())
-             << dev_mask_view.copy_from(_host_mask.data());
-
-    // 4. Text core forward pass with soft tokens scattered at index 2
-    MultimodalInputs mm_inputs{};
-    mm_inputs.vision_embeds = dev_soft_view;
-    mm_inputs.vision_start_idx = 2u;
-    mm_inputs.num_vision_tokens = num_soft;
-
-    _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
-
-    // 5. Read back embedding
-    cmd_list << dev_out_view.copy_to(_host_out.data());
-
-    _stream << cmd_list.commit() << compute::synchronize();
-
-    Embedding emb{};
-    emb.dimension = target_dim;
-    emb.values = std::move(_host_out);
-    return emb;
+    auto processed = FeatureLoader::load_image(image_feat_path);
+    return encode_image(processed, opt);
 }
 
-Embedding Session::encode_image_memory(
-    const uint8_t *rgb_bytes,
-    int width,
-    int height,
-    int channels,
-    const EncodeOptions &opt) {
-
+Embedding Session::encode_image(const ImageFeatures &processed, const EncodeOptions &opt) {
     if (!_has_vision) {
-        LUISA_ERROR("Session::encode_image_memory: Vision Encoder is disabled (Selective Encoder Loading)");
+        LUISA_ERROR("Session::encode_image: Vision Encoder is disabled (Selective Encoder Loading)");
     }
-    auto processed = ImageProcessor::process_memory(rgb_bytes, width, height, channels);
 
     uint32_t num_soft = processed.num_soft_tokens;
     uint32_t S = 1u + 1u + num_soft + 1u + 1u;
@@ -232,24 +203,26 @@ Embedding Session::encode_image_memory(
 
     _host_ids.clear();
     _host_ids.reserve(S);
-    _host_ids.push_back(_tokenizer->bos_id());
-    _host_ids.push_back(255999u);
+    _host_ids.push_back(_tokenizer->bos_id());// 2
+    _host_ids.push_back(255999u);             // <|image> (BOI)
     for (uint32_t i = 0; i < num_soft; i++) {
-        _host_ids.push_back(258880u);
+        _host_ids.push_back(258880u);// <|image|> (soft token placeholder)
     }
-    _host_ids.push_back(258882u);
-    _host_ids.push_back(_tokenizer->eos_id());
+    _host_ids.push_back(258882u);             // <image|> (EOI)
+    _host_ids.push_back(_tokenizer->eos_id());// 1
 
     _host_mask.assign(S, 1.0f);
 
-    size_t pixel_elems = processed.max_patches * 768u;
-    size_t pos_elems = processed.max_patches * 2u;
-    size_t soft_elems = num_soft * 512u;
+    size_t pixel_elems = static_cast<size_t>(processed.max_patches) * 768u;
+    size_t pos_elems = static_cast<size_t>(processed.max_patches) * 2u;
+    size_t soft_elems = static_cast<size_t>(num_soft) * 512u;
 
     if (!_dev_pixel_values || _dev_pixel_values.size() < pixel_elems) {
         _dev_pixel_values = _device->create_buffer<float>(pixel_elems);
         _dev_position_ids = _device->create_buffer<int32_t>(pos_elems);
-        _dev_soft_tokens = _device->create_buffer<float>(280u * 512u);
+    }
+    if (!_dev_soft_tokens || _dev_soft_tokens.size() < soft_elems) {
+        _dev_soft_tokens = _device->create_buffer<float>(std::max<size_t>(soft_elems, 280u * 512u));
     }
     if (!_dev_ids || _dev_ids.size() < S) {
         _dev_ids = _device->create_buffer<uint32_t>(S);
@@ -295,28 +268,257 @@ Embedding Session::encode_image_memory(
 }
 
 Embedding Session::encode_multimodal(
-    const std::filesystem::path &media_path,
+    const std::filesystem::path &bundle_path,
+    const EncodeOptions &opt) {
+
+    auto modality = FeatureLoader::peek_modality(bundle_path);
+    if (modality == ModalityKind::Multimodal) {
+        auto bundle = FeatureLoader::load_multimodal(bundle_path);
+        return encode_multimodal(bundle, opt);
+    }
+    if (modality == ModalityKind::Audio) {
+        return encode_audio(bundle_path, opt);
+    }
+    if (modality == ModalityKind::Video) {
+        return encode_video(bundle_path, opt);
+    }
+    return encode_image(bundle_path, opt);
+}
+
+Embedding Session::encode_multimodal(
+    const MultimodalFeatures &bundle,
+    const EncodeOptions &opt) {
+
+    if ((!bundle.images.empty() || !bundle.videos.empty()) && !_has_vision) {
+        LUISA_ERROR("Session::encode_multimodal: Vision Encoder is disabled (Selective Encoder Loading)");
+    }
+    if (!bundle.audios.empty() && !_has_audio) {
+        LUISA_ERROR("Session::encode_multimodal: Audio Encoder is disabled (Selective Encoder Loading)");
+    }
+
+    uint32_t S = static_cast<uint32_t>(bundle.input_ids.size());
+    uint32_t target_dim = opt.target_dimension;
+
+    _host_ids.assign(bundle.input_ids.begin(), bundle.input_ids.end());
+    _host_mask.assign(S, 1.0f);
+
+    // Collect placeholder indices for images (258880), videos (258884), and audio (258881)
+    luisa::vector<uint32_t> img_slots;
+    luisa::vector<uint32_t> vid_slots;
+    _host_audio_token_indices.clear();
+    for (uint32_t i = 0; i < S; i++) {
+        uint32_t id = _host_ids[i];
+        if (id == 258880u) {
+            img_slots.push_back(i);
+            _host_ids[i] = 0u;// replace with pad_id for embedding lookup
+        } else if (id == 258884u) {
+            vid_slots.push_back(i);
+            _host_ids[i] = 0u;
+        } else if (id == 258881u) {
+            _host_audio_token_indices.push_back(i);
+            _host_ids[i] = 0u;
+        }
+    }
+
+    // Order in _dev_video_soft_tokens: all images first, then all video frames
+    _host_video_token_indices.clear();
+    _host_video_token_indices.reserve(img_slots.size() + vid_slots.size());
+    _host_video_token_indices.insert(_host_video_token_indices.end(), img_slots.begin(), img_slots.end());
+    _host_video_token_indices.insert(_host_video_token_indices.end(), vid_slots.begin(), vid_slots.end());
+
+    uint32_t total_vision_soft = static_cast<uint32_t>(_host_video_token_indices.size());
+    uint32_t total_audio_soft = static_cast<uint32_t>(_host_audio_token_indices.size());
+
+    // Compute required workspace sizes for all images + video frames
+    size_t total_px_elems = 0;
+    size_t total_pos_elems = 0;
+    for (const auto &img : bundle.images) {
+        total_px_elems += static_cast<size_t>(img.max_patches) * 768u;
+        total_pos_elems += static_cast<size_t>(img.max_patches) * 2u;
+    }
+    for (const auto &vid : bundle.videos) {
+        total_px_elems += static_cast<size_t>(vid.num_frames) * vid.max_patches * 768u;
+        total_pos_elems += static_cast<size_t>(vid.num_frames) * vid.max_patches * 2u;
+    }
+
+    if (total_vision_soft > 0u) {
+        if (!_dev_video_pixel_values || _dev_video_pixel_values.size() < total_px_elems) {
+            _dev_video_pixel_values = _device->create_buffer<float>(total_px_elems);
+        }
+        if (!_dev_video_position_ids || _dev_video_position_ids.size() < total_pos_elems) {
+            _dev_video_position_ids = _device->create_buffer<int32_t>(total_pos_elems);
+        }
+        if (!_dev_video_soft_tokens || _dev_video_soft_tokens.size() < total_vision_soft * 512u) {
+            _dev_video_soft_tokens = _device->create_buffer<float>(total_vision_soft * 512u);
+        }
+        if (!_dev_video_token_indices || _dev_video_token_indices.size() < total_vision_soft) {
+            _dev_video_token_indices = _device->create_buffer<uint32_t>(total_vision_soft);
+        }
+    }
+
+    size_t total_aud_feat_elems = 0;
+    for (const auto &aud : bundle.audios) {
+        total_aud_feat_elems += aud.features.size();
+    }
+    if (total_audio_soft > 0u) {
+        if (!_dev_audio_features || _dev_audio_features.size() < total_aud_feat_elems) {
+            _dev_audio_features = _device->create_buffer<float>(total_aud_feat_elems);
+        }
+        if (!_dev_audio_soft_tokens || _dev_audio_soft_tokens.size() < total_audio_soft * 512u) {
+            _dev_audio_soft_tokens = _device->create_buffer<float>(total_audio_soft * 512u);
+        }
+        if (!_dev_audio_token_indices || _dev_audio_token_indices.size() < total_audio_soft) {
+            _dev_audio_token_indices = _device->create_buffer<uint32_t>(total_audio_soft);
+        }
+    }
+
+    if (!_dev_ids || _dev_ids.size() < S) {
+        _dev_ids = _device->create_buffer<uint32_t>(S);
+        _dev_mask = _device->create_buffer<float>(S);
+    }
+    if (!_dev_out || _dev_out.size() < target_dim) {
+        _dev_out = _device->create_buffer<float>(target_dim);
+    }
+    _host_out.resize(target_dim);
+
+    compute::CommandList cmd_list;
+
+    // 1. Encode all images and video frames into _dev_video_soft_tokens
+    size_t px_offset = 0;
+    size_t pos_offset = 0;
+    size_t v_soft_offset = 0;
+
+    for (const auto &img : bundle.images) {
+        size_t px_n = static_cast<size_t>(img.max_patches) * 768u;
+        size_t pos_n = static_cast<size_t>(img.max_patches) * 2u;
+        size_t soft_n = static_cast<size_t>(img.num_soft_tokens) * 512u;
+
+        auto px_view = _dev_video_pixel_values.view(px_offset, px_n);
+        auto pos_view = _dev_video_position_ids.view(pos_offset, pos_n);
+        auto soft_view = _dev_video_soft_tokens.view(v_soft_offset, soft_n);
+
+        cmd_list << px_view.copy_from(img.pixel_values.data())
+                 << pos_view.copy_from(img.position_ids.data());
+
+        _executor->record_vision_encode(
+            cmd_list, px_view, pos_view, soft_view,
+            1u, img.num_patches_w, img.num_patches_h, img.max_patches, img.num_soft_tokens);
+
+        px_offset += px_n;
+        pos_offset += pos_n;
+        v_soft_offset += soft_n;
+    }
+
+    for (const auto &vid : bundle.videos) {
+        size_t px_n = static_cast<size_t>(vid.max_patches) * 768u;
+        size_t pos_n = static_cast<size_t>(vid.max_patches) * 2u;
+        size_t soft_n = static_cast<size_t>(vid.num_soft_tokens_per_frame) * 512u;
+
+        for (uint32_t f = 0; f < vid.num_frames; f++) {
+            auto px_view = _dev_video_pixel_values.view(px_offset, px_n);
+            auto pos_view = _dev_video_position_ids.view(pos_offset, pos_n);
+            auto soft_view = _dev_video_soft_tokens.view(v_soft_offset, soft_n);
+
+            cmd_list << px_view.copy_from(vid.frames[f].pixel_values.data())
+                     << pos_view.copy_from(vid.frames[f].position_ids.data());
+
+            _executor->record_vision_encode(
+                cmd_list, px_view, pos_view, soft_view,
+                1u, vid.num_patches_w, vid.num_patches_h, vid.max_patches, vid.num_soft_tokens_per_frame);
+
+            px_offset += px_n;
+            pos_offset += pos_n;
+            v_soft_offset += soft_n;
+        }
+    }
+
+    // 2. Encode all audio clips into _dev_audio_soft_tokens
+    size_t aud_feat_offset = 0;
+    size_t a_soft_offset = 0;
+    for (const auto &aud : bundle.audios) {
+        size_t feat_n = aud.features.size();
+        size_t soft_n = static_cast<size_t>(aud.num_soft_tokens) * 512u;
+
+        auto feat_view = _dev_audio_features.view(aud_feat_offset, feat_n);
+        auto soft_view = _dev_audio_soft_tokens.view(a_soft_offset, soft_n);
+
+        cmd_list << feat_view.copy_from(aud.features.data());
+        _executor->record_audio_encode(
+            cmd_list, feat_view, soft_view,
+            aud.num_frames, aud.num_features, aud.num_soft_tokens);
+
+        aud_feat_offset += feat_n;
+        a_soft_offset += soft_n;
+    }
+
+    // 3. Upload sequence token IDs, mask, and scatter indices
+    auto dev_ids_view = _dev_ids.view(0, S);
+    auto dev_mask_view = _dev_mask.view(0, S);
+    auto dev_out_view = _dev_out.view(0, target_dim);
+
+    cmd_list << dev_ids_view.copy_from(_host_ids.data())
+             << dev_mask_view.copy_from(_host_mask.data());
+
+    MultimodalInputs mm_inputs{};
+    if (total_vision_soft > 0u) {
+        auto v_idx_view = _dev_video_token_indices.view(0, total_vision_soft);
+        cmd_list << v_idx_view.copy_from(_host_video_token_indices.data());
+        mm_inputs.vision_embeds = _dev_video_soft_tokens.view(0, total_vision_soft * 512u);
+        mm_inputs.num_vision_tokens = total_vision_soft;
+        mm_inputs.vision_token_indices = v_idx_view;
+    }
+    if (total_audio_soft > 0u) {
+        auto a_idx_view = _dev_audio_token_indices.view(0, total_audio_soft);
+        cmd_list << a_idx_view.copy_from(_host_audio_token_indices.data());
+        mm_inputs.audio_embeds = _dev_audio_soft_tokens.view(0, total_audio_soft * 512u);
+        mm_inputs.num_audio_tokens = total_audio_soft;
+        mm_inputs.audio_token_indices = a_idx_view;
+    }
+
+    _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
+    cmd_list << dev_out_view.copy_to(_host_out.data());
+
+    _stream << cmd_list.commit() << compute::synchronize();
+
+    Embedding emb{};
+    emb.dimension = target_dim;
+    emb.values = std::move(_host_out);
+    return emb;
+}
+
+Embedding Session::encode_multimodal(
+    const std::filesystem::path &media_feat_path,
+    luisa::string_view prompt_text,
+    const EncodeOptions &opt) {
+
+    auto modality = FeatureLoader::peek_modality(media_feat_path);
+    if (modality == ModalityKind::Multimodal) {
+        auto bundle = FeatureLoader::load_multimodal(media_feat_path);
+        return encode_multimodal(bundle, opt);
+    }
+    if (modality == ModalityKind::Audio) {
+        return encode_multimodal_audio(media_feat_path, prompt_text, opt);
+    }
+    if (modality == ModalityKind::Video) {
+        return encode_multimodal_video(media_feat_path, prompt_text, opt);
+    }
+    auto img_feats = FeatureLoader::load_image(media_feat_path);
+    return encode_multimodal_image(img_feats, prompt_text, opt);
+}
+
+Embedding Session::encode_multimodal_image(
+    const ImageFeatures &processed,
     luisa::string_view prompt_text,
     const EncodeOptions &opt) {
 
     if (!_has_vision) {
-        LUISA_ERROR("Session::encode_multimodal: Vision Encoder is disabled (Selective Encoder Loading)");
+        LUISA_ERROR("Session::encode_multimodal_image: Vision Encoder is disabled (Selective Encoder Loading)");
     }
 
-    std::string prompt_str(prompt_text.data(), prompt_text.size());
-    auto ext = media_path.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-    // If media_path is a video container or prompt contains <|video|>
-    if (ext == ".mp4" || ext == ".m4v" || ext == ".mov" || ext == ".wmv" || ext == ".avi" || ext == ".webm" ||
-        prompt_str.find("<|video|>") != std::string::npos) {
-        return encode_multimodal_video(media_path, prompt_text, {}, opt);
-    }
-
-    auto processed = ImageProcessor::process_file(media_path);
     uint32_t num_soft = processed.num_soft_tokens;
     uint32_t vision_start_idx = 2u;
 
+    std::string prompt_str(prompt_text.data(), prompt_text.size());
     _host_ids.clear();
     size_t img_token_pos = prompt_str.find("<|image|>");
     if (img_token_pos != std::string::npos) {
@@ -333,11 +535,11 @@ Embedding Session::encode_multimodal(
             }
         }
         vision_start_idx = static_cast<uint32_t>(_host_ids.size() + 1u);
-        _host_ids.push_back(255999u); // <|image>
+        _host_ids.push_back(255999u);// <|image>
         for (uint32_t i = 0; i < num_soft; i++) {
-            _host_ids.push_back(258880u); // <|image|>
+            _host_ids.push_back(258880u);// <|image|>
         }
-        _host_ids.push_back(258882u); // <image|>
+        _host_ids.push_back(258882u);// <image|>
         size_t suf_start = (!suffix_ids.empty() && suffix_ids.front() == _tokenizer->bos_id()) ? 1u : 0u;
         for (size_t i = suf_start; i < suffix_ids.size(); i++) {
             if (suffix_ids[i] != _tokenizer->eos_id()) {
@@ -347,15 +549,13 @@ Embedding Session::encode_multimodal(
         _host_ids.push_back(_tokenizer->eos_id());
     } else {
         auto text_toks = _tokenizer->encode(prompt_text, opt.max_length);
-        // Image prefix: [<bos>, <|image>, <|image|> * num_soft, <image|>]
-        _host_ids.push_back(_tokenizer->bos_id()); // 2
-        _host_ids.push_back(255999u);              // <|image>
+        _host_ids.push_back(_tokenizer->bos_id());// 2
+        _host_ids.push_back(255999u);             // <|image>
         for (uint32_t i = 0; i < num_soft; i++) {
-            _host_ids.push_back(258880u);          // <|image|>
+            _host_ids.push_back(258880u);// <|image|>
         }
-        _host_ids.push_back(258882u);              // <image|>
+        _host_ids.push_back(258882u);// <image|>
 
-        // Append text tokens (skip leading <bos> from text_toks if present)
         size_t text_start = (!text_toks.empty() && text_toks.front() == _tokenizer->bos_id()) ? 1u : 0u;
         for (size_t i = text_start; i < text_toks.size(); i++) {
             _host_ids.push_back(text_toks[i]);
@@ -366,14 +566,16 @@ Embedding Session::encode_multimodal(
     uint32_t target_dim = opt.target_dimension;
     _host_mask.assign(S, 1.0f);
 
-    size_t pixel_elems = processed.max_patches * 768u;
-    size_t pos_elems = processed.max_patches * 2u;
-    size_t soft_elems = num_soft * 512u;
+    size_t pixel_elems = static_cast<size_t>(processed.max_patches) * 768u;
+    size_t pos_elems = static_cast<size_t>(processed.max_patches) * 2u;
+    size_t soft_elems = static_cast<size_t>(num_soft) * 512u;
 
     if (!_dev_pixel_values || _dev_pixel_values.size() < pixel_elems) {
         _dev_pixel_values = _device->create_buffer<float>(pixel_elems);
         _dev_position_ids = _device->create_buffer<int32_t>(pos_elems);
-        _dev_soft_tokens = _device->create_buffer<float>(280u * 512u);
+    }
+    if (!_dev_soft_tokens || _dev_soft_tokens.size() < soft_elems) {
+        _dev_soft_tokens = _device->create_buffer<float>(std::max<size_t>(soft_elems, 280u * 512u));
     }
     if (!_dev_ids || _dev_ids.size() < S) {
         _dev_ids = _device->create_buffer<uint32_t>(S);
@@ -418,122 +620,40 @@ Embedding Session::encode_multimodal(
     return emb;
 }
 
-Embedding Session::encode_multimodal(
-    luisa::span<const std::filesystem::path> frame_paths,
-    luisa::string_view prompt_text,
-    const VideoConfig &cfg,
+Embedding Session::encode_audio(
+    const std::filesystem::path &audio_feat_path,
     const EncodeOptions &opt) {
-    return encode_multimodal_video(frame_paths, prompt_text, cfg, opt);
-}
-
-Embedding Session::encode_multimodal(
-    const std::filesystem::path &media_path,
-    luisa::string_view prompt_text,
-    const VideoConfig &cfg,
-    const EncodeOptions &opt) {
-    return encode_multimodal_video(media_path, prompt_text, cfg, opt);
+    if (!_has_audio) {
+        LUISA_ERROR("Session::encode_audio: Audio Encoder is disabled (Selective Encoder Loading)");
+    }
+    auto processed = FeatureLoader::load_audio(audio_feat_path);
+    return encode_audio(processed, opt);
 }
 
 Embedding Session::encode_audio(
-    const std::filesystem::path &audio_path,
+    const AudioFeatures &processed,
     const EncodeOptions &opt) {
 
     if (!_has_audio) {
         LUISA_ERROR("Session::encode_audio: Audio Encoder is disabled (Selective Encoder Loading)");
     }
-    auto processed = AudioProcessor::process_file(audio_path, _package.get());
 
     uint32_t num_soft = processed.num_soft_tokens;
     _host_ids.clear();
-    _host_ids.push_back(_tokenizer->bos_id()); // 2 (<bos>)
-    _host_ids.push_back(256000u);              // <|audio>
+    _host_ids.push_back(_tokenizer->bos_id());// 2 (<bos>)
+    _host_ids.push_back(256000u);             // <|audio>
     for (uint32_t i = 0; i < num_soft; i++) {
-        _host_ids.push_back(258881u);          // <|audio|>
+        _host_ids.push_back(258881u);// <|audio|>
     }
-    _host_ids.push_back(258883u);              // <audio|>
-    _host_ids.push_back(1u);                   // <eos>
+    _host_ids.push_back(258883u);// <audio|>
+    _host_ids.push_back(1u);     // <eos>
 
     uint32_t S = static_cast<uint32_t>(_host_ids.size());
     uint32_t target_dim = opt.target_dimension;
     _host_mask.assign(S, 1.0f);
 
     size_t feat_elems = processed.features.size();
-    size_t soft_elems = num_soft * 512u;
-
-    if (!_dev_audio_features || _dev_audio_features.size() < feat_elems) {
-        _dev_audio_features = _device->create_buffer<float>(feat_elems);
-    }
-    if (!_dev_audio_soft_tokens || _dev_audio_soft_tokens.size() < soft_elems) {
-        _dev_audio_soft_tokens = _device->create_buffer<float>(soft_elems);
-    }
-    if (!_dev_ids || _dev_ids.size() < S) {
-        _dev_ids = _device->create_buffer<uint32_t>(S);
-        _dev_mask = _device->create_buffer<float>(S);
-    }
-    if (!_dev_out || _dev_out.size() < target_dim) {
-        _dev_out = _device->create_buffer<float>(target_dim);
-    }
-    _host_out.resize(target_dim);
-
-    auto dev_feat_view = _dev_audio_features.view(0, feat_elems);
-    auto dev_soft_view = _dev_audio_soft_tokens.view(0, soft_elems);
-    auto dev_ids_view = _dev_ids.view(0, S);
-    auto dev_mask_view = _dev_mask.view(0, S);
-    auto dev_out_view = _dev_out.view(0, target_dim);
-
-    compute::CommandList cmd_list;
-    cmd_list << dev_feat_view.copy_from(processed.features.data());
-
-    _executor->record_audio_encode(
-        cmd_list, dev_feat_view, dev_soft_view,
-        processed.num_frames, processed.num_features, num_soft);
-
-    cmd_list << dev_ids_view.copy_from(_host_ids.data())
-             << dev_mask_view.copy_from(_host_mask.data());
-
-    MultimodalInputs mm_inputs{};
-    mm_inputs.audio_embeds = dev_soft_view;
-    mm_inputs.audio_start_idx = 2u;
-    mm_inputs.num_audio_tokens = num_soft;
-
-    _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
-    cmd_list << dev_out_view.copy_to(_host_out.data());
-
-    _stream << cmd_list.commit() << compute::synchronize();
-
-    Embedding emb{};
-    emb.dimension = target_dim;
-    emb.values = std::move(_host_out);
-    return emb;
-}
-
-Embedding Session::encode_audio_memory(
-    const float *samples,
-    size_t count,
-    int sample_rate,
-    const EncodeOptions &opt) {
-
-    if (!_has_audio) {
-        LUISA_ERROR("Session::encode_audio_memory: Audio Encoder is disabled (Selective Encoder Loading)");
-    }
-    auto processed = AudioProcessor::process_memory(samples, count, static_cast<uint32_t>(sample_rate), _package.get());
-
-    uint32_t num_soft = processed.num_soft_tokens;
-    _host_ids.clear();
-    _host_ids.push_back(_tokenizer->bos_id()); // 2 (<bos>)
-    _host_ids.push_back(256000u);              // <|audio>
-    for (uint32_t i = 0; i < num_soft; i++) {
-        _host_ids.push_back(258881u);          // <|audio|>
-    }
-    _host_ids.push_back(258883u);              // <audio|>
-    _host_ids.push_back(1u);                   // <eos>
-
-    uint32_t S = static_cast<uint32_t>(_host_ids.size());
-    uint32_t target_dim = opt.target_dimension;
-    _host_mask.assign(S, 1.0f);
-
-    size_t feat_elems = processed.features.size();
-    size_t soft_elems = num_soft * 512u;
+    size_t soft_elems = static_cast<size_t>(num_soft) * 512u;
 
     if (!_dev_audio_features || _dev_audio_features.size() < feat_elems) {
         _dev_audio_features = _device->create_buffer<float>(feat_elems);
@@ -583,14 +703,24 @@ Embedding Session::encode_audio_memory(
 }
 
 Embedding Session::encode_multimodal_audio(
-    const std::filesystem::path &audio_path,
+    const std::filesystem::path &audio_feat_path,
+    luisa::string_view prompt_text,
+    const EncodeOptions &opt) {
+    if (!_has_audio) {
+        LUISA_ERROR("Session::encode_multimodal_audio: Audio Encoder is disabled (Selective Encoder Loading)");
+    }
+    auto processed = FeatureLoader::load_audio(audio_feat_path);
+    return encode_multimodal_audio(processed, prompt_text, opt);
+}
+
+Embedding Session::encode_multimodal_audio(
+    const AudioFeatures &processed,
     luisa::string_view prompt_text,
     const EncodeOptions &opt) {
 
     if (!_has_audio) {
         LUISA_ERROR("Session::encode_multimodal_audio: Audio Encoder is disabled (Selective Encoder Loading)");
     }
-    auto processed = AudioProcessor::process_file(audio_path, _package.get());
     uint32_t num_soft = processed.num_soft_tokens;
 
     uint32_t audio_start_idx = 2u;
@@ -610,36 +740,36 @@ Embedding Session::encode_multimodal_audio(
         for (size_t i = 0; i < pref_end; i++) {
             _host_ids.push_back(prefix_toks[i]);
         }
-        _host_ids.push_back(256000u); // <|audio>
+        _host_ids.push_back(256000u);// <|audio>
         audio_start_idx = static_cast<uint32_t>(_host_ids.size());
         for (uint32_t i = 0; i < num_soft; i++) {
-            _host_ids.push_back(258881u); // <|audio|>
+            _host_ids.push_back(258881u);// <|audio|>
         }
-        _host_ids.push_back(258883u); // <audio|>
+        _host_ids.push_back(258883u);// <audio|>
 
         size_t suf_start = (!suffix_toks.empty() && suffix_toks.front() == _tokenizer->bos_id()) ? 1u : 0u;
         for (size_t i = suf_start; i < suffix_toks.size(); i++) {
             _host_ids.push_back(suffix_toks[i]);
         }
         if (_host_ids.empty() || _host_ids.back() != _tokenizer->eos_id()) {
-            _host_ids.push_back(_tokenizer->eos_id()); // <eos>
+            _host_ids.push_back(_tokenizer->eos_id());// <eos>
         }
     } else {
         auto text_toks = _tokenizer->encode(prompt_text, opt.max_length);
-        _host_ids.push_back(_tokenizer->bos_id()); // 2 (<bos>)
-        _host_ids.push_back(256000u);              // <|audio>
+        _host_ids.push_back(_tokenizer->bos_id());// 2 (<bos>)
+        _host_ids.push_back(256000u);             // <|audio>
         audio_start_idx = static_cast<uint32_t>(_host_ids.size());
         for (uint32_t i = 0; i < num_soft; i++) {
-            _host_ids.push_back(258881u);          // <|audio|>
+            _host_ids.push_back(258881u);// <|audio|>
         }
-        _host_ids.push_back(258883u);              // <audio|>
+        _host_ids.push_back(258883u);// <audio|>
 
         size_t text_start = (!text_toks.empty() && text_toks.front() == _tokenizer->bos_id()) ? 1u : 0u;
         for (size_t i = text_start; i < text_toks.size(); i++) {
             _host_ids.push_back(text_toks[i]);
         }
         if (_host_ids.empty() || _host_ids.back() != 1u) {
-            _host_ids.push_back(1u); // <eos>
+            _host_ids.push_back(1u);// <eos>
         }
     }
 
@@ -648,7 +778,7 @@ Embedding Session::encode_multimodal_audio(
     _host_mask.assign(S, 1.0f);
 
     size_t feat_elems = processed.features.size();
-    size_t soft_elems = num_soft * 512u;
+    size_t soft_elems = static_cast<size_t>(num_soft) * 512u;
 
     if (!_dev_audio_features || _dev_audio_features.size() < feat_elems) {
         _dev_audio_features = _device->create_buffer<float>(feat_elems);
@@ -700,7 +830,6 @@ Embedding Session::encode_multimodal_audio(
 namespace {
 
 Embedding encode_video_internal(
-    Session &session,
     compute::Device *device,
     compute::Stream &stream,
     Executor *executor,
@@ -716,7 +845,7 @@ Embedding encode_video_internal(
     luisa::vector<uint32_t> &host_ids,
     luisa::vector<float> &host_mask,
     luisa::vector<float> &host_out,
-    const ProcessedVideo &video,
+    const VideoFeatures &video,
     luisa::string_view prompt_text,
     const EncodeOptions &opt) {
 
@@ -728,78 +857,90 @@ Embedding encode_video_internal(
     host_video_token_indices.clear();
     host_video_token_indices.reserve(total_soft);
 
-    std::string prompt_str(prompt_text.data(), prompt_text.size());
-    size_t video_token_pos = prompt_str.find("<|video|>");
-
-    if (video_token_pos != std::string::npos) {
-        std::string text_before = prompt_str.substr(0, video_token_pos);
-        std::string text_after = prompt_str.substr(video_token_pos + 9u);
-        auto prefix_ids = tokenizer->encode(text_before);
-        auto suffix_ids = tokenizer->encode(text_after);
-
-        host_ids.push_back(tokenizer->bos_id());
-        size_t pre_start = (!prefix_ids.empty() && prefix_ids.front() == tokenizer->bos_id()) ? 1u : 0u;
-        for (size_t i = pre_start; i < prefix_ids.size(); i++) {
-            if (prefix_ids[i] != tokenizer->eos_id()) {
-                host_ids.push_back(prefix_ids[i]);
+    if (prompt_text.empty() && !video.input_ids.empty()) {
+        // Use pre-tokenized sequence from AutoProcessor (supports add_timestamps=True)
+        host_ids.assign(video.input_ids.begin(), video.input_ids.end());
+        for (uint32_t i = 0; i < host_ids.size(); i++) {
+            if (host_ids[i] == 258884u) {
+                host_video_token_indices.push_back(i);
+                host_ids[i] = 0u;
             }
         }
-        for (uint32_t f = 0u; f < num_frames; f++) {
-            host_ids.push_back(255999u); // <|image>
-            for (uint32_t k = 0u; k < num_soft_per_frame; k++) {
-                host_ids.push_back(258884u); // <|video|>
-                host_video_token_indices.push_back(static_cast<uint32_t>(host_ids.size() - 1u));
-            }
-            host_ids.push_back(258882u); // <image|>
-        }
-        size_t suf_start = (!suffix_ids.empty() && suffix_ids.front() == tokenizer->bos_id()) ? 1u : 0u;
-        for (size_t i = suf_start; i < suffix_ids.size(); i++) {
-            if (suffix_ids[i] != tokenizer->eos_id()) {
-                host_ids.push_back(suffix_ids[i]);
-            }
-        }
-        host_ids.push_back(tokenizer->eos_id());
-    } else if (!prompt_text.empty()) {
-        host_ids.push_back(tokenizer->bos_id());
-        auto txt_toks = tokenizer->encode(prompt_text, opt.max_length);
-        size_t t_start = (!txt_toks.empty() && txt_toks.front() == tokenizer->bos_id()) ? 1u : 0u;
-        for (size_t i = t_start; i < txt_toks.size(); i++) {
-            if (txt_toks[i] != tokenizer->eos_id()) {
-                host_ids.push_back(txt_toks[i]);
-            }
-        }
-        for (uint32_t f = 0u; f < num_frames; f++) {
-            host_ids.push_back(255999u);
-            for (uint32_t k = 0u; k < num_soft_per_frame; k++) {
-                host_ids.push_back(258884u);
-                host_video_token_indices.push_back(static_cast<uint32_t>(host_ids.size() - 1u));
-            }
-            host_ids.push_back(258882u);
-        }
-        host_ids.push_back(tokenizer->eos_id());
     } else {
-        host_ids.push_back(tokenizer->bos_id());
-        for (uint32_t f = 0u; f < num_frames; f++) {
-            host_ids.push_back(255999u);
-            for (uint32_t k = 0u; k < num_soft_per_frame; k++) {
-                host_ids.push_back(258884u);
-                host_video_token_indices.push_back(static_cast<uint32_t>(host_ids.size() - 1u));
+        std::string prompt_str(prompt_text.data(), prompt_text.size());
+        size_t video_token_pos = prompt_str.find("<|video|>");
+
+        if (video_token_pos != std::string::npos) {
+            std::string text_before = prompt_str.substr(0, video_token_pos);
+            std::string text_after = prompt_str.substr(video_token_pos + 9u);
+            auto prefix_ids = tokenizer->encode(text_before);
+            auto suffix_ids = tokenizer->encode(text_after);
+
+            host_ids.push_back(tokenizer->bos_id());
+            size_t pre_start = (!prefix_ids.empty() && prefix_ids.front() == tokenizer->bos_id()) ? 1u : 0u;
+            for (size_t i = pre_start; i < prefix_ids.size(); i++) {
+                if (prefix_ids[i] != tokenizer->eos_id()) {
+                    host_ids.push_back(prefix_ids[i]);
+                }
             }
-            host_ids.push_back(258882u);
+            for (uint32_t f = 0u; f < num_frames; f++) {
+                host_ids.push_back(255999u);// <|image>
+                for (uint32_t k = 0u; k < num_soft_per_frame; k++) {
+                    host_ids.push_back(0u);// <|video|> replaced by pad_id
+                    host_video_token_indices.push_back(static_cast<uint32_t>(host_ids.size() - 1u));
+                }
+                host_ids.push_back(258882u);// <image|>
+            }
+            size_t suf_start = (!suffix_ids.empty() && suffix_ids.front() == tokenizer->bos_id()) ? 1u : 0u;
+            for (size_t i = suf_start; i < suffix_ids.size(); i++) {
+                if (suffix_ids[i] != tokenizer->eos_id()) {
+                    host_ids.push_back(suffix_ids[i]);
+                }
+            }
+            host_ids.push_back(tokenizer->eos_id());
+        } else if (!prompt_text.empty()) {
+            host_ids.push_back(tokenizer->bos_id());
+            for (uint32_t f = 0u; f < num_frames; f++) {
+                host_ids.push_back(255999u);
+                for (uint32_t k = 0u; k < num_soft_per_frame; k++) {
+                    host_ids.push_back(0u);
+                    host_video_token_indices.push_back(static_cast<uint32_t>(host_ids.size() - 1u));
+                }
+                host_ids.push_back(258882u);
+            }
+            auto txt_toks = tokenizer->encode(prompt_text, opt.max_length);
+            size_t t_start = (!txt_toks.empty() && txt_toks.front() == tokenizer->bos_id()) ? 1u : 0u;
+            for (size_t i = t_start; i < txt_toks.size(); i++) {
+                if (txt_toks[i] != tokenizer->eos_id()) {
+                    host_ids.push_back(txt_toks[i]);
+                }
+            }
+            host_ids.push_back(tokenizer->eos_id());
+        } else {
+            host_ids.push_back(tokenizer->bos_id());
+            for (uint32_t f = 0u; f < num_frames; f++) {
+                host_ids.push_back(255999u);
+                for (uint32_t k = 0u; k < num_soft_per_frame; k++) {
+                    host_ids.push_back(0u);
+                    host_video_token_indices.push_back(static_cast<uint32_t>(host_ids.size() - 1u));
+                }
+                host_ids.push_back(258882u);
+            }
+            host_ids.push_back(tokenizer->eos_id());
         }
-        host_ids.push_back(tokenizer->eos_id());
     }
 
     uint32_t S = static_cast<uint32_t>(host_ids.size());
     uint32_t target_dim = opt.target_dimension;
     host_mask.assign(S, 1.0f);
 
-    size_t frame_px_elems = video.max_patches * 768u;
-    size_t frame_pos_elems = video.max_patches * 2u;
-    size_t total_soft_elems = total_soft * 512u;
+    size_t frame_px_elems = static_cast<size_t>(video.max_patches) * 768u;
+    size_t total_px_elems = static_cast<size_t>(num_frames) * frame_px_elems;
+    size_t frame_pos_elems = static_cast<size_t>(video.max_patches) * 2u;
+    size_t total_soft_elems = static_cast<size_t>(total_soft) * 512u;
 
-    if (!dev_video_pixel_values || dev_video_pixel_values.size() < frame_px_elems) {
-        dev_video_pixel_values = device->create_buffer<float>(frame_px_elems);
+    if (!dev_video_pixel_values || dev_video_pixel_values.size() < total_px_elems) {
+        dev_video_pixel_values = device->create_buffer<float>(total_px_elems);
     }
     if (!dev_video_position_ids || dev_video_position_ids.size() < frame_pos_elems) {
         dev_video_position_ids = device->create_buffer<int32_t>(frame_pos_elems);
@@ -830,7 +971,7 @@ Embedding encode_video_internal(
              << dev_indices_view.copy_from(host_video_token_indices.data());
 
     for (uint32_t f = 0u; f < num_frames; f++) {
-        auto px_view = dev_video_pixel_values.view(0, frame_px_elems);
+        auto px_view = dev_video_pixel_values.view(f * frame_px_elems, frame_px_elems);
         auto soft_view = dev_video_soft_tokens.view(f * num_soft_per_frame * 512u, num_soft_per_frame * 512u);
         cmd_list << px_view.copy_from(video.frames[f].pixel_values.data());
         executor->record_vision_encode(
@@ -860,82 +1001,48 @@ Embedding encode_video_internal(
 }// namespace
 
 Embedding Session::encode_video(
-    const std::filesystem::path &video_path,
-    const VideoConfig &cfg,
+    const std::filesystem::path &video_feat_path,
     const EncodeOptions &opt) {
-
     if (!_has_vision) {
         LUISA_ERROR("Session::encode_video: Vision Encoder is disabled (Selective Encoder Loading)");
     }
-    auto processed = VideoProcessor::process_file(video_path, cfg);
-    return encode_video_internal(
-        *this, _device, _stream, _executor.get(), _tokenizer.get(),
-        _dev_video_pixel_values, _dev_video_position_ids, _dev_video_soft_tokens, _dev_video_token_indices,
-        _host_video_token_indices, _dev_ids, _dev_mask, _dev_out, _host_ids, _host_mask, _host_out,
-        processed, "", opt);
+    auto processed = FeatureLoader::load_video(video_feat_path);
+    return encode_video(processed, opt);
 }
 
 Embedding Session::encode_video(
-    luisa::span<const std::filesystem::path> frame_paths,
-    const VideoConfig &cfg,
+    const VideoFeatures &processed,
     const EncodeOptions &opt) {
-
     if (!_has_vision) {
         LUISA_ERROR("Session::encode_video: Vision Encoder is disabled (Selective Encoder Loading)");
     }
-    auto processed = VideoProcessor::process_frames(frame_paths, cfg);
     return encode_video_internal(
-        *this, _device, _stream, _executor.get(), _tokenizer.get(),
-        _dev_video_pixel_values, _dev_video_position_ids, _dev_video_soft_tokens, _dev_video_token_indices,
-        _host_video_token_indices, _dev_ids, _dev_mask, _dev_out, _host_ids, _host_mask, _host_out,
-        processed, "", opt);
-}
-
-Embedding Session::encode_video_memory(
-    luisa::span<const RawVideoFrame> frames,
-    const VideoConfig &cfg,
-    const EncodeOptions &opt) {
-
-    if (!_has_vision) {
-        LUISA_ERROR("Session::encode_video_memory: Vision Encoder is disabled (Selective Encoder Loading)");
-    }
-    auto processed = VideoProcessor::process_memory(frames, cfg);
-    return encode_video_internal(
-        *this, _device, _stream, _executor.get(), _tokenizer.get(),
+        _device, _stream, _executor.get(), _tokenizer.get(),
         _dev_video_pixel_values, _dev_video_position_ids, _dev_video_soft_tokens, _dev_video_token_indices,
         _host_video_token_indices, _dev_ids, _dev_mask, _dev_out, _host_ids, _host_mask, _host_out,
         processed, "", opt);
 }
 
 Embedding Session::encode_multimodal_video(
-    const std::filesystem::path &video_path,
+    const std::filesystem::path &video_feat_path,
     luisa::string_view prompt_text,
-    const VideoConfig &cfg,
     const EncodeOptions &opt) {
-
     if (!_has_vision) {
         LUISA_ERROR("Session::encode_multimodal_video: Vision Encoder is disabled (Selective Encoder Loading)");
     }
-    auto processed = VideoProcessor::process_file(video_path, cfg);
-    return encode_video_internal(
-        *this, _device, _stream, _executor.get(), _tokenizer.get(),
-        _dev_video_pixel_values, _dev_video_position_ids, _dev_video_soft_tokens, _dev_video_token_indices,
-        _host_video_token_indices, _dev_ids, _dev_mask, _dev_out, _host_ids, _host_mask, _host_out,
-        processed, prompt_text, opt);
+    auto processed = FeatureLoader::load_video(video_feat_path);
+    return encode_multimodal_video(processed, prompt_text, opt);
 }
 
 Embedding Session::encode_multimodal_video(
-    luisa::span<const std::filesystem::path> frame_paths,
+    const VideoFeatures &processed,
     luisa::string_view prompt_text,
-    const VideoConfig &cfg,
     const EncodeOptions &opt) {
-
     if (!_has_vision) {
         LUISA_ERROR("Session::encode_multimodal_video: Vision Encoder is disabled (Selective Encoder Loading)");
     }
-    auto processed = VideoProcessor::process_frames(frame_paths, cfg);
     return encode_video_internal(
-        *this, _device, _stream, _executor.get(), _tokenizer.get(),
+        _device, _stream, _executor.get(), _tokenizer.get(),
         _dev_video_pixel_values, _dev_video_position_ids, _dev_video_soft_tokens, _dev_video_token_indices,
         _host_video_token_indices, _dev_ids, _dev_mask, _dev_out, _host_ids, _host_mask, _host_out,
         processed, prompt_text, opt);

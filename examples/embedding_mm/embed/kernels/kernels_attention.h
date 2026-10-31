@@ -33,7 +33,8 @@ using GQAScoresKernel = compute::Kernel2D<void(
     float /*scale*/,
     uint32_t /*is_sliding*/,
     uint32_t /*sliding_window*/,
-    float /*neg_large*/)>;
+    float /*neg_large*/,
+    uint32_t /*row_offset*/)>;
 
 [[nodiscard]] GQAScoresKernel make_gqa_scores_kernel() noexcept;
 
@@ -56,7 +57,8 @@ using GQAPvKernel = compute::Kernel2D<void(
     uint32_t /*S*/,
     uint32_t /*num_q_heads*/,
     uint32_t /*num_kv_heads*/,
-    uint32_t /*head_dim*/)>;
+    uint32_t /*head_dim*/,
+    uint32_t /*row_offset*/)>;
 
 [[nodiscard]] GQAPvKernel make_gqa_pv_kernel() noexcept;
 

@@ -1,14 +1,18 @@
 #pragma once
 // embedding_mm engine -- public Session API.
 //
-// Composes Tokenizer + Package loader + Device WeightStore + Executor into
-// a clean, unified embedding generation session.
+// Composes Tokenizer + Package loader + FeatureLoader + Executor into
+// a clean, unified multimodal embedding generation session matching
+// Google's SentenceTransformers API experience.
 //
 // Supports:
-// 1. Text embedding (encode / encode_batch)
-// 2. Image embedding (encode_image / encode_image_memory)
-// 3. Multimodal image+text embedding (encode_multimodal)
-// 4. Selective Encoder Loading (enable_vision config)
+// 1. Text embedding (encode / encode_batch / encode_query / encode_document)
+// 2. Image embedding (encode_image from .mmfeat tensor bundle or sidecar)
+// 3. Audio embedding (encode_audio from .mmfeat tensor bundle or sidecar)
+// 4. Video embedding (encode_video from .mmfeat tensor bundle or sidecar)
+// 5. Interleaved Multimodal embedding (encode_multimodal with <|image|>, <|audio|>, <|video|>)
+// 6. Cosine similarity & matrix computation (similarity / similarity_matrix)
+// 7. Selective Encoder Loading (enable_vision / enable_audio config)
 
 #include <cstdint>
 #include <filesystem>
@@ -21,7 +25,7 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
-#include "embedding_mm/embed/video_processor.h"
+#include "embedding_mm/embed/feature_loader.h"
 
 namespace luisa::embed_mm {
 
@@ -62,7 +66,7 @@ public:
     [[nodiscard]] bool has_vision() const noexcept;
     [[nodiscard]] bool has_audio() const noexcept;
 
-    // Text encoding
+    // 1. Text encoding (general / symmetric)
     [[nodiscard]] Embedding encode(
         luisa::string_view text,
         const EncodeOptions &opt = {});
@@ -71,81 +75,92 @@ public:
         luisa::span<const luisa::string_view> texts,
         const EncodeOptions &opt = {});
 
-    // Image encoding
+    // Asymmetric retrieval helpers matching SentenceTransformers (task: search result | query: ... / title: none | text: ...)
+    [[nodiscard]] Embedding encode_query(
+        luisa::string_view query,
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_document(
+        luisa::string_view document,
+        luisa::string_view title = "none",
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] luisa::vector<Embedding> encode_documents(
+        luisa::span<const luisa::string_view> documents,
+        const EncodeOptions &opt = {});
+
+    // 2. Image encoding (from .mmfeat or path with .mmfeat sidecar)
     [[nodiscard]] Embedding encode_image(
-        const std::filesystem::path &image_path,
+        const std::filesystem::path &image_feat_path,
         const EncodeOptions &opt = {});
 
-    [[nodiscard]] Embedding encode_image_memory(
-        const uint8_t *rgb_bytes,
-        int width,
-        int height,
-        int channels = 3,
+    [[nodiscard]] Embedding encode_image(
+        const ImageFeatures &features,
         const EncodeOptions &opt = {});
 
-    // Multimodal encoding (image or video + text)
-    [[nodiscard]] Embedding encode_multimodal(
-        const std::filesystem::path &media_path,
-        luisa::string_view prompt_text,
-        const EncodeOptions &opt = {});
-
-    [[nodiscard]] Embedding encode_multimodal(
-        luisa::span<const std::filesystem::path> frame_paths,
-        luisa::string_view prompt_text,
-        const VideoConfig &cfg = {},
-        const EncodeOptions &opt = {});
-
-    [[nodiscard]] Embedding encode_multimodal(
-        const std::filesystem::path &media_path,
-        luisa::string_view prompt_text,
-        const VideoConfig &cfg,
-        const EncodeOptions &opt = {});
-
-    // Audio encoding
+    // 3. Audio encoding (from .mmfeat or path with .mmfeat sidecar)
     [[nodiscard]] Embedding encode_audio(
-        const std::filesystem::path &audio_path,
+        const std::filesystem::path &audio_feat_path,
         const EncodeOptions &opt = {});
 
-    [[nodiscard]] Embedding encode_audio_memory(
-        const float *samples,
-        size_t count,
-        int sample_rate = 16000,
+    [[nodiscard]] Embedding encode_audio(
+        const AudioFeatures &features,
         const EncodeOptions &opt = {});
 
-    // Multimodal audio encoding (audio + text)
+    // 4. Video encoding (from .mmfeat or path with .mmfeat sidecar)
+    [[nodiscard]] Embedding encode_video(
+        const std::filesystem::path &video_feat_path,
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_video(
+        const VideoFeatures &features,
+        const EncodeOptions &opt = {});
+
+    // 5. Interleaved Multimodal encoding
+    [[nodiscard]] Embedding encode_multimodal(
+        const std::filesystem::path &bundle_path,
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_multimodal(
+        const MultimodalFeatures &bundle,
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_multimodal(
+        const std::filesystem::path &media_feat_path,
+        luisa::string_view prompt_text,
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_multimodal_image(
+        const ImageFeatures &features,
+        luisa::string_view prompt_text,
+        const EncodeOptions &opt = {});
+
     [[nodiscard]] Embedding encode_multimodal_audio(
-        const std::filesystem::path &audio_path,
+        const std::filesystem::path &audio_feat_path,
         luisa::string_view prompt_text,
         const EncodeOptions &opt = {});
 
-    // Video encoding
-    [[nodiscard]] Embedding encode_video(
-        const std::filesystem::path &video_path,
-        const VideoConfig &cfg = {},
-        const EncodeOptions &opt = {});
-
-    [[nodiscard]] Embedding encode_video(
-        luisa::span<const std::filesystem::path> frame_paths,
-        const VideoConfig &cfg = {},
-        const EncodeOptions &opt = {});
-
-    [[nodiscard]] Embedding encode_video_memory(
-        luisa::span<const RawVideoFrame> frames,
-        const VideoConfig &cfg = {},
-        const EncodeOptions &opt = {});
-
-    // Multimodal video encoding (video + text)
-    [[nodiscard]] Embedding encode_multimodal_video(
-        const std::filesystem::path &video_path,
+    [[nodiscard]] Embedding encode_multimodal_audio(
+        const AudioFeatures &features,
         luisa::string_view prompt_text,
-        const VideoConfig &cfg = {},
         const EncodeOptions &opt = {});
 
     [[nodiscard]] Embedding encode_multimodal_video(
-        luisa::span<const std::filesystem::path> frame_paths,
+        const std::filesystem::path &video_feat_path,
         luisa::string_view prompt_text,
-        const VideoConfig &cfg = {},
         const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_multimodal_video(
+        const VideoFeatures &features,
+        luisa::string_view prompt_text,
+        const EncodeOptions &opt = {});
+
+    // 6. Similarity computation matching model.similarity(a, b)
+    [[nodiscard]] static float similarity(const Embedding &a, const Embedding &b) noexcept;
+
+    [[nodiscard]] static luisa::vector<luisa::vector<float>> similarity_matrix(
+        luisa::span<const Embedding> queries,
+        luisa::span<const Embedding> candidates) noexcept;
 
     [[nodiscard]] const Tokenizer &tokenizer() const noexcept;
     [[nodiscard]] const Package &package() const noexcept;
@@ -177,8 +192,10 @@ private:
     // Persistent audio buffers
     compute::Buffer<float> _dev_audio_features;
     compute::Buffer<float> _dev_audio_soft_tokens;
+    compute::Buffer<uint32_t> _dev_audio_token_indices;
+    luisa::vector<uint32_t> _host_audio_token_indices;
 
-    // Persistent video buffers
+    // Persistent video & multi-image buffers
     compute::Buffer<float> _dev_video_pixel_values;
     compute::Buffer<int32_t> _dev_video_position_ids;
     compute::Buffer<float> _dev_video_soft_tokens;

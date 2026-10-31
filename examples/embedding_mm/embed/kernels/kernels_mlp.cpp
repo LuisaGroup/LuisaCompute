@@ -13,7 +13,8 @@ GeGLUKernel make_geglu_kernel() noexcept {
         set_name("geglu");
 
         Var idx = dispatch_x();
-        $if (idx < N) {
+        Var stride = dispatch_size().x;
+        $while (idx < N) {
             Var x = gate.read(idx);
             Var u = up.read(idx);
 
@@ -25,6 +26,7 @@ GeGLUKernel make_geglu_kernel() noexcept {
             Var act = 0.5f * x * (1.0f + tanh(inner));
 
             out.write(idx, act * u);
+            idx += stride;
         };
     };
     return kernel;
@@ -38,8 +40,10 @@ ResidualAddKernel make_residual_add_kernel() noexcept {
         set_name("residual_add");
 
         Var idx = dispatch_x();
-        $if (idx < N) {
+        Var stride = dispatch_size().x;
+        $while (idx < N) {
             out.write(idx, x.read(idx) + residual.read(idx));
+            idx += stride;
         };
     };
     return kernel;
@@ -54,8 +58,9 @@ PLEGateKernel make_ple_gate_kernel() noexcept {
         set_name("ple_gate");
 
         Var idx = dispatch_x();
+        Var stride = dispatch_size().x;
         Var N = total_tokens * H;
-        $if (idx < N) {
+        $while (idx < N) {
             Var token_idx = idx / H;
             Var d = idx % H;
 
@@ -69,6 +74,7 @@ PLEGateKernel make_ple_gate_kernel() noexcept {
             Var act = 0.5f * g * (1.0f + tanh(inner));
 
             out.write(idx, act * ple_in);
+            idx += stride;
         };
     };
     return kernel;
@@ -83,9 +89,11 @@ ScaleAddKernel make_scale_add_kernel() noexcept {
         set_name("scale_add");
 
         Var idx = dispatch_x();
-        $if (idx < N) {
+        Var stride = dispatch_size().x;
+        $while (idx < N) {
             Var sum = x.read(idx) + residual.read(idx);
             out.write(idx, sum * scale);
+            idx += stride;
         };
     };
     return kernel;

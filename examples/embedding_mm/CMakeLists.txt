@@ -3,9 +3,7 @@
 add_library(lc-example-embedding-mm STATIC
     embed/tokenizer.cpp
     embed/package.cpp
-    embed/image_processor.cpp
-    embed/video_processor.cpp
-    embed/audio_processor.cpp
+    embed/feature_loader.cpp
     embed/session.cpp
     embed/executor.cpp
     embed/kernels/kernels_norm.cpp
@@ -19,10 +17,6 @@ add_library(lc-example-embedding-mm STATIC
 )
 target_link_libraries(lc-example-embedding-mm PUBLIC luisa::compute)
 target_link_libraries(lc-example-embedding-mm PUBLIC luisa-compute-ext-yyjson-interface)
-target_link_libraries(lc-example-embedding-mm PUBLIC luisa-compute-ext-stb-interface)
-if (WIN32)
-    target_link_libraries(lc-example-embedding-mm PUBLIC mfreadwrite mfplat mfuuid ole32)
-endif ()
 target_include_directories(lc-example-embedding-mm PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/examples)
@@ -30,12 +24,6 @@ target_include_directories(lc-example-embedding-mm PUBLIC
 luisa_compute_add_executable(example_embed_mm_pack_model tools/pack_model.cpp)
 target_link_libraries(example_embed_mm_pack_model PRIVATE lc-example-embedding-mm)
 target_include_directories(example_embed_mm_pack_model PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/examples)
-
-luisa_compute_add_executable(example_embed_mm_dump_golden tools/dump_golden.cpp)
-target_link_libraries(example_embed_mm_dump_golden PRIVATE lc-example-embedding-mm)
-target_include_directories(example_embed_mm_dump_golden PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/examples)
 
