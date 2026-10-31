@@ -6,6 +6,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/command_list.h>
 
+#include "mm_embedding/embed/audio_processor.h"
 #include "mm_embedding/embed/executor.h"
 #include "mm_embedding/embed/image_processor.h"
 #include "mm_embedding/embed/package.h"
@@ -19,6 +20,7 @@ Session::~Session() noexcept = default;
 const Tokenizer &Session::tokenizer() const noexcept { return *_tokenizer; }
 const Package &Session::package() const noexcept { return *_package; }
 bool Session::has_vision() const noexcept { return _has_vision; }
+bool Session::has_audio() const noexcept { return _has_audio; }
 
 luisa::unique_ptr<Session> Session::create(
     compute::Device &device,
@@ -36,12 +38,15 @@ luisa::unique_ptr<Session> Session::create(
     LUISA_INFO("Session: loading tokenizer from '{}'...", tokenizer_json.string());
     sess->_tokenizer = Tokenizer::load(tokenizer_json);
 
-    LUISA_INFO("Session: initializing executor (enable_vision={})...", config.enable_vision);
-    sess->_executor = Executor::create(device, *sess->_package, config.enable_vision);
+    LUISA_INFO("Session: initializing executor (enable_vision={}, enable_audio={})...",
+               config.enable_vision, config.enable_audio);
+    sess->_executor = Executor::create(device, *sess->_package, config.enable_vision, config.enable_audio);
     sess->_has_vision = sess->_executor->has_vision();
+    sess->_has_audio = sess->_executor->has_audio();
 
-    LUISA_INFO("Session: ready for inference (vision={}).",
-               sess->_has_vision ? "active" : "disabled");
+    LUISA_INFO("Session: ready for inference (vision={}, audio={}).",
+               sess->_has_vision ? "active" : "disabled",
+               sess->_has_audio ? "active" : "disabled");
     return sess;
 }
 
@@ -359,6 +364,269 @@ Embedding Session::encode_multimodal(
     mm_inputs.vision_embeds = dev_soft_view;
     mm_inputs.vision_start_idx = 2u;
     mm_inputs.num_vision_tokens = num_soft;
+
+    _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
+    cmd_list << dev_out_view.copy_to(_host_out.data());
+
+    _stream << cmd_list.commit() << compute::synchronize();
+
+    Embedding emb{};
+    emb.dimension = target_dim;
+    emb.values = std::move(_host_out);
+    return emb;
+}
+
+Embedding Session::encode_audio(
+    const std::filesystem::path &audio_path,
+    const EncodeOptions &opt) {
+
+    if (!_has_audio) {
+        LUISA_ERROR("Session::encode_audio: Audio Encoder is disabled (Selective Encoder Loading)");
+    }
+    auto processed = AudioProcessor::process_file(audio_path, _package.get());
+
+    uint32_t num_soft = processed.num_soft_tokens;
+    _host_ids.clear();
+    _host_ids.push_back(_tokenizer->bos_id()); // 2 (<bos>)
+    _host_ids.push_back(256000u);              // <|audio>
+    for (uint32_t i = 0; i < num_soft; i++) {
+        _host_ids.push_back(258881u);          // <|audio|>
+    }
+    _host_ids.push_back(258883u);              // <audio|>
+    _host_ids.push_back(1u);                   // <eos>
+
+    uint32_t S = static_cast<uint32_t>(_host_ids.size());
+    uint32_t target_dim = opt.target_dimension;
+    _host_mask.assign(S, 1.0f);
+
+    size_t feat_elems = processed.features.size();
+    size_t soft_elems = num_soft * 512u;
+
+    if (!_dev_audio_features || _dev_audio_features.size() < feat_elems) {
+        _dev_audio_features = _device->create_buffer<float>(feat_elems);
+    }
+    if (!_dev_audio_soft_tokens || _dev_audio_soft_tokens.size() < soft_elems) {
+        _dev_audio_soft_tokens = _device->create_buffer<float>(soft_elems);
+    }
+    if (!_dev_ids || _dev_ids.size() < S) {
+        _dev_ids = _device->create_buffer<uint32_t>(S);
+        _dev_mask = _device->create_buffer<float>(S);
+    }
+    if (!_dev_out || _dev_out.size() < target_dim) {
+        _dev_out = _device->create_buffer<float>(target_dim);
+    }
+    _host_out.resize(target_dim);
+
+    auto dev_feat_view = _dev_audio_features.view(0, feat_elems);
+    auto dev_soft_view = _dev_audio_soft_tokens.view(0, soft_elems);
+    auto dev_ids_view = _dev_ids.view(0, S);
+    auto dev_mask_view = _dev_mask.view(0, S);
+    auto dev_out_view = _dev_out.view(0, target_dim);
+
+    compute::CommandList cmd_list;
+    cmd_list << dev_feat_view.copy_from(processed.features.data());
+
+    _executor->record_audio_encode(
+        cmd_list, dev_feat_view, dev_soft_view,
+        processed.num_frames, processed.num_features, num_soft);
+
+    cmd_list << dev_ids_view.copy_from(_host_ids.data())
+             << dev_mask_view.copy_from(_host_mask.data());
+
+    MultimodalInputs mm_inputs{};
+    mm_inputs.audio_embeds = dev_soft_view;
+    mm_inputs.audio_start_idx = 2u;
+    mm_inputs.num_audio_tokens = num_soft;
+
+    _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
+    cmd_list << dev_out_view.copy_to(_host_out.data());
+
+    _stream << cmd_list.commit() << compute::synchronize();
+
+    Embedding emb{};
+    emb.dimension = target_dim;
+    emb.values = std::move(_host_out);
+    return emb;
+}
+
+Embedding Session::encode_audio_memory(
+    const float *samples,
+    size_t count,
+    int sample_rate,
+    const EncodeOptions &opt) {
+
+    if (!_has_audio) {
+        LUISA_ERROR("Session::encode_audio_memory: Audio Encoder is disabled (Selective Encoder Loading)");
+    }
+    auto processed = AudioProcessor::process_memory(samples, count, static_cast<uint32_t>(sample_rate), _package.get());
+
+    uint32_t num_soft = processed.num_soft_tokens;
+    _host_ids.clear();
+    _host_ids.push_back(_tokenizer->bos_id()); // 2 (<bos>)
+    _host_ids.push_back(256000u);              // <|audio>
+    for (uint32_t i = 0; i < num_soft; i++) {
+        _host_ids.push_back(258881u);          // <|audio|>
+    }
+    _host_ids.push_back(258883u);              // <audio|>
+    _host_ids.push_back(1u);                   // <eos>
+
+    uint32_t S = static_cast<uint32_t>(_host_ids.size());
+    uint32_t target_dim = opt.target_dimension;
+    _host_mask.assign(S, 1.0f);
+
+    size_t feat_elems = processed.features.size();
+    size_t soft_elems = num_soft * 512u;
+
+    if (!_dev_audio_features || _dev_audio_features.size() < feat_elems) {
+        _dev_audio_features = _device->create_buffer<float>(feat_elems);
+    }
+    if (!_dev_audio_soft_tokens || _dev_audio_soft_tokens.size() < soft_elems) {
+        _dev_audio_soft_tokens = _device->create_buffer<float>(soft_elems);
+    }
+    if (!_dev_ids || _dev_ids.size() < S) {
+        _dev_ids = _device->create_buffer<uint32_t>(S);
+        _dev_mask = _device->create_buffer<float>(S);
+    }
+    if (!_dev_out || _dev_out.size() < target_dim) {
+        _dev_out = _device->create_buffer<float>(target_dim);
+    }
+    _host_out.resize(target_dim);
+
+    auto dev_feat_view = _dev_audio_features.view(0, feat_elems);
+    auto dev_soft_view = _dev_audio_soft_tokens.view(0, soft_elems);
+    auto dev_ids_view = _dev_ids.view(0, S);
+    auto dev_mask_view = _dev_mask.view(0, S);
+    auto dev_out_view = _dev_out.view(0, target_dim);
+
+    compute::CommandList cmd_list;
+    cmd_list << dev_feat_view.copy_from(processed.features.data());
+
+    _executor->record_audio_encode(
+        cmd_list, dev_feat_view, dev_soft_view,
+        processed.num_frames, processed.num_features, num_soft);
+
+    cmd_list << dev_ids_view.copy_from(_host_ids.data())
+             << dev_mask_view.copy_from(_host_mask.data());
+
+    MultimodalInputs mm_inputs{};
+    mm_inputs.audio_embeds = dev_soft_view;
+    mm_inputs.audio_start_idx = 2u;
+    mm_inputs.num_audio_tokens = num_soft;
+
+    _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
+    cmd_list << dev_out_view.copy_to(_host_out.data());
+
+    _stream << cmd_list.commit() << compute::synchronize();
+
+    Embedding emb{};
+    emb.dimension = target_dim;
+    emb.values = std::move(_host_out);
+    return emb;
+}
+
+Embedding Session::encode_multimodal_audio(
+    const std::filesystem::path &audio_path,
+    luisa::string_view prompt_text,
+    const EncodeOptions &opt) {
+
+    if (!_has_audio) {
+        LUISA_ERROR("Session::encode_multimodal_audio: Audio Encoder is disabled (Selective Encoder Loading)");
+    }
+    auto processed = AudioProcessor::process_file(audio_path, _package.get());
+    uint32_t num_soft = processed.num_soft_tokens;
+
+    uint32_t audio_start_idx = 2u;
+    _host_ids.clear();
+
+    auto audio_tag_pos = prompt_text.find("<|audio|>");
+    if (audio_tag_pos != luisa::string_view::npos) {
+        auto prefix = prompt_text.substr(0, audio_tag_pos);
+        auto suffix = prompt_text.substr(audio_tag_pos + 9);
+        auto prefix_toks = _tokenizer->encode(prefix, opt.max_length);
+        auto suffix_toks = !suffix.empty() ? _tokenizer->encode(suffix, opt.max_length) : luisa::vector<uint32_t>{};
+
+        size_t pref_end = prefix_toks.size();
+        if (pref_end > 0 && prefix_toks.back() == _tokenizer->eos_id()) {
+            pref_end--;
+        }
+        for (size_t i = 0; i < pref_end; i++) {
+            _host_ids.push_back(prefix_toks[i]);
+        }
+        _host_ids.push_back(256000u); // <|audio>
+        audio_start_idx = static_cast<uint32_t>(_host_ids.size());
+        for (uint32_t i = 0; i < num_soft; i++) {
+            _host_ids.push_back(258881u); // <|audio|>
+        }
+        _host_ids.push_back(258883u); // <audio|>
+
+        size_t suf_start = (!suffix_toks.empty() && suffix_toks.front() == _tokenizer->bos_id()) ? 1u : 0u;
+        for (size_t i = suf_start; i < suffix_toks.size(); i++) {
+            _host_ids.push_back(suffix_toks[i]);
+        }
+        if (_host_ids.empty() || _host_ids.back() != _tokenizer->eos_id()) {
+            _host_ids.push_back(_tokenizer->eos_id()); // <eos>
+        }
+    } else {
+        auto text_toks = _tokenizer->encode(prompt_text, opt.max_length);
+        _host_ids.push_back(_tokenizer->bos_id()); // 2 (<bos>)
+        _host_ids.push_back(256000u);              // <|audio>
+        audio_start_idx = static_cast<uint32_t>(_host_ids.size());
+        for (uint32_t i = 0; i < num_soft; i++) {
+            _host_ids.push_back(258881u);          // <|audio|>
+        }
+        _host_ids.push_back(258883u);              // <audio|>
+
+        size_t text_start = (!text_toks.empty() && text_toks.front() == _tokenizer->bos_id()) ? 1u : 0u;
+        for (size_t i = text_start; i < text_toks.size(); i++) {
+            _host_ids.push_back(text_toks[i]);
+        }
+        if (_host_ids.empty() || _host_ids.back() != 1u) {
+            _host_ids.push_back(1u); // <eos>
+        }
+    }
+
+    uint32_t S = static_cast<uint32_t>(_host_ids.size());
+    uint32_t target_dim = opt.target_dimension;
+    _host_mask.assign(S, 1.0f);
+
+    size_t feat_elems = processed.features.size();
+    size_t soft_elems = num_soft * 512u;
+
+    if (!_dev_audio_features || _dev_audio_features.size() < feat_elems) {
+        _dev_audio_features = _device->create_buffer<float>(feat_elems);
+    }
+    if (!_dev_audio_soft_tokens || _dev_audio_soft_tokens.size() < soft_elems) {
+        _dev_audio_soft_tokens = _device->create_buffer<float>(soft_elems);
+    }
+    if (!_dev_ids || _dev_ids.size() < S) {
+        _dev_ids = _device->create_buffer<uint32_t>(S);
+        _dev_mask = _device->create_buffer<float>(S);
+    }
+    if (!_dev_out || _dev_out.size() < target_dim) {
+        _dev_out = _device->create_buffer<float>(target_dim);
+    }
+    _host_out.resize(target_dim);
+
+    auto dev_feat_view = _dev_audio_features.view(0, feat_elems);
+    auto dev_soft_view = _dev_audio_soft_tokens.view(0, soft_elems);
+    auto dev_ids_view = _dev_ids.view(0, S);
+    auto dev_mask_view = _dev_mask.view(0, S);
+    auto dev_out_view = _dev_out.view(0, target_dim);
+
+    compute::CommandList cmd_list;
+    cmd_list << dev_feat_view.copy_from(processed.features.data());
+
+    _executor->record_audio_encode(
+        cmd_list, dev_feat_view, dev_soft_view,
+        processed.num_frames, processed.num_features, num_soft);
+
+    cmd_list << dev_ids_view.copy_from(_host_ids.data())
+             << dev_mask_view.copy_from(_host_mask.data());
+
+    MultimodalInputs mm_inputs{};
+    mm_inputs.audio_embeds = dev_soft_view;
+    mm_inputs.audio_start_idx = audio_start_idx;
+    mm_inputs.num_audio_tokens = num_soft;
 
     _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
     cmd_list << dev_out_view.copy_to(_host_out.data());

@@ -15,6 +15,7 @@
 #include "mm_embedding/embed/kernels/kernels_pool.h"
 #include "mm_embedding/embed/kernels/kernels_rope.h"
 #include "mm_embedding/embed/kernels/kernels_vision.h"
+#include "mm_embedding/embed/kernels/kernels_audio.h"
 
 namespace luisa::mm_embed {
 
@@ -84,12 +85,51 @@ struct VisionLayerWeights {
     compute::Buffer<float> post_ffn_norm;
 };
 
+struct AudioLayerWeights {
+    // FeedForward 1
+    compute::Buffer<float> ffn1_pre_norm;
+    compute::Buffer<float> ffn1_linear1;
+    compute::Buffer<float> ffn1_linear2;
+    compute::Buffer<float> ffn1_post_norm;
+
+    // Self Attention
+    compute::Buffer<float> norm_pre_attn;
+    compute::Buffer<float> q_proj;
+    compute::Buffer<float> k_proj;
+    compute::Buffer<float> v_proj;
+    compute::Buffer<float> per_dim_scale;
+    compute::Buffer<float> relative_k_proj;
+    compute::Buffer<float> out_proj;
+    compute::Buffer<float> norm_post_attn;
+
+    // LightConv1D
+    compute::Buffer<float> lconv_pre_norm;
+    compute::Buffer<float> lconv_linear_start;
+    compute::Buffer<float> lconv_depthwise;
+    compute::Buffer<float> lconv_norm;
+    compute::Buffer<float> lconv_linear_end;
+
+    // FeedForward 2
+    compute::Buffer<float> ffn2_pre_norm;
+    compute::Buffer<float> ffn2_linear1;
+    compute::Buffer<float> ffn2_linear2;
+    compute::Buffer<float> ffn2_post_norm;
+
+    // Norm Out
+    compute::Buffer<float> norm_out;
+
+    // Clip bounds for the 10 linears: [10][4]
+    float clip_bounds[10][4]{};
+};
+
 class ExecutorImpl final : public Executor {
 public:
     compute::Device &_device;
     bool _enable_vision{false};
+    bool _enable_audio{false};
 
     [[nodiscard]] bool has_vision() const noexcept override { return _enable_vision; }
+    [[nodiscard]] bool has_audio() const noexcept override { return _enable_audio; }
 
     // Text Weight buffers
     compute::Buffer<float> word_embeddings;
@@ -104,6 +144,18 @@ public:
     compute::Buffer<float> v_pos_table;
     compute::Buffer<float> v_connector_proj;
     luisa::vector<VisionLayerWeights> vision_layers;
+
+    // Audio Weight buffers (Selective Encoder Loading)
+    compute::Buffer<float> audio_sub0_conv;
+    compute::Buffer<float> audio_sub0_norm;
+    compute::Buffer<float> audio_sub1_conv;
+    compute::Buffer<float> audio_sub1_norm;
+    compute::Buffer<float> audio_sub_input_proj;
+    luisa::vector<AudioLayerWeights> audio_layers;
+    compute::Buffer<float> audio_pos_embed;
+    compute::Buffer<float> audio_output_proj_weight;
+    compute::Buffer<float> audio_output_proj_bias;
+    compute::Buffer<float> audio_connector_proj;
 
     template<typename K>
     using ShaderFor = decltype(std::declval<compute::Device &>().compile(std::declval<K>()));
@@ -131,6 +183,20 @@ public:
     ShaderFor<VisionPoolKernel> shader_vision_pool;
     ShaderFor<ScatterSoftTokensKernel> shader_scatter_soft_tokens;
     ShaderFor<MaskFromPosKernel> shader_mask_from_pos;
+
+    // Compiled audio shaders
+    ShaderFor<AudioSubsampleConv0Kernel> shader_audio_subsample_conv0;
+    ShaderFor<AudioSubsampleConv1Kernel> shader_audio_subsample_conv1;
+    ShaderFor<AudioClampKernel> shader_audio_clamp;
+    ShaderFor<GemmBiasKernel> shader_gemm_bias;
+    ShaderFor<AudioScaleQKKernel> shader_audio_scale_qk;
+    ShaderFor<AudioGenRelPosKernel> shader_audio_gen_rel_pos;
+    ShaderFor<AudioChunkedAttentionKernel> shader_audio_chunked_attn;
+    ShaderFor<AudioGluKernel> shader_audio_glu;
+    ShaderFor<AudioDepthwiseConv1DKernel> shader_audio_depthwise_conv1d;
+    ShaderFor<AudioSiluKernel> shader_audio_silu;
+    ShaderFor<AudioAddScaleKernel> shader_audio_add_scale;
+    ShaderFor<AudioAddKernel> shader_audio_add;
 
     // Text workspace activations
     compute::Buffer<float> _h0;
@@ -182,6 +248,26 @@ public:
     compute::Buffer<float> _v_pooled_norm;
 
     size_t _max_patches{0};
+
+    // Audio workspace activations
+    compute::Buffer<float> _audio_sub0;
+    compute::Buffer<float> _audio_sub_flat;
+    compute::Buffer<float> _audio_hidden;
+    compute::Buffer<float> _audio_tmp1;
+    compute::Buffer<float> _audio_tmp2;
+    compute::Buffer<float> _audio_ffn_mid;
+    compute::Buffer<float> _audio_q;
+    compute::Buffer<float> _audio_k;
+    compute::Buffer<float> _audio_v;
+    compute::Buffer<float> _audio_rel_k;
+    compute::Buffer<float> _audio_attn_out;
+    compute::Buffer<float> _audio_glu_in;
+    compute::Buffer<float> _audio_glu_out;
+    compute::Buffer<float> _audio_tower_out;
+    compute::Buffer<float> _audio_conn_in;
+
+    size_t _max_audio_in{0};
+    size_t _max_audio_out{0};
 
     explicit ExecutorImpl(compute::Device &device) noexcept : _device(device) {}
 
@@ -389,6 +475,241 @@ public:
                         .dispatch(gemm_dispatch_size(num_soft_tokens, 512u));
     }
 
+    void ensure_audio_workspace(uint32_t T_in, uint32_t T_out) {
+        if (T_in <= _max_audio_in && T_out <= _max_audio_out) {
+            return;
+        }
+        _max_audio_in = std::max(_max_audio_in, static_cast<size_t>(T_in));
+        _max_audio_out = std::max(_max_audio_out, static_cast<size_t>(T_out));
+
+        size_t H0 = (_max_audio_in + 1) / 2;
+        size_t W0 = 64;
+        _audio_sub0 = _device.create_buffer<float>(128 * H0 * W0);
+        _audio_sub_flat = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_hidden = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_tmp1 = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_tmp2 = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_ffn_mid = _device.create_buffer<float>(_max_audio_out * 4096);
+        _audio_q = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_k = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_v = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_rel_k = _device.create_buffer<float>(13 * 1024);
+        _audio_attn_out = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_glu_in = _device.create_buffer<float>(_max_audio_out * 2048);
+        _audio_glu_out = _device.create_buffer<float>(_max_audio_out * 1024);
+        _audio_tower_out = _device.create_buffer<float>(_max_audio_out * 1536);
+        _audio_conn_in = _device.create_buffer<float>(_max_audio_out * 1536);
+    }
+
+    void record_audio_encode(
+        compute::CommandList &cmd_list,
+        compute::BufferView<float> input_features,
+        compute::BufferView<float> out_soft_tokens,
+        uint32_t num_frames,
+        uint32_t num_mel_bins,
+        uint32_t num_soft_tokens,
+        AudioDebugActivations *debug_acts) override {
+
+        if (!_enable_audio) {
+            LUISA_ERROR("record_audio_encode: Audio encoder is not loaded (Selective Encoder Loading)");
+        }
+
+        ensure_audio_workspace(num_frames, num_soft_tokens);
+
+        constexpr uint32_t H = 1024u;
+        uint32_t H0 = (num_frames + 1u) / 2u; // 154
+        uint32_t W0 = num_mel_bins / 2u;       // 64
+        uint32_t H1 = num_soft_tokens;        // 77
+        uint32_t W1 = W0 / 2u;                 // 32
+
+        // 1. Subsample Conv0: [num_frames, 128] -> [128, 154, 64]
+        cmd_list << shader_audio_subsample_conv0(
+                        input_features, audio_sub0_conv, audio_sub0_norm, _audio_sub0,
+                        num_frames, num_mel_bins, H0, W0, 1e-6f)
+                        .dispatch(128u, W0, H0);
+
+        // 2. Subsample Conv1: [128, 154, 64] -> flat [77, 1024]
+        cmd_list << shader_audio_subsample_conv1(
+                        _audio_sub0, audio_sub1_conv, audio_sub1_norm, _audio_sub_flat,
+                        H0, W0, H1, W1, 1e-6f)
+                        .dispatch(32u, W1, H1);
+
+        // 3. Subsample Input Proj GEMM: [77, 1024] @ [1024, 1024] -> [77, 1024]
+        cmd_list << shader_gemm(_audio_sub_flat, audio_sub_input_proj, _audio_hidden, H1, H, H)
+                        .dispatch(gemm_dispatch_size(H1, H));
+        if (debug_acts && debug_acts->subsample_proj) {
+            cmd_list << debug_acts->subsample_proj.copy_from(_audio_hidden.view(0, H1 * H));
+        }
+
+        // 4. Generate relative position table [13, 1024]
+        cmd_list << shader_audio_gen_rel_pos(audio_pos_embed, 13u, H)
+                        .dispatch(512u, 13u);
+
+        // 5. 12 Conformer layers
+        for (uint32_t l = 0u; l < 12u; l++) {
+            const auto &layer = audio_layers[l];
+
+            // --- FeedForward 1 ---
+            // (a) Pre-norm: RMSNorm(_audio_hidden -> _audio_tmp1, ffn1_pre_norm)
+            cmd_list << shader_rmsnorm(_audio_hidden, _audio_tmp1, layer.ffn1_pre_norm, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            // (b) Linear 1: 1024 -> 4096 (clip 0)
+            cmd_list << shader_audio_clamp(_audio_tmp1, _audio_tmp1, layer.clip_bounds[0][0], layer.clip_bounds[0][1], H1 * H)
+                            .dispatch(H1 * H);
+            cmd_list << shader_gemm(_audio_tmp1, layer.ffn1_linear1, _audio_ffn_mid, H1, 4096u, H)
+                            .dispatch(gemm_dispatch_size(H1, 4096u));
+            cmd_list << shader_audio_clamp(_audio_ffn_mid, _audio_ffn_mid, layer.clip_bounds[0][2], layer.clip_bounds[0][3], H1 * 4096u)
+                            .dispatch(H1 * 4096u);
+            // (c) SiLU
+            cmd_list << shader_audio_silu(_audio_ffn_mid, _audio_ffn_mid, H1 * 4096u)
+                            .dispatch(H1 * 4096u);
+            // (d) Linear 2: 4096 -> 1024 (clip 1)
+            cmd_list << shader_audio_clamp(_audio_ffn_mid, _audio_ffn_mid, layer.clip_bounds[1][0], layer.clip_bounds[1][1], H1 * 4096u)
+                            .dispatch(H1 * 4096u);
+            cmd_list << shader_gemm(_audio_ffn_mid, layer.ffn1_linear2, _audio_tmp1, H1, H, 4096u)
+                            .dispatch(gemm_dispatch_size(H1, H));
+            cmd_list << shader_audio_clamp(_audio_tmp1, _audio_tmp1, layer.clip_bounds[1][2], layer.clip_bounds[1][3], H1 * H)
+                            .dispatch(H1 * H);
+            // (e) Post-norm: RMSNorm(_audio_tmp1 -> _audio_tmp2, ffn1_post_norm)
+            cmd_list << shader_rmsnorm(_audio_tmp1, _audio_tmp2, layer.ffn1_post_norm, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            // (f) Residual: _audio_hidden = _audio_tmp2 * 0.5 + _audio_hidden
+            cmd_list << shader_audio_add_scale(_audio_tmp2, _audio_hidden, _audio_hidden, 0.5f, H1 * H)
+                            .dispatch(H1 * H);
+
+            // --- Self Attention ---
+            // (a) Pre-norm: RMSNorm(_audio_hidden -> _audio_tmp1, norm_pre_attn)
+            cmd_list << shader_rmsnorm(_audio_hidden, _audio_tmp1, layer.norm_pre_attn, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            // (b) Q, K, V proj (clips 2, 3, 4)
+            cmd_list << shader_audio_clamp(_audio_tmp1, _audio_tmp1, layer.clip_bounds[2][0], layer.clip_bounds[2][1], H1 * H)
+                            .dispatch(H1 * H);
+            cmd_list << shader_gemm(_audio_tmp1, layer.q_proj, _audio_q, H1, H, H)
+                            .dispatch(gemm_dispatch_size(H1, H));
+            cmd_list << shader_gemm(_audio_tmp1, layer.k_proj, _audio_k, H1, H, H)
+                            .dispatch(gemm_dispatch_size(H1, H));
+            cmd_list << shader_gemm(_audio_tmp1, layer.v_proj, _audio_v, H1, H, H)
+                            .dispatch(gemm_dispatch_size(H1, H));
+            cmd_list << shader_audio_clamp(_audio_q, _audio_q, layer.clip_bounds[2][2], layer.clip_bounds[2][3], H1 * H)
+                            .dispatch(H1 * H);
+            cmd_list << shader_audio_clamp(_audio_k, _audio_k, layer.clip_bounds[3][2], layer.clip_bounds[3][3], H1 * H)
+                            .dispatch(H1 * H);
+            cmd_list << shader_audio_clamp(_audio_v, _audio_v, layer.clip_bounds[4][2], layer.clip_bounds[4][3], H1 * H)
+                            .dispatch(H1 * H);
+            // (c) Scale Q & K
+            float q_scale = (std::pow(128.0f, -0.5f)) / std::log(2.0f);
+            float k_scale = std::log(1.0f + std::exp(1.0f)) / std::log(2.0f);
+            cmd_list << shader_audio_scale_qk(_audio_q, _audio_k, layer.per_dim_scale, H1, 8u, 128u, q_scale, k_scale)
+                            .dispatch(H, H1);
+            // (d) Relative K proj: pos_embed [13, 1024] @ relative_k_proj [1024, 1024] -> rel_k [13, 1024]
+            cmd_list << shader_gemm(audio_pos_embed, layer.relative_k_proj, _audio_rel_k, 13u, H, H)
+                            .dispatch(gemm_dispatch_size(13u, H));
+            // (e) Chunked Attention: (Q, K, V, rel_k) -> attn_out [77, 1024]
+            cmd_list << shader_audio_chunked_attn(_audio_q, _audio_k, _audio_v, _audio_rel_k, _audio_attn_out, H1, 8u, 128u, 12u, 50.0f)
+                            .dispatch(8u, H1);
+            // (f) Post linear (clip 5)
+            cmd_list << shader_audio_clamp(_audio_attn_out, _audio_attn_out, layer.clip_bounds[5][0], layer.clip_bounds[5][1], H1 * H)
+                            .dispatch(H1 * H);
+            cmd_list << shader_gemm(_audio_attn_out, layer.out_proj, _audio_tmp1, H1, H, H)
+                            .dispatch(gemm_dispatch_size(H1, H));
+            cmd_list << shader_audio_clamp(_audio_tmp1, _audio_tmp1, layer.clip_bounds[5][2], layer.clip_bounds[5][3], H1 * H)
+                            .dispatch(H1 * H);
+            // (g) Post-norm: RMSNorm(_audio_tmp1 -> _audio_tmp2, norm_post_attn)
+            cmd_list << shader_rmsnorm(_audio_tmp1, _audio_tmp2, layer.norm_post_attn, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            // (h) Residual: _audio_hidden += _audio_tmp2
+            cmd_list << shader_audio_add(_audio_tmp2, _audio_hidden, _audio_hidden, H1 * H)
+                            .dispatch(H1 * H);
+
+            // --- LightConv1D ---
+            // (a) Pre-norm: RMSNorm(_audio_hidden -> _audio_tmp1, lconv_pre_norm)
+            cmd_list << shader_rmsnorm(_audio_hidden, _audio_tmp1, layer.lconv_pre_norm, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            // (b) Linear start: 1024 -> 2048 (clip 6)
+            cmd_list << shader_audio_clamp(_audio_tmp1, _audio_tmp1, layer.clip_bounds[6][0], layer.clip_bounds[6][1], H1 * H)
+                            .dispatch(H1 * H);
+            cmd_list << shader_gemm(_audio_tmp1, layer.lconv_linear_start, _audio_glu_in, H1, 2048u, H)
+                            .dispatch(gemm_dispatch_size(H1, 2048u));
+            cmd_list << shader_audio_clamp(_audio_glu_in, _audio_glu_in, layer.clip_bounds[6][2], layer.clip_bounds[6][3], H1 * 2048u)
+                            .dispatch(H1 * 2048u);
+            // (c) GLU: 2048 -> 1024
+            cmd_list << shader_audio_glu(_audio_glu_in, _audio_glu_out, H1, H)
+                            .dispatch(H, H1);
+            // (d) Depthwise causal Conv1D: kernel 5, pad 4
+            cmd_list << shader_audio_depthwise_conv1d(_audio_glu_out, layer.lconv_depthwise, _audio_tmp1, H1, H)
+                            .dispatch(H, H1);
+            // (e) Conv norm: RMSNorm(_audio_tmp1 -> _audio_tmp2, lconv_norm)
+            cmd_list << shader_rmsnorm(_audio_tmp1, _audio_tmp2, layer.lconv_norm, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            // (f) SiLU: _audio_tmp2 -> _audio_tmp1
+            cmd_list << shader_audio_silu(_audio_tmp2, _audio_tmp1, H1 * H)
+                            .dispatch(H1 * H);
+            // (g) Linear end: 1024 -> 1024 (clip 7)
+            cmd_list << shader_audio_clamp(_audio_tmp1, _audio_tmp1, layer.clip_bounds[7][0], layer.clip_bounds[7][1], H1 * H)
+                            .dispatch(H1 * H);
+            cmd_list << shader_gemm(_audio_tmp1, layer.lconv_linear_end, _audio_tmp2, H1, H, H)
+                            .dispatch(gemm_dispatch_size(H1, H));
+            cmd_list << shader_audio_clamp(_audio_tmp2, _audio_tmp2, layer.clip_bounds[7][2], layer.clip_bounds[7][3], H1 * H)
+                            .dispatch(H1 * H);
+            // (h) Residual: _audio_hidden += _audio_tmp2
+            cmd_list << shader_audio_add(_audio_tmp2, _audio_hidden, _audio_hidden, H1 * H)
+                            .dispatch(H1 * H);
+
+            // --- FeedForward 2 ---
+            // (a) Pre-norm: RMSNorm(_audio_hidden -> _audio_tmp1, ffn2_pre_norm)
+            cmd_list << shader_rmsnorm(_audio_hidden, _audio_tmp1, layer.ffn2_pre_norm, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            // (b) Linear 1: 1024 -> 4096 (clip 8)
+            cmd_list << shader_audio_clamp(_audio_tmp1, _audio_tmp1, layer.clip_bounds[8][0], layer.clip_bounds[8][1], H1 * H)
+                            .dispatch(H1 * H);
+            cmd_list << shader_gemm(_audio_tmp1, layer.ffn2_linear1, _audio_ffn_mid, H1, 4096u, H)
+                            .dispatch(gemm_dispatch_size(H1, 4096u));
+            cmd_list << shader_audio_clamp(_audio_ffn_mid, _audio_ffn_mid, layer.clip_bounds[8][2], layer.clip_bounds[8][3], H1 * 4096u)
+                            .dispatch(H1 * 4096u);
+            // (c) SiLU
+            cmd_list << shader_audio_silu(_audio_ffn_mid, _audio_ffn_mid, H1 * 4096u)
+                            .dispatch(H1 * 4096u);
+            // (d) Linear 2: 4096 -> 1024 (clip 9)
+            cmd_list << shader_audio_clamp(_audio_ffn_mid, _audio_ffn_mid, layer.clip_bounds[9][0], layer.clip_bounds[9][1], H1 * 4096u)
+                            .dispatch(H1 * 4096u);
+            cmd_list << shader_gemm(_audio_ffn_mid, layer.ffn2_linear2, _audio_tmp1, H1, H, 4096u)
+                            .dispatch(gemm_dispatch_size(H1, H));
+            cmd_list << shader_audio_clamp(_audio_tmp1, _audio_tmp1, layer.clip_bounds[9][2], layer.clip_bounds[9][3], H1 * H)
+                            .dispatch(H1 * H);
+            // (e) Post-norm: RMSNorm(_audio_tmp1 -> _audio_tmp2, ffn2_post_norm)
+            cmd_list << shader_rmsnorm(_audio_tmp1, _audio_tmp2, layer.ffn2_post_norm, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            // (f) Residual: _audio_hidden = _audio_tmp2 * 0.5 + _audio_hidden
+            cmd_list << shader_audio_add_scale(_audio_tmp2, _audio_hidden, _audio_hidden, 0.5f, H1 * H)
+                            .dispatch(H1 * H);
+
+            // --- Norm Out ---
+            cmd_list << shader_rmsnorm(_audio_hidden, _audio_hidden, layer.norm_out, H, 1e-6f)
+                            .dispatch(H1 * kNormBlock);
+            if (l == 0u && debug_acts && debug_acts->layer0_out) {
+                cmd_list << debug_acts->layer0_out.copy_from(_audio_hidden.view(0, H1 * H));
+            }
+            if (l == 11u && debug_acts && debug_acts->layer11_out) {
+                cmd_list << debug_acts->layer11_out.copy_from(_audio_hidden.view(0, H1 * H));
+            }
+        }
+
+        // 6. Output Projection: GEMM with Bias [77, 1024] @ [1024, 1536] + bias -> [77, 1536]
+        cmd_list << shader_gemm_bias(_audio_hidden, audio_output_proj_weight, audio_output_proj_bias, _audio_tower_out, H1, 1536u, H)
+                        .dispatch(gemm_dispatch_size(H1, 1536u));
+        if (debug_acts && debug_acts->audio_tower_out) {
+            cmd_list << debug_acts->audio_tower_out.copy_from(_audio_tower_out.view(0, H1 * 1536u));
+        }
+
+        // 7. Connector: RMSNorm without weight [77, 1536]
+        cmd_list << shader_rmsnorm_no_weight(_audio_tower_out, _audio_conn_in, 1536u, 1e-6f)
+                        .dispatch(H1 * kNormBlock);
+
+        // 8. Connector Projection: GEMM [77, 1536] @ [1536, 512] -> out_soft_tokens [77, 512]
+        cmd_list << shader_gemm(_audio_conn_in, audio_connector_proj, out_soft_tokens, H1, 512u, 1536u)
+                        .dispatch(gemm_dispatch_size(H1, 512u));
+    }
+
     void record_encode(
         compute::CommandList &cmd_list,
         compute::BufferView<uint32_t> input_ids,
@@ -415,6 +736,13 @@ public:
             cmd_list << shader_scatter_soft_tokens(
                 _h0, mm_inputs.vision_embeds, mm_inputs.vision_start_idx, mm_inputs.num_vision_tokens, H)
                 .dispatch(H, mm_inputs.num_vision_tokens);
+        }
+
+        // 1.6. Scatter multimodal audio soft tokens if provided
+        if (mm_inputs.audio_embeds.size() > 0 && mm_inputs.num_audio_tokens > 0) {
+            cmd_list << shader_scatter_soft_tokens(
+                _h0, mm_inputs.audio_embeds, mm_inputs.audio_start_idx, mm_inputs.num_audio_tokens, H)
+                .dispatch(H, mm_inputs.num_audio_tokens);
         }
 
         // 2. Global PLE projection & normalization
@@ -555,7 +883,7 @@ public:
 
 }// namespace
 
-luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Package &package, bool enable_vision) {
+luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Package &package, bool enable_vision, bool enable_audio) {
     auto exec = luisa::make_unique<ExecutorImpl>(device);
     auto upload_stream = device.create_stream(compute::StreamTag::COMPUTE);
     compute::CommandList upload_cmds;
@@ -681,6 +1009,75 @@ luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Pack
         exec->_enable_vision = false;
     }
 
+    // Selective Encoder Loading: Audio Tower (~300M params, 273 tensors)
+    if (enable_audio && package.has_audio()) {
+        LUISA_INFO("Executor: Selective Encoder Loading -> initializing Audio Tower (~300M params)...");
+        exec->audio_sub0_conv = upload_tensor("audio.subsample.layer0.conv");
+        exec->audio_sub0_norm = upload_tensor("audio.subsample.layer0.norm");
+        exec->audio_sub1_conv = upload_tensor("audio.subsample.layer1.conv");
+        exec->audio_sub1_norm = upload_tensor("audio.subsample.layer1.norm");
+        exec->audio_sub_input_proj = upload_tensor("audio.subsample.input_proj");
+
+        exec->audio_pos_embed = device.create_buffer<float>(13 * 1024);
+        exec->audio_output_proj_weight = upload_tensor("audio.output_proj.weight");
+        exec->audio_output_proj_bias = upload_tensor("audio.output_proj.bias");
+        exec->audio_connector_proj = upload_tensor("audio.connector.proj");
+
+        // Read clip bounds tensor if present
+        const auto *t_clips = package.find("audio.clip_bounds");
+        const float *clip_src = nullptr;
+        if (t_clips && t_clips->data) {
+            clip_src = t_clips->data;
+        }
+
+        exec->audio_layers.resize(12);
+        for (uint32_t i = 0; i < 12; i++) {
+            auto &al = exec->audio_layers[i];
+            al.ffn1_pre_norm = upload_tensor(luisa::format("audio.layer{}.ffn1_pre_norm", i));
+            al.ffn1_linear1 = upload_tensor(luisa::format("audio.layer{}.ffn1_linear1", i));
+            al.ffn1_linear2 = upload_tensor(luisa::format("audio.layer{}.ffn1_linear2", i));
+            al.ffn1_post_norm = upload_tensor(luisa::format("audio.layer{}.ffn1_post_norm", i));
+
+            al.norm_pre_attn = upload_tensor(luisa::format("audio.layer{}.norm_pre_attn", i));
+            al.q_proj = upload_tensor(luisa::format("audio.layer{}.q_proj", i));
+            al.k_proj = upload_tensor(luisa::format("audio.layer{}.k_proj", i));
+            al.v_proj = upload_tensor(luisa::format("audio.layer{}.v_proj", i));
+            al.per_dim_scale = upload_tensor(luisa::format("audio.layer{}.per_dim_scale", i));
+            al.relative_k_proj = upload_tensor(luisa::format("audio.layer{}.relative_k_proj", i));
+            al.out_proj = upload_tensor(luisa::format("audio.layer{}.out_proj", i));
+            al.norm_post_attn = upload_tensor(luisa::format("audio.layer{}.norm_post_attn", i));
+
+            al.lconv_pre_norm = upload_tensor(luisa::format("audio.layer{}.lconv_pre_norm", i));
+            al.lconv_linear_start = upload_tensor(luisa::format("audio.layer{}.lconv_linear_start", i));
+            al.lconv_depthwise = upload_tensor(luisa::format("audio.layer{}.lconv_depthwise", i));
+            al.lconv_norm = upload_tensor(luisa::format("audio.layer{}.lconv_norm", i));
+            al.lconv_linear_end = upload_tensor(luisa::format("audio.layer{}.lconv_linear_end", i));
+
+            al.ffn2_pre_norm = upload_tensor(luisa::format("audio.layer{}.ffn2_pre_norm", i));
+            al.ffn2_linear1 = upload_tensor(luisa::format("audio.layer{}.ffn2_linear1", i));
+            al.ffn2_linear2 = upload_tensor(luisa::format("audio.layer{}.ffn2_linear2", i));
+            al.ffn2_post_norm = upload_tensor(luisa::format("audio.layer{}.ffn2_post_norm", i));
+
+            al.norm_out = upload_tensor(luisa::format("audio.layer{}.norm_out", i));
+
+            if (clip_src) {
+                std::memcpy(al.clip_bounds, clip_src + i * 40, sizeof(al.clip_bounds));
+            } else {
+                for (int j = 0; j < 10; j++) {
+                    al.clip_bounds[j][0] = -1e9f;
+                    al.clip_bounds[j][1] = 1e9f;
+                    al.clip_bounds[j][2] = -1e9f;
+                    al.clip_bounds[j][3] = 1e9f;
+                }
+            }
+        }
+
+        exec->_enable_audio = true;
+    } else {
+        LUISA_INFO("Executor: Selective Encoder Loading -> Audio Tower skipped.");
+        exec->_enable_audio = false;
+    }
+
     upload_stream << upload_cmds.commit() << compute::synchronize();
 
     // Compile core text kernels
@@ -709,8 +1106,25 @@ luisa::unique_ptr<Executor> Executor::create(compute::Device &device, const Pack
         exec->shader_mask_from_pos = device.compile(make_mask_from_pos_kernel());
     }
 
-    LUISA_INFO("Executor: successfully initialized and compiled all kernels (vision={})",
-               exec->_enable_vision ? "enabled" : "disabled");
+    // Compile audio kernels if enabled
+    if (exec->_enable_audio) {
+        exec->shader_audio_subsample_conv0 = device.compile(make_audio_subsample_conv0_kernel());
+        exec->shader_audio_subsample_conv1 = device.compile(make_audio_subsample_conv1_kernel());
+        exec->shader_audio_clamp = device.compile(make_audio_clamp_kernel());
+        exec->shader_gemm_bias = device.compile(make_gemm_bias_kernel());
+        exec->shader_audio_scale_qk = device.compile(make_audio_scale_qk_kernel());
+        exec->shader_audio_gen_rel_pos = device.compile(make_audio_gen_rel_pos_kernel());
+        exec->shader_audio_chunked_attn = device.compile(make_audio_chunked_attention_kernel());
+        exec->shader_audio_glu = device.compile(make_audio_glu_kernel());
+        exec->shader_audio_depthwise_conv1d = device.compile(make_audio_depthwise_conv1d_kernel());
+        exec->shader_audio_silu = device.compile(make_audio_silu_kernel());
+        exec->shader_audio_add_scale = device.compile(make_audio_add_scale_kernel());
+        exec->shader_audio_add = device.compile(make_audio_add_kernel());
+    }
+
+    LUISA_INFO("Executor: successfully initialized and compiled all kernels (vision={}, audio={})",
+               exec->_enable_vision ? "enabled" : "disabled",
+               exec->_enable_audio ? "enabled" : "disabled");
 
     return exec;
 }

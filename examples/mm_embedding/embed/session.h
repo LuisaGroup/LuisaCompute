@@ -29,6 +29,7 @@ class Executor;
 
 struct SessionConfig {
     bool enable_vision{true};// Selective Encoder Loading (toggle vision ~170M params)
+    bool enable_audio{true}; // Selective Encoder Loading (toggle audio ~300M params)
 };
 
 struct EncodeOptions {
@@ -57,6 +58,7 @@ public:
     Session &operator=(Session &&) = delete;
 
     [[nodiscard]] bool has_vision() const noexcept;
+    [[nodiscard]] bool has_audio() const noexcept;
 
     // Text encoding
     [[nodiscard]] Embedding encode(
@@ -85,6 +87,23 @@ public:
         luisa::string_view prompt_text,
         const EncodeOptions &opt = {});
 
+    // Audio encoding
+    [[nodiscard]] Embedding encode_audio(
+        const std::filesystem::path &audio_path,
+        const EncodeOptions &opt = {});
+
+    [[nodiscard]] Embedding encode_audio_memory(
+        const float *samples,
+        size_t count,
+        int sample_rate = 16000,
+        const EncodeOptions &opt = {});
+
+    // Multimodal audio encoding (audio + text)
+    [[nodiscard]] Embedding encode_multimodal_audio(
+        const std::filesystem::path &audio_path,
+        luisa::string_view prompt_text,
+        const EncodeOptions &opt = {});
+
     [[nodiscard]] const Tokenizer &tokenizer() const noexcept;
     [[nodiscard]] const Package &package() const noexcept;
 
@@ -97,6 +116,7 @@ private:
     luisa::unique_ptr<Tokenizer> _tokenizer;
     luisa::unique_ptr<Executor> _executor;
     bool _has_vision{false};
+    bool _has_audio{false};
 
     // Persistent workspace buffers to eliminate per-query driver allocation overhead
     compute::Buffer<uint32_t> _dev_ids;
@@ -110,6 +130,10 @@ private:
     compute::Buffer<float> _dev_pixel_values;
     compute::Buffer<int32_t> _dev_position_ids;
     compute::Buffer<float> _dev_soft_tokens;
+
+    // Persistent audio buffers
+    compute::Buffer<float> _dev_audio_features;
+    compute::Buffer<float> _dev_audio_soft_tokens;
 };
 
 }// namespace luisa::mm_embed

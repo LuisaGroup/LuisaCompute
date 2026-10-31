@@ -4,6 +4,7 @@ add_library(lc-example-mm-embedding STATIC
     embed/tokenizer.cpp
     embed/package.cpp
     embed/image_processor.cpp
+    embed/audio_processor.cpp
     embed/session.cpp
     embed/executor.cpp
     embed/kernels/kernels_norm.cpp
@@ -13,6 +14,7 @@ add_library(lc-example-mm-embedding STATIC
     embed/kernels/kernels_pool.cpp
     embed/kernels/kernels_gemm.cpp
     embed/kernels/kernels_vision.cpp
+    embed/kernels/kernels_audio.cpp
 )
 target_link_libraries(lc-example-mm-embedding PUBLIC luisa::compute)
 target_link_libraries(lc-example-mm-embedding PUBLIC luisa-compute-ext-yyjson-interface)
@@ -48,6 +50,12 @@ target_include_directories(example_mm_embed_test PRIVATE
 luisa_compute_add_executable(example_mm_embed_vision example_mm_embed_vision.cpp)
 target_link_libraries(example_mm_embed_vision PRIVATE lc-example-mm-embedding)
 target_include_directories(example_mm_embed_vision PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/examples)
+
+luisa_compute_add_executable(example_mm_embed_audio example_mm_embed_audio.cpp)
+target_link_libraries(example_mm_embed_audio PRIVATE lc-example-mm-embedding)
+target_include_directories(example_mm_embed_audio PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/examples)
 

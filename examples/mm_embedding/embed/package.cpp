@@ -116,6 +116,9 @@ public:
     [[nodiscard]] bool has_vision() const noexcept override {
         return find("vision.patch_embed.proj") != nullptr;
     }
+    [[nodiscard]] bool has_audio() const noexcept override {
+        return find("audio.connector.proj") != nullptr;
+    }
 };
 
 } // namespace

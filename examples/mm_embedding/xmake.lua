@@ -66,6 +66,16 @@ target("example_mm_embed_vision")
     add_deps("lc-example-mm-embedding")
 target_end()
 
+target("example_mm_embed_audio")
+    add_deps("lc-backends-dummy", {inherit = false, links = false})
+    _config_project({
+        project_kind = "binary"
+    })
+    add_files("example_mm_embed_audio.cpp")
+    add_includedirs("$(projectdir)/examples", "$(projectdir)/examples/mm_embedding")
+    add_deps("lc-example-mm-embedding")
+target_end()
+
 target("example_mm_embed_bench")
     add_deps("lc-backends-dummy", {inherit = false, links = false})
     _config_project({

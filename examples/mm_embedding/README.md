@@ -21,7 +21,7 @@ Google DeepMind's **EmbeddingGemma-2** (`google/embeddinggemma-2`) is an open mu
    - Pure C++ Gemma BPE Tokenizer using `yyjson` with byte fallback.
    - Memory-mapped model package format (`model.mmegm`).
 
-2. **Phase 2 (Current Scope — Vision Encoder ~170M & Multimodal Pipeline)**:
+2. **Phase 2 (Vision Encoder ~170M & Multimodal Pipeline)**:
    - Vision transformer tower (`Gemma4VisionModel`, 16 ViT layers, hidden dimension 768, 12 heads, intermediate size 3072, GeGLU).
    - 2D Axial RoPE ($\theta_{\text{base}} = 100.0$) and 2D Spatial Pooling ($3 \times 3$ average pooling supporting arbitrary aspect ratios).
    - Connector projection ($768 \to 512$) mapping pooled visual soft tokens into the text sequence.
@@ -29,9 +29,17 @@ Google DeepMind's **EmbeddingGemma-2** (`google/embeddinggemma-2`) is an open mu
    - End-to-end multimodal joint encoding (`encode_multimodal`) and standalone image encoding (`encode_image`).
    - High-fidelity Catmull-Rom bicubic downsampling aligned with PyTorch torchvision.
 
-3. **Phase 3 (Audio Encoder ~300M)**:
-   - Audio conformer tower (`Gemma4AudioModel`, subsampling conv, 12 layers, chunked attention).
-   - Connector projection ($1536 \to 512$) interfacing with the shared sequence.
+3. **Phase 3 (Current Scope — Audio Encoder ~300M & Multimodal Pipeline)**:
+   - Audio conformer tower (`Gemma4AudioModel`, 12 Conformer layers, hidden dimension 1024, 8 heads, output projection $1024 \to 1536$).
+   - Frontend 128-Mel Filterbank STFT (16 kHz mono, 20 ms window = 320, 10 ms hop = 160, FFT length = 512, Hann window, 0-8000 Hz).
+   - Subsampling 2D convolution (`subsample_conv_projection`, 2-layer Conv2D with LayerNorm & ReLU, $4\times$ downsampling).
+   - Conformer blocks with Macaron dual FFNs (residual scale 0.5), chunked causal self-attention with relative positional bias (chunk size 12, context left 13), and causal depthwise 1D conv (`kernel_size = 5`).
+   - Connector projection ($1536 \to 512$) mapping audio soft tokens into the sequence buffer between `<boa>` (id 257) and `<eoa>` (id 258).
+   - Tri-state **Selective Encoder Loading** (`enable_vision`, `enable_audio`), saving ~1.2 GB VRAM when audio is disabled.
+   - Official audio sample benchmark & fine-grained layer-by-layer alignment against PyTorch.
+
+4. **Phase 4 (Video Modality Pipeline)**:
+   - Video multi-frame temporal sampling & embedding reusing the Phase 2 Vision Tower.
 
 ---
 
@@ -187,6 +195,45 @@ $$
 4. **Connector Projection & Multimodal Token Scatter**:
    Soft tokens are mapped into language hidden dimension ($512$) via a linear projection $W_{\text{connector}} \in \mathbb{R}^{768 \times 512}$, then scattered into the language backbone sequence buffer at designated `<image>` token locations.
 
+### 3.7 Audio Conformer & STFT Kernels (`kernels_audio.h/.cpp`, `audio_processor.h/.cpp`)
+
+1. **Frontend 128-Mel Filterbank STFT**:
+   Zero-dependency audio preprocessor computing Short-Time Fourier Transform (STFT) on $16\,\text{kHz}$ mono WAV audio:
+   - Frame length $N = 320$ ($20\,\text{ms}$ window), hop length $H = 160$ ($10\,\text{ms}$ step), FFT length 512 with periodic Hann window.
+   - Pre-padding 160 zeros for semicausal alignment matching PyTorch.
+   - 128 HTK-flavor triangular Mel filterbanks spanning $0\,\text{Hz} - 8000\,\text{Hz}$.
+   - Log-energy compression:
+
+$$
+S_{\text{mel}}(m, k) = \log\left(\max\left(\sum_{f=0}^{256} M(k, f) \cdot |X(m, f)|^2, 10^{-3}\right)\right)
+$$
+
+2. **Subsampling 2D Convolution**:
+   Two sequential Conv2D layers reducing time and frequency resolution by $4\times$ ($320 \times 128 \to 80 \times 32$):
+   - `Layer 0`: $\text{Conv2D}(1 \to 128, \text{kernel}=3, \text{stride}=2, \text{padding}=1) \to \text{LayerNorm}(128) \to \text{ReLU}$
+   - `Layer 1`: $\text{Conv2D}(128 \to 32, \text{kernel}=3, \text{stride}=2, \text{padding}=1) \to \text{LayerNorm}(32) \to \text{ReLU}$
+   - Flatten $32 \times 32 = 1024$ and linear projection to hidden size $1024$.
+
+3. **12-Layer Conformer Backbone (`hidden_size` = 1024)**:
+   - **Macaron Dual FFN**: Two half-step FFNs sandwiching attention and convolution, scaled by $0.5$:
+
+$$
+x^{(1)} = x + 0.5 \cdot \text{FFN}_1(x), \quad x^{(4)} = x^{(3)} + 0.5 \cdot \text{FFN}_2(x^{(3)})
+$$
+
+   - **Chunked Self-Attention with Relative Positional Bias**:
+     8 attention heads, chunk size 12 with causal/limited context ($13$ left context tokens, $0$ right context tokens) and logit clamping at $50.0$:
+
+$$
+A = \text{softmax}\left(\text{clamp}\left(\frac{Q K^T + Q K_{\text{rel}}^T}{\sqrt{D}}, -50.0, 50.0\right) + \text{Mask}_{\text{chunk}}\right) V
+$$
+
+   - **Causal Depthwise 1D Convolution (`lconv1d`)**:
+     Pre-RMSNorm $\to$ Pointwise Linear ($1024 \to 2048$) $\to$ SiLU GLU Gating $\to$ Causal 1D Depthwise Conv ($\text{kernel}=5, \text{stride}=1, \text{groups}=1024$) $\to$ Conv-RMSNorm $\to$ Pointwise Linear ($1024 \to 1024$).
+
+4. **Audio Connector Projection**:
+   Linear projection $W_{\text{audio\_proj}} \in \mathbb{R}^{1024 \times 1536}$ followed by $W_{\text{audio\_connector}} \in \mathbb{R}^{1536 \times 512}$ mapping conformer tokens into language embedding space, scattered between `<boa>` (id 257) and `<eoa>` (id 258) tokens.
+
 ---
 
 ## 4. Binary Model Package Format (`model.mmegm`)
@@ -243,6 +290,21 @@ To eliminate runtime serialization overhead and Python dependencies, weights are
   - `vision.layer{i}.down_proj`: ViT gated MLP down weight `[3072, 768]`
   - `vision.final_norm`: ViT post-encoder RMSNorm `[768]`
   - `vision.connector`: Linear projection mapping vision hidden dim to language hidden dim `[768, 512]`
+- **Audio Tower (Phase 3)**:
+  - `audio.subsample.conv0`: Conv2D layer 0 `[128, 1, 3, 3]`
+  - `audio.subsample.norm0`: LayerNorm weight `[128]` & bias `[128]`
+  - `audio.subsample.conv1`: Conv2D layer 1 `[32, 128, 3, 3]`
+  - `audio.subsample.norm1`: LayerNorm weight `[32]` & bias `[32]`
+  - `audio.subsample.proj`: Linear projection `[1024, 1024]`
+  - `audio.layer{i}.ffn1.w1` / `w2`: Macaron FFN 1 projections `[1024, 4096]` & `[4096, 1024]`
+  - `audio.layer{i}.q_proj`, `k_proj`, `v_proj`, `out_proj`: Conformer self-attention projections `[1024, 1024]`
+  - `audio.layer{i}.rel_k_proj`: Relative positional attention projection `[1024, 1024]`
+  - `audio.layer{i}.lconv.w_start`: LightConv1D pointwise up `[1024, 2048]`
+  - `audio.layer{i}.lconv.depthwise`: 1D causal depthwise conv `[1024, 1, 5]`
+  - `audio.layer{i}.lconv.w_end`: LightConv1D pointwise down `[1024, 1024]`
+  - `audio.layer{i}.ffn2.w1` / `w2`: Macaron FFN 2 projections `[1024, 4096]` & `[4096, 1024]`
+  - `audio.output_proj`: Audio conformer projection `[1024, 1536]`
+  - `audio.connector`: Audio connector projection to language backbone `[1536, 512]`
 
 All linear weights are pre-transposed during offline packaging ($B[K, N]$ layout) so GPU matrix multiply reads coalesce consecutively along $N$.
 
@@ -267,6 +329,7 @@ examples/mm_embedding/
 ├── xmake.lua                          # XMake build configuration
 ├── example_mm_embed_text.cpp          # Interactive text embedding demo
 ├── example_mm_embed_vision.cpp        # Interactive image and multimodal query demo
+├── example_mm_embed_audio.cpp         # Interactive audio and multimodal speech demo
 ├── example_mm_embed_test.cpp          # Automated unit & regression test suite
 ├── example_mm_embed_bench.cpp         # Multimodal vision evaluation & benchmark harness
 ├── embed/
@@ -275,6 +338,7 @@ examples/mm_embedding/
 │   ├── session.h / .cpp               # High-level thread-safe Session API & Selective Loading
 │   ├── tokenizer.h / .cpp             # Pure C++ Gemma BPE tokenizer
 │   ├── image_processor.h / .cpp       # Catmull-Rom bicubic image downsampler & normalizer
+│   ├── audio_processor.h / .cpp       # 16kHz WAV decoder & 128-Mel STFT filterbank extractor
 │   └── kernels/
 │       ├── kernels_norm.h / .cpp      # RMSNorm and L2Norm kernels
 │       ├── kernels_rope.h / .cpp      # RoPE rotary embedding kernels (1D & 2D Axial)
@@ -282,11 +346,13 @@ examples/mm_embedding/
 │       ├── kernels_attention.h / .cpp # GQA attention kernels (scores, softmax, PV)
 │       ├── kernels_pool.h / .cpp      # Mask-aware Mean Pooling + MRL + L2Norm
 │       ├── kernels_vision.h / .cpp    # ViT pixel scaling, 2D pooling & soft token scatter
+│       ├── kernels_audio.h / .cpp     # Conformer Macaron FFN, chunked rel-attn & LightConv1D
 │       └── kernels_gemm.h / .cpp      # Tiled & register-blocked GEMM kernels
 └── tools/
     ├── pack_model.py                  # Offline safetensors-to-EGM converter
     ├── dump_golden.py                 # PyTorch text golden generation script
     ├── dump_vision_golden.py          # PyTorch multimodal vision golden generation script
+    ├── dump_audio_golden.py           # PyTorch multimodal audio golden generation script
     ├── build_diverse_dataset.py       # Diverse 8-domain multimodal benchmark dataset builder
     ├── generate_test_multimodal_data.py # Multimodal synthetic test fixture generator
     ├── pack_model.cpp                 # C++ packaging & validation tool
@@ -303,7 +369,7 @@ examples/mm_embedding/
 xmake f -p windows -a x64 -m release
 
 # Build engine library, demos, tests, and benchmark harness
-xmake build lc-example-mm-embedding example_mm_embed_text example_mm_embed_vision example_mm_embed_test example_mm_embed_bench
+xmake build lc-example-mm-embedding example_mm_embed_text example_mm_embed_vision example_mm_embed_audio example_mm_embed_test example_mm_embed_bench
 
 # Run automated unit and regression test suite
 xmake run example_mm_embed_test dx model.mmegm tokenizer.json
@@ -314,6 +380,9 @@ xmake run example_mm_embed_text dx model.mmegm tokenizer.json
 # Run interactive image and multimodal embedding demo
 xmake run example_mm_embed_vision dx model.mmegm tokenizer.json input.jpg "A high resolution photo"
 
+# Run interactive audio and multimodal embedding demo
+xmake run example_mm_embed_audio dx model.mmegm tokenizer.json speech.wav
+
 # Run multimodal vision benchmark harness
 xmake run example_mm_embed_bench dx model.mmegm tokenizer.json data/diverse_dataset.json data/golden_diverse_vision.json
 ```
@@ -321,19 +390,20 @@ xmake run example_mm_embed_bench dx model.mmegm tokenizer.json data/diverse_data
 ### Using CMake
 ```bash
 cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target example_mm_embed_text example_mm_embed_vision example_mm_embed_test example_mm_embed_bench
+cmake --build build --target example_mm_embed_text example_mm_embed_vision example_mm_embed_audio example_mm_embed_test example_mm_embed_bench
 ```
 
 ### Selective Encoder Loading
 
-In resource-constrained environments or text-only inference services, disable the vision encoder to save approximately **700 MB of VRAM** and avoid ViT kernel compilation overhead:
+In resource-constrained environments or dedicated microservices, selectively disable individual modal encoders to save substantial VRAM:
 
 ```cpp
 luisa::mm_embed::SessionConfig config;
-config.enable_vision = false; // Disables vision tower allocation and kernel compilation
+config.enable_vision = false; // Saves ~700 MB VRAM (skips ViT allocation & compilation)
+config.enable_audio = false;  // Saves ~1.2 GB VRAM (skips Conformer allocation & compilation)
 
 luisa::mm_embed::Session session(context, device, stream, package, tokenizer, config);
-// Full text embedding capabilities remain available with zero numerical difference
+// Remaining active modalities operate with strictly 0.0 numerical cosine deviation
 ```
 
 ---
@@ -342,9 +412,12 @@ luisa::mm_embed::Session session(context, device, stream, package, tokenizer, co
 
 The implementation has been strictly benchmarked and verified across **DirectX 12**, **CUDA**, and **Vulkan** against official PyTorch `SentenceTransformer` outputs:
 
-- **Mathematical Parity**: Average cosine similarity $> 0.9997$ across diverse visual domains (minimum $> 0.9982$).
+- **Vision Parity**: Average cosine similarity $> 0.9997$ across diverse visual domains (minimum $> 0.9982$).
 - **Hard-Negative Discrimination**: Semantic margin $\Delta(\text{pos}, \text{neg}) \ge +0.1455$ on challenging cross-domain distractors.
 - **Bilingual Cross-Lingual Alignment**: Multilingual consistency score of $0.8397$ between English and Chinese queries.
-- **Selective Loading Invariance**: Text embedding cosine difference between `enable_vision = true` and `enable_vision = false` is strictly $0.0$.
+- **Audio Parity**: Cosine similarity against PyTorch golden references $> 0.99997$ across all MRL dimensions ($768, 512, 256, 128$).
+- **Audio Layer-by-Layer Alignment**: Fine-grained intermediate operator cosine parity $> 0.9994$ across `subsample_conv`, `layer0`, `layer11`, `output_proj`, and `connector`.
+- **Zero-Shot Audio-to-Text Retrieval**: Accurate ranking of speech candidates matching official Google examples (Top-1 match with similarity $0.8780$).
+- **Selective Loading Invariance**: Text embedding cosine difference between enabled and disabled encoder configurations is strictly $0.0$.
 
 

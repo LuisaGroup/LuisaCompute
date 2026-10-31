@@ -258,6 +258,89 @@ def main():
             canonical_tensors.append(("vision.connector.proj", v_conn_proj.T))
         print(f"Vision Tower added: 195 tensors (Total: {len(canonical_tensors)} tensors)")
 
+    # 6. Audio Encoder weights (~300M params, 272 tensors)
+    audio_sub0_conv = get_raw("audio_tower.subsample_conv_projection.layer0.conv.weight")
+    if audio_sub0_conv is not None:
+        print("Packaging Audio Tower tensors...")
+        canonical_tensors.append(("audio.subsample.layer0.conv", audio_sub0_conv))
+        canonical_tensors.append(("audio.subsample.layer0.norm", get_raw("audio_tower.subsample_conv_projection.layer0.norm.weight")))
+        canonical_tensors.append(("audio.subsample.layer1.conv", get_raw("audio_tower.subsample_conv_projection.layer1.conv.weight")))
+        canonical_tensors.append(("audio.subsample.layer1.norm", get_raw("audio_tower.subsample_conv_projection.layer1.norm.weight")))
+        canonical_tensors.append(("audio.subsample.input_proj", get_raw("audio_tower.subsample_conv_projection.input_proj_linear.weight").T))
+
+        for i in range(12):
+            pfx = f"audio_tower.layers.{i}."
+            canonical_tensors.extend([
+                (f"audio.layer{i}.ffn1_pre_norm", get_raw(pfx + "feed_forward1.pre_layer_norm.weight")),
+                (f"audio.layer{i}.ffn1_linear1", get_raw(pfx + "feed_forward1.ffw_layer_1.linear.weight").T),
+                (f"audio.layer{i}.ffn1_linear2", get_raw(pfx + "feed_forward1.ffw_layer_2.linear.weight").T),
+                (f"audio.layer{i}.ffn1_post_norm", get_raw(pfx + "feed_forward1.post_layer_norm.weight")),
+                (f"audio.layer{i}.norm_pre_attn", get_raw(pfx + "norm_pre_attn.weight")),
+                (f"audio.layer{i}.q_proj", get_raw(pfx + "self_attn.q_proj.linear.weight").T),
+                (f"audio.layer{i}.k_proj", get_raw(pfx + "self_attn.k_proj.linear.weight").T),
+                (f"audio.layer{i}.v_proj", get_raw(pfx + "self_attn.v_proj.linear.weight").T),
+                (f"audio.layer{i}.per_dim_scale", get_raw(pfx + "self_attn.per_dim_scale")),
+                (f"audio.layer{i}.relative_k_proj", get_raw(pfx + "self_attn.relative_k_proj.weight").T),
+                (f"audio.layer{i}.out_proj", get_raw(pfx + "self_attn.post.linear.weight").T),
+                (f"audio.layer{i}.norm_post_attn", get_raw(pfx + "norm_post_attn.weight")),
+                (f"audio.layer{i}.lconv_pre_norm", get_raw(pfx + "lconv1d.pre_layer_norm.weight")),
+                (f"audio.layer{i}.lconv_linear_start", get_raw(pfx + "lconv1d.linear_start.linear.weight").T),
+                (f"audio.layer{i}.lconv_depthwise", get_raw(pfx + "lconv1d.depthwise_conv1d.weight")),
+                (f"audio.layer{i}.lconv_norm", get_raw(pfx + "lconv1d.conv_norm.weight")),
+                (f"audio.layer{i}.lconv_linear_end", get_raw(pfx + "lconv1d.linear_end.linear.weight").T),
+                (f"audio.layer{i}.ffn2_pre_norm", get_raw(pfx + "feed_forward2.pre_layer_norm.weight")),
+                (f"audio.layer{i}.ffn2_linear1", get_raw(pfx + "feed_forward2.ffw_layer_1.linear.weight").T),
+                (f"audio.layer{i}.ffn2_linear2", get_raw(pfx + "feed_forward2.ffw_layer_2.linear.weight").T),
+                (f"audio.layer{i}.ffn2_post_norm", get_raw(pfx + "feed_forward2.post_layer_norm.weight")),
+                (f"audio.layer{i}.norm_out", get_raw(pfx + "norm_out.weight")),
+            ])
+
+        canonical_tensors.append(("audio.output_proj.weight", get_raw("audio_tower.output_proj.weight").T))
+        canonical_tensors.append(("audio.output_proj.bias", get_raw("audio_tower.output_proj.bias")))
+        canonical_tensors.append(("audio.connector.proj", get_raw("embed_audio.embedding_projection.weight").T))
+
+        try:
+            from transformers import AutoProcessor
+            proc = AutoProcessor.from_pretrained(model_dir)
+            if hasattr(proc, "feature_extractor") and hasattr(proc.feature_extractor, "mel_filters"):
+                canonical_tensors.append(("audio.frontend.mel_filters", proc.feature_extractor.mel_filters.astype(np.float32)))
+                print("Added audio.frontend.mel_filters to package.")
+        except Exception as e:
+            print(f"Note: mel_filters from processor not added ({e})")
+
+        clip_linears = [
+            "feed_forward1.ffw_layer_1",
+            "feed_forward1.ffw_layer_2",
+            "self_attn.q_proj",
+            "self_attn.k_proj",
+            "self_attn.v_proj",
+            "self_attn.post",
+            "lconv1d.linear_start",
+            "lconv1d.linear_end",
+            "feed_forward2.ffw_layer_1",
+            "feed_forward2.ffw_layer_2",
+        ]
+        clip_bounds = np.zeros((12, 10, 4), dtype=np.float32)
+        has_clips = False
+        for i in range(12):
+            pfx = f"audio_tower.layers.{i}."
+            for j, lin in enumerate(clip_linears):
+                in_min = get_raw(pfx + lin + ".input_min")
+                in_max = get_raw(pfx + lin + ".input_max")
+                out_min = get_raw(pfx + lin + ".output_min")
+                out_max = get_raw(pfx + lin + ".output_max")
+                if in_min is not None:
+                    has_clips = True
+                    clip_bounds[i, j, 0] = float(in_min)
+                    clip_bounds[i, j, 1] = float(in_max)
+                    clip_bounds[i, j, 2] = float(out_min)
+                    clip_bounds[i, j, 3] = float(out_max)
+        if has_clips:
+            canonical_tensors.append(("audio.clip_bounds", clip_bounds))
+            print("Added audio.clip_bounds [12, 10, 4] to package.")
+
+        print(f"Audio Tower added tensors (Total: {len(canonical_tensors)} tensors)")
+
     prec_id = PRECISION_MAP[args.precision]
     print(f"Preparing binary package ({len(canonical_tensors)} tensors, precision={args.precision})...")
 

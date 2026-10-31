@@ -28,9 +28,13 @@
 namespace luisa::mm_embed {
 
 struct MultimodalInputs {
-    compute::BufferView<float> vision_embeds{};// [num_soft_tokens, 512]
+    compute::BufferView<float> vision_embeds{};// [num_vision_tokens, 512]
     uint32_t vision_start_idx{2u};             // Token index where soft tokens are inserted
     uint32_t num_vision_tokens{256u};          // Number of soft tokens
+
+    compute::BufferView<float> audio_embeds{}; // [num_audio_tokens, 512]
+    uint32_t audio_start_idx{2u};              // Token index where soft tokens are inserted
+    uint32_t num_audio_tokens{77u};            // Number of audio soft tokens
 };
 
 class Executor {
@@ -38,7 +42,8 @@ public:
     static luisa::unique_ptr<Executor> create(
         compute::Device &device,
         const Package &package,
-        bool enable_vision = true);
+        bool enable_vision = true,
+        bool enable_audio = true);
 
     virtual ~Executor() = default;
 
@@ -48,6 +53,7 @@ public:
     Executor &operator=(Executor &&) = delete;
 
     [[nodiscard]] virtual bool has_vision() const noexcept = 0;
+    [[nodiscard]] virtual bool has_audio() const noexcept = 0;
 
     /**
      * Records the vision tower forward pass into cmd_list.
@@ -72,6 +78,33 @@ public:
         uint32_t num_patches_h = 48u,
         uint32_t max_patches = 2520u,
         uint32_t num_soft_tokens = 256u) = 0;
+
+    struct AudioDebugActivations {
+        compute::BufferView<float> subsample_proj{};   // [num_soft_tokens, 1024]
+        compute::BufferView<float> layer0_out{};       // [num_soft_tokens, 1024]
+        compute::BufferView<float> layer11_out{};      // [num_soft_tokens, 1024]
+        compute::BufferView<float> audio_tower_out{};  // [num_soft_tokens, 1536]
+    };
+
+    /**
+     * Records the audio tower forward pass into cmd_list.
+     *
+     * @param cmd_list Destination command list.
+     * @param input_features Mel spectrogram features buffer [T_in * 128] (e.g. 307 * 128).
+     * @param out_soft_tokens Destination device buffer for projected soft tokens [T_out * 512] (e.g. 77 * 512).
+     * @param num_frames Total input frames (e.g. 307).
+     * @param num_mel_bins Number of mel filter bins (128).
+     * @param num_soft_tokens Number of output soft tokens (e.g. 77).
+     * @param debug_acts Optional buffer views to capture intermediate layer activations for testing.
+     */
+    virtual void record_audio_encode(
+        compute::CommandList &cmd_list,
+        compute::BufferView<float> input_features,
+        compute::BufferView<float> out_soft_tokens,
+        uint32_t num_frames = 307u,
+        uint32_t num_mel_bins = 128u,
+        uint32_t num_soft_tokens = 77u,
+        AudioDebugActivations *debug_acts = nullptr) = 0;
 
     /**
      * Records the text embedding forward pass into cmd_list.
