@@ -935,6 +935,10 @@ using BufferHalf = BufferVar<half>;
 using BufferHalf2 = BufferVar<half2>;
 using BufferHalf3 = BufferVar<half3>;
 using BufferHalf4 = BufferVar<half4>;
+using BufferBFloat16 = BufferVar<bfloat16>;
+using BufferBFloat162 = BufferVar<bfloat162>;
+using BufferBFloat163 = BufferVar<bfloat163>;
+using BufferBFloat164 = BufferVar<bfloat164>;
 
 using BufferFloat2x2 = BufferVar<float2x2>;
 using BufferFloat3x3 = BufferVar<float3x3>;

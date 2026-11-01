@@ -49,6 +49,7 @@ void clone_local_metadata(
 [[nodiscard]] auto is_differentiable_type(const Type *type) noexcept -> bool {
     switch (type->tag()) {
         case Type::Tag::FLOAT16:
+        case Type::Tag::BFLOAT16:
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
             return true;
@@ -522,6 +523,10 @@ struct TransformAdScope {
                 return module->create_constant(type, &x);
             case Type::Tag::FLOAT16: {
                 auto v = static_cast<half>(x);
+                return module->create_constant(type, &v);
+            }
+            case Type::Tag::BFLOAT16: {
+                auto v = static_cast<bfloat16>(static_cast<float>(x));
                 return module->create_constant(type, &v);
             }
             case Type::Tag::VECTOR:
@@ -1428,6 +1433,7 @@ struct TransformAdScope {
         LUISA_ASSERT(type == grad->type(), "Gradient type mismatch: {} vs {}.", type->description(), grad->type()->description());
         switch (type->tag()) {
             case Type::Tag::FLOAT16:
+            case Type::Tag::BFLOAT16:
             case Type::Tag::FLOAT32:
             case Type::Tag::FLOAT64:
             case Type::Tag::VECTOR:
@@ -2448,6 +2454,10 @@ struct TransformForwardAdScope {
                 return module->create_constant(type, &x);
             case Type::Tag::FLOAT16: {
                 auto v = static_cast<half>(x);
+                return module->create_constant(type, &v);
+            }
+            case Type::Tag::BFLOAT16: {
+                auto v = static_cast<bfloat16>(static_cast<float>(x));
                 return module->create_constant(type, &v);
             }
             case Type::Tag::VECTOR:

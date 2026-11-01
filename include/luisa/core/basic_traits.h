@@ -8,6 +8,8 @@
 #define HALF_ARITHMETIC_TYPE float
 #include <half.hpp>
 
+#include <luisa/core/bfloat16.h>
+
 namespace luisa {
 
 template<typename... T>
@@ -30,6 +32,7 @@ template<typename T>
 
 using half = half_float::half;
 using namespace half_float::literal;
+using namespace literals;
 
 static_assert(sizeof(half) == 2u && alignof(half) == 2u,
               "half should be 16-bit sized and aligned.");
@@ -39,6 +42,12 @@ static_assert(std::is_same_v<decltype(1._h + 1._h), half>,
 
 static_assert(std::is_same_v<decltype(sin(1._h)), half>,
               "half should support std::sin.");
+
+static_assert(std::is_same_v<decltype(1._bf16 + 1._bf16), bfloat16>,
+              "bfloat16 should support arithmetic operations.");
+
+static_assert(std::is_same_v<decltype(1.0f + 1._bf16), float>,
+              "bfloat16 mixed arithmetic should compute in single precision.");
 
 // NOTE: half_float::half is a class type and cannot satisfy std::is_arithmetic.
 // static_assert(std::is_arithmetic_v<half>,
@@ -85,6 +94,7 @@ constexpr auto is_boolean_v = is_boolean<T>::value;
 template<typename T>
 using is_floating_point = std::disjunction<
     std::is_same<std::remove_cvref_t<T>, half>,
+    std::is_same<std::remove_cvref_t<T>, bfloat16>,
     std::is_same<std::remove_cvref_t<T>, float>,
     std::is_same<std::remove_cvref_t<T>, double>>;
 

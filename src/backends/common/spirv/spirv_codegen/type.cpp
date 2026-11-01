@@ -81,6 +81,11 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
         case Type::Tag::FLOAT16:
             id = _builder.makeFloatType(16);
             break;
+        case Type::Tag::BFLOAT16:
+            _require_target_feature(target_feature::shader_bfloat16,
+                                    _target_features.shader_bfloat16);
+            id = _builder.makeBFloat16Type();
+            break;
         case Type::Tag::FLOAT32: id = _builder.makeFloatType(32); break;
         case Type::Tag::FLOAT64:
             _require_target_feature(target_feature::shader_float64,

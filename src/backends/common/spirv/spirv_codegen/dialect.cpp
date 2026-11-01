@@ -110,6 +110,7 @@ template<typename Enum>
         case Type::Tag::INT64:
         case Type::Tag::UINT64:
         case Type::Tag::FLOAT16:
+        case Type::Tag::BFLOAT16:
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
@@ -205,7 +206,7 @@ template<typename Enum>
 [[nodiscard]] bool subgroup_value_type_supported(const Type *type) noexcept {
     auto scalar = subgroup_scalar_type(type);
     return scalar != nullptr && !scalar->is_float8() &&
-           !scalar->is_float64();
+           !scalar->is_bfloat16() && !scalar->is_float64();
 }
 
 [[nodiscard]] bool type_contains_float8(const Type *type) noexcept {

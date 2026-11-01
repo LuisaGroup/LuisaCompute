@@ -57,6 +57,7 @@ void XIRDebugPrinter::emit_type(luisa::string &s, const Type *type) noexcept {
         case Type::Tag::INT64: s.append("i64"sv); break;
         case Type::Tag::UINT64: s.append("u64"sv); break;
         case Type::Tag::FLOAT16: s.append("f16"sv); break;
+        case Type::Tag::BFLOAT16: s.append("bf16"sv); break;
         case Type::Tag::FLOAT32: s.append("f32"sv); break;
         case Type::Tag::FLOAT64: s.append("f64"sv); break;
         case Type::Tag::VECTOR: {
@@ -133,6 +134,7 @@ void print_literal(luisa::string &s, const Type *type, const void *data) noexcep
         case Type::Tag::INT64: print_scalar(int64_t{}); break;
         case Type::Tag::UINT64: print_scalar(uint64_t{}); break;
         case Type::Tag::FLOAT16: print_scalar(half{}); break;
+        case Type::Tag::BFLOAT16: print_scalar(bfloat16{}); break;
         case Type::Tag::FLOAT32: print_scalar(float{}); break;
         case Type::Tag::FLOAT64: print_scalar(double{}); break;
         case Type::Tag::VECTOR: {

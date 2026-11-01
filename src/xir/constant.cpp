@@ -89,6 +89,7 @@ static void xir_constant_fill_one(const Type *t, void *data) noexcept {
             case Type::Tag::INT64: do_copy(static_cast<int64_t>(1)); break;
             case Type::Tag::UINT64: do_copy(static_cast<uint64_t>(1)); break;
             case Type::Tag::FLOAT16: do_copy(static_cast<half>(1.0f)); break;
+            case Type::Tag::BFLOAT16: do_copy(static_cast<bfloat16>(1.0f)); break;
             case Type::Tag::FLOAT32: do_copy(static_cast<float>(1.0f)); break;
             case Type::Tag::FLOAT64: do_copy(static_cast<double>(1.0)); break;
             default: LUISA_ERROR_WITH_LOCATION("Unsupported scalar type.");

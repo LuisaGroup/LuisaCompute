@@ -28,6 +28,7 @@ if is_plat("macosx") then
 end
 test_proj("test_basic_traits", "unit/core/test_basic_traits.cpp")
 test_proj("test_basic_types", "unit/core/test_basic_types.cpp")
+test_proj("test_bfloat16", "unit/core/test_bfloat16.cpp")
 test_proj("test_binary_file_stream", "unit/core/test_binary_file_stream.cpp")
 test_proj("test_binary_io", "unit/core/test_binary_io.cpp")
 test_proj("test_clock", "unit/core/test_clock.cpp")
@@ -236,6 +237,7 @@ test_proj("test_normal_encoding", "unit/dsl/test_normal_encoding.cpp", true)
 -- unit/ast
 test_proj("test_ast", "unit/ast/test_ast.cpp")
 test_proj("test_ast_basic", "unit/ast/test_ast_basic.cpp")
+test_proj("test_ast_json_serde", "unit/ast/test_ast_json_serde.cpp")
 test_proj("test_builtin_kernel", "unit/ast/test_builtin_kernel.cpp", false, function()
     add_includedirs("$(projectdir)/src/runtime")
 end)
@@ -857,6 +859,7 @@ end
 
 -- unit/dsl: standalone GPU tests
 test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
+test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
 
   -- unit/runtime: FP4/FP8 quantization tests
   test_proj("test_fp4", "unit/runtime/test_fp4.cpp")

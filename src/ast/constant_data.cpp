@@ -68,6 +68,7 @@ void ConstantDecoder::_decode(const Type *type, const std::byte *data) noexcept 
         case Type::Tag::INT64: _decode_long(*reinterpret_cast<const slong *>(data)); break;
         case Type::Tag::UINT64: _decode_ulong(*reinterpret_cast<const ulong *>(data)); break;
         case Type::Tag::FLOAT16: _decode_half(*reinterpret_cast<const half *>(data)); break;
+        case Type::Tag::BFLOAT16: _decode_bfloat16(*reinterpret_cast<const bfloat16 *>(data)); break;
         case Type::Tag::FLOAT32: _decode_float(*reinterpret_cast<const float *>(data)); break;
         case Type::Tag::FLOAT64: _decode_double(*reinterpret_cast<const double *>(data)); break;
         // NOLINTBEGIN(bugprone-branch-clone)
@@ -135,6 +136,7 @@ protected:
     void _decode_long(slong x) noexcept override { _s.append(luisa::format("long({})", x)); }
     void _decode_ulong(ulong x) noexcept override { _s.append(luisa::format("ulong({})", x)); }
     void _decode_half(half x) noexcept override { _s.append(luisa::format("half({})", luisa::bit_cast<ushort>(x))); }
+    void _decode_bfloat16(bfloat16 x) noexcept override { _s.append(luisa::format("bfloat16({})", x.bits())); }
     void _decode_float(float x) noexcept override { _s.append(luisa::format("float({})", luisa::bit_cast<uint>(x))); }
     void _decode_double(double x) noexcept override { _s.append(luisa::format("double({})", luisa::bit_cast<ulong>(x))); }
     // NOLINTBEGIN(bugprone-branch-clone)

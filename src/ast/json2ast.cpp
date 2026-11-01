@@ -672,6 +672,7 @@ private:
             case Type::Tag::INT64: return Type::from("long");
             case Type::Tag::UINT64: return Type::from("ulong");
             case Type::Tag::FLOAT16: return Type::from("half");
+            case Type::Tag::BFLOAT16: return Type::from("bfloat16");
             case Type::Tag::FLOAT32: return Type::from("float");
             case Type::Tag::FLOAT64: return Type::from("double");
             case Type::Tag::FLOAT8_E4M3: return Type::from("float8e4m3");
@@ -898,6 +899,7 @@ private:
             case Type::Tag::INT64:
             case Type::Tag::UINT64:
             case Type::Tag::FLOAT16:
+            case Type::Tag::BFLOAT16:
             case Type::Tag::FLOAT32:
             case Type::Tag::FLOAT64: return true;
             case Type::Tag::VECTOR:

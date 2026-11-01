@@ -1501,6 +1501,12 @@ string CUDADevice::query(luisa::string_view property) noexcept {
     if (property == "device_name") {
         return "cuda";
     }
+    if (property == "shader_bfloat16") {
+        // The embedded CUDA device library implements BF16 storage and
+        // conversions directly and evaluates arithmetic in FP32, so no
+        // native BF16 instruction set or toolkit headers are required.
+        return "true";
+    }
     if (property == "total_memory") {
         return with_handle([] {
             if (size_t free_mem, total_mem; cuMemGetInfo(&free_mem, &total_mem) == CUDA_SUCCESS) {

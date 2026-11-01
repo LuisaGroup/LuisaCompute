@@ -206,6 +206,10 @@ using Half = Var<half>;
 using Half2 = Var<half2>;
 using Half3 = Var<half3>;
 using Half4 = Var<half4>;
+using BFloat16 = Var<bfloat16>;
+using BFloat162 = Var<bfloat162>;
+using BFloat163 = Var<bfloat163>;
+using BFloat164 = Var<bfloat164>;
 
 template<size_t N>
 using ArrayInt = ArrayVar<int, N>;
@@ -348,6 +352,7 @@ LUISA_MAKE_DSL_INTEGRAL_LITERAL(_slong, slong)
 LUISA_MAKE_DSL_INTEGRAL_LITERAL(_ulong, ulong)
 
 LUISA_MAKE_DSL_FLOATING_POINT_LITERAL(_half, half)
+LUISA_MAKE_DSL_FLOATING_POINT_LITERAL(_bfloat16, bfloat16)
 LUISA_MAKE_DSL_FLOATING_POINT_LITERAL(_float, float)
 LUISA_MAKE_DSL_FLOATING_POINT_LITERAL(_double, double)
 

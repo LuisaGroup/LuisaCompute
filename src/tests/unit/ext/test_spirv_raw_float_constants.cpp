@@ -148,6 +148,11 @@ struct ParsedFloatConstant {
         static_cast<void>(add_constant(float16_type, 16u, bits));
     }
 
+    auto bfloat16_type = builder.makeBFloat16Type();
+    for (auto bits : {0x0000ull, 0x8000ull, 0x7fc1ull, 0xffa1ull}) {
+        static_cast<void>(add_constant(bfloat16_type, 16u, bits));
+    }
+
     auto float32_type = builder.makeFloatType(32u);
     for (auto bits : {0x00000000ull, 0x80000000ull,
                       0x7fc12345ull, 0xffa54321ull}) {

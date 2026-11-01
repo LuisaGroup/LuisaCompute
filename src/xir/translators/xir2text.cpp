@@ -163,6 +163,7 @@ private:
             case Type::Tag::INT64: return "i64";
             case Type::Tag::UINT64: return "u64";
             case Type::Tag::FLOAT16: return "f16";
+            case Type::Tag::BFLOAT16: return "bf16";
             case Type::Tag::FLOAT32: return "f32";
             case Type::Tag::FLOAT64: return "f64";
             case Type::Tag::FLOAT8_E4M3: return "f8e4m3";

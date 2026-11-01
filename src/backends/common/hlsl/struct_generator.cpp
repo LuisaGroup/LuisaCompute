@@ -39,6 +39,9 @@ void StructGenerator::ProvideAlignVariable(Type const *type, size_t tarAlign, si
         if (type && (type->is_float16() || type->is_float16_vector())) {
             LUISA_ASSERT(bit_padding == 2, "Invalid struct alignment.");
             structDesc << "float16_t _a"sv << vstd::to_string(alignCount++) << ";\n"sv;
+        } else if (type && (type->is_bfloat16() || type->is_bfloat16_vector())) {
+            LUISA_ASSERT(bit_padding == 2, "Invalid struct alignment.");
+            structDesc << "bfloat16_t _a"sv << vstd::to_string(alignCount++) << ";\n"sv;
         } else if (type && (type->is_int16() || type->is_int16_vector())) {
             LUISA_ASSERT(bit_padding == 2, "Invalid struct alignment.");
             structDesc << "int16_t _a"sv << vstd::to_string(alignCount++) << ";\n"sv;
@@ -65,6 +68,7 @@ void StructGenerator::ProvideAlignVariable(Type const *type, size_t tarAlign, si
 bool StructGenerator::half_type_adjacent_with_bool(Type const *a, Type const *b) {
     switch (a->tag() == Type::Tag::VECTOR ? a->element()->tag() : a->tag()) {
         case Type::Tag::FLOAT16:
+        case Type::Tag::BFLOAT16:
         case Type::Tag::INT16:
         case Type::Tag::UINT16:
             break;

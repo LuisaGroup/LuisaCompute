@@ -457,6 +457,7 @@ inline void suspend_impl(uint32_t token, const char *name,
 #define $slong $<::luisa::slong>
 #define $ulong $<::luisa::ulong>
 #define $half $<::luisa::half>
+#define $bfloat16 $<::luisa::bfloat16>
 
 #define $int2 $<::luisa::int2>
 #define $uint2 $<::luisa::uint2>
@@ -467,6 +468,7 @@ inline void suspend_impl(uint32_t token, const char *name,
 #define $slong2 $<::luisa::slong2>
 #define $ulong2 $<::luisa::ulong2>
 #define $half2 $<::luisa::half2>
+#define $bfloat162 $<::luisa::bfloat162>
 
 #define $int3 $<::luisa::int3>
 #define $uint3 $<::luisa::uint3>
@@ -477,6 +479,7 @@ inline void suspend_impl(uint32_t token, const char *name,
 #define $slong3 $<::luisa::slong3>
 #define $ulong3 $<::luisa::ulong3>
 #define $half3 $<::luisa::half3>
+#define $bfloat163 $<::luisa::bfloat163>
 
 #define $int4 $<::luisa::int4>
 #define $uint4 $<::luisa::uint4>
@@ -487,6 +490,7 @@ inline void suspend_impl(uint32_t token, const char *name,
 #define $slong4 $<::luisa::slong4>
 #define $ulong4 $<::luisa::ulong4>
 #define $half4 $<::luisa::half4>
+#define $bfloat164 $<::luisa::bfloat164>
 
 #define $float2x2 $<::luisa::float2x2>
 #define $float3x3 $<::luisa::float3x3>

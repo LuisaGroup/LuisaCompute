@@ -11,38 +11,11 @@ namespace luisa::compute::tile {
 
 using luisa::half;
 
-// Host storage/conversion type. Tile arithmetic remains staged in TileIR.
-// Float32 -> BF16 rounds to nearest, ties to even; overflow becomes infinity.
-// NaNs remain NaNs and are quieted; signed zeros and subnormals are preserved.
-class BFloat16 final {
-private:
-    uint16_t _bits{};
-
-public:
-    constexpr BFloat16() noexcept = default;
-    explicit constexpr BFloat16(float value) noexcept {
-        auto bits = luisa::bit_cast<uint32_t>(value);
-        if ((bits & 0x7fffffffu) > 0x7f800000u) {
-            _bits = static_cast<uint16_t>((bits >> 16u) | 0x0040u);
-        } else {
-            _bits = static_cast<uint16_t>((bits + 0x7fffu + ((bits >> 16u) & 1u)) >> 16u);
-        }
-    }
-    [[nodiscard]] static constexpr BFloat16 from_bits(uint16_t bits) noexcept {
-        BFloat16 value;
-        value._bits = bits;
-        return value;
-    }
-    [[nodiscard]] constexpr uint16_t bits() const noexcept { return _bits; }
-    [[nodiscard]] explicit constexpr operator float() const noexcept {
-        return luisa::bit_cast<float>(static_cast<uint32_t>(_bits) << 16u);
-    }
-    [[nodiscard]] friend constexpr BFloat16 operator-(BFloat16 value) noexcept {
-        return from_bits(value._bits ^ 0x8000u);
-    }
-};
-using bfloat16 = BFloat16;
-using bf16 = BFloat16;
+// Share the core host storage/conversion type. Tile arithmetic remains staged
+// in TileIR, while DSL/XIR and Tile use one canonical BF16 representation.
+using BFloat16 = luisa::bfloat16;
+using bfloat16 = luisa::bfloat16;
+using bf16 = luisa::bfloat16;
 
 namespace detail {
 

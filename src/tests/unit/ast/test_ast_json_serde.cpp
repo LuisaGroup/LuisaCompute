@@ -139,6 +139,25 @@ void test_scalar_assignment_conversion_round_trip() {
     expect(invalid_encoded.error.find("assignment") != string::npos);
 }
 
+void test_bfloat16_constant_round_trip() {
+    auto source = FunctionBuilder::define_kernel([] {
+        auto builder = FunctionBuilder::current();
+        builder->set_block_size(uint3{1u, 1u, 1u});
+        auto scalar = bfloat16{1.5f};
+        auto vector = make_bfloat163(bfloat16{1.0f}, bfloat16{-2.0f}, bfloat16{3.0f});
+        builder->expression_statement(builder->constant(
+            ConstantData::create(Type::of<bfloat16>(), &scalar, sizeof(scalar))));
+        builder->expression_statement(builder->constant(
+            ConstantData::create(Type::of<bfloat163>(), &vector, sizeof(vector))));
+    });
+    auto encoded = try_to_json(Function{source.get()});
+    expect(static_cast<bool>(encoded)) << encoded.error;
+    auto decoded = from_json(encoded.json);
+    expect(static_cast<bool>(decoded)) << decoded.error;
+    if (!decoded) { return; }
+    expect(Function{decoded.function.get()}.hash() == Function{source.get()}.hash());
+}
+
 void test_indirect_dispatch_buffer_round_trip() {
     auto source = FunctionBuilder::define_kernel([] {
         auto builder = FunctionBuilder::current();
@@ -442,6 +461,8 @@ static auto test_ast_json_registration = [] {
         test_control_flow_round_trip;
     "ast_json_scalar_assignment_conversion_round_trip"_test =
         test_scalar_assignment_conversion_round_trip;
+    "ast_json_bfloat16_constant_round_trip"_test =
+        test_bfloat16_constant_round_trip;
     "ast_json_indirect_dispatch_buffer_round_trip"_test =
         test_indirect_dispatch_buffer_round_trip;
     "ast_json_ray_query_custom_types_round_trip"_test =

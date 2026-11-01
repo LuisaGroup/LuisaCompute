@@ -970,6 +970,9 @@ protected:
         p(x);
         _codegen->_scratch << ")";
     }
+    void _decode_bfloat16(bfloat16) noexcept override {
+        LUISA_NOT_IMPLEMENTED("Metal bfloat16 constants are not implemented.");
+    }
     void _decode_half(half x) noexcept override {
         _codegen->_scratch << "half(";
         detail::LiteralPrinter p{_codegen->_scratch};

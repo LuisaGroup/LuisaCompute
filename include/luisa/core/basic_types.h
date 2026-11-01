@@ -136,6 +136,7 @@ LUISA_MAKE_VECTOR_TYPES(ulong)
 LUISA_MAKE_VECTOR_TYPES(slong)
 
 LUISA_MAKE_VECTOR_TYPES(half)
+LUISA_MAKE_VECTOR_TYPES(bfloat16)
 LUISA_MAKE_VECTOR_TYPES(float)
 LUISA_MAKE_VECTOR_TYPES(double)
 
@@ -268,10 +269,10 @@ using half3x3 = Matrix<half, 3>;
 using half4x4 = Matrix<half, 4>;
 
 using basic_types = std::tuple<
-    bool, float, int, uint, short, ushort, slong, ulong, half, double, byte, ubyte,
-    bool2, float2, int2, uint2, short2, ushort2, byte2, ubyte2, slong2, ulong2, half2, double2,
-    bool3, float3, int3, uint3, short3, ushort3, byte3, ubyte3, slong3, ulong3, half3, double3,
-    bool4, float4, int4, uint4, short4, ushort4, byte4, ubyte4, slong4, ulong4, half4, double4,
+    bool, float, int, uint, short, ushort, slong, ulong, half, bfloat16, double, byte, ubyte,
+    bool2, float2, int2, uint2, short2, ushort2, byte2, ubyte2, slong2, ulong2, half2, bfloat162, double2,
+    bool3, float3, int3, uint3, short3, ushort3, byte3, ubyte3, slong3, ulong3, half3, bfloat163, double3,
+    bool4, float4, int4, uint4, short4, ushort4, byte4, ubyte4, slong4, ulong4, half4, bfloat164, double4,
     float2x2, float3x3, float4x4
     // TODO: should half matrix and double matrix become builtin-type? May break all backends
     // ,half2x2, half3x3, half4x4,
@@ -721,6 +722,7 @@ LUISA_MAKE_TYPE_N(ushort)
 LUISA_MAKE_TYPE_N(slong)
 LUISA_MAKE_TYPE_N(ulong)
 LUISA_MAKE_TYPE_N(half)
+LUISA_MAKE_TYPE_N(bfloat16)
 LUISA_MAKE_TYPE_N(double)
 
 #undef LUISA_MAKE_TYPE_N

@@ -58,8 +58,9 @@ inline constexpr SpirvTargetFeatureMask shader_device_clock = 0x0000004000000000
 inline constexpr SpirvTargetFeatureMask buffer_device_address = 0x0000008000000000ull;
 inline constexpr SpirvTargetFeatureMask shader_untyped_pointers = 0x0000010000000000ull;
 inline constexpr SpirvTargetFeatureMask cooperative_vector = 0x0000020000000000ull;
+inline constexpr SpirvTargetFeatureMask shader_bfloat16 = 0x0000040000000000ull;
 
-inline constexpr SpirvTargetFeatureMask known_mask = 0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector;
+inline constexpr SpirvTargetFeatureMask known_mask = 0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector | shader_bfloat16;
 
 }// namespace target_feature
 
@@ -110,7 +111,8 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::shader_device_clock, "shaderDeviceClock"},
     SpirvTargetFeatureDescription{target_feature::buffer_device_address, "bufferDeviceAddress"},
     SpirvTargetFeatureDescription{target_feature::shader_untyped_pointers, "shaderUntypedPointers"},
-    SpirvTargetFeatureDescription{target_feature::cooperative_vector, "cooperativeVector"}};
+    SpirvTargetFeatureDescription{target_feature::cooperative_vector, "cooperativeVector"},
+    SpirvTargetFeatureDescription{target_feature::shader_bfloat16, "shaderBFloat16Type"}};
 
 [[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {

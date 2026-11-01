@@ -180,6 +180,9 @@ public:
     [[nodiscard]] static auto make_number(half n) noexcept {
         return make_number(static_cast<double>(n));
     }
+    [[nodiscard]] static auto make_number(bfloat16 n) noexcept {
+        return make_number(static_cast<double>(static_cast<float>(n)));
+    }
     [[nodiscard]] static auto make_number(int16_t n) noexcept {
         return make_number(static_cast<double>(n));
     }
@@ -240,6 +243,7 @@ public:
     JSON(double n) noexcept : JSON{make_number(n)} {}
     JSON(float n) noexcept : JSON{make_number(n)} {}
     JSON(half n) noexcept : JSON{make_number(n)} {}
+    JSON(bfloat16 n) noexcept : JSON{make_number(n)} {}
     JSON(int16_t n) noexcept : JSON{make_number(n)} {}
     JSON(uint16_t n) noexcept : JSON{make_number(n)} {}
     JSON(int32_t n) noexcept : JSON{make_number(n)} {}
@@ -299,6 +303,10 @@ public:
         return *this;
     }
     JSON &operator=(half n) noexcept {
+        _copy(make_number(n));
+        return *this;
+    }
+    JSON &operator=(bfloat16 n) noexcept {
         _copy(make_number(n));
         return *this;
     }

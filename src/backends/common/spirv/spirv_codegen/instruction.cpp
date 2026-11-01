@@ -18,6 +18,12 @@ namespace lc::spirv {
 
 namespace {
 
+[[nodiscard]] bool spirv_is_bfloat16_scalar_or_vector(const Type *type) noexcept {
+    return type != nullptr &&
+           (type->is_bfloat16() ||
+            (type->is_vector() && type->element()->is_bfloat16()));
+}
+
 struct FastMathFmaPlan {
     const xir::ArithmeticInst *multiply{nullptr};
     const xir::Value *addend{nullptr};
@@ -32,7 +38,8 @@ struct FastMathFmaPlan {
     if (add == nullptr ||
         add->op() != xir::ArithmeticOp::BINARY_ADD ||
         add->type() == nullptr ||
-        !add->type()->is_float_or_float_vector()) {
+        !add->type()->is_float_or_float_vector() ||
+        spirv_is_bfloat16_scalar_or_vector(add->type())) {
         return {};
     }
     auto *type = add->type();
@@ -103,8 +110,36 @@ SpirvCodegenEntry::_emit_aggregate_access_indices(
 }
 
 void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) noexcept {
-    auto type = _convert_type(inst->type(), Usage::READ);
-    auto t = inst->type();
+    // SPV_KHR_bfloat16 deliberately permits transport, conversion, select,
+    // dot and cooperative-matrix operations, but not general arithmetic,
+    // comparisons, or GLSL.std.450 instructions. Compute all ordinary BF16
+    // math in binary32 and round only the BF16 result back to its declared
+    // type. Composite transport and SELECT remain native BF16 operations.
+    auto native_bfloat16_transport =
+        inst->op() == xir::ArithmeticOp::SELECT ||
+        inst->op() == xir::ArithmeticOp::AGGREGATE ||
+        inst->op() == xir::ArithmeticOp::SHUFFLE ||
+        inst->op() == xir::ArithmeticOp::INSERT ||
+        inst->op() == xir::ArithmeticOp::EXTRACT;
+    auto promote_bfloat16 = !native_bfloat16_transport &&
+                            spirv_is_bfloat16_scalar_or_vector(inst->type());
+    if (!native_bfloat16_transport) {
+        for (auto i = 0u; i < inst->operand_count(); ++i) {
+            promote_bfloat16 = promote_bfloat16 ||
+                               spirv_is_bfloat16_scalar_or_vector(
+                                   inst->operand(i)->type());
+        }
+    }
+    auto computation_type = [&](const Type *value_type) noexcept {
+        if (promote_bfloat16 && spirv_is_bfloat16_scalar_or_vector(value_type)) {
+            return value_type->is_vector() ?
+                       Type::vector(Type::of<float>(), value_type->dimension()) :
+                       Type::of<float>();
+        }
+        return value_type;
+    };
+    auto t = computation_type(inst->type());
+    auto type = _convert_type(t, Usage::READ);
     auto elem = t->is_vector() || t->is_matrix() ? t->element() : t;
     if (elem->is_float8() &&
         !spirv_fp8_transport_op_supported(inst->op())) {
@@ -117,7 +152,15 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     auto is_bool = elem->is_bool();
     auto is_scalar = t->is_scalar();
 
-    auto operand = [&](size_t i) noexcept { return _emit_value(inst->operand(i)); };
+    auto operand_type = [&](size_t i) noexcept {
+        return computation_type(inst->operand(i)->type());
+    };
+    auto operand = [&](size_t i) noexcept {
+        auto value = _emit_value(inst->operand(i));
+        return promote_bfloat16 ?
+                   _ensure_type(value, _convert_type(operand_type(i), Usage::READ)) :
+                   value;
+    };
     spv::Id id = spv::NoResult;
 
     auto require_uint32_bit_operation = [&]() noexcept {
@@ -254,11 +297,11 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     };
     auto operand_matching_result_type = [&](size_t i) noexcept -> spv::Id {
         auto value = operand(i);
-        auto operand_type = inst->operand(i)->type();
-        if (t->is_vector() && operand_type->is_scalar()) {
-            LUISA_ASSERT(operand_type == t->element(),
+        auto source_type = operand_type(i);
+        if (t->is_vector() && source_type->is_scalar()) {
+            LUISA_ASSERT(source_type == t->element(),
                          "Cannot broadcast {} to {}.",
-                         operand_type->description(), t->description());
+                         source_type->description(), t->description());
             value = _builder.smearScalar(spv::NoPrecision, value, type);
         }
         return value;
@@ -701,7 +744,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 id = unary(spv::Op::OpNot);
             break;
         case xir::ArithmeticOp::BINARY_ADD: {
-            if (is_float && _enable_fast_math) {
+            if (is_float && _enable_fast_math && !promote_bfloat16) {
                 // Peephole: detect FMul+FAdd pattern and emit fused multiply-add (FMA).
                 // BINARY_ADD(BINARY_MUL(a, b), c) -> Fma(a, b, c)
                 // BINARY_ADD(c, BINARY_MUL(a, b)) -> Fma(a, b, c)
@@ -1300,7 +1343,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = glsl(GLSLstd450Cross, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::DOT:
-            id = emit_dot(operand(0), operand(1), inst->operand(0)->type());
+            id = emit_dot(operand(0), operand(1), operand_type(0));
             break;
         case xir::ArithmeticOp::LENGTH: {
             // Lower to native SPIR-V: sqrt(dot(v, v)). The native form lets
@@ -1309,7 +1352,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             // GLSL.std.450 ExtInst would block.
             auto a = operand(0);
             if (inst->operand(0)->type()->is_vector()) {
-                auto dot = emit_dot(a, a, inst->operand(0)->type());
+                auto dot = emit_dot(a, a, operand_type(0));
                 id = make_glsl_call(GLSLstd450Sqrt, type, {dot});
             } else {
                 id = glsl(GLSLstd450Length, a);
@@ -1318,7 +1361,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         case xir::ArithmeticOp::LENGTH_SQUARED: {
             auto a = operand(0);
-            id = emit_dot(a, a, inst->operand(0)->type());
+            id = emit_dot(a, a, operand_type(0));
             break;
         }
         case xir::ArithmeticOp::NORMALIZE: {
@@ -1351,10 +1394,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::REDUCE_MIN:
         case xir::ArithmeticOp::REDUCE_MAX: {
             auto v = operand(0);
-            auto operand_type = inst->operand(0)->type();
-            auto elem_type = operand_type->element();
+            auto source_type = operand_type(0);
+            auto elem_type = source_type->element();
             auto elem_spv_type = _convert_type(elem_type, Usage::READ);
-            auto dim = operand_type->dimension();
+            auto dim = source_type->dimension();
             auto extract = [&](uint32_t i) {
                 return _builder.createCompositeExtract(v, elem_spv_type, i);
             };
@@ -1795,6 +1838,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
          inst->op() == xir::ArithmeticOp::BINARY_SUB ||
          inst->op() == xir::ArithmeticOp::BINARY_MUL)) {
         mark_no_contraction(id);
+    }
+    if (t != inst->type()) {
+        id = _ensure_type(id, _convert_type(inst->type(), Usage::READ));
     }
     if (inst->type() != nullptr) {
         _value_map.emplace(inst, id);
@@ -5478,8 +5524,13 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                                 one = _builder.makeFloatE4M3Constant(1.0f);
                             }
                         } else if (bit_width == 16) {
-                            zero = _builder.makeFloat16Constant(0.0f);
-                            one = _builder.makeFloat16Constant(1.0f);
+                            if (type->is_bfloat16()) {
+                                zero = _builder.makeBFloat16Constant(0.0f);
+                                one = _builder.makeBFloat16Constant(1.0f);
+                            } else {
+                                zero = _builder.makeFloat16Constant(0.0f);
+                                one = _builder.makeFloat16Constant(1.0f);
+                            }
                         } else if (bit_width == 32) {
                             zero = _builder.makeFloatConstant(0.0f);
                             one = _builder.makeFloatConstant(1.0f);
@@ -5507,7 +5558,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                         // OpSelect, but not in floating-point comparisons.
                         // Preserve C-style truthiness by widening before the
                         // unordered comparison (so NaN remains true).
-                        if (source->is_float8()) {
+                        if (source->is_float8() || source->is_bfloat16()) {
                             source = Type::of<float>();
                             scalar = _builder.createUnaryOp(
                                 spv::Op::OpFConvert,

@@ -174,6 +174,7 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     bool _inqueue_limit = true;// TODO
     struct NumericFeatures {
         bool shader_float8{false};
+        bool shader_bfloat16{false};
         bool shader_float16{false};
         bool shader_float64{false};
         bool shader_int8{false};

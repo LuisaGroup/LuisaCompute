@@ -100,6 +100,7 @@ namespace detail {
     LUISA_XIR2AST_VEC_OP(slong, LONG)
     LUISA_XIR2AST_VEC_OP(ulong, ULONG)
     LUISA_XIR2AST_VEC_OP(half, HALF)
+    LUISA_XIR2AST_VEC_OP(bfloat16, BFLOAT16_)
     LUISA_XIR2AST_VEC_OP(float, FLOAT)
     LUISA_XIR2AST_VEC_OP(double, DOUBLE)
 #undef LUISA_XIR2AST_VEC_OP
@@ -542,6 +543,7 @@ private:
         LUISA_XIR2AST_CONST_VEC(slong)
         LUISA_XIR2AST_CONST_VEC(ulong)
         LUISA_XIR2AST_CONST_VEC(half)
+        LUISA_XIR2AST_CONST_VEC(bfloat16)
         LUISA_XIR2AST_CONST_VEC(float)
         LUISA_XIR2AST_CONST_VEC(double)
         LUISA_XIR2AST_CONST(float2x2)

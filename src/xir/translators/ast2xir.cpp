@@ -861,6 +861,9 @@ private:
             case CallOp::MAKE_HALF2: return make_vector_call(Type::of<half>(), 2);
             case CallOp::MAKE_HALF3: return make_vector_call(Type::of<half>(), 3);
             case CallOp::MAKE_HALF4: return make_vector_call(Type::of<half>(), 4);
+            case CallOp::MAKE_BFLOAT16_2: return make_vector_call(Type::of<bfloat16>(), 2);
+            case CallOp::MAKE_BFLOAT16_3: return make_vector_call(Type::of<bfloat16>(), 3);
+            case CallOp::MAKE_BFLOAT16_4: return make_vector_call(Type::of<bfloat16>(), 4);
             case CallOp::MAKE_DOUBLE2: return make_vector_call(Type::of<double>(), 2);
             case CallOp::MAKE_DOUBLE3: return make_vector_call(Type::of<double>(), 3);
             case CallOp::MAKE_DOUBLE4: return make_vector_call(Type::of<double>(), 4);

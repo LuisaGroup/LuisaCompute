@@ -24,6 +24,7 @@ protected:
     virtual void _decode_long(slong x) noexcept = 0;
     virtual void _decode_ulong(ulong x) noexcept = 0;
     virtual void _decode_half(half x) noexcept = 0;
+    virtual void _decode_bfloat16(bfloat16 x) noexcept = 0;
     virtual void _decode_float(float x) noexcept = 0;
     virtual void _decode_double(double x) noexcept = 0;
     virtual void _vector_separator(const Type *type, uint index) noexcept = 0;

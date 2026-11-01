@@ -97,8 +97,15 @@ LUISA_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Ty
                 {Type::Tag::FLOAT8_E4M3, 9u},
                 {Type::Tag::FLOAT8_E5M2, 10u},
                 {Type::Tag::FLOAT16, 11u},
-                {Type::Tag::FLOAT32, 12u},
-                {Type::Tag::FLOAT64, 13u}};
+                {Type::Tag::BFLOAT16, 12u},
+                {Type::Tag::FLOAT32, 13u},
+                {Type::Tag::FLOAT64, 14u}};
+            // Mixed 16-bit floating formats compute in binary32 instead of
+            // silently selecting one encoding for both operands.
+            if ((lhs->tag() == Type::Tag::BFLOAT16 && rhs->tag() == Type::Tag::FLOAT16) ||
+                (lhs->tag() == Type::Tag::FLOAT16 && rhs->tag() == Type::Tag::BFLOAT16)) {
+                return Type::of<float>();
+            }
             return scalar_to_score.at(lhs->tag()) > scalar_to_score.at(rhs->tag()) ?
                        lhs :
                        rhs;

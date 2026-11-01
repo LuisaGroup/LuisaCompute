@@ -137,6 +137,11 @@ struct canonical_layout<half> {
 };
 
 template<>
+struct canonical_layout<bfloat16> {
+    using type = std::tuple<bfloat16>;
+};
+
+template<>
 struct canonical_layout<double> {
     using type = std::tuple<double>;
 };
@@ -364,7 +369,9 @@ public:
         COOPERATIVE_VECTOR,
         COOPERATIVE_VECTOR_REF,// should be uint32 for backend, only for metadata
         COOPERATIVE_MATRIX_REF,// should be uint32 for backend, only for metadata
-        CUSTOM
+        CUSTOM,
+        // Appended to preserve every pre-existing serialized tag value.
+        BFLOAT16
     };
 
 private:
@@ -509,7 +516,7 @@ public:
 
     /// Scalar = bool || float || int || uint || quantized (int4/fp4)
     [[nodiscard]] bool is_scalar() const noexcept {
-        return _tag <= Tag::FP4_E2M1;
+        return _tag <= Tag::FP4_E2M1 || _tag == Tag::BFLOAT16;
     }
     [[nodiscard]] bool is_bool() const noexcept { return _tag == Tag::BOOL; }
     [[nodiscard]] bool is_int32() const noexcept { return _tag == Tag::INT32; }
@@ -517,7 +524,8 @@ public:
     [[nodiscard]] bool is_int64() const noexcept { return _tag == Tag::INT64; }
     [[nodiscard]] bool is_uint64() const noexcept { return _tag == Tag::UINT64; }
     [[nodiscard]] bool is_float() const noexcept {
-        return _tag >= Tag::FLOAT16 && _tag <= Tag::FLOAT8_E5M2;
+        return (_tag >= Tag::FLOAT16 && _tag <= Tag::FLOAT8_E5M2) ||
+               _tag == Tag::BFLOAT16;
     }
     [[nodiscard]] bool is_int() const noexcept {
         return _tag == Tag::INT8 || _tag == Tag::INT16 ||
@@ -529,6 +537,7 @@ public:
                _tag == Tag::UINT32 || _tag == Tag::UINT64;
     }
     [[nodiscard]] bool is_float16() const noexcept { return _tag == Tag::FLOAT16; }
+    [[nodiscard]] bool is_bfloat16() const noexcept { return _tag == Tag::BFLOAT16; }
     [[nodiscard]] bool is_float32() const noexcept { return _tag == Tag::FLOAT32; }
     [[nodiscard]] bool is_float64() const noexcept { return _tag == Tag::FLOAT64; }
     [[nodiscard]] bool is_float8() const noexcept {
@@ -557,7 +566,8 @@ public:
     /// Arithmetic = float || int || uint
     /// Arithmetic = float || int || uint || quantized (int4/fp4)
     [[nodiscard]] bool is_arithmetic() const noexcept {
-        return _tag >= Tag::INT8 && _tag <= Tag::FP4_E2M1;
+        return (_tag >= Tag::INT8 && _tag <= Tag::FP4_E2M1) ||
+               _tag == Tag::BFLOAT16;
     }
 
     /// Basic = scalar || vector || matrix
@@ -573,6 +583,7 @@ public:
     [[nodiscard]] bool is_int32_vector() const noexcept;
     [[nodiscard]] bool is_uint32_vector() const noexcept;
     [[nodiscard]] bool is_float16_vector() const noexcept;
+    [[nodiscard]] bool is_bfloat16_vector() const noexcept;
     [[nodiscard]] bool is_float32_vector() const noexcept;
     [[nodiscard]] bool is_float64_vector() const noexcept;
     [[nodiscard]] bool is_int8_vector() const noexcept;

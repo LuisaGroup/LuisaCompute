@@ -812,6 +812,27 @@ int main(int argc, char *argv[]) {
         expect(!contains(compiled.text, "OpCapability RayQueryKHR"));
     };
 
+    "spirv_target_features_bfloat16_lowers_math_through_float32"_test = [] {
+        Kernel1D kernel = [](BufferBFloat16 input, BufferBFloat16 output) noexcept {
+            BFloat16 a = input.read(0u);
+            BFloat16 two = 2.0f;
+            output.write(0u, a * two + a);
+            output.write(1u, sin(a));
+        };
+        auto compiled = compile_spirv_fixture(kernel);
+        expect(eq(compiled.required_features,
+                  lc::spirv::target_feature::shader_bfloat16));
+        expect(contains(compiled.text, "OpExtension \"SPV_KHR_bfloat16\""));
+        expect(contains(compiled.text, "OpCapability BFloat16TypeKHR"));
+        expect(contains(compiled.text, "OpTypeFloat 16 BFloat16KHR"));
+        expect(contains(compiled.text, "OpFConvert"));
+        expect(contains(compiled.text, "OpFMul"));
+        expect(contains(compiled.text, "OpFAdd"));
+        expect(contains(compiled.text, " Sin"));
+        expect(!contains(compiled.text, "OpCapability Float16"));
+        expect(!contains(compiled.text, "OpCapability StorageBuffer16BitAccess"));
+    };
+
     "spirv_target_features_device_clock_is_exact"_test = [] {
         Kernel1D kernel = [](BufferULong output) noexcept {
             output.write(0u, device_clock());

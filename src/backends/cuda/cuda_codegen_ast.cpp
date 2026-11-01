@@ -681,6 +681,7 @@ void CUDACodegenAST::visit(const MemberExpr *expr) {
                 case Type::Tag::BOOL: _scratch << "bool"; break;
                 case Type::Tag::INT32: _scratch << "int"; break;
                 case Type::Tag::UINT32: _scratch << "uint"; break;
+                case Type::Tag::BFLOAT16: _scratch << "bfloat16"; break;
                 case Type::Tag::FLOAT32: _scratch << "float"; break;
                 default: LUISA_ERROR_WITH_LOCATION(
                     "Invalid vector element type: {}.",
@@ -730,6 +731,9 @@ public:
         if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         _s << luisa::format("lc_half({})", static_cast<float>(v));
     }
+    void operator()(bfloat16 v) const noexcept {
+        _s << luisa::format("lc_bfloat16::from_bits(lc_ushort({}))", v.bits());
+    }
     void operator()(double v) const noexcept {
         if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         if (std::isinf(v)) {
@@ -740,8 +744,8 @@ public:
     }
     void operator()(int v) const noexcept { _s << v; }
     void operator()(uint v) const noexcept { _s << v << "u"; }
-    void operator()(short v) const noexcept { _s << luisa::format("lc_ushort({})", v); }
-    void operator()(ushort v) const noexcept { _s << luisa::format("lc_short({})", v); }
+    void operator()(short v) const noexcept { _s << luisa::format("lc_short({})", v); }
+    void operator()(ushort v) const noexcept { _s << luisa::format("lc_ushort({})", v); }
     void operator()(slong v) const noexcept { _s << luisa::format("{}ll", v); }
     void operator()(ulong v) const noexcept { _s << luisa::format("{}ull", v); }
     void operator()(byte v) const noexcept { _s << luisa::format("lc_byte({})", v); }
@@ -1048,6 +1052,9 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(long, LONG)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ulong, ULONG)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(half, HALF)
+        case CallOp::MAKE_BFLOAT16_2: _scratch << "lc_make_bfloat162"; break;
+        case CallOp::MAKE_BFLOAT16_3: _scratch << "lc_make_bfloat163"; break;
+        case CallOp::MAKE_BFLOAT16_4: _scratch << "lc_make_bfloat164"; break;
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(float, FLOAT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(double, DOUBLE)
 #undef LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL
@@ -2083,6 +2090,7 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
     switch (type->tag()) {
         case Type::Tag::BOOL: _scratch << "lc_bool"; break;
         case Type::Tag::FLOAT16: _scratch << (hack_float_to_int ? "lc_ushort" : "lc_half"); break;
+        case Type::Tag::BFLOAT16: _scratch << (hack_float_to_int ? "lc_ushort" : "lc_bfloat16"); break;
         case Type::Tag::FLOAT32: _scratch << (hack_float_to_int ? "lc_uint" : "lc_float"); break;
         case Type::Tag::FLOAT64: _scratch << (hack_float_to_int ? "lc_ulong" : "lc_double"); break;
         case Type::Tag::INT8: _scratch << "lc_byte"; break;
@@ -2274,6 +2282,9 @@ protected:
     void _decode_ulong(ulong x) noexcept override { _codegen->_scratch << luisa::format("lc_ulong({})", x); }
     void _decode_half(half x) noexcept override {
         _codegen->_scratch << luisa::format("lc_ushort({})", luisa::bit_cast<ushort>(x));
+    }
+    void _decode_bfloat16(bfloat16 x) noexcept override {
+        _codegen->_scratch << luisa::format("lc_ushort({})", x.bits());
     }
     void _decode_float(float x) noexcept override {
         _codegen->_scratch << luisa::format("lc_uint({})", luisa::bit_cast<uint>(x));

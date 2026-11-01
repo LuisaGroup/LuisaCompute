@@ -319,6 +319,7 @@ constexpr auto capability_owned_target_features =
     target_feature::storage_image_read_without_format |
     target_feature::storage_image_write_without_format |
     target_feature::shader_float8 |
+    target_feature::shader_bfloat16 |
     target_feature::shader_float16 |
     target_feature::shader_float64 |
     target_feature::shader_int8 |
@@ -366,6 +367,8 @@ target_feature_from_capability(spv::Capability capability) noexcept {
             return target_feature::storage_image_write_without_format;
         case spv::Capability::Float8EXT:
             return target_feature::shader_float8;
+        case spv::Capability::BFloat16TypeKHR:
+            return target_feature::shader_bfloat16;
         case spv::Capability::Float16:
             return target_feature::shader_float16;
         case spv::Capability::Float64:

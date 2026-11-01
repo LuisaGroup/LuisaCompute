@@ -1277,6 +1277,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     }
     detail::NarrowNumericFeaturePlan narrow_numeric_features{};
     bool enable_float8 = false;
+    bool enable_bfloat16 = false;
     bool enable_buffer_int64_atomics = false;
     bool enable_shared_int64_atomics = false;
     bool enable_barycentric = false;
@@ -1348,6 +1349,22 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         if (supported_float8.shaderFloat8 == VK_TRUE) {
             enable_device_extension(VK_EXT_SHADER_FLOAT8_EXTENSION_NAME);
             enable_float8 = true;
+        }
+    }
+    if (supported_ext.find(VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME) !=
+        supported_ext.end()) {
+        VkPhysicalDeviceShaderBfloat16FeaturesKHR supported_bfloat16{
+            .sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_BFLOAT16_FEATURES_KHR,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_bfloat16};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (supported_bfloat16.shaderBFloat16Type == VK_TRUE) {
+            enable_device_extension(VK_KHR_SHADER_BFLOAT16_EXTENSION_NAME);
+            enable_bfloat16 = true;
+            LUISA_INFO("VK_KHR_shader_bfloat16 type support enabled on device.");
         }
     }
 #ifndef NDEBUG
@@ -2180,6 +2197,16 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (enable_float8) {
         feature_next = &float8_features;
     }
+    VkPhysicalDeviceShaderBfloat16FeaturesKHR bfloat16_features{
+        .sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_BFLOAT16_FEATURES_KHR,
+        .pNext = feature_next,
+        .shaderBFloat16Type = enable_bfloat16 ? VK_TRUE : VK_FALSE,
+        .shaderBFloat16DotProduct = VK_FALSE,
+        .shaderBFloat16CooperativeMatrix = VK_FALSE};
+    if (enable_bfloat16) {
+        feature_next = &bfloat16_features;
+    }
 #ifndef NDEBUG
     VkPhysicalDeviceShaderClockFeaturesKHR shader_clock_features{
         .sType =
@@ -2358,6 +2385,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (external_device == VK_NULL_HANDLE) {
         _numeric_features = {
             .shader_float8 = enable_float8,
+            .shader_bfloat16 = enable_bfloat16,
             .shader_float16 = narrow_numeric_features.shader_float16,
             .shader_float64 = device_features.shaderFloat64 == VK_TRUE,
             .shader_int8 = narrow_numeric_features.shader_int8,
@@ -3009,6 +3037,9 @@ luisa::string Device::query(luisa::string_view property) noexcept {
     if (property == "shader_int64") {
         return _numeric_features.shader_int64 ? "true" : "false";
     }
+    if (property == "shader_bfloat16") {
+        return _numeric_features.shader_bfloat16 ? "true" : "false";
+    }
     if (property == "timeline_semaphore_max_value_difference") {
         // The largest one-shot timeline-semaphore jump from the current
         // counter (VkPhysicalDeviceTimelineSemaphoreProperties::
@@ -3086,6 +3117,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::storage_image_write_without_format);
     enable(_numeric_features.shader_float8,
            target_feature::shader_float8);
+    enable(_numeric_features.shader_bfloat16,
+           target_feature::shader_bfloat16);
     enable(_numeric_features.shader_float16,
            target_feature::shader_float16);
     enable(_numeric_features.shader_float64,

@@ -487,6 +487,12 @@ template<typename T>
         return CallOp::MAKE_HALF3;
     } else if constexpr (std::is_same_v<T, half4>) {
         return CallOp::MAKE_HALF4;
+    } else if constexpr (std::is_same_v<T, bfloat162>) {
+        return CallOp::MAKE_BFLOAT16_2;
+    } else if constexpr (std::is_same_v<T, bfloat163>) {
+        return CallOp::MAKE_BFLOAT16_3;
+    } else if constexpr (std::is_same_v<T, bfloat164>) {
+        return CallOp::MAKE_BFLOAT16_4;
     } else if constexpr (std::is_same_v<T, short2>) {
         return CallOp::MAKE_SHORT2;
     } else if constexpr (std::is_same_v<T, short3>) {
@@ -868,6 +874,9 @@ using luisa::make_half4x4;
 using luisa::make_half2;
 using luisa::make_half3;
 using luisa::make_half4;
+using luisa::make_bfloat162;
+using luisa::make_bfloat163;
+using luisa::make_bfloat164;
 using luisa::make_double2;
 using luisa::make_double3;
 using luisa::make_double4;
@@ -1071,6 +1080,7 @@ LUISA_MAKE_VECTOR(ushort)
 LUISA_MAKE_VECTOR(slong)
 LUISA_MAKE_VECTOR(ulong)
 LUISA_MAKE_VECTOR(half)
+LUISA_MAKE_VECTOR(bfloat16)
 
 #undef LUISA_MAKE_VECTOR
 
@@ -1759,6 +1769,14 @@ template<typename T>
         CallOp::ROUND, std::forward<T>(x));
 }
 
+/// Round to the nearest integral value, with halfway cases rounded to even.
+template<typename T>
+    requires is_dsl_v<T> && is_floating_point_or_vector_expr_v<T>
+[[nodiscard]] inline auto rint(T &&x) noexcept {
+    return detail::make_vector_call<vector_expr_element_t<T>>(
+        CallOp::RINT, std::forward<T>(x));
+}
+
 /// Radian to degree
 template<typename T>
     requires is_dsl_v<T> && is_floating_point_or_vector_expr_v<T>
@@ -1821,6 +1839,15 @@ template<typename X, typename Y>
     return def<float3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3>(), CallOp::CROSS,
+            {LUISA_EXPR(x), LUISA_EXPR(y)}));
+}
+
+template<typename X, typename Y>
+    requires any_dsl_v<X, Y> && is_same_expr_v<X, Y, bfloat163>
+[[nodiscard]] inline auto cross(X &&x, Y &&y) noexcept {
+    return def<bfloat163>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<bfloat163>(), CallOp::CROSS,
             {LUISA_EXPR(x), LUISA_EXPR(y)}));
 }
 
@@ -1894,6 +1921,15 @@ template<typename I, typename N>
         CallOp::REFLECT, std::forward<I>(i), std::forward<N>(n));
 }
 
+template<typename I, typename N>
+    requires any_dsl_v<I, N> &&
+             std::same_as<expr_value_t<I>, bfloat163> &&
+             std::same_as<expr_value_t<N>, bfloat163>
+[[nodiscard]] inline auto reflect(I &&i, N &&n) noexcept {
+    return detail::make_vector_call<vector_expr_element_t<I>>(
+        CallOp::REFLECT, std::forward<I>(i), std::forward<N>(n));
+}
+
 /// Return face forward vector.
 /// faceforward orients a vector to point away from a surface as defined by its normal.
 /// If dot(Nref, I) < 0 faceforward returns N, otherwise it returns -N.
@@ -1903,6 +1939,15 @@ template<typename N, typename I, typename NRef>
     return def<float3>(
         detail::FunctionBuilder::current()->call(
             Type::of<float3>(), CallOp::FACEFORWARD,
+            {LUISA_EXPR(n), LUISA_EXPR(i), LUISA_EXPR(n_ref)}));
+}
+
+template<typename N, typename I, typename NRef>
+    requires any_dsl_v<N, I, NRef> && is_same_expr_v<N, I, NRef, bfloat163>
+[[nodiscard]] inline auto faceforward(N &&n, I &&i, NRef &&n_ref) noexcept {
+    return def<bfloat163>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<bfloat163>(), CallOp::FACEFORWARD,
             {LUISA_EXPR(n), LUISA_EXPR(i), LUISA_EXPR(n_ref)}));
 }
 

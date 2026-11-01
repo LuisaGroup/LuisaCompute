@@ -698,6 +698,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::MAKE_HALF2:
         case CallOp::MAKE_HALF3:
         case CallOp::MAKE_HALF4:
+        case CallOp::MAKE_BFLOAT16_2:
+        case CallOp::MAKE_BFLOAT16_3:
+        case CallOp::MAKE_BFLOAT16_4:
         case CallOp::MAKE_DOUBLE2:
         case CallOp::MAKE_DOUBLE3:
         case CallOp::MAKE_DOUBLE4: {

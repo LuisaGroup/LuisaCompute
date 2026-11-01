@@ -414,6 +414,8 @@ const CallExpr *FunctionBuilder::make_vector(const Type *type, luisa::span<const
                     return CallOp::MAKE_LONG2;
                 case Type::Tag::FLOAT16:
                     return CallOp::MAKE_HALF2;
+                case Type::Tag::BFLOAT16:
+                    return CallOp::MAKE_BFLOAT16_2;
                 case Type::Tag::FLOAT32:
                     return CallOp::MAKE_FLOAT2;
                 case Type::Tag::FLOAT64:

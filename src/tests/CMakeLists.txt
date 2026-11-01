@@ -284,6 +284,7 @@ endif ()
 # --- unit/core: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_basic_traits       unit/core/test_basic_traits.cpp       LABELS "unit;unit_core")
 luisa_compute_add_test(test_basic_types        unit/core/test_basic_types.cpp        LABELS "unit;unit_core")
+luisa_compute_add_test(test_bfloat16 unit/core/test_bfloat16.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_binary_file_stream unit/core/test_binary_file_stream.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_binary_io          unit/core/test_binary_io.cpp          LABELS "unit;unit_core")
 luisa_compute_add_test(test_clock              unit/core/test_clock.cpp              LABELS "unit;unit_core")
@@ -1712,6 +1713,7 @@ luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_round
 
 # --- unit/dsl: standalone GPU tests ---
 luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cpp)
+luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
 
   # --- unit/runtime: FP4/FP8 quantization tests ---
   luisa_compute_add_test(test_fp4 unit/runtime/test_fp4.cpp)

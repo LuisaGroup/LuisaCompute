@@ -175,6 +175,7 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
                      name != "ulong" &&
                      name != "float" &&
                      name != "half" &&
+                     name != "bfloat16" &&
                      name != "double" &&
                      name != "float8e4m3" &&
                      name != "float8e5m2" &&
@@ -366,6 +367,7 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     TRY_PARSE_SCALAR_TYPE(long, INT64, 8u)
     TRY_PARSE_SCALAR_TYPE(ulong, UINT64, 8u)
     TRY_PARSE_SCALAR_TYPE(half, FLOAT16, 2u)
+    TRY_PARSE_SCALAR_TYPE(bfloat16, BFLOAT16, 2u)
     TRY_PARSE_SCALAR_TYPE(float, FLOAT32, 4u)
     TRY_PARSE_SCALAR_TYPE(double, FLOAT64, 8u)
     TRY_PARSE_SCALAR_TYPE(float8e4m3, FLOAT8_E4M3, 1u)
@@ -886,6 +888,7 @@ bool Type::is_bool_vector() const noexcept { return is_vector() && element()->is
 bool Type::is_int32_vector() const noexcept { return is_vector() && element()->is_int32(); }
 bool Type::is_uint32_vector() const noexcept { return is_vector() && element()->is_uint32(); }
 bool Type::is_float16_vector() const noexcept { return is_vector() && element()->is_float16(); }
+bool Type::is_bfloat16_vector() const noexcept { return is_vector() && element()->is_bfloat16(); }
 bool Type::is_float32_vector() const noexcept { return is_vector() && element()->is_float32(); }
 bool Type::is_float64_vector() const noexcept { return is_vector() && element()->is_float64(); }
 bool Type::is_int8_vector() const noexcept { return is_vector() && element()->is_int8(); }

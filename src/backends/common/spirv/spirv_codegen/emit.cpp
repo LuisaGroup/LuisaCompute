@@ -345,6 +345,7 @@ void spirv_codegen_add_narrow_constant_capabilities(
             return builder.makeFpConstantFromBits(
                 spv_type, spirv_codegen_load_constant_bits<uint8_t>(data));
         case Type::Tag::FLOAT16:
+        case Type::Tag::BFLOAT16:
             return builder.makeFpConstantFromBits(
                 spv_type, spirv_codegen_load_constant_bits<uint16_t>(data));
         case Type::Tag::FLOAT32:
@@ -373,6 +374,7 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
         case Type::Tag::INT64:
         case Type::Tag::UINT64:
         case Type::Tag::FLOAT16:
+        case Type::Tag::BFLOAT16:
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:

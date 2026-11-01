@@ -57,6 +57,7 @@ constexpr size_t max_string_payload_size = 1u * 1024u * 1024u;
         case Type::Tag::INT64:
         case Type::Tag::UINT64:
         case Type::Tag::FLOAT16:
+        case Type::Tag::BFLOAT16:
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
         case Type::Tag::FLOAT8_E4M3:
@@ -760,7 +761,7 @@ private:
         if (name == "bool" || name == "byte" || name == "ubyte" ||
             name == "short" || name == "ushort" || name == "int" ||
             name == "uint" || name == "long" || name == "ulong" ||
-            name == "half" || name == "float" || name == "double" ||
+            name == "half" || name == "bfloat16" || name == "float" || name == "double" ||
             name == "float8e4m3" || name == "float8e5m2") {
             return {Type::from(name), Kind::DATA};
         }

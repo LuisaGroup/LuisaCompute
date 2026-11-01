@@ -62,6 +62,14 @@ struct formatter<luisa::half> : formatter<float> {
     }
 };
 
+template<>
+struct formatter<luisa::bfloat16> : formatter<float> {
+    template<typename FormatContext>
+    auto format(luisa::bfloat16 value, FormatContext &ctx) const {
+        return formatter<float>::format(static_cast<float>(value), ctx);
+    }
+};
+
 template<typename T, size_t N>
 struct formatter<luisa::Vector<T, N>> {
     constexpr auto parse(format_parse_context &ctx) const noexcept {
@@ -75,18 +83,20 @@ struct formatter<luisa::Vector<T, N>> {
         using luisa::slong;
         using luisa::ulong;
         using luisa::half;
+        using luisa::bfloat16;
         constexpr auto type_name =
-            std::is_same_v<T, bool>   ? "bool"sv :
-            std::is_same_v<T, short>  ? "short"sv :
-            std::is_same_v<T, ushort> ? "ushort"sv :
-            std::is_same_v<T, int>    ? "int"sv :
-            std::is_same_v<T, uint>   ? "uint"sv :
-            std::is_same_v<T, slong>  ? "slong"sv :
-            std::is_same_v<T, ulong>  ? "ulong"sv :
-            std::is_same_v<T, half>   ? "half"sv :
-            std::is_same_v<T, float>  ? "float"sv :
-            std::is_same_v<T, double> ? "double"sv :
-                                        "unknown"sv;
+            std::is_same_v<T, bool>     ? "bool"sv :
+            std::is_same_v<T, short>    ? "short"sv :
+            std::is_same_v<T, ushort>   ? "ushort"sv :
+            std::is_same_v<T, int>      ? "int"sv :
+            std::is_same_v<T, uint>     ? "uint"sv :
+            std::is_same_v<T, slong>    ? "slong"sv :
+            std::is_same_v<T, ulong>    ? "ulong"sv :
+            std::is_same_v<T, half>     ? "half"sv :
+            std::is_same_v<T, bfloat16> ? "bfloat16"sv :
+            std::is_same_v<T, float>    ? "float"sv :
+            std::is_same_v<T, double>   ? "double"sv :
+                                          "unknown"sv;
         if constexpr (N == 2u) {
             return fmt::format_to(
                 ctx.out(),

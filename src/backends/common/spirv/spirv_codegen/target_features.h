@@ -29,6 +29,7 @@ struct SpirvTargetFeatures {
     bool storage_image_write_without_format{false};
     bool ray_query{false};
     bool shader_float8{false};
+    bool shader_bfloat16{false};
     bool shader_float16{false};
     bool shader_float64{false};
     bool shader_int8{false};
@@ -102,6 +103,7 @@ struct SpirvTargetFeatures {
         enable(storage_image_write_without_format,
                target_feature::storage_image_write_without_format);
         enable(shader_float8, target_feature::shader_float8);
+        enable(shader_bfloat16, target_feature::shader_bfloat16);
         enable(shader_float16, target_feature::shader_float16);
         enable(shader_float64, target_feature::shader_float64);
         enable(shader_int8, target_feature::shader_int8);
@@ -163,6 +165,7 @@ struct SpirvTargetFeatures {
                 has(target_feature::storage_image_write_without_format),
             .ray_query = has(target_feature::ray_query),
             .shader_float8 = has(target_feature::shader_float8),
+            .shader_bfloat16 = has(target_feature::shader_bfloat16),
             .shader_float16 = has(target_feature::shader_float16),
             .shader_float64 = has(target_feature::shader_float64),
             .shader_int8 = has(target_feature::shader_int8),

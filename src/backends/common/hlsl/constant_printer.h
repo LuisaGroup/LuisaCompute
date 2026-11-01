@@ -42,6 +42,11 @@ protected:
     void _decode_half(half x) noexcept override {
         LUISA_NOT_IMPLEMENTED();
     }
+    void _decode_bfloat16(bfloat16 x) noexcept override {
+        _str << "bfloat16_t(";
+        PrintValue<float>{}(static_cast<float>(x), _str);
+        _str << ")";
+    }
     void _decode_float(float x) noexcept override {
         PrintValue<float>{}(x, _str);
     }
