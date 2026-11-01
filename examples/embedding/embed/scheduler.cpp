@@ -717,6 +717,7 @@ Embedding Scheduler::_finalize(ScheduledRequest *req, Job &job) noexcept {
     const auto N = static_cast<uint32_t>(req->ids.size());
 
     Embedding out;
+    out.truncated = req->ids_truncated;
     const auto d0 = b * static_cast<ptrdiff_t>(H);
     out.dense.assign(job.dense.begin() + d0, job.dense.begin() + d0 + static_cast<ptrdiff_t>(H));
 

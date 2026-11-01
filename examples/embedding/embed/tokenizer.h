@@ -85,10 +85,13 @@ public:
          * \param max_len Truncation length applied after the template wraps the
          * sequence with <s>/</s>; must satisfy 2 <= max_len <= 8192 (hard model
          * ceiling is max_position_embeddings = 8194). Default 512 per plan §3.2.
-         * \return ids: [0 (=<s>), ...body..., 2 (=</s>)], truncated to max_len as
-         * described in the header comment. Never empty for a valid tokenizer.
-         */
-    luisa::vector<uint32_t> encode(luisa::string_view utf8, uint32_t max_len = 512u) const;
+     * \return ids: [0 (=<s>), ...body..., 2 (=</s>)], truncated to max_len as
+     * described in the header comment. Never empty for a valid tokenizer.
+     * \param truncated Optional out: set to true when the tokenized body
+     * exceeded max_len and was cut (bge-m3 truncation reporting, report.md §4).
+     */
+    luisa::vector<uint32_t> encode(luisa::string_view utf8, uint32_t max_len = 512u,
+                                   bool *truncated = nullptr) const;
 
     /**
          * \brief Encode many texts, optionally with fiber worker tasks (H8).

@@ -41,11 +41,42 @@ public:
     [[nodiscard]] RetrievalLoadResult load(
         const luisa::filesystem::path &root,
         luisa::span<const luisa::string> extensions);
+    [[nodiscard]] RetrievalLoadResult load(
+        const luisa::filesystem::path &root,
+        luisa::span<const luisa::string> extensions,
+        const ChunkOptions &options,
+        const RetrievalProgress *progress = nullptr);
     [[nodiscard]] RetrievalUnloadResult unload(const luisa::filesystem::path &root);
     [[nodiscard]] RetrievalUpdateResult update(const luisa::filesystem::path &path);
     [[nodiscard]] RetrievalQueryResult query(
         luisa::string_view text,
         uint32_t top_k = kRetrievalDefaultTopK);
+    [[nodiscard]] RetrievalQueryResult query(
+        luisa::string_view text,
+        uint32_t top_k,
+        const RetrievalQueryOptions *options);
+
+    // In-memory document ingestion (report.md §2), mirrored under the mutex.
+    [[nodiscard]] RetrievalDocumentResult add_document(
+        luisa::string doc_id,
+        luisa::string_view text,
+        luisa::string_view metadata_json,
+        const ChunkOptions &options,
+        const RetrievalProgress *progress = nullptr);
+    [[nodiscard]] RetrievalDocumentResult remove_document(luisa::string_view doc_id);
+    [[nodiscard]] RetrievalDocumentResult update_document(
+        luisa::string doc_id,
+        luisa::string_view text,
+        luisa::string_view metadata_json,
+        const ChunkOptions &options,
+        const RetrievalProgress *progress = nullptr);
+
+    // Corpus snapshots (report.md §3).
+    [[nodiscard]] RetrievalStatus save(const luisa::filesystem::path &path);
+    [[nodiscard]] RetrievalStatus load_snapshot(const luisa::filesystem::path &path);
+
+    [[nodiscard]] RetrievalStats stats() const noexcept { return _index.stats(); }
+    void set_store_colbert(bool enabled) noexcept { _index.set_store_colbert(enabled); }
 
 private:
     RetrievalIndex _index;

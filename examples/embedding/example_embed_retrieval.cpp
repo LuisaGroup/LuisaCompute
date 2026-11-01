@@ -507,16 +507,22 @@ int main(int argc, char *argv[]) {
     // encoded with the sparse head enabled, so the index scores documents as
     // 0.7 * dense dot + 0.3 * sparse cosine. Returning a RetrievalEmbedding (not
     // a plain dense vector) is what selects the hybrid RetrievalService overload.
-    embed::RetrievalService service{
-        [session = session.get()](luisa::string_view text) -> embed::RetrievalEmbedding {
-            embed::EncodeOptions options;
-            options.want_sparse = true;
-            auto encoded = session->encode(text, options);
-            embed::RetrievalEmbedding embedding;
-            embedding.dense = std::move(encoded.dense);
-            embedding.sparse = std::move(encoded.sparse);
-            return embedding;
-        }};
+      embed::RetrievalService service{
+          [session = session.get()](luisa::string_view text,
+                                    const embed::RetrievalEncodeRequest &request)
+              -> embed::RetrievalEmbedding {
+              embed::EncodeOptions options;
+              options.want_sparse = true;
+              options.want_colbert = request.want_colbert;
+              if (request.max_seq_len != 0u) { options.max_seq_len = request.max_seq_len; }
+              auto encoded = session->encode(text, options);
+              embed::RetrievalEmbedding embedding;
+              embedding.dense = std::move(encoded.dense);
+              embedding.sparse = std::move(encoded.sparse);
+              embedding.colbert = std::move(encoded.colbert);
+              embedding.truncated = encoded.truncated;
+              return embedding;
+          }};
     // On-disk embedding cache: unchanged files in an indexed directory are
     // served from .lc_embed_cache/ (via DStorage when the backend provides
     // DStorageExt) instead of being re-encoded on the next load. Hybrid entries

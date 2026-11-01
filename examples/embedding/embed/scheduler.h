@@ -76,6 +76,7 @@ struct Embedding {
     luisa::vector<float> dense;                      // [H], L2-normalized CLS
     luisa::vector<std::pair<uint32_t, float>> sparse;// (token_id, weight>0), specials dropped
     luisa::vector<float> colbert;                    // [(n-2) * H], specials dropped, per-row L2-normalized
+    bool truncated = false;                          // input exceeded max_seq_len and was truncated
 };
 
 struct SchedulerConfig {
@@ -92,6 +93,7 @@ struct ScheduledRequest {
     luisa::vector<uint32_t> ids;// tokenized, unpadded (2 <= size <= 8192)
     bool want_sparse{};
     bool want_colbert{};
+    bool ids_truncated{};// the tokenizer truncated ids to max_seq_len
     luisa::function<void(Embedding)> callback;// set => async; null => sync caller
 
     // internal (scheduler-owned) ------------------------------------------------

@@ -12,7 +12,7 @@ scalars, UTF-8 strings and plain C structs only.
 |---|---|
 | `example_embed_retrieval_lib.h` | the public C header: every entry point, the value types, the ownership rules and the error contract |
 | `example_embed_retrieval_lib.cpp` | the implementation (the only TU that touches engine types) |
-| `../embed/` | the engine, unchanged: session, scheduler, tokenizer, retrieval index/service, disk cache |
+| `../embed/` | the engine: session, scheduler, tokenizer, retrieval index/service (chunked documents, snapshots, filters/MMR, ColBERT, stats), disk cache |
 | `../../../../src/tests/unit/embedding/test_embed_retrieval_api.cpp` | host-only conformance test that drives every exported step |
 
 The build target is `example_embed_retrieval_lib` (`kind = shared`); it lands next
@@ -40,7 +40,17 @@ released with its matching `_free` function, on success **and** on failure.
 | re-index one path | `update <file-or-subdirectory>` | `eer_update_path()` |
 | drop one root | `unload <loaded-root-directory>` | `eer_unload_dir()` |
 | encode one text | (internal to encode paths) | `eer_encode_text()` |
-| introspection | `help` diagnostics | `eer_version()`, `eer_status_string()`, `eer_default_extensions()`, `eer_context_backend()`, `eer_context_disk_cache_enabled()` |
+| load, chunked | `load` with passage splitting | `eer_load_dir_ex()` (+ `eer_chunk_options`, `eer_progress`) |
+| add/update/remove a document | (new; no console equivalent) | `eer_add_document()`, `eer_update_document()`, `eer_remove_document()` |
+| query with ranking controls | `query` with weights/filter/MMR | `eer_query_ex()` (+ `eer_query_options`) |
+| encode a batch | (new) | `eer_encode_batch()` |
+| encode ColBERT | (new) | `eer_encode_colbert()` |
+| snapshot save/load | (new) | `eer_index_save()`, `eer_index_load()` |
+| statistics | `help` diagnostics | `eer_stats()` |
+| readiness probe | (new) | `eer_context_ping()` |
+| device memory | (new) | `eer_context_device_memory()` |
+| park / resume | (new) | `eer_context_park()`, `eer_context_resume()` |
+| introspection | `help` diagnostics | `eer_version()`, `eer_status_string()`, `eer_sub_code_string()`, `eer_default_extensions()`, `eer_context_backend()`, `eer_context_disk_cache_enabled()` |
 
 ### `eer_context_create` / `eer_context_destroy`
 
@@ -56,7 +66,7 @@ void       eer_context_destroy(eer_context *context);
 * **Engine mode** (`info.encode == NULL`): `model_path` and `tokenizer_path` are
     required regular files, `backend` names the plugin (`"vk"` when omitted, plus
     `"dx"`, `"cuda"`, `"fallback"`, `"simd"`, `"metal"`), and `num_workers` is the
-    scheduler worker count (`0` → 2). Creation loads the weights, compiles the
+    scheduler worker count (`0` → hardware concurrency: the CPU core/thread count). Creation loads the weights, compiles the
     kernels and — unless `EER_CREATE_SKIP_WARMUP` is set — performs one warm-up
     encode, exactly like the executable. Engine mode is **hybrid**: every document
     and query is encoded with `EncodeOptions{max_seq_len = 512, want_sparse =
@@ -204,24 +214,176 @@ retries once, up to 16384 floats) — anything else counts as a failed encode. T
 callback runs on the calling thread inside the index lock and must not re-enter
 the same context. Embeddings must have one consistent dimension per index.
 
-Callback mode is dense-only, and that is a hard boundary rather than a policy: the
-ABI exports no sparse weights, so the library builds the dense `RetrievalService`
-for it. Its scores, its cache files and its `eer_encode_text` output are exactly
-what they were before hybrid retrieval existed. To get hybrid ranking, use engine
-mode (or the executable) with a bge-m3 package.
+Callback mode is dense-only when only `encode` is supplied — that default is a hard
+boundary rather than a policy: the library then builds the dense `RetrievalService`,
+and its scores, cache files and `eer_encode_text` output are exactly what they were
+before hybrid retrieval existed. Since ABI 1.2 a second, optional callback
+(`eer_sparse_encode_fn` in `eer_create_info`, struct_size-gated) supplies the BGE-M3
+sparse lexical pairs; when BOTH callbacks are set, callback mode builds the hybrid
+service instead, so a GPU-free host stays hybrid-capable (scores fuse dense + sparse
+exactly like engine mode, per-query weights apply through `eer_query_ex`, and the
+same `.lc_embed_cache*` sidecars are written).
+
+
+### `eer_load_dir_ex` — chunked load with progress and cancellation
+```c
+eer_status eer_load_dir_ex(eer_context *context, const char *root,
+                           const char *extensions,
+                           const eer_chunk_options *chunk_options,
+                           eer_load_result *result,
+                           const eer_progress *progress);
+```
+`load` with passage splitting (ABI 1.2, report.md §2/§5). `chunk_options == NULL`
+or `chunk_by == 0` keeps the whole-file behavior of `eer_load_dir`; otherwise every
+file is split into chunks of at most `chunk_size` bytes (never inside a UTF-8 code
+point; `chunk_overlap` bytes repeat the previous tail) along paragraph (`1`),
+sentence (`2`) or token/word (`3`) boundaries. The index stores one record per
+chunk and every hit carries `doc_id`, `chunk_index`, `byte_offset`, `byte_length`:
+the chunk text is exactly `source[byte_offset, byte_offset + byte_length)`.
+`max_seq_len` (0 = 512) is the per-chunk encode truncation length in engine mode.
+Chunked disk-cache entries key on (content hash, chunk_index, chunk params) in a
+second meta file `.lc_embed_cache.chunks.json`; the per-file v1 cache stays
+byte-identical.
+`progress` is optional (`eer_progress`): `on_progress(user_data, done, total)` runs
+on the calling thread (per-chunk totals for documents, per-file totals for loads),
+and a non-zero `cancel_flag` stops between units: applied content stays, the
+in-flight document is applied all-or-nothing, the load's root registration is
+rolled back so a follow-up load resumes, and the result carries
+`EER_SUB_CANCELLED` with a `cancelled` message plus `EER_STATUS_OPERATIONAL` (a
+clean, recoverable partial state).
+### `eer_add_document` / `eer_update_document` / `eer_remove_document`
+```c
+eer_status eer_add_document(eer_context *context, const char *doc_id,
+                            const char *utf8_text, size_t text_length,
+                            const char *metadata_json,
+                            const eer_chunk_options *chunk_options,
+                            eer_document_result *result,
+                            const eer_progress *progress);
+eer_status eer_remove_document(eer_context *context, const char *doc_id,
+                               eer_document_result *result);
+```
+Index content that never exists as a file (database rows, chat history, web
+pages). `doc_id` is caller-chosen and is the idempotency key: re-ingesting the
+same doc_id replaces its chunks transactionally (all new chunks encode before the
+old ones drop), and identical text + metadata + chunking is a no-op reported in
+`chunks_unchanged`. `metadata_json` must be empty or a JSON object; it is kept
+verbatim for `eer_query_ex` filters and snapshots. Memory-only documents have no
+path; `doc_id` is the only identity a hit reports for them. `eer_update_document`
+is the replace alias; `eer_remove_document` drops every chunk (unknown ids are
+`EER_STATUS_NOT_FOUND`).
+### `eer_query_ex` — ranking controls
+```c
+eer_status eer_query_ex(eer_context *context, const char *utf8_text,
+                        size_t text_length, uint32_t top_k,
+                        const eer_query_options *options,
+                        eer_query_result *result);
+```
+`query` with controls (ABI 1.2, report.md §4); `options == NULL` reproduces
+`eer_query` exactly.
+* `dense_weight` / `sparse_weight`: NaN or negative selects the compiled-in
+  defaults (0.7 / 0.3); any non-negative pair fuses as
+  `score = w_d * dense + w_s * sparse` (dense mode ignores both).
+* `filter_json`: a Mongo-style metadata predicate applied BEFORE top-k selection,
+  so filtered pages never under-fill: top-level keys combine with implicit AND;
+  values may be scalars (equality) or objects with `$eq/$gte/$lte/$gt/$lt` /
+  `$in` (array); `$and`/`$or` take arrays of objects. Example:
+  `{"tenant":"acme","year":{"$gte":2023}}`. Only documents ingested with
+  `metadata_json` can match.
+* `diversity` (0..1): MMR re-ranking over the fused scores — higher values
+  suppress same-document chunk repetition (novelty term `d * (1 - max_cosine)`).
+* `max_seq_len` (0 = 512): per-query encode truncation; with flags bit0 set,
+  `eer_query_result::truncated` reports that the query text was cut.
+  * `instruction_prefix`: prepended to the query text before tokenization (engine
+    mode). Note: NULL/empty keeps the query raw — 1.2 deliberately does NOT
+    auto-prepend the bge-m3 instruction, preserving 1.1 query encodings verbatim.
+    For bge-m3 retrieval quality pass
+    `Represent this sentence for searching relevant passages:` explicitly for short
+    queries.
+  * `want_colbert`: re-rank the dense/sparse shortlist by ColBERT MaxSim (token-level
+    late interaction). Requires engine mode and the `EER_CREATE_WANT_COLBERT` create
+    flag; the MaxSim value becomes the hit `score` and is reported in
+    `colbert_score`. A record without a stored matrix (restored from a snapshot that
+    predates ColBERT serialization) is not an error: it keeps its fused dense/sparse
+    score for that entry instead of failing the query. `want_colbert` is the last
+    struct field and is read only when `struct_size` covers it.
+Every hit carries the fused `score` plus the `dense_score` / `sparse_score` /
+`colbert_score` breakdown (sparse is 0 in dense mode; colbert is 0 unless
+requested), the passage location (`doc_id`, `chunk_index`, `byte_offset`,
+`byte_length`), and results order by descending score with ties broken by
+ascending `(doc_id, chunk_index)`.
+### `eer_encode_batch` / `eer_encode_colbert`
+```c
+eer_status eer_encode_batch(eer_context *context, const eer_text *texts,
+                            size_t count, float *out_vectors, size_t capacity,
+                            size_t *out_dimension, eer_error *out_error);
+eer_status eer_encode_colbert(eer_context *context, const char *utf8_text,
+                              size_t text_length, float *out, size_t capacity,
+                              size_t *out_values, uint32_t *out_rows,
+                              eer_error *out_error);
+```
+`eer_encode_batch` (report.md §5) amortizes ingestion: engine mode submits one
+scheduler batch, callback mode loops the host encoder. Output is row-major
+`[count][dimension]`; a uniform dimension is validated (mismatch is
+`EER_STATUS_OPERATIONAL` / `EER_SUB_ENCODE`). `out_vectors == NULL` with
+`capacity == 0` probes the dimension (texts are still encoded and validated).
+`eer_encode_colbert` serves the bge-m3 ColBERT head: `out_rows` rows of H=1024
+float32, per-row L2-normalized; engine mode only (the host callback has no ColBERT
+head).
+### `eer_index_save` / `eer_index_load` — corpus snapshots
+```c
+eer_status eer_index_save(eer_context *context, const char *path, eer_error *out_error);
+eer_status eer_index_load(eer_context *context, const char *path, eer_error *out_error);
+```
+  O(1) cold start for an already-ingested corpus (report.md §3): `save` writes a JSON
+  manifest at `path` (version, dimension, hybrid mode, roots with their chunk
+  options, every chunk record with doc_id / metadata / byte range / sparse pairs
+  inline, and the text of memory-only documents) plus a packed-float32 blob at
+  `path + ".bin"` with the dense vectors in manifest order. When the corpus stores
+  ColBERT matrices, a second packed blob `path + ".colbert.bin"` holds them
+  (per-record row counts are in the manifest) and `load` restores them — but only
+  into a context that created with `EER_CREATE_WANT_COLBERT`; the create flag's RAM
+  bound applies to snapshots too. `load` restores roots, documents, metadata and
+  embeddings with NO re-encode; the pair relocates as a unit and loads on any
+  backend (the blob is host byte order). Version, dimension or hybrid-mode
+  mismatches, blob-size mismatches (checked with overflow-safe arithmetic against
+  corrupt manifests) and unreadable files are clean `EER_STATUS_OPERATIONAL`
+  errors (`EER_SUB_IO` / `EER_SUB_INDEX`) that leave the current index untouched.
+  The per-file `.lc_embed_cache*` layer is independent.
+### `eer_stats` / `eer_context_ping` / `eer_context_device_memory` / park-resume
+```c
+eer_status eer_stats(eer_context *context, eer_stats_data *out_stats);
+eer_status eer_context_ping(eer_context *context, eer_error *out_error);
+eer_status eer_context_device_memory(eer_context *context,
+                                     uint64_t *out_used_bytes,
+                                     uint64_t *out_total_bytes);
+eer_status eer_context_park(eer_context *context, eer_error *out_error);
+eer_status eer_context_resume(eer_context *context, eer_error *out_error);
+```
+Production observability (report.md §6). `eer_stats` reports document/chunk counts,
+the embedding dimension, the hybrid flag, the cache hit ratio and the mean encode
+latency over the index lifetime. `eer_context_ping` runs one tiny encode through
+the full pipeline for load-balancer readiness. `eer_context_device_memory` reports
+device memory where the backend exposes it; LuisaCompute currently exposes no
+memory-stats API, so every context honestly reports 0/0 with `EER_STATUS_OK`.
+`eer_context_park` / `eer_context_resume` exist so hosts can code against them, but
+ship as `EER_STATUS_OPERATIONAL` ("not supported in this build"): the Session
+lifetime is tied to the device context member order documented on `eer_context`.
 
 ## Memory ownership
 
 * Payload structs (`eer_load_result`, `eer_unload_result`, `eer_update_result`,
-  `eer_query_result`, `eer_error`) are caller-allocated, usually on the stack.
-  The library fills them; strings and the hit array inside them are `malloc`ed
-  and belong to the caller afterwards.
+  `eer_query_result`, `eer_document_result`, `eer_error`) are caller-allocated,
+  usually on the stack. The library fills them; strings and the hit array inside
+  them are allocated with the library's own allocator (ABI 1.1) and belong to
+  the caller afterwards.
 * Release them with `eer_*_free()`, always, success or failure. The `_free`
-  functions zero the struct and are idempotent, and `free()` works too if the
-  binding language cannot call them.
-* Only `eer_version()`, `eer_status_string()` and `eer_default_extensions()`
-  (process lifetime) and `eer_context_backend()` (context lifetime) return
-  borrowed pointers.
+  functions zero the struct and are idempotent. Since 1.1 the allocations live
+  on the library's own heap: C `free()` / the host allocator is NOT guaranteed
+  to work across the shared-library boundary — always go through the `_free`
+  entry point.
+* Only `eer_version()`, `eer_status_string()`, `eer_sub_code_string()` and
+  `eer_default_extensions()` (process lifetime) and `eer_context_backend()`
+  (context lifetime) return borrowed pointers.
 
 ## Error model
 
@@ -234,7 +396,13 @@ mode (or the executable) with a bge-m3 package.
 | `EER_STATUS_INVALID_HANDLE` | the `eer_context *` is NULL (or, best effort, already destroyed) |
 
 Every failure carries a human-readable `message`; `eer_status_string()` maps the
-code to a stable name for logging.
+code to a stable name for logging. Since ABI 1.2 every payload also carries an
+appended `int32_t sub_code` (`EER_SUB_NONE` on success): `device`, `model`, `io`,
+`encode`, `index`, or `cancelled`, so orchestrators can retry/reload
+appropriately without parsing messages; `eer_sub_code_string()` maps them.
+A cancelled load/document step is NOT an error state: the result counters report
+the work done so far, `sub_code` is `EER_SUB_CANCELLED`, and the return status is
+`EER_STATUS_OPERATIONAL` by design (a clean, recoverable partial result).
 
 ## Threading
 
@@ -385,7 +553,17 @@ It drives the library in callback mode with deterministic encoders and checks:
 * the on-disk embedding cache shared by two consecutive contexts (second context
   is served from `.lc_embed_cache`, with identical ranking),
 * per-file encoder-failure accounting, and the host-encoder buffer retry plus its
-  16384-float cap.
+  16384-float cap,
+* the ABI 1.2 RAG surface (report.md §2-§6): add/update/remove document
+  round-trips with idempotent re-ingestion and paragraph/sentence/token chunk
+  offsets; snapshot save/load across a context recreate plus the
+  corrupt-snapshot safety; `eer_query_ex` weight overrides (deterministic
+  reordering), metadata filters (`$gte`/`$and`/`$in`) applied pre-top-k, MMR
+  diversity, the score-breakdown identity and malformed-filter rejection;
+  `eer_encode_batch` parity with per-text encodes; load progress + mid-load
+  cancellation with resumable partial state; the sparse-callback hybrid index;
+  stats counters, ping, the honest 0/0 device-memory path and the park/resume
+  unsupported degradation.
 
 Because the test stays in callback mode, it also pins the promise that hybrid
 retrieval did not change the dense path: the recorded rankings and exact scores of

@@ -216,27 +216,35 @@ are exported as a documented C ABI from a shared library so any host language
 can drive the retriever through its FFI:
 
 ```text
-example_embed_retrieval_lib.h     eer_context_create / load_dir / query /
-                                  update_path / unload_dir / encode_text / destroy
+example_embed_retrieval_lib.h (ABI v1.2) eer_context_create / load_dir(_ex) /
+ add_document / update_document / remove_document / query(_ex) /
+ update_path / unload_dir / encode_text / encode_batch / encode_colbert /
+ index_save / index_load / stats / ping / device_memory / park / resume / destroy
 ```
 
 One call per console command, C scalars and UTF-8 strings only, caller-owned
 result structs released with the matching `*_free`. Besides the model-backed
 "engine mode" it also supports a GPU-free "callback mode" where the host
-supplies the dense encoder, which is how it is unit-tested
-(`test_embed_retrieval_api`, host-only, no model required).
+supplies the dense encoder (and, since 1.2, an optional sparse lexical encoder
+for hybrid ranking), which is how it is unit-tested
+(`test_embed_retrieval_api`, host-only, no model required). The 1.2 RAG growth
+(report.md §2-§6) adds chunked documents with passage byte ranges, corpus
+snapshots, per-query ranking controls (weights / metadata filters / MMR /
+truncation / instruction prefix / ColBERT), batch + ColBERT encoding, progress
+and cancellation, structured sub-codes, stats/ping and the honest
+park/resume-unsupported path — all additive behind `struct_size`.
 
 The two modes rank differently and deliberately so:
 
 | Mode | Encoder | Scoring | Cache |
 |---|---|---|---|
 | engine (model-backed) | `Session` with `want_sparse = true` | `0.7 * dense_cosine + 0.3 * sparse_cosine` | dense record + `<md5>.sparse.bin` sidecar |
-| callback (host dense encoder) | `eer_encode_fn`, dense only | plain dense dot product (unchanged) | dense record only, exactly as before |
-
-Callback mode stays dense-only because the C ABI's encoder callback returns one
-dense vector per text. It cannot accidentally be promoted to hybrid: the service
-is constructed from a `RetrievalEncodeCallback` in that mode, so an "empty sparse"
-half never reaches the hybrid fusion path. `eer_encode_text` likewise still
+| callback, dense only (default) | `eer_encode_fn` | plain dense dot product (unchanged) | dense record only, exactly as before |
+| callback, hybrid (1.2) | `eer_encode_fn` + `eer_sparse_encode_fn` | `0.7 * dense + 0.3 * sparse` (per-query overridable) | dense + sparse sidecars |
+Callback mode is dense-only unless BOTH callbacks are supplied (1.2): the service
+is then constructed from a `RetrievalHybridEncodeCallback`, so a dense-only host
+can never be silently promoted — the sparse half is either supplied explicitly or
+absent. `eer_encode_text` likewise still returns the dense vector only.
 returns the dense vector only.
 
 ```bash

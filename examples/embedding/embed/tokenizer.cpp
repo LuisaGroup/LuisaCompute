@@ -556,13 +556,15 @@ luisa::unique_ptr<Tokenizer> Tokenizer::load(const std::filesystem::path &tokeni
     return tkn;
 }
 
-luisa::vector<uint32_t> Tokenizer::encode(luisa::string_view utf8, uint32_t max_len) const {
-    if (max_len < 2u || max_len > kMaxSeqLenCeiling)
-        LUISA_ERROR("tokenizer: max_len {} outside [2, {}]", max_len, kMaxSeqLenCeiling);
-    const auto &impl = *_impl;
-    luisa::vector<uint32_t> ids;
-    ids.reserve(max_len);
-    ids.push_back(impl.bos_id);
+luisa::vector<uint32_t> Tokenizer::encode(luisa::string_view utf8, uint32_t max_len,
+                                          bool *truncated) const {
+if (max_len < 2u || max_len > kMaxSeqLenCeiling)
+LUISA_ERROR("tokenizer: max_len {} outside [2, {}]", max_len, kMaxSeqLenCeiling);
+if (truncated != nullptr) { *truncated = false; }
+const auto &impl = *_impl;
+luisa::vector<uint32_t> ids;
+ids.reserve(max_len);
+ids.push_back(impl.bos_id);
     {
         const auto norm = impl.normalize(utf8);
         impl.pre_tokenize_and_encode(norm, ids);
@@ -571,15 +573,16 @@ luisa::vector<uint32_t> Tokenizer::encode(luisa::string_view utf8, uint32_t max_
     // Truncation applies to the finished sequence but keeps the template's
     // special tokens (HF TemplateProcessing + right-side truncation; verified
     // against the two truncated goldens): [bos] + body[:max_len-2] + [eos].
-    if (ids.size() > max_len) {
-        luisa::vector<uint32_t> truncated;
-        truncated.reserve(max_len);
-        truncated.push_back(ids[0]);
-        truncated.insert(truncated.end(), ids.begin() + 1,
-                         ids.begin() + static_cast<ptrdiff_t>(max_len - 1u));
-        truncated.push_back(ids.back());
-        ids.swap(truncated);
-    }
+if (ids.size() > max_len) {
+    luisa::vector<uint32_t> cut;
+    cut.reserve(max_len);
+    cut.push_back(ids[0]);
+    cut.insert(cut.end(), ids.begin() + 1,
+    ids.begin() + static_cast<ptrdiff_t>(max_len - 1u));
+    cut.push_back(ids.back());
+    ids.swap(cut);
+    if (truncated != nullptr) { *truncated = true; }
+}
     return ids;
 }
 

@@ -90,7 +90,7 @@ luisa::unique_ptr<ScheduledRequest> Session::_make_request(luisa::string_view ut
 
     auto req = luisa::make_unique<ScheduledRequest>();
     const auto max_len = std::min<uint32_t>(std::max<uint32_t>(opt.max_seq_len, 2u), 8192u);
-    req->ids = _tokenizer->encode(utf8, max_len);
+    req->ids = _tokenizer->encode(utf8, max_len, &req->ids_truncated);
     req->want_sparse = opt.want_sparse;
     req->want_colbert = opt.want_colbert;
     return req;
