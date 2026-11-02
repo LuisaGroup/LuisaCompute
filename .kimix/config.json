@@ -7,9 +7,6 @@
   ],
   "_comment_forbidden_commands": "List of command prefixes that the Run tool will reject. Supports fuzzy prefix matching — e.g., 'git commit' blocks 'git commit -m msg', 'git push' blocks 'git push origin main'. Use this to prevent destructive or autonomous operations.",
   "forbidden_commands": [
-    "git push",
-    "git rebase",
-    "git merge",
     "rm -rf /",
     "rm -rf /*",
     "sudo",
