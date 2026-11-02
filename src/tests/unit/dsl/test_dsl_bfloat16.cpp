@@ -46,6 +46,10 @@ enum class BfOp : uint32_t {
     ABS,
     MIN,
     MAX,
+    MIN_NAN_LHS,
+    MIN_NAN_RHS,
+    MAX_NAN_LHS,
+    MAX_NAN_RHS,
     CLAMP,
     SATURATE,
     LERP,
@@ -294,6 +298,10 @@ int main(int argc, char *argv[]) {
         output.write(static_cast<uint>(BfOp::ABS), abs(c));
         output.write(static_cast<uint>(BfOp::MIN), min(a, b));
         output.write(static_cast<uint>(BfOp::MAX), max(a, b));
+        output.write(static_cast<uint>(BfOp::MIN_NAN_LHS), min(input.read(4u), a));
+        output.write(static_cast<uint>(BfOp::MIN_NAN_RHS), min(a, input.read(4u)));
+        output.write(static_cast<uint>(BfOp::MAX_NAN_LHS), max(input.read(4u), a));
+        output.write(static_cast<uint>(BfOp::MAX_NAN_RHS), max(a, input.read(4u)));
         output.write(static_cast<uint>(BfOp::CLAMP), clamp(c, zero, one));
         output.write(static_cast<uint>(BfOp::SATURATE), saturate(c));
         output.write(static_cast<uint>(BfOp::LERP), lerp(a, b, a));
@@ -418,6 +426,10 @@ int main(int argc, char *argv[]) {
     check(BfOp::ABS, "abs", std::abs(c));
     check(BfOp::MIN, "min", std::min(a, b));
     check(BfOp::MAX, "max", std::max(a, b));
+    check(BfOp::MIN_NAN_LHS, "min with lhs NaN", a);
+    check(BfOp::MIN_NAN_RHS, "min with rhs NaN", a);
+    check(BfOp::MAX_NAN_LHS, "max with lhs NaN", a);
+    check(BfOp::MAX_NAN_RHS, "max with rhs NaN", a);
     check(BfOp::CLAMP, "clamp", std::clamp(c, 0.0f, 1.0f));
     check(BfOp::SATURATE, "saturate", std::clamp(c, 0.0f, 1.0f));
     check(BfOp::LERP, "lerp", std::lerp(a, b, a));

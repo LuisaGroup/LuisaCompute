@@ -86,10 +86,10 @@ IMPL_BFLOAT16_CMP(>)
 IMPL_BFLOAT16_CMP(>=)
 #undef IMPL_BFLOAT16_CMP
 [[nodiscard]] __device__ inline auto __hmax(lc_bfloat16 x, lc_bfloat16 y) noexcept {
-    return static_cast<lc_float>(x) > static_cast<lc_float>(y) ? x : y;
+    return lc_bfloat16{fmaxf(static_cast<lc_float>(x), static_cast<lc_float>(y))};
 }
 [[nodiscard]] __device__ inline auto __hmin(lc_bfloat16 x, lc_bfloat16 y) noexcept {
-    return static_cast<lc_float>(x) < static_cast<lc_float>(y) ? x : y;
+    return lc_bfloat16{fminf(static_cast<lc_float>(x), static_cast<lc_float>(y))};
 }
 [[nodiscard]] __device__ inline auto __habs(lc_bfloat16 x) noexcept {
     return lc_bfloat16::from_bits(x.bits & 0x7fffu);

@@ -1988,6 +1988,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         device_features = {};
         narrow_numeric_features = {};
         enable_float8 = false;
+        enable_bfloat16 = false;
         enable_buffer_int64_atomics = false;
         enable_shared_int64_atomics = false;
         raytracing_enabled = false;

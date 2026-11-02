@@ -191,6 +191,9 @@ void export_op(py::module &m) {
         .value("MAKE_HALF2", CallOp::MAKE_HALF2)
         .value("MAKE_HALF3", CallOp::MAKE_HALF3)
         .value("MAKE_HALF4", CallOp::MAKE_HALF4)
+        .value("MAKE_BFLOAT16_2", CallOp::MAKE_BFLOAT16_2)
+        .value("MAKE_BFLOAT16_3", CallOp::MAKE_BFLOAT16_3)
+        .value("MAKE_BFLOAT16_4", CallOp::MAKE_BFLOAT16_4)
 
         .value("MAKE_FLOAT2X2", CallOp::MAKE_FLOAT2X2)
         .value("MAKE_FLOAT3X3", CallOp::MAKE_FLOAT3X3)
