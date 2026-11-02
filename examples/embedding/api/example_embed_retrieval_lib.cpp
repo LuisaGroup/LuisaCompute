@@ -604,7 +604,7 @@ eer_status eer_context_create(const eer_create_info *info,
                 installed += name;
             }
             return report(EER_STATUS_OPERATIONAL,
-                          format("backend '{}' is unavailable; installed backends: {}",
+                          luisa::format("backend '{}' is unavailable; installed backends: {}",
                                  backend, installed.empty() ? string{"<none>"} : installed),
                           EER_SUB_DEVICE);
         }

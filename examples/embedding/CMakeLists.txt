@@ -9,6 +9,7 @@ add_library(lc-example-embedding STATIC
         embed/session.cpp
         embed/executor.cpp
         embed/scheduler.cpp
+        embed/chunker.cpp
         embed/retrieval_index.cpp
         embed/retrieval_service.cpp
         embed/retrieval_rpc.cpp
