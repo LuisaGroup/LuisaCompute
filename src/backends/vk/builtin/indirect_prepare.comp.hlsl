@@ -26,7 +26,12 @@ uint ceil_div(uint value, uint divisor) {
     return value / divisor + (value % divisor != 0u);
 }
 
-[numthreads(LC_INDIRECT_PREPARE_BLOCK_SIZE, 1, 1)]
+// glslang's HLSL front end accepts only an explicit integer conversion in
+// [numthreads(...)]: a bare `static const uint` constant — or a literal carrying
+// the `u` suffix — is rejected as "not a constant integer expression", while the
+// same value wrapped in an `int` cast is evaluated. The constant still comes from
+// indirect_dispatch_layout.def, so the ABI stays single-sourced.
+[numthreads(int(LC_INDIRECT_PREPARE_BLOCK_SIZE), 1, 1)]
 void main(uint3 dispatch_id : SV_DispatchThreadID) {
     uint remaining = pc.command_count - pc.command_base;
     if (dispatch_id.x >= remaining) { return; }

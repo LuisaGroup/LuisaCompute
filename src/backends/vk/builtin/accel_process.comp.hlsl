@@ -35,7 +35,9 @@ struct PushConstants {
 
 [[vk::push_constant]] ConstantBuffer<PushConstants> pc;
 
-[numthreads(LC_VULKAN_ACCEL_BLOCK_SIZE, 1, 1)]
+// Same glslang HLSL rule as indirect_prepare.comp.hlsl: [numthreads(...)] takes an
+// explicit integer conversion, not a bare `static const uint` from the layout .def.
+[numthreads(int(LC_VULKAN_ACCEL_BLOCK_SIZE), 1, 1)]
 void main(uint id : SV_DispatchThreadID) {
     if (id >= pc.dispatch_count) { return; }
     InputInst value = _SetBuffer[id];
