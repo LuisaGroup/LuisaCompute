@@ -55,7 +55,7 @@ bool is_boundary(std::string_view document, size_t offset) {
 // chunks never rewind, and no chunk is empty while others carry text. Gaps ARE
 // legitimate — the whitespace a unit ends on is dropped (a paragraph break, the
 // U+3000 between two words) — and so is the overlap of a chunked run.
-bool chunks_are_sane(std::string_view document, const std::vector<Chunk> &chunks) {
+bool chunks_are_sane(std::string_view document, const luisa::vector<Chunk> &chunks) {
     if (chunks.empty()) { return false; }
     std::uint64_t previous_begin = 0u;
     for (size_t i = 0; i < chunks.size(); i++) {
@@ -79,7 +79,7 @@ ChunkOptions by(ChunkOptions::By mode, std::uint32_t size, std::uint32_t overlap
 }
 
 // Asserts the exact chunk sequence: count, byte ranges and texts.
-bool chunks_equal(std::string_view document, const std::vector<Chunk> &chunks,
+bool chunks_equal(std::string_view document, const luisa::vector<Chunk> &chunks,
                   const std::vector<std::pair<std::uint64_t, std::uint64_t>> &expected) {
     if (chunks.size() != expected.size()) { return false; }
     for (size_t i = 0; i < chunks.size(); i++) {

@@ -1733,6 +1733,9 @@ luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
               LUISA_EMBED_TEST_DATA_DIR="${LUISA_EMBED_TEST_DATA_DIR}")
   endfunction()
   # host-only (runs under plain CTest)
+  luisa_compute_add_embed_test(test_embed_chunker unit/embedding/test_embed_chunker.cpp
+          "unit;unit_embedding")
+  target_compile_definitions(test_embed_chunker PRIVATE LUISA_EMBED_HOST_ONLY=1)
   luisa_compute_add_embed_test(test_embed_tokenizer unit/embedding/test_embed_tokenizer.cpp
           "unit;unit_embedding")
   # device tests: pass the backend as argv[1] when run by hand; CTest runs them
