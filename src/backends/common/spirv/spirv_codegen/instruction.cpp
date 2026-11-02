@@ -566,7 +566,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 spv::Op::OpIEqual, bool_type, remainder_bits, zero);
             auto remainder_msb = _builder.createBuiltinCall(
                 uint_type, _glsl450, GLSLstd450FindUMsb,
-                {remainder_bits});
+                std::vector<spv::Id>{remainder_bits});
             auto safe_msb = select_u32(
                 remainder_is_zero, zero, remainder_msb);
             auto exponent_sum = _builder.createBinOp(

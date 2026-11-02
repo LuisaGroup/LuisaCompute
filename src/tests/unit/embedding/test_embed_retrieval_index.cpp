@@ -101,7 +101,7 @@ struct FakeEncoder {
     luisa::string fail_on;
 
     [[nodiscard]] RetrievalEncodeCallback callback() {
-        return [this](luisa::string_view text) -> luisa::vector<float> {
+        return [this](luisa::string_view text, const RetrievalEncodeRequest &) -> luisa::vector<float> {
             calls++;
             inputs.emplace_back(text);
             if (!fail_on.empty() && text.find(fail_on) != luisa::string_view::npos) {
@@ -189,7 +189,7 @@ struct FakeHybridEncoder {
     }
 
     [[nodiscard]] RetrievalHybridEncodeCallback callback() {
-        return [this](luisa::string_view text) -> RetrievalEmbedding {
+        return [this](luisa::string_view text, const RetrievalEncodeRequest &) -> RetrievalEmbedding {
             calls++;
             inputs.emplace_back(text);
             return embedding_for(text);
@@ -199,7 +199,7 @@ struct FakeHybridEncoder {
     // Dense half only, for the dense-vs-hybrid comparisons and for the
     // dense-only cache metadata tests.
     [[nodiscard]] RetrievalEncodeCallback dense_callback() {
-        return [this](luisa::string_view text) -> luisa::vector<float> {
+        return [this](luisa::string_view text, const RetrievalEncodeRequest &) -> luisa::vector<float> {
             calls++;
             inputs.emplace_back(text);
             return embedding_for(text).dense;
@@ -651,7 +651,7 @@ void reg_disk_cache_invalidation() {
         {
             DiskEmbedCache third_cache{nullptr};
             size_t calls = 0u;
-            RetrievalIndex index{[&calls](luisa::string_view text) {
+            RetrievalIndex index{[&calls](luisa::string_view text, const RetrievalEncodeRequest &) {
                 calls++;
                 const float marker = text.find("beta") != luisa::string_view::npos ? 1.0f : 0.0f;
                 return luisa::vector<float>{1.0f, marker};// 2-dim vs cached 3-dim
@@ -687,7 +687,7 @@ void reg_embedding_validation() {
         TempDirectory temporary;
         write_file(temporary.path() / "a.txt", "alpha");
         size_t calls = 0u;
-        RetrievalIndex index{[&calls](luisa::string_view) {
+        RetrievalIndex index{[&calls](luisa::string_view, const RetrievalEncodeRequest &) {
             calls++;
             return luisa::vector<float>{1.0f, std::numeric_limits<float>::quiet_NaN()};
         }};
@@ -698,7 +698,7 @@ void reg_embedding_validation() {
         TempDirectory dimensional;
         write_file(dimensional.path() / "a.txt", "alpha");
         write_file(dimensional.path() / "b.txt", "beta");
-        RetrievalIndex dimensional_index{[](luisa::string_view text) {
+        RetrievalIndex dimensional_index{[](luisa::string_view text, const RetrievalEncodeRequest &) {
             if (text == "beta") {
                 return luisa::vector<float>{1.0f, 0.0f, 0.0f};
             }
