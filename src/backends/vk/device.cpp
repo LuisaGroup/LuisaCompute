@@ -3,6 +3,7 @@
 #include "float_atomic_policy.h"
 #include "sampler_anisotropy.h"
 #include "user_compute_codegen_route.h"
+#include "bfloat16_requirement.h"
 #include "fallback_rtx_hlsl_codegen.h"
 #include "../common/env_flag.h"
 #include <luisa/ast/op.h>
@@ -132,7 +133,8 @@ namespace vk_device_detail {
         detail::UserComputeHlslFallbackReason::FALLBACK_RTX,
         detail::UserComputeHlslFallbackReason::ASYNC_COPY,
         detail::UserComputeHlslFallbackReason::MOTION_BLUR,
-        detail::UserComputeHlslFallbackReason::ACCEL_SIZE};
+        detail::UserComputeHlslFallbackReason::ACCEL_SIZE,
+        detail::UserComputeHlslFallbackReason::BFLOAT16};
     luisa::string description;
     for (auto reason : reasons) {
         if (!route.contains(reason)) { continue; }
@@ -3039,7 +3041,15 @@ luisa::string Device::query(luisa::string_view property) noexcept {
         return _numeric_features.shader_int64 ? "true" : "false";
     }
     if (property == "shader_bfloat16") {
+#ifdef LC_NO_HLSL_BUILTIN
+        // Without the bundled HLSL compiler there is no software BF16 either.
         return _numeric_features.shader_bfloat16 ? "true" : "false";
+#else
+        // A device without shaderBFloat16Type still serves BF16: such a kernel is
+        // routed to the compatibility HLSL route and emulates BF16 in software
+        // (src/backends/common/hlsl/builtin/bfloat16_fallback.bytes).
+        return "true";
+#endif
     }
     if (property == "timeline_semaphore_max_value_difference") {
         // The largest one-shot timeline-semaphore jump from the current
@@ -3264,7 +3274,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
         return detail::codegen_compat_compute(
             util, kernel, option.native_include, mask,
             option.enable_debug_info, option.enable_fast_math,
-            fallback_rtx);
+            fallback_rtx, /*bf16_fallback=*/!supports_native_bfloat16());
     }();
     if (fallback_rtx &&
         luisa::compute::detail::env_flag("LUISA_VK_DUMP_FALLBACK_HLSL")) {
@@ -3456,15 +3466,23 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
       auto requires_fallback_rtx_traversal =
           use_fallback_rtx_bit &&
           (uses_raytracing_ops || uses_accel_instance_update);
-    detail::UserComputeCodegenRequirements codegen_requirements{
-        .native_include = !option.native_include.empty(),
-        .printing = kernel.requires_printing(),
-        .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
-                      builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
-                      builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
-        .motion_blur = requires_motion_blur,
-        .accel_size = requires_accel_size,
-        .fallback_rtx = requires_fallback_rtx_traversal};
+      // BF16 has no software form in the native XIR-to-SPIR-V route (a BFloat16
+      // type needs the device's shaderBFloat16Type), so a kernel that mentions
+      // BF16 on a device without that feature takes the compatibility HLSL route,
+      // where builtin/bfloat16_fallback.bytes emulates it.
+      auto requires_bfloat16_fallback =
+          !supports_native_bfloat16() &&
+          detail::function_uses_bfloat16(kernel);
+      detail::UserComputeCodegenRequirements codegen_requirements{
+          .native_include = !option.native_include.empty(),
+          .printing = kernel.requires_printing(),
+          .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
+                        builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
+                        builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
+          .motion_blur = requires_motion_blur,
+          .accel_size = requires_accel_size,
+          .fallback_rtx = requires_fallback_rtx_traversal,
+          .bfloat16 = requires_bfloat16_fallback};
     auto codegen_route =
         detail::plan_user_compute_codegen_route(codegen_requirements);
     auto native_requirement = detail::plan_required_native_xir_spirv(

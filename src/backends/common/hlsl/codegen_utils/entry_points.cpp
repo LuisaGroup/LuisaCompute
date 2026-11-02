@@ -86,8 +86,15 @@ namespace detail {
            ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX) ||
            ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT);
 }
-size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg, bool fallback_rtx) {
+size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg, bool fallback_rtx, bool bf16_fallback) {
     builder << CodegenUtility::ReadInternalHLSLFile(fallback ? "hlsl_header_fallback" : "hlsl_header");
+    if (bf16_fallback) {
+        // Software BF16: the host selected this header because the target
+        // cannot compile the native HLSL `bfloat16_t` type (see
+        // builtin/bfloat16_fallback.bytes).  A device with the native type
+        // never includes it.
+        builder << CodegenUtility::ReadInternalHLSLFile("bfloat16_fallback");
+    }
     if (is_spirv) {
         // Vulkan versions typed bindless descriptors per slot. DXIL keeps its
         // established contiguous base+slot ABI.
@@ -186,10 +193,11 @@ bool IsCBuffer(Variable::Tag t);
 }// namespace detail
 
 // Main compute kernel codegen
-CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx) {
+CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
+    opt->bf16_fallback = bf16_fallback;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
@@ -233,7 +241,7 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     if (enable_debug_info) {
         finalResult << "#define LUISA_DEBUG_INFO 1\n";
     }
-    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx);
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx, bf16_fallback);
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';
@@ -362,10 +370,11 @@ uint4 v;
 
 // Ray tracing pipeline codegen for motion blur
 // Generates a lib_6_5 HLSL with raygen/miss/closesthit entry points
-CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx) {
+CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
+    opt->bf16_fallback = bf16_fallback;
     opt->noRegister = noRegister;
     opt->isRayTracing = true;
     opt->enable_debug_info = enable_debug_info;
@@ -385,7 +394,7 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
     if (enable_debug_info) {
         finalResult << "#define LUISA_DEBUG_INFO 1\n";
     }
-    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx);
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx, bf16_fallback);
     // Add motion blur ray tracing header (miss/closesthit entry points + _TraceClosestMotion)
     finalResult << ReadInternalHLSLFile("raytracing_motion_header");
     finalResult << native_code << "\n//"sv;
@@ -462,10 +471,12 @@ CodegenResult CodegenUtility::RasterCodegen(
     bool noRegister,
     bool enable_debug_info,
     bool enable_fast_math,
-    bool fallback_rtx) {
+    bool fallback_rtx,
+    bool bf16_fallback) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
+    opt->bf16_fallback = bf16_fallback;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
     // CodegenStackData::ThreadLocalSpirv() = false;
@@ -487,7 +498,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     }
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
-    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister, vertFunc.use_cooperative_operations() || pixelFunc.use_cooperative_operations(), fallback_rtx);
+    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister, vertFunc.use_cooperative_operations() || pixelFunc.use_cooperative_operations(), fallback_rtx, bf16_fallback);
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';

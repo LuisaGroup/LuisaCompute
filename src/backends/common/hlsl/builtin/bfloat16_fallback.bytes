@@ -1,0 +1,362 @@
+// Software BF16 emulation for backends that cannot compile the native HLSL
+// `bfloat16_t` type: the DirectX backend (DXIL has no BF16 type, dxc reserves
+// that identifier for `-spirv`) and the Vulkan compatibility HLSL-to-SPIR-V
+// route on a device without `shaderBFloat16Type`
+// (VK_KHR_shader_bfloat16).  The emulated storage types are named
+// `lc_bf16_t`/`lc_bf16_tN` because dxc rejects the native identifiers.
+//
+// The host decides whether this header is part of the immutable header (see
+// `hlsl::CodegenStackData::bf16_fallback`): a device that compiles the native
+// type never sees it.
+//
+// A value is stored as its raw 16-bit BF16 pattern, so buffers, constants,
+// swizzles and bit casts keep the layout and the bit pattern of the native
+// type, and every operation is evaluated in binary32 and rounded back to BF16
+// once -- the same contract as native BF16 arithmetic and as the CUDA device
+// library (src/backends/cuda/cuda_builtin/cuda_device_math.h).  The codegen
+// emits `_lc_bf16_*` calls for BF16 values instead of HLSL operators and
+// intrinsics when the fallback is on (see `bf16_call_helper_name` in
+// codegen_utils/function_codegen.cpp).
+typedef uint16_t lc_bf16_t;
+typedef uint16_t2 lc_bf16_t2;
+typedef uint16_t3 lc_bf16_t3;
+typedef uint16_t4 lc_bf16_t4;
+// Non-local 3-component vectors carry a padding lane, exactly like the float16
+// and integer wrappers of the base header.
+struct _wlc_bf16_t3 {
+    uint16_t3 v;
+    uint16_t a;
+};
+
+// ---- widening and narrowing (round to nearest even, quieten NaN payload) ----
+#define _LC_BF16_CONV_DIM(SUFFIX)                                         \
+    float##SUFFIX _lc_bf16_to_f32(lc_bf16_t##SUFFIX v) {                  \
+        return asfloat(((uint##SUFFIX)v) << 16u);                         \
+    }                                                                     \
+    lc_bf16_t##SUFFIX _lc_bf16_from_f32(float##SUFFIX v) {                \
+        uint##SUFFIX u = asuint(v);                                       \
+        return (lc_bf16_t##SUFFIX)select(                                \
+            ((u & 0x7fffffffu) > 0x7f800000u),                            \
+            ((u >> 16u) | 0x0040u),                                       \
+            ((u + 0x7fffu + ((u >> 16u) & 1u)) >> 16u));                  \
+    }                                                                     \
+    lc_bf16_t##SUFFIX _lc_bf16_from_bits(uint##SUFFIX v) {                \
+        return (lc_bf16_t##SUFFIX)v;                                     \
+    }                                                                     \
+    uint##SUFFIX _lc_bf16_to_bits(lc_bf16_t##SUFFIX v) {                  \
+        return (uint##SUFFIX)v;                                           \
+    }
+_LC_BF16_CONV_DIM()
+_LC_BF16_CONV_DIM(2)
+_LC_BF16_CONV_DIM(3)
+_LC_BF16_CONV_DIM(4)
+#undef _LC_BF16_CONV_DIM
+
+// ---- value conversions ----
+#define _LC_BF16_CAST_DIM(SUFFIX)                                                          \
+    lc_bf16_t##SUFFIX _lc_bf16_from_i32(int##SUFFIX v) {                                  \
+        return _lc_bf16_from_f32((float##SUFFIX)v);                                        \
+    }                                                                                      \
+    int##SUFFIX _lc_bf16_to_i32(lc_bf16_t##SUFFIX v) {                                     \
+        return (int##SUFFIX)_lc_bf16_to_f32(v);                                             \
+    }                                                                                      \
+    lc_bf16_t##SUFFIX _lc_bf16_from_u32(uint##SUFFIX v) {                                  \
+        return _lc_bf16_from_f32((float##SUFFIX)v);                                         \
+    }                                                                                      \
+    uint##SUFFIX _lc_bf16_to_u32(lc_bf16_t##SUFFIX v) {                                    \
+        return (uint##SUFFIX)_lc_bf16_to_f32(v);                                            \
+    }                                                                                      \
+    lc_bf16_t##SUFFIX _lc_bf16_from_f16(float16_t##SUFFIX v) {                             \
+        return _lc_bf16_from_f32((float##SUFFIX)v);                                         \
+    }                                                                                      \
+    float16_t##SUFFIX _lc_bf16_to_f16(lc_bf16_t##SUFFIX v) {                               \
+        return (float16_t##SUFFIX)_lc_bf16_to_f32(v);                                       \
+    }                                                                                      \
+    lc_bf16_t##SUFFIX _lc_bf16_from_bool(bool##SUFFIX v) {                                 \
+        return _lc_bf16_from_f32((float##SUFFIX)select(v, 1.0f, 0.0f));                     \
+    }                                                                                      \
+    bool##SUFFIX _lc_bf16_to_bool(lc_bf16_t##SUFFIX v) {                                   \
+        return (((uint##SUFFIX)v) & 0x7fffu) != 0u;                                         \
+    }
+_LC_BF16_CAST_DIM()
+_LC_BF16_CAST_DIM(2)
+_LC_BF16_CAST_DIM(3)
+_LC_BF16_CAST_DIM(4)
+#undef _LC_BF16_CAST_DIM
+
+// ---- bit-level operations (sign, magnitude, classification) ----
+lc_bf16_t _lc_bf16_pos(lc_bf16_t a) { return a; }
+lc_bf16_t2 _lc_bf16_pos(lc_bf16_t2 a) { return a; }
+lc_bf16_t3 _lc_bf16_pos(lc_bf16_t3 a) { return a; }
+lc_bf16_t4 _lc_bf16_pos(lc_bf16_t4 a) { return a; }
+lc_bf16_t _lc_bf16_neg(lc_bf16_t a) { return (lc_bf16_t)(((uint)a) ^ 0x8000u); }
+lc_bf16_t2 _lc_bf16_neg(lc_bf16_t2 a) { return (lc_bf16_t2)(((uint2)a) ^ 0x8000u); }
+lc_bf16_t3 _lc_bf16_neg(lc_bf16_t3 a) { return (lc_bf16_t3)(((uint3)a) ^ 0x8000u); }
+lc_bf16_t4 _lc_bf16_neg(lc_bf16_t4 a) { return (lc_bf16_t4)(((uint4)a) ^ 0x8000u); }
+lc_bf16_t _lc_bf16_abs(lc_bf16_t a) { return (lc_bf16_t)(((uint)a) & 0x7fffu); }
+lc_bf16_t2 _lc_bf16_abs(lc_bf16_t2 a) { return (lc_bf16_t2)(((uint2)a) & 0x7fffu); }
+lc_bf16_t3 _lc_bf16_abs(lc_bf16_t3 a) { return (lc_bf16_t3)(((uint3)a) & 0x7fffu); }
+lc_bf16_t4 _lc_bf16_abs(lc_bf16_t4 a) { return (lc_bf16_t4)(((uint4)a) & 0x7fffu); }
+bool _lc_bf16_not(lc_bf16_t a) { return (((uint)a) & 0x7fffu) == 0u; }
+bool2 _lc_bf16_not(lc_bf16_t2 a) { return ((((uint2)a) & 0x7fffu) == 0u); }
+bool3 _lc_bf16_not(lc_bf16_t3 a) { return ((((uint3)a) & 0x7fffu) == 0u); }
+bool4 _lc_bf16_not(lc_bf16_t4 a) { return ((((uint4)a) & 0x7fffu) == 0u); }
+bool _lc_bf16_isnan(lc_bf16_t a) { return (((uint)a) & 0x7fffu) > 0x7f80u; }
+bool2 _lc_bf16_isnan(lc_bf16_t2 a) { return ((((uint2)a) & 0x7fffu) > 0x7f80u); }
+bool3 _lc_bf16_isnan(lc_bf16_t3 a) { return ((((uint3)a) & 0x7fffu) > 0x7f80u); }
+bool4 _lc_bf16_isnan(lc_bf16_t4 a) { return ((((uint4)a) & 0x7fffu) > 0x7f80u); }
+bool _lc_bf16_isinf(lc_bf16_t a) { return (((uint)a) & 0x7fffu) == 0x7f80u; }
+bool2 _lc_bf16_isinf(lc_bf16_t2 a) { return ((((uint2)a) & 0x7fffu) == 0x7f80u); }
+bool3 _lc_bf16_isinf(lc_bf16_t3 a) { return ((((uint3)a) & 0x7fffu) == 0x7f80u); }
+bool4 _lc_bf16_isinf(lc_bf16_t4 a) { return ((((uint4)a) & 0x7fffu) == 0x7f80u); }
+
+// ---- arithmetic, comparison and unary operators ----
+#define _LC_BF16_BIN_DIM(SUFFIX, NAME, OP)                              \
+    lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a,            \
+                                       lc_bf16_t##SUFFIX b) {          \
+        return _lc_bf16_from_f32(_lc_bf16_to_f32(a) OP                  \
+                                 _lc_bf16_to_f32(b));                   \
+    }
+#define _LC_BF16_BIN(NAME, OP)                                          \
+    _LC_BF16_BIN_DIM(, NAME, OP)                                        \
+    _LC_BF16_BIN_DIM(2, NAME, OP)                                       \
+    _LC_BF16_BIN_DIM(3, NAME, OP)                                       \
+    _LC_BF16_BIN_DIM(4, NAME, OP)
+_LC_BF16_BIN(add, +)
+_LC_BF16_BIN(sub, -)
+_LC_BF16_BIN(mul, *)
+_LC_BF16_BIN(div, /)
+#undef _LC_BF16_BIN
+#undef _LC_BF16_BIN_DIM
+#define _LC_BF16_CMP_DIM(SUFFIX, NAME, OP)                              \
+    bool##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a,                  \
+                                 lc_bf16_t##SUFFIX b) {                \
+        return _lc_bf16_to_f32(a) OP _lc_bf16_to_f32(b);                \
+    }
+#define _LC_BF16_CMP(NAME, OP)                                          \
+    _LC_BF16_CMP_DIM(, NAME, OP)                                        \
+    _LC_BF16_CMP_DIM(2, NAME, OP)                                       \
+    _LC_BF16_CMP_DIM(3, NAME, OP)                                       \
+    _LC_BF16_CMP_DIM(4, NAME, OP)
+_LC_BF16_CMP(lt, <)
+_LC_BF16_CMP(gt, >)
+_LC_BF16_CMP(le, <=)
+_LC_BF16_CMP(ge, >=)
+_LC_BF16_CMP(eq, ==)
+_LC_BF16_CMP(ne, !=)
+#undef _LC_BF16_CMP
+#undef _LC_BF16_CMP_DIM
+
+// ---- select ----
+#define _LC_BF16_SELECT_DIM(SUFFIX)                                     \
+    lc_bf16_t##SUFFIX _lc_bf16_select(bool##SUFFIX c,                   \
+                                      lc_bf16_t##SUFFIX t,              \
+                                      lc_bf16_t##SUFFIX f) {            \
+        return _lc_bf16_from_f32(select(c, _lc_bf16_to_f32(t),          \
+                                        _lc_bf16_to_f32(f)));           \
+    }
+_LC_BF16_SELECT_DIM()
+_LC_BF16_SELECT_DIM(2)
+_LC_BF16_SELECT_DIM(3)
+_LC_BF16_SELECT_DIM(4)
+#undef _LC_BF16_SELECT_DIM
+
+// ---- unary math intrinsics (evaluated in binary32) ----
+#define _LC_BF16_UNARY_DIM(SUFFIX, NAME, EXPR)                          \
+    lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a) {          \
+        return _lc_bf16_from_f32(EXPR);                                 \
+    }
+#define _LC_BF16_UNARY(NAME)                                            \
+    _LC_BF16_UNARY_DIM(, NAME, NAME(_lc_bf16_to_f32(a)))                \
+    _LC_BF16_UNARY_DIM(2, NAME, NAME(_lc_bf16_to_f32(a)))               \
+    _LC_BF16_UNARY_DIM(3, NAME, NAME(_lc_bf16_to_f32(a)))               \
+    _LC_BF16_UNARY_DIM(4, NAME, NAME(_lc_bf16_to_f32(a)))
+_LC_BF16_UNARY(sin)
+_LC_BF16_UNARY(cos)
+_LC_BF16_UNARY(tan)
+_LC_BF16_UNARY(asin)
+_LC_BF16_UNARY(acos)
+_LC_BF16_UNARY(atan)
+_LC_BF16_UNARY(sinh)
+_LC_BF16_UNARY(cosh)
+_LC_BF16_UNARY(tanh)
+_LC_BF16_UNARY(exp)
+_LC_BF16_UNARY(exp2)
+_LC_BF16_UNARY(log)
+_LC_BF16_UNARY(log2)
+_LC_BF16_UNARY(log10)
+_LC_BF16_UNARY(sqrt)
+_LC_BF16_UNARY(rsqrt)
+_LC_BF16_UNARY(ceil)
+_LC_BF16_UNARY(floor)
+_LC_BF16_UNARY(trunc)
+_LC_BF16_UNARY(sign)
+_LC_BF16_UNARY(saturate)
+#undef _LC_BF16_UNARY
+#undef _LC_BF16_UNARY_DIM
+
+// asinh/acosh/atanh: the same closed forms the base header uses for float32.
+#define _LC_BF16_INVHYP_DIM(SUFFIX, NAME, EXPR)                         \
+    lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a) {          \
+        float##SUFFIX x = _lc_bf16_to_f32(a);                           \
+        return _lc_bf16_from_f32(EXPR);                                 \
+    }
+#define _LC_BF16_INVHYP(NAME, EXPR)                                     \
+    _LC_BF16_INVHYP_DIM(, NAME, EXPR)                                   \
+    _LC_BF16_INVHYP_DIM(2, NAME, EXPR)                                  \
+    _LC_BF16_INVHYP_DIM(3, NAME, EXPR)                                  \
+    _LC_BF16_INVHYP_DIM(4, NAME, EXPR)
+_LC_BF16_INVHYP(asinh, log(x + sqrt(x * x + 1.0f)))
+_LC_BF16_INVHYP(acosh, log(x + sqrt(x * x - 1.0f)))
+_LC_BF16_INVHYP(atanh, 0.5f * log((1.0f + x) / (1.0f - x)))
+_LC_BF16_INVHYP(exp10, pow(10.0f, x))
+_LC_BF16_INVHYP(fract, x - floor(x))
+_LC_BF16_INVHYP(round, sign(x) * floor(abs(x) + 0.5f))
+_LC_BF16_INVHYP(rint, round(x))
+#undef _LC_BF16_INVHYP
+#undef _LC_BF16_INVHYP_DIM
+
+lc_bf16_t _lc_bf16_atan2(lc_bf16_t y, lc_bf16_t x) {
+    float fy = _lc_bf16_to_f32(y), fx = _lc_bf16_to_f32(x);
+    return _lc_bf16_from_f32((fx == 0.0f && fy == 0.0f) ? 0.0f : atan2(fy, fx));
+}
+lc_bf16_t2 _lc_bf16_atan2(lc_bf16_t2 y, lc_bf16_t2 x) {
+    float2 fy = _lc_bf16_to_f32(y), fx = _lc_bf16_to_f32(x);
+    return _lc_bf16_from_f32(select((fx == 0.0f) & (fy == 0.0f), 0.0f, atan2(fy, fx)));
+}
+lc_bf16_t3 _lc_bf16_atan2(lc_bf16_t3 y, lc_bf16_t3 x) {
+    float3 fy = _lc_bf16_to_f32(y), fx = _lc_bf16_to_f32(x);
+    return _lc_bf16_from_f32(select((fx == 0.0f) & (fy == 0.0f), 0.0f, atan2(fy, fx)));
+}
+lc_bf16_t4 _lc_bf16_atan2(lc_bf16_t4 y, lc_bf16_t4 x) {
+    float4 fy = _lc_bf16_to_f32(y), fx = _lc_bf16_to_f32(x);
+    return _lc_bf16_from_f32(select((fx == 0.0f) & (fy == 0.0f), 0.0f, atan2(fy, fx)));
+}
+
+// ---- binary math intrinsics ----
+#define _LC_BF16_BINARY_DIM(SUFFIX, NAME, EXPR)                         \
+    lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a,            \
+                                       lc_bf16_t##SUFFIX b) {          \
+        float##SUFFIX x = _lc_bf16_to_f32(a),                           \
+                      y = _lc_bf16_to_f32(b);                           \
+        return _lc_bf16_from_f32(EXPR);                                 \
+    }
+#define _LC_BF16_BINARY(NAME, EXPR)                                     \
+    _LC_BF16_BINARY_DIM(, NAME, EXPR)                                   \
+    _LC_BF16_BINARY_DIM(2, NAME, EXPR)                                  \
+    _LC_BF16_BINARY_DIM(3, NAME, EXPR)                                  \
+    _LC_BF16_BINARY_DIM(4, NAME, EXPR)
+_LC_BF16_BINARY(min, min(x, y))
+_LC_BF16_BINARY(max, max(x, y))
+_LC_BF16_BINARY(pow, pow(x, y))
+_LC_BF16_BINARY(step, step(x, y))
+_LC_BF16_BINARY(mod, fmod(x, y))
+_LC_BF16_BINARY(distance, distance(x, y))
+#undef _LC_BF16_BINARY
+#undef _LC_BF16_BINARY_DIM
+// copysign is not an HLSL intrinsic: it is exactly a sign-bit transfer.
+lc_bf16_t _lc_bf16_copysign(lc_bf16_t a, lc_bf16_t b) {
+    return (lc_bf16_t)((((uint)a) & 0x7fffu) | (((uint)b) & 0x8000u));
+}
+lc_bf16_t2 _lc_bf16_copysign(lc_bf16_t2 a, lc_bf16_t2 b) {
+    return (lc_bf16_t2)((((uint2)a) & 0x7fffu) | (((uint2)b) & 0x8000u));
+}
+lc_bf16_t3 _lc_bf16_copysign(lc_bf16_t3 a, lc_bf16_t3 b) {
+    return (lc_bf16_t3)((((uint3)a) & 0x7fffu) | (((uint3)b) & 0x8000u));
+}
+lc_bf16_t4 _lc_bf16_copysign(lc_bf16_t4 a, lc_bf16_t4 b) {
+    return (lc_bf16_t4)((((uint4)a) & 0x7fffu) | (((uint4)b) & 0x8000u));
+}
+#undef _LC_BF16_BINARY
+#undef _LC_BF16_BINARY_DIM
+
+// ---- ternary math intrinsics ----
+#define _LC_BF16_TERNARY(NAME, EXPR)                                    \
+    lc_bf16_t _lc_bf16_##NAME(lc_bf16_t a, lc_bf16_t b,              \
+                               lc_bf16_t c) {                          \
+        float x = _lc_bf16_to_f32(a), y = _lc_bf16_to_f32(b),           \
+              z = _lc_bf16_to_f32(c);                                   \
+        return _lc_bf16_from_f32(EXPR);                                 \
+    }                                                                   \
+    lc_bf16_t2 _lc_bf16_##NAME(lc_bf16_t2 a, lc_bf16_t2 b,           \
+                                lc_bf16_t2 c) {                        \
+        float2 x = _lc_bf16_to_f32(a), y = _lc_bf16_to_f32(b),          \
+               z = _lc_bf16_to_f32(c);                                  \
+        return _lc_bf16_from_f32(EXPR);                                 \
+    }                                                                   \
+    lc_bf16_t3 _lc_bf16_##NAME(lc_bf16_t3 a, lc_bf16_t3 b,           \
+                                lc_bf16_t3 c) {                        \
+        float3 x = _lc_bf16_to_f32(a), y = _lc_bf16_to_f32(b),          \
+               z = _lc_bf16_to_f32(c);                                  \
+        return _lc_bf16_from_f32(EXPR);                                 \
+    }                                                                   \
+    lc_bf16_t4 _lc_bf16_##NAME(lc_bf16_t4 a, lc_bf16_t4 b,           \
+                                lc_bf16_t4 c) {                        \
+        float4 x = _lc_bf16_to_f32(a), y = _lc_bf16_to_f32(b),          \
+               z = _lc_bf16_to_f32(c);                                  \
+        return _lc_bf16_from_f32(EXPR);                                 \
+    }
+_LC_BF16_TERNARY(fma, x * y + z)
+_LC_BF16_TERNARY(clamp, clamp(x, y, z))
+_LC_BF16_TERNARY(lerp, lerp(x, y, z))
+_LC_BF16_TERNARY(smoothstep, smoothstep(x, y, z))
+_LC_BF16_TERNARY(faceforward, faceforward(x, y, z))
+#undef _LC_BF16_TERNARY
+
+// ---- vector products and reductions ----
+#define _LC_BF16_VEC_DIM(SUFFIX)                                        \
+    lc_bf16_t _lc_bf16_dot(lc_bf16_t##SUFFIX a,                       \
+                            lc_bf16_t##SUFFIX b) {                     \
+        return _lc_bf16_from_f32(dot(_lc_bf16_to_f32(a),                \
+                                     _lc_bf16_to_f32(b)));              \
+    }                                                                   \
+    lc_bf16_t _lc_bf16_length(lc_bf16_t##SUFFIX a) {                  \
+        return _lc_bf16_from_f32(length(_lc_bf16_to_f32(a)));           \
+    }                                                                   \
+    lc_bf16_t _lc_bf16_length_sqr(lc_bf16_t##SUFFIX a) {              \
+        float##SUFFIX x = _lc_bf16_to_f32(a);                           \
+        return _lc_bf16_from_f32(dot(x, x));                            \
+    }                                                                   \
+    lc_bf16_t##SUFFIX _lc_bf16_normalize(lc_bf16_t##SUFFIX a) {       \
+        return _lc_bf16_from_f32(normalize(_lc_bf16_to_f32(a)));        \
+    }                                                                   \
+    lc_bf16_t##SUFFIX _lc_bf16_reflect(lc_bf16_t##SUFFIX a,           \
+                                        lc_bf16_t##SUFFIX b) {         \
+        return _lc_bf16_from_f32(reflect(_lc_bf16_to_f32(a),            \
+                                         _lc_bf16_to_f32(b)));          \
+    }
+_LC_BF16_VEC_DIM(2)
+_LC_BF16_VEC_DIM(3)
+_LC_BF16_VEC_DIM(4)
+#undef _LC_BF16_VEC_DIM
+lc_bf16_t3 _lc_bf16_cross(lc_bf16_t3 a, lc_bf16_t3 b) {
+    return _lc_bf16_from_f32(cross(_lc_bf16_to_f32(a), _lc_bf16_to_f32(b)));
+}
+
+#define _LC_BF16_REDUCE_DIM(SUFFIX, NAME, EXPR)                         \
+    lc_bf16_t _lc_bf16_reduce_##NAME(lc_bf16_t##SUFFIX a) {           \
+        float##SUFFIX f = _lc_bf16_to_f32(a);                           \
+        return _lc_bf16_from_f32(EXPR);                                 \
+    }
+#define _LC_BF16_REDUCE(NAME, EXPR2, EXPR3, EXPR4)                      \
+    _LC_BF16_REDUCE_DIM(2, NAME, EXPR2)                                 \
+    _LC_BF16_REDUCE_DIM(3, NAME, EXPR3)                                 \
+    _LC_BF16_REDUCE_DIM(4, NAME, EXPR4)
+_LC_BF16_REDUCE(sum, f.x + f.y,
+                f.x + f.y + f.z,
+                f.x + f.y + f.z + f.w)
+_LC_BF16_REDUCE(prod, f.x * f.y,
+                f.x * f.y * f.z,
+                f.x * f.y * f.z * f.w)
+_LC_BF16_REDUCE(min, min(f.x, f.y),
+                min(f.x, min(f.y, f.z)),
+                min(f.x, min(f.y, min(f.z, f.w))))
+_LC_BF16_REDUCE(max, max(f.x, f.y),
+                max(f.x, max(f.y, f.z)),
+                max(f.x, max(f.y, max(f.z, f.w))))
+#undef _LC_BF16_REDUCE
+#undef _LC_BF16_REDUCE_DIM
+// Packed 32-bit word accessors for a software BF16 member (its storage is a raw
+// 16-bit pattern; see PackedStructMember in the HLSL codegen).
+lc_bf16_t _lc_pack_get_bf16(uint w,uint byte){return (lc_bf16_t)(w>>(byte*8u));}
+uint _lc_pack_set_bf16(uint w,uint byte,lc_bf16_t v){uint s=byte*8u;return (w&~(0xffffu<<s))|(((uint)v&0xffffu)<<s);}

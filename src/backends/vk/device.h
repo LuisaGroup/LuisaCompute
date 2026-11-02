@@ -334,6 +334,14 @@ public:
         return _acceleration_structure_properties;
     }
     bool enable_interop() const { return interop_enabled; }
+    // Whether this device compiles the native BF16 type.  Without
+    // VK_KHR_shader_bfloat16 (`shaderBFloat16Type`) the native XIR-to-SPIR-V
+    // route cannot express BF16 at all, so BF16 kernels take the compatibility
+    // HLSL route with the software emulation of
+    // src/backends/common/hlsl/builtin/bfloat16_fallback.bytes.
+    [[nodiscard]] bool supports_native_bfloat16() const noexcept {
+        return _numeric_features.shader_bfloat16;
+    }
     bool enable_motion_blur() const { return motion_blur_enabled; }
     bool enable_raytracing() const { return raytracing_enabled; }
     // Whether this device answers ray tracing with the software fallback. It is

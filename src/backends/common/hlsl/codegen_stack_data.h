@@ -22,6 +22,10 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::unordered_set<Type const *> aliasedToOriginTypes;
     vstd::unordered_map<uint, uint> arguments;
     vstd::unordered_map<Type const *, vstd::string> internalStruct;
+    // Member packing of generated structs (see `plan_struct_packing`), cached per
+    // struct type because both the struct emitter and every member access ask
+    // for it.
+    vstd::HashMap<Type const *, vstd::unique_ptr<StructPacking>> structPacking;
     vstd::vector<std::pair<vstd::string, Type const *>> printer;
     enum class FuncType : uint8_t {
         Kernel,
@@ -51,6 +55,15 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool enable_debug_info : 1 = false;
     bool enable_fast_math : 1 = false;
     bool use_8bit : 1 = false;
+    // Software BF16 emulation: the immutable header carries
+    // builtin/bfloat16_fallback.bytes (BF16 is then the raw 16-bit pattern of
+    // `lc_bf16_t`/`lc_bf16_tN`) and every BF16 operation is emitted as a
+    // `_lc_bf16_*` call.
+    // Set by the host when the target cannot compile the native HLSL type: the
+    // DirectX backend (DXIL has no BF16 type) and the Vulkan compatibility
+    // HLSL-to-SPIR-V route on a device without shaderBFloat16Type.  Off by
+    // default, and inert when off.
+    bool bf16_fallback : 1 = false;
     // Software (fallback) ray tracing: the `accel` argument is bound to two
     // `StructuredBuffer<uint4>` views instead of a RaytracingAccelerationStructure
     // plus a `_MeshInst` buffer, and the tracing / instance intrinsics call into
@@ -93,6 +106,8 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
         Type const *retType,
         luisa::span<Expression const *const> exprs);
     void Clear();
+    /// Member packing of `t`, computed once per struct type.
+    StructPacking const &GetStructPacking(Type const *t);
     vstd::string_view CreateStruct(Type const *t);
     std::pair<vstd::string_view, bool> CreateAliasedStruct(Type const *t);
     std::pair<uint64, bool> GetConstCount(uint64 data);

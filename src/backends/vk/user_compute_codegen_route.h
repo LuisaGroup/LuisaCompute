@@ -20,6 +20,7 @@ enum class UserComputeHlslFallbackReason : uint32_t {
     ASYNC_COPY = 1u << 3u,
     MOTION_BLUR = 1u << 4u,
     ACCEL_SIZE = 1u << 5u,
+    BFLOAT16 = 1u << 6u,
 };
 
 using UserComputeHlslFallbackReasonMask = uint32_t;
@@ -43,6 +44,12 @@ struct UserComputeCodegenRequirements {
     // the compatibility HLSL-to-SPIR-V route compiles: the native XIR-to-SPIR-V
     // route can only emit the hardware OpRayQuery/trace operations.
     bool fallback_rtx{};
+    // The kernel uses BF16 but the device has no `shaderBFloat16Type`
+    // (VK_KHR_shader_bfloat16).  The native XIR-to-SPIR-V route can only express
+    // a BFloat16 type with that feature (spirv_codegen/type.cpp), so the kernel
+    // takes the compatibility HLSL route, where BF16 is emulated in software by
+    // src/backends/common/hlsl/builtin/bfloat16_fallback.bytes.
+    bool bfloat16{};
 };
 
 struct UserComputeCodegenRoute {
@@ -113,6 +120,8 @@ plan_user_compute_codegen_route(
         UserComputeHlslFallbackReason::MOTION_BLUR);
     add(requirements.accel_size,
         UserComputeHlslFallbackReason::ACCEL_SIZE);
+    add(requirements.bfloat16,
+        UserComputeHlslFallbackReason::BFLOAT16);
     return {.hlsl_fallback_reasons = reasons};
 }
 
@@ -133,6 +142,8 @@ user_compute_hlsl_fallback_reason_name(
             return "motion blur"sv;
         case UserComputeHlslFallbackReason::ACCEL_SIZE:
             return "accel size"sv;
+        case UserComputeHlslFallbackReason::BFLOAT16:
+            return "software BF16 (device has no shaderBFloat16Type)"sv;
     }
     return "unknown"sv;
 }

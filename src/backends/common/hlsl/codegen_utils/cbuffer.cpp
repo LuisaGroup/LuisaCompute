@@ -89,10 +89,24 @@ void CodegenUtility::GenerateCBuffer(
                     ++validation_count;
                 }
             } else {
-                StructGenerator::ProvideAlignVariable(last_type, i.type()->alignment(), align, struct_size, result);
+                StructGenerator::ProvideAlignVariable(last_type, i.type()->alignment(), align, struct_size, result, opt->bf16_fallback);
                 if (last_type && (StructGenerator::half_type_adjacent_with_bool(last_type, i.type()) ||
                                   StructGenerator::half_type_adjacent_with_bool(i.type(), last_type))) [[unlikely]] {
-                    LUISA_ERROR("HLSL do not support 16-bit variables adjacent with bool");
+                    // The argument block is filled linearly from the host, so the
+                    // one-byte bool and the 16-bit argument around it share a
+                    // 32-bit word -- which dxc cannot express (bitfields are
+                    // allocated in whole units).  Struct members in that position
+                    // are packed (see PackedStructMember); kernel arguments are
+                    // not, because the encoder fills the block itself.
+                    auto sixteen_bit = StructGenerator::half_type_adjacent_with_bool(last_type, i.type()) ? last_type : i.type();
+                    auto bool_type = sixteen_bit == last_type ? i.type() : last_type;
+                    LUISA_ERROR(
+                        "Kernel argument '{}' cannot be adjacent to the one-byte bool "
+                        "argument '{}': dxc cannot place a one-byte bool in the same "
+                        "32-bit word as a 16-bit value, and the argument block is "
+                        "filled linearly from the host. Reorder the arguments, or "
+                        "carry the pair inside a struct (struct members are packed).",
+                        sixteen_bit->description(), bool_type->description());
                 }
                 last_type = i.type();
                 // Note: BOOL scalar kernel arguments go through this cbuffer code path.

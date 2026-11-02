@@ -423,6 +423,9 @@ public:
     [[nodiscard]] RetrievalStatus save(const luisa::filesystem::path &path);
     [[nodiscard]] RetrievalStatus load_snapshot(const luisa::filesystem::path &path);
 
+    // Loaded directory roots (load/update bookkeeping); unload and failed
+    // duplicate/nested/parent loads never add to this count.
+    [[nodiscard]] size_t root_count() const noexcept { return _roots.size(); }
     [[nodiscard]] size_t document_count() const noexcept { return _doc_chunks.size(); }
     [[nodiscard]] size_t chunk_count() const noexcept { return _documents.size(); }
     [[nodiscard]] RetrievalStats stats() const noexcept;

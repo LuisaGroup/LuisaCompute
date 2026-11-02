@@ -4,12 +4,24 @@ namespace lc::hlsl {
 class CodegenConstantPrinter final : public ConstantDecoder {
 
 private:
+    CodegenUtility &_codegen;
     vstd::StringBuilder &_str;
+
+    template<typename V>
+    void _print_vector(V const &x) noexcept {
+        if constexpr (std::is_same_v<V, bfloat162> ||
+                      std::is_same_v<V, bfloat163> ||
+                      std::is_same_v<V, bfloat164>) {
+            PrintValue<V>{}(x, _str, _codegen.opt->bf16_fallback);
+        } else {
+            PrintValue<V>{}(x, _str);
+        }
+    }
 
 public:
     CodegenConstantPrinter(CodegenUtility &codegen,
                            vstd::StringBuilder &str) noexcept
-        : _str{str} {}
+        : _codegen{codegen}, _str{str} {}
 
 protected:
     void _decode_bool(bool x) noexcept override {
@@ -43,6 +55,14 @@ protected:
         LUISA_NOT_IMPLEMENTED();
     }
     void _decode_bfloat16(bfloat16 x) noexcept override {
+        if (_codegen.opt->bf16_fallback) {
+            // Software BF16 stores the raw pattern, which keeps NaN payloads and
+            // needs no BF16 constructor (see builtin/bfloat16_fallback.bytes).
+            _str << "((" << bf16_type_name(true) << ")"sv;
+            vstd::to_string(static_cast<uint>(x.bits()), _str);
+            _str << "u)"sv;
+            return;
+        }
         _str << "bfloat16_t(";
         PrintValue<float>{}(static_cast<float>(x), _str);
         _str << ")";
@@ -65,7 +85,7 @@ protected:
         if (type == Type::of<T##N>()) {                     \
             auto x = *reinterpret_cast<const T##N *>(data); \
             if constexpr (N == 3) { _str << "{"sv; }        \
-            PrintValue<T##N>{}(x, _str);                    \
+            _print_vector(x);                    \
             if constexpr (N == 3) { _str << ",0}"sv; }      \
             return;                                         \
         }                                                   \
@@ -80,6 +100,7 @@ protected:
         LUISA_HLSL_DECODE_CONST(int);
         LUISA_HLSL_DECODE_CONST(uint);
         LUISA_HLSL_DECODE_CONST(float);
+        LUISA_HLSL_DECODE_CONST(bfloat16);
         LUISA_ERROR_WITH_LOCATION(
             "Constant type '{}' is not supported yet.",
             type->description());

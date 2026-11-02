@@ -98,7 +98,7 @@ void write_file(const luisa::filesystem::path &path, luisa::string_view contents
 }
 
 [[nodiscard]] RetrievalEncodeCallback fake_encoder() {
-    return [](luisa::string_view text) -> luisa::vector<float> {
+    return [](luisa::string_view text, const RetrievalEncodeRequest &) -> luisa::vector<float> {
         if (text.find("beta") != luisa::string_view::npos) {
             return {0.0f, 1.0f};
         }
@@ -485,7 +485,7 @@ void reg_rpc_tcp_transport() {
         write_file(temporary.path() / "a.txt", "alpha");
         std::atomic<int32_t> active_encodes{0};
         std::atomic<bool> overlapping_encodes{false};
-        RetrievalService service{[&](luisa::string_view text) -> luisa::vector<float> {
+        RetrievalService service{[&](luisa::string_view text, const RetrievalEncodeRequest &) -> luisa::vector<float> {
             if (active_encodes.fetch_add(1) != 0) {
                 overlapping_encodes.store(true);
             }

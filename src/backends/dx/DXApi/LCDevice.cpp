@@ -45,6 +45,14 @@ using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
 static constexpr uint kHighShaderModel = 66u;
 static constexpr uint kTensorShaderModel = 69u;
+// DXIL has no BF16 type: dxc rejects `bfloat16_t` outside `-spirv` ("bfloat16_t
+// is only supported with -spirv"), so every DirectX shader emulates BF16 in
+// software through the builtin header
+// src/backends/common/hlsl/builtin/bfloat16_fallback.bytes.  The generated
+// source therefore always carries that header
+// (`CodegenUtility::Codegen(..., bf16_fallback)`), and the device answers
+// `query("shader_bfloat16")` with true: BF16 kernels run here, in software.
+static constexpr bool kEmulateBfloat16 = true;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       native_device(Context{_ctx_impl}, settings) {
@@ -404,7 +412,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     constexpr uint compiler_version = 202403u;// dxc version at march 2024
     mask |= (1 << 2);
     mask |= compiler_version << 3u;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx, kEmulateBfloat16);
     // TODO get result from codegen
     auto choose_shader_model = [&]() -> uint {
         if (kernel.use_cooperative_operations() || code.use_8bit) {
@@ -647,7 +655,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _fallback_rtx);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _fallback_rtx, kEmulateBfloat16);
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());
@@ -953,6 +961,17 @@ LUISA_EXPORT_API void destroy(DeviceInterface *device) {
 luisa::string LCDevice::query(luisa::string_view property) noexcept {
     if (property == "device_name") {
         return "dx";
+    }
+    if (property == "shader_bfloat16") {
+        // Software BF16 (builtin/bfloat16_fallback.bytes): the backend serves
+        // BF16 storage, arithmetic and conversions on any DirectX device, in
+        // binary32 with a single rounding back to BF16 per operation.
+#ifdef LC_NO_HLSL_BUILTIN
+        // Without the bundled HLSL compiler the shaders carry no header at all.
+        return "false";
+#else
+        return "true";
+#endif
     }
     LUISA_WARNING_WITH_LOCATION("Unknown device property '{}'.", property);
     return {};

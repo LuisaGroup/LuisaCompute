@@ -45,7 +45,7 @@ private:
 
 public:
     static bool half_type_adjacent_with_bool(Type const *a, Type const *b);
-    static void ProvideAlignVariable(Type const *type, size_t tarAlign, size_t &align, size_t &structSize, vstd::StringBuilder &structDesc);
+    static void ProvideAlignVariable(Type const *type, size_t tarAlign, size_t &align, size_t &structSize, vstd::StringBuilder &structDesc, bool bf16_fallback = false);
     vstd::string_view GetStructDesc() const { return structDesc.view(); }
     vstd::string_view GetStructName() const { return structName; }
     void SetStructName(vstd::string &&name) {

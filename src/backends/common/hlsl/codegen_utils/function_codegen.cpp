@@ -32,6 +32,68 @@ namespace {
             luisa::to_underlying(Usage::WRITE)) != 0u;
 }
 
+// Software BF16 (builtin/bfloat16_fallback.bytes): a BF16 value is a raw
+// 16-bit pattern, so the operators and intrinsics of the native HLSL type do not
+// apply to it.  Every BF16 call is emitted as a `_lc_bf16_*` helper from that
+// header instead; an empty name means the call needs no BF16-specific emission.
+[[nodiscard]] vstd::string_view bf16_call_helper_name(CallOp op) noexcept {
+    switch (op) {
+        case CallOp::SELECT: return "select"sv;
+        case CallOp::ABS: return "abs"sv;
+        case CallOp::MIN: return "min"sv;
+        case CallOp::MAX: return "max"sv;
+        case CallOp::CLAMP: return "clamp"sv;
+        case CallOp::SATURATE: return "saturate"sv;
+        case CallOp::LERP: return "lerp"sv;
+        case CallOp::SMOOTHSTEP: return "smoothstep"sv;
+        case CallOp::STEP: return "step"sv;
+        case CallOp::FMA: return "fma"sv;
+        case CallOp::COPYSIGN: return "copysign"sv;
+        case CallOp::SIN: return "sin"sv;
+        case CallOp::COS: return "cos"sv;
+        case CallOp::TAN: return "tan"sv;
+        case CallOp::ASIN: return "asin"sv;
+        case CallOp::ACOS: return "acos"sv;
+        case CallOp::ATAN: return "atan"sv;
+        case CallOp::ATAN2: return "atan2"sv;
+        case CallOp::SINH: return "sinh"sv;
+        case CallOp::COSH: return "cosh"sv;
+        case CallOp::TANH: return "tanh"sv;
+        case CallOp::ASINH: return "asinh"sv;
+        case CallOp::ACOSH: return "acosh"sv;
+        case CallOp::ATANH: return "atanh"sv;
+        case CallOp::EXP: return "exp"sv;
+        case CallOp::EXP2: return "exp2"sv;
+        case CallOp::EXP10: return "exp10"sv;
+        case CallOp::LOG: return "log"sv;
+        case CallOp::LOG2: return "log2"sv;
+        case CallOp::LOG10: return "log10"sv;
+        case CallOp::POW: return "pow"sv;
+        case CallOp::SQRT: return "sqrt"sv;
+        case CallOp::RSQRT: return "rsqrt"sv;
+        case CallOp::CEIL: return "ceil"sv;
+        case CallOp::FLOOR: return "floor"sv;
+        case CallOp::FRACT: return "fract"sv;
+        case CallOp::TRUNC: return "trunc"sv;
+        case CallOp::ROUND: return "round"sv;
+        case CallOp::RINT: return "rint"sv;
+        case CallOp::ISNAN: return "isnan"sv;
+        case CallOp::ISINF: return "isinf"sv;
+        case CallOp::DOT: return "dot"sv;
+        case CallOp::CROSS: return "cross"sv;
+        case CallOp::LENGTH: return "length"sv;
+        case CallOp::LENGTH_SQUARED: return "length_sqr"sv;
+        case CallOp::NORMALIZE: return "normalize"sv;
+        case CallOp::REFLECT: return "reflect"sv;
+        case CallOp::FACEFORWARD: return "faceforward"sv;
+        case CallOp::REDUCE_SUM: return "reduce_sum"sv;
+        case CallOp::REDUCE_PRODUCT: return "reduce_prod"sv;
+        case CallOp::REDUCE_MIN: return "reduce_min"sv;
+        case CallOp::REDUCE_MAX: return "reduce_max"sv;
+        default: return {};
+    }
+}
+
 void print_validation_bound_name(
     vstd::StringBuilder &str, Variable variable) noexcept {
     str << "_validation_bound_"sv;
@@ -293,6 +355,35 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         auto buffer_expr = static_cast<RefExpr const *>(expr);
         opt->globallyCoherentBuffers.emplace(vis.f.builder()).value().emplace(buffer_expr->variable().uid());
     };
+    // Software BF16: emit the `_lc_bf16_*` helper of builtin/bfloat16_fallback.bytes
+    // instead of the native HLSL spelling whenever a BF16 value takes part in the
+    // call (as its result or as one of its arguments).
+    if (opt->bf16_fallback) {
+        auto bf16_involved = CodegenUtility::IsBf16(expr->type());
+        for (auto i = 0u; !bf16_involved && i < args.size(); ++i) {
+            bf16_involved = CodegenUtility::IsBf16(args[i]->type());
+        }
+        if (bf16_involved) {
+            if (auto helper = bf16_call_helper_name(expr->op());
+                !helper.empty()) {
+                str << "_lc_bf16_"sv << helper << '(';
+                if (expr->op() == CallOp::SELECT) {
+                    // The AST spells `select(false_value, true_value, condition)` and the
+                    // generated HLSL `select(condition, true_value, false_value)`; the
+                    // helper keeps that operand role order.
+                    args[2]->accept(vis);
+                    str << ',';
+                    args[1]->accept(vis);
+                    str << ',';
+                    args[0]->accept(vis);
+                } else {
+                    PrintArgs();
+                }
+                str << ')';
+                return;
+            }
+        }
+    }
     switch (expr->op()) {
         case CallOp::CUSTOM:
             GetFunctionName(expr->custom(), str);
@@ -645,7 +736,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     case CallOp::ATOMIC_FETCH_MAX: str << "_lc_spv_atomic_max("sv; break;
                     default: LUISA_ERROR_WITH_LOCATION("Invalid floating-point atomic operation.");
                 }
-                AccessChain chain{expr->op(), rootVar->variable(), args.subspan(0u, args.size() - 1u), true};
+                CheckPackedAtomicTarget(args);
+          AccessChain chain{expr->op(), rootVar->variable(), args.subspan(0u, args.size() - 1u), true};
                 chain.emit_access(args, str, vis);
                 // Workgroup/device scope and relaxed memory ordering.
                 str << (rootVar->variable().is_shared() ? ",2u,0u,"sv : ",1u,0u,"sv);

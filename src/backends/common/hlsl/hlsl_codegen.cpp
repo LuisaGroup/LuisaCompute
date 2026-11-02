@@ -2,9 +2,83 @@
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 namespace lc::hlsl {
+
+namespace {
+
+// Software BF16 (builtin/bfloat16_fallback.bytes): `bfloat16_t` is a raw 16-bit
+// pattern, so HLSL operators and intrinsics do not apply to it.  Every operator
+// is emitted as a `_lc_bf16_*` helper call instead, and these tables name that
+// helper.  An empty name means the plain HLSL spelling is already correct for
+// the emulated type (the bitwise operators, for example, work directly on the
+// pattern).
+[[nodiscard]] vstd::string_view bf16_binary_helper_name(BinaryOp op) noexcept {
+    switch (op) {
+        case BinaryOp::ADD: return "add"sv;
+        case BinaryOp::SUB: return "sub"sv;
+        case BinaryOp::MUL: return "mul"sv;
+        case BinaryOp::DIV: return "div"sv;
+        case BinaryOp::MOD: return "mod"sv;
+        case BinaryOp::LESS: return "lt"sv;
+        case BinaryOp::GREATER: return "gt"sv;
+        case BinaryOp::LESS_EQUAL: return "le"sv;
+        case BinaryOp::GREATER_EQUAL: return "ge"sv;
+        case BinaryOp::EQUAL: return "eq"sv;
+        case BinaryOp::NOT_EQUAL: return "ne"sv;
+        default: return {};
+    }
+}
+
+// Whether an expression evaluates a call.  A packed struct member is written
+// through a read-modify-write helper, which renders the member's owner twice; that
+// is only sound for an owner without side effects.
+[[nodiscard]] bool expression_has_call(Expression const *expr) noexcept {
+    if (expr == nullptr) { return false; }
+    switch (expr->tag()) {
+        case Expression::Tag::CALL:
+            return true;
+        case Expression::Tag::UNARY:
+            return expression_has_call(static_cast<UnaryExpr const *>(expr)->operand());
+        case Expression::Tag::BINARY: {
+            auto e = static_cast<BinaryExpr const *>(expr);
+            return expression_has_call(e->lhs()) || expression_has_call(e->rhs());
+        }
+        case Expression::Tag::MEMBER:
+            return expression_has_call(static_cast<MemberExpr const *>(expr)->self());
+        case Expression::Tag::ACCESS: {
+            auto e = static_cast<AccessExpr const *>(expr);
+            return expression_has_call(e->range()) || expression_has_call(e->index());
+        }
+        case Expression::Tag::CAST:
+            return expression_has_call(static_cast<CastExpr const *>(expr)->expression());
+        default:
+            return false;
+    }
+}
+
+[[nodiscard]] vstd::string_view bf16_unary_helper_name(UnaryOp op) noexcept {
+    switch (op) {
+        case UnaryOp::PLUS: return "pos"sv;
+        case UnaryOp::MINUS: return "neg"sv;
+        case UnaryOp::NOT: return "not"sv;
+        default: return {};
+    }
+}
+
+}// namespace
+
 void StringStateVisitor::visit(const UnaryExpr *expr) {
     literalBrace = true;
     auto fallBackLiteral = vstd::scope_exit([this]() { literalBrace = false; });
+    if (util->opt->bf16_fallback &&
+        CodegenUtility::IsBf16(expr->operand()->type())) {
+        if (auto helper = bf16_unary_helper_name(expr->op());
+            !helper.empty()) {
+            str << "_lc_bf16_"sv << helper << '(';
+            expr->operand()->accept(*this);
+            str << ')';
+            return;
+        }
+    }
     str << "(";
     switch (expr->op()) {
         case UnaryOp::PLUS://+x
@@ -27,6 +101,18 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
     literalBrace = true;
     auto fallBackLiteral = vstd::scope_exit([this]() { literalBrace = false; });
     auto op = expr->op();
+    if (util->opt->bf16_fallback &&
+        CodegenUtility::IsBf16(expr->lhs()->type())) {
+        if (auto helper = bf16_binary_helper_name(op);
+            !helper.empty()) {
+            str << "_lc_bf16_"sv << helper << '(';
+            expr->lhs()->accept(*this);
+            str << ',';
+            expr->rhs()->accept(*this);
+            str << ')';
+            return;
+        }
+    }
     auto IsMulFuncCall = [&]() -> bool {
         if (op == BinaryOp::MUL) [[unlikely]] {
             if ((expr->lhs()->type()->is_matrix() &&
@@ -146,6 +232,15 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
         vstd::StringBuilder curStr;
         StringStateVisitor vis(f, curStr, util);
         expr->self()->accept(vis);
+        // A member of a word that mixes 16-bit scalars with one-byte bools lives
+        // in the packed `uint` of that word (see `PackedStructMember`).
+        if (auto packed = util->GetPackedStructMember(
+                expr->self()->type(), expr->member_index())) {
+            str << "_lc_pack_get_"sv << packed_kind_suffix(packed->kind) << '('
+                << curStr << ".v"sv << vstd::to_string(packed->word_index) << ','
+                << vstd::to_string(packed->byte_offset) << ')';
+            return;
+        }
         str << curStr << ".v"sv << vstd::to_string(expr->member_index());
         auto t = expr->type();
         // Not a special vec3
@@ -243,7 +338,14 @@ void StringStateVisitor::visit(const LiteralExpr *expr) {
     luisa::visit(
         [&]<typename T>(T const &value) -> void {
             PrintValue<T> prt;
-            prt(value, str);
+            if constexpr (std::is_same_v<T, bfloat16> ||
+                          std::is_same_v<T, bfloat162> ||
+                          std::is_same_v<T, bfloat163> ||
+                          std::is_same_v<T, bfloat164>) {
+                prt(value, str, util->opt->bf16_fallback);
+            } else {
+                prt(value, str);
+            }
         },
         expr->value());
     if (literalBrace) {
@@ -263,6 +365,83 @@ void StringStateVisitor::visit(const StringIDExpr *expr) {
 void StringStateVisitor::visit(const CastExpr *expr) {
     if (expr->type() == expr->expression()->type()) [[unlikely]] {
         expr->expression()->accept(*this);
+        return;
+    }
+    // Software BF16 (builtin/bfloat16_fallback.bytes): the value lives in a raw
+    // 16-bit pattern, so a value conversion is a `_lc_bf16_*` helper call and a
+    // bit cast is a plain cast between two 16-bit patterns.
+    if (util->opt->bf16_fallback &&
+        (CodegenUtility::IsBf16(expr->type()) ||
+         CodegenUtility::IsBf16(expr->expression()->type()))) {
+        auto dst_bf16 = CodegenUtility::IsBf16(expr->type());
+        auto src_bf16 = CodegenUtility::IsBf16(expr->expression()->type());
+        auto emit_dst_cast = [&]() noexcept {
+            // BF16 scalars and vectors share one storage type, so the outer
+            // cast performs the broadcast/truncation a scalar-to-vector
+            // conversion needs.
+            str << '(';
+            util->GetTypeName(*expr->type(), str, Usage::READ);
+            str << ')';
+        };
+        if (expr->op() == CastOp::BITWISE || (dst_bf16 && src_bf16)) {
+            emit_dst_cast();
+            expr->expression()->accept(*this);
+            return;
+        }
+        auto element_tag = [](Type const *t) noexcept {
+            return t->is_vector() ? t->element()->tag() : t->tag();
+        };
+        if (dst_bf16) {
+            vstd::string_view helper;
+            switch (element_tag(expr->expression()->type())) {
+                case Type::Tag::BOOL: helper = "from_bool"sv; break;
+                case Type::Tag::FLOAT16: helper = "from_f16"sv; break;
+                case Type::Tag::FLOAT32:
+                case Type::Tag::FLOAT64: helper = "from_f32"sv; break;
+                case Type::Tag::INT8:
+                case Type::Tag::INT16:
+                case Type::Tag::INT32:
+                case Type::Tag::INT64: helper = "from_i32"sv; break;
+                case Type::Tag::UINT8:
+                case Type::Tag::UINT16:
+                case Type::Tag::UINT32:
+                case Type::Tag::UINT64: helper = "from_u32"sv; break;
+                default:
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Cannot convert '{}' to BF16: unsupported source type '{}'.",
+                        expr->type()->description(),
+                        expr->expression()->type()->description());
+            }
+            emit_dst_cast();
+            str << "_lc_bf16_"sv << helper << '(';
+            expr->expression()->accept(*this);
+            str << ')';
+            return;
+        }
+        // BF16 source, ordinary destination.
+        vstd::string_view helper;
+        switch (element_tag(expr->type())) {
+            case Type::Tag::BOOL: helper = "to_bool"sv; break;
+            case Type::Tag::FLOAT16: helper = "to_f16"sv; break;
+            case Type::Tag::FLOAT32:
+            case Type::Tag::FLOAT64: helper = "to_f32"sv; break;
+            case Type::Tag::INT8:
+            case Type::Tag::INT16:
+            case Type::Tag::INT32:
+            case Type::Tag::INT64: helper = "to_i32"sv; break;
+            case Type::Tag::UINT8:
+            case Type::Tag::UINT16:
+            case Type::Tag::UINT32:
+            case Type::Tag::UINT64: helper = "to_u32"sv; break;
+            default:
+                LUISA_ERROR_WITH_LOCATION(
+                    "Cannot convert BF16 to '{}': unsupported destination type.",
+                    expr->type()->description());
+        }
+        emit_dst_cast();
+        str << "_lc_bf16_"sv << helper << '(';
+        expr->expression()->accept(*this);
+        str << ')';
         return;
     }
     str << "(";
@@ -535,6 +714,33 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 
 void StringStateVisitor::visit(const AssignStmt *state) {
     if (is_local_undefined_lifetime_seed(state)) { return; }
+    // A member that lives in a packed 32-bit word (a 1-byte bool mixed with 16-bit
+    // scalars, see `PackedStructMember`) is part of the word's single `uint`
+    // member, so writing it is a read-modify-write through the matching
+    // `_lc_pack_set_*` helper.
+    if (state->lhs()->tag() == Expression::Tag::MEMBER) {
+        auto member = static_cast<MemberExpr const *>(state->lhs());
+        if (auto packed = util->GetPackedStructMember(
+                member->self()->type(), member->member_index())) {
+            if (expression_has_call(member->self())) [[unlikely]] {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Cannot assign to the packed struct member '{}': its owner "
+                    "calls a function, and writing the member needs the owner "
+                    "twice.",
+                    member->type()->description());
+            }
+            vstd::StringBuilder owner;
+            StringStateVisitor vis(f, owner, util);
+            member->self()->accept(vis);
+            str << owner << ".v"sv << vstd::to_string(packed->word_index)
+                << "=_lc_pack_set_"sv << packed_kind_suffix(packed->kind) << '('
+                << owner << ".v"sv << vstd::to_string(packed->word_index)
+                << ',' << vstd::to_string(packed->byte_offset) << ',';
+            state->rhs()->accept(*this);
+            str << ");\n";
+            return;
+        }
+    }
     auto is_shared = [&](const Expression *x) noexcept {
         if (x->tag() == Expression::Tag::REF) {
             auto v = static_cast<RefExpr const *>(x)->variable();
@@ -639,12 +845,26 @@ void StringStateVisitor::visit(const AssignStmt *state) {
         }
     }
     str << '=';
+    // The AST keeps a plain literal on the right-hand side of a BF16
+    // declaration ("BFloat16 zero = 0.0f;") and relies on the target type's
+    // implicit conversion.  Software BF16 has no such conversion (its storage is
+    // a raw 16-bit pattern), so the narrowing is explicit here.
+    auto rhs_needs_bf16_narrow =
+        util->opt->bf16_fallback &&
+        CodegenUtility::IsBf16(state->lhs()->type()) &&
+        !CodegenUtility::IsBf16(state->rhs()->type());
+    if (rhs_needs_bf16_narrow) {
+        str << "_lc_bf16_from_f32("sv;
+    }
     if (lhs_is_shared && !rhs_is_shared) {
         str << "(";
         state->rhs()->accept(*this);
         str << ").v";
     } else {
         state->rhs()->accept(*this);
+    }
+    if (rhs_needs_bf16_narrow) {
+        str << ')';
     }
     str << ";\n";
 }

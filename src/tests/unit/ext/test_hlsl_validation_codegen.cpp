@@ -23,6 +23,13 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+struct HalfBoolWord {
+    uint i32;
+    half h_adjacent;
+    bool b_adjacent;
+};
+LUISA_STRUCT(HalfBoolWord, i32, h_adjacent, b_adjacent) {};
+
 struct RasterCodegenVarying {
     float4 position;
     float4 color;
@@ -234,6 +241,94 @@ int main(int argc, char *argv[]) {
         expect(!result.use_8bit);
         expect(eq(result.validation_count, 0u));
         expect(eq(result.immutableHeaderSize, 0u));
+    };
+
+    "software_bfloat16_fallback_is_selected_by_the_host"_test = [argv] {
+        // BF16 is emulated in software only where the target cannot compile the
+        // native HLSL type: the DirectX backend always asks for the fallback
+        // (dxc reserves `bfloat16_t` for -spirv), and the Vulkan compatibility
+        // HLSL route asks for it only on a device without shaderBFloat16Type.
+        // The host passes that decision to the codegen; see
+        // builtin/bfloat16_fallback.bytes.
+        Kernel1D kernel = [](BufferBFloat16 values, BufferBFloat16 output) noexcept {
+            BFloat16 x = values.read(0u);
+            BFloat16 y = values.read(1u);
+            BFloat16 sum = x + y;
+            BFloat16 root = sqrt(abs(x));
+            BFloat16 picked = select(y, x, x < y);
+            output.write(0u, sum * root + picked);
+        };
+        auto function = kernel.function()->function();
+
+        // A device that compiles the native type keeps `bfloat16_t` and the HLSL
+        // operators, and never sees the software header.
+        auto native = lc::hlsl::CodegenUtility{}.Codegen(
+            function, {}, 0u, /*isSpirV=*/true, false, false);
+        auto native_program = native.result.view();
+        expect(contains(native_program, "StructuredBuffer<bfloat16_t>"));
+        expect(!contains(native_program, "lc_bf16_t"));
+        expect(!contains(native_program, "_lc_bf16_"))
+            << "a device with the native BF16 type must not carry the software header";
+
+        // With the fallback selected, the storage type is the raw 16-bit pattern
+        // of the bundled header and every BF16 operation is a helper call.
+        auto software = lc::hlsl::CodegenUtility{}.Codegen(
+            function, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/false,
+            /*fallback_rtx=*/false, /*bf16_fallback=*/true);
+        auto program = software.result.view();
+        expect(contains(program, "StructuredBuffer<lc_bf16_t>"));
+        expect(contains(program, "_lc_bf16_add("));
+        expect(contains(program, "_lc_bf16_sqrt("));
+        expect(contains(program, "_lc_bf16_select("));
+        expect(!contains(program, "StructuredBuffer<bfloat16_t>"));
+
+        // ... and dxc has to compile it for DXIL, which is exactly what the
+        // DirectX backend relies on.
+        lc::hlsl::ShaderCompiler compiler{
+            luisa::filesystem::path{argv[0]}.parent_path(), true};
+        auto compiled = false;
+        auto error = luisa::string{};
+        compiler.compile_compute(program, true, 65u, true,
+                                 /*spirv=*/false, false)
+            .multi_visit(
+                [&](const lc::hlsl::ComUniquePtr<IDxcBlob> &) noexcept {
+                    compiled = true;
+                },
+                [&](const vstd::string &message) noexcept {
+                    error = luisa::string{message.data(), message.size()};
+                });
+        expect(compiled) << error;
+    };
+
+    "hlsl_packed_struct_word_preserves_the_host_byte_layout"_test = [] {
+        // The host copies a struct value verbatim into the argument block and a
+        // buffer element is the host struct itself, so the generated HLSL struct
+        // reproduces the C++ byte layout.  dxc cannot place a one-byte bool in the
+        // same 32-bit word as a 16-bit scalar (bitfields are allocated in whole
+        // units, 16-bit scalars pack two per unit), so that word is emitted as one
+        // `uint` and its fields go through the `_lc_pack_*` helpers.
+        Kernel1D kernel = [](BufferVar<HalfBoolWord> in,
+                             BufferVar<HalfBoolWord> out) noexcept {
+            auto value = in.read(0u);
+            Var<HalfBoolWord> result;
+            result.i32 = value.i32;
+            result.h_adjacent = value.h_adjacent * 2.0_h;
+            result.b_adjacent = !value.b_adjacent;
+            out.write(0u, result);
+        };
+        auto program = lc::hlsl::CodegenUtility{}
+                           .Codegen(kernel.function()->function(), {}, 0u,
+                                    /*isSpirV=*/false, false, false)
+                           .result.view();
+        expect(contains(program, "uint v1;"))
+            << "the 16-bit/bool word has to be a single 32-bit member";
+        expect(contains(program, "_lc_pack_get_f16("));
+        expect(contains(program, "_lc_pack_get_bool("));
+        expect(contains(program, "_lc_pack_set_f16("));
+        expect(contains(program, "_lc_pack_set_bool("));
+        expect(!contains(program, "int16_t v2:8"))
+            << "the bool must not be a standalone bitfield member of this struct";
     };
 
     "hlsl_float_atomic_codegen_respects_spirv_boundary"_test = [argv] {

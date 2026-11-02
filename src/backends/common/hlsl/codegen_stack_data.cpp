@@ -28,6 +28,7 @@ void CodegenStackData::Clear() {
     structTypes.clear();
     constTypes.clear();
     funcTypes.clear();
+    structPacking.clear();
     customStruct.clear();
     customStructVector.clear();
     customStructAliased.clear();
@@ -77,6 +78,17 @@ std::pair<vstd::string_view, bool> CodegenStackData::CreateAliasedStruct(Type co
         customStructVectorAliased.emplace_back(ite.first.value().get());
     }
     return {ite.first.value()->GetStructName(), true};
+}
+
+StructPacking const &CodegenStackData::GetStructPacking(Type const *t) {
+    auto ite = structPacking.try_emplace(
+        t, vstd::lazy_eval([&] {
+            // `vstd::make_unique` allocates through vengine, which is what the
+            // vstd deleter frees with.
+            return vstd::make_unique<StructPacking>(
+                plan_struct_packing(t, bf16_fallback));
+        }));
+    return *ite.first.value();
 }
 
 vstd::string_view CodegenStackData::CreateStruct(Type const *t) {
@@ -224,12 +236,29 @@ if(asuint(r)==asuint(old)) return old;
 old=r;
 })"sv;
 }  // namespace codegen_stack_data_detail
+void CodegenUtility::CheckPackedAtomicTarget(
+    luisa::span<Expression const *const> args) {
+    for (auto arg : args) {
+        if (arg == nullptr || arg->tag() != Expression::Tag::MEMBER) { continue; }
+        auto member = static_cast<MemberExpr const *>(arg);
+        if (GetPackedStructMember(member->self()->type(), member->member_index())) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Atomic access to a member of a packed struct word is not "
+                "supported: a one-byte bool that shares a 32-bit word with 16-bit "
+                "data is stored inside a single `uint`, so it has no address. Use "
+                "a struct whose atomic member is 4-byte sized, or a separate "
+                "buffer.");
+        }
+    }
+}
+
 AccessChain const &CodegenStackData::GetAtomicFunc(
     Function func,
     CallOp op,
     Variable const &rootVar,
     Type const *retType,
     luisa::span<Expression const *const> exprs) {
+    util->CheckPackedAtomicTarget(exprs);
     size_t extra_arg_size = (op == CallOp::ATOMIC_COMPARE_EXCHANGE) ? 2 : 1;
     vstd::StringBuilder retTypeName;
     util->GetTypeName(*retType, retTypeName, Usage::NONE, true);

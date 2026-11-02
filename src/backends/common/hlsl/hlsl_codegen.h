@@ -46,6 +46,68 @@ struct CodegenResult {
     CodegenResult(CodegenResult &&) = default;
 };
 #undef AddPrinter
+// A 32-bit word of a generated HLSL struct that mixes 16-bit scalars with 1-byte
+// bools.
+//
+// The host lays a struct out with C++ rules and copies its bytes verbatim into
+// the argument block or the buffer, so the generated HLSL struct has to use the
+// same byte offsets.  HLSL cannot express that byte pattern for such a word:
+// dxc allocates bitfields (the one-byte `bool` spelling) in whole 32-bit units,
+// while 16-bit scalars pack two per unit, so a `bool` can never sit next to a
+// 16-bit scalar in one unit.  The word is therefore emitted as a single `uint`
+// and its fields are read and written through the `_lc_pack_*` helpers of
+// builtin/hlsl_header.bytes.
+struct PackedStructMember {
+    enum class Kind : uint8_t {
+        F16,
+        I16,
+        U16,
+        BF16,// software BF16 (its storage is already a raw 16-bit pattern)
+        BOOL
+    };
+    /// Index of the emitted `uint v<word_index>` that holds the word.
+    uint word_index;
+    /// Byte offset of the member inside that word.
+    uint byte_offset;
+    Kind kind;
+};
+
+/// The member packing of one struct type (see `PackedStructMember`).
+struct StructPacking {
+    struct Word {
+        /// Byte offset of the word inside the struct.
+        size_t byte_offset;
+        /// Emitted member index of the `uint` that holds the word.
+        uint word_index;
+        /// AST member indices that live in this word, in declaration order.
+        vstd::vector<uint> members;
+    };
+    vstd::vector<Word> words;
+    vstd::unordered_map<uint, PackedStructMember> members;
+    [[nodiscard]] bool empty() const noexcept { return words.empty(); }
+};
+
+/// Name suffix of the `_lc_pack_get_*`/`_lc_pack_set_*` helper pair of a packed
+/// member kind (see builtin/hlsl_header.bytes).
+[[nodiscard]] constexpr vstd::string_view packed_kind_suffix(
+    PackedStructMember::Kind kind) noexcept {
+    switch (kind) {
+        case PackedStructMember::Kind::F16: return "f16";
+        case PackedStructMember::Kind::I16: return "i16";
+        case PackedStructMember::Kind::U16: return "u16";
+        case PackedStructMember::Kind::BF16: return "bf16";
+        case PackedStructMember::Kind::BOOL: return "bool";
+    }
+    return "u16";
+}
+
+/// Layout of `structType`: the words that must be packed, and the member mapping
+/// used when reading or writing a member of such a word.  `bf16_fallback` selects
+/// how a BF16 member is stored (raw 16-bit pattern versus the native type, which
+/// cannot be packed).
+[[nodiscard]] StructPacking plan_struct_packing(Type const *structType,
+                                                bool bf16_fallback);
+
 struct RegisterIndexer;
 class CodegenUtility {
 public:
@@ -100,8 +162,12 @@ public:
         uint offset,
         RegisterIndexer &registerCount,
         uint &bind_count);
-    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false);
-    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false);
+    // `bf16_fallback` makes the codegen emulate BF16 in software (see
+    // builtin/bfloat16_fallback.bytes).  The host decides: it is always on for
+    // the DirectX backend, and on for the Vulkan compatibility HLSL-to-SPIR-V
+    // route when the physical device lacks shaderBFloat16Type.
+    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false);
+    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false);
     CodegenResult RasterCodegen(
         Function vertFunc,
         Function pixelFunc,
@@ -111,8 +177,22 @@ public:
         bool noRegister = false,
         bool enable_debug_info = false,
         bool enable_fast_math = false,
-        bool fallback_rtx = false);
+        bool fallback_rtx = false,
+        bool bf16_fallback = false);
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
+    /// Fails closed when an atomic access chain targets a member of a packed
+    /// struct word: such a member is a slice of a `uint`, so it has no address.
+    void CheckPackedAtomicTarget(luisa::span<Expression const *const> args);
+    /// The packing a member of `type` needs, or `nullptr` when the member is
+    /// emitted as an ordinary HLSL member (see `PackedStructMember`).
+    [[nodiscard]] PackedStructMember const *GetPackedStructMember(
+        Type const *type, uint member_index);
+    /// Whether `type` holds a BF16 scalar or vector payload.
+    [[nodiscard]] static bool IsBf16(Type const *type) noexcept {
+        return type != nullptr &&
+               (type->is_bfloat16() ||
+                (type->is_vector() && type->element()->is_bfloat16()));
+    }
     uint AddPrinter(vstd::string_view name, luisa::compute::Type const *structType);
     vstd::StringBuilder GetNewTempVarName();
     bool TypeIsAliased(luisa::compute::Type const *t) const;
@@ -189,6 +269,17 @@ protected:
     vstd::StringBuilder &str;
 };
 
+/// Name of the BF16 scalar/vector type in the generated source.
+///
+/// dxc reserves the identifier `bfloat16_t` for `-spirv` ("bfloat16_t is only
+/// supported with -spirv"), so the software emulation of
+/// builtin/bfloat16_fallback.bytes carries its own storage type names
+/// (`lc_bf16_t`, `lc_bf16_t2`, ...).  A device that compiles the native type
+/// keeps `bfloat16_t`.
+[[nodiscard]] inline vstd::string_view bf16_type_name(bool bf16_fallback) noexcept {
+    return bf16_fallback ? "lc_bf16_t"sv : "bfloat16_t"sv;
+}
+
 template<typename T>
 struct PrintValue;
 
@@ -236,7 +327,15 @@ struct PrintValue<half> {
 
 template<>
 struct PrintValue<bfloat16> {
-    void operator()(bfloat16 const &v, vstd::StringBuilder &str) {
+    void operator()(bfloat16 const &v, vstd::StringBuilder &str,
+                    bool bf16_fallback = false) {
+        if (bf16_fallback) {
+            // Software BF16 stores the raw 16-bit pattern, so a literal is its
+            // bits: this keeps every value (including NaN and infinities)
+            // exactly representable without a BF16 constructor.
+                          str.append(luisa::format("(({}){}u)", bf16_type_name(bf16_fallback), v.bits()));
+            return;
+        }
         if (luisa::isnan(static_cast<float>(v))) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
         }
@@ -314,16 +413,22 @@ struct PrintValue<luisa::ubyte> {
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
-    void print_elem(T const &v, vstd::StringBuilder &varName) {
+    void print_elem(T const &v, vstd::StringBuilder &varName,
+                    bool bf16_fallback = false) {
         for (uint64 i = 0; i < N; ++i) {
-            PrintValue<EleType>{}(v[i], varName);
+            if constexpr (std::is_same_v<EleType, bfloat16>) {
+                PrintValue<EleType>{}(v[i], varName, bf16_fallback);
+            } else {
+                PrintValue<EleType>{}(v[i], varName);
+            }
             varName += ',';
         }
         auto &&last = varName.end() - 1;
         if (*last == ',')
             varName.erase(last);
     }
-    void operator()(T const &v, vstd::StringBuilder &varName) {
+    void operator()(T const &v, vstd::StringBuilder &varName,
+                    bool bf16_fallback = false) {
         if constexpr (N > 1) {
             if constexpr (std::is_same_v<EleType, float>) {
                 varName << "float";
@@ -335,8 +440,8 @@ struct PrintValue<Vector<EleType, N>> {
                 varName << "bool";
             } else if constexpr (std::is_same_v<EleType, half>) {
                 varName << "float16_t";
-            } else if constexpr (std::is_same_v<EleType, bfloat16>) {
-                varName << "bfloat16_t";
+              } else if constexpr (std::is_same_v<EleType, bfloat16>) {
+                  varName << bf16_type_name(bf16_fallback);
             } else if constexpr (std::is_same_v<EleType, double>) {
                 varName << "float64_t";
             } else if constexpr (std::is_same_v<EleType, luisa::byte>) {
@@ -357,10 +462,10 @@ struct PrintValue<Vector<EleType, N>> {
             }
             vstd::to_string(N, varName);
             varName << '(';
-            print_elem(v, varName);
+            print_elem(v, varName, bf16_fallback);
             varName << ')';
         } else {
-            print_elem(v, varName);
+            print_elem(v, varName, bf16_fallback);
         }
     }
 };

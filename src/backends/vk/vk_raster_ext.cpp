@@ -62,7 +62,13 @@ ResourceCreationInfo VkRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, true, false, option.enable_debug_info, option.enable_fast_math);
+      // The software BF16 header is part of the generated source whenever this
+      // device cannot compile the native type (see bfloat16_fallback.bytes).
+      auto code = hlsl::CodegenUtility{}.RasterCodegen(
+          vert, pixel, option.native_include, mask, true, false,
+          option.enable_debug_info, option.enable_fast_math,
+          /*fallback_rtx=*/false,
+          /*bf16_fallback=*/!_device->supports_native_bfloat16());
     if (luisa::compute::backend_print_code_enabled()) {
         auto dump_name = option.name;
         auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
