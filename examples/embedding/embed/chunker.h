@@ -5,10 +5,21 @@
 // a multi-byte code point, and every chunk records [byte_offset, byte_length)
 // into the source text so the RAG layer can quote the exact passage.
 //
-// `By::token` segments at ASCII whitespace, which is exactly the bge-m3
-// Metaspace pre-tokenizer segmentation (split at U+2581 = one per ASCII space),
-// so engine mode and callback mode produce identical chunk boundaries without
-// touching the tokenizer.
+// CJK text is first class, because Chinese has no ASCII word boundaries to fall
+// back on:
+//   * sentence mode ends a sentence after `。`/`！`/`？`/`；`/`…` (and any closing
+//     quote) whether or not a space follows — "第一句。第二句。" is TWO units; the
+//     ASCII `.!?` still need trailing whitespace, so "3.14" and "e.g." stay whole;
+//   * a whitespace run is ASCII whitespace plus U+3000 IDEOGRAPHIC SPACE, so
+//     token mode splits "数据库　连接池" the way the writer intended;
+//   * a unit bigger than `chunk_size` is hard-split at code-point boundaries into
+//     `chunk_size`-byte pieces before packing, so ~170 Chinese characters (512
+//     bytes) per chunk still hold and the overlap tail still applies.
+//
+// `By::token` segments at whitespace, which is exactly the bge-m3 Metaspace
+// pre-tokenizer segmentation (split at U+2581 = one per ASCII space), so engine
+// mode and callback mode produce identical chunk boundaries without touching the
+// tokenizer.
 #pragma once
 
 #include <cstdint>
@@ -67,10 +78,11 @@ struct Chunk {
     }
 };
 
-// Splits `document` into chunks. Empty / blank documents yield a single
-// zero-length chunk at offset 0 (the index still stores one record per
-// document, so counts stay well defined). `options.chunk_size == 0` or
-// `options.by == By::off` yields exactly one chunk covering the whole text.
+// Splits `document` into chunks. An EMPTY document yields a single zero-length
+// chunk at offset 0, and a whitespace-only one yields a single chunk covering it
+// (the index still stores one record per document, so counts stay well defined).
+// `options.chunk_size == 0` or `options.by == By::off` yields exactly one chunk
+// covering the whole text.
 [[nodiscard]] luisa::vector<Chunk> chunk_text(
     luisa::string_view document,
     const ChunkOptions &options);

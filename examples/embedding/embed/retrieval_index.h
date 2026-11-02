@@ -129,6 +129,12 @@ struct RetrievalLoadResult {
     size_t skipped{};
     size_t failed{};
     size_t total_documents{};// chunk records (one per chunk)
+    // Chunks of this call whose text exceeded the encode's max_seq_len and were
+    // therefore embedded TRUNCATED: the tail of those passages is in no
+    // embedding. 0 is the healthy value; a non-zero one means the ingest should
+    // be repeated with a smaller chunk_size (or a larger max_seq_len). A
+    // cache-served chunk reports 0 — the cache stores the vector, not the flag.
+    size_t truncated_chunks{};
     bool cancelled = false;
 };
 
@@ -168,6 +174,9 @@ struct RetrievalDocumentResult {
     size_t chunks_unchanged{};
     size_t total_documents{};
     size_t total_docs{};
+    // Chunks of THIS call embedded truncated (see RetrievalLoadResult); 0 when
+    // the document was unchanged (nothing was re-encoded) or fit every chunk.
+    size_t truncated_chunks{};
 };
 
 // Optional progress + cancellation hook for long ingestion (report.md §5).
@@ -175,6 +184,12 @@ struct RetrievalDocumentResult {
 // `cancel_flag` (owned by the caller) is polled between units: when non-zero
 // the step stops at a consistent boundary and reports the work done so far
 // with RetrievalSubCode::cancelled. All NULL = the historical behavior.
+//
+// A directory load reports FILE units only (one call per ingested file, total =
+// the file count); document ingestion reports CHUNK units. The callback runs on
+// the calling thread, inside the index/service lock that also guards query, so
+// it must NOT call back into the context (that would deadlock on the
+// non-recursive mutex).
 struct RetrievalProgress {
     void (*on_progress)(void *user_data, uint64_t done, uint64_t total) = nullptr;
     void *user_data = nullptr;
@@ -529,6 +544,7 @@ private:
         const luisa::filesystem::path &file,
         FileOutcome &outcome,
         bool &cache_hit,
+        size_t &truncated_chunks,
         const RetrievalProgress *progress);
     // Shared ingestion core: chunks + encodes + transactionally replaces the
     // document's chunk records. `base_key` is the comparison key (files) or
@@ -545,6 +561,7 @@ private:
         luisa::vector<luisa::string> &added_keys,
         size_t &chunks_unchanged,
         size_t &served_count,
+        size_t &truncated_chunks,
         const RetrievalProgress *progress);
     [[nodiscard]] static luisa::string _chunk_key(
         const luisa::string &base_key,

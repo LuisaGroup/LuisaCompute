@@ -312,6 +312,12 @@ typedef struct eer_hit {
  *                    governs this root (".md,.txt")
  *   message          failure diagnostics, NULL on success
  *
+ * truncated_chunks  chunks embedded TRUNCATED by the encode's max_seq_len
+ *                   (1.2, appended): the tail of those passages is in no
+ *                   embedding. 0 is the healthy value; anything else means
+ *                   re-ingest with a smaller chunk_size or a larger
+ *                   max_seq_len. Cached chunks count too, because the flag
+ *                   comes from the encoder that produced the vector.
  * A root owns its extension rule; duplicate, nested or overlapping roots are
  * rejected with EER_STATUS_INVALID_ARGUMENT. Release with
  * eer_load_result_free(). */
@@ -326,6 +332,8 @@ typedef struct eer_load_result {
     size_t total_documents;
     int32_t sub_code;   /* 1.2, appended; EER_SUB_CANCELLED marks a cancelled
                            partial load (counters still report the work done) */
+    size_t truncated_chunks; /* 1.2, appended; chunks embedded with their tail
+                                  cut by max_seq_len - see the field list above */
 } eer_load_result;
 
 /* Result of eer_unload_dir(): removal of exactly one loaded root.
@@ -414,6 +422,10 @@ typedef struct eer_chunk_options {
  * as chunks_unchanged (idempotent); a replace counts the old chunks in
  * chunks_removed and the new ones in chunks_added. `total_documents` counts
  * chunk records afterwards, `total_docs` the distinct doc_ids. Release with
+ * `truncated_chunks` (1.2, appended) counts, for THIS call, the chunks whose
+ * text exceeded the encode's max_seq_len - their tail is in no embedding, so
+ * re-ingest the document with a smaller chunk_size (or a larger max_seq_len)
+ * to index it whole.
  * eer_document_result_free(). */
 typedef struct eer_document_result {
     char *message;
@@ -424,6 +436,7 @@ typedef struct eer_document_result {
     size_t total_documents;
     size_t total_docs;
     int32_t sub_code;   /* EER_SUB_CANCELLED: nothing was applied */
+    size_t truncated_chunks; /* 1.2, appended; see the paragraph above */
 } eer_document_result;
 
 /* Progress + cancellation hook for long ingestion (1.2, report.md §5).
@@ -435,7 +448,12 @@ typedef struct eer_document_result {
  * aborts the step at a consistent boundary: already-ingested content stays,
  * the in-flight document is applied all-or-nothing, the result carries
  * EER_SUB_CANCELLED and a "cancelled" message, and the return status is
- * EER_STATUS_OPERATIONAL (a clean, recoverable partial state). */
+ * EER_STATUS_OPERATIONAL (a clean, recoverable partial state).
+ * A directory load reports FILE ticks only (one per ingested file, total = the
+ * file count); document ingestion reports CHUNK ticks. `on_progress` runs on the
+ * calling thread INSIDE the index/service lock that also guards queries, so it
+ * MUST NOT call back into the context: any re-entrant eer_* call deadlocks on a
+ * non-recursive mutex. Record the tick and return; do the work afterwards. */
 typedef struct eer_progress {
     size_t struct_size;
     void (*on_progress)(void *user_data, uint64_t done, uint64_t total);

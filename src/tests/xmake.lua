@@ -886,8 +886,11 @@ test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
       end)
   end
 
-  -- unit/embedding: host-only tests (CTest label unit;unit_embedding)
-  embed_test("test_embed_tokenizer", "unit/embedding/test_embed_tokenizer.cpp", true)
+    -- unit/embedding: host-only tests (CTest label unit;unit_embedding)
+    embed_test("test_embed_tokenizer", "unit/embedding/test_embed_tokenizer.cpp", true)
+    -- The RAG chunker (report.md §2) in isolation: CJK sentence terminals, U+3000
+    -- as a word separator, the oversized-unit hard split. Pure host logic.
+    embed_test("test_embed_chunker", "unit/embedding/test_embed_chunker.cpp", true)
 
   -- integration/embedding: device tests (CTest label integration;integration_embedding)
   embed_test("test_embed_kernel_gemm", "integration/embedding/test_embed_kernel_gemm.cpp")

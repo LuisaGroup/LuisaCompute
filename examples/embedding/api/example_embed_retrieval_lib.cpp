@@ -432,6 +432,7 @@ template<typename Result>
     result->skipped = loaded.skipped;
     result->failed = loaded.failed;
     result->total_documents = loaded.total_documents;
+    result->truncated_chunks = loaded.truncated_chunks;
     if (!loaded.status.ok()) {
         return fail_result(result, from_error_code(loaded.status.code),
                            loaded.status.message, loaded.status.sub_code);
@@ -491,6 +492,7 @@ template<typename Result>
     result->chunks_unchanged = document.chunks_unchanged;
     result->total_documents = document.total_documents;
     result->total_docs = document.total_docs;
+    result->truncated_chunks = document.truncated_chunks;
     if (result->doc_id == nullptr) {
         return fail_result(result, EER_STATUS_OPERATIONAL, "out of memory",
                            embed::RetrievalSubCode::none);

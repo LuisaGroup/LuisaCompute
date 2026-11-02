@@ -75,12 +75,20 @@ public:
     [[nodiscard]] RetrievalStatus save(const luisa::filesystem::path &path);
     [[nodiscard]] RetrievalStatus load_snapshot(const luisa::filesystem::path &path);
 
-    [[nodiscard]] RetrievalStats stats() const noexcept { return _index.stats(); }
+    // Counters snapshot (report.md §6). Takes the SAME mutex every serving step
+    // takes: a load/unload mutates the index while the serving surface is
+    // documented as safe alongside it, so an unlocked read was a data race
+    // (torn/reset counters, and a resize of the maps read mid-insert). Not
+    // noexcept any more: std::mutex::lock may throw system_error.
+    [[nodiscard]] RetrievalStats stats() const {
+        std::lock_guard lock{_mutex};
+        return _index.stats();
+    }
     void set_store_colbert(bool enabled) noexcept { _index.set_store_colbert(enabled); }
 
 private:
     RetrievalIndex _index;
-    std::mutex _mutex;
+    mutable std::mutex _mutex;
 };
 
 }// namespace luisa::embed

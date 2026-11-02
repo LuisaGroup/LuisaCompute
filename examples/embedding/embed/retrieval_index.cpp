@@ -961,7 +961,9 @@ RetrievalStatus RetrievalIndex::_ingest_document(
     luisa::vector<luisa::string> &added_keys,
     size_t &chunks_unchanged,
     size_t &served_count,
+    size_t &truncated_chunks,
     const RetrievalProgress *progress) {
+    truncated_chunks = 0u;
     auto status = validate_json_object(metadata_json, "metadata_json");
     if (!status.ok()) { return status; }
     const bool chunked = options.chunk_size != 0u && options.by != ChunkOptions::By::off;
@@ -1076,6 +1078,11 @@ RetrievalStatus RetrievalIndex::_ingest_document(
             record.chunk_options = options;
         }
         pending.push_back(std::move(record));
+        // The truncation flag comes from the encoder that produced this chunk's
+        // vector; a cache-served chunk has no flag and is never counted here.
+        if (pending.back().embedding.truncated) {
+            truncated_chunks++;
+        }
         report_progress(progress, i + 1u, chunks.size());
     }
 
@@ -1102,6 +1109,7 @@ RetrievalStatus RetrievalIndex::_apply_file(
     const luisa::filesystem::path &file,
     FileOutcome &outcome,
     bool &cache_hit,
+    size_t &truncated_chunks,
     const RetrievalProgress *progress) {
     cache_hit = false;
     luisa::filesystem::path display;
@@ -1127,7 +1135,7 @@ RetrievalStatus RetrievalIndex::_apply_file(
     size_t served_count = 0u;
     status = _ingest_document(doc_id, display, comparison, root_key, contents,
                               luisa::string_view{}, options, removed_keys, added_keys,
-                              chunks_unchanged, served_count, progress);
+                              chunks_unchanged, served_count, truncated_chunks, progress);
     if (!status.ok()) {
         return status;
     }
@@ -1217,6 +1225,14 @@ RetrievalLoadResult RetrievalIndex::load(
     result.skipped = discovery.skipped;
     result.failed = discovery.failed;
     uint64_t done = 0u;
+    size_t truncated_chunks = 0u;
+    // FILE-only progress for the per-file step: _apply_file hands this hook to
+    // _ingest_document, whose per-CHUNK reports would share it otherwise — a
+    // caller cannot tell a chunk tick from a file tick, and "cancel after N
+    // files" would land inside a single document.
+    const RetrievalProgress file_progress{
+        nullptr, nullptr,
+        progress != nullptr ? progress->cancel_flag : nullptr};
     for (const auto &file : discovery.files) {
         if (cancelled(progress)) {
             result.cancelled = true;
@@ -1231,8 +1247,21 @@ RetrievalLoadResult RetrievalIndex::load(
         }
         FileOutcome outcome = FileOutcome::added;
         bool cache_hit = false;
-        status = _apply_file(key, file, outcome, cache_hit, progress);
+        size_t file_truncated = 0u;
+        status = _apply_file(key, file, outcome, cache_hit, file_truncated, &file_progress);
+        truncated_chunks += file_truncated;
         if (!status.ok()) {
+            if (status.sub_code == RetrievalSubCode::cancelled) {
+                // A cancel that lands INSIDE a file (the last one included) is
+                // still a cancellation: report it as one, roll the root back and
+                // stop. Counting it as a FAILED file reported the load as a
+                // success with the root still registered, so the documented
+                // "call load again" resume hit "root x is already loaded".
+                result.cancelled = true;
+                result.status = std::move(status);
+                _roots.erase(key);
+                break;
+            }
             result.failed++;
             LUISA_WARNING("retrieval load skipped '{}': {}", _display_path(file), status.message);
             done++;
@@ -1250,6 +1279,7 @@ RetrievalLoadResult RetrievalIndex::load(
     if (_embed_cache != nullptr) {
         _embed_cache->end_directory();
     }
+    result.truncated_chunks = truncated_chunks;
     result.total_documents = _documents.size();
     return result;
 }
@@ -1324,13 +1354,15 @@ RetrievalDocumentResult RetrievalIndex::add_document(
     luisa::vector<luisa::string> added_keys;
     size_t chunks_unchanged = 0u;
     size_t served_count = 0u;
+    size_t truncated_chunks = 0u;
     auto status = _ingest_document(luisa::string{doc_id}, {}, {}, {}, text, metadata_json,
                                    options, removed_keys, added_keys, chunks_unchanged,
-                                   served_count, progress);
+                                   served_count, truncated_chunks, progress);
     result.status = std::move(status);
     result.chunks_added = added_keys.size();
     result.chunks_removed = removed_keys.size();
     result.chunks_unchanged = chunks_unchanged;
+    result.truncated_chunks = truncated_chunks;
     result.total_documents = _documents.size();
     result.total_docs = _doc_chunks.size();
     return result;
@@ -1408,7 +1440,9 @@ RetrievalUpdateResult RetrievalIndex::_update_file(
             luisa::span<const luisa::string>{root.extensions.data(), root.extensions.size()});
     }
     bool cache_hit = false;
-    auto status = _apply_file(root_key, display_path, outcome, cache_hit, nullptr);
+    size_t truncated_chunks = 0u;// reported per document, not per update result
+    auto status = _apply_file(root_key, display_path, outcome, cache_hit, truncated_chunks,
+                              nullptr);
     if (_embed_cache != nullptr) {
         _embed_cache->end_directory();
     }
@@ -1453,7 +1487,8 @@ RetrievalUpdateResult RetrievalIndex::_update_directory(
     for (const auto &file : discovery.files) {
         FileOutcome outcome = FileOutcome::unchanged;
         bool cache_hit = false;
-        auto status = _apply_file(root_key, file, outcome, cache_hit, nullptr);
+        size_t truncated_chunks = 0u;// per file; RetrievalUpdateResult has no counter
+        auto status = _apply_file(root_key, file, outcome, cache_hit, truncated_chunks, nullptr);
         if (!status.ok()) {
             result.failed++;
             LUISA_WARNING("retrieval update failed for '{}': {}", _display_path(file), status.message);
