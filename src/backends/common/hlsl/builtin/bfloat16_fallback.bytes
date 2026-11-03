@@ -52,6 +52,23 @@ _LC_BF16_CONV_DIM(3)
 _LC_BF16_CONV_DIM(4)
 #undef _LC_BF16_CONV_DIM
 
+// Narrow a value that is already exactly representable as BF16.  This is used
+// by rounding intrinsics: for every finite BF16 input, ceil/floor/trunc/round/
+// rint/fract produce another exactly representable BF16 value.  NaNs still
+// need quieting, but the round-to-nearest-even add/mask sequence is redundant.
+#define _LC_BF16_EXACT_CONV_DIM(SUFFIX)                                \
+    lc_bf16_t##SUFFIX _lc_bf16_from_f32_exact(float##SUFFIX v) {       \
+        uint##SUFFIX u = asuint(v);                                     \
+        return (lc_bf16_t##SUFFIX)select(                               \
+            ((u & 0x7fffffffu) > 0x7f800000u),                          \
+            ((u >> 16u) | 0x0040u), (u >> 16u));                        \
+    }
+_LC_BF16_EXACT_CONV_DIM()
+_LC_BF16_EXACT_CONV_DIM(2)
+_LC_BF16_EXACT_CONV_DIM(3)
+_LC_BF16_EXACT_CONV_DIM(4)
+#undef _LC_BF16_EXACT_CONV_DIM
+
 // ---- value conversions ----
 #define _LC_BF16_CAST_DIM(SUFFIX)                                                          \
     lc_bf16_t##SUFFIX _lc_bf16_from_i32(int##SUFFIX v) {                                  \
@@ -152,8 +169,7 @@ _LC_BF16_CMP(ne, !=)
     lc_bf16_t##SUFFIX _lc_bf16_select(bool##SUFFIX c,                   \
                                       lc_bf16_t##SUFFIX t,              \
                                       lc_bf16_t##SUFFIX f) {            \
-        return _lc_bf16_from_f32(select(c, _lc_bf16_to_f32(t),          \
-                                        _lc_bf16_to_f32(f)));           \
+        return select(c, t, f);                                         \
     }
 _LC_BF16_SELECT_DIM()
 _LC_BF16_SELECT_DIM(2)
@@ -187,11 +203,25 @@ _LC_BF16_UNARY(log2)
 _LC_BF16_UNARY(log10)
 _LC_BF16_UNARY(sqrt)
 _LC_BF16_UNARY(rsqrt)
-_LC_BF16_UNARY(ceil)
-_LC_BF16_UNARY(floor)
-_LC_BF16_UNARY(trunc)
 _LC_BF16_UNARY(sign)
-_LC_BF16_UNARY(saturate)
+
+// ceil/floor/trunc map a BF16 input to an exactly representable BF16 result.
+#define _LC_BF16_UNARY_EXACT_DIM(SUFFIX, NAME)                         \
+    lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a) {          \
+        return _lc_bf16_from_f32_exact(NAME(_lc_bf16_to_f32(a)));       \
+    }
+#define _LC_BF16_UNARY_EXACT(NAME)                                      \
+    _LC_BF16_UNARY_EXACT_DIM(, NAME)                                    \
+    _LC_BF16_UNARY_EXACT_DIM(2, NAME)                                   \
+    _LC_BF16_UNARY_EXACT_DIM(3, NAME)                                   \
+    _LC_BF16_UNARY_EXACT_DIM(4, NAME)
+_LC_BF16_UNARY_EXACT(ceil)
+_LC_BF16_UNARY_EXACT(floor)
+_LC_BF16_UNARY_EXACT(trunc)
+_LC_BF16_UNARY_EXACT(saturate)
+#undef _LC_BF16_UNARY_EXACT
+#undef _LC_BF16_UNARY_EXACT_DIM
+
 #undef _LC_BF16_UNARY
 #undef _LC_BF16_UNARY_DIM
 
@@ -210,11 +240,26 @@ _LC_BF16_INVHYP(asinh, log(x + sqrt(x * x + 1.0f)))
 _LC_BF16_INVHYP(acosh, log(x + sqrt(x * x - 1.0f)))
 _LC_BF16_INVHYP(atanh, 0.5f * log((1.0f + x) / (1.0f - x)))
 _LC_BF16_INVHYP(exp10, pow(10.0f, x))
-_LC_BF16_INVHYP(fract, x - floor(x))
-_LC_BF16_INVHYP(round, sign(x) * floor(abs(x) + 0.5f))
-_LC_BF16_INVHYP(rint, round(x))
 #undef _LC_BF16_INVHYP
 #undef _LC_BF16_INVHYP_DIM
+
+// The fractional and rounding results of a BF16 input are exactly BF16 too;
+// see _lc_bf16_from_f32_exact above.
+#define _LC_BF16_ROUND_DIM(SUFFIX, NAME, EXPR)                          \
+    lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a) {           \
+        float##SUFFIX x = _lc_bf16_to_f32(a);                            \
+        return _lc_bf16_from_f32_exact(EXPR);                            \
+    }
+#define _LC_BF16_ROUND(NAME, EXPR)                                      \
+    _LC_BF16_ROUND_DIM(, NAME, EXPR)                                    \
+    _LC_BF16_ROUND_DIM(2, NAME, EXPR)                                   \
+    _LC_BF16_ROUND_DIM(3, NAME, EXPR)                                   \
+    _LC_BF16_ROUND_DIM(4, NAME, EXPR)
+_LC_BF16_ROUND(fract, x - floor(x))
+_LC_BF16_ROUND(round, sign(x) * floor(abs(x) + 0.5f))
+_LC_BF16_ROUND(rint, round(x))
+#undef _LC_BF16_ROUND
+#undef _LC_BF16_ROUND_DIM
 
 lc_bf16_t _lc_bf16_atan2(lc_bf16_t y, lc_bf16_t x) {
     float fy = _lc_bf16_to_f32(y), fx = _lc_bf16_to_f32(x);
@@ -246,10 +291,41 @@ lc_bf16_t4 _lc_bf16_atan2(lc_bf16_t4 y, lc_bf16_t4 x) {
     _LC_BF16_BINARY_DIM(2, NAME, EXPR)                                  \
     _LC_BF16_BINARY_DIM(3, NAME, EXPR)                                  \
     _LC_BF16_BINARY_DIM(4, NAME, EXPR)
-_LC_BF16_BINARY(min, min(x, y))
-_LC_BF16_BINARY(max, max(x, y))
+// min/max return one of their already-representable inputs (or a quiet NaN),
+// so they do not need the general round-to-nearest-even sequence.
+#define _LC_BF16_BINARY_EXACT_DIM(SUFFIX, NAME, EXPR)                   \
+    lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a,             \
+                                       lc_bf16_t##SUFFIX b) {          \
+        float##SUFFIX x = _lc_bf16_to_f32(a),                           \
+                      y = _lc_bf16_to_f32(b);                           \
+        return _lc_bf16_from_f32_exact(EXPR);                            \
+    }
+#define _LC_BF16_BINARY_EXACT(NAME, EXPR)                               \
+    _LC_BF16_BINARY_EXACT_DIM(, NAME, EXPR)                             \
+    _LC_BF16_BINARY_EXACT_DIM(2, NAME, EXPR)                            \
+    _LC_BF16_BINARY_EXACT_DIM(3, NAME, EXPR)                            \
+    _LC_BF16_BINARY_EXACT_DIM(4, NAME, EXPR)
+_LC_BF16_BINARY_EXACT(min, min(x, y))
+_LC_BF16_BINARY_EXACT(max, max(x, y))
+#undef _LC_BF16_BINARY_EXACT
+#undef _LC_BF16_BINARY_EXACT_DIM
+
+// step returns exactly zero or one; keep the comparison in FP32 but return
+// the BF16 constants directly instead of narrowing them.
+#define _LC_BF16_STEP_DIM(SUFFIX)                                       \
+    lc_bf16_t##SUFFIX _lc_bf16_step(lc_bf16_t##SUFFIX a,                \
+                                     lc_bf16_t##SUFFIX b) {            \
+        return (lc_bf16_t##SUFFIX)select(                                \
+            _lc_bf16_to_f32(b) >= _lc_bf16_to_f32(a),                    \
+            (uint##SUFFIX)0x3f80u, (uint##SUFFIX)0u);                    \
+    }
+_LC_BF16_STEP_DIM()
+_LC_BF16_STEP_DIM(2)
+_LC_BF16_STEP_DIM(3)
+_LC_BF16_STEP_DIM(4)
+#undef _LC_BF16_STEP_DIM
+
 _LC_BF16_BINARY(pow, pow(x, y))
-_LC_BF16_BINARY(step, step(x, y))
 _LC_BF16_BINARY(mod, fmod(x, y))
 _LC_BF16_BINARY(distance, distance(x, y))
 #undef _LC_BF16_BINARY
@@ -297,7 +373,22 @@ lc_bf16_t4 _lc_bf16_copysign(lc_bf16_t4 a, lc_bf16_t4 b) {
         return _lc_bf16_from_f32(EXPR);                                 \
     }
 _LC_BF16_TERNARY(fma, x * y + z)
-_LC_BF16_TERNARY(clamp, clamp(x, y, z))
+
+// clamp returns one of its inputs (or a quiet NaN), all of which are already
+// exactly representable without another general rounding step.
+#define _LC_BF16_CLAMP_DIM(SUFFIX)                                      \
+    lc_bf16_t##SUFFIX _lc_bf16_clamp(lc_bf16_t##SUFFIX a,               \
+                                      lc_bf16_t##SUFFIX b,              \
+                                      lc_bf16_t##SUFFIX c) {             \
+        return _lc_bf16_from_f32_exact(clamp(                            \
+            _lc_bf16_to_f32(a), _lc_bf16_to_f32(b), _lc_bf16_to_f32(c))); \
+    }
+_LC_BF16_CLAMP_DIM()
+_LC_BF16_CLAMP_DIM(2)
+_LC_BF16_CLAMP_DIM(3)
+_LC_BF16_CLAMP_DIM(4)
+#undef _LC_BF16_CLAMP_DIM
+
 _LC_BF16_TERNARY(lerp, lerp(x, y, z))
 _LC_BF16_TERNARY(smoothstep, smoothstep(x, y, z))
 _LC_BF16_TERNARY(faceforward, faceforward(x, y, z))
