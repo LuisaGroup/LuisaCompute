@@ -384,3 +384,4 @@ scripts/tests/
 
 # Versioned backend CI environment and build helpers
 !scripts/ci/*.ps1
+/install-*

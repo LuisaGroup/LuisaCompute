@@ -180,6 +180,21 @@ public:
     // accel
     [[nodiscard]] virtual ResourceCreationInfo create_mesh(const AccelOption &option) noexcept = 0;
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
+    // Cluster (mega-geometry) acceleration structures. Optional: the default
+    // implementation reports "not implemented" so backends that cannot build
+    // cluster ASes fail loudly instead of silently mis-tracing.
+    // TODO(dx): D3D12 counterpart (NVAPI cluster build or DXR clusters) —
+    // see the RTXMG research report §7 for the divergence matrix.
+    [[nodiscard]] virtual ResourceCreationInfo create_mega_geometry(const AccelOption &option) noexcept;
+    virtual void destroy_mega_geometry(uint64_t handle) noexcept;
+    // Traceable device address of the cluster BLAS produced by the last dispatched
+    // build of the cluster (mega-geometry) mesh `handle`, or 0 when the backend has
+    // no such concept or when no build has been dispatched yet.
+    [[nodiscard]] virtual uint64_t mega_geometry_device_address(uint64_t handle) noexcept;
+    // Device address of the first byte of a buffer, or 0 when the device
+    // cannot expose buffer device addresses. Cluster build records carry raw
+    // device addresses, so callers need this to fill ClusterBuildInfo.
+    [[nodiscard]] virtual uint64_t buffer_device_address(uint64_t buffer_handle) noexcept;
 
     [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept = 0;
     virtual void destroy_procedural_primitive(uint64_t handle) noexcept = 0;

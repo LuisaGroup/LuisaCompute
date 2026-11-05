@@ -138,6 +138,14 @@ public:
         _check_is_valid();
         return _size * _element_stride;
     }
+    /// Device address of the buffer's first element, or 0 when unavailable.
+    /// Cluster (mega-geometry) build records carry raw device addresses, so
+    /// callers need this to fill ClusterBuildInfo::index_buffer / vertex_buffer.
+    [[nodiscard]] uint64_t device_address() const noexcept {
+        _check_is_valid();
+        if (!*this) [[unlikely]] { return 0u; }
+        return device()->buffer_device_address(handle());
+    }
     // views
     [[nodiscard]] auto view_unchecked() const noexcept {
         return BufferView<T>{this->native_handle(), this->handle(), _element_stride, 0u, _size, _size};

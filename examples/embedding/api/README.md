@@ -112,7 +112,10 @@ walked.
 from `.lc_embed_cache*` instead of the encoder), `skipped` (regular files that do
 not match the rule), `failed` (read/encode errors; the successfully indexed
 siblings are kept), `total_documents`, the canonical `root` and the normalized
-`extensions` rule that now governs it.
+`extensions` rule that now governs it. `truncated_chunks` (appended in 1.2)
+counts the chunks of this call whose text exceeded the encode's `max_seq_len`,
+so their tail is in no embedding — 0 is the healthy value, and a cache-served
+chunk reports 0 because the cache stores the vector, not the flag.
 
 The cache layout is `<root>/.lc_embed_cache.json` (per-file content hash, size,
 mtime, dimension, and `sparse_count` for hybrid entries),
@@ -250,7 +253,13 @@ and a non-zero `cancel_flag` stops between units: applied content stays, the
 in-flight document is applied all-or-nothing, the load's root registration is
 rolled back so a follow-up load resumes, and the result carries
 `EER_SUB_CANCELLED` with a `cancelled` message plus `EER_STATUS_OPERATIONAL` (a
-clean, recoverable partial state).
+clean, recoverable partial state). A cancel that lands INSIDE a file — the last
+one included — is reported the same way, so a resumed load never hits "root is
+already loaded".
+`eer_load_result::truncated_chunks` (appended in 1.2) counts the chunks of this
+call that the encoder had to cut at `max_seq_len`: their tail is in no embedding,
+so 0 is the healthy value and anything else means a smaller `chunk_size` (or a
+larger `max_seq_len`) before the corpus is trusted.
 ### `eer_add_document` / `eer_update_document` / `eer_remove_document`
 ```c
 eer_status eer_add_document(eer_context *context, const char *doc_id,
@@ -270,7 +279,9 @@ old ones drop), and identical text + metadata + chunking is a no-op reported in
 verbatim for `eer_query_ex` filters and snapshots. Memory-only documents have no
 path; `doc_id` is the only identity a hit reports for them. `eer_update_document`
 is the replace alias; `eer_remove_document` drops every chunk (unknown ids are
-`EER_STATUS_NOT_FOUND`).
+`EER_STATUS_NOT_FOUND`). `eer_document_result::truncated_chunks` (appended in
+1.2) counts this call's chunks cut by `max_seq_len`; it is 0 for an idempotent
+re-ingest, because nothing was encoded.
 ### `eer_query_ex` — ranking controls
 ```c
 eer_status eer_query_ex(eer_context *context, const char *utf8_text,
@@ -418,13 +429,28 @@ The shared library must sit next to (or find through `program_path`) the
 LuisaCompute runtime and the selected backend modules:
 
 ```text
-bin/release/
-  example_embed_retrieval_lib.dll
-  luisa-runtime.dll  luisa-core.dll  luisa-dsl.dll  luisa-vstl.dll
-  luisa-backend-vk.dll | luisa-backend-dx.dll | luisa-backend-cuda.dll | ...
+bin/release/                      (suffixes vary: .dll / .so / .dylib)
+  example_embed_retrieval_lib
+  luisa-runtime  luisa-core                       <- the always-needed pair
+  luisa-backend-vk | luisa-backend-dx | luisa-backend-cuda | ...   <- one or more
 ```
 
-In callback mode only the runtime DLLs are needed (no backend is loaded).
+`luisa-dsl` and `luisa-vstl` are STATIC archives at this pin and are linked INTO
+the retrieval library, so they are not files to ship. The backend modules are
+named after their target (`luisa-backend-vk`, not `luisa-vk`), and the engine
+dlopen()s them at `eer_context_create` time from `program_path` (or the host
+executable's directory when it is NULL).
+
+Siblings resolve two ways, both of which must hold for a staged copy:
+
+* Windows: the host loads the library with `LOAD_WITH_ALTERED_SEARCH_PATH`, so
+  the directory of the library is the first place a dependent DLL is looked for.
+* Linux: every shared target this project declares gets `RUNPATH=$ORIGIN`
+  (`scripts/xmake_func.lua`, `project_kind == "shared"`), so a module finds its
+  siblings in the same directory with no `LD_LIBRARY_PATH`. That rpath is also
+  what lets a backend module resolve its own dependencies.
+
+In callback mode only the runtime pair is needed (no backend is loaded).
 
 ## C example
 

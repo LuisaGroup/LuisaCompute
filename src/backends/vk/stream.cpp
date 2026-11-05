@@ -5,6 +5,7 @@
 #include <luisa/core/logging.h>
 #include "log.h"
 #include "blas.h"
+#include "cluster_blas.h"
 #include "tlas.h"
 #include "motion_instance.h"
 #include "rt_shader.h"
@@ -3120,10 +3121,19 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     auto c = static_cast<AccelBuildCommand const *>(cmd);
                     reinterpret_cast<Tlas *>(c->handle())->pre_build(*this, c->instance_count(), *write_desc_sets, *bindless_cache, c->modifications(), c->request());
                 } break;
-                case Command::Tag::EMeshBuildCommand: {
-                    auto c = static_cast<MeshBuildCommand const *>(cmd);
+            case Command::Tag::EMeshBuildCommand: {
+                auto c = static_cast<MeshBuildCommand const *>(cmd);
+                if (c->is_cluster_build()) {
+                    // Cluster (mega-geometry) builds go to the ClusterBlas
+                    // sibling of Blas: VK_NV_cluster_acceleration_structure
+                    // produces no VkAccelerationStructureKHR.
+                    // TODO(dx): honour is_cluster_build() when the D3D12
+                    // cluster AS path lands (NVAPI cluster build / DXR clusters).
+                    reinterpret_cast<ClusterBlas *>(c->handle())->pre_build_clusters(*this, c);
+                } else {
                     reinterpret_cast<Blas *>(c->handle())->pre_build(*this, c);
-                } break;
+                }
+            } break;
                 case Command::Tag::ECurveBuildCommand: {
                 } break;
                 case Command::Tag::EMotionInstanceBuildCommand: {
@@ -4269,9 +4279,15 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 } break;
                 case Command::Tag::EMeshBuildCommand: {
                     flush_all_pending();
-                    auto c = static_cast<MeshBuildCommand const *>(cmd);
+                auto c = static_cast<MeshBuildCommand const *>(cmd);
+                if (c->is_cluster_build()) {
+                    // TODO(dx): honour is_cluster_build() when the D3D12
+                    // cluster AS path lands (NVAPI cluster build / DXR clusters).
+                    reinterpret_cast<ClusterBlas *>(c->handle())->build_clusters(*this, c);
+                } else {
                     reinterpret_cast<Blas *>(c->handle())->build(*this, c);
-                } break;
+                }
+            } break;
                 case Command::Tag::ECurveBuildCommand: {
                 } break;
                 case Command::Tag::EMotionInstanceBuildCommand: {

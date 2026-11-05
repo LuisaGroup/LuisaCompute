@@ -650,6 +650,27 @@ private:
         _max_mesh_level = std::max<int64_t>(_max_mesh_level, layer);
         return layer;
     }
+    // A cluster (mega-geometry) build's only host-visible input is its array of
+    // ClusterBuildInfo records (`set_mesh` cannot be used: vertex_buffer() and
+    // triangle_buffer() are 0 for a cluster build, and handle 0 would create a
+    // phantom buffer dependency).
+    int64_t set_cluster_mesh(
+        uint64_t handle,
+        uint64_t cluster_buffer,
+        Range cluster_range) {
+        auto cluster_handle = get_handle(
+            cluster_buffer,
+            ResourceType::Buffer);
+        auto mesh_handle = get_handle(
+            handle,
+            ResourceType::Mesh);
+        auto layer = get_last_layer_read(static_cast<RangeHandle *>(cluster_handle), cluster_range);
+        layer = std::max<int64_t>(layer, get_last_layer_write(static_cast<NoRangeHandle *>(mesh_handle)));
+        static_cast<RangeHandle *>(cluster_handle)->emplace_read_layer(cluster_range, layer);
+        static_cast<NoRangeHandle *>(mesh_handle)->view.write_layer = layer;
+        _max_mesh_level = std::max<int64_t>(_max_mesh_level, layer);
+        return layer;
+    }
     int64_t set_aabb(
         uint64_t handle,
         uint64_t aabb_buffer,
@@ -1115,6 +1136,24 @@ public:
 
     // Mesh : conclude vertex and triangle buffers
     void visit(const MeshBuildCommand *command) noexcept override {
+        if (command->is_cluster_build()) {
+            // A cluster (mega-geometry) build has no vertex/triangle buffer; its
+            // only host-visible input is the array of ClusterBuildInfo records,
+            // which the build reads as srcInfosArray. Without this dependency the
+            // pass could record the upload/copy that fills those records *after*
+            // the build, and the build would read uninitialized records (garbage
+            // device addresses for the vertex/index data, or stale geometry).
+            // TODO(cluster): also declare the vertex/index buffers, which are
+            // only reachable through the records' device addresses.
+            add_command(
+                command,
+                set_cluster_mesh(
+                    command->handle(),
+                    command->cluster_buffer(),
+                    buffer_range(command->cluster_buffer_offset(),
+                                 command->cluster_buffer_size())));
+            return;
+        }
         add_command(
             command,
             set_mesh(

@@ -6,6 +6,7 @@
 #include "command_buffer_sync.h"
 #include "log.h"
 #include "blas.h"
+#include "cluster_blas.h"
 #include "motion_instance.h"
 #include "vulkan_builtin_contract.h"
 namespace lc::vk {
@@ -35,16 +36,18 @@ static_assert(
 static_assert(
     detail::VulkanAccelUpdateLayout::instance_force_no_opaque ==
     VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR);
-// Resolve a primitive handle to a Blas pointer.
-// If the handle is a MotionInstance, returns its child Blas.
-static Blas *resolve_to_blas(uint64_t primitive_handle) {
+// Resolve a primitive handle to the PrimitiveBase that owns it.
+// If the handle is a MotionInstance, returns its child Blas (a motion instance
+// is never instanced in a TLAS directly: the slot carries the child's address
+// plus the keyframe transforms).
+static PrimitiveBase *resolve_to_primitive(uint64_t primitive_handle) {
     auto prim = reinterpret_cast<PrimitiveBase *>(primitive_handle);
     if (!prim) return nullptr;
     if (prim->is_motion_instance()) {
         auto mi = static_cast<MotionInstance *>(prim);
         return mi->child();
     }
-    return static_cast<Blas *>(prim);
+    return prim;
 }
 }// namespace tlas_detail
 Tlas::Tlas(Device *device, AccelOption const &option)
@@ -72,8 +75,8 @@ void Tlas::pre_build(
     // and mixing instance formats between builds.
     _has_motion = false;
     for (auto &inst : _all_instance) {
-        if (inst.handle == nullptr) continue;
-        if (inst.is_motion_instance || inst.handle->mesh->has_motion()) {
+        if (inst.handle == nullptr || inst.primitive == nullptr) continue;
+        if (inst.is_motion_instance || inst.primitive->has_motion()) {
             _has_motion = true;
             break;
         }
@@ -86,7 +89,7 @@ void Tlas::pre_build(
                     _has_motion = true;
                     break;
                 }
-                auto blas = tlas_detail::resolve_to_blas(i.primitive);
+                auto blas = tlas_detail::resolve_to_primitive(i.primitive);
                 if (blas && blas->has_motion()) {
                     _has_motion = true;
                     break;
@@ -160,8 +163,9 @@ void Tlas::pre_build(
     }
     if (!(modifications.empty() && _pending_refresh_count == 0u)) {
         // First pass: resolve primitives and update mesh references
-        // Store resolved Blas pointers for each modification that has a primitive
-        luisa::vector<Blas *> resolved_meshes(modifications.size(), nullptr);
+        // Store resolved PrimitiveBase pointers (Blas or ClusterBlas) for each
+        // modification that has a primitive
+        luisa::vector<PrimitiveBase *> resolved_meshes(modifications.size(), nullptr);
         for (size_t idx = 0; idx < modifications.size(); idx++) {
             auto &&i = modifications[idx];
             bool updateMesh = (i.flags & AccelBuildCommand::Modification::flag_primitive);
@@ -178,7 +182,7 @@ void Tlas::pre_build(
                 // slot (mirrors the dx backend's ProcessSetDesc merge order).
                 // Otherwise the replacement would be silently dropped and the
                 // TLAS would keep tracing the old mesh.
-                resolved_meshes[idx] = tlas_detail::resolve_to_blas(i.primitive);
+                resolved_meshes[idx] = tlas_detail::resolve_to_primitive(i.primitive);
             } else if (pending != nullptr) {
                 resolved_meshes[idx] = pending;
                 const_cast<uint &>(i.flags) = i.flags | AccelBuildCommand::Modification::flag_primitive;
@@ -268,8 +272,7 @@ void Tlas::pre_build(
                 if (mesh == nullptr) continue;
                 if (index >= instance_count) continue;// defensive
                 auto addr = mesh->get_accel_device_address();
-                resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
-                                         ResourceBarrier::Usage::kAccelInstanceBuffer);
+                _record_primitive_accel_read(resource_barrier, mesh);
                 reinterpret_cast<VkAccelerationStructureInstanceKHR *>(
                     _std_instance_cache.data() + index * sizeof(VkAccelerationStructureInstanceKHR))
                     ->accelerationStructureReference = addr;
@@ -331,8 +334,7 @@ void Tlas::pre_build(
                 if ((i.flags & AccelBuildCommand::Modification::flag_primitive) && resolved_meshes[idx]) {
                     auto mesh = resolved_meshes[idx];
                     std_inst->accelerationStructureReference = mesh->get_accel_device_address();
-                    resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
-                                             ResourceBarrier::Usage::kAccelInstanceBuffer);
+                    _record_primitive_accel_read(resource_barrier, mesh);
                 }
 
                 // --- 160-byte motion instance (TLAS build) ---
@@ -490,8 +492,7 @@ void Tlas::pre_build(
                 auto addr = mesh->get_accel_device_address();
                 inst_ptr->mesh =
                     TlasInputInst::device_address_words(addr);
-                resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
-                                         ResourceBarrier::Usage::kAccelInstanceBuffer);
+                _record_primitive_accel_read(resource_barrier, mesh);
             }
             inst_ptr++;
         }
@@ -508,8 +509,7 @@ void Tlas::pre_build(
                 TlasInputInst::pack_user_id_flags(
                     0u,
                     AccelBuildCommand::Modification::flag_primitive);
-            resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
-                                     ResourceBarrier::Usage::kAccelInstanceBuffer);
+            _record_primitive_accel_read(resource_barrier, mesh);
             auto addr = mesh->get_accel_device_address();
             inst_ptr->mesh =
                 TlasInputInst::device_address_words(addr);
@@ -588,9 +588,7 @@ void Tlas::pre_build(
     // with the BLAS build, letting the TLAS pick up stale geometry.
     for (auto &inst : _all_instance) {
         if (inst.handle != nullptr) {
-            resource_barrier->record(
-                BufferView{inst.handle->mesh->_accel_buffer.get()},
-                ResourceBarrier::Usage::kAccelInstanceBuffer);
+            _record_primitive_accel_read(resource_barrier, inst.primitive);
         }
     }
     VkDeviceOrHostAddressConstKHR instance_data_device_address{};
@@ -695,21 +693,27 @@ void Tlas::_update_mesh(
     // Queue a refresh of the instance's BLAS address. Storing the stable Blas
     // instead of the pooled MeshHandle keeps the entry valid even if the
     // handle is later destroyed/recycled before the next TLAS build.
-    _queue_refresh(instIndex, handle->mesh);
+    _queue_refresh(instIndex, _all_instance[instIndex].primitive);
     _require_rebuild = true;
 }
-void Tlas::_queue_refresh(size_t instance_index, Blas *blas) noexcept {
+void Tlas::_queue_refresh(size_t instance_index, PrimitiveBase *blas) noexcept {
     auto &pending = _all_instance[instance_index].refresh_blas;
     if (pending == nullptr) {
         ++_pending_refresh_count;
     }
     pending = blas;
 }
-void Tlas::_drop_refresh(size_t instance_index, Blas *blas) noexcept {
-    auto &pending = _all_instance[instance_index].refresh_blas;
-    if (pending == blas) {
-        pending = nullptr;
+void Tlas::_drop_refresh(size_t instance_index, PrimitiveBase *blas) noexcept {
+    auto &inst = _all_instance[instance_index];
+    if (inst.refresh_blas == blas) {
+        inst.refresh_blas = nullptr;
         --_pending_refresh_count;
+    }
+    // The primitive that owned this slot is being destroyed. Its destructor
+    // clears the slot's handle immediately before this call; drop the owner
+    // too so no later build can dereference it.
+    if (inst.handle == nullptr) {
+        inst.primitive = nullptr;
     }
 }
 void Tlas::build(
@@ -747,9 +751,9 @@ void Tlas::_resize_instance(size_t size) {
             if (i.refresh_blas != nullptr) {
                 --_pending_refresh_count;
             }
-            if (!i.handle) continue;
-            i.handle->mesh->_remove_accel_ref(i.handle);
-        }
+        if (!i.handle) continue;
+        _detach_primitive(i.primitive, i.handle);
+    }
     }
     _all_instance.resize(size);
 }
@@ -758,24 +762,69 @@ Tlas::~Tlas() {
     for (auto &&i : _all_instance) {
         auto mesh = i.handle;
         if (mesh)
-            mesh->mesh->_remove_accel_ref(mesh);
+            _detach_primitive(i.primitive, mesh);
     }
     vkDestroyAccelerationStructureKHR(device()->logic_device(), _accel, Device::alloc_callbacks());
 }
-void Tlas::_set_mesh(Blas *mesh, uint64 index, bool is_motion_instance, bool explicit_primitive) {
+void Tlas::_set_mesh(PrimitiveBase *mesh, uint64 index, bool is_motion_instance, bool explicit_primitive) {
     auto &&inst = _all_instance[index];
     if (inst.handle != nullptr) {
-        if (inst.handle->mesh == mesh) {
-            // Same child BLAS: only an explicit primitive assignment may change
-            // whether the slot counts as a motion instance — a pending refresh
-            // folded into the build must preserve the existing flag.
+        if (inst.primitive == mesh) {
+            // Same child primitive: only an explicit primitive assignment may
+            // change whether the slot counts as a motion instance — a pending
+            // refresh folded into the build must preserve the existing flag.
             if (explicit_primitive) { inst.is_motion_instance = is_motion_instance; }
             return;
         }
-        inst.handle->mesh->_remove_accel_ref(inst.handle);
+        _detach_primitive(inst.primitive, inst.handle);
     }
-    inst.handle = mesh->_add_accel_ref(this, index);
+    inst.primitive = mesh;
+    inst.handle = _attach_primitive(mesh, static_cast<uint32_t>(index));
     inst.handle->accel_index = index;
     inst.is_motion_instance = is_motion_instance;
+}
+MeshHandle *Tlas::_attach_primitive(PrimitiveBase *mesh, uint32_t index) {
+    LUISA_ASSERT(
+        mesh != nullptr &&
+            mesh->prim_tag() != PrimitiveBase::PrimTag::MOTION_INSTANCE,
+        "A TLAS instance must reference a Blas or a ClusterBlas (a "
+        "MotionInstance contributes its child BLAS), got a null or "
+        "motion-instance primitive.");
+    if (mesh->prim_tag() == PrimitiveBase::PrimTag::CLUSTER_BLAS) {
+        return static_cast<ClusterBlas *>(mesh)->_add_accel_ref(this, index);
+    }
+    return static_cast<Blas *>(mesh)->_add_accel_ref(this, index);
+}
+void Tlas::_detach_primitive(PrimitiveBase *mesh, MeshHandle *handle) noexcept {
+    if (handle == nullptr) { return; }
+    if (mesh != nullptr &&
+        mesh->prim_tag() == PrimitiveBase::PrimTag::CLUSTER_BLAS) {
+        static_cast<ClusterBlas *>(mesh)->_remove_accel_ref(handle);
+        return;
+    }
+    if (mesh == nullptr) {
+        // The owner slot was cleared but the handle survived (a primitive that
+        // was replaced without being destroyed). A Blas handle still carries its
+        // own identity through MeshHandle::mesh; a cluster handle does not, so
+        // there is nothing left to unlink in that impossible-in-practice case.
+        if (handle->mesh != nullptr) { handle->mesh->_remove_accel_ref(handle); }
+        return;
+    }
+    static_cast<Blas *>(mesh)->_remove_accel_ref(handle);
+}
+void Tlas::_record_primitive_accel_read(
+    ResourceBarrier *barrier, PrimitiveBase *mesh) const noexcept {
+    if (barrier == nullptr || mesh == nullptr) { return; }
+    Buffer const *storage = nullptr;
+    if (mesh->prim_tag() == PrimitiveBase::PrimTag::CLUSTER_BLAS) {
+        storage = static_cast<ClusterBlas *>(mesh)->blas_pool();
+    } else {
+        storage = static_cast<Blas *>(mesh)->_accel_buffer.get();
+    }
+    if (storage != nullptr) {
+        barrier->record(
+            BufferView{storage},
+            ResourceBarrier::Usage::kAccelInstanceBuffer);
+    }
 }
 }// namespace lc::vk

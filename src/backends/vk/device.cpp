@@ -33,6 +33,7 @@
 #include "queue_family_contract.h"
 #include "bindless_array.h"
 #include "blas.h"
+#include "cluster_blas.h"
 #include "tlas.h"
 #include "motion_instance.h"
 #include "rt_shader.h"
@@ -615,6 +616,41 @@ void Device::destroy_mesh(uint64_t handle) noexcept {
         return;
     }
     delete reinterpret_cast<Blas *>(handle);
+}
+
+ResourceCreationInfo Device::create_mega_geometry(
+    const AccelOption &option) noexcept {
+    // Fail loudly rather than hand out a handle whose every build would have to
+    // be rejected: a cluster BLAS can only exist on a device that enabled
+    // VK_NV_cluster_acceleration_structure.
+    if (!cluster_acceleration_structure_enabled) [[unlikely]] {
+        LUISA_ERROR(
+            "Cluster (mega-geometry) acceleration structures are not enabled on "
+            "this device: VK_NV_cluster_acceleration_structure, its "
+            "clusterAccelerationStructure feature and buffer device addresses "
+            "are all required, and the software ray-tracing fallback has no "
+            "cluster path.");
+    }
+    auto blas = new ClusterBlas(this, option);
+    return ResourceCreationInfo{
+        .handle = reinterpret_cast<uint64_t>(blas),
+        .native_handle = nullptr};
+}
+void Device::destroy_mega_geometry(uint64_t handle) noexcept {
+    delete reinterpret_cast<ClusterBlas *>(handle);
+}
+uint64_t Device::mega_geometry_device_address(uint64_t handle) noexcept {
+    if (handle == 0u) { return 0u; }
+    return reinterpret_cast<ClusterBlas *>(handle)->cluster_blas_address();
+}
+uint64_t Device::buffer_device_address(uint64_t buffer_handle) noexcept {
+    // 0 means "unavailable", never a fatal check: a device without buffer
+    // device addresses cannot serve cluster build records at all, and the
+    // public API documents 0 as the portable answer.
+    if (!device_address_enabled || buffer_handle == 0u) { return 0u; }
+    auto *buffer = reinterpret_cast<Buffer *>(buffer_handle);
+    if (!buffer->device_address_capable()) { return 0u; }
+    return buffer->get_device_address();
 }
 
 ResourceCreationInfo Device::create_procedural_primitive(
@@ -1880,6 +1916,31 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             .pNext = &supported_motion_blur};
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
     }
+    // ---- cluster (mega-geometry) acceleration structures ------------------
+    // VK_NV_cluster_acceleration_structure depends only on
+    // VK_KHR_acceleration_structure, but building a traceable Cluster BLAS also
+    // needs buffer device addresses for the raw CLAS/BLAS/destination regions.
+    VkPhysicalDeviceClusterAccelerationStructureFeaturesNV supported_cluster_as{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CLUSTER_ACCELERATION_STRUCTURE_FEATURES_NV,
+        .pNext = nullptr};
+    auto has_cluster_as_extensions =
+        has_ray_query_extensions &&
+        supports_device_extension(
+            VK_NV_CLUSTER_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+    if (has_cluster_as_extensions) {
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_cluster_as};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        _cluster_acceleration_structure_properties =
+            VkPhysicalDeviceClusterAccelerationStructurePropertiesNV{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CLUSTER_ACCELERATION_STRUCTURE_PROPERTIES_NV,
+                .pNext = nullptr};
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &_cluster_acceleration_structure_properties};
+        vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+    }
     auto raytracing_requested = raytracing_enabled;
     // ---- software (fallback) ray tracing ---------------------------------
     // The effective decision is made exactly once, here, and every later
@@ -2022,6 +2083,26 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         surface_enabled = false;
         _enable_device_exts.clear();
     }
+    // Cluster (mega-geometry) acceleration structures: decided here, next to
+    // the ray-query decision they depend on (the extension's only dependency is
+    // VK_KHR_acceleration_structure, which the ray-query path already enables)
+    // and forced off above for an imported logical device, whose enabled
+    // feature chain Vulkan cannot attest after creation.
+    cluster_acceleration_structure_enabled =
+        raytracing_enabled && device_address_enabled &&
+        !use_fallback_rtx_bit && has_cluster_as_extensions &&
+        supported_cluster_as.clusterAccelerationStructure == VK_TRUE;
+    if (has_cluster_as_extensions && !cluster_acceleration_structure_enabled &&
+        raytracing_enabled) {
+        auto cluster_feature =
+            supported_cluster_as.clusterAccelerationStructure == VK_TRUE;
+        auto device_address = static_cast<bool>(device_address_enabled);
+        LUISA_INFO(
+            "Vulkan cluster (mega-geometry) acceleration structures disabled: "
+            "clusterAccelerationStructure={} bufferDeviceAddress={} and "
+            "required extensions={}",
+            cluster_feature, device_address, has_cluster_as_extensions);
+    }
     if (enable_barycentric) {
         enable_device_extension(
             VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
@@ -2034,6 +2115,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (enable_motion_blur) {
         enable_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
         enable_device_extension(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME);
+    }
+    if (cluster_acceleration_structure_enabled) {
+        // VK_NV_cluster_acceleration_structure only requires
+        // VK_KHR_acceleration_structure, which the ray-query block above has
+        // already enabled whenever raytracing_enabled is set.
+        // TODO(dx): the D3D12 counterpart is a DXR/NVAPI cluster path with its
+        // own device-level opt-in; see the RTXMG research report §7.
+        enable_device_extension(VK_NV_CLUSTER_ACCELERATION_STRUCTURE_EXTENSION_NAME);
     }
     if (interop_enabled) {
         if (supported_ext.find(VK_KHR_RAY_QUERY_EXTENSION_NAME) != supported_ext.end() &&
@@ -2145,6 +2234,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
         .pNext = &enable_rayquery_features,
         .accelerationStructure = raytracing_enabled ? VK_TRUE : VK_FALSE};
+    // Cluster (mega-geometry) acceleration structures ride on the same
+    // acceleration-structure chain: the extension only requires
+    // VK_KHR_acceleration_structure, so the two are always enabled together.
+    VkPhysicalDeviceClusterAccelerationStructureFeaturesNV cluster_acceleration_structure_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CLUSTER_ACCELERATION_STRUCTURE_FEATURES_NV,
+        .pNext = &enabled_acceleration_structure_features,
+        .clusterAccelerationStructure =
+            cluster_acceleration_structure_enabled ? VK_TRUE : VK_FALSE};
     VkPhysicalDeviceRayTracingMotionBlurFeaturesNV motion_blur_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MOTION_BLUR_FEATURES_NV,
         .pNext = &enabled_acceleration_structure_features,
@@ -2161,6 +2258,12 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             feature_next = &rt_pipeline_features;
         } else {
             feature_next = &enabled_acceleration_structure_features;
+        }
+        if (cluster_acceleration_structure_enabled) {
+            // Link the cluster feature into the single already-single-linked
+            // chain that starts with the ray-tracing feature structures.
+            cluster_acceleration_structure_features.pNext = feature_next;
+            feature_next = &cluster_acceleration_structure_features;
         }
     }
     VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{
@@ -3027,6 +3130,13 @@ bool Device::print_code() {
 luisa::string Device::query(luisa::string_view property) noexcept {
     if (property == "shader_untyped_pointers") {
         return shader_untyped_pointers_enabled ? "true" : "false";
+    }
+    if (property == "vk_cluster_acceleration_structure") {
+        // "1"/"0" (not the "true"/"false" of the neighbouring feature queries):
+        // the integration test parses this value to decide whether to skip, and
+        // LC_CLUSTER_IMPL_SPEC §5.1 fixes the encoding.
+        // TODO(dx): expose the D3D12 cluster-AS capability under the same key.
+        return cluster_acceleration_structure_enabled ? "1" : "0";
     }
     if (property == "shader_device_clock") {
         return _shader_device_clock_enabled ? "true" : "false";

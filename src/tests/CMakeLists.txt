@@ -1542,6 +1542,20 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     target_compile_definitions(test_rtx PRIVATE LUISA_TEST_RTX_HAS_VK=1)
     target_link_libraries(test_rtx PRIVATE luisa-compute-ext-volk)
 endif ()
+# Cluster (mega-geometry) acceleration structures: only the Vulkan backend can run this
+# test, and it needs no DeviceConfigExt (availability is answered by
+# Device::query("vk_cluster_acceleration_structure")), so unlike test_rtx above there is
+# no define and no extra link dependency here. `ARGS vk` and the `integration_vk` label
+# mirror the neighbouring Vulkan-only registrations; 77 is the status the test returns
+# when the device does not expose VK_NV_cluster_acceleration_structure, which CTest
+# records as SKIPPED instead of as a pass or a failure.
+if (LUISA_COMPUTE_ENABLE_VULKAN)
+    luisa_compute_add_test(test_rtx_cluster integration/runtime/test_rtx_cluster.cpp
+            LABELS "integration;integration_runtime;integration_vk" ARGS vk)
+    set_tests_properties(test_rtx_cluster PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 240)
+else ()
+    luisa_compute_add_test(test_rtx_cluster integration/runtime/test_rtx_cluster.cpp)
+endif ()
 luisa_compute_add_test(test_aot                      integration/runtime/test_aot.cpp)
 luisa_compute_add_test(test_oso_parser               integration/runtime/test_oso_parser.cpp)
 

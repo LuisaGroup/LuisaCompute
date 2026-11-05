@@ -533,6 +533,7 @@ public:
         }
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
+        // TODO(dx): honour is_cluster_build() when the D3D12 cluster AS path lands.
         if (owns_fallback_blas(cmd->handle())) {
             preprocess_fallback_build();
             return;
@@ -1684,6 +1685,7 @@ void LCCmdBuffer::Execute(
                     account_size(static_cast<ShaderDispatchCommand const *>(command.get()));
                 } break;
                 case Command::Tag::EMeshBuildCommand: {
+                    // TODO(dx): honour is_cluster_build() when the D3D12 cluster AS path lands.
                     auto c = static_cast<MeshBuildCommand const *>(command.get());
                     if (pp_visitor.owns_fallback_blas(c->handle())) {
                         collect_fallback_build(build_fallback_blas(c));

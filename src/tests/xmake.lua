@@ -675,6 +675,11 @@ test_proj("test_rtx", "integration/runtime/test_rtx.cpp", false, function()
         add_deps("lc-volk")
     end
 end)
+-- Cluster (mega-geometry) acceleration structures need no DeviceConfigExt: whether the
+-- path is available is answered by Device::query("vk_cluster_acceleration_structure"),
+-- so the test needs no vk define and no extra link dependency - it skips at runtime on
+-- every backend (or driver) that does not expose VK_NV_cluster_acceleration_structure.
+test_proj("test_rtx_cluster", "integration/runtime/test_rtx_cluster.cpp")
 if has_config("lc_enable_osl") then
     test_proj("test_oso_parser", "integration/runtime/test_oso_parser.cpp", false, function()
         add_deps("lc-osl")
