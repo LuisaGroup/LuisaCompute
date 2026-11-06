@@ -183,8 +183,6 @@ public:
     // Cluster (mega-geometry) acceleration structures. Optional: the default
     // implementation reports "not implemented" so backends that cannot build
     // cluster ASes fail loudly instead of silently mis-tracing.
-    // TODO(dx): D3D12 counterpart (NVAPI cluster build or DXR clusters) —
-    // see the RTXMG research report §7 for the divergence matrix.
     [[nodiscard]] virtual ResourceCreationInfo create_mega_geometry(const AccelOption &option) noexcept;
     virtual void destroy_mega_geometry(uint64_t handle) noexcept;
     // Traceable device address of the cluster BLAS produced by the last dispatched

@@ -699,11 +699,19 @@ test_proj("test_rtx", "integration/runtime/test_rtx.cpp", false, function()
         add_deps("lc-volk")
     end
 end)
--- Cluster (mega-geometry) acceleration structures need no DeviceConfigExt: whether the
--- path is available is answered by Device::query("vk_cluster_acceleration_structure"),
--- so the test needs no vk define and no extra link dependency - it skips at runtime on
--- every backend (or driver) that does not expose VK_NV_cluster_acceleration_structure.
-test_proj("test_rtx_cluster", "integration/runtime/test_rtx_cluster.cpp")
+-- Cluster (mega-geometry) availability is answered by Device::query on vk or dx.
+-- DirectX configuration requests RaytracingPreview and optional WARP; unsupported devices skip.
+test_proj("test_rtx_cluster", "integration/runtime/test_rtx_cluster.cpp", false, function()
+    if is_plat("windows") then
+        add_syslinks("D3D12", "dxgi")
+    end
+end)
+if has_config("lc_dx_backend") then
+    test_proj("test_dx_cluster_convert", "integration/runtime/test_dx_cluster_convert.cpp", false, function()
+        add_deps("lc-hlsl-codegen")
+        add_includedirs("../backends/common/hlsl")
+    end)
+end
 -- Native raster shader injection: the dx and vk backends implement the raster route,
 -- every other backend inherits the fail-closed default, so the test decides at runtime
 -- whether to draw or to check that default.

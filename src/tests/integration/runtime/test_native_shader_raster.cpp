@@ -1379,6 +1379,43 @@ void test_native_raster(Device &device) {
         // A usage override must match the merged table (empty for this pair).
         auto valid = ext->compile_raster(make_pair(primary->quads));
         expect(valid.ok()) << valid.error.c_str();
+        auto expect_load_rejected = [&](NativeRasterShaderCompileResult const &candidate) {
+            auto metadata = ext->load_raster(candidate);
+            expect(!metadata.valid());
+            // Keep a failed assertion from leaking a handle on a backend that
+            // incorrectly accepted the malformed result.
+            if (metadata.valid()) { ext->destroy_raster_shader(metadata.handle); }
+        };
+        // load_raster() is also the boundary for persisted/hand-assembled
+        // results. It must not defer stage/language mistakes to PSO creation.
+        auto wrong_stage = valid;
+        wrong_stage.vertex.stage = NativeShaderStage::Compute;
+        expect_load_rejected(wrong_stage);
+        auto wrong_language = valid;
+        wrong_language.pixel.language = NativeShaderLanguage::CUDA_NVRTC;
+        expect_load_rejected(wrong_language);
+        auto stage_error = valid;
+        stage_error.vertex.error = "injected stage error";
+        expect(!stage_error.ok());
+        expect_load_rejected(stage_error);
+        auto unaligned_uniforms = valid;
+        unaligned_uniforms.push_constant_size--;
+        expect_load_rejected(unaligned_uniforms);
+        auto excessive_uniforms = valid;
+        excessive_uniforms.push_constant_size = ~0u - 3u;
+        expect_load_rejected(excessive_uniforms);
+        auto invalid_object_id = valid;
+        invalid_object_id.object_id_bytes = 8u;
+        expect_load_rejected(invalid_object_id);
+        auto duplicate_binding = valid;
+        NativeShaderResourceBinding binding{};
+        duplicate_binding.bindings = {binding, binding};
+        expect_load_rejected(duplicate_binding);
+        if (primary == &glsl_sources) {
+            auto malformed_spirv = valid;
+            malformed_spirv.vertex.binary.pop_back();
+            expect_load_rejected(malformed_spirv);
+        }
         std::array<Usage, 1u> bad_override{Usage::READ};
         auto bad = ext->load_raster(valid, luisa::span{bad_override});
         expect(!bad.valid());

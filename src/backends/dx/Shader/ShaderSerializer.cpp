@@ -219,6 +219,10 @@ ComputeShader *ShaderSerializer::DeSerialize(
     D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc;
     psoDesc.NodeMask = 0;
     psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+    if (device->feature_check.cluster_acceleration_structure_supported() &&
+        device->raytracing2) {
+        psoDesc.Flags |= D3D12_PIPELINE_STATE_FLAG_RAYQUERY_ALLOW_CLUSTERED_GEOMETRY_ON_PRE_SM69_SHADERS;
+    }
     psoDesc.pRootSignature = rootSig.Get();
     ComPtr<ID3D12PipelineState> pso;
     psoDesc.CS.pShaderBytecode = binPtr;

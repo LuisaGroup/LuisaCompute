@@ -30,6 +30,7 @@ enum class ClusterIndexFormat : uint32_t {
 // Per-cluster geometry flags, packed into ClusterBuildInfo::packed1. The numeric
 // values are the VK_CLUSTER_ACCELERATION_STRUCTURE_GEOMETRY_*_BIT_NV enumerants.
 enum class ClusterGeometryFlags : uint32_t {
+    // DXR has no per-cluster equivalent; this bit is cleared on DX.
     CullDisable = 0x1u,                // ..._GEOMETRY_CULL_DISABLE_BIT_NV
     NoDuplicateAnyHitInvocation = 0x2u,// ..._GEOMETRY_NO_DUPLICATE_ANYHIT_INVOCATION_BIT_NV
     Opaque = 0x4u,                     // ..._GEOMETRY_OPAQUE_BIT_NV
@@ -342,6 +343,9 @@ Mesh Device::create_mesh(VBuffer &&vertices, size_t vertex_stride, TBuffer &&tri
 // This restriction is a limitation of the current command-reorder pass (see the
 // TODO(cluster) note in src/backends/common/command_reorder_visitor.h) and may be
 // lifted once the pass can follow the addresses stored in the records.
+// The initial DirectX implementation additionally rejects records that reference
+// opacity micromaps; use a backend query and the record fields before relying on
+// OMM support.
 template<typename CBuffer>
     requires is_buffer_or_view_v<CBuffer> &&
              std::same_as<buffer_element_t<CBuffer>, ClusterBuildInfo>

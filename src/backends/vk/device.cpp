@@ -3135,7 +3135,8 @@ luisa::string Device::query(luisa::string_view property) noexcept {
         // "1"/"0" (not the "true"/"false" of the neighbouring feature queries):
         // the integration test parses this value to decide whether to skip, and
         // LC_CLUSTER_IMPL_SPEC §5.1 fixes the encoding.
-        // TODO(dx): expose the D3D12 cluster-AS capability under the same key.
+        // DirectX exposes the corresponding capability as
+        // "dx_cluster_acceleration_structure".
         return cluster_acceleration_structure_enabled ? "1" : "0";
     }
     if (property == "shader_device_clock") {

@@ -290,17 +290,27 @@ void test_ldexp(Device &device, Stream &stream) noexcept {
     {
         luisa::vector<float2> host_in{{1.0f, 1.5f}, {-1.5f, 3.0f}};
         auto in_buf = device.create_buffer<float2>(host_in.size());
-        auto out_buf2 = device.create_buffer<float2>(2u * host_in.size());
+        auto out_buf2 = device.create_buffer<float2>(3u * host_in.size());
         stream << in_buf.copy_from(luisa::span{host_in}) << synchronize();
         Kernel1D vec_kernel = [](BufferFloat2 input, BufferFloat2 output) noexcept {
             for (auto i = 0u; i < 2u; i++) {
                 output.write(i, ldexp(input.read(i), def(10)));
                 output.write(2u + i, ldexp(input.read(i), make_int2(10, -10)));
+                // XIR explicitly permits a scalar exponent beside a vector
+                // mantissa, including calls built without the DSL broadcast
+                // helper. Every AST backend must lower that shape as well.
+                auto builder = luisa::compute::detail::FunctionBuilder::current();
+                auto mantissa = input.read(i);
+                auto exponent = def(10);
+                auto direct = def<float2>(builder->call(
+                    Type::of<float2>(), CallOp::LDEXP,
+                    {mantissa.expression(), exponent.expression()}));
+                output.write(4u + i, direct);
             }
         };
         auto vec_shader = device.compile(vec_kernel);
         stream << vec_shader(in_buf, out_buf2).dispatch(1u) << synchronize();
-        luisa::vector<float2> out2(2u * host_in.size());
+        luisa::vector<float2> out2(3u * host_in.size());
         stream << out_buf2.copy_to(luisa::span{out2.data(), out2.size()}) << synchronize();
         for (auto i = 0u; i < host_in.size(); i++) {
             expect(out2[i].x == std::ldexp(host_in[i].x, 10) &&
@@ -309,8 +319,11 @@ void test_ldexp(Device &device, Stream &stream) noexcept {
             expect(out2[2u + i].x == std::ldexp(host_in[i].x, 10) &&
                    out2[2u + i].y == std::ldexp(host_in[i].y, -10))
                 << "ldexp(float2, int2) lane mismatch at " << i;
+            expect(out2[4u + i].x == std::ldexp(host_in[i].x, 10) &&
+                   out2[4u + i].y == std::ldexp(host_in[i].y, 10))
+                << "direct AST ldexp(float2, scalar int) lane mismatch at " << i;
         }
-        LUISA_INFO("ldexp: float2 broadcast and int2 exponents passed.");
+        LUISA_INFO("ldexp: float2 broadcast, int2 and direct scalar-exponent AST calls passed.");
     }
 
     // Saturation: the exponent is an unlimited-range integer in the reference
@@ -752,6 +765,38 @@ void test_double_precision_demoted_names(Device &device, Stream &stream) noexcep
             << "double2 copysign lane 1 = " << out[1].y << ", expected "
             << std::copysign(lhs[1].y, rhs[1].y);
         LUISA_INFO("double2: atan2 and copysign passed on both lanes.");
+    }
+    // Non-integral exponents take the non-powi branch of the generated
+    // powf_impl(lc_double, lc_double). A float intrinsic there loses far more
+    // than the double-precision tolerance, and a generator/header drift must
+    // not silently reintroduce that demotion.
+    {
+        luisa::vector<double> base{2.5, 7.25};
+        luisa::vector<double> exponent{0.5, 1.25};
+        auto base_buffer = device.create_buffer<double>(base.size());
+        auto exponent_buffer = device.create_buffer<double>(exponent.size());
+        auto output = device.create_buffer<double>(base.size());
+        stream << base_buffer.copy_from(luisa::span{base})
+               << exponent_buffer.copy_from(luisa::span{exponent})
+               << synchronize();
+        Kernel1D kernel = [](BufferVar<double> x, BufferVar<double> y,
+                             BufferVar<double> out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, pow(x.read(i), y.read(i)));
+        };
+        auto shader = device.compile(kernel);
+        stream << shader(base_buffer, exponent_buffer, output).dispatch(base.size())
+               << synchronize();
+        luisa::vector<double> result(base.size());
+        stream << output.copy_to(luisa::span{result}) << synchronize();
+        for (auto i = 0u; i < result.size(); i++) {
+            auto expected = std::pow(base[i], exponent[i]);
+            expect(dp_rel_eq(result[i], expected))
+                << "double pow(" << base[i] << ", " << exponent[i] << ") = "
+                << result[i] << ", expected " << expected
+                << " (the non-integral branch must not call powf)";
+        }
+        LUISA_INFO("double: non-integral pow stayed in double precision.");
     }
 }
 

@@ -5,6 +5,7 @@
 #include <Shader/ComputeShader.h>
 #include <Resource/RenderTexture.h>
 #include <Resource/TopAccel.h>
+#include <Resource/ClusterAccel.h>
 #include <DXApi/LCSwapChain.h>
 #include "../../common/command_reorder_visitor.h"
 #include <Shader/RasterShader.h>
@@ -533,7 +534,11 @@ public:
         }
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
-        // TODO(dx): honour is_cluster_build() when the D3D12 cluster AS path lands.
+        if (cmd->is_cluster_build()) {
+            auto accel = reinterpret_cast<ClusterAccel *>(cmd->handle());
+            add_build_accel(accel->PreProcessStates(*bd, *state_tracker, cmd));
+            return;
+        }
         if (owns_fallback_blas(cmd->handle())) {
             preprocess_fallback_build();
             return;
@@ -1382,6 +1387,19 @@ public:
         LUISA_NOT_IMPLEMENTED();
     }
     void visit(const MeshBuildCommand *cmd) noexcept override {
+        if (cmd->is_cluster_build()) {
+            flush_all_pending();
+            auto accel = reinterpret_cast<ClusterAccel *>(cmd->handle());
+            accel->BuildClusters(
+                *state_tracker,
+                *bd,
+                BufferView(accel_scratch_buffer,
+                           accel_scratch_offsets->first,
+                           accel_scratch_offsets->second),
+                cmd);
+            accel_scratch_offsets++;
+            return;
+        }
         if (owns_fallback_blas(cmd->handle())) {
             splice_fallback_build();
             return;
@@ -1789,7 +1807,6 @@ void LCCmdBuffer::Execute(
                     account_size(static_cast<ShaderDispatchCommand const *>(command.get()));
                 } break;
                 case Command::Tag::EMeshBuildCommand: {
-                    // TODO(dx): honour is_cluster_build() when the D3D12 cluster AS path lands.
                     auto c = static_cast<MeshBuildCommand const *>(command.get());
                     if (pp_visitor.owns_fallback_blas(c->handle())) {
                         collect_fallback_build(build_fallback_blas(c));

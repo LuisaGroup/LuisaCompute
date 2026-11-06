@@ -258,14 +258,14 @@ struct RasterVertex {
 
 constexpr uint raster_size = 64u;
 
-void run_compute(Device &device) noexcept {
+bool run_compute(Device &device) noexcept {
 
     // `backend_name()` is a view; own it so it can be printed with %s.
     luisa::string backend{device.backend_name()};
     auto ext = device.extension<NativeShaderExt>();
     if (ext == nullptr) {
         std::printf("[skip] backend '%s' has no NativeShaderExt\n", backend.c_str());
-        return;
+        return true;
     }
 
     // ---- 1. what to compile ---------------------------------------------
@@ -291,14 +291,14 @@ void run_compute(Device &device) noexcept {
     } else {
         std::printf("[skip] this example has no native kernel for backend '%s'\n",
                     backend.c_str());
-        return;
+        return true;
     }
 
     // ---- 2. compile ------------------------------------------------------
     auto compiled = ext->compile(info);
     if (!compiled.ok()) {
         std::printf("[error] compile failed: %s\n", compiled.error.c_str());
-        return;
+        return false;
     }
     std::printf("compiled a native %s shader: %zu byte(s), workgroup (%u %u %u), "
                 "%zu reflected binding(s)\n",
@@ -318,7 +318,7 @@ void run_compute(Device &device) noexcept {
     auto metadata = ext->load(compiled);
     if (!metadata.valid()) {
         std::printf("[error] load failed: %s\n", compiled.error.c_str());
-        return;
+        return false;
     }
     NativeShader shader{*ext, std::move(metadata)};
 
@@ -356,28 +356,29 @@ void run_compute(Device &device) noexcept {
         if (host_dst[i] != expected) {
             std::printf("[error] dst[%u] = %f, expected %f\n",
                         i, host_dst[i], expected);
-            return;
+            return false;
         }
     }
     std::printf("%zu element(s) verified, max |error| = %g\n", element_count, worst);
     std::printf("PASSED compute on '%s'\n", backend.c_str());
+    return true;
 }
 
-void run_raster(Device &device, luisa::string_view language) noexcept {
+bool run_raster(Device &device, luisa::string_view language) noexcept {
 
     luisa::string backend{device.backend_name()};
     auto ext = device.extension<NativeShaderExt>();
     auto raster_ext = device.extension<RasterExt>();
     if (ext == nullptr) {
         std::printf("[skip] backend '%s' has no NativeShaderExt\n", backend.c_str());
-        return;
+        return true;
     }
     if (raster_ext == nullptr) {
         // The draw path itself (MeshFormat/RasterState/attachments, clear commands)
         // comes from RasterExt; a backend without it cannot be drawn to.
         std::printf("[skip] backend '%s' has no RasterExt, which the draw needs\n",
                     backend.c_str());
-        return;
+        return true;
     }
 
     // ---- 1./2. compile the vertex + pixel pair ---------------------------
@@ -402,7 +403,7 @@ void run_raster(Device &device, luisa::string_view language) noexcept {
         if (backend != "vk") {
             std::printf("[skip] GLSL native stages are a vk-only route; '%s' speaks HLSL\n",
                         backend.c_str());
-            return;
+            return true;
         }
         set_language(NativeShaderLanguage::GLSL, raster_vertex_glsl, raster_pixel_glsl,
                      "main", "main");
@@ -416,12 +417,12 @@ void run_raster(Device &device, luisa::string_view language) noexcept {
         } else {
             std::printf("[skip] this example has no HLSL raster pair for backend '%s'\n",
                         backend.c_str());
-            return;
+            return true;
         }
     } else {
         std::printf("[error] unknown language '%s'; expected 'hlsl' or 'glsl'\n",
                     luisa::string{language}.c_str());
-        return;
+        return false;
     }
     auto compiled = ext->compile_raster(info);
     if (!compiled.ok()) {
@@ -431,7 +432,7 @@ void run_raster(Device &device, luisa::string_view language) noexcept {
         auto has_raster_route = backend == "dx" || backend == "vk";
         std::printf(has_raster_route ? "[error] raster compile failed: %s\n" : "[skip] the native raster pair did not compile on '%s': %s\n",
                     backend.c_str(), compiled.error.c_str());
-        return;
+        return !has_raster_route;
     }
     std::printf("compiled a native raster pair (%s): vertex %zu byte(s), pixel %zu byte(s), "
                 "%zu merged binding(s), %u uniform byte(s), object-id slot %u byte(s)\n",
@@ -441,11 +442,12 @@ void run_raster(Device &device, luisa::string_view language) noexcept {
                 compiled.object_id_bytes);
 
     // ---- 3. create the pipeline -----------------------------------------
-    auto shader = ext->create_raster_shader(info);
-    if (!shader) {
+    auto metadata = ext->load_raster(compiled);
+    if (!metadata.valid()) {
         std::printf("[error] load_raster failed\n");
-        return;
+        return false;
     }
+    NativeRasterShader shader{*ext, std::move(metadata)};
 
     // ---- 4. the pass description: mesh format, state, targets -----------
     // Vertex input layout. The attribute *types* become the vertex-input
@@ -562,6 +564,7 @@ void run_raster(Device &device, luisa::string_view language) noexcept {
          ok;
     std::printf("%s raster (%s) on '%s'\n", ok ? "PASSED" : "FAILED",
                 luisa::string{language}.c_str(), backend.c_str());
+    return ok;
 }
 
 }// namespace
@@ -577,8 +580,9 @@ int main(int argc, char *argv[]) {
     luisa::string_view mode = argc > 2 ? luisa::string_view{argv[2]} : "compute";
     Context context{argv[0]};
     auto device = context.create_device(argv[1]);
+    auto succeeded = false;
     if (mode == "compute") {
-        run_compute(device);
+        succeeded = run_compute(device);
     } else if (mode == "raster") {
         // Default to the language the backend speaks natively; vk can do both.
         luisa::string_view language = argc > 3 ?
@@ -586,7 +590,7 @@ int main(int argc, char *argv[]) {
                                           (luisa::string_view{device.backend_name()} == "dx" ?
                                                luisa::string_view{"hlsl"} :
                                                luisa::string_view{"glsl"});
-        run_raster(device, language);
+        succeeded = run_raster(device, language);
     } else {
         std::printf("[error] unknown mode '%s'; expected 'compute' or 'raster'\n",
                     argv[2]);
@@ -597,5 +601,5 @@ int main(int argc, char *argv[]) {
     // reach the CRT's exit flush, so buffered `stdout` would be lost. An
     // application that logs through `LUISA_INFO` does not need this.
     std::fflush(stdout);
-    return 0;
+    return succeeded ? 0 : 1;
 }

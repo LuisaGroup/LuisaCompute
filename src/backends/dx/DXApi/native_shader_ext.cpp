@@ -1104,8 +1104,43 @@ NativeShaderMetadata DxNativeShaderExt::load_raster(
     metadata.stage = NativeShaderStage::Vertex;
     if (!result.ok()) {
         LUISA_WARNING("Native raster shader load_raster() called with a failed "
-                      "compile result: {}",
-                      result.error);
+                      "compile result: {} (vertex: {}; pixel: {})",
+                      result.error, result.vertex.error, result.pixel.error);
+        return metadata;
+    }
+    if (result.vertex.stage != NativeShaderStage::Vertex ||
+        result.pixel.stage != NativeShaderStage::Pixel) {
+        LUISA_WARNING(
+            "Native raster shader load_raster() requires vertex/pixel modules, "
+            "but received stages {} and {}. A compute module cannot be loaded "
+            "as a graphics pipeline.",
+            luisa::to_underlying(result.vertex.stage),
+            luisa::to_underlying(result.pixel.stage));
+        return metadata;
+    }
+    if (result.vertex.language != NativeShaderLanguage::HLSL ||
+        result.pixel.language != NativeShaderLanguage::HLSL) {
+        LUISA_WARNING(
+            "Native raster shader load_raster() on dx requires two HLSL/DXIL "
+            "modules; the supplied stage languages are {} and {}.",
+            luisa::to_underlying(result.vertex.language),
+            luisa::to_underlying(result.pixel.language));
+        return metadata;
+    }
+    auto root_constant_bytes = static_cast<uint64_t>(result.object_id_bytes) +
+                               result.push_constant_size;
+    if (result.push_constant_size % sizeof(uint32_t) != 0u) {
+        LUISA_WARNING(
+            "Native raster shader uniform block must be a multiple of 4 bytes "
+            "(got {}).",
+            result.push_constant_size);
+        return metadata;
+    }
+    if (root_constant_bytes > 64u * sizeof(uint32_t)) {
+        LUISA_WARNING(
+            "Native raster shader root-constant block ({} bytes) exceeds the "
+            "DirectX limit of 64 32-bit values (256 bytes).",
+            root_constant_bytes);
         return metadata;
     }
     // 0 or one 32-bit word: anything else is a hand-assembled result.
@@ -1163,6 +1198,20 @@ NativeShaderMetadata DxNativeShaderExt::load_raster(
             return metadata;
         }
     }
+    ::luisa::compute::detail::native_shader_canonicalize_bindings(metadata.bindings);
+    for (auto i = 1u; i < metadata.bindings.size(); i++) {
+        auto &&previous = metadata.bindings[i - 1u];
+        auto &&current = metadata.bindings[i];
+        if (previous.space_index == current.space_index &&
+            previous.register_index == current.register_index) {
+            LUISA_WARNING(
+                "Native raster shader load_raster() received duplicate resource "
+                "bindings at register {}, space {}. One root signature cannot "
+                "contain the same bind point twice.",
+                current.register_index, current.space_index);
+            return metadata;
+        }
+    }
     auto device = _lc_device->native_device.device.Get();
     // One root parameter per binding, in the merged table's order, plus the
     // root-constant block (whose `space_index` is its 32-bit word count and whose
@@ -1177,16 +1226,9 @@ NativeShaderMetadata DxNativeShaderExt::load_raster(
             binding.array_size});
     }
     auto uniform_dwords = static_cast<uint32_t>(
-        (result.object_id_bytes + result.push_constant_size) / sizeof(uint32_t));
+        root_constant_bytes / sizeof(uint32_t));
     auto uniform_property_index = ~0u;
     if (uniform_dwords > 0u) {
-        if (uniform_dwords > 64u) {
-            LUISA_WARNING(
-                "Native raster shader root-constant block ({} bytes) exceeds the "
-                "DirectX limit of 64 32-bit values (256 bytes).",
-                result.object_id_bytes + result.push_constant_size);
-            return metadata;
-        }
         if (properties.size() >= 32u) {
             LUISA_WARNING(
                 "Native raster shader declares {} bindings, which leaves no room "

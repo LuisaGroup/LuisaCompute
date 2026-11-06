@@ -3,7 +3,7 @@
 //
 
 #include <span>
-#include <numbers>
+#include <numeric>
 
 #include "hip_codegen_llvm_impl.h"
 #include "hip_floating_remainder.h"
@@ -660,9 +660,11 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
                 return source_bits == 32u ? n : b.CreateTrunc(n, i32_type);
             };
             auto scalar_type = base->getType()->getScalarType();
-            auto suffix = scalar_type->isDoubleTy() ? "_f64" :
-                          scalar_type->isHalfTy()   ? "_f16" :
-                                                      "_f32";
+            // Half operands are widened to float by call_scalar below, so the
+            // callee must be the f32 overload as well. Selecting _f16 here
+            // would pass an f32 argument to an f16 signature (and OCML's ldexp
+            // entry points are f32/f64 only, as noted above).
+            auto suffix = scalar_type->isDoubleTy() ? "_f64" : "_f32";
             auto ocml_name = fmt::format("__ocml_ldexp{}", suffix);
             auto callee = _llvm_module->getFunction(ocml_name);
             LUISA_ASSERT(callee != nullptr,
@@ -1206,8 +1208,10 @@ namespace detail {
 
 [[nodiscard]] llvm::Function *find_ocml_function(llvm::Module &m, llvm::StringRef op_name,
                                                   llvm::Type *t, bool enable_fast_math) noexcept {
-    auto suffix = t->isDoubleTy() ? "_f64" : t->isHalfTy() ? "_f16" :
-                                                             "_f32";
+    // Callers widen every non-f32/non-f64 operand to float before invoking
+    // the returned function. Choose the signature after that conversion,
+    // rather than passing an f32 argument to an _f16 declaration.
+    auto suffix = t->isDoubleTy() ? "_f64" : "_f32";
     auto ocml_name = fmt::format("__ocml_{}{}", luisa::string_view{op_name}, suffix);
     auto op = m.getFunction(ocml_name);
     LUISA_ASSERT(op != nullptr, "OCML function {} not found.", ocml_name);

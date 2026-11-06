@@ -359,7 +359,7 @@ struct NativeRasterShaderCompileResult {
     uint32_t object_id_bytes{0u};
     luisa::string error; // empty == success
     [[nodiscard]] bool ok() const noexcept {
-        return error.empty() && !vertex.binary.empty() && !pixel.binary.empty();
+        return error.empty() && vertex.ok() && pixel.ok();
     }
 };
 

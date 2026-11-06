@@ -35,6 +35,23 @@ void FeatureCheck::check(Device const *device) {
         }
     }
 
+    // DXR 2.0 is cumulative, but Tier 1.1 devices can expose clustered
+    // geometry and PTLAS independently through OPTIONS_RAYTRACING2.
+    {
+        D3D12_FEATURE_DATA_D3D12_OPTIONS_RAYTRACING2 options = {};
+        HRESULT hr = d3d_device->CheckFeatureSupport(
+            D3D12_FEATURE_D3D12_OPTIONS_RAYTRACING2, &options, sizeof(options));
+        _flags.cluster_acceleration_structure_supported =
+            _flags.raytracing_supported &&
+            (_raytracing_tier >= D3D12_RAYTRACING_TIER_2_0 ||
+             (SUCCEEDED(hr) && options.ClustersAndPTLASSupported));
+        LUISA_VERBOSE("DXR capability probe: tier={}, OPTIONS_RAYTRACING2 hr=0x{:08x}, "
+                   "ClustersAndPTLASSupported={}, enabled={}.",
+                   static_cast<uint>(_raytracing_tier), static_cast<uint32_t>(hr),
+                   options.ClustersAndPTLASSupported != FALSE,
+                   static_cast<bool>(_flags.cluster_acceleration_structure_supported));
+    }
+
     // Check Wave/Warp operations support
     {
         D3D12_FEATURE_DATA_D3D12_OPTIONS1 options1 = {};

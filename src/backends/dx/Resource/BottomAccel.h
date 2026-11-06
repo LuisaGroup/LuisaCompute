@@ -33,15 +33,21 @@ public:
 };
 class BottomAccel : public Resource {
     friend class TopAccel;
+
+protected:
+    // ClusterAccel reuses the TLAS back-reference machinery and publishes its
+    // Cluster BLAS through the same buffer/address interface.
     vstd::unique_ptr<DefaultBuffer> accelBuffer;
-    uint64 compactSize;
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS hint;
+    void SyncTopAccel();
+
+private:
+    uint64 compactSize;
     bool update = false;
     vstd::fixed_vector<MeshHandle *, 2> handles;
     vstd::spin_mutex handleMtx;
     MeshHandle *AddAccelRef(TopAccel *accel, uint index);
     void RemoveAccelRef(MeshHandle *handle);
-    void SyncTopAccel();
 
 public:
     Tag get_tag() const override { return Tag::Mesh; }

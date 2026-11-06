@@ -16,6 +16,9 @@ public:
         bool bindless_binding_supported : 1;
         // Ray-query support (Tier 1.1 or higher)
         bool raytracing_supported : 1;
+        // DXR clustered geometry and PTLAS (Tier 2.0 or the standalone
+        // ClustersAndPTLASSupported capability).
+        bool cluster_acceleration_structure_supported : 1;
         // Wave/Warp operations support (WaveLaneCountMax > 0)
         bool wave_operation_supported : 1;
         // Enhanced barriers support (D3D12_OPTIONS12)
@@ -49,6 +52,11 @@ public:
     /// Check if ray-query is supported (requires Raytracing Tier 1.1)
     [[nodiscard]] bool raytracing_supported() const noexcept {
         return _flags.raytracing_supported;
+    }
+
+    /// Check if DXR cluster acceleration structures are supported.
+    [[nodiscard]] bool cluster_acceleration_structure_supported() const noexcept {
+        return _flags.cluster_acceleration_structure_supported;
     }
 
     /// Check if wave/warp operations are supported

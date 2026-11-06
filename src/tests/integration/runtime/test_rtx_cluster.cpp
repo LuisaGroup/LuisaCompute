@@ -1,6 +1,6 @@
 // Cluster (RTX Mega Geometry) acceleration structure test.
 //
-// Builds the same three triangles twice: once as a VK_NV_cluster_acceleration_structure
+// Builds the same three triangles twice: once as a Vulkan NV or DXR 2.0
 // cluster (mega-geometry) BLAS from an array of ClusterBuildInfo records, and once as
 // an ordinary triangle Mesh. The identical ray set is then traced through both
 // acceleration structures with the trace-closest ray-query path, and the committed hit
@@ -25,8 +25,11 @@
 //      the whole process, the extension does it for one device without touching the
 //      process environment.
 //
-// The test never fails on unsupported hardware: a non-Vulkan backend, or a Vulkan
-// device that does not report VK_NV_cluster_acceleration_structure, prints an
+// Run with `<backend>`, or `dx --warp` to select the WARP device explicitly.
+// The DX configuration opts into RaytracingPreview and optionally selects WARP.
+//
+// The test never fails on unsupported hardware: a backend without cluster AS support,
+// or a device that does not report its cluster capability, prints an
 // unmistakable "SKIPPED:" line and exits with skip_exit_code (77). CMakeLists.txt
 // registers 77 as CTest's SKIP_RETURN_CODE, so CI records the run as *skipped* instead
 // of silently passing it.
@@ -43,20 +46,72 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/backends/ext/command_reorder_ext.h>
+#ifdef _WIN32
+#include <luisa/backends/ext/dx_config_ext.h>
+#include <dxgi1_4.h>
+#include <wrl.h>
+// The Agility SDK loader reads these symbols from the main executable, before
+// the dynamically loaded DX backend creates its first device.
+extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = 722u;
+extern "C" __declspec(dllexport) const char *D3D12SDKPath = ".\\D3D12\\";
+#endif
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-// Exit status of a run that could not exercise the cluster path (no vk backend, or a
-// Vulkan device without VK_NV_cluster_acceleration_structure). Non-zero so it cannot be
+// Exit status of a run that could not exercise the cluster path (an unsupported
+// backend or device). Non-zero so it cannot be
 // mistaken for a pass in CI, but registered as CTest's SKIP_RETURN_CODE so it is not a
 // failure either. 77 is the automake "skipped" convention and is already used for this
 // purpose in src/ext/llvm-downgrade/test/CMakeLists.txt.
 constexpr int skip_exit_code = 77;
 
 namespace test_rtx_cluster_detail {
+
+#ifdef _WIN32
+// Same GUID as Agility SDK 1.722's D3D12RaytracingPreview. Keep a local
+// constant so the test also compiles against older system D3D12 headers.
+constexpr UUID raytracing_preview_guid{
+    0xb56e238b, 0xe886, 0x46d8,
+    {0x9b, 0xe1, 0x34, 0x10, 0x30, 0x31, 0x45, 0x09}};
+
+class ClusterDxConfig final : public DirectXDeviceConfigExt {
+    bool _use_warp;
+    Microsoft::WRL::ComPtr<ID3D12Device> _device;
+    Microsoft::WRL::ComPtr<IDXGIAdapter1> _adapter;
+    Microsoft::WRL::ComPtr<IDXGIFactory2> _factory;
+
+public:
+    explicit ClusterDxConfig(bool use_warp) noexcept : _use_warp(use_warp) {}
+    [[nodiscard]] bool UseRaytracingPreview() const noexcept override { return true; }
+    [[nodiscard]] luisa::optional<ExternalDevice> CreateExternalDevice() noexcept override {
+        if (!_use_warp) return {};
+        // Imported devices own their process-global preview setup. The backend
+        // deliberately will not change it after this device has been created.
+        auto preview_hr = D3D12EnableExperimentalFeatures(
+            1u, &raytracing_preview_guid, nullptr, nullptr);
+        if (FAILED(preview_hr)) {
+            LUISA_WARNING("WARP RaytracingPreview enablement failed: 0x{:08x}.",
+                          static_cast<uint32_t>(preview_hr));
+        }
+        Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
+        auto hr = CreateDXGIFactory2(0, IID_PPV_ARGS(factory.GetAddressOf()));
+        LUISA_ASSERT(SUCCEEDED(hr), "Failed to create a DXGI factory for WARP: 0x{:08x}.",
+                     static_cast<uint32_t>(hr));
+        hr = factory->EnumWarpAdapter(IID_PPV_ARGS(_adapter.GetAddressOf()));
+        LUISA_ASSERT(SUCCEEDED(hr), "Failed to enumerate the WARP adapter: 0x{:08x}.",
+                     static_cast<uint32_t>(hr));
+        hr = D3D12CreateDevice(_adapter.Get(), D3D_FEATURE_LEVEL_12_1,
+                               IID_PPV_ARGS(_device.GetAddressOf()));
+        LUISA_ASSERT(SUCCEEDED(hr), "Failed to create the WARP D3D12 device: 0x{:08x}.",
+                     static_cast<uint32_t>(hr));
+        _factory = factory.Get();
+        return ExternalDevice{_device.Get(), _adapter.Get(), _factory.Get()};
+    }
+};
+#endif
 
 //--------------------------------------------------------------- geometry ---
 // Two clusters with disjoint XY footprints and different sizes:
@@ -252,9 +307,9 @@ constexpr size_t position_stride_bytes = position_bytes_per_vertex;
 // a thousandth of a unit.
 constexpr float relative_tolerance = 1.0e-3f;
 
-// The published BLAS address is aligned up to
-// VkPhysicalDeviceClusterAccelerationStructurePropertiesNV::clusterBottomLevelByteAlignment
-// by the backend (256 B on the RTX 4060), so 16 B is a conservative floor: it still
+    // The published BLAS address is aligned to the backend's Cluster BLAS
+// alignment (256 B on current Vulkan and DXR implementations), so 16 B is a
+// conservative floor: it still
 // catches a published address that is not an address at all (a size, a handle, a
 // truncated 32-bit value) without failing on a driver that reports a smaller alignment.
 constexpr uint64_t cluster_address_alignment = 16u;
@@ -283,31 +338,28 @@ struct test_outcome {
     log_level_info();
 
     //-------------------------------------------------------- 1. skip gate ----
-    // Cluster acceleration structures are a Vulkan-only feature (VK_NV_-
-    // cluster_acceleration_structure); there is no DX/CUDA/Metal counterpart in
-    // this tree yet, so every other backend logs a skip and passes.
-    if (auto backend = device.backend_name(); backend != "vk") {
+    auto backend = device.backend_name();
+    luisa::string cluster_property;
+    if (backend == "vk") {
+        cluster_property = "vk_cluster_acceleration_structure";
+    } else if (backend == "dx") {
+        cluster_property = "dx_cluster_acceleration_structure";
+    } else {
         LUISA_WARNING(
-            "SKIPPED: [test_rtx_cluster] VK_NV_cluster_acceleration_structure is "
-            "Vulkan-only, but the test device backend is '{}'. Nothing was validated.",
-            backend);
+            "SKIPPED: [test_rtx_cluster] backend '{}' has no cluster "
+            "acceleration-structure path. Nothing was validated.", backend);
         return {0u, true};
     }
-    auto cluster_as = device.query("vk_cluster_acceleration_structure");
+    auto cluster_as = device.query(cluster_property);
     if (cluster_as != "1") {
         LUISA_WARNING(
-            "SKIPPED: [test_rtx_cluster] this Vulkan device reports "
-            "vk_cluster_acceleration_structure = '{}'. The cluster "
-            "(mega-geometry) path needs VK_NV_cluster_acceleration_structure "
-            "together with ray tracing and VK_KHR_buffer_device_address, i.e. an "
-            "NVIDIA RTX GPU on a driver that exposes the extension. Nothing was "
-            "validated.",
-            cluster_as);
+            "SKIPPED: [test_rtx_cluster] this device reports {} = '{}'. "
+            "Clustered ray tracing and buffer device addresses are required. "
+            "Nothing was validated.", cluster_property, cluster_as);
         return {0u, true};
     }
-    LUISA_INFO(
-        "[test_rtx_cluster] backend={} vk_cluster_acceleration_structure={}",
-        device.backend_name(), cluster_as);
+    LUISA_INFO("[test_rtx_cluster] backend={} {}={}",
+               backend, cluster_property, cluster_as);
 
     //----------------------------------------------------------- 2. inputs ----
     Stream stream = device.create_stream();
@@ -649,7 +701,18 @@ struct test_outcome {
 }// namespace test_rtx_cluster_detail
 
 int main(int argc, char *argv[]) {
-    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    DeviceConfig config;
+#ifdef _WIN32
+    if (argc > 1 && luisa::string_view{argv[1]} == "dx") {
+        auto use_warp = false;
+        for (auto i = 2; i < argc; ++i) {
+            use_warp |= luisa::string_view{argv[i]} == "--warp";
+        }
+        config.extension = luisa::make_unique<test_rtx_cluster_detail::ClusterDxConfig>(use_warp);
+    }
+#endif
+    auto dc = luisa::test::create_device_from_ut(
+        argc, argv, config.extension ? &config : nullptr);
     if (!dc) {
         // Pre-existing convention of the other tests in this directory (see
         // test_rtx.cpp): a missing backend argument prints the usage and reports

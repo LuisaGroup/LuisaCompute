@@ -262,7 +262,7 @@ template<typename T, typename I>
 }
 [[nodiscard]] __device__ inline lc_double powf_impl(lc_double x, lc_double y) noexcept {
     auto y_int = static_cast<lc_long>(y);
-    return y_int == y ? powi_impl(x, y_int) : powf(x, y);
+    return y_int == y ? powi_impl(x, y_int) : pow(x, y);
 }
 ''', file=file)
         if is_cpu:

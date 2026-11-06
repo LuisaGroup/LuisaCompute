@@ -1575,19 +1575,35 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     target_compile_definitions(test_rtx PRIVATE LUISA_TEST_RTX_HAS_VK=1)
     target_link_libraries(test_rtx PRIVATE luisa-compute-ext-volk)
 endif ()
-# Cluster (mega-geometry) acceleration structures: only the Vulkan backend can run this
-# test, and it needs no DeviceConfigExt (availability is answered by
-# Device::query("vk_cluster_acceleration_structure")), so unlike test_rtx above there is
-# no define and no extra link dependency here. `ARGS vk` and the `integration_vk` label
-# mirror the neighbouring Vulkan-only registrations; 77 is the status the test returns
-# when the device does not expose VK_NV_cluster_acceleration_structure, which CTest
-# records as SKIPPED instead of as a pass or a failure.
+# Cluster (mega-geometry) acceleration structures run on Vulkan (NV extension)
+# and DirectX (DXR 2.0). Availability is answered by Device::query. The DX
+# configuration requests RaytracingPreview and can select optional WARP;
+# normal hardware selection is unchanged. Exit 77 records an unsupported device as SKIPPED.
 if (LUISA_COMPUTE_ENABLE_VULKAN)
     luisa_compute_add_test(test_rtx_cluster integration/runtime/test_rtx_cluster.cpp
             LABELS "integration;integration_runtime;integration_vk" ARGS vk)
     set_tests_properties(test_rtx_cluster PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 240)
 else ()
     luisa_compute_add_test(test_rtx_cluster integration/runtime/test_rtx_cluster.cpp)
+endif ()
+if (LUISA_COMPUTE_ENABLE_DX)
+ add_test(NAME test_rtx_cluster_dx COMMAND test_rtx_cluster dx)
+ set_tests_properties(test_rtx_cluster_dx PROPERTIES
+  LABELS "integration;integration_runtime;integration_dx"
+  SKIP_RETURN_CODE 77 TIMEOUT 240)
+endif ()
+if (WIN32)
+ target_link_libraries(test_rtx_cluster PRIVATE D3D12 dxgi)
+endif ()
+# GPU verification of the DX cluster-record converter does not require DXR
+# support, so it runs even on devices where test_rtx_cluster skips.
+if (LUISA_COMPUTE_ENABLE_DX)
+ luisa_compute_add_test(test_dx_cluster_convert integration/runtime/test_dx_cluster_convert.cpp
+  LABELS "integration;integration_runtime;integration_dx" ARGS dx)
+ set_tests_properties(test_dx_cluster_convert PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 240)
+ target_link_libraries(test_dx_cluster_convert PRIVATE luisa-compute-hlsl-codegen)
+ target_include_directories(test_dx_cluster_convert PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../backends/common/hlsl)
 endif ()
 # Native raster shader injection: dx and vk implement compile_raster/load_raster; every
 # other backend inherits the fail-closed default, so unlike the cluster test above this

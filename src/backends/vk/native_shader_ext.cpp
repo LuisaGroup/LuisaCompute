@@ -733,8 +733,56 @@ NativeShaderMetadata VkNativeShaderExt::load_raster(
     metadata.stage = NativeShaderStage::Vertex;
     if (!result.ok()) {
         LUISA_WARNING("Native raster shader load_raster() called with a failed "
-                      "compile result: {}",
-                      result.error);
+                      "compile result: {} (vertex: {}; pixel: {})",
+                      result.error, result.vertex.error, result.pixel.error);
+        return metadata;
+    }
+    if (result.vertex.stage != NativeShaderStage::Vertex ||
+        result.pixel.stage != NativeShaderStage::Pixel) {
+        LUISA_WARNING(
+            "Native raster shader load_raster() requires vertex/pixel modules, "
+            "but received stages {} and {}. A compute module cannot be loaded "
+            "as a graphics pipeline.",
+            luisa::to_underlying(result.vertex.stage),
+            luisa::to_underlying(result.pixel.stage));
+        return metadata;
+    }
+    auto supported_language = [](NativeShaderLanguage language) noexcept {
+        return language == NativeShaderLanguage::HLSL ||
+               language == NativeShaderLanguage::GLSL;
+    };
+    if (!supported_language(result.vertex.language) ||
+        !supported_language(result.pixel.language)) {
+        LUISA_WARNING(
+            "Native raster shader load_raster() on vk requires HLSL or GLSL "
+            "SPIR-V modules; the supplied stage languages are {} and {}.",
+            luisa::to_underlying(result.vertex.language),
+            luisa::to_underlying(result.pixel.language));
+        return metadata;
+    }
+    if (result.vertex.binary.size() % sizeof(uint32_t) != 0u ||
+        result.pixel.binary.size() % sizeof(uint32_t) != 0u) {
+        LUISA_WARNING(
+            "Native raster shader SPIR-V binaries must contain whole 32-bit "
+            "words (vertex: {} bytes, pixel: {} bytes).",
+            result.vertex.binary.size(), result.pixel.binary.size());
+        return metadata;
+    }
+    auto push_constant_bytes = static_cast<uint64_t>(result.object_id_bytes) +
+                               result.push_constant_size;
+    if (result.push_constant_size % sizeof(uint32_t) != 0u) {
+        LUISA_WARNING(
+            "Native raster shader uniform block must be a multiple of 4 bytes "
+            "(got {}).",
+            result.push_constant_size);
+        return metadata;
+    }
+    if (push_constant_bytes > _vk_device->properties().limits.maxPushConstantsSize) {
+        LUISA_WARNING(
+            "Native raster shader needs {} push-constant bytes, exceeding the "
+            "device's maxPushConstantsSize ({}).",
+            push_constant_bytes,
+            _vk_device->properties().limits.maxPushConstantsSize);
         return metadata;
     }
     // `NativeRasterShader` asserts on this; reject it here so that a
@@ -789,6 +837,20 @@ NativeShaderMetadata VkNativeShaderExt::load_raster(
                 "writable bindings WRITE or READ_WRITE.",
                 binding.space_index, binding.register_index,
                 luisa::to_underlying(binding.usage));
+            return metadata;
+        }
+    }
+    luisa::compute::detail::native_shader_canonicalize_bindings(metadata.bindings);
+    for (auto i = 1u; i < metadata.bindings.size(); i++) {
+        auto &&previous = metadata.bindings[i - 1u];
+        auto &&current = metadata.bindings[i];
+        if (previous.space_index == current.space_index &&
+            previous.register_index == current.register_index) {
+            LUISA_WARNING(
+                "Native raster shader load_raster() received duplicate resource "
+                "bindings at set {}, binding {}. One descriptor set layout "
+                "cannot contain the same binding twice.",
+                current.space_index, current.register_index);
             return metadata;
         }
     }

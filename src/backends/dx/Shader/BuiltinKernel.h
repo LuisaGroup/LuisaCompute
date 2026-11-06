@@ -5,6 +5,7 @@ class BuiltinKernel {
 public:
     static ComputeShader *load_bindless_set_kernel(Device *device);
     static ComputeShader *load_accel_set_kernel(Device *device);
+    static ComputeShader *load_cluster_build_info_kernel(Device *device);
     static ComputeShader *load_bc6_try_mode_g10cs_kernel(Device *device);
     static ComputeShader *load_bc6_try_mode_le10cs_kernel(Device *device);
     static ComputeShader *load_bc6_encode_block_cs_kernel(Device *device);

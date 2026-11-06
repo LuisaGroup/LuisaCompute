@@ -656,10 +656,21 @@ def _ldexp(name, *args):
     mantissa, exponent = args
     assert element_of(mantissa.dtype) in {float, half}
     assert exponent.dtype in integer_scalar_vector_dtypes
-    dim = length_of(mantissa.dtype)
+    # Match the C++ DSL's vectorize<N> rule: either operand may be the scalar
+    # that is broadcast, including a scalar mantissa beside a vector exponent.
+    dim = _check_vector_types(mantissa, exponent)
+    assert length_of(mantissa.dtype) in (1, dim)
     assert length_of(exponent.dtype) in (1, dim)
     dtype = vector(element_of(mantissa.dtype), dim)
-    return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.LDEXP, [x.expr for x in args])
+    expressions = []
+    for arg in args:
+        arg_dtype = vector(element_of(arg.dtype), dim)
+        if arg.dtype == arg_dtype:
+            expressions.append(arg.expr)
+        else:
+            _, expr = builtin_type_cast(arg_dtype, arg)
+            expressions.append(expr)
+    return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.LDEXP, expressions)
 
 
 _func_map["ldexp"] = _ldexp

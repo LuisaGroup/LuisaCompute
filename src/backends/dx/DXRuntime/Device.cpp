@@ -90,6 +90,7 @@ hlsl::ShaderCompiler *Device::compiler() {
 Device::Device(Context &&ctx, DeviceConfig const *settings)
     : set_bindless_kernel(BuiltinKernel::load_bindless_set_kernel),
       set_accel_kernel(BuiltinKernel::load_accel_set_kernel),
+      cluster_build_info_kernel(BuiltinKernel::load_cluster_build_info_kernel),
       bc6_try_mode_g10(BuiltinKernel::load_bc6_try_mode_g10cs_kernel),
       bc6_try_mode_le10(BuiltinKernel::load_bc6_try_mode_le10cs_kernel),
       bc6_encode_block(BuiltinKernel::load_bc6_encode_block_cs_kernel),
@@ -137,8 +138,31 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         file_io = ser_visitor.get();
     }
     if (use_runtime) {
+        bool use_dred = false;
+        luisa::optional<DirectXDeviceConfigExt::ExternalDevice> ext_device;
+        luisa::optional<DirectXDeviceConfigExt::GPUAllocatorSettings> alloc_settings;
+        if (device_settings) {
+            ext_device = device_settings->CreateExternalDevice();
+            alloc_settings = device_settings->GetGPUAllocatorSettings();
+            use_dred = device_settings->UseDRED();
+        }
+        auto backend_owned_device = !ext_device || !ext_device->device;
+        // Preview enablement is process-global and can remove existing devices.
+        // Only change it by explicit request, and never behind an imported
+        // device's back. Shader-model experimental features are independent.
+        if (backend_owned_device && device_settings &&
+            device_settings->UseRaytracingPreview()) {
+            auto hr = D3D12EnableExperimentalFeatures(
+                1u, &D3D12RaytracingPreview, nullptr, nullptr);
+            if (FAILED(hr)) {
+                LUISA_VERBOSE(
+                    "D3D12RaytracingPreview was not enabled (0x{:08x}); "
+                    "cluster support depends on the runtime's retail capability.",
+                    static_cast<uint32_t>(hr));
+            }
+        }
         bool experimental_features_enabled = false;
-        if (use_experimental) {
+        if (use_experimental && backend_owned_device) {
             // Enable experimental features individually.  If one is not supported
             // by the current OS/runtime we log a warning and continue without it
             // instead of aborting device creation.
@@ -175,14 +199,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             info.Revision = desc.Revision;
             return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(&info), sizeof(AdapterInfo)}};
         };
-        bool use_dred = false;
-        luisa::optional<DirectXDeviceConfigExt::ExternalDevice> ext_device;
-        luisa::optional<DirectXDeviceConfigExt::GPUAllocatorSettings> alloc_settings;
-        if (device_settings) {
-            ext_device = device_settings->CreateExternalDevice();
-            alloc_settings = device_settings->GetGPUAllocatorSettings();
-            use_dred = device_settings->UseDRED();
-        }
         if (ext_device && ext_device->device) {
             device = {static_cast<ID3D12Device5 *>(ext_device->device), false};
             if (ext_device->factory) {
@@ -385,6 +401,13 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 sampler_heap->GetHeap());
         }
         feature_check.check(this);
+        if (feature_check.cluster_acceleration_structure_supported()) {
+            if (FAILED(device->QueryInterface(IID_PPV_ARGS(raytracing2.GetAddressOf())))) {
+                LUISA_WARNING("DirectX reports cluster acceleration-structure support, "
+                              "but ID3D12DeviceRaytracing2 is unavailable. Cluster builds "
+                              "will be disabled.");
+            }
+        }
         {
             feature_check.flags().enhanced_barriers_supported = (device_settings && device_settings->UseEnhancedBarrier()) && feature_check.flags().enhanced_barriers_supported;
         }
