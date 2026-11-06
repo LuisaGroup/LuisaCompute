@@ -281,6 +281,11 @@ MemoryRef<T, Rank> TensorView<T, Rank>::operator()(detail::Coordinates<Rank> ori
 
 #if defined(__cpp_multidimensional_subscript) && __cpp_multidimensional_subscript >= 202110L
 template<typename T, size_t Rank>
+Tile<std::remove_cv_t<T>> TensorView<T, Rank>::operator[](detail::Coordinates<Rank> origin, IndexSpace space) const noexcept {
+    return tile(std::move(origin), std::move(space), bounds::zero).load();
+}
+
+template<typename T, size_t Rank>
 Tile<std::remove_cv_t<T>> TensorView<T, Rank>::operator[](detail::Coordinates<Rank> origin, IndexSpace space, BoundsMode bounds) const noexcept {
     return tile(std::move(origin), std::move(space), bounds).load();
 }

@@ -844,8 +844,15 @@ public:
     [[nodiscard]] MemoryRef<T, Rank> operator()(detail::Coordinates<Rank> origin,
                                                 IndexSpace space, BoundsMode bounds = bounds::zero) const noexcept;
 #if defined(__cpp_multidimensional_subscript) && __cpp_multidimensional_subscript >= 202110L
+    // C++23 multidimensional subscript. An operator function may not declare
+    // default arguments, so the implicit-bounds form is a separate overload
+    // instead of a defaulted parameter: MSVC rejects the defaulted spelling
+    // outright (C2831, "'operator []' cannot have default parameters") while GCC
+    // and Clang only accept it as an extension.
     [[nodiscard]] Tile<std::remove_cv_t<T>> operator[](detail::Coordinates<Rank> origin,
-                                                       IndexSpace space, BoundsMode bounds = bounds::zero) const noexcept;
+                                                       IndexSpace space) const noexcept;
+    [[nodiscard]] Tile<std::remove_cv_t<T>> operator[](detail::Coordinates<Rank> origin,
+                                                       IndexSpace space, BoundsMode bounds) const noexcept;
 #else
     [[nodiscard]] Tile<std::remove_cv_t<T>> operator[](detail::TileSelection<Rank> selection) const noexcept;
 #endif
