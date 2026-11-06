@@ -223,6 +223,8 @@ luisa_compute_add_example(example_software_lbvh_test
   add_subdirectory(embedding)
   # google embeddinggemma-2 multimodal embedding engine
   add_subdirectory(embedding_mm)
+  # NVIDIA RTX Neural Texture Compression (NTC) 1:1 replication
+  add_subdirectory(ntc)
 luisa_compute_add_example(example_multi_head_attention
         ml/multi_head_attention.cpp
         ml/attention_kernels.cpp
