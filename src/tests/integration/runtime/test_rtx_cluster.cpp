@@ -199,11 +199,14 @@ constexpr std::array<ray_spec, 12u> rays{{
     //   z = -2 at t = 3 -> (3, -0.5, -2); 3 > 2, -0.5 > -1, 3 - 0.5 < 3 -> inside.
     //   A cluster 0 that covers x = 3 would hit at t = 1 instead.
     {{3.0f, -0.5f, 1.0f}, {0.0f, 0.0f, -1.0f}, true, 3.0f},
-    // 3: the gap between the two footprints, starting between the two planes. Cluster 0
-    // is behind the origin (t < 0) and cluster 1 does not reach x = 1.5, so this must
-    // miss - if either record reads a shifted vertex block, it can still miss, but if
-    // cluster 1 reads cluster 0's block *at the wrong plane* or the block stride is
-    // dropped, this ray turns into a hit.
+    // 3: the gap between the two footprints, starting between the two planes: cluster 0's
+    // plane is behind the origin (t < 0) and cluster 1's footprint starts at x = 2, so
+    // this must miss. It is the one ray that constrains cluster 0's far edge and cluster
+    // 1's near edge *together*, on the plane where the two clusters would otherwise be
+    // confusable - the information a t-only oracle cannot express at all.
+    // Measured limit (do not over-credit this ray): it does *not* catch a dropped
+    // per-cluster vertex offset, because that moves cluster 1's geometry to z = 0, i.e.
+    // behind this origin; rays 2 and 10 are the ones that catch it (FIX_F4.md, mutation 3).
     {{1.5f, 0.0f, -1.0f}, {0.0f, 0.0f, -1.0f}, false, 0.0f},
     // 4: between the planes, just outside cluster 1's hypotenuse: at (3, 0.5) the value
     // x + y = 3.5 exceeds 3, i.e. ~0.35 outside the edge -> miss.
@@ -368,20 +371,30 @@ struct test_outcome {
                << cluster_buffer.copy_from(luisa::span{records});
     };
 
-    //------------------------------------ 4. reference geometry, unclustered ----
-    // The same vertex buffer, read with the same tightly packed 12-byte stride the
-    // cluster records declare, so both acceleration structures trace bit-identical
-    // positions. Built once; every scenario below compares against it.
+    //----------------------- 4. uploads, and the unclustered reference geometry ----
+    // Flush 1: the vertex data, the index data *and* the build records. Nothing reads them
+    // yet; this is the "earlier flush" half of the submission pattern documented on
+    // Device::create_mesh(ClusterBuildInfo array), and the two patterns exercised below
+    // only differ in where the copies sit relative to the builds.
+    upload_host_data();
+    stream << synchronize();
+
+    // The reference reads the same vertex buffer with the same tightly packed 12-byte
+    // stride the cluster records declare, so both acceleration structures trace
+    // bit-identical positions. Unlike a cluster build, this triangle build *declares* the
+    // vertex and triangle buffers as inputs, so the command-reorder pass can order it
+    // against the copies above by itself - which is why a triangle mesh needs no manual
+    // flush split and a cluster mesh does.
     Buffer<Triangle> mesh_triangles = device.create_buffer<Triangle>(mesh_triangle_count);
     Mesh triangle_mesh = device.create_mesh(vertex_buffer, position_stride_bytes, mesh_triangles);
     Accel triangle_accel = device.create_accel();
+    stream << mesh_triangles.copy_from(luisa::span{mesh_indices})
+           << triangle_mesh.build()
+           << synchronize();
     // One instance, identity transform, so both acceleration structures have exactly the
     // same instance layout and the committed t values are directly comparable.
     triangle_accel.emplace_back(triangle_mesh);
-    stream << mesh_triangles.copy_from(luisa::span{mesh_indices})
-           << triangle_mesh.build()
-           << triangle_accel.build()
-           << synchronize();
+    stream << triangle_accel.build() << synchronize();
 
     //------------------------------------------------------- 5. ray query -----
     // One ray per dispatch element. trace-closest is accel.intersect(), the same form
@@ -442,8 +455,8 @@ struct test_outcome {
                 r.expect_hit, r.expected_t, traced.hits[i], t);
             if (r.expect_hit) {
                 check(traced.hits[i] != 0u,
-                      luisa::format("{} ray {}: the cluster BLAS must hit the geometry this ray "
-                                    "can only reach through one cluster, but it reported a miss",
+                      luisa::format("{} ray {}: this ray can only reach the geometry through "
+                                    "one cluster, but the acceleration structure reported a miss",
                                     label, i));
                 if (traced.hits[i] != 0u) {
                     check(t_matches(traced.distances[i], r.expected_t),
@@ -480,12 +493,12 @@ struct test_outcome {
                 // Both arms are asserted separately, so a both_hit == false cannot
                 // silently skip the distance comparison.
                 check(cluster_traced.hits[i] != 0u,
-                      luisa::format("{} ray {}: the cluster BLAS must hit the quad, but it "
+                      luisa::format("{} ray {}: the cluster BLAS must hit the geometry, but it "
                                     "reported a miss",
                                     label, i));
                 check(triangle_traced.hits[i] != 0u,
-                      luisa::format("{} ray {}: the reference triangle BLAS must hit the quad, "
-                                    "but it reported a miss",
+                      luisa::format("{} ray {}: the reference triangle BLAS must hit the "
+                                    "geometry, but it reported a miss",
                                     label, i));
                 if (both_hit) {
                     check(t_matches(cluster_traced.distances[i], triangle_traced.distances[i]),
@@ -496,7 +509,7 @@ struct test_outcome {
                 }
             } else {
                 check(both_miss,
-                      luisa::format("{} ray {}: must miss every quad, but cluster_hit={} (t={}) "
+                      luisa::format("{} ray {}: must miss every cluster, but cluster_hit={} (t={}) "
                                     "and triangle_hit={} (t={})",
                                     label, i, cluster_traced.hits[i], cluster_t,
                                     triangle_traced.hits[i], triangle_t));
@@ -521,9 +534,8 @@ struct test_outcome {
     // flush is the pattern the public header documents, so the test uses it here and
     // exercises the single-flush pattern separately in scenario 2, where command
     // reordering is switched off and strict submission order makes it deterministic.
-    upload_host_data();
-    stream << synchronize();
-
+    //
+    // The records themselves are uploaded by flush 1 above; this is flush 2.
     Mesh cluster_mesh = device.create_mesh(cluster_buffer, {});
     stream << cluster_mesh.build() << synchronize();
 
@@ -532,8 +544,9 @@ struct test_outcome {
     // the pool address while the build command is being *recorded*, and cluster_count()
     // is arithmetic over the size of the buffer the test itself uploaded, so both would
     // also be right if the GPU had produced an empty BLAS. The evidence that the device
-    // really built the geometry is the ray table below; these two checks only catch a
-    // mis-wired binding (wrong buffer, wrong offset, non-address value).
+    // really built the geometry is the ray table below; these checks only catch a
+    // mis-wired binding (wrong buffer, wrong offset, a non-address value) and a wrong
+    // routing decision, never a wrong BLAS.
     auto cluster_address = cluster_mesh.cluster_address();
     auto reported_cluster_count = cluster_mesh.cluster_count();
     LUISA_INFO("[test_rtx_cluster] cluster BLAS address=0x{:x} cluster_count={}",
@@ -557,10 +570,9 @@ struct test_outcome {
                         static_cast<uint>(Mesh::Mode::Cluster)));
 
     Accel cluster_accel = device.create_accel();
-    // Emplaced before the build so this scenario also covers "mesh build and TLAS build
-    // in the same batch": the TLAS pre-build bakes the instance's
-    // accelerationStructureReference from the mesh's device address, i.e. it depends on
-    // the cluster build having completed.
+    // Flush 3: the TLAS. The instance is emplaced after flush 2 completed, so the TLAS
+    // bakes its accelerationStructureReference from an address that already exists. The
+    // stronger "cluster build and TLAS build in *one* batch" case is scenario 2 below.
     cluster_accel.emplace_back(cluster_mesh);
     stream << cluster_accel.build() << synchronize();
 
@@ -587,6 +599,18 @@ struct test_outcome {
         reorder_ext->set_command_reorder_enabled(false);
         LUISA_INFO("[test_rtx_cluster] command reorder enabled={} for the single-flush scenario",
                    reorder_ext->command_reorder_enabled());
+
+        // Poison the vertex and index memory first. Without this the copies below would
+        // write the same bytes that are already there, the scenario would pass even if the
+        // build ran before them, and it would prove nothing about the ordering it claims
+        // to exercise. The records are left intact on purpose: a reordered build then sees
+        // zeroed (i.e. empty) geometry and fails an assertion, instead of building an
+        // acceleration structure from null vertex addresses.
+        std::array<float, position_float_count> poison_positions{};
+        std::array<ushort, index_element_count> poison_indices{};
+        stream << vertex_buffer.copy_from(luisa::span{poison_positions})
+               << index_buffer.copy_from(luisa::span{poison_indices})
+               << synchronize();
 
         Mesh single_flush_mesh = device.create_mesh(cluster_buffer, {});
         Accel single_flush_accel = device.create_accel();

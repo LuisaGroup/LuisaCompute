@@ -332,7 +332,13 @@ if (TARGET luisa-compute-backend-cuda)
             ../backends/cuda/llvm_codegen/cuda_codegen_llvm_optix_ir.cpp)
     target_include_directories(test_cuda_shader_metadata PRIVATE ../backends/cuda)
 endif ()
-luisa_compute_add_test(test_hip_curve_bounds   unit/core/test_hip_curve_bounds.cpp   LABELS "unit;unit_core")
+# The stream-form PDL launch predicate lives in a dependency-free CUDA-backend
+# header, so this host-only matrix also runs in a configure without the CUDA
+# backend (no driver and no device are involved).
+luisa_compute_add_test(test_cuda_pdl_launch_predicate
+ unit/core/test_cuda_pdl_launch_predicate.cpp LABELS "unit;unit_core;unit_cuda")
+target_include_directories(test_cuda_pdl_launch_predicate PRIVATE ../backends/cuda)
+luisa_compute_add_test(test_hip_curve_bounds unit/core/test_hip_curve_bounds.cpp LABELS "unit;unit_core")
 target_sources(test_hip_curve_bounds PRIVATE ../backends/hip/hip_curve_bounds.cpp)
 target_include_directories(test_hip_curve_bounds PRIVATE ../backends/hip)
 luisa_compute_add_test(test_hip_geometry_memory_policy unit/core/test_hip_geometry_memory_policy.cpp LABELS "unit;unit_core")
@@ -564,6 +570,28 @@ if (TARGET luisa-compute-backend-vk)
                 LUISA_TEST_VK_HAS_NATIVE_XIR_SPIRV=0)
     endif ()
 endif ()
+if (LUISA_COMPUTE_ENABLE_VULKAN OR LUISA_COMPUTE_ENABLE_DX)
+    # Two fatal fail-closed probes (erf on dx and on the native vk SPIR-V route),
+    # each in a child process; they need a physical device. luisa_compute_add_test
+    # only registers a test when LABELS is given, so the two device runs are
+    # registered explicitly below, one per backend. The defines let a probe skip a
+    # backend that is not compiled in instead of failing on device creation, so a
+    # registration whose backend is missing is harmless.
+    luisa_compute_add_test(test_backend_fatal_rejections
+        unit/runtime/test_backend_fatal_rejections.cpp)
+    if (LUISA_COMPUTE_ENABLE_DX)
+        target_compile_definitions(test_backend_fatal_rejections PRIVATE LUISA_TEST_HAS_DX=1)
+        add_test(NAME test_backend_fatal_rejections_dx COMMAND test_backend_fatal_rejections dx)
+        set_tests_properties(test_backend_fatal_rejections_dx PROPERTIES
+            LABELS "integration;integration_runtime;integration_dx" TIMEOUT 240)
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_VULKAN)
+        target_compile_definitions(test_backend_fatal_rejections PRIVATE LUISA_TEST_HAS_VK=1)
+        add_test(NAME test_backend_fatal_rejections_vk COMMAND test_backend_fatal_rejections vk)
+        set_tests_properties(test_backend_fatal_rejections_vk PROPERTIES
+            LABELS "integration;integration_runtime;integration_vk" TIMEOUT 240)
+    endif ()
+endif ()
 luisa_compute_add_test(test_argument_block_layout unit/ext/test_argument_block_layout.cpp LABELS "unit;unit_ext")
 target_include_directories(test_argument_block_layout PRIVATE ../backends/common)
 if (APPLE)
@@ -731,6 +759,7 @@ luisa_compute_add_test(test_ast_basic       unit/ast/test_ast_basic.cpp)
 luisa_compute_add_test(test_function_builder_dag unit/ast/test_function_builder_dag.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_async_copy_ast  unit/ast/test_async_copy_ast.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_bindless_write_usage unit/ast/test_bindless_write_usage.cpp LABELS "unit;unit_ast")
+luisa_compute_add_test(test_builtin_call_propagation unit/ast/test_builtin_call_propagation.cpp LABELS "unit;unit_ast")
 luisa_compute_add_test(test_builtin_kernel  unit/ast/test_builtin_kernel.cpp)
 target_include_directories(test_builtin_kernel PRIVATE ${CMAKE_SOURCE_DIR}/src/runtime)
 luisa_compute_add_test(test_manual_ast      unit/ast/test_manual_ast.cpp)
@@ -1500,6 +1529,10 @@ luisa_compute_add_test(test_xir_pass_restructure_cfg_selection_relations unit/xi
 luisa_compute_add_test(test_xir_pass_convergence_region unit/xir/test_xir_pass_convergence_region.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_post_dom_tree unit/xir/test_xir_pass_post_dom_tree.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_autodiff_cfg unit/xir/test_xir_pass_autodiff_cfg.cpp LABELS "unit;unit_xir")
+# The autodiff rejections are fatal, so this suite re-executes itself with a
+# child marker and scrapes the diagnostic; it needs no device at all.
+luisa_compute_add_test(test_xir_autodiff_rejections unit/xir/test_xir_autodiff_rejections.cpp LABELS "unit;unit_xir")
+set_tests_properties(test_xir_autodiff_rejections PROPERTIES TIMEOUT 240)
 luisa_compute_add_test(test_xir_pass_early_return_elimination unit/xir/test_xir_pass_early_return_elimination.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_indvar_simplify unit/xir/test_xir_pass_indvar_simplify.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_loop_rotation unit/xir/test_xir_pass_loop_rotation.cpp LABELS "unit;unit_xir")
@@ -1556,8 +1589,30 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
 else ()
     luisa_compute_add_test(test_rtx_cluster integration/runtime/test_rtx_cluster.cpp)
 endif ()
-luisa_compute_add_test(test_aot                      integration/runtime/test_aot.cpp)
-luisa_compute_add_test(test_oso_parser               integration/runtime/test_oso_parser.cpp)
+# Native raster shader injection: dx and vk implement compile_raster/load_raster; every
+# other backend inherits the fail-closed default, so unlike the cluster test above this
+# one always runs and checks that default where the feature is unavailable. The test
+# picks its shader dialect by capability (GLSL on vk, HLSL on dx), not by backend name,
+# so one binary covers both.
+if (LUISA_COMPUTE_ENABLE_VULKAN)
+    luisa_compute_add_test(test_native_shader_raster integration/runtime/test_native_shader_raster.cpp
+            LABELS "integration;integration_runtime;integration_vk" ARGS vk)
+    set_tests_properties(test_native_shader_raster PROPERTIES TIMEOUT 240)
+else ()
+    luisa_compute_add_test(test_native_shader_raster integration/runtime/test_native_shader_raster.cpp)
+endif ()
+if (LUISA_COMPUTE_ENABLE_DX)
+    # A second run of the same executable on the DirectX backend, so that
+    # `ctest -R test_native_shader` covers both halves of the feature.
+    add_test(NAME test_native_shader_raster_dx
+            COMMAND test_native_shader_raster dx)
+    set_tests_properties(test_native_shader_raster_dx PROPERTIES
+            LABELS "integration;integration_runtime;integration_dx"
+            TIMEOUT 240)
+endif ()
+luisa_compute_add_test(test_aot integration/runtime/test_aot.cpp)
+luisa_compute_add_test(test_oso_parser integration/runtime/test_oso_parser.cpp)
+
 
 if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_test(test_bindless               integration/runtime/test_bindless.cpp)
@@ -1574,8 +1629,27 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_test(test_mesh_2                  integration/runtime/motion_blur/test_mesh_2.cpp)
     luisa_compute_add_test(test_mesh_3                  integration/runtime/motion_blur/test_mesh_3.cpp)
     luisa_compute_add_test(test_mesh_4                  integration/runtime/motion_blur/test_mesh_4.cpp)
+endif ()
 luisa_compute_add_test(test_native_include integration/runtime/test_native_include.cpp)
-luisa_compute_add_test(test_native_shader integration/runtime/test_native_shader.cpp LABELS "integration;integration_runtime")
+# Native shader injection: GUI-free (no window), so it must not be inside the
+# GUI guard above. The compute route is implemented on dx and vk; every other
+# backend inherits the fail-closed default, which the plain run covers. Each
+# available backend additionally gets its own run of the same executable, the
+# same way the raster half is registered above.
+if (LUISA_COMPUTE_ENABLE_VULKAN)
+    luisa_compute_add_test(test_native_shader integration/runtime/test_native_shader.cpp
+            LABELS "integration;integration_runtime;integration_vk" ARGS vk)
+else ()
+    luisa_compute_add_test(test_native_shader integration/runtime/test_native_shader.cpp)
+endif ()
+if (LUISA_COMPUTE_ENABLE_DX)
+    add_test(NAME test_native_shader_dx
+            COMMAND test_native_shader dx)
+    set_tests_properties(test_native_shader_dx PROPERTIES
+            LABELS "integration;integration_runtime;integration_dx"
+            TIMEOUT 240)
+endif ()
+if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_test(test_present                 integration/runtime/test_present.cpp)
     luisa_compute_add_test(test_runtime                 integration/runtime/test_runtime.cpp)
     luisa_compute_add_test(test_select_device           integration/runtime/test_select_device.cpp)
@@ -1644,6 +1718,14 @@ endif ()
       luisa_compute_add_test(test_cuda_graph_nodes integration/runtime/test_cuda_graph_nodes.cpp)
       luisa_compute_add_test(test_cuda_graph_conditional integration/runtime/test_cuda_graph_conditional.cpp)
     luisa_compute_add_test(test_cuda_graph_pdl integration/runtime/test_cuda_graph_pdl.cpp)
+    luisa_compute_add_test(test_cuda_feature_adoption integration/runtime/test_cuda_feature_adoption.cpp)
+    # The test skips itself on any other backend, so hand CTest the backend argument:
+    # `ctest -R cuda_feature_adoption` then actually runs it.
+    add_test(NAME test_cuda_feature_adoption_cuda
+        COMMAND test_cuda_feature_adoption cuda)
+    set_tests_properties(test_cuda_feature_adoption_cuda PROPERTIES
+        LABELS "integration;integration_runtime;integration_cuda"
+        TIMEOUT 240)
               luisa_compute_add_test(test_cuda_graph_device integration/runtime/test_cuda_graph_device.cpp)
         luisa_compute_add_test(test_cuda_graph_memory integration/runtime/test_cuda_graph_memory.cpp)
       luisa_compute_add_test(test_tile_cuda_ptx
@@ -1727,6 +1809,16 @@ luisa_compute_add_test(test_xir2ast_roundtrip integration/xir/test_xir2ast_round
 
 # --- unit/dsl: standalone GPU tests ---
 luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cpp)
+luisa_compute_add_test(test_dsl_special_functions unit/dsl/test_dsl_special_functions.cpp)
+if (LUISA_COMPUTE_ENABLE_VULKAN)
+    # Unattended ldexp/exponent-saturation coverage on a real GPU: the suite builds in
+    # a Vulkan-only configure too, and it skips every cuda-only block itself. Never use
+    # ARGS cuda here - a CUDA-only configure would then abort with print_device_usage.
+    add_test(NAME test_dsl_special_functions_vk
+        COMMAND test_dsl_special_functions vk)
+    set_tests_properties(test_dsl_special_functions_vk PROPERTIES
+        LABELS "unit;unit_dsl" TIMEOUT 240)
+endif ()
 luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
 
   # --- unit/runtime: FP4/FP8 quantization tests ---

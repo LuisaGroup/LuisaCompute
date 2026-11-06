@@ -47,6 +47,7 @@ constexpr string_view kLegacyMetadata =
         .requires_ray_query = true,
         .ray_query_payload_count = payload_count,
         .requires_printing = false,
+        .requires_grid_dependency_synchronize = false,
         .requires_motion_blur = false,
         .max_register_count = 0u,
         .block_size = make_uint3(64u, 1u, 1u),
@@ -121,6 +122,27 @@ int main(int argc, char *argv[]) {
             expect(eq(parsed->ray_query_payload_count, 2u));
             expect(*parsed == make_metadata(2u));
         }
+    };
+
+        // The stream-form PDL launch attribute is decided by this single bit, so it
+    // has to survive a sidecar round trip for both values; a sidecar written
+    // before the field existed must still parse, with the flag off (the
+    // conservative direction: no relaxation).
+    "cuda_shader_metadata_grid_dependency_roundtrip"_test = [] {
+        for (auto flag : {false, true}) {
+            auto original = make_metadata(2u);
+            original.requires_grid_dependency_synchronize = flag;
+            auto serialized = serialize_cuda_shader_metadata(original);
+            auto parsed = deserialize_cuda_shader_metadata(serialized);
+            expect(parsed.has_value()) << "grid dependency flag:" << flag;
+            if (parsed) {
+                expect(eq(parsed->requires_grid_dependency_synchronize, flag));
+                expect(*parsed == original);
+            }
+        }
+        auto legacy = deserialize_cuda_shader_metadata(kLegacyMetadata);
+        expect(legacy.has_value());
+        if (legacy) { expect(!legacy->requires_grid_dependency_synchronize); }
     };
 
     "cuda_shader_metadata_rejects_invalid_payload_counts"_test = [] {

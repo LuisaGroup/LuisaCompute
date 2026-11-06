@@ -233,7 +233,17 @@ int main(int argc, char *argv[]) {
 
     "spirv_xir_dialect_matrix_is_complete_and_fails_closed"_test = [] {
         expect_complete_matrix(AllocaOp::SHARED, 0u);
-        expect_complete_matrix(ArithmeticOp::EXTRACT, 0u);
+        expect_complete_matrix(ArithmeticOp::LDEXP, 3u);
+        // The three unary special functions have no GLSL.std.450 instruction, so the
+        // native route must fail closed with a reason that names the boundary; the
+        // count above alone would also accept e.g. "ERF supported, EXTRACT not".
+        // LDEXP is the opposite case: it lowers to GLSLstd450Ldexp.
+        expect_unsupported(ArithmeticOp::ERF, "GLSL.std.450 has no erf/erfc/expm1");
+        expect_unsupported(ArithmeticOp::ERFC, "GLSL.std.450 has no erf/erfc/expm1");
+        expect_unsupported(ArithmeticOp::EXPM1, "GLSL.std.450 has no erf/erfc/expm1");
+        expect(lc::spirv::spirv_xir_dialect_support(ArithmeticOp::LDEXP).support ==
+               lc::spirv::SpirvXIRDialectSupport::SUPPORTED)
+            << "ldexp must stay natively supported (GLSLstd450Ldexp)";
         expect_complete_matrix(AtomicOp::FETCH_MAX, 0u);
         expect_complete_matrix(
             luisa::compute::xir::CastOp::BITWISE_CAST, 0u);
@@ -244,7 +254,7 @@ int main(int argc, char *argv[]) {
             ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL, 44u);
         expect_complete_matrix(
             ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE, 3u);
-        expect_complete_matrix(ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL, 5u, 1u);
+        expect_complete_matrix(ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, 13u, 1u);
         expect_complete_matrix(
             RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, 0u);
         expect_complete_matrix(

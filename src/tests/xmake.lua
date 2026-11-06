@@ -73,6 +73,12 @@ if has_config("lc_cuda_backend") then
                   "../backends/cuda/llvm_codegen/cuda_codegen_llvm_optix_ir.cpp")
     end)
 end
+-- The stream-form PDL launch predicate lives in a dependency-free CUDA-backend
+-- header, so this host-only matrix runs in every configuration, including ones
+-- without the CUDA backend (no driver and no device are involved).
+test_proj("test_cuda_pdl_launch_predicate", "unit/core/test_cuda_pdl_launch_predicate.cpp", false, function()
+add_includedirs("../backends/cuda")
+end)
 test_proj("test_pixel_storage", "unit/core/test_pixel_storage.cpp")
 test_proj("test_eastl_allocation", "unit/core/test_eastl_allocation.cpp")
 test_proj("test_argument_block_layout", "unit/ext/test_argument_block_layout.cpp", false, function()
@@ -173,6 +179,18 @@ if has_config("lc_vk_backend") and
         add_deps("lc-spirv-llvm", "spirv-tools")
     end)
 end
+-- Two fatal fail-closed probes (erf on dx and on the native vk SPIR-V route), each
+-- in a child process and each needing a physical device: no CTest registration.
+if has_config("lc_dx_backend") or has_config("lc_vk_backend") then
+    test_proj("test_backend_fatal_rejections", "unit/runtime/test_backend_fatal_rejections.cpp", false, function()
+        if has_config("lc_dx_backend") then
+            add_defines("LUISA_TEST_HAS_DX=1")
+        end
+        if has_config("lc_vk_backend") then
+            add_defines("LUISA_TEST_HAS_VK=1")
+        end
+    end)
+end
 if has_config("lc_vk_backend") then
     test_proj("test_spirv_motion_patch", "unit/ext/test_spirv_motion_patch.cpp", false, function()
         add_files("../backends/vk/spirv_motion_patch.cpp")
@@ -245,6 +263,7 @@ test_proj("test_manual_ast", "unit/ast/test_manual_ast.cpp")
 test_proj("test_cooperative_vector", "unit/ast/test_cooperative_vector.cpp")
 test_proj("test_async_copy_ast", "unit/ast/test_async_copy_ast.cpp")
 test_proj("test_bindless_write_usage", "unit/ast/test_bindless_write_usage.cpp")
+test_proj("test_builtin_call_propagation", "unit/ast/test_builtin_call_propagation.cpp")
 
 -- unit/tile
 test_proj("test_tile_layout", "unit/tile/test_tile_layout.cpp", false, function()
@@ -532,6 +551,11 @@ if has_config("lc_enable_xir") then
     test_proj("test_xir_pass_autodiff_cfg", "unit/xir/test_xir_pass_autodiff_cfg.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
+    -- The autodiff rejections are fatal, so this suite re-executes itself with a
+    -- child marker and scrapes the diagnostic; it needs no device at all.
+    test_proj("test_xir_autodiff_rejections", "unit/xir/test_xir_autodiff_rejections.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
     test_proj("test_xir_pass_licm", "unit/xir/test_xir_pass_licm.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
@@ -680,6 +704,10 @@ end)
 -- so the test needs no vk define and no extra link dependency - it skips at runtime on
 -- every backend (or driver) that does not expose VK_NV_cluster_acceleration_structure.
 test_proj("test_rtx_cluster", "integration/runtime/test_rtx_cluster.cpp")
+-- Native raster shader injection: the dx and vk backends implement the raster route,
+-- every other backend inherits the fail-closed default, so the test decides at runtime
+-- whether to draw or to check that default.
+test_proj("test_native_shader_raster", "integration/runtime/test_native_shader_raster.cpp")
 if has_config("lc_enable_osl") then
     test_proj("test_oso_parser", "integration/runtime/test_oso_parser.cpp", false, function()
         add_deps("lc-osl")
@@ -767,6 +795,7 @@ end
       test_proj("test_cuda_graph_nodes", "integration/runtime/test_cuda_graph_nodes.cpp")
       test_proj("test_cuda_graph_conditional", "integration/runtime/test_cuda_graph_conditional.cpp")
       test_proj("test_cuda_graph_pdl", "integration/runtime/test_cuda_graph_pdl.cpp")
+      test_proj("test_cuda_feature_adoption", "integration/runtime/test_cuda_feature_adoption.cpp")
           test_proj("test_cuda_graph_device", "integration/runtime/test_cuda_graph_device.cpp")
       test_proj("test_cuda_graph_memory", "integration/runtime/test_cuda_graph_memory.cpp")
     -- xmake deliberately
@@ -864,6 +893,7 @@ end
 
 -- unit/dsl: standalone GPU tests
 test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
+test_proj("test_dsl_special_functions", "unit/dsl/test_dsl_special_functions.cpp")
 test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
 
   -- unit/runtime: FP4/FP8 quantization tests
