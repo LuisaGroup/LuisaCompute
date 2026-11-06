@@ -9,6 +9,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/core/stl/algorithm.h>
+#include <array>
 #ifdef LUISA_DX_SDK
 extern "C" extern const uint32_t D3D12SDKVersion = D3D12_PREVIEW_SDK_VERSION;
 
@@ -147,38 +148,39 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             use_dred = device_settings->UseDRED();
         }
         auto backend_owned_device = !ext_device || !ext_device->device;
-        // Preview enablement is process-global and can remove existing devices.
-        // Only change it by explicit request, and never behind an imported
-        // device's back. Shader-model experimental features are independent.
-        if (backend_owned_device && device_settings &&
-            device_settings->UseRaytracingPreview()) {
-            auto hr = D3D12EnableExperimentalFeatures(
-                1u, &D3D12RaytracingPreview, nullptr, nullptr);
-            if (FAILED(hr)) {
-                LUISA_VERBOSE(
-                    "D3D12RaytracingPreview was not enabled (0x{:08x}); "
-                    "cluster support depends on the runtime's retail capability.",
-                    static_cast<uint32_t>(hr));
-            }
-        }
+        auto raytracing_preview_requested = backend_owned_device && device_settings &&
+                                            device_settings->UseRaytracingPreview();
+        auto experimental_shader_models_requested = use_experimental && backend_owned_device;
+        bool raytracing_preview_enabled = false;
         bool experimental_features_enabled = false;
-        if (use_experimental && backend_owned_device) {
-            // Enable experimental features individually.  If one is not supported
-            // by the current OS/runtime we log a warning and continue without it
-            // instead of aborting device creation.
-            auto try_enable = [](UUID const &feature, const char *name) {
-                HRESULT hr = D3D12EnableExperimentalFeatures(1, &feature, nullptr, nullptr);
-                if (FAILED(hr)) {
-                    LUISA_WARNING(
-                        "Failed to enable D3D12 experimental feature '{}': {:#08x}. "
-                        "Continuing without experimental features.",
-                        name, static_cast<uint32_t>(hr));
-                    return false;
+        // Experimental-feature enablement is process-global and replaces the
+        // complete feature set, so request preview ray tracing and shader models
+        // together. Only change it by explicit request, and never behind an
+        // imported device's back.
+        if (raytracing_preview_requested || experimental_shader_models_requested) {
+            std::array<UUID, 2u> requested_features{};
+            uint32_t requested_feature_count = 0u;
+            if (raytracing_preview_requested) {
+                requested_features[requested_feature_count++] = D3D12RaytracingPreview;
+            }
+            if (experimental_shader_models_requested) {
+                requested_features[requested_feature_count++] = D3D12ExperimentalShaderModels;
+            }
+            auto hr = D3D12EnableExperimentalFeatures(
+                requested_feature_count, requested_features.data(), nullptr, nullptr);
+            raytracing_preview_enabled = raytracing_preview_requested && SUCCEEDED(hr);
+            experimental_features_enabled = experimental_shader_models_requested && SUCCEEDED(hr);
+            if (FAILED(hr)) {
+                LUISA_WARNING(
+                    "Failed to enable the requested D3D12 experimental features: 0x{:08x}. "
+                    "Continuing without experimental features.",
+                    static_cast<uint32_t>(hr));
+                if (raytracing_preview_requested) {
+                    LUISA_VERBOSE(
+                        "D3D12RaytracingPreview was not enabled; cluster support "
+                        "depends on the runtime's retail capability.");
                 }
-                return true;
-            };
-            experimental_features_enabled =
-                try_enable(D3D12ExperimentalShaderModels, "ExperimentalShaderModels");
+            }
         }
         if (device_settings) {
             device_settings->SetExperimentalFeaturesEnabled(experimental_features_enabled);
@@ -317,6 +319,37 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
             auto &device_name = device_names[index];
 
+            auto create_d3d12_device = [this, raytracing_preview_enabled,
+                                        experimental_features_enabled](IDXGIAdapter1 *selected_adapter) {
+                auto hr = D3D12CreateDevice(
+                    selected_adapter, D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(device.GetAddressOf()));
+                if (SUCCEEDED(hr) || !raytracing_preview_enabled) { return hr; }
+
+                // RaytracingPreview is process-global. The failed attempt did not
+                // create this device, so replace the feature set and retry once on
+                // the same adapter. Preserve experimental shader models when they
+                // were successfully requested alongside the preview.
+                LUISA_WARNING(
+                    "D3D12CreateDevice with D3D12RaytracingPreview failed: 0x{:08x}. "
+                    "Attempting to retry without the preview; cluster acceleration "
+                    "structures will be unavailable on the fallback device.",
+                    static_cast<uint32_t>(hr));
+                device.Clear();
+                auto fallback_feature_count = experimental_features_enabled ? 1u : 0u;
+                auto fallback_features = experimental_features_enabled ? &D3D12ExperimentalShaderModels : nullptr;
+                auto fallback_hr = D3D12EnableExperimentalFeatures(
+                    fallback_feature_count, fallback_features, nullptr, nullptr);
+                if (FAILED(fallback_hr)) {
+                    LUISA_WARNING(
+                        "Failed to disable D3D12RaytracingPreview after device creation "
+                        "failed: 0x{:08x}.",
+                        static_cast<uint32_t>(fallback_hr));
+                    return hr;
+                }
+                return D3D12CreateDevice(
+                    selected_adapter, D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(device.GetAddressOf()));
+            };
+
             if (device_name.find("nvidia") != luisa::string::npos) {
                 gpu_type = GpuType::NVIDIA;
             } else if (device_name.find("amd") != luisa::string::npos) {
@@ -330,8 +363,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 adapter->GetDesc1(&desc);
                 if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
                     if (capable_adapter_index++ == index) {
-                        ThrowIfFailed(D3D12CreateDevice(
-                            adapter.Get(), D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(device.GetAddressOf())));
+                        ThrowIfFailed(create_d3d12_device(adapter.Get()));
                         adapter_id = gen_adapter_guid(desc);
                         break;
                     }

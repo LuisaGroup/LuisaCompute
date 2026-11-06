@@ -103,8 +103,33 @@ public:
         hr = factory->EnumWarpAdapter(IID_PPV_ARGS(_adapter.GetAddressOf()));
         LUISA_ASSERT(SUCCEEDED(hr), "Failed to enumerate the WARP adapter: 0x{:08x}.",
                      static_cast<uint32_t>(hr));
-        hr = D3D12CreateDevice(_adapter.Get(), D3D_FEATURE_LEVEL_12_1,
-                               IID_PPV_ARGS(_device.GetAddressOf()));
+        auto create_warp_device = [this] {
+            return D3D12CreateDevice(_adapter.Get(), D3D_FEATURE_LEVEL_12_1,
+                                     IID_PPV_ARGS(_device.GetAddressOf()));
+        };
+        hr = create_warp_device();
+        if (FAILED(hr) && SUCCEEDED(preview_hr)) {
+            // This imported device is created before the backend sees it, so the
+            // backend cannot provide its preview-less retry. Do it here, once, on
+            // the same WARP adapter. Returning no external device would silently
+            // select a hardware adapter instead and violate the explicit --warp request.
+            LUISA_WARNING(
+                "WARP D3D12 device creation with RaytracingPreview failed: 0x{:08x}. "
+                "Attempting to retry without the preview; cluster acceleration "
+                "structures will be unavailable on the fallback device.",
+                static_cast<uint32_t>(hr));
+            _device.Reset();
+            auto disable_preview_hr = D3D12EnableExperimentalFeatures(
+                0u, nullptr, nullptr, nullptr);
+            if (FAILED(disable_preview_hr)) {
+                LUISA_WARNING(
+                    "Failed to disable WARP RaytracingPreview after device creation "
+                    "failed: 0x{:08x}.",
+                    static_cast<uint32_t>(disable_preview_hr));
+            } else {
+                hr = create_warp_device();
+            }
+        }
         LUISA_ASSERT(SUCCEEDED(hr), "Failed to create the WARP D3D12 device: 0x{:08x}.",
                      static_cast<uint32_t>(hr));
         _factory = factory.Get();
