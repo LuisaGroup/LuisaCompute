@@ -2447,7 +2447,15 @@ spirv_xir_dialect_support(xir::ArithmeticOp op) noexcept {
         case xir::ArithmeticOp::AGGREGATE:
         case xir::ArithmeticOp::SHUFFLE:
         case xir::ArithmeticOp::INSERT:
-        case xir::ArithmeticOp::EXTRACT: return supported();
+        case xir::ArithmeticOp::EXTRACT:
+        case xir::ArithmeticOp::LDEXP: return supported();
+        case xir::ArithmeticOp::ERF:
+        case xir::ArithmeticOp::ERFC:
+        case xir::ArithmeticOp::EXPM1:
+            return unsupported(
+                "GLSL.std.450 has no erf/erfc/expm1 instruction; the native "
+                "XIR-to-SPIR-V route does not emulate them and fails closed "
+                "instead of emitting an approximation");
     }
     return unknown();
 }

@@ -135,6 +135,33 @@ public:
 };
 }// namespace detail
 
+// A compiled rasterisation pipeline: one vertex stage, one pixel stage, and the
+// uniform-argument ABI that `Args...` describes.
+//
+// `Args...` are the kernel's uniform argument types - what `operator()` takes besides
+// the render targets, i.e. `RasterKernel<V, P>`'s captured values. They size the
+// invocation's uniform block and, on the AOT route, are checked against the types the
+// serialized shader was compiled for.
+//
+// Construction has two routes, and they are **not** interchangeable on every backend:
+//
+//  * JIT: `device.compile(raster_kernel, mesh_format, option)` compiles the DSL
+//    functions and creates the pipeline in memory. Provided by dx and metal4. **vk
+//    requires the AOT route**: `VkRasterExt::create_raster_shader` asserts
+//    `ShaderOption::compile_only`, which defaults to false, so a plain
+//    `device.compile(raster_kernel, ...)` aborts on vk.
+//  * AOT: `device.compile_to(raster_kernel, mesh_format, name)` serializes the shader,
+//    and `device.load_raster_shader<Args...>(name)` creates the object from that file
+//    (possibly in another process). This is the only route on vk, and it works on dx
+//    and metal4 as well.
+//
+// Drawing: `shader(...uniforms).draw(scene, mesh_format, viewport, state, dsv, rtv...)`,
+// see `RasterShaderInvoke::draw`. It builds a `DrawRasterSceneCommand` tagged
+// `StreamTag::GRAPHICS`, so enqueue it on a graphics stream; the `MeshFormat` must
+// outlive the command.
+//
+// Lifetime: destroy before the `Device` that created it, and after the draws that
+// reference it have been synchronized.
 template<typename... Args>
 class RasterShader : public Resource {
     friend class RasterExt;

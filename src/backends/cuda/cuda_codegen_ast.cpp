@@ -924,6 +924,10 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::TRUNC: _scratch << "lc_trunc"; break;
         case CallOp::ROUND: _scratch << "lc_round"; break;
         case CallOp::RINT: _scratch << "lc_rint"; break;
+        case CallOp::ERF: _scratch << "lc_erf"; break;
+        case CallOp::ERFC: _scratch << "lc_erfc"; break;
+        case CallOp::EXPM1: _scratch << "lc_expm1"; break;
+        case CallOp::LDEXP: _scratch << "lc_ldexp"; break;
         case CallOp::FMA: _scratch << "lc_fma"; break;
         case CallOp::COPYSIGN: _scratch << "lc_copysign"; break;
         case CallOp::CROSS: _scratch << "lc_cross"; break;
@@ -1377,6 +1381,15 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
             _scratch << ")";
             return;
         case CallOp::CLOCK: _scratch << "clock64"; break;
+        default:
+            // Without this arm an unmapped op emits an empty callee name and
+            // only surfaces as an NVRTC parse error in the generated source.
+            LUISA_ERROR_WITH_LOCATION(
+                "CUDA AST codegen has no lowering for the builtin operation "
+                "'{}'; add the arm here plus a matching `lc_*` device helper "
+                "in `cuda_builtin/cuda_device_math.h` before using it in a "
+                "kernel.",
+                luisa::to_string(expr->op()));
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {

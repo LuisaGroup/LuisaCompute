@@ -15,7 +15,18 @@ struct GlslCompileResult {
     [[nodiscard]] bool ok() const noexcept { return error.empty() && !spirv.empty(); }
 };
 
-// Compiles a GLSL compute shader to SPIR-V with the bundled glslang.
+// The pipeline stage a GLSL source is compiled for. GLSL declares its stage in
+// the source (vertex/fragment/compute), but glslang still has to be told which
+// `EShLang*` front end to use, so it is an explicit parameter; `Compute` is the
+// default because that is the only stage the compute native-shader route
+// compiles.
+enum class GlslShaderStage : uint8_t {
+    Compute,
+    Vertex,
+    Fragment,
+};
+
+// Compiles a GLSL shader stage to SPIR-V with the bundled glslang.
 //
 // glslang's process-global state is initialised once (R13) and shader
 // compilation is serialised, because `TShader::parse` shares global tables.
@@ -29,6 +40,7 @@ struct GlslCompileResult {
     luisa::string_view entry_point = {},
     bool optimize = true,
     bool debug = false,
-    luisa::span<const luisa::filesystem::path> include_dirs = {}) noexcept;
+    luisa::span<const luisa::filesystem::path> include_dirs = {},
+    GlslShaderStage stage = GlslShaderStage::Compute) noexcept;
 
 }// namespace lc::vk

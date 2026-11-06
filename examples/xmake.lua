@@ -123,8 +123,9 @@ end)
     -- workflow - every command being separately serializable - then verifies the
     -- results on the host. `mode.interactive` additionally drives an ImGui
     -- window through an HDR->display DSL kernel.
-    example_proj("example_native_shader", "compute/native_shader.cpp", false, function()
-        add_files("compute/native_shader_dispatch.cpp", "compute/native_shader_runtime.cpp")
+      example_proj("example_native_shader", "compute/native_shader_examples/native_shader.cpp", false, function()
+ add_files("compute/native_shader_examples/native_shader_dispatch.cpp",
+           "compute/native_shader_examples/native_shader_runtime.cpp")
         -- yyjson: lc-runtime only re-exports the include dir when lc_enable_xir is
         -- on, so depend on it explicitly (mirrors src/runtime/xmake.lua).
         if has_config("lc_yyjson_use_xrepo") then
@@ -137,6 +138,11 @@ end)
         -- <luisa/gui/imgui_window.h> is available.
         if has_config("lc_enable_gui") then add_defines("LUISA_ENABLE_GUI") end
     end)
+-- The minimal companion of the example above: one source file, no dispatch
+-- document, no GUI - "compile a native kernel, dispatch it, verify it", which
+-- is the code an application copies first. Both examples live in
+-- compute/native_shader_examples/.
+example_proj("example_native_shader_minimal", "compute/native_shader_examples/minimal.cpp", false)
     if has_config("lc_enable_xir") then
         local function coro_example_proj(name, source, gui_dep, callable)
             example_proj(name, source, gui_dep, function()

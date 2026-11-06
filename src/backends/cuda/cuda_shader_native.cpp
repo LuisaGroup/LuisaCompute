@@ -8,10 +8,51 @@
 #include "cuda_texture.h"
 #include "cuda_bindless_array.h"
 #include "cuda_command_encoder.h"
+#include "cuda_pdl_launch.h"
 #include "cuda_shader_native.h"
 #include "cuda_shader_printer.h"
 
 namespace luisa::compute::cuda {
+
+namespace cuda_shader_native_detail {
+
+[[nodiscard]] inline CUresult launch_kernel(CUfunction function,
+                                            uint3 grid_size, uint3 block_size,
+                                            unsigned int shared_memory_bytes,
+                                            CUstream stream, void **arguments,
+                                            bool relax_stream_serialization) noexcept {
+#if CUDA_VERSION >= 12000
+    if (relax_stream_serialization) {
+        // Zero-initialise the whole aggregate: the attribute carries internal
+        // padding that must not be left undefined.
+        CUlaunchAttribute attribute{};
+        attribute.id = CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION;
+        attribute.value.programmaticStreamSerializationAllowed = 1;
+        CUlaunchConfig config{};
+        config.gridDimX = grid_size.x;
+        config.gridDimY = grid_size.y;
+        config.gridDimZ = grid_size.z;
+        config.blockDimX = block_size.x;
+        config.blockDimY = block_size.y;
+        config.blockDimZ = block_size.z;
+        config.sharedMemBytes = shared_memory_bytes;
+        config.hStream = stream;
+        config.attrs = &attribute;
+        config.numAttrs = 1u;
+        return cuLaunchKernelEx(&config, function, arguments, nullptr);
+    }
+#else
+    static_cast<void>(relax_stream_serialization);// the attribute needs CUDA >= 12.0
+#endif
+    // The unchanged classic launch (numAttrs = 0, attrs = nullptr).
+    return cuLaunchKernel(
+        function,
+        grid_size.x, grid_size.y, grid_size.z,
+        block_size.x, block_size.y, block_size.z,
+        shared_memory_bytes, stream, arguments, nullptr);
+}
+
+}// namespace cuda_shader_native_detail
 
 CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> ptx,
                                    const char *entry, const CUDAShaderMetadata &metadata,
@@ -21,7 +62,8 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
       _block_size{metadata.block_size.x,
                   metadata.block_size.y,
                   metadata.block_size.z},
-      _bound_arguments{std::move(bound_arguments)} {
+      _bound_arguments{std::move(bound_arguments)},
+      _uses_grid_dependency_synchronize{metadata.requires_grid_dependency_synchronize} {
 
     // A generated PTX module only needs the CUDA device runtime (cudadevrt)
     // when it references one of the entry points that live there. Everything
@@ -257,12 +299,32 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             // instead would make the driver read every parameter after the
             // first out of unrelated stack memory.
             void *arguments[] = {argument_buffer.data()};
-            LUISA_CHECK_CUDA(cuLaunchKernel(
-                _function,
-                blocks.x, blocks.y, blocks.z,
-                block_size.x, block_size.y, block_size.z,
-                0u, cuda_stream,
-                arguments, nullptr));
+            auto &device_handle = encoder.stream()->device()->handle();
+            auto relax_stream_serialization =
+                cuda_pdl_detail::should_relax_stream_serialization(
+                    uses_grid_dependency_synchronize(),
+                    _pdl_launch_enabled, device_handle.compute_capability(),
+                    device_handle.driver_version());
+            auto launch = [&](bool relax) noexcept {
+                return cuda_shader_native_detail::launch_kernel(
+                    _function, blocks, block_size, 0u, cuda_stream, arguments, relax);
+            };
+            auto error = launch(relax_stream_serialization);
+            if (error != CUDA_SUCCESS && relax_stream_serialization &&
+                (error == CUDA_ERROR_INVALID_VALUE || error == CUDA_ERROR_NOT_SUPPORTED)) {
+                // The driver refused the attribute, so nothing was enqueued and the
+                // identical launch can be re-issued through the unchanged path.
+                // Latch the attribute off for this shader only, so the fallback
+                // costs one failed call in total. Every other error (in particular
+                // CUDA_ERROR_LAUNCH_FAILED) goes through LUISA_CHECK_CUDA below,
+                // because the grid may already have run.
+                _pdl_launch_enabled.store(false, std::memory_order_relaxed);
+                LUISA_WARNING_WITH_LOCATION(
+                    "Driver rejected CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION; "
+                    "falling back to cuLaunchKernel for this shader.");
+                error = launch(false);
+            }
+            LUISA_CHECK_CUDA(error);
             ++kernel_id;
         }
     }

@@ -419,6 +419,18 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
             LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
             return call_unary_fp_intrinsic(v, llvm::Intrinsic::cos);
         });
+        case xir::ArithmeticOp::ERF: return translate_unary([&](auto v) noexcept {
+            LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
+            return _call_ocml_unary_op(b, "erf", v);
+        });
+        case xir::ArithmeticOp::ERFC: return translate_unary([&](auto v) noexcept {
+            LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
+            return _call_ocml_unary_op(b, "erfc", v);
+        });
+        case xir::ArithmeticOp::EXPM1: return translate_unary([&](auto v) noexcept {
+            LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
+            return _call_ocml_unary_op(b, "expm1", v);
+        });
         case xir::ArithmeticOp::COSH: return translate_unary([&](auto v) noexcept {
             LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());
             return _call_ocml_unary_op(b, "cosh", v);
@@ -595,6 +607,96 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionConte
                 return result;
             }
             return call_scalar_power(base, exponent);
+        }
+        case xir::ArithmeticOp::LDEXP: {
+            auto base = _get_llvm_value(b, func_ctx, inst->operand(0));
+            auto exponent = _get_llvm_value(b, func_ctx, inst->operand(1));
+            LUISA_DEBUG_ASSERT(base->getType()->isFPOrFPVectorTy() &&
+                               exponent->getType()->isIntOrIntVectorTy() &&
+                               inst->type()->is_float_or_float_vector());
+            // OCML only exposes the 32-bit-exponent entry points
+            // __ocml_ldexp_f32(float, i32) and __ocml_ldexp_f64(double, i32).
+            // XIR keeps the declared width and signedness of the exponent and
+            // allows a scalar exponent to be broadcast over the mantissa lanes,
+            // so the exponent is clamped into the i32 range and splatted by
+            // hand below. Clamping is exact: any |n| outside that range already
+            // saturates the mantissa to zero or +-inf.
+            //
+            // Signedness contract: LLVM IR drops the XIR signedness, so it has
+            // to be recovered from the operand type (the same idiom as POW_INT
+            // above).
+            //  * signed: sign-extend/truncate and clamp to [INT32_MIN, INT32_MAX];
+            //    an exponent that already is i32 needs no conversion at all.
+            //  * unsigned: zero-extend/truncate and clamp to INT32_MAX only. An
+            //    unsigned exponent above INT32_MAX already saturates the mantissa
+            //    to zero or +inf, so saturating the *value* at INT32_MAX is exact,
+            //    whereas sign-extending it would reinterpret e.g. (uint)0x80000000
+            //    as a hugely negative exponent and return 0 instead of +inf.
+            auto exponent_xir_type = inst->operand(1)->type();
+            auto exponent_element_type = exponent_xir_type->is_vector() ?
+                                             exponent_xir_type->element() :
+                                             exponent_xir_type;
+            auto exponent_is_signed = exponent_element_type->is_int();
+            auto i32_type = b.getInt32Ty();
+            auto narrow_exponent = [&](llvm::Value *n) noexcept -> llvm::Value * {
+                auto *source_type = n->getType();
+                auto source_bits = source_type->getIntegerBitWidth();
+                if (source_bits < 32u) {
+                    return exponent_is_signed ? b.CreateSExt(n, i32_type) :
+                                                b.CreateZExt(n, i32_type);
+                }
+                if (exponent_is_signed && source_bits == 32u) { return n; }
+                // Clamp in the source type *before* truncating: truncation alone
+                // would wrap an out-of-range exponent back into the i32 range.
+                auto high = llvm::ConstantInt::get(source_type, 0x7fffffffull);
+                n = b.CreateSelect(exponent_is_signed ?
+                                       b.CreateICmpSGT(n, high) :
+                                       b.CreateICmpUGT(n, high),
+                                   high, n);
+                if (exponent_is_signed) {
+                    auto low = llvm::ConstantInt::getSigned(source_type, -2147483648ll);
+                    n = b.CreateSelect(b.CreateICmpSLT(n, low), low, n);
+                }
+                return source_bits == 32u ? n : b.CreateTrunc(n, i32_type);
+            };
+            auto scalar_type = base->getType()->getScalarType();
+            auto suffix = scalar_type->isDoubleTy() ? "_f64" :
+                          scalar_type->isHalfTy()   ? "_f16" :
+                                                      "_f32";
+            auto ocml_name = fmt::format("__ocml_ldexp{}", suffix);
+            auto callee = _llvm_module->getFunction(ocml_name);
+            LUISA_ASSERT(callee != nullptr,
+                         "OCML function {} not found.", ocml_name);
+            auto should_cast_to_float =
+                !scalar_type->isFloatTy() && !scalar_type->isDoubleTy();
+            auto call_scalar = [&](llvm::Value *x, llvm::Value *n) noexcept {
+                if (should_cast_to_float) {
+                    x = _safe_fp_cast(b, x, b.getFloatTy());
+                }
+                auto result = static_cast<llvm::Value *>(
+                    b.CreateCall(callee, {x, narrow_exponent(n)}));
+                if (should_cast_to_float) {
+                    result = _safe_fp_cast(b, result, scalar_type);
+                }
+                return result;
+            };
+            if (auto vector_type = llvm::dyn_cast<llvm::FixedVectorType>(
+                    base->getType())) {
+                auto exponent_is_vector = exponent->getType()->isVectorTy();
+                auto result = static_cast<llvm::Value *>(
+                    llvm::PoisonValue::get(vector_type));
+                for (auto lane = 0u; lane < vector_type->getNumElements(); lane++) {
+                    auto exponent_element = exponent_is_vector ?
+                                                b.CreateExtractElement(exponent, lane) :
+                                                exponent;
+                    result = b.CreateInsertElement(
+                        result,
+                        call_scalar(b.CreateExtractElement(base, lane), exponent_element),
+                        lane);
+                }
+                return result;
+            }
+            return call_scalar(base, exponent);
         }
         case xir::ArithmeticOp::SQRT: return translate_unary([&](auto v) noexcept {
             LUISA_DEBUG_ASSERT(inst->type()->is_float_or_float_vector());

@@ -401,9 +401,14 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     return s;
 }
 ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
-    vstd::span<hlsl::Property const> properties, bool isRasterShader) {
+    vstd::span<hlsl::Property const> properties, bool isRasterShader,
+    bool append_object_id) {
+    // The object-id parameter belongs to the raster path: a compute root signature
+    // never had it, so the flag can only ever *remove* it (which is what a native
+    // raster shader wants - it reserves the dword inside its own block).
+    auto raster_object_id = isRasterShader && append_object_id;
     vstd::fixed_vector<CD3DX12_ROOT_PARAMETER, 32> allParameter;
-    allParameter.reserve(properties.size() + (isRasterShader ? 1 : 0));
+    allParameter.reserve(properties.size() + (raster_object_id ? 1 : 0));
     vstd::fixed_vector<CD3DX12_DESCRIPTOR_RANGE, 32> allRange;
     for (auto &&var : properties) {
         switch (var.type) {
@@ -464,7 +469,7 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
             default: LUISA_ASSUME(false); break;
         }
     }
-    if (isRasterShader) {
+    if (raster_object_id) {
         allParameter.emplace_back().InitAsConstants(1, 0);
     }
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc(
@@ -484,9 +489,10 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
 size_t ShaderSerializer::SerializeRootSig(
     vstd::span<hlsl::Property const> properties,
     vstd::vector<std::byte> &result,
-    bool isRasterShader) {
+    bool isRasterShader,
+    bool append_object_id) {
     auto lastSize = result.size();
-    auto blob = SerializeRootSig(properties, isRasterShader);
+    auto blob = SerializeRootSig(properties, isRasterShader, append_object_id);
     vstd::push_back_all(
         result,
         (std::byte const *)blob->GetBufferPointer(),

@@ -879,6 +879,7 @@ template<bool allow_update_expected_metadata>
         expected_metadata.requires_ray_query = metadata->requires_ray_query;
         expected_metadata.ray_query_payload_count = metadata->ray_query_payload_count;
         expected_metadata.requires_printing = metadata->requires_printing;
+        expected_metadata.requires_grid_dependency_synchronize = metadata->requires_grid_dependency_synchronize;
         expected_metadata.requires_motion_blur = metadata->requires_motion_blur;
         if (expected_metadata.max_register_count == 0u) { expected_metadata.max_register_count = metadata->max_register_count; }
         if (all(expected_metadata.block_size == 0u)) { expected_metadata.block_size = metadata->block_size; }
@@ -1229,6 +1230,10 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
         .ray_query_payload_count = generate_ptx && kernel.propagated_builtin_callables().uses_ray_query() ? 0u : 2u,
         .requires_printing = kernel.requires_printing() && !uses_cuda_printf,
+        // Read from the AST here because the launch path cannot: a shader-cache
+        // hit returns before any codegen, so the only reliable moment to record
+        // whether the kernel waits for its programmatic dependency is now.
+        .requires_grid_dependency_synchronize = kernel.propagated_builtin_callables().test(CallOp::GRID_DEPENDENCY_SYNCHRONIZE),
         .requires_motion_blur = kernel.requires_motion_blur(),
         .max_register_count = std::clamp(option.max_registers, 0u, 255u),
         .block_size = kernel.block_size(),

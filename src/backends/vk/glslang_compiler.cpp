@@ -146,12 +146,23 @@ private:
 GlslCompileResult compile_glsl_to_spirv(
     luisa::string_view source, luisa::string_view entry_point,
     bool optimize, bool debug,
-    luisa::span<const luisa::filesystem::path> include_dirs) noexcept {
+    luisa::span<const luisa::filesystem::path> include_dirs,
+    GlslShaderStage stage) noexcept {
     GlslCompileResult result;
     if (source.empty()) {
         result.error = "GLSL source is empty.";
         return result;
     }
+    // glslang needs the stage twice: once to pick the front end that parses the
+    // source, and once to fetch the linked intermediate of that stage.
+    auto lang = [stage]() noexcept {
+        switch (stage) {
+            case GlslShaderStage::Vertex: return EShLangVertex;
+            case GlslShaderStage::Fragment: return EShLangFragment;
+            case GlslShaderStage::Compute: break;
+        }
+        return EShLangCompute;
+    }();
     glslang_compiler_detail::ensure_glslang_initialized();
     std::lock_guard lock{glslang_compiler_detail::glslang_mutex()};
     // GLSL has exactly one entry point per stage, and it is called `main`;
@@ -167,7 +178,7 @@ GlslCompileResult compile_glsl_to_spirv(
     // Lives next to the shader so it outlives parse/link; it is always
     // attached, even with an empty search path (see GlslFileIncluder).
     glslang_compiler_detail::GlslFileIncluder includer{include_dirs};
-    glslang::TShader shader{EShLangCompute};
+    glslang::TShader shader{lang};
     shader.setStrings(strings.data(), static_cast<int>(strings.size()));
     auto resources = *GetDefaultResources();
     auto messages = static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules);
@@ -193,9 +204,13 @@ GlslCompileResult compile_glsl_to_spirv(
                                                              program.getInfoLog());
         return result;
     }
-    auto *intermediate = program.getIntermediate(EShLangCompute);
+    auto *intermediate = program.getIntermediate(lang);
     if (intermediate == nullptr) {
-        result.error = "glslang produced no compute intermediate.";
+        // Keep the historical wording for the compute route, which is the only
+        // one that existed before the raster route.
+        result.error = stage == GlslShaderStage::Compute ?
+                           "glslang produced no compute intermediate." :
+                           "glslang produced no intermediate for the requested stage.";
         return result;
     }
     glslang::SpvOptions options;

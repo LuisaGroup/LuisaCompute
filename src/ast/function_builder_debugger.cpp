@@ -42,7 +42,7 @@
 //   * Math domain errors producing NaN/Inf (result check with ISNAN/ISINF;
 //     must-check): SQRT/RSQRT (negative input), LOG/LOG2/LOG10 (input <= 0),
 //     ACOS/ASIN (|x| > 1), ACOSH (x < 1), ATANH (|x| > 1), POW (negative base
-//     with fractional exponent), ATAN2 (0, 0), EXP/EXP2/EXP10 (overflow ->
+//     with fractional exponent), ATAN2 (0, 0), EXP/EXP2/EXP10/EXPM1/LDEXP (overflow ->
 //     Inf), NORMALIZE (zero-length vector -> NaN), INVERSE (singular matrix).
 //   * DETERMINANT, LENGTH*, DOT, CROSS, REFLECT, FACEFORWARD, FMA, COPYSIGN,
 //     REDUCE_*, CLAMP, SATURATE, LERP, SMOOTHSTEP, STEP, ABS, MIN, MAX,
@@ -445,6 +445,8 @@ private:
             case CallOp::EXP:
             case CallOp::EXP2:
             case CallOp::EXP10:
+            case CallOp::EXPM1:
+            case CallOp::LDEXP:
             case CallOp::NORMALIZE:
             case CallOp::INVERSE: return true;
             default: return false;

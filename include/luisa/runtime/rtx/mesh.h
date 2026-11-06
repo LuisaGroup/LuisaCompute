@@ -35,13 +35,12 @@ enum class ClusterGeometryFlags : uint32_t {
     Opaque = 0x4u,                     // ..._GEOMETRY_OPAQUE_BIT_NV
 };
 
-[[nodiscard]] constexpr ClusterGeometryFlags operator|(ClusterGeometryFlags lhs, ClusterGeometryFlags rhs) noexcept {
-    return static_cast<ClusterGeometryFlags>(static_cast<uint32_t>(lhs) | static_cast<uint32_t>(rhs));
-}
-
-[[nodiscard]] constexpr ClusterGeometryFlags operator&(ClusterGeometryFlags lhs, ClusterGeometryFlags rhs) noexcept {
-    return static_cast<ClusterGeometryFlags>(static_cast<uint32_t>(lhs) & static_cast<uint32_t>(rhs));
-}
+// NOTE: deliberately no free operator| / operator& for ClusterGeometryFlags.
+// They would live in namespace luisa::compute and would therefore be found by
+// argument-dependent lookup for *every* expression in that namespace, which
+// breaks the DSL's own constrained operator templates (e.g. `Var<bool> |
+// Var<bool>` in luisa/coro). Combine flags with an explicit uint32_t cast
+// instead: static_cast<ClusterGeometryFlags>(a_u32 | b_u32).
 
 // One cluster of triangles for a cluster (mega-geometry) acceleration structure.
 // Layout-pinned: byte-identical to
@@ -319,31 +318,31 @@ Mesh Device::create_mesh(VBuffer &&vertices, size_t vertex_stride, TBuffer &&tri
     return this->_create<Mesh>(std::forward<VBuffer>(vertices), vertex_stride, std::forward<TBuffer>(triangles), option);
 }
 
-    // Build a cluster (mega-geometry) bottom-level acceleration structure from an
-    // array of ClusterBuildInfo records; the records carry the vertex/index device
-    // addresses, so no vertex/triangle buffer is bound here.
-    //
-    // WARNING - the vertex and index memory referenced by the records is invisible to
-    // the command graph. Unlike a triangle Mesh, which declares its vertex/triangle
-    // buffers as build inputs, a cluster Mesh has no buffer handles to declare, so the
-    // command-reorder pass CANNOT order the writes that fill that memory before
-    // mesh.build(): it may schedule a copy or dispatch that produces the vertices
-    // *after* the cluster build, in which case the driver reads stale or uninitialised
-    // memory and the resulting BLAS traces the wrong geometry without any error.
-    //
-    // The caller is therefore responsible for the ordering and the lifetime of every
-    // buffer addressed by the records:
-    // - submit the uploads/computes that fill the vertex and index data and wait for
-    //   them (e.g. `stream << ... << synchronize();`) before recording mesh.build(), or
-    //   use a separate, earlier stream/flush for them;
-    // - keep those buffers alive until the cluster build has completed on the device -
-    //   destroying or reallocating them earlier invalidates raw device addresses the
-    //   backend has already handed to the driver.
-    //
-    // This restriction is a limitation of the current command-reorder pass (see the
-    // TODO(cluster) note in src/backends/common/command_reorder_visitor.h) and may be
-    // lifted once the pass can follow the addresses stored in the records.
-    template<typename CBuffer>
+// Build a cluster (mega-geometry) bottom-level acceleration structure from an
+// array of ClusterBuildInfo records; the records carry the vertex/index device
+// addresses, so no vertex/triangle buffer is bound here.
+//
+// WARNING - the vertex and index memory referenced by the records is invisible to
+// the command graph. Unlike a triangle Mesh, which declares its vertex/triangle
+// buffers as build inputs, a cluster Mesh has no buffer handles to declare, so the
+// command-reorder pass CANNOT order the writes that fill that memory before
+// mesh.build(): it may schedule a copy or dispatch that produces the vertices
+// *after* the cluster build, in which case the driver reads stale or uninitialised
+// memory and the resulting BLAS traces the wrong geometry without any error.
+//
+// The caller is therefore responsible for the ordering and the lifetime of every
+// buffer addressed by the records:
+// - submit the uploads/computes that fill the vertex and index data and wait for
+//   them (e.g. `stream << ... << synchronize();`) before recording mesh.build(), or
+//   use a separate, earlier stream/flush for them;
+// - keep those buffers alive until the cluster build has completed on the device -
+//   destroying or reallocating them earlier invalidates raw device addresses the
+//   backend has already handed to the driver.
+//
+// This restriction is a limitation of the current command-reorder pass (see the
+// TODO(cluster) note in src/backends/common/command_reorder_visitor.h) and may be
+// lifted once the pass can follow the addresses stored in the records.
+template<typename CBuffer>
     requires is_buffer_or_view_v<CBuffer> &&
              std::same_as<buffer_element_t<CBuffer>, ClusterBuildInfo>
 Mesh Device::create_mesh(CBuffer &&clusters, const AccelOption &option) noexcept {

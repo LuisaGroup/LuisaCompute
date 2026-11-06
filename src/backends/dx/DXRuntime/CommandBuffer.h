@@ -41,8 +41,12 @@ public:
         vstd::span<const uint3> dispatchSizes,
         uint constBindPos,
         vstd::span<const BindProperty> resources);
+    // Binds a root signature, a graphics pipeline state and one root resource per
+    // property. Only `Shader::root_sig()` / `properties()` are read, so the
+    // parameter is a plain `Shader`: a DSL `RasterShader` and a native raster
+    // shader (also a `RasterShader`, but built from DXIL reflection) both work.
     void set_raster_shader(
-        RasterShader const *s,
+        Shader const *s,
         ID3D12PipelineState *state,
         vstd::span<const BindProperty> resources);
     void dispatch_compute_indirect(

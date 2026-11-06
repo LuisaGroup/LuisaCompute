@@ -313,6 +313,10 @@ namespace detail {
         case xir::ArithmeticOp::AGGREGATE: [[fallthrough]];
         case xir::ArithmeticOp::SHUFFLE: [[fallthrough]];
         case xir::ArithmeticOp::INSERT: [[fallthrough]];
+        case xir::ArithmeticOp::ERF: [[fallthrough]];
+        case xir::ArithmeticOp::ERFC: [[fallthrough]];
+        case xir::ArithmeticOp::EXPM1: [[fallthrough]];
+        case xir::ArithmeticOp::LDEXP: [[fallthrough]];
         case xir::ArithmeticOp::EXTRACT: return true;
         default: return false;
     }

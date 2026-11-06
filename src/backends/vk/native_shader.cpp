@@ -14,31 +14,6 @@ using namespace luisa::compute;
 
 namespace {
 
-// Owns the descriptor sets of one native dispatch; the sets are released when
-// the recording command buffer is recycled, i.e. after its fence has passed.
-// It holds a reference to the shader's descriptor pool so that the pool cannot
-// be destroyed - by the shader instance going away - while sets allocated from
-// it are still pending (see NativeShaderDescriptorPool).
-struct DeferredDescriptorSetRelease {
-    luisa::shared_ptr<NativeShaderDescriptorPool> pool;
-    vstd::vector<VkDescriptorSet> sets;
-    DeferredDescriptorSetRelease(
-        luisa::shared_ptr<NativeShaderDescriptorPool> pool,
-        vstd::vector<VkDescriptorSet> &&sets) noexcept
-        : pool{std::move(pool)}, sets{std::move(sets)} {}
-    DeferredDescriptorSetRelease(DeferredDescriptorSetRelease const &) = delete;
-    DeferredDescriptorSetRelease(DeferredDescriptorSetRelease &&) = default;
-    DeferredDescriptorSetRelease &operator=(DeferredDescriptorSetRelease const &) = delete;
-    DeferredDescriptorSetRelease &operator=(DeferredDescriptorSetRelease &&) = delete;
-    ~DeferredDescriptorSetRelease() noexcept {
-        if (pool != nullptr && pool->pool != VK_NULL_HANDLE && !sets.empty()) {
-            vkFreeDescriptorSets(pool->device, pool->pool,
-                                 static_cast<uint32_t>(sets.size()),
-                                 sets.data());
-        }
-    }
-};
-
 [[nodiscard]] VkDescriptorType descriptor_type_of(
     NativeShaderResourceKind kind) noexcept {
     switch (kind) {
@@ -53,6 +28,14 @@ struct DeferredDescriptorSetRelease {
 NativeShaderDescriptorPool::~NativeShaderDescriptorPool() noexcept {
     if (pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, pool, Device::alloc_callbacks());
+    }
+}
+
+NativeShaderDescriptorDeferredRelease::~NativeShaderDescriptorDeferredRelease() noexcept {
+    if (pool != nullptr && pool->pool != VK_NULL_HANDLE && !sets.empty()) {
+        vkFreeDescriptorSets(pool->device, pool->pool,
+                             static_cast<uint32_t>(sets.size()),
+                             sets.data());
     }
 }
 
@@ -260,7 +243,7 @@ void NativeShader::encode(
                 max_in_flight_descriptor_sets);
             return;
         }
-        state->dispose_after_flush(DeferredDescriptorSetRelease{
+        state->dispose_after_flush(NativeShaderDescriptorDeferredRelease{
             _descriptor_pool, vstd::vector<VkDescriptorSet>{sets}});
     }
     // ---- descriptor writes -----------------------------------------------

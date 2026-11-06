@@ -1345,6 +1345,10 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::LOG2: _scratch << "log2"; break;
         case CallOp::LOG10: _scratch << "log10"; break;
         case CallOp::POW: _scratch << "pow"; break;
+        case CallOp::ERF: _scratch << "erf"; break;
+        case CallOp::ERFC: _scratch << "erfc"; break;
+        case CallOp::EXPM1: _scratch << "expm1"; break;
+        case CallOp::LDEXP: _scratch << "ldexp"; break;
         case CallOp::SQRT: _scratch << "sqrt"; break;
         case CallOp::RSQRT: _scratch << "rsqrt"; break;
         case CallOp::CEIL: _scratch << "ceil"; break;

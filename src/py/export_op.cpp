@@ -89,6 +89,10 @@ void export_op(py::module &m) {
         .value("LOG2", CallOp::LOG2)
         .value("LOG10", CallOp::LOG10)
         .value("POW", CallOp::POW)
+        .value("ERF", CallOp::ERF)
+        .value("ERFC", CallOp::ERFC)
+        .value("EXPM1", CallOp::EXPM1)
+        .value("LDEXP", CallOp::LDEXP)
 
         .value("SQRT", CallOp::SQRT)
         .value("RSQRT", CallOp::RSQRT)

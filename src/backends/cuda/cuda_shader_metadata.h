@@ -35,6 +35,11 @@ struct CUDAShaderMetadata {
     bool requires_ray_query;
     uint32_t ray_query_payload_count{2u};// AST uses 2 words; LLVM declares its actual module maximum
     bool requires_printing;
+    // The kernel waits for its programmatic dependency
+    // (grid_dependency_synchronize()).  Recorded at creation time because the
+    // shader-cache hit path never sees the AST, and consumed by the launch path
+    // to decide whether it may relax the stream serialization of this grid.
+    bool requires_grid_dependency_synchronize;
     bool requires_motion_blur;
     uint max_register_count;
     uint3 block_size;
@@ -53,6 +58,7 @@ struct CUDAShaderMetadata {
                requires_ray_query == rhs.requires_ray_query &&
                ray_query_payload_count == rhs.ray_query_payload_count &&
                requires_printing == rhs.requires_printing &&
+               requires_grid_dependency_synchronize == rhs.requires_grid_dependency_synchronize &&
                requires_motion_blur == rhs.requires_motion_blur &&
                max_register_count == rhs.max_register_count &&
                all(block_size == rhs.block_size) &&

@@ -884,6 +884,8 @@ private:
                const Command *cmd_base,
                uint64_t shader_handle,
                luisa::span<const Argument> captured_bindings,
+               luisa::span<const Usage> declared_usages,
+               bool native_shader,
                Callback callback) noexcept {
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
@@ -891,45 +893,66 @@ private:
         _write_accel_in_pass = false;
         _dispatch_layer = 0;
         size_t arg_idx = 0;
+        // A native raster draw has no DSL shader behind its handle, so its
+        // usages cannot come from `get_usage` (which would reinterpret the
+        // handle as a `Shader`): the command carries the launcher's declaration
+        // instead - one entry per *resource* argument, i.e. uniforms excluded,
+        // which is why the two index spaces differ. `native_shader` is an
+        // explicit discriminator rather than "declared_usages is non-empty", so
+        // that a malformed native command cannot fall back into the DSL path.
+        size_t resource_idx = 0;
+        auto usage_of = [&]() noexcept -> Usage {
+            if (!native_shader) {
+                return _func_table.get_usage(shader_handle, arg_idx);
+            }
+            LUISA_ASSERT(resource_idx < declared_usages.size(),
+                         "Native raster draw resource argument {} has no "
+                         "declared usage ({} declared); a native raster command "
+                         "must carry one usage per resource argument.",
+                         resource_idx, declared_usages.size());
+            return declared_usages[resource_idx];
+        };
         using Argument = ShaderDispatchCommandBase::Argument;
         using Tag = Argument::Tag;
         auto ite_arg = [&](auto &&i) {
             switch (i.tag) {
                 case Tag::BUFFER: {
                     auto &&bf = i.buffer;
-                    bool is_write = ((uint)_func_table.get_usage(shader_handle, arg_idx) & (uint)Usage::WRITE) != 0;
+                    bool is_write = ((uint)usage_of() & (uint)Usage::WRITE) != 0;
                     add_dispatch_handle(
                         bf.handle,
                         ResourceType::Buffer,
                         buffer_range(bf.offset, bf.size),
                         is_write);
                     ++arg_idx;
+                    ++resource_idx;
                 } break;
                 case Tag::TEXTURE: {
                     auto &&tex = i.texture;
                     add_texture_dispatch_handles(
                         tex.handle,
                         tex.level,
-                        _func_table.get_usage(shader_handle, arg_idx));
+                        usage_of());
                     ++arg_idx;
+                    ++resource_idx;
                 } break;
                 case Tag::UNIFORM: {
                     ++arg_idx;
                 } break;
                 case Tag::BINDLESS_ARRAY: {
                     auto &&arr = i.bindless_array;
-                    auto usage = _func_table.get_usage(
-                        shader_handle, arg_idx);
+                    auto usage = usage_of();
                     add_bindless_dispatch_handles(
                         arr.handle,
                         (static_cast<uint>(usage) &
                          static_cast<uint>(Usage::WRITE)) != 0u);
                     ++arg_idx;
+                    ++resource_idx;
                 } break;
                 case Tag::ACCEL: {
                     auto &&acc = i.accel;
                     _use_accel_in_pass = true;
-                    auto is_write = (static_cast<uint>(_func_table.get_usage(shader_handle, arg_idx)) &
+                    auto is_write = (static_cast<uint>(usage_of()) &
                                      static_cast<uint>(Usage::WRITE)) != 0u;
                     _write_accel_in_pass |= is_write;
                     add_dispatch_handle(
@@ -938,6 +961,7 @@ private:
                         whole_range(),
                         is_write);
                     ++arg_idx;
+                    ++resource_idx;
                 } break;
             }
         };
@@ -1039,7 +1063,8 @@ public:
     }
     // Shader : function, read/write multi resources
     void visit(const ShaderDispatchCommand *command) noexcept override {
-        visit(command, command, command->handle(), _func_table.shader_bindings(command->handle()), [&] {
+        visit(command, command, command->handle(), _func_table.shader_bindings(command->handle()),
+              luisa::span<const Usage>{}, /*native_shader*/ false, [&] {
             // Resource dependencies determine the final layer. Register the
             // indirect source before charging this dispatch's workload to
             // that layer; otherwise a dependency can move the command after
@@ -1182,7 +1207,15 @@ public:
                 base_mip_range(a.level),
                 true);
         };
-        visit(command, command, command->handle(), _func_table.raster_shader_bindings(command->handle()), [&] {
+        // A native raster draw carries its own per-resource usages (there is no
+        // DSL shader behind its handle, so `get_usage`/`raster_shader_bindings`
+        // would reinterpret a `NativeRasterShader` as a `Shader`), and it has no
+        // captured bindings at all.
+        auto native = command->is_native_shader();
+        visit(command, command, command->handle(),
+              native ? luisa::span<const Argument>{}
+                     : _func_table.raster_shader_bindings(command->handle()),
+              command->argument_usages(), native, [&] {
             auto &&rtv = command->rtv_texs();
             auto &&dsv = command->dsv_tex();
             for (auto &&i : rtv) {

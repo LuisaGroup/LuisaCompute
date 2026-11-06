@@ -38,6 +38,26 @@ struct RasterBin {
 };
 class ShaderCompiler final : public vstd::IOperatorNewBase {
     ShaderCompilerModule compiler_module;
+    // Shared body of `compile_compute` and `compile_graphics_stage`: the two
+    // differ only in the profile (target) string, so every HLSL stage flag
+    // (`-spirv`, `/DSPV`, `-fspv-target-env`, `-HV 2021`, ...) lives in exactly
+    // one place.
+    CompileResult _compile_with_profile(
+        vstd::string_view code,
+        vstd::wstring_view profile,
+        bool optimize,
+        uint shaderModel,
+        bool enableUnsafeMath,
+        bool spirv,
+        bool debug,
+        // Entry point to compile. Empty keeps the historical behaviour: DXC's
+        // default entry point, i.e. a function named "main".
+        vstd::string_view entry_point,
+        // Directories searched for `#include`d headers, in addition to the
+        // raw include spelling itself. Empty keeps the historical behaviour:
+        // no include handler is registered.
+        luisa::span<const luisa::filesystem::path> include_dirs) const;
+
 public:
     // Optional include handler for `#include` resolution. nullptr keeps
     // the historical behaviour: no includes are resolved at all.
@@ -66,6 +86,25 @@ public:
         // Directories searched for `#include`d headers, in addition to the
         // raw include spelling itself. Empty keeps the historical behaviour:
         // no include handler is registered.
+        luisa::span<const luisa::filesystem::path> include_dirs = {}) const;
+    // Compiles *one* stage of a graphics pipeline: profile `vs_<sm>` when
+    // `vertex` is true, `ps_<sm>` otherwise. Behaviour is otherwise identical
+    // to `compile_compute` (same SPIR-V flags, same entry-point/include
+    // handling).
+    //
+    // This is deliberately not `compile_raster`: that one compiles both stages
+    // of a *single* translation unit and selects them with `/DVS`/`/DPS`, which
+    // is the DSL raster codegen's contract, not the native raster one, where the
+    // application hands in one source per stage.
+    CompileResult compile_graphics_stage(
+        vstd::string_view code,
+        bool vertex,
+        bool optimize,
+        uint shaderModel,
+        bool enableUnsafeMath,
+        bool spirv,
+        bool debug,
+        vstd::string_view entry_point = {},
         luisa::span<const luisa::filesystem::path> include_dirs = {}) const;
     RasterBin compile_raster(
         vstd::string_view code,

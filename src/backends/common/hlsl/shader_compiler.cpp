@@ -215,8 +215,9 @@ static void AddUnsafeMathFlags(Vec &args) {
     //      L"-opt-enable",
     //      L"-freciprocal-math"});
 }
-CompileResult ShaderCompiler::compile_compute(
+CompileResult ShaderCompiler::_compile_with_profile(
     vstd::string_view code,
+    vstd::wstring_view profile,
     bool optimize,
     uint shaderModel,
     bool enableUnsafeMath,
@@ -230,9 +231,10 @@ CompileResult ShaderCompiler::compile_compute(
     }
 #endif
     vstd::fixed_vector<LPCWSTR, 32> args;
-    vstd::wstring smStr;
-    smStr << L"cs_" << GetSM(shaderModel);
-    // The entry-point name must outlive the argument vector below.
+    // DXC takes the entry point / target as NUL-terminated wide strings, so the
+    // two that are built here (rather than being literals) need an owning local
+    // that outlives the argument vector below.
+    vstd::wstring smStr{profile};
     vstd::wstring entry_str;
     if (!entry_point.empty()) {
         entry_str.resize(entry_point.size());
@@ -270,6 +272,37 @@ CompileResult ShaderCompiler::compile_compute(
     // outlives it. The handler searches the directories, so no `-I` args.
     FileSystemIncludeHandler handler{utils(), include_dirs};
     return compile(code, args, &handler);
+}
+CompileResult ShaderCompiler::compile_compute(
+    vstd::string_view code,
+    bool optimize,
+    uint shaderModel,
+    bool enableUnsafeMath,
+    bool spirv,
+    bool debug,
+    vstd::string_view entry_point,
+    luisa::span<const luisa::filesystem::path> include_dirs) const {
+    vstd::wstring profile;
+    profile << L"cs_" << GetSM(shaderModel);
+    return _compile_with_profile(
+        code, profile, optimize, shaderModel, enableUnsafeMath, spirv, debug,
+        entry_point, include_dirs);
+}
+CompileResult ShaderCompiler::compile_graphics_stage(
+    vstd::string_view code,
+    bool vertex,
+    bool optimize,
+    uint shaderModel,
+    bool enableUnsafeMath,
+    bool spirv,
+    bool debug,
+    vstd::string_view entry_point,
+    luisa::span<const luisa::filesystem::path> include_dirs) const {
+    vstd::wstring profile;
+    profile << (vertex ? L"vs_" : L"ps_") << GetSM(shaderModel);
+    return _compile_with_profile(
+        code, profile, optimize, shaderModel, enableUnsafeMath, spirv, debug,
+        entry_point, include_dirs);
 }
 RasterBin ShaderCompiler::compile_raster(
     vstd::string_view code,

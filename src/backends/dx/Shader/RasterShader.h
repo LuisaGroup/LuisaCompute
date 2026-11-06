@@ -124,6 +124,26 @@ public:
 
     ~RasterShader();
 
+    // Creates a raster shader from a *native* (hand-written) shader pair: the root
+    // signature and the two DXIL blobs come from `NativeShaderExt::compile_raster`
+    // / `load_raster` (built from DXIL reflection), not from the DSL codegen, so
+    // the instance carries no saved arguments, no printers and no `_validate_*`
+    // payload - `args()` stays empty and `bindless_count()` is 0 by design.
+    // `properties` is one entry per root parameter of `root_sig` (the native route
+    // synthesizes it from the merged reflection, in the same order), which is what
+    // lets the draw path address a root parameter by property index exactly as it
+    // does for a DSL shader. The instance is a `RasterShader` so that every
+    // `reinterpret_cast<RasterShader *>(handle)` in the encode path stays valid;
+    // `get_pso` / `get_state` / `get_mesh_format_state` / `gen_md5` are reused
+    // unchanged.
+    static RasterShader *create_native_raster_shader(
+        Device *device,
+        vstd::MD5 md5,
+        vstd::vector<hlsl::Property> &&prop,
+        ComPtr<ID3D12RootSignature> &&root_sig,
+        vstd::vector<std::byte> &&vert_bin_data,
+        vstd::vector<std::byte> &&pixel_bin_data);
+
     static RasterShader *compile_raster(
         luisa::BinaryIO const *file_io,
         Device *device,

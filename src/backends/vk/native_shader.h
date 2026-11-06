@@ -27,6 +27,25 @@ struct NativeShaderDescriptorPool {
     ~NativeShaderDescriptorPool() noexcept;
 };
 
+// Releases the descriptor sets of one native dispatch/draw when the recording
+// command buffer is recycled, i.e. after its fence has passed. It holds a
+// reference to the shader's descriptor pool so the pool cannot be destroyed -
+// because the shader instance went away - while sets allocated from it are still
+// pending (see NativeShaderDescriptorPool).
+struct NativeShaderDescriptorDeferredRelease {
+    luisa::shared_ptr<NativeShaderDescriptorPool> pool;
+    vstd::vector<VkDescriptorSet> sets;
+    NativeShaderDescriptorDeferredRelease(
+        luisa::shared_ptr<NativeShaderDescriptorPool> pool,
+        vstd::vector<VkDescriptorSet> &&sets) noexcept
+        : pool{std::move(pool)}, sets{std::move(sets)} {}
+    NativeShaderDescriptorDeferredRelease(NativeShaderDescriptorDeferredRelease const &) = delete;
+    NativeShaderDescriptorDeferredRelease(NativeShaderDescriptorDeferredRelease &&) = default;
+    NativeShaderDescriptorDeferredRelease &operator=(NativeShaderDescriptorDeferredRelease const &) = delete;
+    NativeShaderDescriptorDeferredRelease &operator=(NativeShaderDescriptorDeferredRelease &&) = delete;
+    ~NativeShaderDescriptorDeferredRelease() noexcept;
+};
+
 // Minimal Vulkan compute shader built directly from a native SPIR-V module
 // (native shader injection, "Tier B" of the plan's R1 decision).
 //

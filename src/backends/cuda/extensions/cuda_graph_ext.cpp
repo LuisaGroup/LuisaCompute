@@ -1358,14 +1358,15 @@ CudaGraphExt::Capabilities CudaGraphExtImpl::capabilities() const noexcept {
     if (cuDriverGetVersion(&driver_version) == CUDA_SUCCESS && driver_version > 0) {
         runtime_version = std::min(runtime_version, static_cast<uint32_t>(driver_version));
     }
-    // The annotated-edge API additionally needs 12.4 headers (compile-time
-    // `#if defined(cuGraphAddDependencies)` gate in set_dependency_type); the
-    // runtime check keeps the capability honest for mixed toolkit/driver pairs.
-    caps.programmatic_edges = runtime_version >= 12040u;
-    // Device graph launch and device-updatable kernel nodes additionally
-    // require Hopper or newer (compute capability >= 9.0).
+    // Programmatic (PDL) edges, device graph launch and device-updatable kernel
+    // nodes are all Hopper-or-newer features: each one needs sm_90+ (compute
+    // capability >= 9.0) on top of its runtime-version gate. PDL additionally
+    // needs 12.4 headers (compile-time `#if defined(cuGraphAddDependencies)`
+    // gate in set_dependency_type); the runtime check keeps the capability
+    // honest for mixed toolkit/driver pairs.
     auto cc = _device->handle().compute_capability();
     auto hopper_or_newer = cc >= 90u;
+    caps.programmatic_edges = runtime_version >= 12040u && hopper_or_newer;
     caps.device_launch = runtime_version >= 12000u && hopper_or_newer;
     caps.conditional_nodes = runtime_version >= 12030u;
     caps.device_updatable_nodes = runtime_version >= 12040u && hopper_or_newer;

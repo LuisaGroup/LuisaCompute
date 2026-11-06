@@ -131,6 +131,10 @@ namespace detail {
         case ArithmeticOp::LOG10:
         case ArithmeticOp::POW:
         case ArithmeticOp::POW_INT:
+        case ArithmeticOp::ERF:
+        case ArithmeticOp::ERFC:
+        case ArithmeticOp::EXPM1:
+        case ArithmeticOp::LDEXP:
             return 16u;
         case ArithmeticOp::SQRT:
         case ArithmeticOp::RSQRT:

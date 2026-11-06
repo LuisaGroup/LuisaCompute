@@ -1655,6 +1655,30 @@ template<typename T>
         CallOp::TANH, std::forward<T>(x));
 }
 
+/// erf. Error function of x.
+template<typename T>
+    requires is_dsl_v<T> && is_floating_point_or_vector_expr_v<T>
+[[nodiscard]] inline auto erf(T &&x) noexcept {
+    return detail::make_vector_call<vector_expr_element_t<T>>(
+        CallOp::ERF, std::forward<T>(x));
+}
+
+/// erfc. Complementary error function of x, 1 - erf(x).
+template<typename T>
+    requires is_dsl_v<T> && is_floating_point_or_vector_expr_v<T>
+[[nodiscard]] inline auto erfc(T &&x) noexcept {
+    return detail::make_vector_call<vector_expr_element_t<T>>(
+        CallOp::ERFC, std::forward<T>(x));
+}
+
+/// expm1. e^x - 1, accurate for small |x|.
+template<typename T>
+    requires is_dsl_v<T> && is_floating_point_or_vector_expr_v<T>
+[[nodiscard]] inline auto expm1(T &&x) noexcept {
+    return detail::make_vector_call<vector_expr_element_t<T>>(
+        CallOp::EXPM1, std::forward<T>(x));
+}
+
 /// exp. e^x
 template<typename T>
     requires is_dsl_v<T> && is_floating_point_or_vector_expr_v<T>
@@ -1711,6 +1735,16 @@ template<typename X, typename A>
         CallOp::POW,
         std::forward<X>(x),
         std::forward<A>(a));
+}
+
+/// ldexp. x * 2^n, with an integral exponent `n` (the POW_INT mix).
+template<typename X, typename N>
+    requires any_dsl_v<X, N> && is_floating_point_or_vector_expr_v<X> && is_integral_or_vector_expr_v<N>
+[[nodiscard]] inline auto ldexp(X &&x, N &&n) noexcept {
+    return detail::make_vector_call<vector_expr_element_t<X>>(
+        CallOp::LDEXP,
+        std::forward<X>(x),
+        std::forward<N>(n));
 }
 
 /// sqrt. Square root of x.
@@ -2170,6 +2204,14 @@ inline void graph_node_set_enabled(Expr<uint64_t> node, Expr<bool> enabled) noex
 
 /// Block the calling thread until all direct grid dependencies have completed
 /// (CUDA >= 12.0).
+///
+/// The wait must be executed by *every* thread of every block before that thread
+/// reads anything a programmatic predecessor wrote: the trigger carries no
+/// memory-visibility guarantee of its own, so the ordering comes from this call.
+/// The CUDA backend treats the presence of this call in a kernel as the kernel's
+/// opt-in to relaxed stream serialization (it launches it with
+/// `CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION` on sm_90+), so a
+/// conditional wait would relax the launch without ordering the reads.
 inline void grid_dependency_synchronize() noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::GRID_DEPENDENCY_SYNCHRONIZE, {});

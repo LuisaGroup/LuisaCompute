@@ -95,6 +95,29 @@ RasterShader::RasterShader(
       _vert_bin_data{std::move(vert_bin_data)}, _pixel_bin_data{std::move(pixel_bin_data)} {
 }
 RasterShader::~RasterShader() {}
+RasterShader *RasterShader::create_native_raster_shader(
+    Device *device,
+    vstd::MD5 md5,
+    vstd::vector<hlsl::Property> &&prop,
+    ComPtr<ID3D12RootSignature> &&root_sig,
+    vstd::vector<std::byte> &&vert_bin_data,
+    vstd::vector<std::byte> &&pixel_bin_data) {
+    auto *shader = new RasterShader(
+        device,
+        md5,
+        std::move(prop),
+        vstd::vector<SavedArgument>{},// the native encode path binds itself
+        std::move(root_sig),
+        vstd::vector<std::pair<vstd::string, Type const *>>{},
+        std::move(vert_bin_data),
+        std::move(pixel_bin_data),
+        0u);
+    // A native shader owns no bindless tables, and `Shader` does not initialise
+    // this member: the draw path would otherwise push an indeterminate number of
+    // global-heap bindings (`LCCmdBuffer`'s encode visitor).
+    shader->_bindless_count = 0u;
+    return shader;
+}
 D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::get_state(
     vstd::span<D3D12_INPUT_ELEMENT_DESC const> inputLayout,
     RasterState const &state,

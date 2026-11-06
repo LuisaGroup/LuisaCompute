@@ -300,6 +300,9 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_arithmetic(IB &builder, FunctionCo
         case xir::ArithmeticOp::EXP: return unary([&](auto value) { return _air_unary(builder, "exp", value); });
         case xir::ArithmeticOp::EXP2: return unary([&](auto value) { return _air_unary(builder, "exp2", value); });
         case xir::ArithmeticOp::EXP10: return unary([&](auto value) { return _air_unary(builder, "exp10", value); });
+        case xir::ArithmeticOp::ERF: return unary([&](auto value) { return _air_unary(builder, "erf", value); });
+        case xir::ArithmeticOp::ERFC: return unary([&](auto value) { return _air_unary(builder, "erfc", value); });
+        case xir::ArithmeticOp::EXPM1: return unary([&](auto value) { return _air_unary(builder, "expm1", value); });
         case xir::ArithmeticOp::LOG: return unary([&](auto value) { return _air_unary(builder, "log", value); });
         case xir::ArithmeticOp::LOG2: return unary([&](auto value) { return _air_unary(builder, "log2", value); });
         case xir::ArithmeticOp::LOG10: return unary([&](auto value) { return _air_unary(builder, "log10", value); });
@@ -311,6 +314,92 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_arithmetic(IB &builder, FunctionCo
                                exponent->getType()->isIntOrIntVectorTy());
             auto exponent_as_float = builder.CreateSIToFP(exponent, base->getType());
             return _air_binary(builder, "pow", base, exponent_as_float);
+        }
+        case xir::ArithmeticOp::LDEXP: {
+            auto base = _value(builder, function, inst->operand(0u));
+            auto exponent = _value(builder, function, inst->operand(1u));
+            LUISA_DEBUG_ASSERT(base->getType()->isFPOrFPVectorTy() &&
+                               exponent->getType()->isIntOrIntVectorTy());
+            // air.ldexp is `float (float, i32)` / `half (half, i32)`: its exponent
+            // parameter does *not* have the mantissa type, so this call must not go
+            // through _air_binary/_air_scalar_call. Those declare every parameter
+            // with the type of the first argument, which would produce
+            // `float (float, float)` for a `{float, i32}` call site and hence
+            // invalid IR (CallInst assertions / verifier rejection). Build the
+            // declaration from the real signature instead, per lane; there is no
+            // fast-math AIR variant of ldexp, so the plain symbol is used.
+            //
+            // Signedness contract: LLVM IR drops the XIR signedness, so it is
+            // recovered from the operand type. A signed exponent is sign-extended
+            // and clamped to [INT32_MIN, INT32_MAX]; an unsigned exponent is
+            // zero-extended and clamped to INT32_MAX only, because an unsigned
+            // exponent above INT32_MAX already saturates the mantissa to zero or
+            // +inf, so keeping its value stays exact while sign-extending it would
+            // turn a huge exponent into a hugely negative one.
+            auto exponent_xir_type = inst->operand(1u)->type();
+            auto exponent_element_type = exponent_xir_type->is_vector() ?
+                                             exponent_xir_type->element() :
+                                             exponent_xir_type;
+            auto exponent_is_signed = exponent_element_type->is_int();
+            auto *i32 = builder.getInt32Ty();
+            auto narrow_exponent = [&](llvm::Value *n) noexcept -> llvm::Value * {
+                    auto *source_type = n->getType();
+                    auto source_bits = source_type->getIntegerBitWidth();
+                    if (source_bits < 32u) {
+                        return exponent_is_signed ? builder.CreateSExt(n, i32) :
+                                                    builder.CreateZExt(n, i32);
+                    }
+                    if (exponent_is_signed && source_bits == 32u) { return n; }
+                    // Clamp in the source type *before* truncating: truncation alone
+                    // would wrap an out-of-range exponent back into the i32 range.
+                    auto *high = llvm::ConstantInt::get(source_type, 0x7fffffffull);
+                    n = builder.CreateSelect(exponent_is_signed ?
+                                                 builder.CreateICmpSGT(n, high) :
+                                                 builder.CreateICmpUGT(n, high),
+                                             high, n);
+                    if (exponent_is_signed) {
+                        auto *low = llvm::ConstantInt::getSigned(source_type, -2147483648ll);
+                        n = builder.CreateSelect(builder.CreateICmpSLT(n, low), low, n);
+                    }
+                    return source_bits == 32u ? n : builder.CreateTrunc(n, i32);
+                };
+            auto call_scalar = [&](llvm::Value *x, llvm::Value *n) noexcept -> llvm::Value * {
+                auto *scalar_type = x->getType();
+                LUISA_DEBUG_ASSERT(scalar_type->isHalfTy() || scalar_type->isFloatTy(),
+                                   "air.ldexp requires an f16 or f32 mantissa.");
+                auto *function_type = llvm::FunctionType::get(
+                    scalar_type, {scalar_type, i32}, false);
+                auto callee = _module.getOrInsertFunction(
+                    scalar_type->isHalfTy() ? "air.ldexp.f16" : "air.ldexp.f32",
+                    function_type);
+                if (auto *function = llvm::dyn_cast<llvm::Function>(callee.getCallee())) {
+                    function->setMustProgress();
+                    function->setDoesNotFreeMemory();
+                    function->setNoSync();
+                    function->setDoesNotThrow();
+                    function->setWillReturn();
+                    function->setDoesNotAccessMemory();
+                    function->setSpeculatable();
+                }
+                return builder.CreateCall(callee, {x, narrow_exponent(n)});
+            };
+            if (auto *vector_type = llvm::dyn_cast<llvm::FixedVectorType>(
+                    base->getType())) {
+                auto exponent_is_vector = exponent->getType()->isVectorTy();
+                auto *result = static_cast<llvm::Value *>(
+                    llvm::PoisonValue::get(vector_type));
+                for (auto i = 0u; i < vector_type->getNumElements(); i++) {
+                    auto *lane_exponent = exponent_is_vector ?
+                                              builder.CreateExtractElement(exponent, i) :
+                                              exponent;
+                    result = builder.CreateInsertElement(
+                        result,
+                        call_scalar(builder.CreateExtractElement(base, i), lane_exponent),
+                        i);
+                }
+                return result;
+            }
+            return call_scalar(base, exponent);
         }
         case xir::ArithmeticOp::SQRT: return unary([&](auto value) { return _air_unary(builder, "sqrt", value); });
         case xir::ArithmeticOp::RSQRT: return unary([&](auto value) { return _air_unary(builder, "rsqrt", value); });

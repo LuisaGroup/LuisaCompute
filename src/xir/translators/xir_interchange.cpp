@@ -1205,7 +1205,11 @@ constexpr std::array arithmetic_wire_ops{
     wire_op(ArithmeticOp::AGGREGATE, "aggregate"sv),
     wire_op(ArithmeticOp::SHUFFLE, "shuffle"sv),
     wire_op(ArithmeticOp::INSERT, "insert"sv),
-    wire_op(ArithmeticOp::EXTRACT, "extract"sv)};
+    wire_op(ArithmeticOp::EXTRACT, "extract"sv),
+    wire_op(ArithmeticOp::ERF, "erf"sv),
+    wire_op(ArithmeticOp::ERFC, "erfc"sv),
+    wire_op(ArithmeticOp::EXPM1, "expm1"sv),
+    wire_op(ArithmeticOp::LDEXP, "ldexp"sv)};
 
 constexpr std::array atomic_wire_ops{
     wire_op(AtomicOp::EXCHANGE, "exchange"sv),
@@ -3308,6 +3312,9 @@ public:
         case ArithmeticOp::TRUNC:
         case ArithmeticOp::ROUND:
         case ArithmeticOp::RINT:
+        case ArithmeticOp::ERF:
+        case ArithmeticOp::ERFC:
+        case ArithmeticOp::EXPM1:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::NORMALIZE:
@@ -3344,6 +3351,7 @@ public:
         case ArithmeticOp::ATAN2:
         case ArithmeticOp::POW:
         case ArithmeticOp::POW_INT:
+        case ArithmeticOp::LDEXP:
         case ArithmeticOp::COPYSIGN:
         case ArithmeticOp::CROSS:
         case ArithmeticOp::DOT:
@@ -3846,12 +3854,16 @@ template<typename OperandSpan>
         case ArithmeticOp::TRUNC:
         case ArithmeticOp::ROUND:
         case ArithmeticOp::RINT:
+        case ArithmeticOp::ERF:
+        case ArithmeticOp::ERFC:
+        case ArithmeticOp::EXPM1:
             return operands[0]->type() == result && result->is_float_or_float_vector();
         case ArithmeticOp::ATAN2:
         case ArithmeticOp::POW:
         case ArithmeticOp::COPYSIGN:
             return all_are(result) && result->is_float_or_float_vector();
         case ArithmeticOp::POW_INT:
+        case ArithmeticOp::LDEXP:
             return operands[0]->type() == result && result->is_float_or_float_vector() &&
                    scalar_or_vector_integer(operands[1]->type()) &&
                    (same_scalar_or_vector_shape(result, operands[1]->type()) ||

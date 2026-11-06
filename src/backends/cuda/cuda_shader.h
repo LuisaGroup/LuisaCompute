@@ -57,6 +57,15 @@ public:
     [[nodiscard]] virtual bool is_native() const noexcept { return false; }
     // Direct-buffer Tile kernels have their own parameter order and static grid.
     [[nodiscard]] virtual bool is_tile() const noexcept { return false; }
+    // True only when the kernel waits for its programmatic dependency
+    // (`grid_dependency_synchronize()`), which is the precondition that lets a
+    // launch relax the stream serialization of this grid. This is a
+    // set-membership test on the kernel's builtin calls, so it asserts the
+    // contract of that intrinsic rather than proving it: every thread of every
+    // block must execute the wait before reading anything the predecessor wrote.
+    // A *conditional* wait would still set this flag. False for everything else,
+    // so every other launch keeps the plain `cuLaunchKernel` path.
+    [[nodiscard]] virtual bool uses_grid_dependency_synchronize() const noexcept { return false; }
     void launch(CUDACommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;
     void set_name(luisa::string &&name) noexcept;

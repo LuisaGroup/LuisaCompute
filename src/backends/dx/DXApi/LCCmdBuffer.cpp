@@ -644,22 +644,98 @@ public:
         });
     }
 
+    // Native raster draw: record the declared resource states so that the
+    // enhanced-barrier tracker inserts the right transitions. Such a draw has no
+    // `RasterShader` saved-argument table to read usages from; the launcher packed
+    // one `Usage` per non-uniform resource argument into the command instead
+    // (`DrawRasterSceneCommand::argument_usages()`), and that declaration is the
+    // synchronization contract. Mirrors `preprocess_native_shader_dispatch` below,
+    // with the raster stage's barrier usages.
+    void preprocess_native_raster_usages(
+        DrawRasterSceneCommand const *cmd) noexcept {
+        auto arguments = cmd->arguments();
+        auto usages = cmd->argument_usages();
+        auto usage_index = size_t{0u};
+        for (auto &&argument : arguments) {
+            if (argument.tag == Argument::Tag::UNIFORM) { continue; }
+            if (usage_index >= usages.size()) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "A native raster draw carries {} resource argument(s) but "
+                    "only {} per-argument usage declaration(s); the command was "
+                    "not built by NativeShaderLauncher::draw().",
+                    arguments.size(), usages.size());
+                return;
+            }
+            auto is_write = (luisa::to_underlying(usages[usage_index++]) &
+                             luisa::to_underlying(Usage::WRITE)) != 0u;
+            if (argument.tag == Argument::Tag::BUFFER) {
+                LUISA_ASSERT(argument.buffer.handle != 0u,
+                             "A native raster draw contains a null buffer handle.");
+                auto buffer = reinterpret_cast<Buffer const *>(argument.buffer.handle);
+                if (is_write) {
+                    LUISA_ASSERT(is_device_buffer(buffer),
+                                 "An unordered-access buffer can not be a host "
+                                 "buffer.");
+                    state_tracker->Record(
+                        BufferView{buffer, argument.buffer.offset,
+                                   argument.buffer.size},
+                        EnhancedBarrierTracker::Usage::RasterUAV);
+                } else if (is_device_buffer(buffer)) {
+                    state_tracker->Record(
+                        BufferView{buffer, argument.buffer.offset,
+                                   argument.buffer.size},
+                        EnhancedBarrierTracker::Usage::RasterRead);
+                } else {
+                    LUISA_ASSERT(buffer->get_tag() == Resource::Tag::UploadBuffer,
+                                 "Only an upload buffer may be read as a host "
+                                 "buffer by a native raster draw.");
+                }
+            } else {
+                // Textures, bindless arrays and acceleration structures are
+                // already rejected by `load_raster()`, so a draw that reaches this
+                // point was hand-assembled.
+                LUISA_ERROR_WITH_LOCATION(
+                    "Native raster draws only support buffer arguments on the "
+                    "DirectX backend (tag {}); textures, bindless arrays and "
+                    "acceleration structures are rejected at load_raster().",
+                    luisa::to_underlying(argument.tag));
+                return;
+            }
+        }
+        if (usage_index != usages.size()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "A native raster draw carries {} per-argument usage "
+                "declaration(s) for {} resource argument(s).",
+                usages.size(), usage_index);
+        }
+    }
+
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
-        auto cs = reinterpret_cast<RasterShader *>(cmd->handle());
-        uniform_align(32);
-        size_t beforeSize = arg_buffer->size();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
-        pending_validations.clear();
-        decode_cmd(cmd->arguments(), Visitor{this, cs->args().data(), *cmd, true, cs->validation_count()});
-        // `_validate_*` fields trail all uniform fields in `_Args`
-        // (see GenerateCBuffer): append the collected bounds last.
-        for (auto bound : pending_validations) {
-            emplace_data(bound, /*alignment=*/4);
-        }
-        size_t afterSize = arg_buffer->size();
-        if (!state_only) {
-            arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);
+        if (cmd->is_native_shader()) {
+            // No `RasterShader` saved-argument table and no `_Args` block: the
+            // uniforms travel as root 32-bit constants, which the encoding pass
+            // writes from the launcher's argument buffer directly. Neither the
+            // staging buffer nor the `arg_vecs`/`buffer_vec` cursor pair is
+            // touched, and the encoding pass skips its matching `buffer_vec++`
+            // (see `LCCmdVisitor::visit(DrawRasterSceneCommand const *)`).
+            preprocess_native_raster_usages(cmd);
+        } else {
+            auto cs = reinterpret_cast<RasterShader *>(cmd->handle());
+            uniform_align(32);
+            size_t beforeSize = arg_buffer->size();
+            pending_validations.clear();
+            decode_cmd(cmd->arguments(), Visitor{this, cs->args().data(), *cmd, true, cs->validation_count()});
+            // `_validate_*` fields trail all uniform fields in `_Args`
+            // (see GenerateCBuffer): append the collected bounds last.
+            for (auto bound : pending_validations) {
+                emplace_data(bound, /*alignment=*/4);
+            }
+            size_t afterSize = arg_buffer->size();
+            if (!state_only) {
+                arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);
+            }
         }
 
         for (auto &&mesh : cmd->scene()) {
@@ -1446,19 +1522,39 @@ public:
             }
             cmdList->OMSetRenderTargets(rtvs.size(), &rtvHandle, true, dsvHandlePtr);
         }
-        auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
+        RasterShader *shader = nullptr;
+        if (cmd->is_native_shader()) {
+            // Resolve the handle through the extension's registry *before*
+            // dereferencing it: a native raster handle is an instance the
+            // extension owns, so an unregistered one must be reported instead of
+            // being cast to a `RasterShader`.
+            NativeRasterShaderState state;
+            if (!find_native_raster_shader(lc_device, cmd->handle(), state)) { return; }
+            shader = state.shader;
+        } else {
+            shader = reinterpret_cast<RasterShader *>(cmd->handle());
+        }
         auto rasterState = cmd->raster_state();
         auto pso = shader->get_pso({rtvFormats, rtvs.size()}, cmd->mesh_format(), dsvFormat, rasterState);
-        auto &&tempBuffer = *buffer_vec;
-        buffer_vec++;
-        bind_props->emplace_back(DescriptorHeapView(device->sampler_heap.get()));
-        if (tempBuffer.second > 0) {
-            bind_props->emplace_back(BufferView(arg_buffer.buffer, arg_buffer.offset + tempBuffer.first, tempBuffer.second));
+        if (cmd->is_native_shader()) {
+            // The native route binds its own root signature, pipeline state, one
+            // root resource view per reflected binding, and the launcher's uniform
+            // blob as root 32-bit constants. It has no `_Args` staging buffer, no
+            // sampler heap and no bindless tables, so it consumes no `arg_vecs`
+            // entry here - the preprocessing pass skipped creating one.
+            if (!encode_native_raster_draw(lc_device, bd, cmd, pso)) { return; }
+        } else {
+            auto &&tempBuffer = *buffer_vec;
+            buffer_vec++;
+            bind_props->emplace_back(DescriptorHeapView(device->sampler_heap.get()));
+            if (tempBuffer.second > 0) {
+                bind_props->emplace_back(BufferView(arg_buffer.buffer, arg_buffer.offset + tempBuffer.first, tempBuffer.second));
+            }
+            auto global_heapView = DescriptorHeapView(device->global_heap.get());
+            vstd::push_back_func(*bind_props, shader->bindless_count(), [&] { return global_heapView; });
+            decode_cmd(cmd->arguments(), Visitor{this, shader->args().data()});
+            bd->set_raster_shader(shader, pso, *bind_props);
         }
-        auto global_heapView = DescriptorHeapView(device->global_heap.get());
-        vstd::push_back_func(*bind_props, shader->bindless_count(), [&] { return global_heapView; });
-        decode_cmd(cmd->arguments(), Visitor{this, shader->args().data()});
-        bd->set_raster_shader(shader, pso, *bind_props);
         if (rasterState.stencil_state.enable_stencil) {
             cmdList->OMSetStencilRef(
                 rasterState.stencil_state.reference);
@@ -1477,7 +1573,15 @@ public:
         auto propCount = shader->properties().size();
         for (auto idx : vstd::range(static_cast<int64>(meshes.size()))) {
             auto &&mesh = meshes[idx];
-            cmdList->SetGraphicsRoot32BitConstant(propCount, mesh.object_id(), 0);
+            if (cmd->is_native_shader()) {
+                // A native raster shader reads the object id from the dword it
+                // reserved at the front of its own root-constant block, and only
+                // when it reserved one (the DSL path's separate appended parameter
+                // does not exist here).
+                encode_native_raster_object_id(lc_device, bd, cmd, mesh.object_id());
+            } else {
+                cmdList->SetGraphicsRoot32BitConstant(propCount, mesh.object_id(), 0);
+            }
             vbv->clear();
             auto src = mesh.vertex_buffers();
             vstd::push_back_func(
@@ -1701,13 +1805,19 @@ void LCCmdBuffer::Execute(
                     if (static_cast<CustomCommand const *>(command.get())->custom_cmd_uuid() ==
                         to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE)) {
                         auto c = static_cast<DrawRasterSceneCommand const *>(command.get());
-                        auto rs = reinterpret_cast<RasterShader *>(c->handle());
-                        uniform_size = CalcAlign(uniform_size, 32);
-                        for (auto &&i : c->arguments()) {
-                            add_size(*c, i);
-                        }
-                        if (rs->validation_count() > 0) {
-                            uniform_size += rs->validation_count() * sizeof(uint);
+                        // A native raster draw binds its uniforms as root 32-bit
+                        // constants, so it stages no `_Args`/uniform bytes at all
+                        // (and has no `_validate_*` payload): its only cost is the
+                        // size it does not add here.
+                        if (!c->is_native_shader()) {
+                            auto rs = reinterpret_cast<RasterShader *>(c->handle());
+                            uniform_size = CalcAlign(uniform_size, 32);
+                            for (auto &&i : c->arguments()) {
+                                add_size(*c, i);
+                            }
+                            if (rs->validation_count() > 0) {
+                                uniform_size += rs->validation_count() * sizeof(uint);
+                            }
                         }
                     }
                 } break;

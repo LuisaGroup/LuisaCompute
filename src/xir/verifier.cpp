@@ -265,6 +265,9 @@ template<typename IndexAt>
         case ArithmeticOp::TRUNC:
         case ArithmeticOp::ROUND:
         case ArithmeticOp::RINT:
+        case ArithmeticOp::ERF:
+        case ArithmeticOp::ERFC:
+        case ArithmeticOp::EXPM1:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::NORMALIZE:
@@ -301,6 +304,7 @@ template<typename IndexAt>
         case ArithmeticOp::ATAN2:
         case ArithmeticOp::POW:
         case ArithmeticOp::POW_INT:
+        case ArithmeticOp::LDEXP:
         case ArithmeticOp::COPYSIGN:
         case ArithmeticOp::CROSS:
         case ArithmeticOp::DOT:
@@ -576,7 +580,7 @@ template<typename Enum>
         case DerivedInstructionTag::ARITHMETIC:
             return enum_value_between(
                 static_cast<const ArithmeticInst *>(instruction)->op(),
-                ArithmeticOp::UNARY_MINUS, ArithmeticOp::EXTRACT);
+                ArithmeticOp::UNARY_MINUS, ArithmeticOp::LDEXP);
         case DerivedInstructionTag::THREAD_GROUP:
             return enum_value_between(
                 static_cast<const ThreadGroupInst *>(instruction)->op(),
@@ -1009,12 +1013,16 @@ template<typename OperandSpan>
         case ArithmeticOp::TRUNC:
         case ArithmeticOp::ROUND:
         case ArithmeticOp::RINT:
+        case ArithmeticOp::ERF:
+        case ArithmeticOp::ERFC:
+        case ArithmeticOp::EXPM1:
             return operands[0]->type() == result && result->is_float_or_float_vector();
         case ArithmeticOp::ATAN2:
         case ArithmeticOp::POW:
         case ArithmeticOp::COPYSIGN:
             return all_are(result) && result->is_float_or_float_vector();
         case ArithmeticOp::POW_INT:
+        case ArithmeticOp::LDEXP:
             return operands[0]->type() == result && result->is_float_or_float_vector() &&
                    scalar_or_vector_integer(operands[1]->type()) &&
                    (same_scalar_or_vector_shape(result, operands[1]->type()) ||

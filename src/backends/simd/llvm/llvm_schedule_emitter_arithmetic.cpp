@@ -358,6 +358,24 @@ namespace luisa::compute::simd::detail {
             &_module, id, overloads);
         return _builder.CreateCall(function, values);
     };
+    // Intrinsics with more than one overload type (llvm.ldexp is
+    // `llvm_anyfloat_ty (LLVMMatchType<0>, llvm_anyint_ty)`) must be
+    // requested with *all* of their overload types: Intrinsic::getType
+    // resolves each overloaded parameter through
+    // Tys[D.getArgumentNumber()], so a one-element overload array is an
+    // out-of-bounds read for the second overloaded type.
+    auto intrinsic_with_overloads = [&](
+                                            ::llvm::Intrinsic::ID id,
+                                            ::llvm::ArrayRef<::llvm::Type *> overloads,
+                                            ::llvm::ArrayRef<::llvm::Value *> args) {
+#if LLVM_VERSION_MAJOR >= 22
+            auto *function = ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+            auto *function = ::llvm::Intrinsic::getDeclaration(
+#endif
+                &_module, id, overloads);
+            return _builder.CreateCall(function, args);
+    };
     auto unary_intrinsic = [&](::llvm::Intrinsic::ID id) {
         return unary([&](::llvm::Value *value, const Type *) {
             return intrinsic(id, {value});
@@ -1048,6 +1066,30 @@ namespace luisa::compute::simd::detail {
                 }
                 return scalar_libm("atanh", value);
             });
+        case xir::ArithmeticOp::ERF:
+            // LLVM has no llvm.erf intrinsic, so this always takes
+            // the C library entry point (there is no native f32 body for
+            // it in LLVMNativeMath).
+            return unary([&](::llvm::Value *value, const Type *)
+                             -> ::llvm::Value * {
+                return scalar_libm("erf", value);
+            });
+        case xir::ArithmeticOp::ERFC:
+            // LLVM has no llvm.erfc intrinsic, so this always takes
+            // the C library entry point (there is no native f32 body for
+            // it in LLVMNativeMath).
+            return unary([&](::llvm::Value *value, const Type *)
+                             -> ::llvm::Value * {
+                return scalar_libm("erfc", value);
+            });
+        case xir::ArithmeticOp::EXPM1:
+            // LLVM has no llvm.expm1 intrinsic, so this always takes
+            // the C library entry point (there is no native f32 body for
+            // it in LLVMNativeMath).
+            return unary([&](::llvm::Value *value, const Type *)
+                             -> ::llvm::Value * {
+                return scalar_libm("expm1", value);
+            });
         case xir::ArithmeticOp::EXP:
             return unary([&](::llvm::Value *value, const Type *type)
                              -> ::llvm::Value * {
@@ -1315,6 +1357,86 @@ namespace luisa::compute::simd::detail {
                     helper_builder.CreateRet(current_result);
                 }
                 return _builder.CreateCall(helper, {base, exponent});
+            });
+        case xir::ArithmeticOp::LDEXP:
+            return binary([&](::llvm::Value *base, ::llvm::Value *exponent,
+                              const Type *, const Type *exponent_type_xir)
+                              -> ::llvm::Value * {
+                // llvm.ldexp takes an anyfloat mantissa and an anyint exponent
+                // whose element count must match the mantissa, and every target
+                // lowers it to the 32-bit libm entry point. Broadcast a scalar
+                // exponent and narrow it to i32 here.
+                auto *base_type = base->getType();
+                if (auto *vector_type = ::llvm::dyn_cast<
+                        ::llvm::FixedVectorType>(base_type)) {
+                    if (!exponent->getType()->isVectorTy()) {
+                        exponent = _builder.CreateVectorSplat(
+                            vector_type->getNumElements(), exponent);
+                    }
+                }
+                // Signedness contract: LLVM IR drops the XIR signedness, so it is
+                // recovered from the operand type. A signed exponent is
+                // sign-extended and clamped to [INT32_MIN, INT32_MAX]; an unsigned
+                // exponent is zero-extended and clamped to INT32_MAX only, because
+                // an unsigned exponent above INT32_MAX already saturates the
+                // mantissa to zero or +inf, so keeping its value stays exact while
+                // sign-extending it would turn a huge exponent into a hugely
+                // negative one.
+                auto *exponent_element_type = exponent_type_xir->is_vector() ?
+                                                  exponent_type_xir->element() :
+                                                  exponent_type_xir;
+                auto exponent_is_signed = exponent_element_type->is_int();
+                auto *i32_type = _builder.getInt32Ty();
+                auto *exponent_scalar_type = exponent->getType()->getScalarType();
+                        auto exponent_bits = exponent_scalar_type->getIntegerBitWidth();
+                        auto *i32_exponent_type =
+                            exponent->getType()->isVectorTy() ?
+                                static_cast<::llvm::Type *>(
+                                    ::llvm::FixedVectorType::get(
+                                        i32_type,
+                                        ::llvm::cast<::llvm::FixedVectorType>(
+                                            exponent->getType())
+                                            ->getNumElements())) :
+                                static_cast<::llvm::Type *>(i32_type);
+                        auto lanes = exponent->getType()->isVectorTy() ?
+                                         ::llvm::cast<::llvm::FixedVectorType>(
+                                             exponent->getType())
+                                             ->getNumElements() :
+                                         0u;
+                        auto splat = [&](::llvm::Constant *constant) -> ::llvm::Value * {
+                            return lanes == 0u ?
+                                       static_cast<::llvm::Value *>(constant) :
+                                       _builder.CreateVectorSplat(lanes, constant);
+                        };
+                        if (exponent_bits < 32u) {
+                            exponent = exponent_is_signed ?
+                                           _builder.CreateSExt(exponent, i32_exponent_type) :
+                                           _builder.CreateZExt(exponent, i32_exponent_type);
+                        } else if (!(exponent_is_signed && exponent_bits == 32u)) {
+                            // Clamp in the source type *before* truncating: truncation
+                            // alone would wrap an out-of-range exponent back into range.
+                            auto *high = splat(::llvm::ConstantInt::get(
+                                exponent_scalar_type, 0x7fffffffu));
+                            exponent = exponent_is_signed ?
+                                           _builder.CreateSelect(
+                                               _builder.CreateICmpSGT(exponent, high),
+                                               high, exponent) :
+                                           _builder.CreateSelect(
+                                               _builder.CreateICmpUGT(exponent, high),
+                                               high, exponent);
+                            if (exponent_is_signed) {
+                                auto *low = splat(::llvm::ConstantInt::getSigned(
+                                    exponent_scalar_type, -2147483648ll));
+                                exponent = _builder.CreateSelect(
+                                    _builder.CreateICmpSLT(exponent, low), low, exponent);
+                            }
+                            if (exponent_bits > 32u) {
+                                exponent = _builder.CreateTrunc(exponent, i32_exponent_type);
+                            }
+                        }
+                return intrinsic_with_overloads(
+                    ::llvm::Intrinsic::ldexp,
+                    {base_type, exponent->getType()}, {base, exponent});
             });
         case xir::ArithmeticOp::SQRT:
             return unary_intrinsic(::llvm::Intrinsic::sqrt);
