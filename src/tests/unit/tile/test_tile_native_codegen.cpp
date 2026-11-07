@@ -1,6 +1,14 @@
+// Test native Tile MMA lowering and fail-closed code generation.
+// Covers Metal MPP and the shared DX/VK HLSL realization.
+
 #include "ut/ut.hpp"
 #include "tile_native_test_utils.h"
+
+#ifdef LUISA_TILE_TEST_HLSL
+#include "tile_codegen.h"
+#else
 #include "metal_tile_codegen.h"
+#endif
 
 using namespace luisa::compute;
 using namespace luisa::compute::tile;
@@ -10,12 +18,22 @@ using luisa::test::tile_native::Gemm;
 
 namespace {
 
+[[nodiscard]] auto lower(const tile::Function &function, const tile::CompileOptions &options, uint32_t max_threads) {
+#ifdef LUISA_TILE_TEST_HLSL
+    return lc::hlsl::lower_tile_to_hlsl(
+        function, options,
+        {.warp_size = 32u, .max_block_size = max_threads, .backend_label = "HLSL"});
+#else
+    return metal::lower_tile_to_mpp(function, options, max_threads);
+#endif
+}
+
 void test_mapping() {
     for (auto cfg : {Gemm{127, 193, 61, 64, 64}, Gemm{513, 257, 129, 32, 32, 4, 1},
                      Gemm{37, 29, 23, 16, 32, 2, 2, true, true}}) {
         auto kernel = gemm(cfg);
         expect(kernel.valid());
-        auto code = metal::lower_tile_to_mpp(kernel.function(), {}, 1024u);
+        auto code = lower(kernel.function(), {}, 1024u);
         expect(code.ok()) << code.metadata.error;
         if (!code.ok()) { continue; }
         auto subgroups = cfg.subgroups_m == 0 ? 4u : static_cast<uint32_t>(cfg.subgroups_m * cfg.subgroups_n);
@@ -30,9 +48,16 @@ void test_mapping() {
         expect(code.metadata.arguments[2].usage == Usage::WRITE);
         expect(code.metadata.disjoint_writes);
         auto &src = code.metadata.source;
+#ifdef LUISA_TILE_TEST_HLSL
+        expect(src.find("_lc_tile_mma_") != luisa::string::npos);
+        expect(src.find("_lc_tile_native") != luisa::string::npos);
+        expect(src.find("sum += a[") != luisa::string::npos);
+        expect(code.metadata.realization.find("scalar FP32 MMA") != luisa::string::npos);
+#else
         expect(src.find("matmul2d_descriptor(") != luisa::string::npos);
         expect(src.find(cfg.subgroups_m == 0 ? "execution_simdgroups<4>" : "execution_simdgroups<1>") != luisa::string::npos);
         expect(src.find("kernel_main_indirect") != luisa::string::npos);
+#endif
         // Lowering is read-only; it must not relabel the semantic input as machine IR.
         expect(kernel.function().form() == IRForm::CANDIDATE);
     }
@@ -41,35 +66,35 @@ void test_mapping() {
 void test_rejections() {
     Module module;
     luisa::compute::tile::Function orphan{nullptr, 0u, "orphan", IRForm::CANDIDATE};
-    expect(!metal::lower_tile_to_mpp(orphan, {}, 1024u).ok());
+    expect(!lower(orphan, {}, 1024u).ok());
     auto detached = module.create_function("detached", IRForm::CANDIDATE)->remove_self();
-    auto unattached = metal::lower_tile_to_mpp(*detached, {}, 1024u);
+    auto unattached = lower(*detached, {}, 1024u);
     expect(!unattached.ok());
     expect(unattached.metadata.error.find("owning module") != luisa::string::npos);
     auto kernel = gemm({32, 32, 32});
     for (auto threads : {1u, 31u, 33u, 2048u}) {
-        auto code = metal::lower_tile_to_mpp(kernel.function(), {threads}, 1024u);
+        auto code = lower(kernel.function(), {threads}, 1024u);
         expect(!code.ok());
         expect(!code.metadata.error.empty());
         expect(code.metadata.source.empty());
     }
     auto cohort = gemm({64, 64, 32, 16, 16, 2, 2});
-    expect(!metal::lower_tile_to_mpp(cohort.function(), {32u}, 1024u).ok());
-    expect(!metal::lower_tile_to_mpp(cohort.function(), {}, 64u).ok());
+    expect(!lower(cohort.function(), {32u}, 1024u).ok());
+    expect(!lower(cohort.function(), {}, 64u).ok());
     auto invalid_atom = gemm({16, 16, 32, 8, 8});
     expect(invalid_atom.valid());
-    expect(!metal::lower_tile_to_mpp(invalid_atom.function(), {}, 1024u).ok());
+    expect(!lower(invalid_atom.function(), {}, 1024u).ok());
     Gemm ordered{32, 32, 32};
     ordered.math.allow_reassociation = false;
     auto ordered_kernel = gemm(ordered);
-    expect(!metal::lower_tile_to_mpp(ordered_kernel.function(), {}, 1024u).ok());
+    expect(!lower(ordered_kernel.function(), {}, 1024u).ok());
     auto serial = tile_kernel("not_silently_erased", [] {
                       for (auto &group : parallel(shape(1), exec::Scope::GROUP)) {
                           for (auto &step : group.pipeline(shape(2), {.window = 2})) { step.stage("unsupported"); }
                       }
                   }).capture();
     expect(serial.valid());
-    auto unsupported = metal::lower_tile_to_mpp(serial.function(), {}, 1024u);
+    auto unsupported = lower(serial.function(), {}, 1024u);
     expect(!unsupported.ok());
     expect(unsupported.metadata.error.find("unsupported") != luisa::string::npos);
 }

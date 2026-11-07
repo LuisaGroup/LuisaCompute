@@ -381,6 +381,21 @@ if has_config("lc_metal_backend") and is_plat("macosx") then
         add_deps("lc-tile")
     end)
 end
+if has_config("lc_dx_backend") or has_config("lc_vk_backend") then
+    test_proj("test_tile_native_codegen_hlsl", "unit/tile/test_tile_native_codegen.cpp", false, function()
+        add_deps("lc-tile")
+        add_files("../backends/common/hlsl/tile_codegen.cpp")
+        add_includedirs("../backends/common/hlsl")
+        add_defines("LUISA_TILE_TEST_HLSL=1")
+    end)
+end
+if has_config("lc_dx_backend") or
+        (has_config("lc_vk_backend") and has_config("lc_vk_backend_enable_dxc_compatibility")) then
+    -- Native HLSL Tile runtime; select DX or VK explicitly at run time.
+    test_proj("test_tile_native_runtime_hlsl", "unit/tile/test_tile_native_runtime.cpp", false, function()
+        add_deps("lc-tile")
+    end)
+end
 
 -- unit/dsl
 test_proj("test_binding_group", "unit/dsl/test_binding_group.cpp")

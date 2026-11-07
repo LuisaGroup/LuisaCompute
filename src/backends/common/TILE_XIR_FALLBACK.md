@@ -1,9 +1,10 @@
 # Tile XIR→AST Fallback (DX / VK)
 
-`DeviceInterface::create_tile_kernel` is an optional native Tile compiler hook.
-CUDA, Metal, Metal4, and SIMD/CPU implement it natively; DX and VK do not have a
-native Tile compiler, so they realize Tile kernels through a shared fallback in
-`src/backends/common/tile_xir_kernel.h`:
+DeviceInterface::create_tile_kernel is an optional native Tile compiler hook.
+CUDA, Metal, Metal4, and SIMD/CPU implement their target-specific paths. DX and
+VK first lower the bounded dense-FP32 MMA family through
+`src/backends/common/hlsl/tile_codegen.cpp`; all other Tile programs retain the
+shared fallback in `src/backends/common/tile_xir_kernel.h`:
 
 ```
 TileIR --(tile::bridge::xir::plan/lower)--> XIR SSA/CFG --(xir2ast)--> AST
@@ -12,6 +13,12 @@ TileIR --(tile::bridge::xir::plan/lower)--> XIR SSA/CFG --(xir2ast)--> AST
 
 ## Why this pipeline
 
+- The native HLSL path emits explicitly distributed scalar FP32 MMA loops and
+  reuses the ordinary AST/HLSL buffer ABI. It needs no cooperative-matrix
+  extension. Explicit XIR planner options select the fallback directly;
+  recognized native candidates fail closed rather than silently changing
+  realization. Vulkan's native HLSL route requires DXC compatibility, and its
+  legacy descriptor ABI requires aligned buffer-view offsets.
 - The TileIR→XIR bridge (`include/luisa/tile/bridge/xir/`) produces an
   in-memory, verified SSA/CFG module directly from TileIR — no AST or TVM
   intermediate. It is always built (only the TIRx bridge is optional).
@@ -22,9 +29,10 @@ TileIR --(tile::bridge::xir::plan/lower)--> XIR SSA/CFG --(xir2ast)--> AST
   DX/VK backends already prove with autodiff (`xir_autodiff.h`).
 - The runtime and `tile::compile()` stay untouched: the runtime owns the
   shader/dispatch ABI and does not depend on the Tile compiler. Each backend
-  adds one adapter translation unit (`LCDeviceTile.cpp`, `device_tile.cpp`)
+  adds one adapter translation unit (LCDeviceTile.cpp, device_tile.cpp)
   that supplies device facts (warp size, max block width, local snapshot
-  budget) and delegates to `backend_detail::create_tile_kernel_via_ast`.
+  budget), tries the bounded native HLSL realization first, and otherwise
+  delegates to backend_detail::create_tile_kernel_via_ast.
 
 ## Fail-closed option matrix
 
@@ -73,14 +81,23 @@ dedicated tests) and costs compile time only. A future optimization could hand
 the tile-XIR module directly to `SpirvCodegenEntry::compile_spirv_xir`, but
 that entry still requires an AST function for the external ABI/descriptor
 bindings, so the xir2ast step remains necessary for now. No HLSL-fallback
-reason applies to tile kernels (no printing/native_include/async_copy/
-motion_blur), so `LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV` stays satisfiable.
+reason applies to Tile kernels realized through this XIR fallback (no
+printing/native_include/async_copy/motion_blur), so
+LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV stays satisfiable. The separate native
+HLSL realization intentionally uses native_include and does not run under that
+strict native-XIR guard.
 
 ## Tests
 
-`src/tests/unit/tile/bridge/test_xir_runtime_gpu.cpp` is the portable GPU
+src/tests/unit/tile/bridge/test_xir_runtime_gpu.cpp is the portable GPU
 subset (pointwise map/store, copy/transpose, fold policies, serial/pipeline
 nests, block-width constraints, fail-closed options, overlapping writable
-views). It is registered per backend in `src/tests/CMakeLists.txt`
-(`test_tile_xir_runtime_gpu_dx` / `..._vk`) and runs under the xmake test
-target `test_tile_xir_runtime_gpu` via `xmake run test_tile_xir_runtime_gpu dx`.
+views). It is registered per backend in src/tests/CMakeLists.txt
+(test_tile_xir_runtime_gpu_dx / ..._vk) and runs under the xmake test
+target test_tile_xir_runtime_gpu via xmake run test_tile_xir_runtime_gpu dx.
+
+Native HLSL codegen and runtime coverage uses test_tile_native_codegen_hlsl,
+test_tile_native_runtime_dx / test_tile_native_runtime_vk (CMake), and
+test_tile_native_runtime_hlsl (xmake). These tests check ragged outputs,
+subgroup cohorts, transposed operands, buffer views, aliasing, and fail-closed
+ordered-MMA rejection on both DXIL and HLSL-to-SPIR-V.

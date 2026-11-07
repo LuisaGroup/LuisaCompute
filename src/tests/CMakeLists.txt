@@ -927,6 +927,26 @@ if (LUISA_COMPUTE_ENABLE_METAL AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         target_compile_definitions(test_tile_native_runtime PRIVATE LUISA_TEST_TILE_NATIVE_TIRX=1)
     endif ()
 endif ()
+if (TARGET luisa-compute-hlsl-codegen)
+    luisa_compute_add_test(test_tile_native_codegen_hlsl
+            unit/tile/test_tile_native_codegen.cpp LABELS "unit;unit_tile;unit_tile_native")
+    target_sources(test_tile_native_codegen_hlsl PRIVATE ../backends/common/hlsl/tile_codegen.cpp)
+    target_include_directories(test_tile_native_codegen_hlsl PRIVATE ../backends/common/hlsl)
+    target_compile_definitions(test_tile_native_codegen_hlsl PRIVATE LUISA_TILE_TEST_HLSL=1)
+endif ()
+foreach (_tile_native_hlsl_backend IN ITEMS dx vk)
+    if (TARGET luisa-compute-backend-${_tile_native_hlsl_backend} AND
+            ("${_tile_native_hlsl_backend}" STREQUAL "dx" OR LUISA_COMPUTE_VULKAN_ENABLE_DXC_COMPATIBILITY))
+        luisa_compute_add_test(test_tile_native_runtime_${_tile_native_hlsl_backend}
+                unit/tile/test_tile_native_runtime.cpp
+                LABELS "integration;integration_tile_native;integration_${_tile_native_hlsl_backend}"
+                ARGS ${_tile_native_hlsl_backend})
+        add_dependencies(test_tile_native_runtime_${_tile_native_hlsl_backend}
+                luisa-compute-backend-${_tile_native_hlsl_backend})
+        set_tests_properties(test_tile_native_runtime_${_tile_native_hlsl_backend} PROPERTIES TIMEOUT 240
+                FAIL_REGULAR_EXPRESSION "0 asserts;tests skipped")
+    endif ()
+endforeach ()
 if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Independent system-library baselines, not a Tile/TVM lowering path.
     enable_language(OBJCXX)

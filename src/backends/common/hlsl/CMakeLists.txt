@@ -89,6 +89,8 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             lc_hlsl_pch.h
             shader_compiler.cpp
             shader_compiler.h
+            tile_codegen.cpp
+            tile_codegen.h
             shader_property.h
             shared_var.h
             struct_generator.cpp
@@ -103,7 +105,7 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
     # .bytes/.dxil input cannot leave a stale aggregate or trigger
     # needless recompilation when the aggregate is already current.
     add_dependencies(luisa-compute-hlsl-codegen luisa-compute-backend-hlsl-embed)
-    target_link_libraries(luisa-compute-hlsl-codegen PUBLIC luisa-compute-runtime luisa-compute-core luisa-compute-vstl)
+    target_link_libraries(luisa-compute-hlsl-codegen PUBLIC luisa-compute-runtime luisa-compute-core luisa-compute-vstl luisa-compute-tile)
     set_target_properties(luisa-compute-hlsl-codegen PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
     if (UNIX AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")

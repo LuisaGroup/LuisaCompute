@@ -44,16 +44,28 @@ void run(Device &device, Gemm cfg, tile::CompileOptions options = {}) {
     auto shader = tile::compile(device, kernel, options);
     expect(static_cast<bool>(shader)) << shader.metadata().error;
     if (!shader) { return; }
+    if (device.backend_name() == "dx" || device.backend_name() == "vk") {
+        expect(shader.metadata().realization.find("native Tile") != string::npos) << shader.metadata().realization;
+        expect(shader.metadata().source.find("_lc_tile_native") != string::npos);
+    }
     auto stream = device.create_stream(StreamTag::COMPUTE);
-    // Nonzero, differently aligned view offsets exercise Runtime argument ABI.
-    constexpr auto pad = size_t{19};
+    // Nonzero, distinct view offsets exercise the Runtime argument ABI. The
+    // Vulkan HLSL compatibility ABI binds descriptors directly and therefore
+    // requires 16-byte-aligned views; native XIR/SPIR-V and DX do not impose
+    // that legacy restriction.
+    auto alignment = device.backend_name() == "vk" ? size_t{4} : size_t{1};
+    auto align_elements = [](size_t value, size_t alignment) {
+        return (value + alignment - 1u) / alignment * alignment;
+    };
+    auto pad = align_elements(size_t{19}, alignment);
+    auto bpad = align_elements(pad + 1u, alignment);
     constexpr auto guard = -731.25f;
     vector<float> a(cfg.m * cfg.k), b(cfg.k * cfg.n), c(cfg.m * cfg.n + 2 * pad, guard);
     auto ab = device.create_buffer<float>(a.size() + pad);
-    auto bb = device.create_buffer<float>(b.size() + pad + 1);
+    auto bb = device.create_buffer<float>(b.size() + bpad);
     auto cb = device.create_buffer<float>(c.size());
     auto av = ab.view(pad, a.size());
-    auto bv = bb.view(pad + 1, b.size());
+    auto bv = bb.view(bpad, b.size());
     auto cv = cb.view(pad, cfg.m * cfg.n);
     for (auto repeat = 0; repeat < 2; repeat++) {
         for (auto i = size_t{0}; i < a.size(); i++) { a[i] = std::sin(static_cast<float>(i) * .371f + .13f + repeat) * 1.375f; }
@@ -75,10 +87,12 @@ void run(Device &device, Gemm cfg, tile::CompileOptions options = {}) {
 
     // Aliasing is range-based, not a blanket ban on sharing a Buffer. This
     // also exercises the validator's combined read/write resource tracking.
-    auto storage = device.create_buffer<float>(a.size() + b.size() + cfg.m * cfg.n);
+    auto b_offset = align_elements(a.size(), alignment);
+    auto c_offset = b_offset + align_elements(b.size(), alignment);
+    auto storage = device.create_buffer<float>(c_offset + cfg.m * cfg.n);
     auto sa = storage.view(0, a.size());
-    auto sb = storage.view(a.size(), b.size());
-    auto sc = storage.view(a.size() + b.size(), cfg.m * cfg.n);
+    auto sb = storage.view(b_offset, b.size());
+    auto sc = storage.view(c_offset, cfg.m * cfg.n);
     stream << sa.copy_from(luisa::span{a}) << sb.copy_from(luisa::span{b})
            << shader(sa, sb, sc).dispatch() << sc.copy_to(c.data() + pad) << synchronize();
     expect(check(cfg, a, b, span{c}.subspan(pad, cfg.m * cfg.n)));
