@@ -30,6 +30,12 @@ public:
     // to the software one only when it cannot (`optix::available()`), so the
     // default behaviour is unchanged.
     [[nodiscard]] virtual bool use_fallback_rtx() const noexcept { return false; }
+
+    // Enable cudadevrt linking for indirect dispatch and device-side graphs.
+    // Disable it for plain compute kernels imported through
+    // VK_NV_cuda_kernel_launch: those drivers expect self-contained plain PTX,
+    // and the imported kernels cannot use either cudadevrt feature anyway.
+    [[nodiscard]] virtual bool use_cudadevrt() const noexcept { return true; }
 };
 
 }// namespace luisa::compute

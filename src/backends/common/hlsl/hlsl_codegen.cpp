@@ -718,7 +718,8 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     // scalars, see `PackedStructMember`) is part of the word's single `uint`
     // member, so writing it is a read-modify-write through the matching
     // `_lc_pack_set_*` helper.
-    if (state->lhs()->tag() == Expression::Tag::MEMBER) {
+    if (state->lhs()->tag() == Expression::Tag::MEMBER &&
+        !static_cast<MemberExpr const *>(state->lhs())->is_swizzle()) {
         auto member = static_cast<MemberExpr const *>(state->lhs());
         if (auto packed = util->GetPackedStructMember(
                 member->self()->type(), member->member_index())) {

@@ -538,6 +538,8 @@ CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
 
     // check cudadevrt
 #ifdef LUISA_COMPUTE_ENABLE_CUDADEVRT
+    if (_device_config_ext != nullptr &&
+        !static_cast<CUDADeviceConfigExt *>(_device_config_ext.get())->use_cudadevrt()) { return; }
     _cudadevrt_library = luisa::string_view{reinterpret_cast<const char *>(luisa_compute_cudadevrt), luisa_compute_cudadevrt_size};
     {
         // TODO: this check can consume hundreds of milliseconds! Is there a better way?
@@ -1154,13 +1156,10 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
     };
 
-    // We can safely turn on the minimal mode if using optix; the fallback is
-    // plain CUDA, so it must not get this option.
-    if (_compiler->nvrtc_version() >= 120400 &&
-        _handle.driver_version() >= 12040 &&
-        kernel.requires_raytracing() && !_use_fallback_rtx) {
-        nvrtc_options.emplace_back("-minimal");
-    }
+    // Do not use NVRTC's -minimal mode for OptiX shaders. The always-prepended
+    // device graph wrappers reference the declarations injected by -ewp, while
+    // -minimal suppresses those declarations and makes every such shader fail
+    // to compile (cudaGraphExec_t, cudaStream_t, cudaGraphDeviceNode_t, ...).
 
     luisa::string max_reg_opt;
     if (option.max_registers != 0u) {

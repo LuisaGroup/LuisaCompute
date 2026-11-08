@@ -241,6 +241,7 @@ void CodegenUtility::CheckPackedAtomicTarget(
     for (auto arg : args) {
         if (arg == nullptr || arg->tag() != Expression::Tag::MEMBER) { continue; }
         auto member = static_cast<MemberExpr const *>(arg);
+        if (member->is_swizzle()) { continue; }
         if (GetPackedStructMember(member->self()->type(), member->member_index())) {
             LUISA_ERROR_WITH_LOCATION(
                 "Atomic access to a member of a packed struct word is not "

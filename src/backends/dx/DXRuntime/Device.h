@@ -71,7 +71,7 @@ public:
         ~LazyLoadShader();
     };
     vstd::unique_ptr<luisa::compute::DefaultBinaryIO> ser_visitor;
-    vstd::unique_ptr<luisa::compute::DirectXDeviceConfigExt> device_settings;
+    luisa::unique_ptr<luisa::compute::DirectXDeviceConfigExt> device_settings;
     bool support_mesh_shader() const;
     vstd::MD5 adapter_id;
     DxPtr<IDXGIAdapter1> adapter;

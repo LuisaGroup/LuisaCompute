@@ -117,7 +117,8 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         file_io = settings->binary_io;
         profiler = settings->profiler;
         if (settings->extension) {
-            device_settings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
+            device_settings = luisa::unique_ptr<DirectXDeviceConfigExt>{
+                static_cast<DirectXDeviceConfigExt *>(settings->extension.release())};
             use_experimental = device_settings->UseExperimental();
         }
     }

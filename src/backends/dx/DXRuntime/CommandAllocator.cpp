@@ -74,8 +74,11 @@ void CommandAllocator::execute(
         } else {
             present_hresult = swapchain->Present(0, DXGI_PRESENT_ALLOW_TEARING | DXGI_PRESENT_DO_NOT_WAIT);
         }
-        if (present_hresult != S_OK) {
-            LUISA_WARNING("Present failed.");
+        // Present may return a non-S_OK success status when an occluded or
+        // do-not-wait frame is skipped. Only FAILED values are actual errors.
+        if (FAILED(present_hresult)) {
+            LUISA_WARNING("Present failed with HRESULT {:#x}.",
+                          static_cast<uint32_t>(present_hresult));
 
             if (present_hresult == DXGI_ERROR_DEVICE_REMOVED || present_hresult == DXGI_ERROR_DEVICE_HUNG || present_hresult == DXGI_ERROR_DEVICE_RESET) {
                 ThrowIfFailed(present_hresult);

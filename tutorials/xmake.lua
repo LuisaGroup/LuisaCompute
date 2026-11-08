@@ -17,7 +17,7 @@ end
 -- Tutorials that work without GUI (pure offline rendering)
 tutorial_proj("tutorial_01_mandelbrot",       "01_mandelbrot/main.cpp")
 tutorial_proj("tutorial_02_path_tracing",     "02_path_tracing/main.cpp")
-tutorial_proj("tutorial_06_image_processing", "06_image_processing/main.cpp")
+tutorial_proj("tutorial_06_image_processing", "06_image_processing/main.cpp", true)
 
 -- Tutorials that require GUI for interactive mode
 tutorial_proj("tutorial_03_mpm_fluid",          "03_mpm_fluid/main.cpp",          true)
