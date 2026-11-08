@@ -348,7 +348,13 @@ end)
 -- GEMM benchmark through the same XIR->AST fallback on GPU backends; run with
 -- `xmake run benchmark_tile_xir_gpu -- dx 1024 1024 1024 16 16 128`.
 test_proj("benchmark_tile_xir_gpu", "benchmark/benchmark_tile_xir_gpu.cpp", false, function()
-    add_deps("lc-tile")
+ add_deps("lc-tile")
+end)
+-- Native Tile HLSL on DX/VK versus explicit CUDA native/TIRx/DSL GEMM routes.
+-- Example: xmake run benchmark_tile_hlsl_comparison dx 512 512 64 32 32 7 50 200 native
+-- CUDA on toolchains without native Tile IR can use the explicit dsl baseline.
+test_proj("benchmark_tile_hlsl_comparison", "benchmark/benchmark_tile_hlsl_comparison.cpp", false, function()
+ add_deps("lc-tile")
 end)
 test_proj("benchmark_tile_workloads", "benchmark/benchmark_tile_workloads.cpp", false, function()
     add_deps("lc-tile")

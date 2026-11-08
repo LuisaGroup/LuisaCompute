@@ -834,6 +834,17 @@ endif ()
 # backends (dx/vk); the backend name comes from argv.
 luisa_compute_add_test(benchmark_tile_xir_gpu benchmark/benchmark_tile_xir_gpu.cpp)
 target_link_libraries(benchmark_tile_xir_gpu PRIVATE luisa::tile-xir)
+# Native Tile HLSL on DX/VK versus explicit CUDA native/TIRx/DSL GEMM routes.
+# Manual benchmark only; never register noisy performance numbers with CTest.
+luisa_compute_add_test(benchmark_tile_hlsl_comparison
+        benchmark/benchmark_tile_hlsl_comparison.cpp)
+target_link_libraries(benchmark_tile_hlsl_comparison PRIVATE luisa-compute-tile)
+foreach (_tile_hlsl_benchmark_backend IN ITEMS cuda dx vk)
+    if (TARGET luisa-compute-backend-${_tile_hlsl_benchmark_backend})
+        add_dependencies(benchmark_tile_hlsl_comparison
+                luisa-compute-backend-${_tile_hlsl_benchmark_backend})
+    endif ()
+endforeach ()
 luisa_compute_add_test(benchmark_tile_workloads benchmark/benchmark_tile_workloads.cpp)
 target_link_libraries(benchmark_tile_workloads PRIVATE luisa-compute-tile)
 luisa_compute_add_test(test_tile_primitives unit/tile/test_tile_primitives.cpp LABELS "unit;unit_tile" ARGS host)

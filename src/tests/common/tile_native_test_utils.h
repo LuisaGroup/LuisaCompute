@@ -13,6 +13,9 @@ struct Gemm {
     int64_t subgroups_m{0}, subgroups_n{1};
     bool transpose_a{false}, transpose_b{false};
     compute::tile::MmaPolicy math;
+    // Benchmarks can use the automatic root scope for CUDA Tile IR, which
+    // rejects explicit execution constraints. Existing tests retain GROUP.
+    bool explicit_group{true};
 };
 
 [[nodiscard]] inline compute::tile::Kernel gemm(Gemm cfg) {
@@ -34,7 +37,8 @@ struct Gemm {
             acc = mma(a, b, acc, cfg.math);
             C(coord(m0, n0), shape(m, n)).store(acc);
         };
-        for (auto &group : parallel(shape(gm, gn), exec::Scope::GROUP)) {
+        auto scope = cfg.explicit_group ? exec::Scope::GROUP : exec::Scope::AUTOMATIC;
+        for (auto &group : parallel(shape(gm, gn), scope)) {
             if (cfg.subgroups_m == 0) {
                 body(group.index(gm) * cfg.tile_m, group.index(gn) * cfg.tile_n);
             } else {
