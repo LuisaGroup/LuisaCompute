@@ -14,8 +14,13 @@ TileIR --(tile::bridge::xir::plan/lower)--> XIR SSA/CFG --(xir2ast)--> AST
 ## Why this pipeline
 
 - The native HLSL path emits explicitly distributed scalar FP32 MMA loops and
-  reuses the ordinary AST/HLSL buffer ABI. It needs no cooperative-matrix
-  extension. Explicit XIR planner options select the fallback directly;
+  reuses the ordinary AST/HLSL buffer ABI. Eight-output whole-group atoms use
+  direct 4x2 register tiles; full tiles omit clamps and store guards, while
+  ragged tiles retain them. Smaller evenly distributed atoms may cooperatively
+  stage canonical A/B tiles in shared memory within the device budget, including
+  transpose-aware loads. Subgroup, oversized, and irregular atoms retain the
+  original realization. No cooperative-matrix extension is required. Explicit
+  XIR planner options select the fallback directly;
   recognized native candidates fail closed rather than silently changing
   realization. Vulkan's native HLSL route requires DXC compatibility, and its
   legacy descriptor ABI requires aligned buffer-view offsets.

@@ -14,7 +14,7 @@ ShaderCreationInfo LCDevice::create_tile_kernel(const ShaderOption &option, cons
     auto native_selected = false;
     auto info = hlsl::create_tile_kernel_via_hlsl(
         this, option, kernel, tile_options, metadata,
-        {.warp_size = warp_size, .max_block_size = 1024u, .backend_label = "HLSL/DXIL"},
+        {.warp_size = warp_size, .max_block_size = 1024u, .max_shared_memory = 32u * 1024u, .backend_label = "HLSL/DXIL"},
         native_selected);
     if (native_selected) { return info; }
     auto config = backend_detail::GPUTileTargetConfig{

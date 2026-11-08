@@ -20,7 +20,7 @@ ShaderCreationInfo Device::create_tile_kernel(const ShaderOption &option, const 
     auto native_selected = false;
     auto info = hlsl::create_tile_kernel_via_hlsl(
         this, option, kernel, tile_options, metadata,
-        {.warp_size = warp_size, .max_block_size = max_block_size, .backend_label = "HLSL/SPIR-V"},
+        {.warp_size = warp_size, .max_block_size = max_block_size, .max_shared_memory = compute_max_shared_memory_size(), .backend_label = "HLSL/SPIR-V"},
         native_selected);
     if (native_selected) { return info; }
 #endif

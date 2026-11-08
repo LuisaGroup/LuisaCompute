@@ -34,6 +34,8 @@ struct MmaAtom {
     uint64_t reduction;
     bool transpose_a;
     bool transpose_b;
+    bool shared{false};
+    bool full{false};
 };
 
 [[nodiscard]] bool add_overflow(int64_t a, int64_t b, int64_t &result) noexcept {
@@ -271,6 +273,8 @@ private:
             return;
         }
         _atoms.emplace_back(MmaAtom{op, mma, a, b, participants, rows, columns, reduction, *am == 1u, *bn == 0u});
+        _atoms.back().full = m0->maximum <= static_cast<int64_t>(_extent(cv, 0u)) - static_cast<int64_t>(rows) &&
+                             n0->maximum <= static_cast<int64_t>(_extent(cv, 1u)) - static_cast<int64_t>(columns);
         auto &arg = _result.metadata.arguments[op->operand(0u)->index()];
         arg.usage = static_cast<Usage>(to_underlying(arg.usage) | to_underlying(Usage::WRITE));
         auto worker = participants == 1u ? "lane" : "local";
@@ -328,7 +332,16 @@ private:
                 return;
             }
             stride /= extent;
-            _indices.emplace(block->argument(i), IndexValue{luisa::format("(({} / {}) % {})", coordinate, stride, extent), 0, static_cast<int64_t>(extent - 1u)});
+            luisa::string expression;
+            if (extent == 1u) {
+                expression = "0";
+            } else {
+                auto linear = stride == 1u ? luisa::format("(uint){}", coordinate) :
+                                             luisa::format("((uint){} / {}u)", coordinate, stride);
+                if (stride * extent != *volume) { linear = luisa::format("({} % {}u)", linear, extent); }
+                expression = luisa::format("(int){}", linear);
+            }
+            _indices.emplace(block->argument(i), IndexValue{std::move(expression), 0, static_cast<int64_t>(extent - 1u)});
         }
         _block(block, depth + 1u, participants);
     }
@@ -358,23 +371,153 @@ private:
         auto id = atom.mma->id();
         auto &space = *atom.store->operand(0u)->type().index_space();
         auto m = _extent(space, 0u), n = _extent(space, 1u);
+        if (atom.shared) {
+            src += luisa::format("groupshared float _lc_tile_a_{}[{}u];\n", id, atom.rows * atom.reduction);
+            src += luisa::format("groupshared float _lc_tile_b_{}[{}u];\n\n", id, atom.reduction * atom.columns);
+        }
         src += luisa::format(
             "void _lc_tile_mma_{}(StructuredBuffer<float> a, StructuredBuffer<float> b, RWStructuredBuffer<float> c, int m0, int n0, uint worker, uint workers) {{\n",
             id);
-        src += luisa::format("  if (m0 >= {} || n0 >= {}) {{ return; }}\n", m, n);
-        src += luisa::format("  for (uint element = worker; element < {}u; element += workers) {{\n", atom.rows * atom.columns);
+        if (atom.shared) {
+            // Cache canonical A[row, k] and B[k, column] tiles. Iterating in
+            // source order keeps global loads coalesced for transposed views.
+            src += luisa::format("  for (uint index = worker; index < {}u; index += workers) {{\n", atom.rows * atom.reduction);
+            src += atom.transpose_a ?
+                       luisa::format("    const uint row = index % {}u;\n    const uint k = index / {}u;\n", atom.rows, atom.rows) :
+                       luisa::format("    const uint row = index / {}u;\n    const uint k = index % {}u;\n", atom.reduction, atom.reduction);
+            src += luisa::format("    const int global_m = min(m0 + (int)row, {});\n", static_cast<int64_t>(m) - 1);
+            auto a_index = atom.transpose_a ?
+                               luisa::format("k * {}u + (uint)global_m", m) :
+                               luisa::format("(uint)global_m * {}u + k", atom.reduction);
+            src += luisa::format("    _lc_tile_a_{}[row * {}u + k] = a[{}];\n  }}\n", id, atom.reduction, a_index);
+        }
+        if (atom.shared) {
+            src += luisa::format("  for (uint index = worker; index < {}u; index += workers) {{\n", atom.reduction * atom.columns);
+            src += atom.transpose_b ?
+                       luisa::format("    const uint column = index / {}u;\n    const uint k = index % {}u;\n", atom.reduction, atom.reduction) :
+                       luisa::format("    const uint column = index % {}u;\n    const uint k = index / {}u;\n", atom.columns, atom.columns);
+            src += luisa::format("    const int global_n = min(n0 + (int)column, {});\n", static_cast<int64_t>(n) - 1);
+            auto b_index = atom.transpose_b ?
+                               luisa::format("(uint)global_n * {}u + k", atom.reduction) :
+                               luisa::format("k * {}u + (uint)global_n", n);
+            src += luisa::format("    _lc_tile_b_{}[k * {}u + column] = b[{}];\n  }}\n", id, atom.columns, b_index);
+            src += "  GroupMemoryBarrierWithGroupSync();\n";
+        } else if (!atom.full) {
+            src += luisa::format("  if (m0 >= {} || n0 >= {}) {{ return; }}\n", m, n);
+        }
+        auto workers = atom.participants == 1u ? _target.warp_size : atom.participants * _target.warp_size;
+        auto elements = atom.rows * atom.columns;
+        constexpr auto register_rows = uint32_t{4u};
+        constexpr auto register_columns = uint32_t{2u};
+        constexpr auto register_outputs = register_rows * register_columns;
+        if (!atom.shared && atom.participants != 1u && elements == workers * register_outputs) {
+            // A 4x2 register tile needs six global loads per eight FMAs,
+            // compared with sixteen for eight independent outputs.
+            auto column_workers = atom.columns / register_columns;
+            src += luisa::format("  const uint row = (worker / {0}u) * {1}u;\n", column_workers, register_rows);
+            src += luisa::format("  const uint column = (worker % {0}u) * {1}u;\n", column_workers, register_columns);
+            for (auto i = uint32_t{0u}; i < register_outputs; i++) {
+                src += luisa::format("  float sum{} = 0.0f;\n", i);
+            }
+            for (auto r = uint32_t{0u}; r < register_rows; r++) {
+                src += atom.full ?
+                           luisa::format("  const int a_row{} = m0 + (int)(row + {}u);\n", r, r) :
+                           luisa::format("  const int a_row{} = min(m0 + (int)(row + {}u), {});\n", r, r, static_cast<int64_t>(m) - 1);
+            }
+            for (auto col = uint32_t{0u}; col < register_columns; col++) {
+                src += atom.full ?
+                           luisa::format("  const int b_column{} = n0 + (int)(column + {}u);\n", col, col) :
+                           luisa::format("  const int b_column{} = min(n0 + (int)(column + {}u), {});\n", col, col, static_cast<int64_t>(n) - 1);
+            }
+            src += luisa::format("  for (uint k = 0u; k < {}u; ++k) {{\n", atom.reduction);
+            for (auto r = uint32_t{0u}; r < register_rows; r++) {
+                auto a_index = atom.transpose_a ?
+                                   luisa::format("k * {}u + (uint)a_row{}", m, r) :
+                                   luisa::format("(uint)a_row{} * {}u + k", r, atom.reduction);
+                src += luisa::format("    const float a_value{} = a[{}];\n", r, a_index);
+            }
+            for (auto col = uint32_t{0u}; col < register_columns; col++) {
+                auto b_index = atom.transpose_b ?
+                                   luisa::format("(uint)b_column{} * {}u + k", col, atom.reduction) :
+                                   luisa::format("k * {}u + (uint)b_column{}", n, col);
+                src += luisa::format("    const float b_value{} = b[{}];\n", col, b_index);
+            }
+            for (auto r = uint32_t{0u}; r < register_rows; r++) {
+                for (auto col = uint32_t{0u}; col < register_columns; col++) {
+                    auto i = r * register_columns + col;
+                    src += luisa::format("    sum{} += a_value{} * b_value{};\n", i, r, col);
+                }
+            }
+            src += "  }\n";
+            for (auto col = uint32_t{0u}; col < register_columns; col++) {
+                src += col == 0u ?
+                           luisa::string{"  const int global_n0 = n0 + (int)column;\n"} :
+                           luisa::format("  const int global_n{} = global_n0 + {};\n", col, col);
+            }
+            for (auto r = uint32_t{0u}; r < register_rows; r++) {
+                src += luisa::format("  const int global_m{} = m0 + (int)(row + {}u);\n", r, r);
+                if (!atom.full) { src += luisa::format("  if (global_m{} < {}) {{\n", r, m); }
+                for (auto col = uint32_t{0u}; col < register_columns; col++) {
+                    auto i = r * register_columns + col;
+                    if (atom.full) {
+                        src += luisa::format("  c[(uint)global_m{} * {}u + (uint)global_n{}] = sum{};\n", r, n, col, i);
+                    } else {
+                        src += luisa::format("    if (global_n{0} < {1}) {{ c[(uint)global_m{2} * {1}u + (uint)global_n{0}] = sum{3}; }}\n",
+                                             col, n, r, i);
+                    }
+                }
+                if (!atom.full) { src += "  }\n"; }
+            }
+            src += "}\n";
+            return;
+        }
+        if (atom.shared && workers <= elements && elements % workers == 0u &&
+            workers % atom.columns == 0u && elements / workers <= 8u) {
+            // Keep a small output tile in registers. With a whole-number row
+            // stride, all accumulators share one B value at each K step.
+            auto outputs = elements / workers;
+            auto row_stride = workers / atom.columns;
+            src += luisa::format("  const uint row = worker / {}u;\n  const uint column = worker % {}u;\n", atom.columns, atom.columns);
+            src += "  const int global_n = n0 + (int)column;\n";
+            for (auto i = uint64_t{0u}; i < outputs; i++) {
+                src += luisa::format("  float sum{} = 0.0f;\n", i);
+            }
+            src += luisa::format("  for (uint k = 0u; k < {}u; ++k) {{\n", atom.reduction);
+            src += luisa::format("    const float b_value = _lc_tile_b_{}[k * {}u + column];\n", id, atom.columns);
+            for (auto i = uint64_t{0u}; i < outputs; i++) {
+                auto output_row = i == 0u ? luisa::string{"row"} : luisa::format("(row + {}u)", i * row_stride);
+                src += luisa::format("    sum{} += _lc_tile_a_{}[{} * {}u + k] * b_value;\n",
+                                     i, id, output_row, atom.reduction);
+            }
+            src += "  }\n";
+            src += luisa::format("  if (global_n < {}) {{\n", n);
+            for (auto i = uint64_t{0u}; i < outputs; i++) {
+                auto output_row = i == 0u ? luisa::string{"row"} : luisa::format("(row + {}u)", i * row_stride);
+                src += luisa::format("    const int global_m{} = m0 + (int){};\n", i, output_row);
+                src += luisa::format("    if (global_m{0} < {1}) {{ c[(uint)global_m{0} * {2}u + (uint)global_n] = sum{0}; }}\n",
+                                     i, m, n);
+            }
+            src += "  }\n}\n";
+            return;
+        }
+        src += luisa::format("  for (uint element = worker; element < {}u; element += workers) {{\n", elements);
         src += luisa::format("    const uint row = element / {}u;\n    const uint column = element % {}u;\n", atom.columns, atom.columns);
         src += "    const int global_m = m0 + (int)row;\n    const int global_n = n0 + (int)column;\n";
         src += luisa::format("    if (global_m < {} && global_n < {}) {{\n", m, n);
         src += "      float sum = 0.0f;\n";
         src += luisa::format("      for (uint k = 0u; k < {}u; ++k) {{\n", atom.reduction);
-        auto a_index = atom.transpose_a ?
-                           luisa::format("k * {}u + (uint)global_m", m) :
-                           luisa::format("(uint)global_m * {}u + k", atom.reduction);
-        auto b_index = atom.transpose_b ?
-                           luisa::format("(uint)global_n * {}u + k", atom.reduction) :
-                           luisa::format("k * {}u + (uint)global_n", n);
-        src += luisa::format("        sum += a[{}] * b[{}];\n", a_index, b_index);
+        if (atom.shared) {
+            src += luisa::format("        sum += _lc_tile_a_{}[row * {}u + k] * _lc_tile_b_{}[k * {}u + column];\n",
+                                 id, atom.reduction, id, atom.columns);
+        } else {
+            auto a_index = atom.transpose_a ?
+                               luisa::format("k * {}u + (uint)global_m", m) :
+                               luisa::format("(uint)global_m * {}u + k", atom.reduction);
+            auto b_index = atom.transpose_b ?
+                               luisa::format("(uint)global_n * {}u + k", atom.reduction) :
+                               luisa::format("k * {}u + (uint)global_n", n);
+            src += luisa::format("        sum += a[{}] * b[{}];\n", a_index, b_index);
+        }
         src += "      }\n";
         src += luisa::format("      c[(uint)global_m * {}u + (uint)global_n] = sum;\n", n);
         src += "    }\n  }\n}\n";
@@ -457,17 +600,31 @@ public:
         }
         _block(entry, 0u, 0u);
         auto threads = _subgroups != 0u ? _subgroups * _target.warp_size :
-                                            (_options.threads_per_group == 0u ? 4u * _target.warp_size : _options.threads_per_group);
+                                          (_options.threads_per_group == 0u ? 4u * _target.warp_size : _options.threads_per_group);
         if (_subgroups != 0u && _options.threads_per_group != 0u && threads != _options.threads_per_group) {
             _error(nullptr, "thread constraint conflicts with explicit subgroup domain");
         }
         if (_atoms.empty() || _groups == 0u || threads > _target.max_block_size || _groups > UINT32_MAX / threads) {
             _error(nullptr, "empty/unsupported native HLSL program or dispatch capacity exceeded");
         }
+        auto shared_bytes = size_t{0u};
+        auto shared_atoms = size_t{0u};
         for (auto &atom : _atoms) {
             if (atom.participants == UINT32_MAX) { atom.participants = threads / _target.warp_size; }
             if (atom.participants != 1u && atom.participants * _target.warp_size != threads) {
                 _error(atom.mma, "native HLSL collective must use one subgroup or the complete threadgroup");
+            }
+            auto elements = atom.rows * atom.columns;
+            auto register_blocked = atom.participants != 1u && threads <= elements &&
+                                    elements % threads == 0u && threads % atom.columns == 0u &&
+                                    elements / threads <= 8u;
+            if (register_blocked && elements != threads * 8u) {
+                auto bytes = static_cast<size_t>((atom.rows + atom.columns) * atom.reduction * sizeof(float));
+                if (shared_bytes <= _target.max_shared_memory && bytes <= _target.max_shared_memory - shared_bytes) {
+                    atom.shared = true;
+                    shared_bytes += bytes;
+                    shared_atoms++;
+                }
             }
         }
         for (auto &arg : _result.metadata.arguments) {
@@ -478,8 +635,8 @@ public:
             _result.metadata.dispatch_size = make_uint3(static_cast<uint32_t>(_groups * threads), 1u, 1u);
             _result.metadata.disjoint_writes = true;
             _result.metadata.realization = luisa::format(
-                "{} native Tile: {} groups, {} threads/group, {} explicit subgroups, {} scalar FP32 MMA atoms; dense view forwarding; no XIR/TVM",
-                _target.backend_label, _groups, threads, _subgroups, _atoms.size());
+                "{} native Tile: {} groups, {} threads/group, {} explicit subgroups, {} scalar FP32 MMA atoms ({} group-shared); dense view forwarding; no XIR/TVM",
+                _target.backend_label, _groups, threads, _subgroups, _atoms.size(), shared_atoms);
             _emit(threads);
         }
         return std::move(_result);

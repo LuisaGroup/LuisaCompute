@@ -11,6 +11,7 @@ using namespace luisa::compute;
 struct HlslTileTargetConfig {
     uint32_t warp_size{32u};
     uint32_t max_block_size{1024u};
+    size_t max_shared_memory{32u * 1024u};
     luisa::string_view backend_label{"HLSL"};
 };
 
@@ -26,8 +27,10 @@ struct HlslTileCode {
 
 // Read-only TileIR legalization and HLSL source generation. The current native
 // family is the same dense FP32 MMA/store subset as the Metal bootstrap, but is
-// realized as explicitly distributed scalar multiply-accumulate loops and
-// needs no tensor-core or cooperative-matrix extension on either DXIL or SPIR-V.
+// realized as explicitly distributed scalar multiply-accumulate loops. Eight-
+// output whole-group atoms use direct 4x2 register tiles; smaller evenly
+// distributed atoms may stage operands in shared memory within the target
+// budget. Neither path needs tensor-core or cooperative-matrix extensions.
 [[nodiscard]] HlslTileCode lower_tile_to_hlsl(
     const tile::Function &function,
     const tile::CompileOptions &options,

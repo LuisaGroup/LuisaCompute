@@ -29,8 +29,9 @@ namespace {
 }
 
 void test_mapping() {
-    for (auto cfg : {Gemm{127, 193, 61, 64, 64}, Gemm{513, 257, 129, 32, 32, 4, 1},
-                     Gemm{37, 29, 23, 16, 32, 2, 2, true, true}}) {
+    for (auto cfg : {Gemm{127, 193, 61, 64, 64}, Gemm{127, 193, 61, 32, 32},
+                     Gemm{127, 193, 61, 32, 16}, Gemm{512, 512, 64, 32, 32},
+                     Gemm{513, 257, 129, 32, 32, 4, 1}, Gemm{37, 29, 23, 16, 32, 2, 2, true, true}}) {
         auto kernel = gemm(cfg);
         expect(kernel.valid());
         auto code = lower(kernel.function(), {}, 1024u);
@@ -51,7 +52,34 @@ void test_mapping() {
 #ifdef LUISA_TILE_TEST_HLSL
         expect(src.find("_lc_tile_mma_") != luisa::string::npos);
         expect(src.find("_lc_tile_native") != luisa::string::npos);
-        expect(src.find("sum += a[") != luisa::string::npos);
+        auto elements = static_cast<uint64_t>(cfg.tile_m * cfg.tile_n);
+        auto direct_2d = cfg.subgroups_m == 0 && elements == 128u * 8u;
+        auto group_shared = cfg.subgroups_m == 0 && elements >= 128u && elements % 128u == 0u &&
+                            128u % cfg.tile_n == 0u && elements / 128u < 8u;
+        expect(src.find("(uint)group") != luisa::string::npos);
+        if (direct_2d) {
+            expect(src.find("groupshared float") == luisa::string::npos);
+            expect(src.find("float sum7") != luisa::string::npos);
+            expect(src.find("sum0 += a_value0 * b_value0") != luisa::string::npos);
+            if (cfg.m == 512) {
+                expect(src.find("min(m0") == luisa::string::npos);
+                expect(src.find("min(n0") == luisa::string::npos);
+                expect(src.find("if (global_m") == luisa::string::npos);
+                expect(src.find("if (global_n") == luisa::string::npos);
+            } else {
+                expect(src.find("min(m0") != luisa::string::npos);
+                expect(src.find("min(n0") != luisa::string::npos);
+                expect(src.find("if (global_m0 <") != luisa::string::npos);
+            }
+        } else if (group_shared) {
+            expect(src.find("groupshared float _lc_tile_a_") != luisa::string::npos);
+            expect(src.find("GroupMemoryBarrierWithGroupSync()") != luisa::string::npos);
+            expect(src.find("const float b_value") != luisa::string::npos);
+            expect(src.find("sum0 += _lc_tile_a_") != luisa::string::npos);
+        } else {
+            expect(src.find("sum += a[") != luisa::string::npos);
+            expect(src.find("groupshared float") == luisa::string::npos);
+        }
         expect(code.metadata.realization.find("scalar FP32 MMA") != luisa::string::npos);
 #else
         expect(src.find("matmul2d_descriptor(") != luisa::string::npos);
@@ -61,6 +89,15 @@ void test_mapping() {
         // Lowering is read-only; it must not relabel the semantic input as machine IR.
         expect(kernel.function().form() == IRForm::CANDIDATE);
     }
+#ifdef LUISA_TILE_TEST_HLSL
+    auto kernel = gemm({32, 32, 32, 32, 16});
+    auto code = lc::hlsl::lower_tile_to_hlsl(
+        kernel.function(), {},
+        {.warp_size = 32u, .max_block_size = 1024u, .max_shared_memory = 1024u, .backend_label = "HLSL"});
+    expect(code.ok()) << code.metadata.error;
+    expect(code.metadata.source.find("groupshared float") == luisa::string::npos);
+    expect(code.metadata.source.find("sum += a[") != luisa::string::npos);
+#endif
 }
 
 void test_rejections() {

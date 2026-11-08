@@ -144,7 +144,11 @@ int main(int argc, char *argv[]) {
     };
     "tile_native_runtime_transposed"_test = [&] {
         for (auto ta : {false, true}) {
-            for (auto tb : {false, true}) { run(device, {37, 53, 23, 32, 16, 0, 1, ta, tb}); }
+            for (auto tb : {false, true}) {
+                run(device, {37, 53, 23, 32, 16, 0, 1, ta, tb});
+                // Eight outputs/thread select the direct 4x2 register path.
+                run(device, {37, 53, 23, 32, 32, 0, 1, ta, tb});
+            }
         }
     };
     "tile_native_runtime_rejects_ordered_mma"_test = [&] {
