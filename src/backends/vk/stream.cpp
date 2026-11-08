@@ -5,6 +5,7 @@
 #include <luisa/core/logging.h>
 #include "log.h"
 #include "blas.h"
+#include "cluster_blas.h"
 #include "tlas.h"
 #include "motion_instance.h"
 #include "rt_shader.h"
@@ -30,6 +31,7 @@
 #include "../common/shader_print_formatter.h"
 #include "raster_shader.h"
 #include "native_shader_ext.h"
+#include "native_raster_shader.h"
 #include <bit>
 #include <limits>
 namespace lc::vk {
@@ -2694,6 +2696,70 @@ void Stream::wait(Event *event, uint64_t value) {
     std::lock_guard lck{_dispatch_mtx};
     event->_wait(*this, value);
 }
+// File-unique namespace: the backend is built with unity (jumbo) batches, so a
+// free name at namespace scope in this file can collide with a sibling's.
+namespace stream_raster_detail {
+
+// Records the barriers of a *native* raster draw (`NativeShaderLauncher::draw()`).
+//
+// Such a draw has no `RasterShader` and therefore no saved-argument or binding
+// table to read usages from; the launcher instead packed one `Usage` per
+// non-uniform resource argument into the command itself (see
+// `DrawRasterSceneCommand::set_native_shader`). That declaration *is* the
+// synchronization contract, exactly like a `NativeShaderDispatchCommand`'s
+// `traverse_arguments`, so the barriers are recorded from it with the raster
+// stage's usages (a DSL raster draw goes through `preprocess_arguments`).
+void record_native_raster_usages(
+    ResourceBarrier *barrier,
+    DrawRasterSceneCommand const *cmd) noexcept {
+    auto arguments = cmd->arguments();
+    auto usages = cmd->argument_usages();
+    auto usage_index = size_t{0u};
+    for (auto &&argument : arguments) {
+        if (argument.tag == Argument::Tag::UNIFORM) { continue; }
+        if (usage_index >= usages.size()) {
+            LUISA_ERROR_WITH_LOCATION(
+                "A native raster draw carries {} resource argument(s) but only "
+                "{} per-argument usage declaration(s); the command was not built "
+                "by NativeShaderLauncher::draw().",
+                arguments.size(), usages.size());
+            return;
+        }
+        auto usage = usages[usage_index++];
+        auto barrier_usage =
+            (luisa::to_underlying(usage) &
+             luisa::to_underlying(Usage::WRITE)) != 0u ?
+                ResourceBarrier::Usage::kRasterUAV :
+                ResourceBarrier::Usage::kRasterRead;
+        if (argument.tag == Argument::Tag::BUFFER) {
+            LUISA_ASSERT(argument.buffer.handle != 0u,
+                         "A native raster draw contains a null buffer handle.");
+            auto buffer = reinterpret_cast<Buffer const *>(argument.buffer.handle);
+            barrier->record(
+                BufferView{buffer, argument.buffer.offset, argument.buffer.size},
+                barrier_usage);
+        } else {
+            // Textures, bindless arrays and acceleration structures are already
+            // rejected by `load_raster()`, so a draw that reaches this point was
+            // hand-assembled: report it instead of recording a half barrier.
+            LUISA_ERROR_WITH_LOCATION(
+                "Native raster draws only support buffer arguments on the "
+                "Vulkan backend (tag {}); textures, bindless arrays and "
+                "acceleration structures are rejected at load_raster().",
+                luisa::to_underlying(argument.tag));
+            return;
+        }
+    }
+    if (usage_index != usages.size()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "A native raster draw carries {} per-argument usage declaration(s) "
+            "for {} resource argument(s).",
+            usages.size(), usage_index);
+    }
+}
+
+}// namespace stream_raster_detail
+
 void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     // collect argument buffer
     const auto argument_buffer_alignment = std::max<size_t>(
@@ -2806,8 +2872,17 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 auto cmd = static_cast<CustomCommand const *>(command);
                 if (cmd->custom_cmd_uuid() == to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE)) {
                     auto c = static_cast<DrawRasterSceneCommand const *>(cmd);
-                    auto shader = reinterpret_cast<Shader const *>(c->handle());
-                    dispatch_shader(c, shader);
+                    // A native raster draw has no saved-argument ABI: there is
+                    // no `Shader` (and hence no `SavedArgument` table) behind its
+                    // handle, only a `NativeRasterShader` that writes its own
+                    // descriptors at encode time. Planning an argument block for
+                    // it would read a non-Shader handle, so it is skipped - and
+                    // skipped consistently in the preprocess and execute passes
+                    // below, which keeps the argument-block bookkeeping exact.
+                    if (!c->is_native_shader()) {
+                        auto shader = reinterpret_cast<Shader const *>(c->handle());
+                        dispatch_shader(c, shader);
+                    }
                 }
             } break;
             case Command::Tag::EMotionInstanceBuildCommand: {
@@ -3120,10 +3195,19 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     auto c = static_cast<AccelBuildCommand const *>(cmd);
                     reinterpret_cast<Tlas *>(c->handle())->pre_build(*this, c->instance_count(), *write_desc_sets, *bindless_cache, c->modifications(), c->request());
                 } break;
-                case Command::Tag::EMeshBuildCommand: {
-                    auto c = static_cast<MeshBuildCommand const *>(cmd);
+            case Command::Tag::EMeshBuildCommand: {
+                auto c = static_cast<MeshBuildCommand const *>(cmd);
+                if (c->is_cluster_build()) {
+                    // Cluster (mega-geometry) builds go to the ClusterBlas
+                    // sibling of Blas: VK_NV_cluster_acceleration_structure
+                    // produces no VkAccelerationStructureKHR.
+                    // TODO(dx): honour is_cluster_build() when the D3D12
+                    // cluster AS path lands (NVAPI cluster build / DXR clusters).
+                    reinterpret_cast<ClusterBlas *>(c->handle())->pre_build_clusters(*this, c);
+                } else {
                     reinterpret_cast<Blas *>(c->handle())->pre_build(*this, c);
-                } break;
+                }
+            } break;
                 case Command::Tag::ECurveBuildCommand: {
                 } break;
                 case Command::Tag::EMotionInstanceBuildCommand: {
@@ -3156,8 +3240,17 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         } break;
                         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
                             auto cmd = static_cast<DrawRasterSceneCommand const *>(c);
-                            auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
-                            preprocess_arguments(shader, cmd, true);
+                            if (cmd->is_native_shader()) {
+                                // No `RasterShader`, no saved arguments: record
+                                // the draw's declared usages instead (same rule
+                                // as the NATIVE_SHADER_DISPATCH arm below, with
+                                // the raster stage's barrier usages).
+                                stream_raster_detail::record_native_raster_usages(
+                                    resource_barrier, cmd);
+                            } else {
+                                auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
+                                preprocess_arguments(shader, cmd, true);
+                            }
                             for (auto &i : cmd->rtv_texs()) {
                                 auto tex = reinterpret_cast<Texture const *>(i.handle);
                                 resource_barrier->record(
@@ -4269,9 +4362,15 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 } break;
                 case Command::Tag::EMeshBuildCommand: {
                     flush_all_pending();
-                    auto c = static_cast<MeshBuildCommand const *>(cmd);
+                auto c = static_cast<MeshBuildCommand const *>(cmd);
+                if (c->is_cluster_build()) {
+                    // TODO(dx): honour is_cluster_build() when the D3D12
+                    // cluster AS path lands (NVAPI cluster build / DXR clusters).
+                    reinterpret_cast<ClusterBlas *>(c->handle())->build_clusters(*this, c);
+                } else {
                     reinterpret_cast<Blas *>(c->handle())->build(*this, c);
-                } break;
+                }
+            } break;
                 case Command::Tag::ECurveBuildCommand: {
                 } break;
                 case Command::Tag::EMotionInstanceBuildCommand: {
@@ -4375,7 +4474,15 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         } break;
                         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
                             auto cmd = static_cast<DrawRasterSceneCommand const *>(c);
-                            auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
+                            // A DSL raster draw binds its `RasterShader` through
+                            // the saved-argument ABI; a native one has no such
+                            // shader and asks its NativeRasterShader to bind
+                            // itself. Everything from the framebuffer on is
+                            // shared, so only the pipeline and the render pass it
+                            // was built for are resolved here.
+                            auto shader = static_cast<RasterShader *>(nullptr);
+                            auto native_shader = static_cast<NativeRasterShader *>(nullptr);
+                            VkRenderPass render_pass = VK_NULL_HANDLE;
                             // Vulkan bakes the vertex binding stride into the
                             // pipeline, so it must come from the meshes'
                             // VertexBufferViews (like on DX), not from the
@@ -4402,13 +4509,36 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                     }
                                 }
                             }
-                            auto pipe = shader->create_pipeline(cmd->rtv_texs(), cmd->dsv_tex(), cmd->mesh_format(), cmd->raster_state(), strides);
-                            BindPropVisitor visitor{};
-                            visitor.device = device();
-                            // bind arguments
-                            set_dispatch_args(visitor, cmd, shader);
-                            bind_shader_desc(visitor, shader, VK_PIPELINE_BIND_POINT_GRAPHICS);
-                            vkCmdBindPipeline(_cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline);
+                            if (cmd->is_native_shader()) {
+                                // The native raster shader binds its own
+                                // graphics pipeline, this draw's descriptor sets
+                                // and the application's uniform block, and hands
+                                // back the render pass the pipeline was built
+                                // for. VK_NULL_HANDLE means "already reported":
+                                // skip the draw rather than begin a render pass
+                                // against a null handle.
+                                render_pass = encode_native_raster_draw(
+                                    device(), _state.get(), _cmdbuffer, cmd,
+                                    strides, &native_shader);
+                                if (render_pass == VK_NULL_HANDLE) {
+                                    LUISA_ERROR_WITH_LOCATION(
+                                        "A native raster draw could not be "
+                                        "encoded (shader handle {}); the draw is "
+                                        "skipped.",
+                                        cmd->handle());
+                                    break;
+                                }
+                            } else {
+                                shader = reinterpret_cast<RasterShader *>(cmd->handle());
+                                auto pipe = shader->create_pipeline(cmd->rtv_texs(), cmd->dsv_tex(), cmd->mesh_format(), cmd->raster_state(), strides);
+                                BindPropVisitor visitor{};
+                                visitor.device = device();
+                                // bind arguments
+                                set_dispatch_args(visitor, cmd, shader);
+                                bind_shader_desc(visitor, shader, VK_PIPELINE_BIND_POINT_GRAPHICS);
+                                vkCmdBindPipeline(_cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline);
+                                render_pass = pipe.render_pass;
+                            }
                             // framebuffer
                             VkFramebuffer fb;
                             uint img_view_offset = _state->img_views.size();
@@ -4478,7 +4608,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
 
                             VkFramebufferCreateInfo framebuffer_create_info{
                                 .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                                .renderPass = pipe.render_pass,
+                                .renderPass = render_pass,
                                 .attachmentCount = (uint)(_state->img_views.size() - img_view_offset),
                                 .pAttachments = _state->img_views.data() + img_view_offset,
                                 .width = resolution.x,
@@ -4491,7 +4621,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 &fb));
                             VkRenderPassBeginInfo begin_pass_info{
                                 .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-                                .renderPass = pipe.render_pass,
+                                .renderPass = render_pass,
                                 .framebuffer = fb,
                                 .renderArea = VkRect2D{
                                     .offset = VkOffset2D{0, 0},
@@ -4527,11 +4657,22 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 }
                                 vkCmdBindVertexBuffers(_cmdbuffer, 0, vb.size(), vertex_buffers.data(), vertex_buffer_offsets.data());
                                 auto before_draw = [&]() {
-                                    uint value = mesh.object_id();
-                                    push_shader_constants(
-                                        shader,
-                                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                                        0u, value);
+                                    if (cmd->is_native_shader()) {
+                                        // A native raster shader reads the object
+                                        // id from the slot it reserved at
+                                        // push-constant offset 0 (nothing to do
+                                        // when it reserved none).
+                                        if (native_shader->object_id_bytes() != 0u) {
+                                            native_shader->push_object_id(
+                                                _cmdbuffer, mesh.object_id());
+                                        }
+                                    } else {
+                                        uint value = mesh.object_id();
+                                        push_shader_constants(
+                                            shader,
+                                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                            0u, value);
+                                    }
                                 };
                                 luisa::visit([&]<typename T>(T const &t) {
                                     // Draw

@@ -9,13 +9,20 @@ class ShaderSerializer {
     static size_t SerializeRootSig(
         vstd::span<hlsl::Property const> properties,
         vstd::vector<std::byte> &result,
-        bool isRasterShader);
+        bool isRasterShader,
+        bool append_object_id = true);
     static ComPtr<ID3D12RootSignature> DeSerializeRootSig(
         ID3D12Device *device,
         vstd::span<std::byte const> bytes);
 
 public:
-    static ComPtr<ID3DBlob> SerializeRootSig(vstd::span<hlsl::Property const> properties, bool isRasterShader);
+    // `append_object_id` appends the DSL raster path's one-dword root constant for
+    // `RasterMesh::object_id`. A native raster shader reserves that dword inside
+    // its own root-constant block instead (see the ConstantValue case below), so
+    // it passes false; every existing caller keeps the default and is unaffected.
+    static ComPtr<ID3DBlob> SerializeRootSig(
+        vstd::span<hlsl::Property const> properties, bool isRasterShader,
+        bool append_object_id = true);
     static vstd::vector<std::byte> Serialize(
         vstd::span<hlsl::Property const> properties,
         vstd::span<SavedArgument const> kernelArgs,

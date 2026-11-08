@@ -123,6 +123,10 @@ luisa::string_view to_string(ArithmeticOp op) noexcept {
         case ArithmeticOp::SHUFFLE: return "shuffle"sv;
         case ArithmeticOp::INSERT: return "insert"sv;
         case ArithmeticOp::EXTRACT: return "extract"sv;
+        case ArithmeticOp::ERF: return "erf"sv;
+        case ArithmeticOp::ERFC: return "erfc"sv;
+        case ArithmeticOp::EXPM1: return "expm1"sv;
+        case ArithmeticOp::LDEXP: return "ldexp"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown arithmetic operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -223,6 +227,10 @@ ArithmeticOp arithmetic_op_from_string(luisa::string_view name) noexcept {
         {"shuffle"sv, ArithmeticOp::SHUFFLE},
         {"insert"sv, ArithmeticOp::INSERT},
         {"extract"sv, ArithmeticOp::EXTRACT},
+        {"erf"sv, ArithmeticOp::ERF},
+        {"erfc"sv, ArithmeticOp::ERFC},
+        {"expm1"sv, ArithmeticOp::EXPM1},
+        {"ldexp"sv, ArithmeticOp::LDEXP},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown arithmetic operation: {}.", name);

@@ -728,6 +728,12 @@ private:
             case CallOp::TRUNC: return alu_call(ArithmeticOp::TRUNC);
             case CallOp::ROUND: return alu_call(ArithmeticOp::ROUND);
             case CallOp::RINT: return alu_call(ArithmeticOp::RINT);
+        case CallOp::ERF: return alu_call(ArithmeticOp::ERF);
+        case CallOp::ERFC: return alu_call(ArithmeticOp::ERFC);
+        case CallOp::EXPM1: return alu_call(ArithmeticOp::EXPM1);
+        // LDEXP has no AST-level POW-style signedness split: the AST call
+        // already carries the integer exponent, and XIR LDEXP is 1:1.
+        case CallOp::LDEXP: return alu_call(ArithmeticOp::LDEXP);
             case CallOp::FMA: return alu_call(ArithmeticOp::FMA);
             case CallOp::COPYSIGN: return alu_call(ArithmeticOp::COPYSIGN);
             case CallOp::CROSS: return alu_call(ArithmeticOp::CROSS);

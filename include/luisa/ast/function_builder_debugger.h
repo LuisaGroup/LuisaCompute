@@ -20,7 +20,7 @@ struct DebugKernelOptions {
     /// fires for it, this one reports the operands of the faulty division).
     bool check_float_div_zero{true};
     /// NaN/Inf results of float ops with domain/range errors (must-check:
-    /// SQRT/RSQRT/LOG*/ACOS/ASIN/ACOSH/ATANH/POW/ATAN2/EXP*/NORMALIZE/
+    /// SQRT/RSQRT/LOG*/ACOS/ASIN/ACOSH/ATANH/POW/ATAN2/EXP*/EXPM1/LDEXP/NORMALIZE/
     /// INVERSE, float ADD/SUB/MUL/DIV/MOD).
     bool check_float_nan_inf{true};
     /// SHL/SHR shift amount >= bit-width of the shifted type or negative.

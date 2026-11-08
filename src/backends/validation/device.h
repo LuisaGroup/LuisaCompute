@@ -68,6 +68,21 @@ public:
     void destroy_curve(uint64_t handle) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_motion_instance(const AccelMotionOption &option) noexcept override;
     void destroy_motion_instance(uint64_t handle) noexcept override;
+    // Cluster (mega-geometry) acceleration structures. These are pure
+    // pass-throughs: the validation layer has no cluster-mesh resource to track
+    // (a cluster mesh binds no vertex/triangle buffer).
+    [[nodiscard]] ResourceCreationInfo create_mega_geometry(const AccelOption &option) noexcept override {
+        return _native->create_mega_geometry(option);
+    }
+    void destroy_mega_geometry(uint64_t handle) noexcept override {
+        _native->destroy_mega_geometry(handle);
+    }
+    [[nodiscard]] uint64_t mega_geometry_device_address(uint64_t handle) noexcept override {
+        return _native->mega_geometry_device_address(handle);
+    }
+    [[nodiscard]] uint64_t buffer_device_address(uint64_t handle) noexcept override {
+        return _native->buffer_device_address(handle);
+    }
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(

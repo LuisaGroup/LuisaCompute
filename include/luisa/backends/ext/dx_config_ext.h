@@ -56,6 +56,11 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
     virtual bool LoadDXC() const noexcept { return true; }
     virtual bool UseEnhancedBarrier() const noexcept { return false; }
     virtual bool UseExperimental() const noexcept { return false; }
+    // Opt into D3D12RaytracingPreview before creating a backend-owned device.
+    // This is separate from experimental shader models and is required by the
+    // Agility SDK 1.722 cluster-AS preview. Ignored for imported devices,
+    // whose creator owns the process-global preview setup.
+    virtual bool UseRaytracingPreview() const noexcept { return false; }
 
     // Command reordering merges consecutive commands whose resource accesses do
     // not alias into one barrier-free layer, so several small dispatches can

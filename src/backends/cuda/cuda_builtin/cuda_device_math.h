@@ -3659,9 +3659,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_acos(lc_float3 x) noexcept { return lc_make_float3(acosf(x.x), acosf(x.y), acosf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_acos(lc_float4 x) noexcept { return lc_make_float4(acosf(x.x), acosf(x.y), acosf(x.z), acosf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_acos(lc_double x) noexcept { return acos(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_acos(lc_double2 x) noexcept { return lc_make_double2(acosf(x.x), acosf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_acos(lc_double3 x) noexcept { return lc_make_double3(acosf(x.x), acosf(x.y), acosf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_acos(lc_double4 x) noexcept { return lc_make_double4(acosf(x.x), acosf(x.y), acosf(x.z), acosf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_acos(lc_double2 x) noexcept { return lc_make_double2(acos(x.x), acos(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_acos(lc_double3 x) noexcept { return lc_make_double3(acos(x.x), acos(x.y), acos(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_acos(lc_double4 x) noexcept { return lc_make_double4(acos(x.x), acos(x.y), acos(x.z), acos(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_asin(lc_half x) noexcept { return asinf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_asin(lc_half2 x) noexcept { return lc_make_half2(asinf(x.x), asinf(x.y)); }
@@ -3676,9 +3676,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_asin(lc_float3 x) noexcept { return lc_make_float3(asinf(x.x), asinf(x.y), asinf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_asin(lc_float4 x) noexcept { return lc_make_float4(asinf(x.x), asinf(x.y), asinf(x.z), asinf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_asin(lc_double x) noexcept { return asin(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_asin(lc_double2 x) noexcept { return lc_make_double2(asinf(x.x), asinf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_asin(lc_double3 x) noexcept { return lc_make_double3(asinf(x.x), asinf(x.y), asinf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_asin(lc_double4 x) noexcept { return lc_make_double4(asinf(x.x), asinf(x.y), asinf(x.z), asinf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_asin(lc_double2 x) noexcept { return lc_make_double2(asin(x.x), asin(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_asin(lc_double3 x) noexcept { return lc_make_double3(asin(x.x), asin(x.y), asin(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_asin(lc_double4 x) noexcept { return lc_make_double4(asin(x.x), asin(x.y), asin(x.z), asin(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_atan(lc_half x) noexcept { return atanf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_atan(lc_half2 x) noexcept { return lc_make_half2(atanf(x.x), atanf(x.y)); }
@@ -3693,9 +3693,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_atan(lc_float3 x) noexcept { return lc_make_float3(atanf(x.x), atanf(x.y), atanf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_atan(lc_float4 x) noexcept { return lc_make_float4(atanf(x.x), atanf(x.y), atanf(x.z), atanf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_atan(lc_double x) noexcept { return atan(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_atan(lc_double2 x) noexcept { return lc_make_double2(atanf(x.x), atanf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_atan(lc_double3 x) noexcept { return lc_make_double3(atanf(x.x), atanf(x.y), atanf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_atan(lc_double4 x) noexcept { return lc_make_double4(atanf(x.x), atanf(x.y), atanf(x.z), atanf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_atan(lc_double2 x) noexcept { return lc_make_double2(atan(x.x), atan(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_atan(lc_double3 x) noexcept { return lc_make_double3(atan(x.x), atan(x.y), atan(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_atan(lc_double4 x) noexcept { return lc_make_double4(atan(x.x), atan(x.y), atan(x.z), atan(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_acosh(lc_half x) noexcept { return acoshf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_acosh(lc_half2 x) noexcept { return lc_make_half2(acoshf(x.x), acoshf(x.y)); }
@@ -3710,9 +3710,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_acosh(lc_float3 x) noexcept { return lc_make_float3(acoshf(x.x), acoshf(x.y), acoshf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_acosh(lc_float4 x) noexcept { return lc_make_float4(acoshf(x.x), acoshf(x.y), acoshf(x.z), acoshf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_acosh(lc_double x) noexcept { return acosh(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_acosh(lc_double2 x) noexcept { return lc_make_double2(acoshf(x.x), acoshf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_acosh(lc_double3 x) noexcept { return lc_make_double3(acoshf(x.x), acoshf(x.y), acoshf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_acosh(lc_double4 x) noexcept { return lc_make_double4(acoshf(x.x), acoshf(x.y), acoshf(x.z), acoshf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_acosh(lc_double2 x) noexcept { return lc_make_double2(acosh(x.x), acosh(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_acosh(lc_double3 x) noexcept { return lc_make_double3(acosh(x.x), acosh(x.y), acosh(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_acosh(lc_double4 x) noexcept { return lc_make_double4(acosh(x.x), acosh(x.y), acosh(x.z), acosh(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_asinh(lc_half x) noexcept { return asinhf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_asinh(lc_half2 x) noexcept { return lc_make_half2(asinhf(x.x), asinhf(x.y)); }
@@ -3727,9 +3727,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_asinh(lc_float3 x) noexcept { return lc_make_float3(asinhf(x.x), asinhf(x.y), asinhf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_asinh(lc_float4 x) noexcept { return lc_make_float4(asinhf(x.x), asinhf(x.y), asinhf(x.z), asinhf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_asinh(lc_double x) noexcept { return asinh(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_asinh(lc_double2 x) noexcept { return lc_make_double2(asinhf(x.x), asinhf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_asinh(lc_double3 x) noexcept { return lc_make_double3(asinhf(x.x), asinhf(x.y), asinhf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_asinh(lc_double4 x) noexcept { return lc_make_double4(asinhf(x.x), asinhf(x.y), asinhf(x.z), asinhf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_asinh(lc_double2 x) noexcept { return lc_make_double2(asinh(x.x), asinh(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_asinh(lc_double3 x) noexcept { return lc_make_double3(asinh(x.x), asinh(x.y), asinh(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_asinh(lc_double4 x) noexcept { return lc_make_double4(asinh(x.x), asinh(x.y), asinh(x.z), asinh(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_atanh(lc_half x) noexcept { return atanhf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_atanh(lc_half2 x) noexcept { return lc_make_half2(atanhf(x.x), atanhf(x.y)); }
@@ -3744,9 +3744,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_atanh(lc_float3 x) noexcept { return lc_make_float3(atanhf(x.x), atanhf(x.y), atanhf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_atanh(lc_float4 x) noexcept { return lc_make_float4(atanhf(x.x), atanhf(x.y), atanhf(x.z), atanhf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_atanh(lc_double x) noexcept { return atanh(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_atanh(lc_double2 x) noexcept { return lc_make_double2(atanhf(x.x), atanhf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_atanh(lc_double3 x) noexcept { return lc_make_double3(atanhf(x.x), atanhf(x.y), atanhf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_atanh(lc_double4 x) noexcept { return lc_make_double4(atanhf(x.x), atanhf(x.y), atanhf(x.z), atanhf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_atanh(lc_double2 x) noexcept { return lc_make_double2(atanh(x.x), atanh(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_atanh(lc_double3 x) noexcept { return lc_make_double3(atanh(x.x), atanh(x.y), atanh(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_atanh(lc_double4 x) noexcept { return lc_make_double4(atanh(x.x), atanh(x.y), atanh(x.z), atanh(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_atan2(lc_half y, lc_half x) noexcept { return atan2f(y, x); }
 [[nodiscard]] __device__ inline lc_half2 lc_atan2(lc_half2 y, lc_half2 x) noexcept { return lc_make_half2(atan2f(y.x, x.x), atan2f(y.y, x.y)); }
@@ -3761,9 +3761,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_atan2(lc_float3 y, lc_float3 x) noexcept { return lc_make_float3(atan2f(y.x, x.x), atan2f(y.y, x.y), atan2f(y.z, x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_atan2(lc_float4 y, lc_float4 x) noexcept { return lc_make_float4(atan2f(y.x, x.x), atan2f(y.y, x.y), atan2f(y.z, x.z), atan2f(y.w, x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_atan2(lc_double y, lc_double x) noexcept { return atan2(y, x); }
-[[nodiscard]] __device__ inline lc_double2 lc_atan2(lc_double2 y, lc_double2 x) noexcept { return lc_make_double2(atan2f(y.x, x.x), atan2f(y.y, x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_atan2(lc_double3 y, lc_double3 x) noexcept { return lc_make_double3(atan2f(y.x, x.x), atan2f(y.y, x.y), atan2f(y.z, x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_atan2(lc_double4 y, lc_double4 x) noexcept { return lc_make_double4(atan2f(y.x, x.x), atan2f(y.y, x.y), atan2f(y.z, x.z), atan2f(y.w, x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_atan2(lc_double2 y, lc_double2 x) noexcept { return lc_make_double2(atan2(y.x, x.x), atan2(y.y, x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_atan2(lc_double3 y, lc_double3 x) noexcept { return lc_make_double3(atan2(y.x, x.x), atan2(y.y, x.y), atan2(y.z, x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_atan2(lc_double4 y, lc_double4 x) noexcept { return lc_make_double4(atan2(y.x, x.x), atan2(y.y, x.y), atan2(y.z, x.z), atan2(y.w, x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_cosh(lc_half x) noexcept { return coshf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_cosh(lc_half2 x) noexcept { return lc_make_half2(coshf(x.x), coshf(x.y)); }
@@ -3778,9 +3778,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_cosh(lc_float3 x) noexcept { return lc_make_float3(coshf(x.x), coshf(x.y), coshf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_cosh(lc_float4 x) noexcept { return lc_make_float4(coshf(x.x), coshf(x.y), coshf(x.z), coshf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_cosh(lc_double x) noexcept { return cosh(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_cosh(lc_double2 x) noexcept { return lc_make_double2(coshf(x.x), coshf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_cosh(lc_double3 x) noexcept { return lc_make_double3(coshf(x.x), coshf(x.y), coshf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_cosh(lc_double4 x) noexcept { return lc_make_double4(coshf(x.x), coshf(x.y), coshf(x.z), coshf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_cosh(lc_double2 x) noexcept { return lc_make_double2(cosh(x.x), cosh(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_cosh(lc_double3 x) noexcept { return lc_make_double3(cosh(x.x), cosh(x.y), cosh(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_cosh(lc_double4 x) noexcept { return lc_make_double4(cosh(x.x), cosh(x.y), cosh(x.z), cosh(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_sinh(lc_half x) noexcept { return sinhf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_sinh(lc_half2 x) noexcept { return lc_make_half2(sinhf(x.x), sinhf(x.y)); }
@@ -3795,9 +3795,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_sinh(lc_float3 x) noexcept { return lc_make_float3(sinhf(x.x), sinhf(x.y), sinhf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_sinh(lc_float4 x) noexcept { return lc_make_float4(sinhf(x.x), sinhf(x.y), sinhf(x.z), sinhf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_sinh(lc_double x) noexcept { return sinh(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_sinh(lc_double2 x) noexcept { return lc_make_double2(sinhf(x.x), sinhf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_sinh(lc_double3 x) noexcept { return lc_make_double3(sinhf(x.x), sinhf(x.y), sinhf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_sinh(lc_double4 x) noexcept { return lc_make_double4(sinhf(x.x), sinhf(x.y), sinhf(x.z), sinhf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_sinh(lc_double2 x) noexcept { return lc_make_double2(sinh(x.x), sinh(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_sinh(lc_double3 x) noexcept { return lc_make_double3(sinh(x.x), sinh(x.y), sinh(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_sinh(lc_double4 x) noexcept { return lc_make_double4(sinh(x.x), sinh(x.y), sinh(x.z), sinh(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_tanh(lc_half x) noexcept { return tanhf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_tanh(lc_half2 x) noexcept { return lc_make_half2(tanhf(x.x), tanhf(x.y)); }
@@ -3812,9 +3812,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_tanh(lc_float3 x) noexcept { return lc_make_float3(tanhf(x.x), tanhf(x.y), tanhf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_tanh(lc_float4 x) noexcept { return lc_make_float4(tanhf(x.x), tanhf(x.y), tanhf(x.z), tanhf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_tanh(lc_double x) noexcept { return tanh(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_tanh(lc_double2 x) noexcept { return lc_make_double2(tanhf(x.x), tanhf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_tanh(lc_double3 x) noexcept { return lc_make_double3(tanhf(x.x), tanhf(x.y), tanhf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_tanh(lc_double4 x) noexcept { return lc_make_double4(tanhf(x.x), tanhf(x.y), tanhf(x.z), tanhf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_tanh(lc_double2 x) noexcept { return lc_make_double2(tanh(x.x), tanh(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_tanh(lc_double3 x) noexcept { return lc_make_double3(tanh(x.x), tanh(x.y), tanh(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_tanh(lc_double4 x) noexcept { return lc_make_double4(tanh(x.x), tanh(x.y), tanh(x.z), tanh(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_cos(lc_half x) noexcept { return cosf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_cos(lc_half2 x) noexcept { return lc_make_half2(cosf(x.x), cosf(x.y)); }
@@ -3829,9 +3829,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_cos(lc_float3 x) noexcept { return lc_make_float3(cosf(x.x), cosf(x.y), cosf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_cos(lc_float4 x) noexcept { return lc_make_float4(cosf(x.x), cosf(x.y), cosf(x.z), cosf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_cos(lc_double x) noexcept { return cos(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_cos(lc_double2 x) noexcept { return lc_make_double2(cosf(x.x), cosf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_cos(lc_double3 x) noexcept { return lc_make_double3(cosf(x.x), cosf(x.y), cosf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_cos(lc_double4 x) noexcept { return lc_make_double4(cosf(x.x), cosf(x.y), cosf(x.z), cosf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_cos(lc_double2 x) noexcept { return lc_make_double2(cos(x.x), cos(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_cos(lc_double3 x) noexcept { return lc_make_double3(cos(x.x), cos(x.y), cos(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_cos(lc_double4 x) noexcept { return lc_make_double4(cos(x.x), cos(x.y), cos(x.z), cos(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_sin(lc_half x) noexcept { return sinf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_sin(lc_half2 x) noexcept { return lc_make_half2(sinf(x.x), sinf(x.y)); }
@@ -3846,9 +3846,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_sin(lc_float3 x) noexcept { return lc_make_float3(sinf(x.x), sinf(x.y), sinf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_sin(lc_float4 x) noexcept { return lc_make_float4(sinf(x.x), sinf(x.y), sinf(x.z), sinf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_sin(lc_double x) noexcept { return sin(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_sin(lc_double2 x) noexcept { return lc_make_double2(sinf(x.x), sinf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_sin(lc_double3 x) noexcept { return lc_make_double3(sinf(x.x), sinf(x.y), sinf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_sin(lc_double4 x) noexcept { return lc_make_double4(sinf(x.x), sinf(x.y), sinf(x.z), sinf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_sin(lc_double2 x) noexcept { return lc_make_double2(sin(x.x), sin(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_sin(lc_double3 x) noexcept { return lc_make_double3(sin(x.x), sin(x.y), sin(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_sin(lc_double4 x) noexcept { return lc_make_double4(sin(x.x), sin(x.y), sin(x.z), sin(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_tan(lc_half x) noexcept { return tanf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_tan(lc_half2 x) noexcept { return lc_make_half2(tanf(x.x), tanf(x.y)); }
@@ -3863,9 +3863,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_tan(lc_float3 x) noexcept { return lc_make_float3(tanf(x.x), tanf(x.y), tanf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_tan(lc_float4 x) noexcept { return lc_make_float4(tanf(x.x), tanf(x.y), tanf(x.z), tanf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_tan(lc_double x) noexcept { return tan(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_tan(lc_double2 x) noexcept { return lc_make_double2(tanf(x.x), tanf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_tan(lc_double3 x) noexcept { return lc_make_double3(tanf(x.x), tanf(x.y), tanf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_tan(lc_double4 x) noexcept { return lc_make_double4(tanf(x.x), tanf(x.y), tanf(x.z), tanf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_tan(lc_double2 x) noexcept { return lc_make_double2(tan(x.x), tan(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_tan(lc_double3 x) noexcept { return lc_make_double3(tan(x.x), tan(x.y), tan(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_tan(lc_double4 x) noexcept { return lc_make_double4(tan(x.x), tan(x.y), tan(x.z), tan(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_exp(lc_half x) noexcept { return expf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_exp(lc_half2 x) noexcept { return lc_make_half2(expf(x.x), expf(x.y)); }
@@ -3880,9 +3880,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_exp(lc_float3 x) noexcept { return lc_make_float3(expf(x.x), expf(x.y), expf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_exp(lc_float4 x) noexcept { return lc_make_float4(expf(x.x), expf(x.y), expf(x.z), expf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_exp(lc_double x) noexcept { return exp(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_exp(lc_double2 x) noexcept { return lc_make_double2(expf(x.x), expf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_exp(lc_double3 x) noexcept { return lc_make_double3(expf(x.x), expf(x.y), expf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_exp(lc_double4 x) noexcept { return lc_make_double4(expf(x.x), expf(x.y), expf(x.z), expf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_exp(lc_double2 x) noexcept { return lc_make_double2(exp(x.x), exp(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_exp(lc_double3 x) noexcept { return lc_make_double3(exp(x.x), exp(x.y), exp(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_exp(lc_double4 x) noexcept { return lc_make_double4(exp(x.x), exp(x.y), exp(x.z), exp(x.w)); }
 
 [[nodiscard]] __device__ inline lc_float lc_exp2(lc_float x) noexcept { return exp2f(x); }
 [[nodiscard]] __device__ inline lc_float2 lc_exp2(lc_float2 x) noexcept { return lc_make_float2(exp2f(x.x), exp2f(x.y)); }
@@ -3917,9 +3917,60 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_exp10(lc_float3 x) noexcept { return lc_make_float3(exp10f(x.x), exp10f(x.y), exp10f(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_exp10(lc_float4 x) noexcept { return lc_make_float4(exp10f(x.x), exp10f(x.y), exp10f(x.z), exp10f(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_exp10(lc_double x) noexcept { return exp10(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_exp10(lc_double2 x) noexcept { return lc_make_double2(exp10f(x.x), exp10f(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_exp10(lc_double3 x) noexcept { return lc_make_double3(exp10f(x.x), exp10f(x.y), exp10f(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_exp10(lc_double4 x) noexcept { return lc_make_double4(exp10f(x.x), exp10f(x.y), exp10f(x.z), exp10f(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_exp10(lc_double2 x) noexcept { return lc_make_double2(exp10(x.x), exp10(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_exp10(lc_double3 x) noexcept { return lc_make_double3(exp10(x.x), exp10(x.y), exp10(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_exp10(lc_double4 x) noexcept { return lc_make_double4(exp10(x.x), exp10(x.y), exp10(x.z), exp10(x.w)); }
+
+[[nodiscard]] __device__ inline lc_half lc_erf(lc_half x) noexcept { return erff(x); }
+[[nodiscard]] __device__ inline lc_half2 lc_erf(lc_half2 x) noexcept { return lc_make_half2(erff(x.x), erff(x.y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_erf(lc_half3 x) noexcept { return lc_make_half3(erff(x.x), erff(x.y), erff(x.z)); }
+[[nodiscard]] __device__ inline lc_half4 lc_erf(lc_half4 x) noexcept { return lc_make_half4(erff(x.x), erff(x.y), erff(x.z), erff(x.w)); }
+[[nodiscard]] __device__ inline lc_bfloat16 lc_erf(lc_bfloat16 x) noexcept { return erff(x); }
+[[nodiscard]] __device__ inline lc_bfloat162 lc_erf(lc_bfloat162 x) noexcept { return lc_make_bfloat162(erff(x.x), erff(x.y)); }
+[[nodiscard]] __device__ inline lc_bfloat163 lc_erf(lc_bfloat163 x) noexcept { return lc_make_bfloat163(erff(x.x), erff(x.y), erff(x.z)); }
+[[nodiscard]] __device__ inline lc_bfloat164 lc_erf(lc_bfloat164 x) noexcept { return lc_make_bfloat164(erff(x.x), erff(x.y), erff(x.z), erff(x.w)); }
+[[nodiscard]] __device__ inline lc_float lc_erf(lc_float x) noexcept { return erff(x); }
+[[nodiscard]] __device__ inline lc_float2 lc_erf(lc_float2 x) noexcept { return lc_make_float2(erff(x.x), erff(x.y)); }
+[[nodiscard]] __device__ inline lc_float3 lc_erf(lc_float3 x) noexcept { return lc_make_float3(erff(x.x), erff(x.y), erff(x.z)); }
+[[nodiscard]] __device__ inline lc_float4 lc_erf(lc_float4 x) noexcept { return lc_make_float4(erff(x.x), erff(x.y), erff(x.z), erff(x.w)); }
+[[nodiscard]] __device__ inline lc_double lc_erf(lc_double x) noexcept { return erf(x); }
+[[nodiscard]] __device__ inline lc_double2 lc_erf(lc_double2 x) noexcept { return lc_make_double2(erf(x.x), erf(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_erf(lc_double3 x) noexcept { return lc_make_double3(erf(x.x), erf(x.y), erf(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_erf(lc_double4 x) noexcept { return lc_make_double4(erf(x.x), erf(x.y), erf(x.z), erf(x.w)); }
+
+[[nodiscard]] __device__ inline lc_half lc_erfc(lc_half x) noexcept { return erfcf(x); }
+[[nodiscard]] __device__ inline lc_half2 lc_erfc(lc_half2 x) noexcept { return lc_make_half2(erfcf(x.x), erfcf(x.y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_erfc(lc_half3 x) noexcept { return lc_make_half3(erfcf(x.x), erfcf(x.y), erfcf(x.z)); }
+[[nodiscard]] __device__ inline lc_half4 lc_erfc(lc_half4 x) noexcept { return lc_make_half4(erfcf(x.x), erfcf(x.y), erfcf(x.z), erfcf(x.w)); }
+[[nodiscard]] __device__ inline lc_bfloat16 lc_erfc(lc_bfloat16 x) noexcept { return erfcf(x); }
+[[nodiscard]] __device__ inline lc_bfloat162 lc_erfc(lc_bfloat162 x) noexcept { return lc_make_bfloat162(erfcf(x.x), erfcf(x.y)); }
+[[nodiscard]] __device__ inline lc_bfloat163 lc_erfc(lc_bfloat163 x) noexcept { return lc_make_bfloat163(erfcf(x.x), erfcf(x.y), erfcf(x.z)); }
+[[nodiscard]] __device__ inline lc_bfloat164 lc_erfc(lc_bfloat164 x) noexcept { return lc_make_bfloat164(erfcf(x.x), erfcf(x.y), erfcf(x.z), erfcf(x.w)); }
+[[nodiscard]] __device__ inline lc_float lc_erfc(lc_float x) noexcept { return erfcf(x); }
+[[nodiscard]] __device__ inline lc_float2 lc_erfc(lc_float2 x) noexcept { return lc_make_float2(erfcf(x.x), erfcf(x.y)); }
+[[nodiscard]] __device__ inline lc_float3 lc_erfc(lc_float3 x) noexcept { return lc_make_float3(erfcf(x.x), erfcf(x.y), erfcf(x.z)); }
+[[nodiscard]] __device__ inline lc_float4 lc_erfc(lc_float4 x) noexcept { return lc_make_float4(erfcf(x.x), erfcf(x.y), erfcf(x.z), erfcf(x.w)); }
+[[nodiscard]] __device__ inline lc_double lc_erfc(lc_double x) noexcept { return erfc(x); }
+[[nodiscard]] __device__ inline lc_double2 lc_erfc(lc_double2 x) noexcept { return lc_make_double2(erfc(x.x), erfc(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_erfc(lc_double3 x) noexcept { return lc_make_double3(erfc(x.x), erfc(x.y), erfc(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_erfc(lc_double4 x) noexcept { return lc_make_double4(erfc(x.x), erfc(x.y), erfc(x.z), erfc(x.w)); }
+
+[[nodiscard]] __device__ inline lc_half lc_expm1(lc_half x) noexcept { return expm1f(x); }
+[[nodiscard]] __device__ inline lc_half2 lc_expm1(lc_half2 x) noexcept { return lc_make_half2(expm1f(x.x), expm1f(x.y)); }
+[[nodiscard]] __device__ inline lc_half3 lc_expm1(lc_half3 x) noexcept { return lc_make_half3(expm1f(x.x), expm1f(x.y), expm1f(x.z)); }
+[[nodiscard]] __device__ inline lc_half4 lc_expm1(lc_half4 x) noexcept { return lc_make_half4(expm1f(x.x), expm1f(x.y), expm1f(x.z), expm1f(x.w)); }
+[[nodiscard]] __device__ inline lc_bfloat16 lc_expm1(lc_bfloat16 x) noexcept { return expm1f(x); }
+[[nodiscard]] __device__ inline lc_bfloat162 lc_expm1(lc_bfloat162 x) noexcept { return lc_make_bfloat162(expm1f(x.x), expm1f(x.y)); }
+[[nodiscard]] __device__ inline lc_bfloat163 lc_expm1(lc_bfloat163 x) noexcept { return lc_make_bfloat163(expm1f(x.x), expm1f(x.y), expm1f(x.z)); }
+[[nodiscard]] __device__ inline lc_bfloat164 lc_expm1(lc_bfloat164 x) noexcept { return lc_make_bfloat164(expm1f(x.x), expm1f(x.y), expm1f(x.z), expm1f(x.w)); }
+[[nodiscard]] __device__ inline lc_float lc_expm1(lc_float x) noexcept { return expm1f(x); }
+[[nodiscard]] __device__ inline lc_float2 lc_expm1(lc_float2 x) noexcept { return lc_make_float2(expm1f(x.x), expm1f(x.y)); }
+[[nodiscard]] __device__ inline lc_float3 lc_expm1(lc_float3 x) noexcept { return lc_make_float3(expm1f(x.x), expm1f(x.y), expm1f(x.z)); }
+[[nodiscard]] __device__ inline lc_float4 lc_expm1(lc_float4 x) noexcept { return lc_make_float4(expm1f(x.x), expm1f(x.y), expm1f(x.z), expm1f(x.w)); }
+[[nodiscard]] __device__ inline lc_double lc_expm1(lc_double x) noexcept { return expm1(x); }
+[[nodiscard]] __device__ inline lc_double2 lc_expm1(lc_double2 x) noexcept { return lc_make_double2(expm1(x.x), expm1(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_expm1(lc_double3 x) noexcept { return lc_make_double3(expm1(x.x), expm1(x.y), expm1(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_expm1(lc_double4 x) noexcept { return lc_make_double4(expm1(x.x), expm1(x.y), expm1(x.z), expm1(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_log(lc_half x) noexcept { return logf(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_log(lc_half2 x) noexcept { return lc_make_half2(logf(x.x), logf(x.y)); }
@@ -3934,9 +3985,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_log(lc_float3 x) noexcept { return lc_make_float3(logf(x.x), logf(x.y), logf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_log(lc_float4 x) noexcept { return lc_make_float4(logf(x.x), logf(x.y), logf(x.z), logf(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_log(lc_double x) noexcept { return log(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_log(lc_double2 x) noexcept { return lc_make_double2(logf(x.x), logf(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_log(lc_double3 x) noexcept { return lc_make_double3(logf(x.x), logf(x.y), logf(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_log(lc_double4 x) noexcept { return lc_make_double4(logf(x.x), logf(x.y), logf(x.z), logf(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_log(lc_double2 x) noexcept { return lc_make_double2(log(x.x), log(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_log(lc_double3 x) noexcept { return lc_make_double3(log(x.x), log(x.y), log(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_log(lc_double4 x) noexcept { return lc_make_double4(log(x.x), log(x.y), log(x.z), log(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_log2(lc_half x) noexcept { return log2f(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_log2(lc_half2 x) noexcept { return lc_make_half2(log2f(x.x), log2f(x.y)); }
@@ -3951,9 +4002,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_log2(lc_float3 x) noexcept { return lc_make_float3(log2f(x.x), log2f(x.y), log2f(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_log2(lc_float4 x) noexcept { return lc_make_float4(log2f(x.x), log2f(x.y), log2f(x.z), log2f(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_log2(lc_double x) noexcept { return log2(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_log2(lc_double2 x) noexcept { return lc_make_double2(log2f(x.x), log2f(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_log2(lc_double3 x) noexcept { return lc_make_double3(log2f(x.x), log2f(x.y), log2f(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_log2(lc_double4 x) noexcept { return lc_make_double4(log2f(x.x), log2f(x.y), log2f(x.z), log2f(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_log2(lc_double2 x) noexcept { return lc_make_double2(log2(x.x), log2(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_log2(lc_double3 x) noexcept { return lc_make_double3(log2(x.x), log2(x.y), log2(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_log2(lc_double4 x) noexcept { return lc_make_double4(log2(x.x), log2(x.y), log2(x.z), log2(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_log10(lc_half x) noexcept { return log10f(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_log10(lc_half2 x) noexcept { return lc_make_half2(log10f(x.x), log10f(x.y)); }
@@ -3968,9 +4019,9 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_log10(lc_float3 x) noexcept { return lc_make_float3(log10f(x.x), log10f(x.y), log10f(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_log10(lc_float4 x) noexcept { return lc_make_float4(log10f(x.x), log10f(x.y), log10f(x.z), log10f(x.w)); }
 [[nodiscard]] __device__ inline lc_double lc_log10(lc_double x) noexcept { return log10(x); }
-[[nodiscard]] __device__ inline lc_double2 lc_log10(lc_double2 x) noexcept { return lc_make_double2(log10f(x.x), log10f(x.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_log10(lc_double3 x) noexcept { return lc_make_double3(log10f(x.x), log10f(x.y), log10f(x.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_log10(lc_double4 x) noexcept { return lc_make_double4(log10f(x.x), log10f(x.y), log10f(x.z), log10f(x.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_log10(lc_double2 x) noexcept { return lc_make_double2(log10(x.x), log10(x.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_log10(lc_double3 x) noexcept { return lc_make_double3(log10(x.x), log10(x.y), log10(x.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_log10(lc_double4 x) noexcept { return lc_make_double4(log10(x.x), log10(x.y), log10(x.z), log10(x.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_pow(lc_half x, lc_half a) noexcept { return powf_impl(x, a); }
 [[nodiscard]] __device__ inline lc_half2 lc_pow(lc_half2 x, lc_half2 a) noexcept { return lc_make_half2(powf_impl(x.x, a.x), powf_impl(x.y, a.y)); }
@@ -4151,6 +4202,39 @@ struct lc_powi_exponent_traits<lc_ulong4> {
     static constexpr lc_uint dimension = 4u;
     [[nodiscard]] __device__ inline static lc_ulong lane(lc_ulong4 v, lc_uint i) noexcept { return v[i]; }
 };
+// Narrowing shared by every lc_ldexp overload below. The reference semantics of
+// ldexp take the exponent as an unlimited-range integer, whereas the C entry
+// points take an `int`, so an out-of-range exponent must be *saturated* instead
+// of truncated or reinterpreted:
+//  * unsigned T: clamp at INT32_MAX. An unsigned exponent above INT32_MAX
+//    already saturates the mantissa to 0/+inf, so clamping keeps the result
+//    exact, while a plain static_cast reads e.g. (uint)0x80000000 as a hugely
+//    *negative* exponent and returns 0 instead of +inf;
+//  * signed T wider than 32 bits: clamp to [INT32_MIN, INT32_MAX] for the same
+//    reason (only the width narrowing could drop the value out of range);
+//  * signed T of at most 32 bits: the static_cast is exact.
+// NOTE: `std::is_unsigned_v` is unavailable here -- the device library is
+// compiled by NVRTC, which has no host <type_traits> -- hence the `T(0) < T(-1)`
+// unsignedness test (a constant expression for every integral T).
+template<typename T>
+[[nodiscard]] __device__ inline constexpr lc_int lc_ldexp_exponent(T exponent) noexcept {
+    if constexpr (T(0) < T(-1)) {// T is unsigned.
+        if constexpr (sizeof(T) >= sizeof(lc_int)) {// u8/u16 can never exceed INT32_MAX.
+            constexpr auto max_exponent = static_cast<T>(2147483647u);// INT32_MAX
+            return static_cast<lc_int>(exponent > max_exponent ? max_exponent : exponent);
+        } else {
+            return static_cast<lc_int>(exponent);
+        }
+    } else if constexpr (sizeof(T) > sizeof(lc_int)) {
+        constexpr auto min_exponent = static_cast<T>(-2147483647 - 1);// INT32_MIN
+        constexpr auto max_exponent = static_cast<T>(2147483647);// INT32_MAX
+        return static_cast<lc_int>(exponent < min_exponent ? min_exponent :
+                                   exponent > max_exponent ? max_exponent :
+                                                             exponent);
+    } else {
+        return static_cast<lc_int>(exponent);
+    }
+}
 template<typename I>
 [[nodiscard]] __device__ inline lc_half lc_powi(lc_half x, I a) noexcept {
     using E = lc_powi_exponent_traits<I>;
@@ -4264,6 +4348,103 @@ template<typename I>
                            powi_impl(x.y, E::lane(a, E::dimension == 1u ? 0u : 1u)),
                            powi_impl(x.z, E::lane(a, E::dimension == 1u ? 0u : 2u)),
                            powi_impl(x.w, E::lane(a, E::dimension == 1u ? 0u : 3u)));
+}
+
+template<typename I>
+[[nodiscard]] __device__ inline lc_half lc_ldexp(lc_half x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u);
+    return ldexpf(x, lc_ldexp_exponent(E::lane(a, 0u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_half2 lc_ldexp(lc_half2 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 2u);
+    return lc_make_half2(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_half3 lc_ldexp(lc_half3 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 3u);
+    return lc_make_half3(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))), ldexpf(x.z, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 2u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_half4 lc_ldexp(lc_half4 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 4u);
+    return lc_make_half4(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))), ldexpf(x.z, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 2u))), ldexpf(x.w, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 3u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_bfloat16 lc_ldexp(lc_bfloat16 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u);
+    return ldexpf(x, lc_ldexp_exponent(E::lane(a, 0u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_bfloat162 lc_ldexp(lc_bfloat162 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 2u);
+    return lc_make_bfloat162(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_bfloat163 lc_ldexp(lc_bfloat163 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 3u);
+    return lc_make_bfloat163(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))), ldexpf(x.z, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 2u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_bfloat164 lc_ldexp(lc_bfloat164 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 4u);
+    return lc_make_bfloat164(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))), ldexpf(x.z, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 2u))), ldexpf(x.w, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 3u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_float lc_ldexp(lc_float x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u);
+    return ldexpf(x, lc_ldexp_exponent(E::lane(a, 0u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_float2 lc_ldexp(lc_float2 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 2u);
+    return lc_make_float2(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_float3 lc_ldexp(lc_float3 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 3u);
+    return lc_make_float3(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))), ldexpf(x.z, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 2u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_float4 lc_ldexp(lc_float4 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 4u);
+    return lc_make_float4(ldexpf(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexpf(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))), ldexpf(x.z, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 2u))), ldexpf(x.w, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 3u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_double lc_ldexp(lc_double x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u);
+    return ldexp(x, lc_ldexp_exponent(E::lane(a, 0u)));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_double2 lc_ldexp(lc_double2 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 2u);
+    return lc_make_double2(ldexp(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexp(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_double3 lc_ldexp(lc_double3 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 3u);
+    return lc_make_double3(ldexp(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexp(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))), ldexp(x.z, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 2u))));
+}
+template<typename I>
+[[nodiscard]] __device__ inline lc_double4 lc_ldexp(lc_double4 x, I a) noexcept {
+    using E = lc_powi_exponent_traits<I>;
+    static_assert(E::dimension == 1u || E::dimension == 4u);
+    return lc_make_double4(ldexp(x.x, lc_ldexp_exponent(E::lane(a, 0u))), ldexp(x.y, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 1u))), ldexp(x.z, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 2u))), ldexp(x.w, lc_ldexp_exponent(E::lane(a, E::dimension == 1u ? 0u : 3u))));
 }
 
 [[nodiscard]] __device__ inline lc_float lc_sqrt(lc_float x) noexcept { return sqrtf(x); }
@@ -4438,9 +4619,9 @@ template<typename I>
 [[nodiscard]] __device__ inline lc_float4 lc_copysign(lc_float4 x, lc_float4 y) noexcept { return lc_make_float4(copysignf(x.x, y.x), copysignf(x.y, y.y), copysignf(x.z, y.z), copysignf(x.w, y.w)); }
 
 [[nodiscard]] __device__ inline lc_double lc_copysign(lc_double x, lc_double y) noexcept { return copysign(x, y); }
-[[nodiscard]] __device__ inline lc_double2 lc_copysign(lc_double2 x, lc_double2 y) noexcept { return lc_make_double2(copysignf(x.x, y.x), copysignf(x.y, y.y)); }
-[[nodiscard]] __device__ inline lc_double3 lc_copysign(lc_double3 x, lc_double3 y) noexcept { return lc_make_double3(copysignf(x.x, y.x), copysignf(x.y, y.y), copysignf(x.z, y.z)); }
-[[nodiscard]] __device__ inline lc_double4 lc_copysign(lc_double4 x, lc_double4 y) noexcept { return lc_make_double4(copysignf(x.x, y.x), copysignf(x.y, y.y), copysignf(x.z, y.z), copysignf(x.w, y.w)); }
+[[nodiscard]] __device__ inline lc_double2 lc_copysign(lc_double2 x, lc_double2 y) noexcept { return lc_make_double2(copysign(x.x, y.x), copysign(x.y, y.y)); }
+[[nodiscard]] __device__ inline lc_double3 lc_copysign(lc_double3 x, lc_double3 y) noexcept { return lc_make_double3(copysign(x.x, y.x), copysign(x.y, y.y), copysign(x.z, y.z)); }
+[[nodiscard]] __device__ inline lc_double4 lc_copysign(lc_double4 x, lc_double4 y) noexcept { return lc_make_double4(copysign(x.x, y.x), copysign(x.y, y.y), copysign(x.z, y.z), copysign(x.w, y.w)); }
 
 [[nodiscard]] __device__ inline lc_half lc_copysign(lc_half x, lc_half y) noexcept { return lc_copysign_impl(x, y); }
 [[nodiscard]] __device__ inline lc_half2 lc_copysign(lc_half2 x, lc_half2 y) noexcept { return lc_make_half2(lc_copysign_impl(x.x, y.x), lc_copysign_impl(x.y, y.y)); }

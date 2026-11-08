@@ -13,6 +13,10 @@ class Stream;
 
 namespace luisa::compute {
 
+// One bound vertex stream. The element stride comes from the buffer's own element
+// size, and on Vulkan the stride is baked into the graphics pipeline, so every mesh
+// of one draw must agree on the stream count and on each stream's stride (the backend
+// asserts it).
 class VertexBufferView {
     friend class lc::validation::Stream;
     uint64_t _handle{};
@@ -45,6 +49,14 @@ public:
     VertexBufferView() noexcept = default;
 };
 
+// One draw: its vertex streams, its index (or vertex) range, and its instance range.
+//
+// The index buffer is always 32-bit (`BufferView<uint>`); the `IndexFormat` enum in
+// `raster_ext_interface.h` is currently not consumed by any backend. `vertex_offset`
+// is added to every vertex index (the draw's `firstVertex`), and is simply the first
+// vertex of the range when the mesh has no index buffer. `object_id` is the per-mesh
+// id a shader can read - `obj_id` on the DSL path, the reserved push-constant slot on
+// the native one - which is why it is per mesh and not per draw.
 class RasterMesh {
     friend class lc::validation::Stream;
     luisa::fixed_vector<VertexBufferView, 4> _vertex_buffers{};

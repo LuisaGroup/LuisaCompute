@@ -169,6 +169,16 @@ enum class ArithmeticOp {
     SHUFFLE,
     INSERT,
     EXTRACT,
+
+    // Appended to preserve every existing public ArithmeticOp value.
+    // ERF/ERFC/EXPM1 are unary float ops; LDEXP is the mixed-type
+    // (floatN, intN) member of the POW_INT family. The wire-op table in
+    // src/xir/translators/xir_interchange.cpp must stay index-identical
+    // to this enum (frozen_zero_based_layout()).
+    ERF,   // (floatN)
+    ERFC,  // (floatN)
+    EXPM1, // (floatN)
+    LDEXP, // (floatN, intN)
 };
 
 enum class AtomicOp {

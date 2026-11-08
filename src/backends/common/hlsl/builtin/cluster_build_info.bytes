@@ -1,0 +1,136 @@
+// Convert the backend-neutral Vulkan-compatible ClusterBuildInfo records to
+// D3D12_RTAS_OPERATION_BUILD_CLAS_FROM_TRIANGLES_ARGS. DXR selects the index
+// format per operation batch, so records are compacted into three independent
+// arrays. Explicit destinations preserve the original cluster order.
+
+struct ClusterBuildInfo {
+    uint cluster_id;
+    uint cluster_flags;
+    uint packed0;
+    uint packed1;
+    uint16_t index_buffer_stride;
+    uint16_t vertex_buffer_stride;
+    uint16_t geometry_index_and_flags_buffer_stride;
+    uint16_t opacity_micromap_index_buffer_stride;
+    uint64_t index_buffer;
+    uint64_t vertex_buffer;
+    uint64_t geometry_index_and_flags_buffer;
+    uint64_t opacity_micromap_array;
+    uint64_t opacity_micromap_index_buffer;
+};
+
+struct DxClasBuildArgs {
+    uint ClusterID;
+    uint ClusterFlags;
+    uint16_t TriangleCount;
+    uint16_t UniqueVertexIndexCount;
+    uint BaseGeometryIndexAndFlags;
+    uint OpacityMicromapBaseLocation;
+    uint16_t VertexBufferStride;
+    uint16_t IndexBufferStride;
+    uint16_t OpacityMicromapIndexBufferStride;
+    uint16_t GeometryIndexAndFlagsArrayStride;
+    uint16_t PositionTruncateBitCount;
+    uint16_t ReservedPadding;
+    uint64_t VertexBuffer;
+    uint64_t IndexBuffer;
+    uint64_t GeometryIndexAndFlagsArray;
+    uint64_t GeometryIndexAndFlagsIndexBuffer;
+    uint64_t OpacityMicromapArray;
+    uint64_t OpacityMicromapIndexBuffer;
+};
+
+StructuredBuffer<ClusterBuildInfo> _Source : register(t0);
+RWStructuredBuffer<DxClasBuildArgs> _ArgsUInt8 : register(u0);
+RWStructuredBuffer<DxClasBuildArgs> _ArgsUInt16 : register(u1);
+RWStructuredBuffer<DxClasBuildArgs> _ArgsUInt32 : register(u2);
+RWStructuredBuffer<uint> _Counts : register(u3);
+RWStructuredBuffer<uint64_t> _DestinationsUInt8 : register(u4);
+RWStructuredBuffer<uint64_t> _DestinationsUInt16 : register(u5);
+RWStructuredBuffer<uint64_t> _DestinationsUInt32 : register(u6);
+RWStructuredBuffer<uint64_t> _ClasAddresses : register(u7);
+
+cbuffer _Global : register(b0) {
+    uint _Count;
+    uint _ClasStride;
+    uint2 _ClasPoolBase;
+};
+
+[numthreads(256, 1, 1)]
+void main(uint id : SV_DispatchThreadID) {
+    if (id >= _Count) return;
+
+    ClusterBuildInfo src = _Source[id];
+    uint index_format = (src.packed0 >> 24u) & 0x0fu;
+    uint format = index_format == 1u ? 0u :
+                  index_format == 2u ? 1u :
+                  index_format == 4u ? 2u : 3u;
+
+    // Invalid records become null CLAS references, which the Cluster BLAS
+    // operation skips. make_cluster_build_info() rejects these on the host;
+    // this guard also keeps GPU-authored malformed records fail-closed.
+    _ClasAddresses[id] = 0;
+    if (format == 3u || src.cluster_id == 0xffffffffu) return;
+
+    uint triangle_count = src.packed0 & 0x1ffu;
+    uint vertex_count = (src.packed0 >> 9u) & 0x1ffu;
+    uint truncate_bits = (src.packed0 >> 18u) & 0x3fu;
+    uint index_size = format == 0u ? 1u : format == 1u ? 2u : 4u;
+    if (triangle_count > 256u || vertex_count > 256u || truncate_bits > 32u ||
+        src.index_buffer_stride > 4u ||
+        (src.index_buffer_stride != 0u &&
+         (src.index_buffer_stride % index_size) != 0u) ||
+        (src.vertex_buffer_stride % 4u) != 0u ||
+        (src.geometry_index_and_flags_buffer_stride % 4u) != 0u ||
+        ((triangle_count != 0u || vertex_count != 0u) && src.vertex_buffer == 0) ||
+        (triangle_count != 0u && src.index_buffer == 0)) return;
+
+    // OMM is intentionally outside the initial DX feature boundary. Skip such
+    // records instead of passing them to a batch that did not opt into OMM.
+    if (((src.packed0 >> 28u) & 0x0fu) != 0u ||
+        src.opacity_micromap_array != 0 ||
+        src.opacity_micromap_index_buffer != 0) return;
+
+    DxClasBuildArgs dst;
+    dst.ClusterID = src.cluster_id;
+    dst.ClusterFlags = src.cluster_flags & 1u;
+    dst.TriangleCount = (uint16_t)(src.packed0 & 0x1ffu);
+    dst.UniqueVertexIndexCount = (uint16_t)((src.packed0 >> 9u) & 0x1ffu);
+    // Vulkan's opaque/no-duplicate bits already occupy bits 31/30 after the
+    // public packing operation. DXR reserves bits 24-29 (including Vulkan's
+    // cull-disable bit), so clear them instead of forwarding reserved bits.
+    dst.BaseGeometryIndexAndFlags = src.packed1 & 0xc0ffffffu;
+    dst.OpacityMicromapBaseLocation = 0u;
+    dst.VertexBufferStride = src.vertex_buffer_stride;
+    dst.IndexBufferStride = src.index_buffer_stride;
+    dst.OpacityMicromapIndexBufferStride = src.opacity_micromap_index_buffer_stride;
+    dst.GeometryIndexAndFlagsArrayStride = src.geometry_index_and_flags_buffer_stride;
+    dst.PositionTruncateBitCount = (uint16_t)((src.packed0 >> 18u) & 0x3fu);
+    dst.ReservedPadding = 0u;
+    dst.VertexBuffer = src.vertex_buffer;
+    dst.IndexBuffer = src.index_buffer;
+    dst.GeometryIndexAndFlagsArray = src.geometry_index_and_flags_buffer;
+    // Vulkan's public record has no per-triangle geometry-index indirection.
+    dst.GeometryIndexAndFlagsIndexBuffer = 0;
+    dst.OpacityMicromapArray = src.opacity_micromap_array;
+    dst.OpacityMicromapIndexBuffer = src.opacity_micromap_index_buffer;
+
+    uint64_t pool_base = ((uint64_t)_ClasPoolBase.y << 32u) | (uint64_t)_ClasPoolBase.x;
+    uint64_t destination = pool_base + (uint64_t)id * (uint64_t)_ClasStride;
+    _ClasAddresses[id] = destination;
+
+    uint slot;
+    if (format == 0u) {
+        InterlockedAdd(_Counts[0u], 1u, slot);
+        _ArgsUInt8[slot] = dst;
+        _DestinationsUInt8[slot] = destination;
+    } else if (format == 1u) {
+        InterlockedAdd(_Counts[1u], 1u, slot);
+        _ArgsUInt16[slot] = dst;
+        _DestinationsUInt16[slot] = destination;
+    } else {
+        InterlockedAdd(_Counts[2u], 1u, slot);
+        _ArgsUInt32[slot] = dst;
+        _DestinationsUInt32[slot] = destination;
+    }
+}

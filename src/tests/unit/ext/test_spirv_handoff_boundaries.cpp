@@ -329,20 +329,26 @@ int main(int argc, char *argv[]) {
             ArithmeticOp::LOG,
             ArithmeticOp::LOG2,
             ArithmeticOp::LOG10,
-            ArithmeticOp::POW};
+            ArithmeticOp::POW,
+            ArithmeticOp::LDEXP};
         for (auto op : operations) {
             Module module;
             auto *kernel = module.create_kernel();
             auto *value =
                 kernel->create_value_argument(Type::of<double>());
+            auto *exponent =
+                kernel->create_value_argument(Type::of<int32_t>());
             XIRBuilder builder;
             builder.set_insertion_point(
                 kernel->create_body_block());
             auto *instruction =
+                op == ArithmeticOp::LDEXP ?
+                    builder.call(Type::of<double>(), op,
+                                  {value, exponent}) :
                 op == ArithmeticOp::ATAN2 ||
                         op == ArithmeticOp::POW ?
                     builder.call(Type::of<double>(), op,
-                                 {value, value}) :
+                                  {value, value}) :
                     builder.call(Type::of<double>(), op, {value});
             builder.return_void();
 

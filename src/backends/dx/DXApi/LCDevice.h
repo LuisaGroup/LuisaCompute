@@ -138,6 +138,10 @@ public:
     ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;
 
     void destroy_mesh(uint64_t handle) noexcept override;
+    ResourceCreationInfo create_mega_geometry(const AccelOption &option) noexcept override;
+    void destroy_mega_geometry(uint64_t handle) noexcept override;
+    [[nodiscard]] uint64_t mega_geometry_device_address(uint64_t handle) noexcept override;
+    [[nodiscard]] uint64_t buffer_device_address(uint64_t buffer_handle) noexcept override;
 
     ResourceCreationInfo create_accel(const AccelOption &option) noexcept override;
 

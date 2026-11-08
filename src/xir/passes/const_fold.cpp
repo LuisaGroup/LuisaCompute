@@ -126,6 +126,10 @@ template<typename T>
         case ArithmeticOp::RSQRT:
         case ArithmeticOp::LERP:
         case ArithmeticOp::SMOOTHSTEP:
+        case ArithmeticOp::ERF:
+        case ArithmeticOp::ERFC:
+        case ArithmeticOp::EXPM1:
+        case ArithmeticOp::LDEXP:
             return true;
         default: return false;
     }

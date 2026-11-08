@@ -207,7 +207,7 @@ public:
 
     struct Capabilities {
         uint32_t cuda_version = 0u;           ///< Toolkit CUDA_VERSION (e.g. 12040)
-        bool programmatic_edges = false;      ///< CUDA >= 12.4 headers (G2/PDL)
+        bool programmatic_edges = false; ///< CUDA >= 12.4 + sm_90+ (G2/PDL)
         bool device_launch = false;           ///< CUDA >= 12.0 + sm_90+ (G3)
         bool conditional_nodes = false;       ///< CUDA >= 12.3 (G1)
         bool device_updatable_nodes = false;  ///< CUDA >= 12.4 + sm_90+ (G4)

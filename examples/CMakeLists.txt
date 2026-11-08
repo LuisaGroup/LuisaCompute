@@ -154,9 +154,13 @@ luisa_compute_add_example(example_gdeflate compute/compact/main.cpp compute/comp
 luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_image_processing compute/image_processing.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_native_shader
-        compute/native_shader.cpp
-        compute/native_shader_dispatch.cpp
-        compute/native_shader_runtime.cpp)
+        compute/native_shader_examples/native_shader.cpp
+        compute/native_shader_examples/native_shader_dispatch.cpp
+        compute/native_shader_examples/native_shader_runtime.cpp)
+# The minimal "compile a native kernel, dispatch it, verify it" companion of the
+# JSON-driven example above; both live in compute/native_shader_examples/.
+luisa_compute_add_example(example_native_shader_minimal
+        compute/native_shader_examples/minimal.cpp)
 luisa_compute_add_example(example_game_of_life simulation/game_of_life.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_cluster_launch_control compute/cluster_launch_control.cpp MIRROR_AS_TEST)
 luisa_compute_add_example(example_async_copy_prefetch compute/async_copy_prefetch.cpp MIRROR_AS_TEST)

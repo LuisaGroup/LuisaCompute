@@ -19,6 +19,7 @@ class StreamCallbackSemaphoreUpdate final {
 private:
     std::atomic_uint64_t *_semaphore{};
     uint64_t _value{};
+    std::atomic_bool _published{};
 
 private:
     [[nodiscard]] static auto _pool() noexcept {
@@ -35,9 +36,113 @@ public:
     }
     void recycle() noexcept {
         _semaphore->store(_value, std::memory_order_release);
-        _pool()->destroy(this);
+        // One submission owns exactly one of these nodes, so the flag is never
+        // taken twice in normal operation. It exists for the one pathological
+        // case in `launch_host_func` below: a driver that reports a validation
+        // error *after* enqueueing the host function leaves two host functions
+        // holding this node. Publishing the same value twice is harmless,
+        // destroying the pool node twice is not.
+        if (!_published.exchange(true, std::memory_order_acq_rel)) {
+            _pool()->destroy(this);
+        }
     }
 };
+
+namespace cuda_stream_detail {
+
+/// Driver version that introduced `cuLaunchHostFunc_v2`, i.e. the CUDA version
+/// the entry point is resolved for. `cuGetProcAddress` itself reports whether
+/// the running driver knows it.
+constexpr auto kSpinWaitHostFuncDriverVersion = 13020;
+
+/// A driver that predates the 4-argument entry point answers the unversioned
+/// name lookup with this version for every requested CUDA version, which is how
+/// the resolution below tells the two ABIs apart.
+constexpr auto kLegacyHostFuncDriverVersion = 12000;
+
+/// `CU_HOST_TASK_SPINWAIT` of `CUhostTaskSyncMode`. The enumerator does not
+/// exist in every toolkit this tree compiles against (12.9 headers have
+/// neither the constant nor `cuLaunchHostFunc_v2`), so the value is spelled out
+/// next to the entry point that consumes it.
+constexpr auto kHostTaskSpinWait = 1u;
+
+using LaunchHostFuncSpinWait = CUresult (*)(CUstream, CUhostFn, void *, unsigned int);
+
+/// Resolve `(CUstream, CUhostFn, void *, syncMode)` once from the driver. A
+/// compile-time `#if defined(cuLaunchHostFunc_v2)` would be dead code here: the
+/// headers this tree is built against do not declare the symbol. Returning null
+/// means "keep the blocking entry point".
+[[nodiscard]] inline LaunchHostFuncSpinWait launch_host_func_spin_wait() noexcept {
+#if CUDA_VERSION >= 12000
+    static const auto entry = []() noexcept -> LaunchHostFuncSpinWait {
+        // `cuda.h` remaps `cuGetProcAddress` onto the 5-argument `_v2` form.
+        void *symbol = nullptr;
+        auto symbol_status = CU_GET_PROC_ADDRESS_SYMBOL_NOT_FOUND;
+        auto error = cuGetProcAddress(
+            "cuLaunchHostFunc_v2", &symbol, kSpinWaitHostFuncDriverVersion,
+            CU_GET_PROC_ADDRESS_DEFAULT, &symbol_status);
+        if (error == CUDA_SUCCESS && symbol_status == CU_GET_PROC_ADDRESS_SUCCESS &&
+            symbol != nullptr) {
+            LUISA_INFO("CUDA host callbacks: spin-wait mode (cuLaunchHostFunc_v2).");
+            return reinterpret_cast<LaunchHostFuncSpinWait>(symbol);
+        }
+        // Not every driver exposes the versioned name to `cuGetProcAddress`
+        // (13.2 does not), yet CUDA's API versioning still answers the
+        // unversioned name with the 4-argument implementation once the requested
+        // version is new enough. Ask for a pre-13.1 version as well and use the
+        // result only when the two lookups disagree: a driver without the new
+        // ABI returns one and the same 3-argument function for both, and then
+        // the blocking entry point stays in charge.
+        void *legacy = nullptr;
+        auto legacy_status = CU_GET_PROC_ADDRESS_SYMBOL_NOT_FOUND;
+        auto legacy_error = cuGetProcAddress(
+            "cuLaunchHostFunc", &legacy, kLegacyHostFuncDriverVersion,
+            CU_GET_PROC_ADDRESS_DEFAULT, &legacy_status);
+        void *versioned = nullptr;
+        auto versioned_status = CU_GET_PROC_ADDRESS_SYMBOL_NOT_FOUND;
+        auto versioned_error = cuGetProcAddress(
+            "cuLaunchHostFunc", &versioned, kSpinWaitHostFuncDriverVersion,
+            CU_GET_PROC_ADDRESS_DEFAULT, &versioned_status);
+        if (legacy_error == CUDA_SUCCESS && legacy_status == CU_GET_PROC_ADDRESS_SUCCESS &&
+            versioned_error == CUDA_SUCCESS && versioned_status == CU_GET_PROC_ADDRESS_SUCCESS &&
+            versioned != nullptr && versioned != legacy) {
+            LUISA_INFO("CUDA host callbacks: spin-wait mode (cuLaunchHostFunc, versioned).");
+            return reinterpret_cast<LaunchHostFuncSpinWait>(versioned);
+        }
+        LUISA_INFO("CUDA host callbacks: blocking mode (cuLaunchHostFunc).");
+        return nullptr;
+    }();
+    return entry;
+#else
+    return nullptr;// no cuGetProcAddress in this toolkit
+#endif
+}
+
+/// Enqueue the ticket publication of one `CUDAStream::callback()` submission.
+/// `syncMode` is per call, so the deferred staging-event path stays untouched,
+/// and only the user-callback path asks the driver to spin its host-task thread.
+inline void launch_host_func(CUstream stream, StreamCallbackSemaphoreUpdate *update) noexcept {
+    auto host_func = [](void *data) noexcept {
+        static_cast<StreamCallbackSemaphoreUpdate *>(data)->recycle();
+    };
+    if (auto launch_spin_wait = launch_host_func_spin_wait(); launch_spin_wait != nullptr) {
+        auto error = launch_spin_wait(stream, host_func, update, kHostTaskSpinWait);
+        if (error == CUDA_SUCCESS) { return; }
+        // CUDA_ERROR_NOT_SUPPORTED is the documented "this driver will not
+        // spin wait" answer, and an out-of-range sync mode is reported as
+        // CUDA_ERROR_INVALID_VALUE. Both are reported before the host function is
+        // enqueued, so re-issuing the identical submission through the blocking
+        // entry point below is safe and loses no ticket; should a driver ever
+        // report them after enqueueing, the node's idempotent `recycle()` keeps
+        // the double submission from double-destroying it.
+        if (error != CUDA_ERROR_NOT_SUPPORTED && error != CUDA_ERROR_INVALID_VALUE) {
+            LUISA_CHECK_CUDA(error);
+        }
+    }
+    LUISA_CHECK_CUDA(cuLaunchHostFunc(stream, host_func, update));
+}
+
+}// namespace cuda_stream_detail
 
 CUDAStream::CUDAStream(CUDADevice *device) noexcept
     : _device{device},
@@ -123,15 +228,10 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     if (!callbacks.empty()) {
         // signal that the stream has been dispatched
         auto ticket = 1u + _current_ticket.fetch_add(1u, std::memory_order_relaxed);
-        // signal via cuLaunchHostFunc so the driver orders the host write after the stream's prior DMAs
+        // signal via a host function so the driver orders the host write after
+        // the stream's prior DMAs (spin-wait mode where the driver has it)
         auto update = StreamCallbackSemaphoreUpdate::create(&_callback_semaphore, ticket);
-        LUISA_CHECK_CUDA(cuLaunchHostFunc(
-            _stream,
-            [](void *data) noexcept {
-                auto update = static_cast<StreamCallbackSemaphoreUpdate *>(data);
-                update->recycle();
-            },
-            update));
+        cuda_stream_detail::launch_host_func(_stream, update);
         // enqueue callbacks
         {
             CallbackPackage package{

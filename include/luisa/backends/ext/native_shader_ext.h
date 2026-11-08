@@ -20,6 +20,7 @@
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/byte_buffer.h>
 #include <luisa/backends/ext/registry.h>
+#include <luisa/backends/ext/raster_cmd.h>
 #include <luisa/core/stl/algorithm.h>
 
 namespace luisa::compute {
@@ -34,8 +35,12 @@ namespace luisa::compute {
 // `NativeShaderDispatchCommand` (built by `NativeShaderLauncher`).
 //
 // Contract notes (read before use):
-//  * Compute shaders only. Ray tracing and rasterization native injection are
-//    out of scope for this API.
+//  * Compute shaders and rasterization (vertex + pixel pairs) are supported;
+//    ray tracing and mesh/task shader native injection are out of scope.
+//    A compute native shader is compiled by `compile()` and dispatched by
+//    `NativeShaderLauncher::build()`; a raster pair is compiled by
+//    `compile_raster()` and drawn by `NativeShaderLauncher::draw()` (see the
+//    raster section below for the stage-interaction contract).
 //  * Native shaders are JIT-only: they do not participate in `ShaderSerializer`
 //    / AOT caching, and `LUISA_DUMP_SOURCE` does not dump them. An application
 //    that wants to persist them should serialize `NativeShaderCompileResult`
@@ -67,19 +72,57 @@ namespace luisa::compute {
 // but `load()` rejects them for now on both backends: buffers and uniform
 // blocks are the supported resource classes of this iteration.
 //
-//  * Lifetime: a `NativeShader` instance (and any shader handle returned by
-// `load`) must be destroyed - `NativeShader::reset()`, the RAII destructor or
-// `destroy_shader()` - before the `Device` that created it, and its
-// dispatches must have been synchronized before destruction, exactly like any
-// other GPU resource. Instances that are still alive when the device's
-// extension is torn down are released by the backend with a warning; they are
-// never silently dropped.
+//  * Lifetime: a `NativeShader` / `NativeRasterShader` instance (and any shader
+// handle returned by `load` / `load_raster`) must be destroyed - `reset()`, the
+// RAII destructor, `destroy_shader()` or `destroy_raster_shader()` - before the
+// `Device` that created it, and the dispatches/draws that use it must have
+// completed before destruction, exactly like any other GPU resource. For a
+// raster shader that means synchronizing the stream: a draw is submitted when
+// it is enqueued, so destroying the shader while a submitted command buffer
+// still references its pipeline is undefined behaviour. Instances that are
+// still alive when the device's extension is torn down are released by the
+// backend with a warning; they are never silently dropped.
 //
 // Backend support matrix (this iteration):
 // | HLSL | GLSL | CUDA C++ (NVRTC)
 //  DirectX (dx) | DXIL + DXC reflection | rejected (fail-closed) | rejected (fail-closed)
 //  Vulkan (vk) | SPIR-V via DXC | SPIR-V via glslang | rejected (fail-closed)
 //  CUDA (cuda) | rejected (fail-closed) | rejected (fail-closed) | PTX via NVRTC
+//
+// Raster route (`compile_raster()` / `load_raster()` / `NativeShaderLauncher::draw()`):
+// DirectX (HLSL stages, DXIL) and Vulkan (HLSL or GLSL stages, SPIR-V) implement
+// it. Every other backend inherits the fail-closed defaults of `NativeShaderExt`,
+// so `compile_raster()` returns an error naming that backend and `load_raster()`
+// an invalid handle - no backend has to opt out, and an application can probe with
+// `create_raster_shader()`.
+//
+// Where the two implementations differ, it is in how the same contract is spelled
+// in the application's source:
+//  * vertex inputs and varyings. Vulkan matches the stages by explicit locations
+//    (`[[vk::location(n)]]` / `layout(location = n)`). DirectX matches the draw's
+//    `MeshFormat` by *semantic* (POSITION/NORMAL/TANGENT/COLOR/TEXCOORD0..3 at
+//    semantic index 0..3, so a vertex stage declares e.g.
+//    `float4 position : POSITION`) and links the two stages by *hardware
+//    register*, which DXC assigns in declaration order: a varying must be
+//    declared in the same order in both stages (listing `SV_Position` first in the
+//    pixel stage's input struct is the usual fix), and `compile_raster()` reports
+//    a mismatched register instead of leaving it to a pipeline-creation failure.
+// Varying names are compared case-insensitively, as DirectX semantics are: `COLOR`,
+// `Color` and `color` all name the same varying.
+//  * the uniform block: a push-constant block on Vulkan, a
+//    `cbuffer ... : register(b0)` fed by root 32-bit constants on DirectX. On
+//    DirectX the declared `push_constant_size` must cover the bytes the shader
+//    reads from that block (the block also *allocates* a rounded-up size, which
+//    does not have to be covered), and the object-id slot sits in front of the
+//    application's bytes on both backends.
+//  * resource classes: dx binds root CBV/SRV/UAV only (no descriptor tables), vk
+//    binds uniform/storage buffer descriptors; both reject the rest at
+//    `load_raster()`.
+//
+// This is not the DSL rasterisation extension: `RasterExt`
+// (`luisa/backends/ext/raster_ext.hpp`) is provided by dx, vk and metal4, and
+// compiles a `RasterKernel`'s DSL functions. The route described here compiles
+// *native source* instead, and is the only one that does.
 //
 // Resource kinds supported per backend (buffers and uniform blocks only):
 //  * dx: constant buffers (CBV), structured buffers (SRV/UAV) and byte-address
@@ -198,8 +241,22 @@ enum class NativeShaderSourceType : uint8_t {
     FilePath,
 };
 
+// The pipeline stage a native module is compiled for. `Compute` is the
+// historical single-stage mode (`compile()` + `load()` + `build()`);
+// `Vertex`/`Pixel` are only accepted by the raster entry points
+// (`compile_raster()` + `load_raster()` + `draw()`).
+enum class NativeShaderStage : uint8_t {
+    Compute,
+    Vertex,
+    Pixel,
+};
+
 struct NativeShaderCompileInfo {
     NativeShaderLanguage language{NativeShaderLanguage::HLSL};
+    // Stage this module is compiled for. `Compute` for `compile()`;
+    // `compile_raster()` overrides it with `Vertex`/`Pixel` for the two stages
+    // it is given, so an application never has to set it for a raster pair.
+    NativeShaderStage stage{NativeShaderStage::Compute};
     // Meaning depends on `source_type`: the shader source text, or the path of
     // a source file the backend reads before compiling.
     luisa::string_view source;
@@ -220,6 +277,9 @@ struct NativeShaderCompileInfo {
     uint3 block_size{0u, 0u, 0u};
     // Uniform bytes: bytes; 0 => no push/root constant block. On the CUDA route
     // this is the total size of the scalar kernel parameters (0 => reflect it).
+    // On the Vulkan raster route this is the *application's* uniform bytes only
+    // (the object-id slot reserved by
+    // `NativeRasterShaderCompileInfo::push_object_id` is not included).
     uint32_t push_constant_size{0u};
     bool optimize{true};
     bool enable_fast_math{false};
@@ -231,6 +291,7 @@ struct NativeShaderCompileResult {
     luisa::vector<NativeShaderResourceBinding> bindings;  // reflection
     luisa::string error; // empty == success
     NativeShaderLanguage language{NativeShaderLanguage::HLSL};
+    NativeShaderStage stage{NativeShaderStage::Compute};
     uint3 block_size{0u, 0u, 0u};
     uint32_t shader_model{0u};
     // Push-constant / root-constant block size carried over from the compile
@@ -242,6 +303,64 @@ struct NativeShaderCompileResult {
     // module can hold every `__global__` function of the translation unit.
     luisa::string entry_point;
     [[nodiscard]] bool ok() const noexcept { return error.empty() && !binary.empty(); }
+};
+
+// ---------------------------------------------------------------------------
+// raster (vertex + pixel) pipelines
+// ---------------------------------------------------------------------------
+
+// A raster pipeline compiled from two native modules. Each stage carries its own
+// language, source, entry point and reflection, so a pair may mix languages
+// (e.g. an HLSL vertex stage with a GLSL pixel stage): on the Vulkan route both
+// become SPIR-V modules anyway.
+//
+// Unlike the compute route, the two modules are only half of a draw: the
+// backend builds the graphics pipeline at draw time, because the vertex input
+// layout comes from the draw's `MeshFormat` and the blend/depth/topology state
+// from its `RasterState` - exactly like a DSL `RasterShader`. The contract the
+// two stages must therefore satisfy:
+//
+//  * Vertex inputs are bound at `location = static_cast<uint32_t>(VertexAttributeType)`
+//    (position 0, normal 1, tangent 2, color 3, uv0..uv3 4..7), i.e. by the
+//    attribute's *semantic*, not by its position in the stream. Declare them
+//    with an explicit location (`[[vk::location(n)]]` in HLSL,
+//    `layout(location = n)` in GLSL), and declare only the attributes the
+//    draw's `MeshFormat` actually provides.
+//  * The vertex stage writes `SV_Position` / `gl_Position`. Varyings between the
+//    two stages are the application's contract: the backend does not rewrite
+//    them, so give both sides explicit, matching locations.
+//  * Pixel outputs are `SV_Target0..7` (`layout(location = 0..7) out`), one per
+//    render-target view the draw binds.
+//  * Both stages share one pipeline layout. Their reflected descriptor tables
+//    are merged into one table (canonical `(set, binding, kind)` order, reported
+//    in `NativeRasterShaderCompileResult::bindings`); a binding present in both
+//    stages must have the same resource kind in both, and is bound once.
+struct NativeRasterShaderCompileInfo {
+    NativeShaderCompileInfo vertex;
+    NativeShaderCompileInfo pixel;
+    // Reserve the first 4 push-constant bytes for `RasterMesh::object_id`: the
+    // backend writes the current mesh's object id there before drawing it, and
+    // the application's `add_uniform()` values land at push-constant offset 4.
+    // The declared block must then start with a 32-bit member holding it, e.g.
+    // `layout(push_constant) uniform Push { uint object_id; ... }`. Off by
+    // default, so that an application that never asks for it cannot have the
+    // first uniform of its block silently overwritten.
+    bool push_object_id{false};
+};
+
+struct NativeRasterShaderCompileResult {
+    NativeShaderCompileResult vertex;
+    NativeShaderCompileResult pixel;
+    // The merged descriptor table the draw's launcher binds by index.
+    luisa::vector<NativeShaderResourceBinding> bindings;
+    // The application's uniform bytes (the larger of the two stages).
+    uint32_t push_constant_size{0u};
+    // Reserved object-id bytes: 0, or 4 when `push_object_id` was requested.
+    uint32_t object_id_bytes{0u};
+    luisa::string error; // empty == success
+    [[nodiscard]] bool ok() const noexcept {
+        return error.empty() && vertex.ok() && pixel.ok();
+    }
 };
 
 namespace detail {
@@ -314,17 +433,28 @@ namespace detail {
       return true;
   }
   }// namespace detail
-  struct NativeShaderMetadata {
-    uint64_t handle{invalid_resource_handle}; // backend shader instance pointer
-    uint3 block_size{0u, 0u, 0u};
-    luisa::vector<NativeShaderResourceBinding> bindings; // canonical order
-    NativeShaderLanguage language{NativeShaderLanguage::HLSL};
-    uint32_t push_constant_size{0u};
-    [[nodiscard]] bool valid() const noexcept { return handle != invalid_resource_handle; }
-};
+    struct NativeShaderMetadata {
+        uint64_t handle{invalid_resource_handle}; // backend shader instance pointer
+        uint3 block_size{0u, 0u, 0u};
+        luisa::vector<NativeShaderResourceBinding> bindings; // canonical order
+        NativeShaderLanguage language{NativeShaderLanguage::HLSL};
+        uint32_t push_constant_size{0u};
+        // `Compute` for a dispatchable instance, `Vertex` for a raster pipeline
+        // created by `load_raster()` (the two stages are one object; the field
+        // names the kind, not one of the two modules).
+        NativeShaderStage stage{NativeShaderStage::Compute};
+        // Raster only: bytes reserved at push-constant offset 0 for
+        // `RasterMesh::object_id` (0 or 4).
+        uint32_t object_id_bytes{0u};
+        [[nodiscard]] bool valid() const noexcept { return handle != invalid_resource_handle; }
+        [[nodiscard]] bool is_raster() const noexcept {
+            return stage != NativeShaderStage::Compute;
+        }
+    };
 
 class NativeShaderExt;  // fwd (create_shader returns a NativeShader)
 class NativeShader;
+class NativeRasterShader;
 
 class NativeShaderExt : public DeviceExtension {
 protected:
@@ -353,9 +483,30 @@ public:
 
     virtual void destroy_shader(uint64_t handle) noexcept = 0;
 
+    // ---- raster (vertex + pixel) -----------------------------------------
+    // Compile the two stages of a raster pipeline. Never throws: a failure is
+    // reported through `NativeRasterShaderCompileResult::error` with empty
+    // binaries (fail closed).
+    //
+    // The default implementation fails closed on every backend that has no
+    // native raster route (dx, cuda, ...), so adding this entry point needs no
+    // edit in a backend that does not implement it.
+    [[nodiscard]] virtual NativeRasterShaderCompileResult compile_raster(
+        const NativeRasterShaderCompileInfo &info) noexcept;
+    // Create the graphics-pipeline instance from a previous `compile_raster()`.
+    // The returned metadata describes one raster shader (see
+    // `NativeShaderMetadata::is_raster`); drawing it is
+    // `NativeShaderLauncher::draw()`. The default fails closed.
+    [[nodiscard]] virtual NativeShaderMetadata load_raster(
+        const NativeRasterShaderCompileResult &result,
+        luisa::span<const Usage> usage_override = {}) noexcept;
+    virtual void destroy_raster_shader(uint64_t handle) noexcept;
+
     // compile + load convenience; the returned shader is invalid when either
     // step fails (use `compile()` directly when the error message is needed).
     [[nodiscard]] NativeShader create_shader(const NativeShaderCompileInfo &info) noexcept;
+    [[nodiscard]] NativeRasterShader create_raster_shader(
+        const NativeRasterShaderCompileInfo &info) noexcept;
 };
 
 // ---------------------------------------------------------------------------
@@ -504,6 +655,9 @@ private:
     luisa::vector<NativeShaderResourceBinding> _bindings;
     luisa::vector<Entry> _resources;
     luisa::vector<std::byte> _uniform_blob;
+    // True when this launcher came from a raster shader: `draw()` is its build
+    // verb, and `build()` (a compute dispatch) is rejected.
+    bool _raster{false};
     bool _allow_usage_override{false};
 
     [[nodiscard]] Entry &_create_entry(Usage usage) noexcept {
@@ -519,7 +673,8 @@ public:
     NativeShaderLauncher() noexcept = default;
     NativeShaderLauncher(uint64_t shader_handle,
                          uint3 block_size,
-                         luisa::span<const NativeShaderResourceBinding> bindings) noexcept;
+                         luisa::span<const NativeShaderResourceBinding> bindings,
+                         bool raster = false) noexcept;
     NativeShaderLauncher(NativeShaderLauncher const &) = delete;
     NativeShaderLauncher(NativeShaderLauncher &&) noexcept = default;
 
@@ -602,6 +757,58 @@ public:
     // Standalone form: parameters the launcher was not built with.
     [[nodiscard]] luisa::unique_ptr<NativeShaderDispatchCommand>
     build(uint64_t shader_handle, uint3 thread_count, uint3 block_size) && noexcept;
+
+    // ---- raster build ----------------------------------------------------
+    // Builds the draw command of a native raster pipeline. The arguments
+    // collected above become the draw's resource/uniform arguments (canonical
+    // binding order, one prompt per reflected binding, exactly like `build()`),
+    // and their declared usages become the command's synchronization contract.
+    // `mesh_format` must outlive the command and every stream it is submitted
+    // to (the command keeps a pointer to it, like the DSL raster path).
+    //
+    // A launcher taken from a raster shader rejects `build()`, and a compute
+    // launcher rejects `draw()`; mixing them would bind a compute shader as a
+    // graphics pipeline.
+    template<typename... Rtv>
+        requires(sizeof...(Rtv) == 0u || detail::LegalDst<Rtv...>())
+    [[nodiscard]] luisa::unique_ptr<DrawRasterSceneCommand>
+    draw(luisa::vector<RasterMesh> &&scene, MeshFormat const &mesh_format,
+         Viewport viewport, const RasterState &raster_state,
+         DepthBuffer const *dsv, Rtv const &...rtv) && noexcept {
+        LUISA_ASSERT(_raster,
+                     "NativeShaderLauncher::draw() needs a launcher obtained "
+                     "from NativeRasterShader::launcher(); a compute launcher "
+                     "binds a compute shader, which cannot be drawn.");
+        LUISA_ASSERT(_shader_handle != invalid_resource_handle,
+                     "NativeShaderLauncher::draw() without a shader handle; the "
+                     "raster shader it came from failed to load.");
+        LUISA_ASSERT(sizeof...(Rtv) <= 8u,
+                     "A raster draw binds at most 8 render targets.");
+        LUISA_ASSERT(sizeof...(Rtv) > 0u || dsv != nullptr,
+                     "A raster draw needs at least one color or depth "
+                     "attachment; a draw that writes to neither renders "
+                     "nothing and would create an empty render pass.");
+        auto plan = _plan();
+        LUISA_ASSERT(plan.error.empty(),
+                     "Native raster draw is not drawable: {}", plan.error);
+        std::array<Argument::Texture, 8u> rtv_textures{};
+        auto rtv_count = size_t{0u};
+        if constexpr (sizeof...(Rtv) > 0u) {
+            auto values = {detail::PixelDst<std::remove_cvref_t<Rtv>>::get(rtv)...};
+            rtv_count = values.size();
+            std::copy(values.begin(), values.end(), rtv_textures.begin());
+        }
+        auto command = luisa::make_unique<DrawRasterSceneCommand>(
+            _shader_handle, std::move(plan.argument_buffer),
+            plan.arguments.size(), rtv_textures, rtv_count,
+            dsv != nullptr ? Argument::Texture{dsv->handle(), 0u} :
+                             Argument::Texture{invalid_resource_handle, 0u},
+            std::move(scene), viewport, raster_state, &mesh_format);
+        // The declared per-resource usages are the command's synchronization
+        // contract; they also mark it as native-shader backed.
+        command->set_native_shader(std::move(plan.usages));
+        return command;
+    }
 };
 
 // RAII owner of a shader instance created through `NativeShaderExt::load`;
@@ -673,6 +880,108 @@ inline NativeShader NativeShaderExt::create_shader(
     return NativeShader{*this, std::move(metadata)};
 }
 
+// RAII owner of a raster pipeline instance created through
+// `NativeShaderExt::load_raster`; destroys it on destruction (or on `reset()`).
+class NativeRasterShader {
+
+private:
+    NativeShaderExt *_ext{nullptr};
+    uint64_t _handle{invalid_resource_handle};
+    NativeShaderMetadata _meta;
+
+public:
+    NativeRasterShader() noexcept = default;
+    NativeRasterShader(NativeShaderExt &ext, NativeShaderMetadata meta) noexcept
+        : _ext{&ext}, _handle{meta.handle}, _meta{std::move(meta)} {
+        LUISA_ASSERT(_handle != invalid_resource_handle,
+                     "NativeRasterShader requires a valid shader handle.");
+    }
+    ~NativeRasterShader() noexcept { reset(); }
+    NativeRasterShader(NativeRasterShader const &) = delete;
+    NativeRasterShader &operator=(NativeRasterShader const &) = delete;
+    NativeRasterShader(NativeRasterShader &&other) noexcept
+        : _ext{other._ext}, _handle{other._handle}, _meta{std::move(other._meta)} {
+        other._ext = nullptr;
+        other._handle = invalid_resource_handle;
+    }
+    NativeRasterShader &operator=(NativeRasterShader &&other) noexcept {
+        if (this != &other) {
+            reset();
+            _ext = other._ext;
+            _handle = other._handle;
+            _meta = std::move(other._meta);
+            other._ext = nullptr;
+            other._handle = invalid_resource_handle;
+        }
+        return *this;
+    }
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return _handle != invalid_resource_handle;
+    }
+    [[nodiscard]] uint64_t handle() const noexcept { return _handle; }
+    [[nodiscard]] NativeShaderLanguage language() const noexcept { return _meta.language; }
+    [[nodiscard]] luisa::span<const NativeShaderResourceBinding> bindings() const noexcept {
+        return _meta.bindings;
+    }
+    [[nodiscard]] NativeShaderMetadata const &metadata() const noexcept { return _meta; }
+    // Bytes reserved at push-constant offset 0 for `RasterMesh::object_id`
+    // (0 unless `NativeRasterShaderCompileInfo::push_object_id` was set).
+    [[nodiscard]] uint32_t object_id_bytes() const noexcept {
+        return _meta.object_id_bytes;
+    }
+    void reset() noexcept {
+        if (_ext != nullptr && _handle != invalid_resource_handle) {
+            _ext->destroy_raster_shader(_handle);
+        }
+        _ext = nullptr;
+        _handle = invalid_resource_handle;
+        _meta = NativeShaderMetadata{};
+    }
+    // A launcher pre-parameterised with this shader's handle and binding table;
+    // build the draw with `NativeShaderLauncher::draw()`.
+    [[nodiscard]] NativeShaderLauncher launcher() const noexcept {
+        return NativeShaderLauncher{_handle, uint3{0u, 0u, 0u},
+                                    _meta.bindings, /*raster*/ true};
+    }
+};
+
+inline NativeRasterShader NativeShaderExt::create_raster_shader(
+    const NativeRasterShaderCompileInfo &info) noexcept {
+    auto result = compile_raster(info);
+    if (!result.ok()) { return NativeRasterShader{}; }
+    auto metadata = load_raster(result);
+    if (!metadata.valid()) { return NativeRasterShader{}; }
+    return NativeRasterShader{*this, std::move(metadata)};
+}
+
+// Fail-closed defaults for the raster entry points. A backend that has no
+// native raster route inherits these and needs no edit; the error names the
+// backend so a caller that got an invalid shader back knows why.
+inline NativeRasterShaderCompileResult NativeShaderExt::compile_raster(
+    const NativeRasterShaderCompileInfo &info) noexcept {
+    static_cast<void>(info);
+    NativeRasterShaderCompileResult result;
+    result.error = luisa::format(
+        "Raster native shaders are not supported by backend '{}'.",
+        _device != nullptr ? _device->backend_name() : luisa::string_view{"unknown"});
+    return result;
+}
+
+inline NativeShaderMetadata NativeShaderExt::load_raster(
+    const NativeRasterShaderCompileResult &result,
+    luisa::span<const Usage> usage_override) noexcept {
+    static_cast<void>(result);
+    static_cast<void>(usage_override);
+    NativeShaderMetadata metadata;
+    metadata.stage = NativeShaderStage::Vertex;
+    return metadata;
+}
+
+inline void NativeShaderExt::destroy_raster_shader(uint64_t handle) noexcept {
+    // Nothing to destroy: the default `load_raster` never produces a handle.
+    static_cast<void>(handle);
+}
+
 // ---------------------------------------------------------------------------
 // launcher implementation
 // ---------------------------------------------------------------------------
@@ -700,10 +1009,11 @@ inline void native_shader_canonicalize_bindings(
 
 inline NativeShaderLauncher::NativeShaderLauncher(
     uint64_t shader_handle, uint3 block_size,
-    luisa::span<const NativeShaderResourceBinding> bindings) noexcept
+    luisa::span<const NativeShaderResourceBinding> bindings, bool raster) noexcept
     : _shader_handle{shader_handle},
       _block_size{block_size},
-      _bindings{bindings.begin(), bindings.end()} {
+      _bindings{bindings.begin(), bindings.end()},
+      _raster{raster} {
     // Binding order is the launcher's positional order, so normalise the table
     // into the canonical (space, register) order that `load()` reports.
     detail::native_shader_canonicalize_bindings(_bindings);
@@ -788,6 +1098,10 @@ inline NativeShaderLauncher &NativeShaderLauncher::add_uniform(
 
 inline luisa::unique_ptr<NativeShaderDispatchCommand>
 NativeShaderLauncher::build(uint3 thread_count) && noexcept {
+    LUISA_ASSERT(!_raster,
+                 "NativeShaderLauncher::build() dispatches a compute shader; a "
+                 "launcher from NativeRasterShader::launcher() is drawn with "
+                 "draw().");
     LUISA_ASSERT(_shader_handle != invalid_resource_handle,
                  "Native shader launcher build() without a shader handle; use "
                  "build(handle, thread_count, block_size) or "

@@ -55,7 +55,12 @@ protected:
     vstd::vector<hlsl::Property> _properties;
     vstd::vector<SavedArgument> _kernel_arguments;
     vstd::vector<std::pair<vstd::string, Type const *>> _printers;
-    uint _bindless_count;
+    // Number of bindless descriptor tables the draw/dispatch path pushes. Neither
+    // constructor initialised it, so a shader built outside
+    // `RasterShader::compile_raster` / `RasterDeSerialize` (e.g. a native raster
+    // shader) made the encode path push an indeterminate number of global-heap
+    // bindings; the default keeps such a shader at zero.
+    uint _bindless_count{0u};
     uint _validation_count;
     void _save_pso(ID3D12PipelineState *pso, vstd::string_view pso_name, luisa::BinaryIO const *file_stream, Device const *device) const;
 

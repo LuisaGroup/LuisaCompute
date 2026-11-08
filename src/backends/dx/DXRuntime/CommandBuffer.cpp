@@ -129,7 +129,7 @@ void CommandBufferBuilder::dispatch_compute(
     }
 }
 void CommandBufferBuilder::set_raster_shader(
-    RasterShader const *s,
+    Shader const *s,
     ID3D12PipelineState *state,
     vstd::span<const BindProperty> resources) {
     auto c = _cb->cmd_list();

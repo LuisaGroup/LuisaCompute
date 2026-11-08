@@ -159,6 +159,12 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     VkPhysicalDeviceAccelerationStructurePropertiesKHR
         _acceleration_structure_properties{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
+    // VK_NV_cluster_acceleration_structure limits and byte alignments. Only
+    // meaningful when `cluster_acceleration_structure_enabled` is set; the
+    // struct keeps its sType otherwise so it can be chained unconditionally.
+    VkPhysicalDeviceClusterAccelerationStructurePropertiesNV
+        _cluster_acceleration_structure_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CLUSTER_ACCELERATION_STRUCTURE_PROPERTIES_NV};
     VkPipelineCacheHeaderVersionOne _pso_header{};
     VkPhysicalDeviceSubgroupSizeControlProperties _subgroup_size_control_properties{};
     vstd::vector<VkSampler> _samplers;
@@ -276,6 +282,12 @@ public:
     // owned logical devices only — imported devices cannot be queried).
     bool cuda_kernel_launch_enabled : 1 {false};
     bool motion_blur_enabled : 1 {false};
+    // VK_NV_cluster_acceleration_structure (RTX Mega Geometry). Decided once in
+    // _init_device from the physical-device extension + feature bit, the
+    // ray-query decision it depends on and the software-fallback choice; forced
+    // off for an imported logical device whose enabled feature chain cannot be
+    // attested.
+    bool cluster_acceleration_structure_enabled : 1 {false};
     // Software ray tracing (`lc::fallback_rtx::FallbackRtxDevice`). Decided
     // once, in `_init_device`: the user may force it through
     // `VulkanDeviceConfigExt::use_fallback_rtx()`, and a physical device without
@@ -344,6 +356,14 @@ public:
     }
     bool enable_motion_blur() const { return motion_blur_enabled; }
     bool enable_raytracing() const { return raytracing_enabled; }
+    // Whether this device can build and trace cluster (mega-geometry)
+    // acceleration structures through VK_NV_cluster_acceleration_structure.
+    [[nodiscard]] bool enable_cluster_acceleration_structure() const noexcept {
+        return cluster_acceleration_structure_enabled;
+    }
+    [[nodiscard]] const auto &cluster_acceleration_structure_properties() const noexcept {
+        return _cluster_acceleration_structure_properties;
+    }
     // Whether this device answers ray tracing with the software fallback. It is
     // `false` on the hardware path, where every fallback branch is inert.
     [[nodiscard]] bool use_fallback_rtx() const noexcept {
@@ -490,6 +510,17 @@ public:
     ResourceCreationInfo create_mesh(
         const AccelOption &option) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
+
+    // cluster (mega-geometry) acceleration structures. Refuses loudly when
+    // VK_NV_cluster_acceleration_structure is not enabled on this device.
+    // TODO(dx): D3D12 counterpart (NVAPI cluster build or DXR clusters) — see
+    // the RTXMG research report §7 for the divergence matrix.
+    [[nodiscard]] ResourceCreationInfo create_mega_geometry(
+        const AccelOption &option) noexcept override;
+    void destroy_mega_geometry(uint64_t handle) noexcept override;
+    [[nodiscard]] uint64_t mega_geometry_device_address(uint64_t handle) noexcept override;
+    // 0 when this device cannot expose buffer device addresses (never asserts).
+    [[nodiscard]] uint64_t buffer_device_address(uint64_t buffer_handle) noexcept override;
 
     ResourceCreationInfo create_procedural_primitive(
         const AccelOption &option) noexcept override;

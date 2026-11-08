@@ -5,7 +5,7 @@
     "config.json",
     ".kimix/config.json"
   ],
-  "_comment_forbidden_commands": "List of command prefixes that the Run tool will reject. Supports fuzzy prefix matching — e.g., 'git commit' blocks 'git commit -m msg', 'git push' blocks 'git push origin main'. Use this to prevent destructive or autonomous operations.",
+  "_comment_forbidden_commands": "List of command prefixes that the Run tool will reject. Supports fuzzy prefix matching — e.g., Use this to prevent destructive or autonomous operations.",
   "forbidden_commands": [
     "rm -rf /",
     "rm -rf /*",

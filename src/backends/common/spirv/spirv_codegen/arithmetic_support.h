@@ -48,7 +48,8 @@ spirv_glsl_transcendental_rejects_float64(
         case ArithmeticOp::LOG:
         case ArithmeticOp::LOG2:
         case ArithmeticOp::LOG10:
-        case ArithmeticOp::POW: return true;
+        case ArithmeticOp::POW:
+        case ArithmeticOp::LDEXP: return true;
         default: return false;
     }
 }

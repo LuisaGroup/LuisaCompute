@@ -58,6 +58,15 @@ private:
     void visit(const AccessExpr *expr) override;
     void visit(const LiteralExpr *expr) override;
     void visit(const RefExpr *expr) override;
+    /// Lower a builtin call into the generated CUDA source.
+    ///
+    /// Every `CallOp` that reaches the switch in the implementation needs an
+    /// explicit arm (the switch has a loud `default:`), and that arm names the
+    /// device-library helper which implements it (`lc_*` in
+    /// `cuda_builtin/cuda_device_math.h`). A new builtin therefore needs three
+    /// things: the enum entry in `luisa/ast/op.h`, the arm here, and the helper.
+    /// Operations that only the CUDA backend can lower are named `CUDA_*` in
+    /// `luisa::compute::CallOp` (see the naming rule in `luisa/ast/op.h`).
     void visit(const CallExpr *expr) override;
     void visit(const CastExpr *expr) override;
     void visit(const TypeIDExpr *expr) override;

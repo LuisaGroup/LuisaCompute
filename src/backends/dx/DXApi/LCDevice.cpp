@@ -11,6 +11,7 @@
 #include <luisa/vstl/md5.h>
 #include <Shader/ShaderSerializer.h>
 #include <Resource/BottomAccel.h>
+#include <Resource/ClusterAccel.h>
 #include <Resource/TopAccel.h>
 #include <DXApi/LCSwapChain.h>
 #include <DXApi/dx_hdr_ext.hpp>
@@ -587,6 +588,32 @@ void LCDevice::destroy_mesh(uint64 handle) noexcept {
     }
     delete reinterpret_cast<BottomAccel *>(handle);
 }
+ResourceCreationInfo LCDevice::create_mega_geometry(const AccelOption &option) noexcept {
+    if (_use_fallback_rtx ||
+        !native_device.feature_check.cluster_acceleration_structure_supported() ||
+        !native_device.raytracing2) [[unlikely]] {
+        LUISA_ERROR(
+            "Cluster (mega-geometry) acceleration structures are unavailable "
+            "on this DirectX device. DXR ClustersAndPTLASSupported and "
+            "ID3D12DeviceRaytracing2 are required; the software fallback has "
+            "no cluster path.");
+    }
+    auto res = new ClusterAccel(&native_device, option);
+    return ResourceCreationInfo{
+        .handle = resource_to_handle(res),
+        .native_handle = nullptr};
+}
+void LCDevice::destroy_mega_geometry(uint64_t handle) noexcept {
+    delete reinterpret_cast<ClusterAccel *>(handle);
+}
+uint64_t LCDevice::mega_geometry_device_address(uint64_t handle) noexcept {
+    if (handle == 0u) return 0u;
+    return reinterpret_cast<ClusterAccel *>(handle)->cluster_blas_address();
+}
+uint64_t LCDevice::buffer_device_address(uint64_t buffer_handle) noexcept {
+    if (buffer_handle == 0u) return 0u;
+    return reinterpret_cast<Buffer const *>(buffer_handle)->GetAddress();
+}
 ResourceCreationInfo LCDevice::create_accel(const AccelOption &option) noexcept {
     ResourceCreationInfo info{};
     if (_use_fallback_rtx) {
@@ -961,6 +988,15 @@ LUISA_EXPORT_API void destroy(DeviceInterface *device) {
 luisa::string LCDevice::query(luisa::string_view property) noexcept {
     if (property == "device_name") {
         return "dx";
+    }
+    if (property == "dx_cluster_acceleration_structure") {
+        return native_device.feature_check.cluster_acceleration_structure_supported() &&
+                       native_device.raytracing2 ?
+                   "1" :
+                   "0";
+    }
+    if (property == "buffer_device_address") {
+        return "true";
     }
     if (property == "shader_bfloat16") {
         // Software BF16 (builtin/bfloat16_fallback.bytes): the backend serves

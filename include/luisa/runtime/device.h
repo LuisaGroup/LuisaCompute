@@ -2,6 +2,8 @@
 
 #include <luisa/ast/type_registry.h>
 #include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/rtx/triangle.h>
 #include <luisa/core/stl/string.h>
 
 namespace luisa {
@@ -16,6 +18,7 @@ class TimelineEvent;
 class Stream;
 class Mesh;
 class Curve;
+struct ClusterBuildInfo;
 class MotionInstance;
 class MeshFormat;
 class ProceduralPrimitive;
@@ -149,15 +152,31 @@ public:
     // see definition in runtime/dispatch_buffer.cpp
     [[nodiscard]] IndirectDispatchBuffer create_indirect_dispatch_buffer(size_t capacity) noexcept;
     // see definition in rtx/mesh.h
+    // The constraints keep the triangle overloads (bound to Triangle element
+    // buffers) disjoint from the cluster overload below, so that
+    // create_mesh(buffer, option) is never ambiguous.
     template<typename VBuffer, typename TBuffer>
+        requires is_buffer_or_view_v<VBuffer> &&
+                 is_buffer_or_view_v<TBuffer> &&
+                 std::same_as<buffer_element_t<TBuffer>, Triangle>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
                                    TBuffer &&triangles,
                                    const AccelOption &option = {}) noexcept;
 
     template<typename VBuffer, typename TBuffer>
+        requires is_buffer_or_view_v<VBuffer> &&
+                 is_buffer_or_view_v<TBuffer> &&
+                 std::same_as<buffer_element_t<TBuffer>, Triangle>
     [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
                                    size_t vertex_stride,
                                    TBuffer &&triangles,
+                                   const AccelOption &option = {}) noexcept;
+
+    // see definition in rtx/mesh.h
+    template<typename CBuffer>
+        requires is_buffer_or_view_v<CBuffer> &&
+                 std::same_as<buffer_element_t<CBuffer>, ClusterBuildInfo>
+    [[nodiscard]] Mesh create_mesh(CBuffer &&clusters,
                                    const AccelOption &option = {}) noexcept;
     // see definition in rtx/curve.h
     template<typename CPBuffer, typename SegmentBuffer>

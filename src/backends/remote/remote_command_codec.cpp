@@ -430,6 +430,12 @@ EncodedSubmission encode_submission(
             }
             case Command::Tag::EMeshBuildCommand: {
                 auto c = static_cast<const MeshBuildCommand *>(command);
+                // TODO(dx): branch on is_cluster_build() and encode
+                // cluster_buffer()/cluster_buffer_offset()/cluster_buffer_size().
+                if (c->is_cluster_build()) {
+                    result.error = "Remote backend does not support cluster (mega-geometry) mesh builds.";
+                    return result;
+                }
                 writer.write_u16(static_cast<uint16_t>(WireCommand::MESH_BUILD));
                 writer.write_u64(c->handle());
                 writer.write_u32(static_cast<uint32_t>(c->request()));

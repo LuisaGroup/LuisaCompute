@@ -633,6 +633,11 @@ enum struct CallOp : uint32_t {
     // CUDA-only ops: the AST carries them through to the CUDA AST backend, and
     // every other backend/host path rejects them exactly like it rejects the
     // other CUDA-only ops (CLUSTER_LAUNCH_CONTROL_*, MBARRIER_*, ...).
+    // Naming rule: an operation that only the CUDA backend can lower must be
+    // named `CUDA_<NAME>`, so that its availability is visible at the call
+    // site and in a backend rejection. The entries below (and the earlier
+    // MBARRIER_*/BARRIER_CLUSTER_*/CLUSTER_LAUNCH_CONTROL_* blocks) predate the
+    // rule and keep their historical names.
     GRAPH_SET_CONDITIONAL,   // (uint64 handle, uint value) -> void ; CUDA >= 12.3
     GRAPH_LAUNCH,            // (uint64 exec, uint mode) -> void ; CUDA >= 12.0, mode 0/1/2
     GET_CURRENT_GRAPH_EXEC,  // () -> uint64 ; inline PTX
@@ -641,10 +646,18 @@ enum struct CallOp : uint32_t {
     GRAPH_NODE_SET_ENABLED,  // (uint64 node, bool enabled) -> void ; CUDA >= 12.4
     GRID_DEPENDENCY_SYNCHRONIZE, // () -> void ; inline PTX, CUDA >= 12.0
     TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, // () -> void ; inline PTX, CUDA >= 12.0
+
+    // Appended to preserve every existing public CallOp value.
+    // Elementary special functions: ERF/ERFC/EXPM1 are unary float ops,
+    // LDEXP is the mixed-type (floatN, intN) member of the POW_INT family.
+    ERF,   // (floatN)
+    ERFC,  // (floatN)
+    EXPM1, // (floatN)
+    LDEXP, // (floatN, intN)
 };
 
 static constexpr size_t call_op_count =
-    to_underlying(CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION) + 1u;
+    to_underlying(CallOp::LDEXP) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -972,6 +985,6 @@ public:
 
   };// namespace luisa::compute
 
-  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION)
+  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, LDEXP)
 
 #endif// LUISA_AST_OP_H

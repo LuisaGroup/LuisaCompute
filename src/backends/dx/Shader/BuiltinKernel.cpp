@@ -41,6 +41,45 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         CacheType::Internal, true, false,
         0);
 }
+ComputeShader *BuiltinKernel::load_cluster_build_info_kernel(Device *device) {
+    auto func = [&] {
+        hlsl::CodegenResult code;
+        code.useBufferBindless = false;
+        code.useTex2DBindless = false;
+        code.useTex3DBindless = false;
+        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("cluster_build_info.bytes");
+        code.properties.resize(10);
+        auto set_property = [](hlsl::Property &property,
+                               hlsl::ShaderVariableType type,
+                               uint register_index) {
+            property.array_size = 1;
+            property.register_index = register_index;
+            property.space_index = 0;
+            property.type = type;
+        };
+        set_property(code.properties[0], hlsl::ShaderVariableType::ConstantBuffer, 0);
+        set_property(code.properties[1], hlsl::ShaderVariableType::StructuredBuffer, 0);
+        for (auto i = 0u; i < 8u; ++i) {
+            set_property(code.properties[i + 2u],
+                         hlsl::ShaderVariableType::RWStructuredBuffer, i);
+        }
+        return code;
+    };
+    return ComputeShader::compile_compute(
+        device->file_io,
+        device->profiler,
+        device,
+        {},
+        func,
+        {},
+        {},
+        uint3(256, 1, 1),
+        62,
+        "cluster_build_info.dxil"sv,
+        CacheType::Internal, true, false,
+        0);
+}
+
 ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
     auto func = [&] {
         hlsl::CodegenResult code;

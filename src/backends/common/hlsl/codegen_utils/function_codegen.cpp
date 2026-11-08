@@ -636,6 +636,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::EXP2:
             str << "exp2"sv;
             break;
+        case CallOp::ERF:
+        case CallOp::ERFC:
+        case CallOp::EXPM1:
+            LUISA_ERROR(
+                "Unsupported builtin {} on the HLSL target (dx and the vk-HLSL route): "
+                "the target has no erf/erfc/expm1 intrinsic and this backend does not "
+                "emulate it. Use cuda, metal or a CPU backend for these ops; ldexp is "
+                "supported here.",
+                luisa::to_string(expr->op()));
+            break;
         case CallOp::EXP10:
             str << "_exp10"sv;
             break;
@@ -647,6 +657,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::LOG10:
             str << "log10"sv;
+            break;
+        case CallOp::LDEXP:
+            str << "ldexp"sv;
             break;
         case CallOp::SQRT:
             str << "sqrt"sv;

@@ -1284,6 +1284,59 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = result;
             break;
         }
+        case xir::ArithmeticOp::LDEXP: {
+            // GLSL.std.450 Ldexp is a 16/32-bit genF/genI instruction, so the
+            // exponent is converted to the matching 32-bit integer shape, and a
+            // scalar exponent is broadcast over the mantissa lanes (the XIR LDEXP
+            // contract allows the scalar-exponent form).
+            auto exponent_xir_type = inst->operand(1u)->type();
+            auto exponent = operand(1u);
+            auto exponent_type = _convert_type(exponent_xir_type, Usage::READ);
+            auto exponent_scalar_type = _builder.getScalarTypeId(exponent_type);
+            auto exponent_width =
+                static_cast<uint32_t>(_builder.getScalarTypeWidth(exponent_scalar_type));
+            auto exponent_is_unsigned = exponent_xir_type->element()->is_uint();
+            auto i32_scalar_type = exponent_is_unsigned ?
+                                       _builder.makeUintType(32) :
+                                       _builder.makeIntType(32);
+            // GLSL.std.450 Ldexp takes a plain 32-bit integer exponent, so an exponent
+            // that does not fit in that range must be saturated before the narrowing
+            // below: that conversion is only a bit reinterpretation for an operand that
+            // is already 32 bits wide, i.e. a reinterpreted (uint)0x80000000 reads as a
+            // hugely negative exponent and returns 0 instead of +inf.  An exponent
+            // outside [INT32_MIN, INT32_MAX] already saturates the mantissa to 0/+inf,
+            // so clamping keeps the result exact (the same rule as lc_ldexp in
+            // cuda_device_math.h).
+            if (exponent_is_unsigned) {
+                // uint8/uint16 exponents can never exceed INT32_MAX.
+                if (exponent_width >= 32u) {
+                    auto int32_max = make_integer_constant(exponent_xir_type, 0x7fffffffu);
+                    exponent = make_glsl_call(GLSLstd450UMin, exponent_type, {exponent, int32_max});
+                }
+            } else if (exponent_width > 32u) {
+                auto int32_min = make_integer_constant(exponent_xir_type, 0xffffffff80000000ull);
+                auto int32_max = make_integer_constant(exponent_xir_type, 0x7fffffffull);
+                exponent = make_glsl_call(GLSLstd450SClamp, exponent_type, {exponent, int32_min, int32_max});
+            }
+            if (exponent_width != 32u) {
+                auto target_type = exponent_xir_type->is_vector() ?
+                                       _builder.makeVectorType(
+                                           i32_scalar_type,
+                                           exponent_xir_type->dimension()) :
+                                       i32_scalar_type;
+                exponent = _builder.createUnaryOp(
+                    exponent_is_unsigned ? spv::Op::OpUConvert : spv::Op::OpSConvert,
+                    target_type, exponent);
+            }
+            if (!is_scalar && !exponent_xir_type->is_vector()) {
+                // GLSL.std.450 Ldexp requires matching component counts.
+                auto vector_type = _builder.makeVectorType(
+                    i32_scalar_type, inst->type()->dimension());
+                exponent = _builder.smearScalar(spv::NoPrecision, exponent, vector_type);
+            }
+            id = glsl(GLSLstd450Ldexp, operand(0u), exponent);
+            break;
+        }
         case xir::ArithmeticOp::SQRT:
             id = glsl(GLSLstd450Sqrt, operand(0));
             break;

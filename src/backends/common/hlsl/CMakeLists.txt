@@ -24,6 +24,8 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             reduce.bytes
             bindless_upload.bytes
             accel_process.bytes
+            cluster_build_info.bytes
+            cluster_build_info.dxil
             accel_process_vk_motion.bytes
             accel_process_vk.dxil
             load_bdls.dxil

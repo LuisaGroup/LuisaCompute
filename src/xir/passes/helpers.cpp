@@ -266,6 +266,10 @@ bool is_arithmetic_op_safe_to_speculate(ArithmeticOp op) noexcept {
         case ArithmeticOp::TRUNC:
         case ArithmeticOp::ROUND:
         case ArithmeticOp::RINT:
+        case ArithmeticOp::ERF:
+        case ArithmeticOp::ERFC:
+        case ArithmeticOp::EXPM1:
+        case ArithmeticOp::LDEXP:
         case ArithmeticOp::FMA:
         case ArithmeticOp::COPYSIGN:
         case ArithmeticOp::CROSS:

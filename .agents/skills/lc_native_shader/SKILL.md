@@ -1,6 +1,6 @@
 ---
 name: lc_native_shader
-description: Compile hand-written native compute shaders and dispatch them from a Stream through NativeShaderExt — HLSL on dx/vk (DXC), GLSL on vk (glslang), CUDA C++ on cuda (NVRTC) — covering compile/reflect/load, NativeShaderLauncher binding by index/register+space/positional, uniforms (root constants / push constants / scalar kernel params), the per-argument Usage contract, include dirs, and lifetime.
+description: Compile hand-written native compute shaders and dispatch them from a Stream through NativeShaderExt — HLSL on dx/vk (DXC), GLSL on vk (glslang), CUDA C++ on cuda (NVRTC) — and native raster (vertex + pixel) pipelines on dx and vk, covering compile/reflect/load, NativeShaderLauncher binding by index/register+space/positional, uniforms (root constants / push constants / scalar kernel params), the per-argument Usage contract, include dirs, and lifetime.
 ---
 
 # Native Shader Injection (`NativeShaderExt`)
@@ -10,7 +10,12 @@ reference) hands native source (HLSL / GLSL / CUDA C++) to the backend's own com
 reflects its bindings, creates a backend compute-shader instance, and dispatches it from
 a `Stream`. It bypasses the DSL/AST/XIR path entirely.
 
-- **Compute only**, **JIT only** (no `ShaderSerializer`/AOT, no `LUISA_DUMP_SOURCE`).
+- **JIT only** (no `ShaderSerializer`/AOT, no `LUISA_DUMP_SOURCE`).
+- **Compute and raster.** A compute module is compiled by `compile()` and dispatched
+  by `NativeShaderLauncher::build()`; a vertex+pixel pair is compiled by
+  `compile_raster()` and drawn by `NativeShaderLauncher::draw()`. The
+  native raster route is implemented on **dx (HLSL only)** and **vk (HLSL or GLSL)**;
+  cuda inherits a fail-closed default.
 - Only buffers and uniform blocks; textures/samplers/accel reflect but are rejected at `load()`.
 - The per-argument `Usage` you declare is the command-reorder synchronization contract.
 - Destroy a `NativeShader` before the `Device` that created it.
@@ -22,6 +27,16 @@ a `Stream`. It bypasses the DSL/AST/XIR path entirely.
 | `HLSL` | DXIL via DXC | SPIR-V via DXC | rejected |
 | `GLSL` | rejected | SPIR-V via glslang | rejected |
 | `CUDA_NVRTC` | rejected | rejected | PTX via NVRTC |
+
+Native raster (`compile_raster` / `load_raster` / `draw`) is implemented by **dx** (HLSL,
+DXIL + DXC reflection, with the root signature and the PSO built from that reflection) and
+**vk** (HLSL or GLSL, SPIR-V); the base class fails closed on every other backend, so an
+unsupported backend costs no code.
+
+Do not confuse it with the *DSL* rasterisation extension: `RasterExt` in
+`luisa/backends/ext/raster_ext.hpp` is provided by **dx, vk and metal4** and compiles a
+`RasterKernel`'s DSL functions, not native source. Its `require_raster_ext()` helper
+fails closed on cuda/hip/fallback.
 
 `compile()` fails closed (`ok()` false, `binary` empty, `error` names the reason).
 
@@ -174,6 +189,72 @@ clamped to ≤ 16). `NativeShaderDispatchCommand` is a `CustomDispatchCommand`
 (`CustomCommandUUID::NATIVE_SHADER_DISPATCH`, 0x0600) tagged `StreamTag::COMPUTE`; enqueue
 it like any other command.
 
+## Raster (vertex + pixel) pipelines — dx and vk
+
+The same shader object model, but the two stages are compiled as a pair and the backend
+builds the graphics pipeline at draw time, because the vertex input layout comes from the
+draw's `MeshFormat` and the blend/depth/topology state from its `RasterState` (exactly
+like a DSL `RasterShader`).
+
+The dialect is per backend: **GLSL on vk** (`layout(location = n)`, a
+`layout(push_constant)` block) and **HLSL on dx** (semantics, a
+`cbuffer ... : register(b0)` block fed by root 32-bit constants). vk also accepts HLSL,
+spelled with `[[vk::binding]]` / `[[vk::location]]` / `[[vk::push_constant]]`; a pair may
+mix languages only where both dialects exist (vk).
+
+```cpp
+NativeRasterShaderCompileInfo info;
+info.vertex.language = NativeShaderLanguage::GLSL;  // the two stages may differ
+info.vertex.source = vertex_source; // string_view, must outlive compile_raster()
+info.vertex.entry_point = "main"; // "VSMain" for HLSL
+info.pixel = /* same shape, the pixel stage */;
+info.push_object_id = false; // true: reserve 4 bytes in front of the block
+                             // for RasterMesh::object_id
+auto result = ext->compile_raster(info);
+if (!result.ok()) { /* result.error names the failing stage(s) */ }
+auto shader = ext->create_raster_shader(info); // or load_raster(result)
+
+auto launcher = shader.launcher();
+launcher.add_uniform(tint).add_uniform(scale); // the uniform block
+stream << std::move(launcher).draw(
+            std::move(meshes), mesh_format, Viewport{0, 0, w, h},
+            raster_state, depth_buffer_or_nullptr, color_target)
+       << synchronize();
+```
+
+The contract the two stages must satisfy:
+- Vertex inputs follow the *attribute type*, not the stream order: position 0, normal 1,
+  tangent 2, color 3, uv0..uv3 4..7. On vk that is
+  `location = static_cast<uint32_t>(VertexAttributeType)` (`[[vk::location(n)]]` /
+  `layout(location = n)`); on dx it is the *semantic* the draw's `MeshFormat` generates —
+  `POSITION`, `NORMAL`, `TANGENT`, `COLOR`, `TEXCOORD0..3` at semantic index 0..3
+  (`float4 position : POSITION`).
+- The vertex stage writes `SV_Position`/`gl_Position`; pixel outputs are
+  `SV_Target0..7` (or `SV_Depth`, for a depth-only draw with no colour target).
+  Varyings between the stages are yours, the backend does not rewrite
+  them: on vk give both sides matching explicit locations, on dx declare them in the same
+  *order* in both stages, because dx links the stages by hardware register (which DXC
+  assigns in declaration order — list `SV_Position` first in the pixel stage's input
+  struct). `compile_raster()` reports a mismatched register instead of leaving it to the
+  pipeline creation. Semantic names are matched case-insensitively, so `COLOR` and
+  `color` name the same varying.
+- Both stages share one pipeline layout: their binding tables are merged into one in
+  canonical order (`NativeRasterShaderCompileResult::bindings`, the launcher's binding
+  order), and a `(space, register)` (vk: `(set, binding)`) present in both must have the
+  same resource kind. Note that DirectX register namespaces collide in that table, so
+  `register(t0)` and `register(u0)` in one pair are a conflict: use another register.
+- `push_constant_size` is the *application's* uniform bytes. With `push_object_id` the
+  block must start with a 32-bit member for the mesh's object id and the application's
+  values start at offset 4 (`{ uint object_id; float shade; }`).
+- The uniform block is a push-constant block on vk and a `cbuffer ... : register(b0)` fed
+  by root 32-bit constants on dx (at most 64 dwords, object id included); on dx the
+  declared size must cover the bytes the shader *reads* from that block.
+- A draw's `MeshFormat` must outlive the command, like the DSL raster path.
+
+`NativeRasterShader` is an RAII owner; `destroy_raster_shader()` is the raw form. A native
+raster shader is built in memory on both backends, so unlike the DSL raster path it needs
+no AOT round-trip (the serializer is not involved at all).
+
 ## Usage contract
 
 The declared per-argument usage **is** the synchronization contract: `READ` (mergeable with
@@ -226,3 +307,17 @@ teardown with a warning, never silently.
   from `[numthreads]`/`local_size_*`; cuda requires it (or `__launch_bounds__`).
 - UAV-as-`READ` needs `set_allow_usage_override(true)`; SRV-as-`WRITE` is never allowed.
 - Destroy the shader before the device and before its dispatches are torn down.
+- Raster: `build()` on a raster launcher and `draw()` on a compute launcher both assert —
+  they would bind the wrong pipeline type. Use `NativeRasterShader::launcher()` + `draw()`.
+- Raster: `push_constant_size` smaller than the block a stage declares is rejected (the
+  shader would read past the range the launcher fills); a *larger* value is legal, because
+  a Vulkan pipeline layout may declare a wider range than a stage's block.
+- Raster: two stages that declare the same `(set, binding)` with different resource kinds
+  are rejected — one pipeline layout cannot satisfy both.
+- Raster: an HLSL `ConstantBuffer` push block is padded to a 16-byte register, so the
+  reflected size is >= the application's byte count; leave `push_constant_size = 0` on the
+  HLSL stages and let the reflection decide.
+- Raster on dx: the two stages must declare their varyings in the same order. DirectX links
+  them by hardware register (DXC numbers them in declaration order), so a pixel stage that
+  reads `COLOR` while the vertex stage writes `SV_Position` first is a pipeline-creation
+  failure. `compile_raster()` names the offending varying and both registers.

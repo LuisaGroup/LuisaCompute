@@ -56,6 +56,7 @@ luisa::string serialize_cuda_shader_metadata(const CUDAShaderMetadata &metadata)
     result.append(metadata.requires_ray_query ? "RAY_QUERY TRUE " : "RAY_QUERY FALSE ");
     result.append(luisa::format("RAY_QUERY_PAYLOAD_COUNT {} ", metadata.ray_query_payload_count));
     result.append(metadata.requires_printing ? "PRINTING TRUE " : "PRINTING FALSE ");
+    result.append(metadata.requires_grid_dependency_synchronize ? "GRID_DEPENDENCY_SYNC TRUE " : "GRID_DEPENDENCY_SYNC FALSE ");
     result.append(metadata.requires_motion_blur ? "MOTION_BLUR TRUE " : "MOTION_BLUR FALSE ");
     result.append(luisa::format("MAX_REGISTER_COUNT {} ", metadata.max_register_count));
     result.append(luisa::format("BLOCK_SIZE {} {} {} ", metadata.block_size.x, metadata.block_size.y, metadata.block_size.z));
@@ -133,6 +134,7 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
     luisa::optional<bool> requires_ray_query;
     luisa::optional<uint32_t> ray_query_payload_count;
     luisa::optional<bool> requires_printing;
+    luisa::optional<bool> requires_grid_dependency_synchronize;
     luisa::optional<bool> requires_motion_blur;
     luisa::optional<uint> max_register_count;
     luisa::optional<luisa::vector<luisa::string>> argument_types;
@@ -315,6 +317,22 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
             } else {
                 LUISA_WARNING_WITH_LOCATION(
                     "Invalid requires_printing flag '{}' in shader metadata.", x);
+                return luisa::nullopt;
+            }
+        } else if (token == "GRID_DEPENDENCY_SYNC") {
+            if (requires_grid_dependency_synchronize.has_value()) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Duplicate requires_grid_dependency_synchronize flag in shader metadata.");
+                return luisa::nullopt;
+            }
+            auto x = read_token();
+            if (x == "TRUE") {
+                requires_grid_dependency_synchronize.emplace(true);
+            } else if (x == "FALSE") {
+                requires_grid_dependency_synchronize.emplace(false);
+            } else {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Invalid requires_grid_dependency_synchronize flag '{}' in shader metadata.", x);
                 return luisa::nullopt;
             }
         } else if (token == "MOTION_BLUR") {
@@ -598,6 +616,9 @@ luisa::optional<CUDAShaderMetadata> deserialize_cuda_shader_metadata(luisa::stri
         // Sidecars written before the payload ABI field used the two-word context pointer.
         .ray_query_payload_count = ray_query_payload_count.value_or(2u),
         .requires_printing = requires_printing.value(),
+        // Sidecars written before this field belong to kernels without a
+        // programmatic dependency wait.
+        .requires_grid_dependency_synchronize = requires_grid_dependency_synchronize.value_or(false),
         .requires_motion_blur = requires_motion_blur.value(),
         .max_register_count = max_register_count.value(),
         .block_size = block_size.value(),

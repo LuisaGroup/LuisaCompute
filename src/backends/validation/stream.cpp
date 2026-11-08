@@ -252,7 +252,20 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
         } break;
         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
             auto c = static_cast<DrawRasterSceneCommand *>(cmd);
-            auto shader = RWResource::get<RasterShader>(c->handle(), "raster shader");
+            // A DSL raster draw carries a `RasterShader` whose root-argument
+            // table names every binding and its usage. A native one has no DSL
+            // shader at all - its handle is a backend instance that `load_raster`
+            // registered as a plain RWResource - and instead packs one `Usage`
+            // per non-uniform resource argument into the command (the launcher
+            // declared them). Only the per-argument marking differs; the
+            // attachment/index-buffer marking below is shared.
+            auto native = c->is_native_shader();
+            auto shader = native ? nullptr :
+                                   RWResource::get<RasterShader>(c->handle(), "raster shader");
+            // Only a DSL raster shader can be compiled under the conservative-AOT
+            // contract, which downgrades a depth-buffer write to a read; a native
+            // draw makes no such declaration, so its depth writes stay an error.
+            auto conservative_aot = shader != nullptr && shader->conservative_aot();
             auto dynamic_arguments = c->arguments();
             auto dynamic_index = 0u;
             auto mark_argument = [&](ShaderDispatchCommandBase::Argument argument,
@@ -269,7 +282,7 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
                         if (texture->tag() == Resource::Tag::DEPTH_BUFFER &&
                             (luisa::to_underlying(usage) &
                              luisa::to_underlying(Usage::WRITE)) != 0u) {
-                            if (shader->conservative_aot()) {
+                            if (conservative_aot) {
                                 usage = Usage::READ;
                             } else {
                                 LUISA_ERROR("{} can not be written by a raster shader.",
@@ -290,7 +303,39 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
                         break;
                 }
             };
-            for (auto &&root : shader->root_arguments()) {
+            if (native) {
+                // One declared usage per non-uniform argument, in
+                // `arguments()` order - exactly what
+                // `NativeShaderLauncher::_plan()` packed into the command.
+                auto usages = c->argument_usages();
+                auto usage_index = size_t{0u};
+                for (auto &&argument : dynamic_arguments) {
+                    if (argument.tag == ShaderDispatchCommandBase::Argument::Tag::UNIFORM) {
+                        continue;
+                    }
+                    if (usage_index >= usages.size()) {
+                        LUISA_ERROR(
+                            "Native raster draw has {} resource argument(s) but "
+                            "only {} per-argument usage declaration(s).",
+                            dynamic_arguments.size(), usages.size());
+                        return;
+                    }
+                    mark_argument(argument, usages[usage_index++]);
+                }
+                LUISA_ASSERT(usage_index == usages.size(),
+                             "Native raster draw has {} usage declaration(s) for "
+                             "{} resource argument(s).",
+                             usages.size(), usage_index);
+                // The declaration above consumed every dynamic argument; the
+                // shared assertion below checks exactly that.
+                dynamic_index = static_cast<uint>(dynamic_arguments.size());
+            }
+            // A native raster draw has no root-argument table (there is no DSL
+            // shader), so this loop only ever runs for a DSL raster shader.
+            auto root_arguments = shader != nullptr ?
+                                      shader->root_arguments() :
+                                      luisa::span<const RasterShader::RootArgument>{};
+            for (auto &&root : root_arguments) {
                 ShaderDispatchCommandBase::Argument argument{};
                 if (root.is_bound) {
                     argument = luisa::visit(

@@ -217,6 +217,7 @@ builtin_func_names = {
     'make_float2x2', 'make_float3x3', 'make_float4x4',
     'isinf', 'isnan', 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'atan2', 'cos', 'cosh',
     'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
+    'erf', 'erfc', 'expm1', 'ldexp',
     'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'abs', 'pow',
     'dot', 'cross',
     'length', 'length_squared', 'normalize',
@@ -487,7 +488,7 @@ def _one_float_arg(name, *args):
 
 for name in (
 'acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'cos', 'cosh', 'sin', 'sinh', 'tan', 'tanh', 'exp', 'exp2', 'exp10',
-'log', 'log2', 'log10', 'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'saturate'):
+'log', 'log2', 'log10', 'erf', 'erfc', 'expm1', 'sqrt', 'rsqrt', 'ceil', 'floor', 'fract', 'trunc', 'round', 'saturate'):
     _func_map[name] = _one_float_arg
     # type check: arg must be float / float vector
 
@@ -648,6 +649,31 @@ def _pow(name, *args):
 
 
 _func_map["pow"] = _pow
+
+
+def _ldexp(name, *args):
+    assert len(args) == 2
+    mantissa, exponent = args
+    assert element_of(mantissa.dtype) in {float, half}
+    assert exponent.dtype in integer_scalar_vector_dtypes
+    # Match the C++ DSL's vectorize<N> rule: either operand may be the scalar
+    # that is broadcast, including a scalar mantissa beside a vector exponent.
+    dim = _check_vector_types(mantissa, exponent)
+    assert length_of(mantissa.dtype) in (1, dim)
+    assert length_of(exponent.dtype) in (1, dim)
+    dtype = vector(element_of(mantissa.dtype), dim)
+    expressions = []
+    for arg in args:
+        arg_dtype = vector(element_of(arg.dtype), dim)
+        if arg.dtype == arg_dtype:
+            expressions.append(arg.expr)
+        else:
+            _, expr = builtin_type_cast(arg_dtype, arg)
+            expressions.append(expr)
+    return dtype, lcapi.builder().call(to_lctype(dtype), lcapi.CallOp.LDEXP, expressions)
+
+
+_func_map["ldexp"] = _ldexp
 
 
 def _aa(name, *args):

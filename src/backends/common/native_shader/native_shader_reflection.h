@@ -26,6 +26,10 @@
 //    `StructuredBuffer`) from a writable one.
 //  * `OpExecutionMode ... LocalSize` gives the workgroup size, and a
 //    `PushConstant` storage-class variable declares the push-constant block.
+//  * `OpEntryPoint` gives the entry-point name and its `ExecutionModel`, so a
+//    graphics module (vertex/fragment, native raster shader injection) reflects
+//    like a compute one: it simply has no workgroup size and no
+//    `LocalSize` execution mode.
 //
 // This header is intentionally dependency-free (it parses the binary format
 // directly instead of using SPIRV-Headers / SPIRV-Tools), so the DirectX
@@ -114,6 +118,10 @@ enum StorageClass : uint32_t {
 };
 
 enum ExecutionModel : uint32_t {
+    // Graphics stages (native raster shader injection) come first in the SPIR-V
+    // numbering; the compute models are kept for the compute route.
+    ExecutionModelVertex = 0u,
+    ExecutionModelFragment = 4u,
     ExecutionModelGLCompute = 5u,
     ExecutionModelKernel = 6u,
 };
@@ -142,12 +150,21 @@ enum ImageSampled : uint32_t {
 
 struct SpirvReflection {
     luisa::vector<NativeShaderResourceBinding> bindings;
+    // Workgroup size of a compute module. A graphics module (vertex/fragment)
+    // has no workgroup: it never declares `OpExecutionMode LocalSize`, so this
+    // stays {0,0,0} for the raster route, which does not use it. It is
+    // deliberately not an error for it to be zero.
     uint3 block_size{0u, 0u, 0u};
     bool has_push_constant{false};
     uint32_t push_constant_size{0u};
-    // Entry point name of the (first) compute entry point, i.e. the name the
-    // Vulkan pipeline must be created with.
+    // Entry point name of the (first) entry point, i.e. the name the backend
+    // pipeline must be created with.
     luisa::string entry_point;
+    // `spirv::ExecutionModel` of that entry point, so a caller can reject a
+    // module compiled for the wrong stage (e.g. a pixel source handed in as the
+    // vertex stage of a raster pair). Defaults to GLCompute, matching the
+    // historical compute-only route.
+    uint32_t execution_model{spirv::ExecutionModelGLCompute};
     // Raw `OpCapability` operands, and the corresponding requirement bits in
     // the runtime's persistent SPIR-V artifact feature mask (`lc::spirv::
     // target_feature`), used to fail closed before pipeline creation (R12).
@@ -520,12 +537,19 @@ struct VariableInfo {
                 // OpEntryPoint <execution model> <entry point id> <name...>
                 if (operand_count >= 3u && result.entry_point.empty()) {
                     auto model = operands[0];
-                    if (model == spirv::ExecutionModelGLCompute ||
+                    // Compute models (GLCompute/Kernel) and the two graphics
+                    // stages the native raster route supports. Anything else
+                    // (ray generation, mesh, ...) leaves `entry_point` empty,
+                    // which the caller reports as an unsupported module.
+                    if (model == spirv::ExecutionModelVertex ||
+                        model == spirv::ExecutionModelFragment ||
+                        model == spirv::ExecutionModelGLCompute ||
                         model == spirv::ExecutionModelKernel) {
                         auto *chars = reinterpret_cast<const char *>(operands + 2u);
                         auto byte_count = (operand_count - 2u) * sizeof(uint32_t);
                         auto size = strnlen(chars, byte_count);
                         result.entry_point = luisa::string{chars, size};
+                        result.execution_model = model;
                     }
                 }
                 break;

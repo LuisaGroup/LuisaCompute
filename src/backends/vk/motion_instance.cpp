@@ -1,4 +1,5 @@
 #include "motion_instance.h"
+#include "blas.h"
 #include "device.h"
 #include "log.h"
 namespace lc::vk {
@@ -24,6 +25,18 @@ MotionInstance::MotionInstance(Device *device, const AccelMotionOption &option)
             kf.as_matrix() = make_float4x4(1.f);
         }
     }
+}
+
+uint64_t MotionInstance::get_accel_device_address() const {
+    LUISA_ASSERT(_child != nullptr,
+                 "Motion instance has no child BLAS assigned.");
+    return _child->get_accel_device_address();
+}
+
+bool MotionInstance::has_motion() const noexcept {
+    // The wrapper's whole purpose is motion; report it even before a child is
+    // bound so a TLAS that instanced this handle stays motion-capable.
+    return true;
 }
 
 }// namespace lc::vk

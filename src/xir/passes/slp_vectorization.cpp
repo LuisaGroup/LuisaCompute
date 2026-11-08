@@ -160,7 +160,10 @@ namespace detail {
         case ArithmeticOp::FRACT:
         case ArithmeticOp::TRUNC:
         case ArithmeticOp::ROUND:
-        case ArithmeticOp::RINT: return 1u;
+        case ArithmeticOp::RINT:
+        case ArithmeticOp::ERF:
+        case ArithmeticOp::ERFC:
+        case ArithmeticOp::EXPM1: return 1u;
         case ArithmeticOp::BINARY_ADD:
         case ArithmeticOp::BINARY_SUB:
         case ArithmeticOp::BINARY_MUL:
@@ -179,6 +182,7 @@ namespace detail {
         case ArithmeticOp::ATAN2:
         case ArithmeticOp::POW:
         case ArithmeticOp::POW_INT:
+        case ArithmeticOp::LDEXP:
         case ArithmeticOp::COPYSIGN: return 2u;
         case ArithmeticOp::SELECT:
         case ArithmeticOp::CLAMP:

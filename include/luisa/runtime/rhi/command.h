@@ -459,6 +459,11 @@ private:
     uint64_t _triangle_buffer{};
     size_t _triangle_buffer_offset{};
     size_t _triangle_buffer_size{};
+    // cluster (mega-geometry) build inputs; only meaningful when _cluster_build
+    uint64_t _cluster_buffer{};
+    size_t _cluster_buffer_offset{};
+    size_t _cluster_buffer_size{};
+    bool _cluster_build{false};
 
 private:
     MeshBuildCommand() noexcept
@@ -474,6 +479,16 @@ public:
           _triangle_buffer{triangle_buffer}, _triangle_buffer_offset{triangle_buffer_offset},
           _triangle_buffer_size{triangle_buffer_size} {
     }
+    // Cluster (mega-geometry) build: the mesh's only input is the array of
+    // ClusterBuildInfo records; the records themselves carry the vertex/index
+    // device addresses, so no vertex/triangle buffer is bound here.
+    MeshBuildCommand(uint64_t handle, AccelBuildRequest request,
+                     uint64_t cluster_buffer, size_t cluster_buffer_offset,
+                     size_t cluster_buffer_size) noexcept
+        : Command{Command::Tag::EMeshBuildCommand}, _handle{handle},
+          _request{request}, _cluster_buffer{cluster_buffer},
+          _cluster_buffer_offset{cluster_buffer_offset},
+          _cluster_buffer_size{cluster_buffer_size}, _cluster_build{true} {}
     void set_handle(uint64_t handle) noexcept { _handle = handle; }
     void set_vertex_buffer(uint64_t vertex_buffer) noexcept { _vertex_buffer = vertex_buffer; }
     void set_vertex_offset(uint64_t offset) noexcept { _vertex_buffer_offset = offset; }
@@ -490,6 +505,13 @@ public:
     [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
     [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
     [[nodiscard]] auto triangle_buffer_size() const noexcept { return _triangle_buffer_size; }
+    // cluster (mega-geometry) build; see MeshBuildCommand above
+    [[nodiscard]] bool is_cluster_build() const noexcept { return _cluster_build; }
+    [[nodiscard]] auto cluster_buffer() const noexcept { return _cluster_buffer; }
+    [[nodiscard]] auto cluster_buffer_offset() const noexcept { return _cluster_buffer_offset; }
+    [[nodiscard]] auto cluster_buffer_size() const noexcept { return _cluster_buffer_size; }
+      // one ClusterBuildInfo is 64 bytes (see include/luisa/runtime/rtx/mesh.h)
+      [[nodiscard]] uint32_t cluster_count() const noexcept { return static_cast<uint32_t>(_cluster_buffer_size / 64u); }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 

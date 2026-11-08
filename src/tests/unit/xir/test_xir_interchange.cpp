@@ -578,12 +578,17 @@ instruction 4 2 return "void" -1 1 3 0 }
         expect(!unknown.diagnostics.empty());
         expect(unknown.diagnostics.front().line > 0u);
 
+        // The legacy numeric form indexes the frozen zero-based op table, which
+        // currently ends at 96 (ldexp); 93 used to be out of range until erf,
+        // erfc, expm1 and ldexp were appended as 93..96. Use a value that stays
+        // outside the table: the property under test is "an index that has no
+        // op is rejected with a located diagnostic", not the bound itself.
         constexpr auto invalid_legacy = R"(
 xir.text 1 module { globals 0 functions 1
 function 0 callable "int" 0 0 0 {
 arguments 1 argument 1 value "int"
 blocks 1 block 2 body 2 instructions 2
-instruction 3 2 arithmetic "int" 93 2 1 1 0
+instruction 3 2 arithmetic "int" 4096 2 1 1 0
 instruction 4 2 return "void" -1 1 3 0 }
 })";
         auto legacy = xir_from_interchange_text(invalid_legacy);
@@ -1989,6 +1994,97 @@ void reg_instruction_type_validation() {
         if (!bitcode.succeeded()) { return; }
         auto decoded_bitcode = xir_from_bitcode(bitcode.bitcode);
         expect(decoded_bitcode.succeeded());
+    };
+
+    "xir_interchange_special_function_ops_wire_round_trip"_test = [] {
+        // The four elementary special functions were appended to ArithmeticOp, so
+        // the interchange table must keep the frozen zero-based layout (numeric op
+        // index) and its symbolic names in sync. A swapped or missing entry changes
+        // the op silently, which is why each op is asserted by name and again after
+        // the decode in both directions.
+        constexpr std::array expected_ops{
+            std::pair{luisa::string_view{"erf"}, ArithmeticOp::ERF},
+            std::pair{luisa::string_view{"erfc"}, ArithmeticOp::ERFC},
+            std::pair{luisa::string_view{"expm1"}, ArithmeticOp::EXPM1},
+            std::pair{luisa::string_view{"ldexp"}, ArithmeticOp::LDEXP}};
+        Module module;
+        auto float_type = Type::of<float>();
+        auto int_type = Type::of<int32_t>();
+        auto zero_float = module.create_constant_zero(float_type);
+        auto zero_int = module.create_constant_zero(int_type);
+        auto callable = module.create_callable(nullptr);
+        auto body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        for (auto [name, op] : expected_ops) {
+            if (op == ArithmeticOp::LDEXP) {
+                builder.call(float_type, op, {zero_float, zero_int});
+            } else {
+                builder.call(float_type, op, {zero_float});
+            }
+            static_cast<void>(name);
+        }
+        builder.return_void();
+
+        auto text = xir_to_interchange_text(&module);
+        expect(text.succeeded());
+        if (!text.succeeded()) { return; }
+        // The names must appear in the instruction order they were emitted in:
+        // searching each name independently would also accept a permuted table
+        // (a swap encodes ERF as "expm1" and EXPM1 as "erf", and the decode then
+        // round-trips consistently), so the cursor makes the check positional.
+        size_t name_cursor = 0u;
+        for (auto [name, op] : expected_ops) {
+            auto instruction_prefix = luisa::format("arithmetic \"float\" {}", name);
+            auto position = text.text.find(instruction_prefix, name_cursor);
+            expect(position != luisa::string::npos)
+                << "the wire text must name the operation '" << name
+                << "' at its own instruction position";
+            if (position == luisa::string::npos) { return; }
+            name_cursor = position + instruction_prefix.size();
+            static_cast<void>(op);
+        }
+        auto decoded = xir_from_interchange_text(text.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        auto *decoded_function = decoded.module->function_list().front();
+        expect(decoded_function != nullptr);
+        if (decoded_function == nullptr) { return; }
+        auto *decoded_body = decoded_function->definition()->body_block();
+        expect(decoded_body != nullptr);
+        if (decoded_body == nullptr) { return; }
+        size_t index = 0u;
+        for (auto instruction : decoded_body->instructions()) {
+            if (index >= expected_ops.size()) { break; }
+            expect(instruction->isa<ArithmeticInst>());
+            if (!instruction->isa<ArithmeticInst>()) { continue; }
+            auto got = static_cast<ArithmeticInst *>(instruction)->op();
+            expect(got == expected_ops[index].second)
+                << "wire round trip changed the operation at index " << index
+                << " (expected '" << expected_ops[index].first << "')";
+            index++;
+        }
+        expect(index == expected_ops.size())
+            << "every special-function instruction must survive the decode";
+        // Re-encoding the decoded module must reproduce the same wire names, i.e.
+        // op -> name is the exact inverse of name -> op.
+        auto reencoded = xir_to_interchange_text(decoded.module.get());
+        expect(reencoded.succeeded());
+        if (!reencoded.succeeded()) { return; }
+        expect(reencoded.text == text.text)
+            << "re-encoding the decoded module must reproduce the wire names";
+
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        if (!bitcode.succeeded()) { return; }
+        auto decoded_bitcode = xir_from_bitcode(bitcode.bitcode);
+        expect(decoded_bitcode.succeeded());
+        if (!decoded_bitcode.succeeded()) { return; }
+        auto bitcode_text = xir_to_interchange_text(decoded_bitcode.module.get());
+        expect(bitcode_text.succeeded());
+        if (!bitcode_text.succeeded()) { return; }
+        expect(bitcode_text.text == text.text)
+            << "the bitcode path must preserve the same wire names";
     };
 
     "xir_interchange_malformed_instruction_types_rejected"_test = [] {

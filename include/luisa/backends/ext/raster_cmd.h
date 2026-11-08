@@ -19,6 +19,15 @@ private:
     Viewport _viewport;
     MeshFormat const *_mesh_format;
     RasterState _raster_state;
+    // A raster draw built from a native (hand-written) shader has no
+    // saved-argument ABI: there is no `Function` behind it, so the backend
+    // cannot read the per-resource usages from the shader. Its launcher
+    // therefore packs them into the command instead, one entry per resource
+    // argument in `arguments()` order (uniforms excluded), mirroring
+    // `NativeShaderDispatchCommand`. `_native_shader` is the discriminator: it
+    // is false for every DSL raster draw, which keeps that path byte-identical.
+    bool _native_shader{false};
+    luisa::vector<Usage> _argument_usages;
 
 public:
     DrawRasterSceneCommand(uint64_t shader_handle,
@@ -46,6 +55,17 @@ public:
     }
     void set_scene(luisa::vector<RasterMesh> &&scene) noexcept {
         _scene = std::move(scene);
+    }
+    // Marks this draw as native-shader backed and adopts its declared usages
+    // (one per non-uniform resource argument). Called by
+    // `NativeShaderLauncher::draw()`; a DSL raster draw never calls it.
+    void set_native_shader(luisa::vector<Usage> &&argument_usages) noexcept {
+        _native_shader = true;
+        _argument_usages = std::move(argument_usages);
+    }
+    [[nodiscard]] bool is_native_shader() const noexcept { return _native_shader; }
+    [[nodiscard]] luisa::span<const Usage> argument_usages() const noexcept {
+        return _argument_usages;
     }
 
     [[nodiscard]] auto rtv_texs() noexcept { return luisa::span{_rtv_texs.data(), _rtv_count}; }

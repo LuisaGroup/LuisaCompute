@@ -262,7 +262,7 @@ template<typename T, typename I>
 }
 [[nodiscard]] __device__ inline lc_double powf_impl(lc_double x, lc_double y) noexcept {
     auto y_int = static_cast<lc_long>(y);
-    return y_int == y ? powi_impl(x, y_int) : powf(x, y);
+    return y_int == y ? powi_impl(x, y_int) : pow(x, y);
 }
 ''', file=file)
         if is_cpu:
@@ -481,7 +481,14 @@ struct lc_float{i}x{i} {{
         print(file=file)
 
 
-        def generate_vector_call(name, c, types, args):
+        def generate_vector_call(name, c, types, args, per_type=None):
+            # `per_type` overrides the callee symbol per element type. A single
+            # `c` for every type silently demotes double arithmetic to the float
+            # entry points (lc_double2 lc_cosh { return lc_make_double2(coshf(x.x),
+            # ...) }), a DP->SP precision loss no compiler warns about.
+            # Declare per_type={"double": "cosh"} for every name whose double
+            # entry point is not spelled "<c>f".
+            per_type = per_type or {}
             types = [{
                          "s": "short",
                          "r": "ushort",
@@ -497,18 +504,81 @@ struct lc_float{i}x{i} {{
             if is_cpu:
                 types = [t for t in types if t != "bfloat16"]
 
-            def call(i):
+            def symbol(t):
+                return per_type.get(t, c)
+
+            def call(t, i):
                 e = "xyzw"[i]
-                return f"{c}(" + ", ".join(f"{a}.{e}" for a in args) + ")"
+                return f"{symbol(t)}(" + ", ".join(f"{a}.{e}" for a in args) + ")"
 
             for t in types:
                 ret = t if name not in ['isnan', 'isinf'] else 'bool'
                 print(
-                    f"[[nodiscard]] __device__ inline lc_{ret} lc_{name}({', '.join(f'lc_{t} {a}' for a in args)}) noexcept {{ return {c}({', '.join(args)}); }}",
+                    f"[[nodiscard]] __device__ inline lc_{ret} lc_{name}({', '.join(f'lc_{t} {a}' for a in args)}) noexcept {{ return {symbol(t)}({', '.join(args)}); }}",
                     file=file)
                 for n in range(2, 5):
                     print(
-                        f"[[nodiscard]] __device__ inline lc_{ret}{n} lc_{name}({', '.join(f'lc_{t}{n} {a}' for a in args)}) noexcept {{ return lc_make_{ret}{n}({', '.join(call(i) for i in range(n))}); }}",
+                        f"[[nodiscard]] __device__ inline lc_{ret}{n} lc_{name}({', '.join(f'lc_{t}{n} {a}' for a in args)}) noexcept {{ return lc_make_{ret}{n}({', '.join(call(t, i) for i in range(n))}); }}",
+                        file=file)
+            print(file=file)
+
+        def generate_ldexp_calls():
+            base_types = ["half", "float"] if is_cpu else [
+                "half", "bfloat16", "float", "double"]
+            # Shared narrowing for every lc_ldexp overload below; keep this in sync
+            # with the checked-in header. An out-of-range exponent has to be
+            # *saturated* rather than truncated or reinterpreted: an unsigned exponent
+            # above INT32_MAX already saturates the mantissa to 0/+inf, so clamping
+            # keeps the result exact, while a plain static_cast reads e.g.
+            # (uint)0x80000000 as a hugely *negative* exponent and returns 0 instead
+            # of +inf. `std::is_unsigned_v` is unavailable here (the device library is
+            # compiled by NVRTC, which has no host <type_traits>), hence the
+            # `T(0) < T(-1)` unsignedness test.
+            print(
+                "template<typename T>\n"
+                "[[nodiscard]] __device__ inline constexpr lc_int lc_ldexp_exponent(T exponent) noexcept {\n"
+                " if constexpr (T(0) < T(-1)) {// T is unsigned.\n"
+                " if constexpr (sizeof(T) >= sizeof(lc_int)) {// u8/u16 can never exceed INT32_MAX.\n"
+                " constexpr auto max_exponent = static_cast<T>(2147483647u);// INT32_MAX\n"
+                " return static_cast<lc_int>(exponent > max_exponent ? max_exponent : exponent);\n"
+                " } else {\n"
+                " return static_cast<lc_int>(exponent);\n"
+                " }\n"
+                " } else if constexpr (sizeof(T) > sizeof(lc_int)) {\n"
+                " constexpr auto min_exponent = static_cast<T>(-2147483647 - 1);// INT32_MIN\n"
+                " constexpr auto max_exponent = static_cast<T>(2147483647);// INT32_MAX\n"
+                " return static_cast<lc_int>(exponent < min_exponent ? min_exponent :\n"
+                " exponent > max_exponent ? max_exponent :\n"
+                " exponent);\n"
+                " } else {\n"
+                " return static_cast<lc_int>(exponent);\n"
+                " }\n"
+                "}\n",
+                file=file)
+            for base_type in base_types:
+                symbol = "ldexp" if base_type == "double" else "ldexpf"
+                print(
+                    f"template<typename I>\n"
+                    f"[[nodiscard]] __device__ inline lc_{base_type} lc_ldexp("
+                    f"lc_{base_type} x, I a) noexcept {{\n"
+                    f" using E = lc_powi_exponent_traits<I>;\n"
+                    f" static_assert(E::dimension == 1u);\n"
+                    f" return {symbol}(x, lc_ldexp_exponent(E::lane(a, 0u)));\n"
+                    f"}}",
+                    file=file)
+                for n in range(2, 5):
+                    calls = ", ".join(
+                        f"{symbol}(x.{lane}, lc_ldexp_exponent(E::lane(a, "
+                        f"E::dimension == 1u ? 0u : {i}u)))"
+                        for i, lane in enumerate("xyzw"[:n]))
+                    print(
+                        f"template<typename I>\n"
+                        f"[[nodiscard]] __device__ inline lc_{base_type}{n} lc_ldexp("
+                        f"lc_{base_type}{n} x, I a) noexcept {{\n"
+                        f" using E = lc_powi_exponent_traits<I>;\n"
+                        f" static_assert(E::dimension == 1u || E::dimension == {n}u);\n"
+                        f" return lc_make_{base_type}{n}({calls});\n"
+                        f"}}",
                         file=file)
             print(file=file)
 
@@ -600,32 +670,36 @@ struct lc_float{i}x{i} {{
         generate_vector_call("abs", "__habs", "h", ["x"])
         generate_vector_call("abs", "__habs", "n", ["x"])
 
-        generate_vector_call("acos", "acosf", floating_type_codes, ["x"])
-        generate_vector_call("asin", "asinf", floating_type_codes, ["x"])
-        generate_vector_call("atan", "atanf", floating_type_codes, ["x"])
-        generate_vector_call("acosh", "acoshf", floating_type_codes, ["x"])
-        generate_vector_call("asinh", "asinhf", floating_type_codes, ["x"])
-        generate_vector_call("atanh", "atanhf", floating_type_codes, ["x"])
-        generate_vector_call("atan2", "atan2f", floating_type_codes, ["y", "x"])
+        generate_vector_call("acos", "acosf", floating_type_codes, ["x"], per_type={"double": "acos"})
+        generate_vector_call("asin", "asinf", floating_type_codes, ["x"], per_type={"double": "asin"})
+        generate_vector_call("atan", "atanf", floating_type_codes, ["x"], per_type={"double": "atan"})
+        generate_vector_call("acosh", "acoshf", floating_type_codes, ["x"], per_type={"double": "acosh"})
+        generate_vector_call("asinh", "asinhf", floating_type_codes, ["x"], per_type={"double": "asinh"})
+        generate_vector_call("atanh", "atanhf", floating_type_codes, ["x"], per_type={"double": "atanh"})
+        generate_vector_call("atan2", "atan2f", floating_type_codes, ["y", "x"], per_type={"double": "atan2"})
 
-        generate_vector_call("cosh", "coshf", floating_type_codes, ["x"])
-        generate_vector_call("sinh", "sinhf", floating_type_codes, ["x"])
-        generate_vector_call("tanh", "tanhf", floating_type_codes, ["x"])
+        generate_vector_call("cosh", "coshf", floating_type_codes, ["x"], per_type={"double": "cosh"})
+        generate_vector_call("sinh", "sinhf", floating_type_codes, ["x"], per_type={"double": "sinh"})
+        generate_vector_call("tanh", "tanhf", floating_type_codes, ["x"], per_type={"double": "tanh"})
 
-        generate_vector_call("cos", "cosf", floating_type_codes, ["x"])
-        generate_vector_call("sin", "sinf", floating_type_codes, ["x"])
-        generate_vector_call("tan", "tanf", floating_type_codes, ["x"])
-        generate_vector_call("exp", "expf", floating_type_codes, ["x"])
+        generate_vector_call("cos", "cosf", floating_type_codes, ["x"], per_type={"double": "cos"})
+        generate_vector_call("sin", "sinf", floating_type_codes, ["x"], per_type={"double": "sin"})
+        generate_vector_call("tan", "tanf", floating_type_codes, ["x"], per_type={"double": "tan"})
+        generate_vector_call("exp", "expf", floating_type_codes, ["x"], per_type={"double": "exp"})
         generate_vector_call("exp2", "exp2f", "f", ["x"])
         generate_vector_call("exp2", "exp2", "d", ["x"])
         generate_vector_call("exp2", "hexp2", "h", ["x"])
         generate_vector_call("exp2", "hexp2", "n", ["x"])
-        generate_vector_call("exp10", "exp10f", floating_type_codes, ["x"])
-        generate_vector_call("log", "logf", floating_type_codes, ["x"])
-        generate_vector_call("log2", "log2f", floating_type_codes, ["x"])
-        generate_vector_call("log10", "log10f", floating_type_codes, ["x"])
+        generate_vector_call("exp10", "exp10f", floating_type_codes, ["x"], per_type={"double": "exp10"})
+        generate_vector_call("log", "logf", floating_type_codes, ["x"], per_type={"double": "log"})
+        generate_vector_call("log2", "log2f", floating_type_codes, ["x"], per_type={"double": "log2"})
+        generate_vector_call("log10", "log10f", floating_type_codes, ["x"], per_type={"double": "log10"})
+        generate_vector_call("erf", "erff", floating_type_codes, ["x"], per_type={"double": "erf"})
+        generate_vector_call("erfc", "erfcf", floating_type_codes, ["x"], per_type={"double": "erfc"})
+        generate_vector_call("expm1", "expm1f", floating_type_codes, ["x"], per_type={"double": "expm1"})
         generate_vector_call("pow", "powf_impl", floating_type_codes, ["x", "a"])
         generate_powi_calls()
+        generate_ldexp_calls()
 
         generate_vector_call("sqrt", "sqrtf", "f", ["x"])
         generate_vector_call("sqrt", "sqrt", "d", ["x"])
@@ -676,7 +750,7 @@ struct lc_float{i}x{i} {{
 }""", file=file)
 
         generate_vector_call("copysign", "copysignf", "f", ["x", "y"])
-        generate_vector_call("copysign", "copysignf", "d", ["x", "y"])
+        generate_vector_call("copysign", "copysignf", "d", ["x", "y"], per_type={"double": "copysign"})
         generate_vector_call("copysign", "lc_copysign_impl", "h", ["x", "y"])
         generate_vector_call("copysign", "lc_copysign_impl", "n", ["x", "y"])
 

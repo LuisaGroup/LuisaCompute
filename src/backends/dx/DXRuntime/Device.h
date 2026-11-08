@@ -76,6 +76,7 @@ public:
     vstd::MD5 adapter_id;
     DxPtr<IDXGIAdapter1> adapter;
     DxPtr<ID3D12Device5> device;
+    DxPtr<ID3D12DeviceRaytracing2> raytracing2;
     DxPtr<IDXGIFactory2> dxgi_factory;
     vstd::unique_ptr<GpuAllocator> default_allocator;
     DXAllocatorImpl allocator_interface;
@@ -84,6 +85,7 @@ public:
     vstd::unique_ptr<DescriptorHeap> sampler_heap;
     LazyLoadShader set_bindless_kernel;
     LazyLoadShader set_accel_kernel;
+    LazyLoadShader cluster_build_info_kernel;
 
     LazyLoadShader bc6_try_mode_g10;
     LazyLoadShader bc6_try_mode_le10;

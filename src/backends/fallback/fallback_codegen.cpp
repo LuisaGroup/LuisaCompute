@@ -36,6 +36,129 @@
 
 namespace luisa::compute::fallback {
 
+namespace fallback_codegen_detail {
+
+// LLVM has no llvm.erf / llvm.erfc / llvm.expm1 intrinsics, and the fallback
+// JIT only resolves the symbols it maps explicitly plus the host process
+// symbols (see FallbackShader), so declare the C library entry points
+// directly. That is exactly what LLVM's own math intrinsics lower to; f16
+// and bf16 operands are widened to f32 and the result narrowed back.
+[[nodiscard]] llvm::Value *translate_libm_unary_op(
+    llvm::Module &module, llvm::IRBuilder<> &b,
+    llvm::StringRef base_name, llvm::Value *value) noexcept {
+    auto *source_type = value->getType();
+    auto *scalar_type = source_type->getScalarType();
+    // f16 and bf16 are both exactly representable in f32 and the C library
+    // has no half-precision entry points, so widen them to f32 and narrow
+    // the result back (same FPExt/FPTrunc pattern for both).
+    auto needs_widening = scalar_type->isHalfTy() || scalar_type->isBFloatTy();
+    auto *call_scalar_type = needs_widening ? b.getFloatTy() : scalar_type;
+    LUISA_ASSERT(call_scalar_type->isFloatTy() || call_scalar_type->isDoubleTy(),
+                 "libm fallback operation requires a floating-point operand.");
+    auto name = luisa::format(
+        "{}{}", base_name, call_scalar_type->isFloatTy() ? "f" : "");
+    auto callee = module.getOrInsertFunction(
+        llvm::StringRef{name.data(), name.size()}, llvm::FunctionType::get(
+                  call_scalar_type, {call_scalar_type}, false));
+    if (auto *function = llvm::dyn_cast<llvm::Function>(callee.getCallee())) {
+        function->setDoesNotAccessMemory();
+        function->setDoesNotThrow();
+        function->setWillReturn();
+    }
+    auto call_scalar = [&](llvm::Value *argument) noexcept -> llvm::Value * {
+        if (needs_widening) { argument = b.CreateFPExt(argument, call_scalar_type); }
+        auto *call = static_cast<llvm::Value *>(b.CreateCall(callee, {argument}));
+        return needs_widening ? b.CreateFPTrunc(call, scalar_type) : call;
+    };
+    if (auto *vector_type = llvm::dyn_cast<llvm::FixedVectorType>(source_type)) {
+        auto *result = static_cast<llvm::Value *>(llvm::PoisonValue::get(vector_type));
+        for (auto lane = 0u; lane < vector_type->getNumElements(); lane++) {
+            result = b.CreateInsertElement(
+                result, call_scalar(b.CreateExtractElement(value, lane)), lane);
+        }
+        return result;
+    }
+    return call_scalar(value);
+}
+
+// ldexp(x, n) is a 32-bit-signed-exponent operation on every C library. The
+// XIR exponent keeps its declared width and signedness and may be broadcast
+// from a scalar over the mantissa lanes, so clamp it into the i32 range here
+// (clamping is exact: any |n| outside that range already saturates the result
+// to zero or +-inf) and splat it per lane.
+//
+// Signedness contract: `exponent_is_signed` comes from the XIR operand type
+// because LLVM IR drops it. A signed exponent is sign-extended and clamped to
+// [INT32_MIN, INT32_MAX]; an unsigned exponent is zero-extended and clamped to
+// INT32_MAX only, since an unsigned exponent above INT32_MAX already saturates
+// the mantissa to zero or +inf -- keeping its value is exact there, whereas
+// sign-extending it would turn a huge exponent into a hugely negative one.
+[[nodiscard]] llvm::Value *translate_libm_ldexp_op(
+    llvm::Module &module, llvm::IRBuilder<> &b,
+    llvm::Value *base, llvm::Value *exponent,
+    bool exponent_is_signed) noexcept {
+    auto *source_type = base->getType();
+    auto *scalar_type = source_type->getScalarType();
+    // The mantissa is widened exactly like the unary helper above: f16 and
+    // bf16 both go through f32.
+    auto needs_widening = scalar_type->isHalfTy() || scalar_type->isBFloatTy();
+    auto *call_scalar_type = needs_widening ? b.getFloatTy() : scalar_type;
+    LUISA_ASSERT(call_scalar_type->isFloatTy() || call_scalar_type->isDoubleTy(),
+                 "libm ldexp requires a floating-point mantissa.");
+    auto *i32_type = b.getInt32Ty();
+    auto narrow = [&](llvm::Value *n) noexcept -> llvm::Value * {
+        auto *exponent_type = n->getType();
+        auto exponent_bits = exponent_type->getIntegerBitWidth();
+        if (exponent_bits < 32u) {
+            return exponent_is_signed ? b.CreateSExt(n, i32_type) :
+                                        b.CreateZExt(n, i32_type);
+        }
+        if (exponent_is_signed && exponent_bits == 32u) { return n; }
+        // Clamp in the source type *before* truncating: truncation alone
+        // would wrap an out-of-range exponent back into the i32 range.
+        auto *high = llvm::ConstantInt::get(exponent_type, 0x7fffffffull);
+        n = b.CreateSelect(exponent_is_signed ?
+                               b.CreateICmpSGT(n, high) :
+                               b.CreateICmpUGT(n, high),
+                           high, n);
+        if (exponent_is_signed) {
+            auto *low = llvm::ConstantInt::getSigned(exponent_type, -2147483648ll);
+            n = b.CreateSelect(b.CreateICmpSLT(n, low), low, n);
+        }
+        return exponent_bits == 32u ? n : b.CreateTrunc(n, i32_type);
+    };
+    auto callee = module.getOrInsertFunction(
+        call_scalar_type->isFloatTy() ? "ldexpf" : "ldexp",
+        llvm::FunctionType::get(call_scalar_type, {call_scalar_type, i32_type}, false));
+    if (auto *function = llvm::dyn_cast<llvm::Function>(callee.getCallee())) {
+        function->setDoesNotAccessMemory();
+        function->setDoesNotThrow();
+        function->setWillReturn();
+    }
+    auto call_scalar = [&](llvm::Value *x, llvm::Value *n) noexcept -> llvm::Value * {
+        if (needs_widening) { x = b.CreateFPExt(x, call_scalar_type); }
+        auto *call = static_cast<llvm::Value *>(b.CreateCall(callee, {x, narrow(n)}));
+        return needs_widening ? b.CreateFPTrunc(call, scalar_type) : call;
+    };
+    if (auto *vector_type = llvm::dyn_cast<llvm::FixedVectorType>(source_type)) {
+        auto exponent_is_vector = exponent->getType()->isVectorTy();
+        auto *result = static_cast<llvm::Value *>(llvm::PoisonValue::get(vector_type));
+        for (auto lane = 0u; lane < vector_type->getNumElements(); lane++) {
+            auto *exponent_lane = exponent_is_vector ?
+                                      b.CreateExtractElement(exponent, lane) :
+                                      exponent;
+            result = b.CreateInsertElement(
+                result,
+                call_scalar(b.CreateExtractElement(base, lane), exponent_lane),
+                lane);
+        }
+        return result;
+    }
+    return call_scalar(base, exponent);
+}
+
+}// namespace fallback_codegen_detail
+
 class FallbackCodegen {
 
 private:
@@ -2694,6 +2817,21 @@ private:
                 return b.CreateFMul(llvm_half, llvm_log);
             }
             case xir::ArithmeticOp::COS: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::cos);
+        case xir::ArithmeticOp::ERF: {
+            auto llvm_x = _lookup_value(current, b, inst->operand(0u));
+            return fallback_codegen_detail::translate_libm_unary_op(
+                *_llvm_module, b, "erf", llvm_x);
+        }
+        case xir::ArithmeticOp::ERFC: {
+            auto llvm_x = _lookup_value(current, b, inst->operand(0u));
+            return fallback_codegen_detail::translate_libm_unary_op(
+                *_llvm_module, b, "erfc", llvm_x);
+        }
+        case xir::ArithmeticOp::EXPM1: {
+            auto llvm_x = _lookup_value(current, b, inst->operand(0u));
+            return fallback_codegen_detail::translate_libm_unary_op(
+                *_llvm_module, b, "expm1", llvm_x);
+        }
             case xir::ArithmeticOp::COSH: {
 #if LLVM_VERSION_MAJOR >= 19
                 return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::cosh);
@@ -2907,6 +3045,16 @@ private:
                 }
                 return call_scalar_power(llvm_base, llvm_exponent);
             }
+        case xir::ArithmeticOp::LDEXP: {
+            auto llvm_base = _lookup_value(current, b, inst->operand(0u));
+            auto llvm_exponent = _lookup_value(current, b, inst->operand(1u));
+            auto exponent_type = inst->operand(1u)->type();
+            auto exponent_element_type = exponent_type->is_vector() ? exponent_type->element() : exponent_type;
+            auto exponent_is_signed = exponent_element_type->is_int();
+            return fallback_codegen_detail::translate_libm_ldexp_op(
+                *_llvm_module, b, llvm_base, llvm_exponent,
+                exponent_is_signed);
+        }
             case xir::ArithmeticOp::SQRT: return _translate_unary_fp_math_operation(current, b, inst->operand(0u), llvm::Intrinsic::sqrt);
             case xir::ArithmeticOp::RSQRT: {
                 auto llvm_operand = _lookup_value(current, b, inst->operand(0u));

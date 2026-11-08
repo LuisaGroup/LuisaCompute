@@ -8,8 +8,51 @@ downloads and verifies the results, and — in interactive mode — displays an 
 image through an ImGui window with a DSL kernel that converts it to the display
 destination.
 
-The example is split across four translation units:
+## Two examples live here
 
+| target | what it is |
+|---|---|
+| `example_native_shader_minimal` | `minimal.cpp`: the *smallest* complete native shader example, in two modes and with the full language matrix. `compute` compiles a hand-written kernel, dispatches it and verifies the result; `raster` compiles a vertex + pixel pair, describes a rasterisation pass (`MeshFormat`, `RasterState`, two render targets, a depth buffer, a viewport), draws two quads and verifies six pixels across both targets. One file, no dispatch document, no GUI. Start here. |
+| `example_native_shader` | the JSON-driven harness documented below: declarative documents, multi-shader workflows, DirectStorage inputs, verification, optional interactive display. |
+
+Native language support — the same matrix the compute mode has always had:
+
+| | HLSL | GLSL | CUDA C++ |
+|---|---|---|---|
+| dx | compute + raster | — | — |
+| vk | compute + raster | compute + raster | — |
+| cuda | — | — | compute |
+
+`raster` on dx compiles each stage to DXIL through the same per-stage route, builds the
+root signature and the graphics pipeline from the two modules' DXIL reflection, and draws
+through the existing raster command path - the DirectX half of `NativeShaderExt::compile_raster`
+/ `load_raster` / `NativeShaderLauncher::draw()`. A backend without the route inherits the
+fail-closed default and the example reports `[skip]` with that reason.
+
+```console
+xmake run example_native_shader_minimal vk            # compute (GLSL variant)
+# compiled a native vk shader: 1372 byte(s), workgroup (64 1 1), 2 reflected binding(s)
+# 1024 element(s) verified, max |error| = 0
+# PASSED compute on 'vk'
+
+xmake run example_native_shader_minimal vk raster glsl # rasterisation, GLSL stages
+# compiled a native raster pair (glsl): vertex 1048 byte(s), pixel 648 byte(s), ...
+#   target0 left quad (tinted)      (0.5, 0, 0, 1) ok
+#   target1 left quad (complement)  (0.5, 1, 1, 1) ok
+# PASSED raster (glsl) on 'vk'
+
+xmake run example_native_shader_minimal vk raster hlsl # rasterisation, HLSL stages
+# PASSED raster (hlsl) on 'vk'
+xmake run example_native_shader_minimal dx raster hlsl # rasterisation, HLSL stages, DXIL
+# PASSED raster (hlsl) on 'dx'
+```
+
+`raster` reports `[skip]` (never a hard failure) on a backend whose native raster
+route is missing, so the example stays runnable everywhere.
+
+The example is split across four translation units, all of them in this
+directory together with the sample documents and shaders they consume — the
+directory *is* the example (target `example_native_shader`):
 | file | owns |
 |---|---|
 | `native_shader.cpp` | command line, mode orchestration, shader registry glue, ImGui display pass, self test |
@@ -685,9 +728,9 @@ the semantic validator, the writer and the executor no longer mention them.
 
 ## Backend notes and known limitations
 
-* Native shaders are **compute only**: the extension has no ray-tracing or
-  rasterization injection, so the example's ray-tracing resources are built and
-  fed through the ordinary runtime commands. Textures, samplers and acceleration
+* Native shaders have **no ray-tracing injection** (compute and rasterisation are
+  supported), so the example's ray-tracing resources are built and fed through the
+  ordinary runtime commands. Textures, samplers and acceleration
   structures are *reflected* by `compile()` but `load()` rejects them: buffers
   and uniform blocks are the supported resource classes of this iteration. The
   DSL `shader_dispatch` path has no such restriction, which is why the HDR image

@@ -1065,6 +1065,440 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Complex struct test passed ({} instances).", 4);
     }
 
+    // ============================================================
+    // Test 25: Special functions -- erf, erfc, expm1
+    // Not available on dx/vk: those backends reject these ops at
+    // compile time (no erf/erfc/expm1 intrinsic in HLSL or GLSL.std.450).
+    // ============================================================
+    {
+        auto backend = device.backend_name();
+        if (backend == "dx" || backend == "vk") {
+            LUISA_INFO("Skipping erf/erfc/expm1 on '{}': the backend fails closed "
+                       "for these ops (no target intrinsic).",
+                       backend);
+        } else {
+            constexpr uint32_t n = 11u;
+            float host_in[n] = {0.0f, 1e-8f, -1e-8f, 0.5f, -0.5f, 1.0f, -1.0f,
+                                2.0f, -2.0f, 5.0f, 27.0f};
+            // abs-or-rel 1e-4 for the table, plus dedicated *relative* checks for the
+            // inputs whose exact value is far below that absolute floor -- otherwise a
+            // wrong implementation returning exactly 0 would pass them:
+            // erf(+-1e-8) ~ 1.13e-8, erfc(5) ~ 1.54e-12, erfc(27) ~ 1e-318 (underflows
+            // to 0 in f32), and the expm1(1e-8) cancellation case.
+            auto relative_ok = [](float got, float expected, float tolerance) noexcept {
+                return std::abs(got - expected) <= tolerance * std::abs(expected);
+            };
+            auto check = [&](float x, float got_erf, float got_erfc, float got_expm1) noexcept {
+                LUISA_ASSERT(approx_eq(got_erf, std::erf(x), 1e-4f),
+                             "erf({}) failed: got {}, expected {}", x, got_erf, std::erf(x));
+                LUISA_ASSERT(approx_eq(got_erfc, std::erfc(x), 1e-4f),
+                             "erfc({}) failed: got {}, expected {}", x, got_erfc, std::erfc(x));
+                auto expected_expm1 = std::expm1(x);
+                LUISA_ASSERT(approx_eq(got_expm1, expected_expm1, 1e-4f),
+                             "expm1({}) failed: got {}, expected {}", x, got_expm1, expected_expm1);
+                // Small-argument branch: erf(x) ~ 2x/sqrt(pi), i.e. ~1.13e-8 at x = 1e-8,
+                // which the absolute 1e-4 tolerance above cannot distinguish from 0.
+                if (x == 1e-8f || x == -1e-8f) {
+                    LUISA_ASSERT(relative_ok(got_erf, std::erf(x), 1e-4f),
+                                 "erf({}) small-argument relative check failed: got {}, expected {}",
+                                 x, got_erf, std::erf(x));
+                }
+                // Tail: erfc(5) = 1.54e-12, again far below the absolute tolerance.
+                if (x == 5.0f) {
+                    LUISA_ASSERT(relative_ok(got_erfc, std::erfc(x), 1e-4f),
+                                 "erfc({}) tail relative check failed: got {}, expected {}",
+                                 x, got_erfc, std::erfc(x));
+                }
+                // Far tail: erfc(27) ~ 1e-318 is below the smallest f32 subnormal, so
+                // exactly zero is the only correct f32 result (a relative check against
+                // an exact zero would only restate that).
+                if (x == 27.0f) {
+                    LUISA_ASSERT(got_erfc == 0.0f,
+                                 "erfc({}) must underflow to exactly 0, got {}", x, got_erfc);
+                }
+            };
+
+            // ---- scalar ----
+            {
+                auto in_buf = device.create_buffer<float>(n);
+                auto out_buf = device.create_buffer<float>(3u * n);
+                stream << in_buf.copy_from(luisa::span{host_in, n}) << synchronize();
+                Kernel1D kernel = [&](BufferFloat input, BufferFloat output) noexcept {
+                    $uint i = dispatch_x();
+                    $float a = input.read(i);
+                    output.write(i + 0u * 11u, erf(a));
+                    output.write(i + 1u * 11u, erfc(a));
+                    output.write(i + 2u * 11u, expm1(a));
+                };
+                auto shader = device.compile(kernel);
+                stream << shader(in_buf, out_buf).dispatch(n) << synchronize();
+                luisa::vector<float> out(3u * n);
+                stream << out_buf.copy_to(luisa::span{out.data(), out.size()}) << synchronize();
+                for (auto i = 0u; i < n; i++) {
+                    check(host_in[i], out[i + 0u * n], out[i + 1u * n], out[i + 2u * n]);
+                }
+                // the cancellation case must stay accurate in relative terms
+                auto got = out[1u + 2u * n];
+                auto expected = std::expm1(1e-8f);
+                LUISA_ASSERT(std::abs(got - expected) <= 1e-6f * std::abs(expected),
+                             "expm1(1e-8) cancellation: got {}, expected {} (relative 1e-6)",
+                             got, expected);
+                LUISA_INFO("erf/erfc/expm1 scalar passed.");
+            }
+
+            // ---- float2 ----
+            {
+                float2 host2[n];
+                for (auto i = 0u; i < n; i++) { host2[i] = make_float2(host_in[i], -host_in[i]); }
+                auto in_buf = device.create_buffer<float2>(n);
+                auto out_buf = device.create_buffer<float2>(3u * n);
+                stream << in_buf.copy_from(luisa::span{host2, n}) << synchronize();
+                Kernel1D kernel = [&](BufferFloat2 input, BufferFloat2 output) noexcept {
+                    $uint i = dispatch_x();
+                    $float2 a = input.read(i);
+                    output.write(i + 0u * 11u, erf(a));
+                    output.write(i + 1u * 11u, erfc(a));
+                    output.write(i + 2u * 11u, expm1(a));
+                };
+                auto shader = device.compile(kernel);
+                stream << shader(in_buf, out_buf).dispatch(n) << synchronize();
+                luisa::vector<float2> out(3u * n);
+                stream << out_buf.copy_to(luisa::span{out.data(), out.size()}) << synchronize();
+                for (auto i = 0u; i < n; i++) {
+                    check(host2[i].x, out[i + 0u * n].x, out[i + 1u * n].x, out[i + 2u * n].x);
+                    check(host2[i].y, out[i + 0u * n].y, out[i + 1u * n].y, out[i + 2u * n].y);
+                }
+                auto got = out[1u + 2u * n].x;
+                auto expected = std::expm1(1e-8f);
+                LUISA_ASSERT(std::abs(got - expected) <= 1e-6f * std::abs(expected),
+                             "float2 expm1(1e-8) cancellation: got {}, expected {} (relative 1e-6)",
+                             got, expected);
+                LUISA_INFO("erf/erfc/expm1 float2 passed.");
+            }
+
+            // ---- float4 ----
+            {
+                float4 host4[n];
+                for (auto i = 0u; i < n; i++) {
+                    host4[i] = make_float4(host_in[i], -host_in[i], host_in[i], -host_in[i]);
+                }
+                auto in_buf = device.create_buffer<float4>(n);
+                auto out_buf = device.create_buffer<float4>(3u * n);
+                stream << in_buf.copy_from(luisa::span{host4, n}) << synchronize();
+                Kernel1D kernel = [&](BufferFloat4 input, BufferFloat4 output) noexcept {
+                    $uint i = dispatch_x();
+                    $float4 a = input.read(i);
+                    output.write(i + 0u * 11u, erf(a));
+                    output.write(i + 1u * 11u, erfc(a));
+                    output.write(i + 2u * 11u, expm1(a));
+                };
+                auto shader = device.compile(kernel);
+                stream << shader(in_buf, out_buf).dispatch(n) << synchronize();
+                luisa::vector<float4> out(3u * n);
+                stream << out_buf.copy_to(luisa::span{out.data(), out.size()}) << synchronize();
+                for (auto i = 0u; i < n; i++) {
+                    check(host4[i].x, out[i + 0u * n].x, out[i + 1u * n].x, out[i + 2u * n].x);
+                    check(host4[i].y, out[i + 0u * n].y, out[i + 1u * n].y, out[i + 2u * n].y);
+                    check(host4[i].z, out[i + 0u * n].z, out[i + 1u * n].z, out[i + 2u * n].z);
+                    check(host4[i].w, out[i + 0u * n].w, out[i + 1u * n].w, out[i + 2u * n].w);
+                }
+                auto got = out[1u + 2u * n].x;
+                auto expected = std::expm1(1e-8f);
+                LUISA_ASSERT(std::abs(got - expected) <= 1e-6f * std::abs(expected),
+                             "float4 expm1(1e-8) cancellation: got {}, expected {} (relative 1e-6)",
+                             got, expected);
+                LUISA_INFO("erf/erfc/expm1 float4 passed.");
+            }
+        }
+    }
+
+    // ============================================================
+    // Test 26: ldexp -- bit-exact on every backend
+    // ============================================================
+    {
+        auto backend = device.backend_name();
+        constexpr uint32_t mantissa_count = 4u;
+        constexpr uint32_t exponent_count = 10u;
+        float host_mantissa[mantissa_count] = {1.0f, 1.5f, -1.5f, 3.0f};
+        int host_exponent[exponent_count] = {0, 1, -1, 10, -10, 24, 127, 128, -127, -149};
+        auto bit_exact = [](float got, float expected) noexcept {
+            return std::bit_cast<uint32_t>(got) == std::bit_cast<uint32_t>(expected);
+        };
+        // Exponents at or below -127 push the result, or the 2^n scale factor,
+        // into the subnormal range, where the targets differ (measured on the
+        // RTX 4060 this suite runs on, see the ldexp probe numbers below):
+        //
+        //   cuda  --use_fast_math => --ftz=true: subnormal *results* are flushed to
+        //         +-0, normal results stay exact (ldexp(3, -127) = 1.7632415e-38 is
+        //         returned bit-exactly).
+        //   vk    the Vulkan driver's default FP32 denormal mode (no DenormPreserve):
+        //         same behaviour as cuda -- ldexp(1, -127) and ldexp(x, -149) come
+        //         back as +-0, but ldexp(3, -127) is exact.
+        //   dx    HLSL ldexp() is x * exp2(n), so the *scale factor* is flushed as
+        //         well and every n <= -127 returns +-0, even for the normal result
+        //         ldexp(3, -127).
+        //
+        // So a zero result is accepted only where the target demonstrably flushes:
+        // for a subnormal expected value on cuda/dx/vk, and for any n <= -127 on dx.
+        // Everything else -- the normal results above included, and every value
+        // outside the denormal range -- must compare bit-exactly.
+        auto flushes_subnormal_results = backend == "cuda" || backend == "dx" || backend == "vk";
+        auto flushes_denormal_scale = backend == "dx";
+        auto is_subnormal = [](float x) noexcept {
+            auto bits = std::bit_cast<uint32_t>(x) & 0x7fffffffu;
+            return bits != 0u && (bits & 0x7f800000u) == 0u;
+        };
+        auto matches = [&](float got, float expected, int exponent) noexcept {
+            if (bit_exact(got, expected)) { return true; }
+            if (got != 0.0f) { return false; }
+            if (flushes_denormal_scale && exponent <= -127) { return true; }
+            return flushes_subnormal_results && is_subnormal(expected);
+        };
+
+        // ---- scalar mantissa, scalar exponent ----
+        {
+            auto mantissa_buf = device.create_buffer<float>(mantissa_count);
+            auto exponent_buf = device.create_buffer<int>(exponent_count);
+            auto out_buf = device.create_buffer<float>(mantissa_count * exponent_count);
+            stream << mantissa_buf.copy_from(luisa::span{host_mantissa, mantissa_count})
+                   << exponent_buf.copy_from(luisa::span{host_exponent, exponent_count})
+                   << synchronize();
+            Kernel1D kernel = [](BufferFloat mantissa, BufferInt exponent, BufferFloat output) noexcept {
+                $uint i = dispatch_x();
+                $uint m = i / 10u;
+                $uint e = i % 10u;
+                output.write(i, ldexp(mantissa.read(m), exponent.read(e)));
+            };
+            auto shader = device.compile(kernel);
+            stream << shader(mantissa_buf, exponent_buf, out_buf)
+                          .dispatch(mantissa_count * exponent_count)
+                   << synchronize();
+            luisa::vector<float> out(mantissa_count * exponent_count);
+            stream << out_buf.copy_to(luisa::span{out.data(), out.size()}) << synchronize();
+            for (auto m = 0u; m < mantissa_count; m++) {
+                for (auto e = 0u; e < exponent_count; e++) {
+                    auto got = out[m * exponent_count + e];
+                    auto expected = std::ldexp(host_mantissa[m], host_exponent[e]);
+                    LUISA_ASSERT(matches(got, expected, host_exponent[e]),
+                                 "ldexp({}, {}) failed: got {}, expected {} (bit-exact)",
+                                 host_mantissa[m], host_exponent[e], got, expected);
+                }
+            }
+            LUISA_INFO("ldexp scalar passed.");
+        }
+
+        // ---- float2 mantissa with a scalar int exponent (broadcast) and
+        //      with an int2 exponent of the same shape ----
+        {
+            float2 host_mantissa2[mantissa_count];
+            int2 host_exponent2[mantissa_count];
+            for (auto i = 0u; i < mantissa_count; i++) {
+                host_mantissa2[i] = make_float2(host_mantissa[i], -host_mantissa[i]);
+                host_exponent2[i] = make_int2(host_exponent[i], -host_exponent[i]);
+            }
+            auto mantissa_buf = device.create_buffer<float2>(mantissa_count);
+            auto exponent_buf = device.create_buffer<int2>(mantissa_count);
+            auto out_buf = device.create_buffer<float2>(2u * mantissa_count);
+            stream << mantissa_buf.copy_from(luisa::span{host_mantissa2, mantissa_count})
+                   << exponent_buf.copy_from(luisa::span{host_exponent2, mantissa_count})
+                   << synchronize();
+            Kernel1D kernel = [](BufferFloat2 mantissa, BufferInt2 exponent,
+                                 BufferFloat2 output) noexcept {
+                $uint i = dispatch_x();
+                $float2 m = mantissa.read(i);
+                $int2 n = exponent.read(i);
+                // scalar exponent broadcast over the mantissa lanes
+                output.write(i, ldexp(m, n.x));
+                // same-shape integer vector exponent
+                output.write(i + 4u, ldexp(m, n));
+            };
+            auto shader = device.compile(kernel);
+            stream << shader(mantissa_buf, exponent_buf, out_buf).dispatch(mantissa_count)
+                   << synchronize();
+            luisa::vector<float2> out(2u * mantissa_count);
+            stream << out_buf.copy_to(luisa::span{out.data(), out.size()}) << synchronize();
+            for (auto i = 0u; i < mantissa_count; i++) {
+                auto expected_x = std::ldexp(host_mantissa2[i].x, host_exponent2[i].x);
+                auto expected_y = std::ldexp(host_mantissa2[i].y, host_exponent2[i].x);
+                LUISA_ASSERT(matches(out[i].x, expected_x, host_exponent2[i].x) &&
+                                 matches(out[i].y, expected_y, host_exponent2[i].x),
+                             "ldexp(float2({}, {}), broadcast {}) failed: got ({}, {}), "
+                             "expected ({}, {})",
+                             host_mantissa2[i].x, host_mantissa2[i].y, host_exponent2[i].x,
+                             out[i].x, out[i].y, expected_x, expected_y);
+                auto expected_vx = std::ldexp(host_mantissa2[i].x, host_exponent2[i].x);
+                auto expected_vy = std::ldexp(host_mantissa2[i].y, host_exponent2[i].y);
+                LUISA_ASSERT(matches(out[i + 4u].x, expected_vx, host_exponent2[i].x) &&
+                                 matches(out[i + 4u].y, expected_vy, host_exponent2[i].y),
+                             "ldexp(float2({}, {}), int2({}, {})) failed: got ({}, {}), "
+                             "expected ({}, {})",
+                             host_mantissa2[i].x, host_mantissa2[i].y,
+                             host_exponent2[i].x, host_exponent2[i].y,
+                             out[i + 4u].x, out[i + 4u].y, expected_vx, expected_vy);
+            }
+            LUISA_INFO("ldexp float2 broadcast and int2 passed.");
+        }
+        // ---- unsigned exponent: ldexp must *saturate* the exponent at INT32_MAX
+        // instead of reinterpreting it as a negative int -- an exponent above
+        // INT32_MAX already saturates the mantissa to +inf, so
+        // ldexp(1.0f, (uint)0x80000000) has to be +inf and not 0 (measured before
+        // the fix on the cuda AST route and on native SPIR-V; dx was correct). ----
+        {
+        // 32-bit unsigned, 64-bit unsigned, and both sides of the signed 64-bit
+        // clamp: an exponent outside [INT32_MIN, INT32_MAX] must saturate, so
+        // every case is either +inf or +0 and a truncating or reinterpreting
+        // implementation is caught on the 32-bit as well as on the 64-bit path.
+        constexpr uint32_t unsigned_case_count = 6u;
+        auto out_buf = device.create_buffer<float>(unsigned_case_count);
+        Kernel1D kernel = [](BufferFloat output) noexcept {
+            output.write(0u, ldexp(def(1.0f), def(0x80000000u)));
+            output.write(1u, ldexp(def(1.0f), def(4000000000u)));
+            output.write(2u, ldexp(def(1.0f), def(200u)));
+            output.write(3u, ldexp(def(1.0f), def(static_cast<int64_t>(5000000000LL))));
+            output.write(4u, ldexp(def(1.0f), def(static_cast<uint64_t>(0x80000000ULL))));
+            output.write(5u, ldexp(def(1.0f), def(static_cast<int64_t>(-5000000000LL))));
+        };
+        auto shader = device.compile(kernel);
+        stream << shader(out_buf).dispatch(1u) << synchronize();
+        luisa::vector<float> out(unsigned_case_count);
+        stream << out_buf.copy_to(luisa::span{out.data(), out.size()}) << synchronize();
+        const char *unsigned_case_name[unsigned_case_count] = {
+            "(uint)0x80000000", "(uint)4000000000", "(uint)200",
+            "(long)5000000000", "(ulong)0x80000000", "(long)-5000000000"};
+        constexpr bool unsigned_case_is_inf[unsigned_case_count] = {
+            true, true, true, true, true, false};
+        for (auto i = 0u; i < unsigned_case_count; i++) {
+            auto bits = std::bit_cast<uint32_t>(out[i]);
+            if (unsigned_case_is_inf[i]) {
+                LUISA_ASSERT(std::isinf(out[i]) && out[i] > 0.0f,
+                             "ldexp(1.0f, {}) failed: got {} (0x{:08x}), expected +inf",
+                             unsigned_case_name[i], out[i], bits);
+            } else {
+                LUISA_ASSERT(out[i] == 0.0f,
+                             "ldexp(1.0f, {}) failed: got {} (0x{:08x}), expected +0",
+                             unsigned_case_name[i], out[i], bits);
+            }
+        }
+        LUISA_INFO("ldexp unsigned exponent saturation passed.");
+
+        // The same rule on the vector path: a uint2 exponent has to be clamped
+        // lane by lane before the per-lane conversion. The mantissa comes from a
+        // buffer so that the expression is a DSL value rather than a constant.
+        {
+            luisa::vector<float2> host_in{{1.0f, 1.0f}};
+            auto in_buf = device.create_buffer<float2>(1u);
+            auto out2_buf = device.create_buffer<float2>(1u);
+            stream << in_buf.copy_from(luisa::span{host_in}) << synchronize();
+            Kernel1D kernel2 = [](BufferFloat2 input, BufferFloat2 output) noexcept {
+                output.write(0u, ldexp(input.read(0u),
+                                       make_uint2(0x80000000u, 200u)));
+            };
+            auto shader2 = device.compile(kernel2);
+            stream << shader2(in_buf, out2_buf).dispatch(1u) << synchronize();
+            luisa::vector<float2> out2(1u);
+            stream << out2_buf.copy_to(luisa::span{out2.data(), out2.size()}) << synchronize();
+            LUISA_ASSERT(std::isinf(out2[0].x) && out2[0].x > 0.0f &&
+                             std::isinf(out2[0].y) && out2[0].y > 0.0f,
+                         "ldexp(float2(1, 1), uint2(0x80000000, 200)) failed: "
+                         "got ({}, {}), expected (+inf, +inf)",
+                         out2[0].x, out2[0].y);
+            LUISA_INFO("ldexp vector unsigned exponent saturation passed.");
+        }
+        }
+    }
+
+    // ============================================================
+    // Test 27: double-precision regression (DP->SP demotion guard, cuda only)
+    // Every value here is chosen so a float-narrowed implementation is off by
+    // far more than the 1e-12 relative tolerance.
+    // ============================================================
+    if (device.backend_name() == "cuda") {
+        auto rel_eq = [](double got, double expected) noexcept {
+            if (got == expected) { return true; }
+            if (!std::isfinite(got) || !std::isfinite(expected)) { return false; }
+            auto scale = std::max(std::abs(got), std::abs(expected));
+            return std::abs(got - expected) <= 1e-12 * scale;
+        };
+        double host_in[4] = {30.0, 30.0, 1e-8, 1e-9};
+        auto in_buf = device.create_buffer<double>(4);
+        auto out_buf = device.create_buffer<double>(20);
+        stream << in_buf.copy_from(luisa::span{host_in, 4}) << synchronize();
+        Kernel1D kernel = [](BufferVar<double> input, BufferVar<double> output) noexcept {
+            $uint i = dispatch_x();
+            Var<double> a = input.read(i);
+            output.write(i + 0u * 4u, cosh(a));
+            output.write(i + 1u * 4u, exp(a));
+            output.write(i + 2u * 4u, log2(a));
+            output.write(i + 3u * 4u, erf(a));
+            output.write(i + 4u * 4u, expm1(a));
+        };
+        auto shader = device.compile(kernel);
+        stream << shader(in_buf, out_buf).dispatch(4) << synchronize();
+        luisa::vector<double> out(20);
+        stream << out_buf.copy_to(luisa::span{out.data(), out.size()}) << synchronize();
+        for (auto i = 0u; i < 4; i++) {
+            auto a = host_in[i];
+            LUISA_ASSERT(rel_eq(out[i + 0u * 4u], std::cosh(a)),
+                         "double cosh({}) failed: got {}, expected {} (relative 1e-12)",
+                         a, out[i + 0u * 4u], std::cosh(a));
+            LUISA_ASSERT(rel_eq(out[i + 1u * 4u], std::exp(a)),
+                         "double exp({}) failed: got {}, expected {} (relative 1e-12)",
+                         a, out[i + 1u * 4u], std::exp(a));
+            LUISA_ASSERT(rel_eq(out[i + 2u * 4u], std::log2(a)),
+                         "double log2({}) failed: got {}, expected {} (relative 1e-12)",
+                         a, out[i + 2u * 4u], std::log2(a));
+            LUISA_ASSERT(rel_eq(out[i + 3u * 4u], std::erf(a)),
+                         "double erf({}) failed: got {}, expected {} (relative 1e-12)",
+                         a, out[i + 3u * 4u], std::erf(a));
+            LUISA_ASSERT(rel_eq(out[i + 4u * 4u], std::expm1(a)),
+                         "double expm1({}) failed: got {}, expected {} (relative 1e-12)",
+                         a, out[i + 4u * 4u], std::expm1(a));
+        }
+
+        // ---- double2 ----
+        double2 host_in2[4];
+        for (auto i = 0u; i < 4; i++) { host_in2[i] = make_double2(host_in[i], host_in[i]); }
+        auto in_buf2 = device.create_buffer<double2>(4);
+        auto out_buf2 = device.create_buffer<double2>(20);
+        stream << in_buf2.copy_from(luisa::span{host_in2, 4}) << synchronize();
+        Kernel1D kernel2 = [](BufferVar<double2> input, BufferVar<double2> output) noexcept {
+            $uint i = dispatch_x();
+            Var<double2> a = input.read(i);
+            output.write(i + 0u * 4u, cosh(a));
+            output.write(i + 1u * 4u, exp(a));
+            output.write(i + 2u * 4u, log2(a));
+            output.write(i + 3u * 4u, erf(a));
+            output.write(i + 4u * 4u, expm1(a));
+        };
+        auto shader2 = device.compile(kernel2);
+        stream << shader2(in_buf2, out_buf2).dispatch(4) << synchronize();
+        luisa::vector<double2> out2(20);
+        stream << out_buf2.copy_to(luisa::span{out2.data(), out2.size()}) << synchronize();
+        for (auto i = 0u; i < 4; i++) {
+            auto a = host_in2[i].x;
+            LUISA_ASSERT(rel_eq(out2[i + 0u * 4u].x, std::cosh(a)) &&
+                             rel_eq(out2[i + 0u * 4u].y, std::cosh(a)),
+                         "double2 cosh({}) failed: got ({}, {}) (relative 1e-12)",
+                         a, out2[i + 0u * 4u].x, out2[i + 0u * 4u].y);
+            LUISA_ASSERT(rel_eq(out2[i + 1u * 4u].x, std::exp(a)) &&
+                             rel_eq(out2[i + 1u * 4u].y, std::exp(a)),
+                         "double2 exp({}) failed: got ({}, {}) (relative 1e-12)",
+                         a, out2[i + 1u * 4u].x, out2[i + 1u * 4u].y);
+            LUISA_ASSERT(rel_eq(out2[i + 2u * 4u].x, std::log2(a)) &&
+                             rel_eq(out2[i + 2u * 4u].y, std::log2(a)),
+                         "double2 log2({}) failed: got ({}, {}) (relative 1e-12)",
+                         a, out2[i + 2u * 4u].x, out2[i + 2u * 4u].y);
+            LUISA_ASSERT(rel_eq(out2[i + 3u * 4u].x, std::erf(a)) &&
+                             rel_eq(out2[i + 3u * 4u].y, std::erf(a)),
+                         "double2 erf({}) failed: got ({}, {}) (relative 1e-12)",
+                         a, out2[i + 3u * 4u].x, out2[i + 3u * 4u].y);
+            LUISA_ASSERT(rel_eq(out2[i + 4u * 4u].x, std::expm1(a)) &&
+                             rel_eq(out2[i + 4u * 4u].y, std::expm1(a)),
+                         "double2 expm1({}) failed: got ({}, {}) (relative 1e-12)",
+                         a, out2[i + 4u * 4u].x, out2[i + 4u * 4u].y);
+        }
+        LUISA_INFO("double-precision DP->SP regression passed.");
+    }
     LUISA_INFO("All mathematical DSL tests passed!");
     return 0;
 }

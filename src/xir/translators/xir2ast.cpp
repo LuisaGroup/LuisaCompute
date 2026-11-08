@@ -166,6 +166,10 @@ namespace detail {
         case ArithmeticOp::TRUNC: return CallOp::TRUNC;
         case ArithmeticOp::ROUND: return CallOp::ROUND;
         case ArithmeticOp::RINT: return CallOp::RINT;
+        case ArithmeticOp::ERF: return CallOp::ERF;
+        case ArithmeticOp::ERFC: return CallOp::ERFC;
+        case ArithmeticOp::EXPM1: return CallOp::EXPM1;
+        case ArithmeticOp::LDEXP: return CallOp::LDEXP;
         case ArithmeticOp::FMA: return CallOp::FMA;
         case ArithmeticOp::COPYSIGN: return CallOp::COPYSIGN;
         case ArithmeticOp::CROSS: return CallOp::CROSS;

@@ -13,6 +13,13 @@ executes the ``run:`` steps on the local machine.
 * After each matrix combination finishes, the temporary data and cache it
   generated (build trees, xmake config cache, downloaded keyring/scripts,
   step scripts) are removed -- unless ``--keep`` is given.
+* ``--skip-step`` drops individual ``run:`` steps, which is what a host
+  without network access needs for the toolchain-provisioning steps of the
+  Linux jobs (``apt-get``/``wget``/``llvm.sh``) when those tools are
+  already installed by hand.
+* ``--cmake-arg``/``--xmake-arg`` append configure arguments (an SDK
+  directory, a local LLVM installation) that the sandboxed host has to
+  point the build at instead of letting it download one.
 
 Examples:
     python scripts/run_ci.py --list
@@ -368,10 +375,32 @@ def augment_script(script, cmake_args):
     return "\n".join(out) + ("\n" if script.endswith("\n") else "")
 
 
-def run_step(step, matrix, env, tmp_dir, wsl, cmake_args=()):
+def augment_xmake_script(script, xmake_args):
+    """Append locally supplied arguments to an ``xmake f`` configure line."""
+    if not xmake_args:
+        return script
+    extra = " ".join(f'"{arg}"' for arg in xmake_args)
+    out = []
+    for line in script.splitlines():
+        stripped = line.strip()
+        if re.match(r"xmake\s+f(\s|$)", stripped):
+            # Keep the sub-command first: `xmake f` takes options, not
+            # positional arguments, so the extra flags go right after it.
+            out.append(line.replace("xmake f", f"xmake f {extra}", 1))
+        else:
+            out.append(line)
+    return "\n".join(out) + ("\n" if script.endswith("\n") else "")
+
+
+def run_step(step, matrix, env, tmp_dir, wsl, cmake_args=(), skip_steps=(),
+             xmake_args=()):
     """Run a single step; returns the exit code (0 for skipped actions)."""
     name = step.get("name") or "Run"
     label = f"----- step: {name}"
+    for pattern in skip_steps:
+        if "run" in step and re.search(pattern, name, re.IGNORECASE):
+            log(f"{label} (skip: --skip-step {pattern})")
+            return 0
     if "uses" in step:
         action = step["uses"]
         if action.startswith("actions/checkout"):
@@ -386,6 +415,7 @@ def run_step(step, matrix, env, tmp_dir, wsl, cmake_args=()):
 
     script = substitute(step["run"], matrix)
     script = augment_script(script, cmake_args)
+    script = augment_xmake_script(script, xmake_args)
     shell = step.get("shell")
 
     if env == "linux":
@@ -465,7 +495,7 @@ def cleanup(run_tmp, preexisting):
 
 
 def run_matrix_entry(workflow_name, job_name, job, matrix, keep, wsl_distro,
-                     cmake_args=()):
+                     cmake_args=(), skip_steps=(), xmake_args=()):
     env = job_os(job_name, job, matrix)
     host = host_os()
     parts = [f"{k}={v}" for k, v in matrix.items()]
@@ -508,7 +538,8 @@ def run_matrix_entry(workflow_name, job_name, job, matrix, keep, wsl_distro,
             if not step_enabled(step, matrix):
                 log(f"----- step: {step.get('name') or 'Run'} (skipped by if-condition)")
                 continue
-            code = run_step(step, matrix, env, tmp_dir, wsl, cmake_args)
+            code = run_step(step, matrix, env, tmp_dir, wsl, cmake_args,
+                            skip_steps, xmake_args)
             if code != 0:
                 # Any failing step fails the job (fail-fast: false in the
                 # workflow only governs other matrix entries, handled by
@@ -568,6 +599,16 @@ def parse_args(argv=None):
                         "-DLUISA_COMPUTE_VK_SDK_DIR=/path/to/sdk. Useful when a "
                         "sandboxed WSL cannot download the SDK archives that "
                         "upstream CI fetches from GitHub (repeatable).")
+    p.add_argument("--xmake-arg", action="append", default=[], metavar="ARG",
+                   help="extra argument appended to every `xmake f ...` line, "
+                        "e.g. --xmake-arg --lc_llvm_path=/usr/lib/llvm-20 or "
+                        "--xmake-arg --lc_sdk_dir=/path/to/sdks (repeatable).")
+    p.add_argument("--skip-step", action="append", default=[], metavar="REGEX",
+                   help="skip the `run:` steps whose name matches REGEX "
+                        "(case-insensitive, repeatable). The Linux jobs install "
+                        "their toolchain with apt-get/wget/llvm.sh, which cannot "
+                        "succeed on a host without network access; skip exactly "
+                        "those steps when the tools are provisioned by hand.")
     return p.parse_args(argv)
 
 
@@ -623,7 +664,8 @@ def main(argv=None):
     results = []
     for name, job_name, job, matrix in entries:
         ok = run_matrix_entry(name, job_name, job, matrix, args.keep,
-                              args.wsl_distro, args.cmake_arg)
+                              args.wsl_distro, args.cmake_arg, args.skip_step,
+                              args.xmake_arg)
         results.append((f"{name}/{job_name}/{matrix}", ok))
         if ok is False and not args.keep_going:
             log("\naborting remaining entries (use --keep-going to emulate fail-fast: false)")
