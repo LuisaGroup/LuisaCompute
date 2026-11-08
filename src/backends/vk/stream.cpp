@@ -3,6 +3,7 @@
 #include "compute_shader.h"
 #include "bindless_array.h"
 #include <luisa/core/logging.h>
+#include <vulkan/vk_enum_string_helper.h>
 #include "log.h"
 #include "blas.h"
 #include "cluster_blas.h"
@@ -1933,7 +1934,7 @@ void Stream::present(
             if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
                 swapchain->handle_present_error();
             } else if (result != VK_SUCCESS) {
-                LUISA_ERROR_WITH_LOCATION("Failed to present swapchain image: {}.", luisa::to_string(result));
+                LUISA_ERROR_WITH_LOCATION("Failed to present swapchain image: {}.", string_VkResult(result));
             }
         }
         _evt._signal(*this, fence);
@@ -2084,7 +2085,7 @@ void Stream::dispatch(
                     swapchain->handle_present_error();
                 }
             } else if (result != VK_SUCCESS) {
-                LUISA_ERROR_WITH_LOCATION("Failed to present swapchain image: {}.", luisa::to_string(result));
+                LUISA_ERROR_WITH_LOCATION("Failed to present swapchain image: {}.", string_VkResult(result));
             }
         }
         // If present failed, submit and present the successful prefix before returning
@@ -2139,7 +2140,7 @@ void Stream::dispatch(
                         swapchain->handle_present_error();
                     }
                 } else if (result != VK_SUCCESS) {
-                    LUISA_ERROR_WITH_LOCATION("Failed to present swapchain image: {}.", luisa::to_string(result));
+                    LUISA_ERROR_WITH_LOCATION("Failed to present swapchain image: {}.", string_VkResult(result));
                 }
 
                 // Use normal completion path for the submitted prefix

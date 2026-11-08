@@ -7,6 +7,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/runtime/rhi/pixel.h>
+#include <vulkan/vk_enum_string_helper.h>
 
 #include "vulkan_instance.h"
 #ifdef LUISA_PLATFORM_APPLE
@@ -458,8 +459,8 @@ private:
                     LUISA_VERBOSE_WITH_LOCATION(
                         "Supported swapchain format: "
                         "colorspace = {}, format = {}",
-                        luisa::to_string(f.colorSpace),
-                        luisa::to_string(f.format));
+                        string_VkColorSpaceKHR(f.colorSpace),
+                        string_VkFormat(f.format));
                 }
                 if (allow_hdr) {
                     for (auto format : formats) {
@@ -558,8 +559,8 @@ private:
         LUISA_INFO("Created swapchain: {}x{} with {} back buffer(s) in {} (format = {}, mode = {}).",
                    _swapchain_extent.width, _swapchain_extent.height, back_buffers,
                    _colorspace_name(_swapchain_format.colorSpace),
-                   luisa::to_string(_swapchain_format.format),
-                   luisa::to_string(present_mode));
+                   string_VkFormat(_swapchain_format.format),
+                   string_VkPresentModeKHR(present_mode));
     }
 
     void _create_render_pass() noexcept {
@@ -1058,7 +1059,7 @@ public:
         } else if (ret != VK_SUCCESS && ret != VK_SUBOPTIMAL_KHR) {
             LUISA_ERROR_WITH_LOCATION(
                 "Failed to acquire swapchain image: {}.",
-                luisa::to_string(ret));
+                string_VkResult(ret));
         }
         LUISA_CHECK_VULKAN(vkResetFences(_device, 1, &_in_flight_fences[_current_frame]));
 

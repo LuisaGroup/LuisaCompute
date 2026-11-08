@@ -41,6 +41,20 @@ namespace {
     return key;
 #endif
 }
+[[nodiscard]] luisa::string_view stream_func_name(StreamFunc func) noexcept {
+    switch (func) {
+        case StreamFunc::Signal: return "Signal";
+        case StreamFunc::Wait: return "Wait";
+        case StreamFunc::Graphics: return "Graphics";
+        case StreamFunc::Compute: return "Compute";
+        case StreamFunc::Copy: return "Copy";
+        case StreamFunc::Custom: return "Custom";
+        case StreamFunc::Swapchain: return "Swapchain";
+        case StreamFunc::Sync: return "Sync";
+        case StreamFunc::All: return "All";
+        default: return "Unknown";
+    }
+}
 }// namespace
 
 struct StatsExtImpl : public StatsExt, public vstd::IOperatorNewBase {
@@ -506,7 +520,7 @@ void Device::check_stream(uint64_t stream, StreamFunc func, uint64_t custom_cmd_
         LUISA_ERROR("Invalid stream.");
     }
     if (!ite->second.check_stream_func(func, custom_cmd_id)) {
-        LUISA_ERROR("{} do not support function \"{}\"", stream_ptr->get_name(), luisa::to_string(func));
+        LUISA_ERROR("{} do not support function \"{}\"", stream_ptr->get_name(), stream_func_name(func));
     }
 }
 
