@@ -156,7 +156,7 @@ int main(int argc, char *argv[]) {
                       .dispatch(win_size.x, win_size.y)
                << synchronize();
 
-        std::string title = luisa::format("LuisaCompute NTC Viewer - [{}/{}: {} (Ch {}-{})] Mip: {} ({}x{})",
+        auto title = luisa::format("LuisaCompute NTC Viewer - [{}/{}: {} (Ch {}-{})] Mip: {} ({}x{})",
                                           tex_idx + 1, container.textures.size(), tex.name,
                                           tex.firstChannel, tex.firstChannel + tex.numChannels - 1,
                                           mip, tw, th);
