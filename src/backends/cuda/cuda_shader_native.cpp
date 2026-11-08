@@ -85,7 +85,14 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> 
     };
     auto load_ptx = [&](const void *ptx, size_t ptx_size) noexcept {
         auto devrt = device->cudadevrt_library();
-        if (devrt.empty() || !requires_device_runtime(luisa::string_view{static_cast<const char *>(ptx), ptx_size})) {
+        auto requires_devrt = requires_device_runtime(
+            luisa::string_view{static_cast<const char *>(ptx), ptx_size});
+        if (!requires_devrt) {
+            if (auto ret = cuModuleLoadData(&_module, ptx); ret != CUDA_SUCCESS) { return ret; }
+            LUISA_CHECK_CUDA(cuModuleGetFunction(&_function, _module, entry));
+            return CUDA_SUCCESS;
+        }
+        if (devrt.empty()) {
             LUISA_WARNING_WITH_LOCATION(
                 "CUDA Device Runtime library is not linked. "
                 "Indirect dispatch and device-side graph control will not be "

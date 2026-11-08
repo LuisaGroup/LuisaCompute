@@ -73,7 +73,11 @@ on_load(function(target)
     -- diagnostic and never links nvrtcGetTileIR into the ordinary backend.
     exclude_files["cuda_tile_ir_compiler.cpp"] = true
     exclude_files["cuda_builtin_embedded.cpp"] = true
-    exclude_files["cuda_devrt_embedded.cpp"] = true
+    if os.isfile(path.join(src_path, "cuda_devrt_embedded.cpp")) then
+        target:add("defines", "LUISA_COMPUTE_ENABLE_CUDADEVRT=1")
+    else
+        exclude_files["cuda_devrt_embedded.cpp"] = true
+    end
     exclude_files["cuda_texture_compression.cpp"] = true
     local file_paths = {'*.cpp', 'extensions/*.cpp', 'tile/*.cpp'}
     for _, f in ipairs(file_paths) do
