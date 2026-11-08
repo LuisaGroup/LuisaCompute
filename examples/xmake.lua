@@ -164,6 +164,7 @@ example_proj("example_native_shader_minimal", "compute/native_shader_examples/mi
       end)
       includes("embedding")
       includes("embedding_mm")
+      includes("ntc")
     includes("compute/tokenize")
     includes("compute/compact")
 
