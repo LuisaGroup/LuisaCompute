@@ -1,0 +1,16 @@
+name: check-llvm-downgrade-pin
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check committed llvm-downgrade pin
+        run: python3 scripts/check_llvm_downgrade_pin.py --ref HEAD
+      - name: Test pin guard and hooks
+        run: python3 scripts/test_llvm_downgrade_pin.py

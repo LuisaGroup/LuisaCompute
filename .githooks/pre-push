@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Deletions have no resulting tree to validate.
+    case "$local_sha" in *[!0]*) ;; *) continue ;; esac
+    # Validate each pushed tip, not HEAD or the worktree (multi-ref pushes).
+    python3 scripts/check_llvm_downgrade_pin.py --ref "$local_sha"
+done

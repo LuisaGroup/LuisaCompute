@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+exec python3 scripts/check_llvm_downgrade_pin.py

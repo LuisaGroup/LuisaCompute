@@ -188,3 +188,31 @@ behind the first cmake command.
 1. LuisaCompute C++ tests are output to the `<build-dir>/bin` folder.
 2. All tests accept a command-line argument specifying the backend, which can be chosen from `cuda`, `dx`, `metal`,
    `vk`, `hip`, and `fallback` when built (all in lower case).
+
+
+## Git hooks for the llvm-downgrade pin
+
+After cloning, opt in once with Python 3:
+
+```bash
+python3 scripts/install_git_hooks.py
+```
+
+The installer refuses to replace an existing hooks path or custom hooks. If you
+already use hooks, call the scripts in `.githooks/` from your existing setup.
+Each clone must opt in; Git does not automatically install hooks on clone/pull.
+
+The pre-commit and pre-merge-commit hooks check the **index**, including the
+staged CMake pin, so unstaged changes cannot hide a bad gitlink. The pre-push hook
+checks every pushed tip (including fast-forward merges), not the working tree.
+These checks do not initialize, reset, or modify submodules.
+
+The same check runs in GitHub Actions on every push and PR even for clones
+without hooks. Client hooks can be bypassed and CI runs after a direct push;
+this is not server-side rejection or branch protection. To require the CI check
+before merging, configure repository branch rules separately.
+
+Intentional llvm-downgrade upgrades must update the gitlink, CMake expected
+commit, source fingerprint, and LLVM/AIR overlay as a reviewed unit and pass
+Metal4/iOS tests. The fast guard only checks the gitlink against the CMake pin;
+the existing CMake checks and build tests still validate contents and behavior.
