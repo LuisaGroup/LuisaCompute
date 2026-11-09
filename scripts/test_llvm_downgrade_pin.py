@@ -21,7 +21,7 @@ class PinTests(unittest.TestCase):
             (self.repo / folder).mkdir()
         for name in ("check_llvm_downgrade_pin.py", "install_git_hooks.py"):
             shutil.copy(ROOT / "scripts" / name, self.repo / "scripts" / name)
-        for name in ("pre-commit", "pre-merge-commit", "pre-push"):
+        for name in ("pre-commit", "pre-merge-commit", "pre-push", "run-pin-check"):
             shutil.copy(ROOT / ".githooks" / name, self.repo / ".githooks" / name)
         self.run_cmd("git", "init", "-q")
         self.run_cmd("git", "config", "user.name", "Test")

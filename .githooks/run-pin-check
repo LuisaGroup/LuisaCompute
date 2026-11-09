@@ -1,0 +1,13 @@
+#!/bin/sh
+# Git for Windows supplies sh, but Python may be named python3, python or py.
+set -eu
+for python in python3 python; do
+    if "$python" -c 'import sys; sys.exit(sys.version_info.major != 3)' >/dev/null 2>&1; then
+        exec "$python" scripts/check_llvm_downgrade_pin.py "$@"
+    fi
+done
+if py -3 -c 'import sys; sys.exit(sys.version_info.major != 3)' >/dev/null 2>&1; then
+    exec py -3 scripts/check_llvm_downgrade_pin.py "$@"
+fi
+echo "llvm-downgrade hook requires Python 3 (python3, python, or py -3) on PATH." >&2
+exit 1

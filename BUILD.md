@@ -216,3 +216,9 @@ Intentional llvm-downgrade upgrades must update the gitlink, CMake expected
 commit, source fingerprint, and LLVM/AIR overlay as a reviewed unit and pass
 Metal4/iOS tests. The fast guard only checks the gitlink against the CMake pin;
 the existing CMake checks and build tests still validate contents and behavior.
+
+On Windows, install Git for Windows and Python 3, then run
+`py -3 scripts/install_git_hooks.py` (or `python scripts/install_git_hooks.py`)
+from the repository in PowerShell, CMD, or Git Bash. Git runs the shell hooks
+using its bundled shell. Hooks try `python3`, `python`, then `py -3`.
+Git clients that do not execute standard Git hooks are covered only by CI.
