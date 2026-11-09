@@ -7,10 +7,16 @@ permissions:
 
 jobs:
   pin:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
       - name: Check committed llvm-downgrade pin
-        run: python3 scripts/check_llvm_downgrade_pin.py --ref HEAD
+        run: python scripts/check_llvm_downgrade_pin.py --ref HEAD
       - name: Test pin guard and hooks
-        run: python3 scripts/test_llvm_downgrade_pin.py
+        run: python scripts/test_llvm_downgrade_pin.py
