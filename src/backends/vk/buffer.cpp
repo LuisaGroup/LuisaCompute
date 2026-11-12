@@ -4,6 +4,7 @@
 #include "sparse_buffer.h"
 #include "device.h"
 #include "device_feature_plan.h"
+#include "vk_memory_policy.h"
 #include "log.h"
 #include <bit>
 #include <limits>
@@ -271,21 +272,13 @@ DefaultBuffer::DefaultBuffer(Device *device, VkBuffer vk_buffer, VkDeviceMemory 
 DefaultBuffer::DefaultBuffer(Device *device, size_t size_bytes, bool used_as_accel, VkBufferUsageFlagBits extra_bit)
     : Buffer{device, size_bytes, word_addressable_size(size_bytes),
              device->enable_device_address()} {
+    // Shared with the dedicated-allocation `PolicyBuffer` so the pre-existing
+    // VMA path and the optional-extension path can never diverge.
     auto res = device->allocator()
                    .allocate_buffer(
                        addressable_byte_size(),
                        static_cast<VkBufferUsageFlagBits>(
-                           extra_bit |
-                           VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                           VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-                           VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT |
-                           VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT |
-                           (device->enable_device_address() ? VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT : 0) |
-                           ((device->enable_raytracing() && used_as_accel) ? VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR :
-                                                                             0)),
+                           storage_buffer_usage_flags(device, used_as_accel, extra_bit)),
                        AccessType::kNone);
     _buffer = res.buffer;
     _allocation = res.allocation;

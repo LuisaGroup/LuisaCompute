@@ -38,6 +38,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
+#include "embedding_mm/embed/buffer_copy.h"
 
 #include "embedding_mm/embed/executor.h"
 #include "embedding_mm/embed/feature_loader.h"
@@ -183,10 +184,10 @@ void test_kernels(Device &device) {
         luisa::vector<float> host_y(H);
 
         CommandList cmd;
-        cmd << buf_x.copy_from(host_x.data())
-            << buf_g.copy_from(host_gamma.data())
+        cmd << luisa::embed_mm::copy_to_device(buf_x, host_x.data())
+            << luisa::embed_mm::copy_to_device(buf_g, host_gamma.data())
             << rmsnorm_shader(buf_x, buf_y, buf_g, H, 1e-6f).dispatch(kNormBlock)
-            << buf_y.copy_to(host_y.data());
+            << luisa::embed_mm::copy_from_device(buf_y, host_y.data());
         stream << cmd.commit() << synchronize();
 
         for (uint32_t i = 0; i < H; i++) {
@@ -210,9 +211,9 @@ void test_kernels(Device &device) {
         luisa::vector<float> host_y(D);
 
         CommandList cmd;
-        cmd << buf_x.copy_from(host_x.data())
+        cmd << luisa::embed_mm::copy_to_device(buf_x, host_x.data())
             << l2norm_shader(buf_x, buf_y, D).dispatch(kNormBlock)
-            << buf_y.copy_to(host_y.data());
+            << luisa::embed_mm::copy_from_device(buf_y, host_y.data());
         stream << cmd.commit() << synchronize();
 
         float sum_sq = 0.0f;
@@ -253,10 +254,10 @@ void test_kernels(Device &device) {
         auto buf_c = device.create_buffer<float>(M * N);
 
         CommandList cmd;
-        cmd << buf_a.copy_from(host_a.data())
-            << buf_b.copy_from(host_b.data())
+        cmd << luisa::embed_mm::copy_to_device(buf_a, host_a.data())
+            << luisa::embed_mm::copy_to_device(buf_b, host_b.data())
             << gemm_shader(buf_a, buf_b, buf_c, M, N, K).dispatch(gemm_dispatch_size(M, N))
-            << buf_c.copy_to(host_c.data());
+            << luisa::embed_mm::copy_from_device(buf_c, host_c.data());
         stream << cmd.commit() << synchronize();
 
         for (uint32_t i = 0; i < M * N; i++) {
@@ -281,9 +282,9 @@ void test_kernels(Device &device) {
         luisa::vector<float> host_out(N);
 
         CommandList cmd;
-        cmd << buf_in.copy_from(in_vals.data())
+        cmd << luisa::embed_mm::copy_to_device(buf_in, in_vals.data())
             << scale_shader(buf_in, buf_out, N).dispatch(N)
-            << buf_out.copy_to(host_out.data());
+            << luisa::embed_mm::copy_from_device(buf_out, host_out.data());
         stream << cmd.commit() << synchronize();
 
         for (uint32_t i = 0; i < N; i++) {
@@ -309,11 +310,11 @@ void test_kernels(Device &device) {
         luisa::vector<float> host_out(host_qk.size());
 
         CommandList cmd;
-        cmd << buf_qk_in.copy_from(host_qk.data())
-            << buf_pos.copy_from(host_pos.data())
+        cmd << luisa::embed_mm::copy_to_device(buf_qk_in, host_qk.data())
+            << luisa::embed_mm::copy_to_device(buf_pos, host_pos.data())
             << axial_rope_shader(buf_qk_in, buf_qk_out, buf_pos, num_heads, head_dim, rope_theta)
                    .dispatch(16u, num_patches * num_heads)
-            << buf_qk_out.copy_to(host_out.data());
+            << luisa::embed_mm::copy_from_device(buf_qk_out, host_out.data());
         stream << cmd.commit() << synchronize();
 
         for (uint32_t i = 0; i < num_heads * head_dim; i++) {
@@ -341,10 +342,10 @@ void test_kernels(Device &device) {
             luisa::vector<float> host_out(num_soft * H);
 
             CommandList cmd;
-            cmd << buf_in.copy_from(host_patches.data())
+            cmd << luisa::embed_mm::copy_to_device(buf_in, host_patches.data())
                 << pool_shader(buf_in, buf_out, grid_soft, grid_soft, patch_stride, H, scale)
                        .dispatch(H, num_soft)
-                << buf_out.copy_to(host_out.data());
+                << luisa::embed_mm::copy_from_device(buf_out, host_out.data());
             stream << cmd.commit() << synchronize();
 
             for (uint32_t i = 0; i < num_soft * H; i++) {
@@ -370,10 +371,10 @@ void test_kernels(Device &device) {
         luisa::vector<float> host_out(total_tokens * H);
 
         CommandList cmd;
-        cmd << buf_h0.copy_from(host_h0.data())
-            << buf_soft.copy_from(host_soft.data())
+        cmd << luisa::embed_mm::copy_to_device(buf_h0, host_h0.data())
+            << luisa::embed_mm::copy_to_device(buf_soft, host_soft.data())
             << scatter_shader(buf_h0, buf_soft, start_idx, num_soft, H).dispatch(H, num_soft)
-            << buf_h0.copy_to(host_out.data());
+            << luisa::embed_mm::copy_from_device(buf_h0, host_out.data());
         stream << cmd.commit() << synchronize();
 
         for (uint32_t t = 0; t < total_tokens; t++) {
@@ -395,9 +396,9 @@ void test_kernels(Device &device) {
         luisa::vector<float> host_y(N);
 
         CommandList cmd;
-        cmd << buf_x.copy_from(host_x.data())
+        cmd << luisa::embed_mm::copy_to_device(buf_x, host_x.data())
             << clamp_shader(buf_x, buf_y, -1.5f, 3.0f, N).dispatch(N)
-            << buf_y.copy_to(host_y.data());
+            << luisa::embed_mm::copy_from_device(buf_y, host_y.data());
         stream << cmd.commit() << synchronize();
 
         for (uint32_t i = 0; i < N; i++) {
@@ -588,16 +589,16 @@ void test_official_golden_suite(
 
         Executor::VisionDebugActivations dbg{buf_patch.view(), buf_l0.view(), buf_pool.view()};
         CommandList cmd;
-        cmd << buf_px.copy_from(im.pixel_values.data())
-            << buf_pos.copy_from(im.position_ids.data());
+        cmd << luisa::embed_mm::copy_to_device(buf_px, im.pixel_values.data())
+            << luisa::embed_mm::copy_to_device(buf_pos, im.position_ids.data());
         exec->record_vision_encode(cmd, buf_px.view(), buf_pos.view(), buf_soft.view(),
                                    1u, im.num_patches_w, im.num_patches_h, max_p, num_soft, &dbg);
 
         luisa::vector<float> h_patch(max_p * 768u), h_l0(max_p * 768u), h_pool(num_soft * 768u), h_soft(num_soft * 512u);
-        cmd << buf_patch.copy_to(h_patch.data())
-            << buf_l0.copy_to(h_l0.data())
-            << buf_pool.copy_to(h_pool.data())
-            << buf_soft.copy_to(h_soft.data());
+        cmd << luisa::embed_mm::copy_from_device(buf_patch, h_patch.data())
+            << luisa::embed_mm::copy_from_device(buf_l0, h_l0.data())
+            << luisa::embed_mm::copy_from_device(buf_pool, h_pool.data())
+            << luisa::embed_mm::copy_from_device(buf_soft, h_soft.data());
         auto s = device.create_stream();
         s << cmd.commit() << synchronize();
 
@@ -664,15 +665,15 @@ void test_official_golden_suite(
 
         Executor::AudioDebugActivations dbg{b_sub.view(), b_l0.view(), b_l11.view(), b_tow.view()};
         CommandList cmd;
-        cmd << b_in.copy_from(aud.features.data());
+        cmd << luisa::embed_mm::copy_to_device(b_in, aud.features.data());
         exec->record_audio_encode(cmd, b_in.view(), b_soft.view(), T_in, 128u, num_soft, &dbg);
 
         luisa::vector<float> h_sub(num_soft * 1024u), h_l0(num_soft * 1024u), h_l11(num_soft * 1024u), h_tow(num_soft * 1536u), h_soft(num_soft * 512u);
-        cmd << b_sub.copy_to(h_sub.data())
-            << b_l0.copy_to(h_l0.data())
-            << b_l11.copy_to(h_l11.data())
-            << b_tow.copy_to(h_tow.data())
-            << b_soft.copy_to(h_soft.data());
+        cmd << luisa::embed_mm::copy_from_device(b_sub, h_sub.data())
+            << luisa::embed_mm::copy_from_device(b_l0, h_l0.data())
+            << luisa::embed_mm::copy_from_device(b_l11, h_l11.data())
+            << luisa::embed_mm::copy_from_device(b_tow, h_tow.data())
+            << luisa::embed_mm::copy_from_device(b_soft, h_soft.data());
         auto s = device.create_stream();
         s << cmd.commit() << synchronize();
 

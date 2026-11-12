@@ -91,6 +91,33 @@ void SpirvCodegenEntry::_require_target_feature(
     _required_target_features |= feature;
 }
 
+void SpirvCodegenEntry::_emit_opacity_micromap_execution_mode(
+    spv::Function *function) noexcept {
+    if (function == nullptr ||
+        !_target_features.ray_tracing_opacity_micromap) {
+        // VK_EXT_opacity_micromap (the alias) makes ray-query traversal use micromap
+        // data without any execution mode, so a device that negotiated only that
+        // name must not declare one.
+        return;
+    }
+    _require_target_feature(target_feature::ray_tracing_opacity_micromap,
+                            _target_features.ray_tracing_opacity_micromap);
+    // The capability and the execution mode are both declared by
+    // SPV_KHR_opacity_micromap (spirv.core.grammar.json: value 6032 with
+    // extensions ["SPV_KHR_opacity_micromap"]), and the validator rejects them
+    // without it.
+    _builder.addExtension("SPV_KHR_opacity_micromap");
+    _builder.addCapability(
+        spv::Capability::RayTracingOpacityMicromapExecutionModeKHR);
+    // `OpExecutionModeId %main OpacityMicromapIdKHR %enable`, where `%enable` is an
+    // OpSpecConstantTrue: the grammar takes a single `IdRef` operand named "Enable",
+    // not a literal.
+    auto enable = _builder.makeBoolConstant(true, /* specConstant */ true);
+    _builder.addExecutionModeId(function,
+                                spv::ExecutionMode::OpacityMicromapIdKHR,
+                                {enable});
+}
+
 void SpirvCodegenEntry::_require_sampled_image_array_indexing(
     bool nonuniform) noexcept {
     // Bindless slots contain descriptor indices in runtime metadata. Even a

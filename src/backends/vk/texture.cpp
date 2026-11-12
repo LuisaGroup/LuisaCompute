@@ -173,53 +173,57 @@ Texture::Texture(
 Texture::Texture(
     Device *device,
     uint dimension,
-    PixelFormat format,
-    uint3 size,
-    uint mip,
-    bool simultaneous_access,
-    bool allow_raster_target)
-    : Resource(device),
-      _format(format),
-      _size(size),
-      _mip(mip),
-      _dimension(dimension),
-      _simultaneous_access(simultaneous_access) {
-    auto vk_format = to_vk_format(format);
-    if (vk_format == VK_FORMAT_UNDEFINED) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION(
-            "Unsupported pixel format {} cannot be mapped to a Vulkan format.",
-            static_cast<uint32_t>(format));
-    }
-    auto image_usage =
-        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-        VK_IMAGE_USAGE_SAMPLED_BIT |
-        (allow_raster_target ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
-        ((is_srgb(format) || is_block_compressed(format)) ? 0 : VK_IMAGE_USAGE_STORAGE_BIT);
-    luisa::string unsupported_reason;
-    if (!is_vk_format_supported(
-            device->physical_device(), vk_format, image_usage,
-            &unsupported_reason)) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("{}", unsupported_reason);
-    }
-    auto allocation = device->allocator().allocate_image(
-        [&]() {
-            switch (dimension) {
-                case 1:
-                    return VK_IMAGE_TYPE_1D;
-                case 2:
-                    return VK_IMAGE_TYPE_2D;
-                case 3:
-                    return VK_IMAGE_TYPE_3D;
-                default:
-                    break;
-            }
-            LUISA_ERROR_WITH_LOCATION("Invalid texture dimension.");
-        }(),
-        vk_format,
-        size,
-        mip,
-        image_usage);
+      PixelFormat format,
+      uint3 size,
+      uint mip,
+      bool simultaneous_access,
+      bool allow_raster_target,
+      detail::ImageTilingPolicy tiling_policy)
+      : Resource(device),
+        _format(format),
+        _size(size),
+        _mip(mip),
+        _dimension(dimension),
+        _simultaneous_access(simultaneous_access) {
+      auto vk_format = to_vk_format(device, format, dimension);
+      if (vk_format == VK_FORMAT_UNDEFINED) [[unlikely]] {
+          LUISA_ERROR_WITH_LOCATION(
+              "Unsupported pixel format {} cannot be mapped to a Vulkan format "
+              "for dimension {} (3D ASTC block formats need "
+              "VK_EXT_texture_compression_astc_3d and a 3D block twin).",
+              static_cast<uint32_t>(format), dimension);
+      }
+      auto image_usage =
+          VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+          VK_IMAGE_USAGE_SAMPLED_BIT |
+          (allow_raster_target ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
+          ((is_srgb(format) || is_block_compressed(format)) ? 0 : VK_IMAGE_USAGE_STORAGE_BIT);
+      luisa::string unsupported_reason;
+      if (!is_vk_format_supported(
+              device->physical_device(), vk_format, image_usage,
+              &unsupported_reason)) [[unlikely]] {
+          LUISA_ERROR_WITH_LOCATION("{}", unsupported_reason);
+      }
+      auto allocation = device->allocator().allocate_image(
+          [&]() {
+              switch (dimension) {
+                  case 1:
+                      return VK_IMAGE_TYPE_1D;
+                  case 2:
+                      return VK_IMAGE_TYPE_2D;
+                  case 3:
+                      return VK_IMAGE_TYPE_3D;
+                  default:
+                      break;
+              }
+              LUISA_ERROR_WITH_LOCATION("Invalid texture dimension.");
+          }(),
+          vk_format,
+          size,
+          mip,
+          image_usage,
+          tiling_policy);
     _vk_img = allocation.image;
     _allocation = allocation.allocation;
     _acquire_native_state(vk_format);
@@ -394,6 +398,26 @@ void Texture::init_as_sparse(
     _dimension = dimension;
     _simultaneous_access = simultaneous_access;
     _acquire_native_state(to_vk_format(format));
+}
+
+VkFormat Texture::to_vk_format(
+    Device *device, PixelFormat format, uint dimension) noexcept {
+    // VK_EXT_texture_compression_astc_3d: a VK_IMAGE_TYPE_3D image cannot be
+    // created with a 2D ASTC block format, so a 3D image requested with an ASTC
+    // format maps onto the equally sized 3D-compressed block format when the
+    // extension is enabled. Everything else (including 2D ASTC, non-ASTC
+    // formats and every non-3D image) keeps the pre-existing mapping.
+    auto astc_plan = detail::plan_astc_3d_format(
+        device != nullptr &&
+            device->optional_extension_enabled(
+                detail::OptionalExtension::TEXTURE_COMPRESSION_ASTC_3D),
+        detail::astc_block_footprint(format), is_srgb(format), dimension);
+    if (astc_plan.is_astc_block_format()) {
+        // Mapped 3D format, or VK_FORMAT_UNDEFINED so the caller keeps the
+        // pre-existing "unsupported format" error.
+        return astc_plan.format;
+    }
+    return to_vk_format(format);
 }
 
 VkFormat Texture::to_vk_format(PixelFormat format) {

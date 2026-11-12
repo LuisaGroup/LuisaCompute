@@ -285,6 +285,13 @@ void ClusterBlas::pre_build_clusters(
     // ClusterBuildInfo carries positions only (float3), tightly packed.
     triangle_input.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
     triangle_input.maxGeometryIndexValue = prop.maxClusterGeometryIndex;
+    // Note the two micromap models are unrelated: VK_NV_cluster_acceleration
+    // _structure takes its own opacity micromap *index buffer* inside the cluster
+    // record (no VkMicromapEXT, no KHR micromap object), while
+    // VK_KHR_opacity_micromap attaches a micromap object to a classic triangle
+    // BLAS through VkAccelerationStructureTrianglesOpacityMicromapEXT - see
+    // opacity_micromap.h and rt_extension_plan.h. A cluster build can therefore
+    // never be the attach target of the KHR path.
     // Per-triangle geometry-index buffers and opacity micromaps are out of scope
     // (LC_CLUSTER_IMPL_SPEC §3.6): ClusterBuildInfo exposes
     // geometry_index_and_flags_buffer / opacity_micromap_array, but the records

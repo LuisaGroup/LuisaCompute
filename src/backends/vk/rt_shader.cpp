@@ -8,6 +8,7 @@
 #include "../common/hlsl/shader_compiler.h"
 #include "vk_allocator.h"
 #include "spirv_motion_patch.h"
+#include "rt_extension_plan.h"
 
 namespace lc::vk {
 
@@ -97,6 +98,51 @@ RayTracingShader::RayTracingShader(
         rt_pipeline_ci.flags |= VK_PIPELINE_CREATE_RAY_TRACING_ALLOW_MOTION_BIT_NV;
     }
 
+    // ---------------------------------------------------------------------
+    // VK_EXT_ray_tracing_invocation_reorder (shader execution reordering)
+    // ---------------------------------------------------------------------
+    // The registry negotiates the extension and its
+    // `rayTracingInvocationReorder` feature bit, but this backend never requests
+    // any of its state, for two independent reasons:
+    //
+    //  * user shaders trace through OpRayQueryInitializeKHR/OpRayQueryProceedKHR
+    //    in a compute kernel. The extension adds no ray-query surface at all
+    //    (vk.xml: depends="VK_KHR_ray_tracing_pipeline", and its whole require
+    //    block is the two physical-device structs plus the hint enum); its
+    //    reorder operations are the SPV_EXT_shader_invocation_reorder
+    //    OpHitObject* / OpReorderThread* instructions, which only exist inside
+    //    ray-tracing pipeline stages. A ray query has no hit object, no reorder
+    //    flag and therefore no expressible hint;
+    //  * this pipeline (the internal motion-blur tracer) is built from HLSL that
+    //    never emits hit objects, so there is nothing to reorder even here.
+    //
+    // `plan_ray_tracing_invocation_reorder` (rt_extension_plan.h, unit tested in
+    // test_vk_ext_rt.cpp) is the single source of truth for that answer, and the
+    // assertion keeps a future edit from setting reorder state on a device that
+    // never enabled the feature.
+    auto const ser_extension_enabled = device->optional_extension_enabled(
+        detail::OptionalExtension::RAY_TRACING_INVOCATION_REORDER);
+    auto const ser_pipeline_plan = detail::plan_ray_tracing_invocation_reorder({
+        .extension_enabled = ser_extension_enabled,
+        .reorder_mode_reorder = false,
+        .traversal = detail::SerTraversal::RAY_TRACING_PIPELINE,
+        .shader_uses_hit_objects = false});
+    auto const ser_ray_query_plan = detail::plan_ray_tracing_invocation_reorder({
+        .extension_enabled = ser_extension_enabled,
+        .reorder_mode_reorder = false,
+        .traversal = detail::SerTraversal::RAY_QUERY,
+        .shader_uses_hit_objects = false});
+    LUISA_ASSERT(!ser_pipeline_plan.enable_reorder &&
+                     !ser_ray_query_plan.enable_reorder,
+                 "VK_EXT_ray_tracing_invocation_reorder must stay inert for this "
+                 "backend's traversals ({} / {})",
+                 detail::ser_status_name(ser_pipeline_plan.status),
+                 detail::ser_status_name(ser_ray_query_plan.status));
+    // VK_KHR_opacity_micromap would additionally require
+    // VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_KHR here for any
+    // pipeline that traces an acceleration structure containing micromap data
+    // (raytraversal.adoc). No BLAS of this backend can carry a micromap today
+    // (see opacity_micromap.h), so the flag must not be set.
     VkPipeline pipeline{};
     VK_CHECK_RESULT(vkCreateRayTracingPipelinesKHR(
         device->logic_device(), VK_NULL_HANDLE, pipe_cache,

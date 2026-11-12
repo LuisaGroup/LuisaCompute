@@ -10,6 +10,16 @@ using namespace luisa::compute;
 
 // MotionInstance wraps a child BLAS with per-keyframe transforms for motion blur.
 // Uses VK_NV_ray_tracing_motion_blur extension for hardware-accelerated motion blur.
+//
+// A motion instance can never carry an opacity micromap: the micromap attach is a
+// per-geometry property of the classic triangle BLAS
+// (VkAccelerationStructureTrianglesOpacityMicromapEXT, see opacity_micromap.h),
+// and detail::plan_opacity_micromap_attach() refuses a geometry that already
+// chains VkAccelerationStructureGeometryMotionTrianglesDataNV. The instance-level
+// micromap switches (VK_GEOMETRY_INSTANCE_{DISABLE_OPACITY_MICROMAPS,
+// FORCE_OPACITY_MICROMAP_2_STATE}_BIT_KHR) are likewise never set by the TLAS
+// instance packing, which is why the plan can treat "instance disables
+// micromaps" as a constant false.
 class MotionInstance : public PrimitiveBase {
     AccelMotionOption _option;
     Blas *_child{nullptr};

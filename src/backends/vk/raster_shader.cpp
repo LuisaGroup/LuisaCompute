@@ -92,15 +92,21 @@ auto RasterShader::create_pipeline(
         .topology = topo,
         .primitiveRestartEnable = VK_FALSE};
 
+    // Depth clamping (VK_KHR_depth_clamp_zero_one) and the primitive restart
+    // index (VK_EXT_primitive_restart_index) are decided by the shared planner,
+    // so this path and the native raster path cannot disagree. With both
+    // extensions disabled the plan reproduces the previous values exactly.
+    auto extension_plan = plan_raster_pipeline_extensions(device(), state);
     VkPipelineRasterizationStateCreateInfo raster_info{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         // RasterState::depth_clip follows the D3D12 DepthClipEnable
         // semantics: enabled clips primitives outside [0, 1], which is the
         // Vulkan default (depth clamp off); disabled requests clamping,
         // which is only available when the depthClamp feature is enabled.
-        .depthClampEnable = static_cast<VkBool32>(
-            !state.depth_clip &&
-            device()->enabled_features().depthClamp == VK_TRUE),
+        // When VK_KHR_depth_clamp_zero_one is enabled the device additionally
+        // clamps the fragment depth itself to [0, 1] on every draw, which is
+        // the range D3D12 uses (`uses_depth_clamp_zero_one`).
+        .depthClampEnable = extension_plan.depth_clamp_enable,
         .rasterizerDiscardEnable = false,
         .polygonMode = state.fill_mode == FillMode::Solid ? VK_POLYGON_MODE_FILL : VK_POLYGON_MODE_LINE,
         .cullMode = cull_mode,
@@ -261,13 +267,11 @@ auto RasterShader::create_pipeline(
         .minDepthBounds = 0.f,
         .maxDepthBounds = 1.f,
     };
-    VkDynamicState dynamic_states[] = {
-        VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dynamic_info{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        .dynamicStateCount = vstd::array_count(dynamic_states),
-        .pDynamicStates = dynamic_states};
+        .dynamicStateCount = static_cast<uint32_t>(
+            extension_plan.dynamic_states.size()),
+        .pDynamicStates = extension_plan.dynamic_states.data()};
     VkShaderModule vertex_shader_module;
     VkShaderModule pixel_shader_module;
     {
@@ -322,6 +326,14 @@ auto RasterShader::create_pipeline(
         .basePipelineIndex = ~0};
 
     VK_CHECK_RESULT(vkCreateGraphicsPipelines(device()->logic_device(), _pipe_cache, 1, &graphics_pipeline_create_info, Device::alloc_callbacks(), &v.pipeline));
+    if (extension_plan.uses_depth_clamp_zero_one) {
+        // VK_KHR_depth_clamp_zero_one is device-wide: every raster pipeline
+        // created on a device that enabled its feature clamps the fragment depth
+        // to [0, 1], so this draw really renders through it instead of the
+        // viewport-range-only fallback.
+        device()->mark_optional_extension_active(
+            detail::OptionalExtension::DEPTH_CLAMP_ZERO_ONE);
+    }
     return v;
 }
 VkRenderPass RasterShader::create_render_pass(

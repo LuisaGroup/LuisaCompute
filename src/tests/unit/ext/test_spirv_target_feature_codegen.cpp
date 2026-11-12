@@ -1129,8 +1129,17 @@ int main(int argc, char *argv[]) {
         };
         auto compiled = compile_spirv_fixture(kernel);
         expect(eq(compiled.required_features,
-                  lc::spirv::target_feature::ray_query));
-        expect(contains(compiled.text, "OpCapability RayQueryKHR"));
+                          lc::spirv::target_feature::ray_query |
+                          lc::spirv::target_feature::ray_tracing_opacity_micromap));
+        // The KHR spelling of VK_KHR_opacity_micromap requires every ray-query
+        // module to declare the OpacityMicromapIdKHR execution mode, so the
+        // emitted module must carry both the capability and the mode (and the
+        // extension that defines them).
+        expect(contains(compiled.text,
+                     "OpCapability RayTracingOpacityMicromapExecutionModeKHR"));
+        expect(contains(compiled.text, "OpacityMicromapIdKHR"));
+        expect(contains(compiled.text,
+                     "OpExtension \"SPV_KHR_opacity_micromap\""));
         expect(contains(compiled.text, "OpRayQueryInitializeKHR"));
         expect(eq(count_property(
                       compiled, lc::hlsl::ShaderVariableType::SPIRVAccel),

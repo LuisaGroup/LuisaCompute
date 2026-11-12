@@ -83,6 +83,20 @@ public:
     [[nodiscard]] uint64_t buffer_device_address(uint64_t handle) noexcept override {
         return _native->buffer_device_address(handle);
     }
+    // Opacity micromaps. Pass-through: the packed bits live in ordinary buffers the
+    // validation layer already tracks, and the micromap itself is not a texture, so
+    // there is no extra state to validate here. The underlying device raises when it
+    // cannot build one.
+    [[nodiscard]] ResourceCreationInfo create_opacity_micromap(
+        const OpacityMicromapOption &option) noexcept override {
+        return _native->create_opacity_micromap(option);
+    }
+    void destroy_opacity_micromap(uint64_t handle) noexcept override {
+        _native->destroy_opacity_micromap(handle);
+    }
+    [[nodiscard]] uint32_t opacity_micromap_max_subdivision_level(bool four_state) noexcept override {
+        return _native->opacity_micromap_max_subdivision_level(four_state);
+    }
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(

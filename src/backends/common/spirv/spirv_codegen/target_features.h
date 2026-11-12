@@ -28,6 +28,9 @@ struct SpirvTargetFeatures {
     bool storage_image_read_without_format{false};
     bool storage_image_write_without_format{false};
     bool ray_query{false};
+    // KHR spelling of VK_KHR_opacity_micromap: ray-query modules also declare the
+    // OpacityMicromapIdKHR execution mode.
+    bool ray_tracing_opacity_micromap{false};
     bool shader_float8{false};
     bool shader_bfloat16{false};
     bool shader_float16{false};
@@ -64,6 +67,19 @@ struct SpirvTargetFeatures {
     bool buffer_device_address{false};
     bool shader_untyped_pointers{false};
     bool cooperative_vector{false};
+    // Optional shader capability extensions (VK_KHR/EXT_shader_*). Codegen may
+    // only emit their instructions and OpCapability declarations when the
+    // matching bit is true; see vk/vk_shader_capabilities.h for the negotiated
+    // extension state that produces them.
+    bool shader_fma_float32{false};
+    bool shader_64bit_indexing{false};
+    bool shader_uniform_buffer_unsized_array{false};
+    bool shader_long_vector{false};
+    bool shader_subgroup_partitioned{false};
+    bool shader_split_barrier{false};
+    bool shader_ocp_microscaling_types{false};
+    bool shader_constant_data{false};
+    bool shader_abort{false};
     SpirvBufferFloat32AtomicRmwPolicy buffer_float32_atomic_rmw_policy{
         SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED};
 
@@ -118,6 +134,8 @@ struct SpirvTargetFeatures {
         enable(uniform_storage_buffer_16bit_access,
                target_feature::uniform_storage_buffer_16bit_access);
         enable(ray_query, target_feature::ray_query);
+        enable(ray_tracing_opacity_micromap,
+               target_feature::ray_tracing_opacity_micromap);
         enable(sampler_anisotropy, target_feature::sampler_anisotropy);
         enable(shader_buffer_int64_atomics,
                target_feature::shader_buffer_int64_atomics);
@@ -143,6 +161,24 @@ struct SpirvTargetFeatures {
                target_feature::shader_untyped_pointers);
         enable(cooperative_vector,
                target_feature::cooperative_vector);
+        enable(shader_fma_float32,
+               target_feature::shader_fma_float32);
+        enable(shader_64bit_indexing,
+               target_feature::shader_64bit_indexing);
+        enable(shader_uniform_buffer_unsized_array,
+               target_feature::shader_uniform_buffer_unsized_array);
+        enable(shader_long_vector,
+               target_feature::shader_long_vector);
+        enable(shader_subgroup_partitioned,
+               target_feature::shader_subgroup_partitioned);
+        enable(shader_split_barrier,
+               target_feature::shader_split_barrier);
+        enable(shader_ocp_microscaling_types,
+               target_feature::shader_ocp_microscaling_types);
+        enable(shader_constant_data,
+               target_feature::shader_constant_data);
+        enable(shader_abort,
+               target_feature::shader_abort);
         return mask;
     }
 
@@ -164,6 +200,8 @@ struct SpirvTargetFeatures {
             .storage_image_write_without_format =
                 has(target_feature::storage_image_write_without_format),
             .ray_query = has(target_feature::ray_query),
+            .ray_tracing_opacity_micromap =
+                has(target_feature::ray_tracing_opacity_micromap),
             .shader_float8 = has(target_feature::shader_float8),
             .shader_bfloat16 = has(target_feature::shader_bfloat16),
             .shader_float16 = has(target_feature::shader_float16),
@@ -222,7 +260,25 @@ struct SpirvTargetFeatures {
             .shader_untyped_pointers =
                 has(target_feature::shader_untyped_pointers),
             .cooperative_vector =
-                has(target_feature::cooperative_vector)};
+                has(target_feature::cooperative_vector),
+            .shader_fma_float32 =
+                has(target_feature::shader_fma_float32),
+            .shader_64bit_indexing =
+                has(target_feature::shader_64bit_indexing),
+            .shader_uniform_buffer_unsized_array =
+                has(target_feature::shader_uniform_buffer_unsized_array),
+            .shader_long_vector =
+                has(target_feature::shader_long_vector),
+            .shader_subgroup_partitioned =
+                has(target_feature::shader_subgroup_partitioned),
+            .shader_split_barrier =
+                has(target_feature::shader_split_barrier),
+            .shader_ocp_microscaling_types =
+                has(target_feature::shader_ocp_microscaling_types),
+            .shader_constant_data =
+                has(target_feature::shader_constant_data),
+            .shader_abort =
+                has(target_feature::shader_abort)};
     }
 };
 

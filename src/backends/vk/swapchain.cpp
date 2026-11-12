@@ -108,13 +108,237 @@ static const std::array vulkan_swapchain_screen_shader_fragment_bytecode = {
     0x00000012u, 0x00000013u, 0x0000000du, 0x00000011u, 0x0004003du, 0x00000014u, 0x00000017u, 0x00000016u,
     0x00050057u, 0x00000007u, 0x00000018u, 0x00000013u, 0x00000017u, 0x0003003eu, 0x00000009u, 0x00000018u,
     0x000100fdu, 0x00010038u};
+// Optional present / frame-pacing helpers. They live in a file-unique namespace
+// because the backend target uses unity batches.
+namespace vk_ext_present_detail {
+// Bounded wait used before a swapchain is destroyed. A frame is ~16 ms, so one
+// second only elapses when the presentation engine is wedged; the caller keeps
+// its unconditional vkDeviceWaitIdle after it.
+inline constexpr uint64_t kPresentWaitTimeoutNs = 1'000'000'000ull;
+// Capacity of the compatible-present-mode list. Drivers report a handful at
+// most; a shorter list only narrows the fast path, it never breaks it.
+inline constexpr uint32_t kCompatiblePresentModeCapacity = 8u;
+
+// The present call itself is issued by Stream::present/dispatch (stream.cpp),
+// which builds the VkPresentInfoKHR from the semaphores, image indices and
+// fences that Swapchain::present() filled in. It does not chain the
+// swapchain's present-id node yet, so an id assigned here would never reach
+// the presentation engine and vkWaitForPresent2KHR on it would be illegal
+// (VUID-vkWaitForPresent2KHR-presentId-10817). Binding this to false keeps
+// VK_KHR_present_id2/wait2 enabled-but-inactive instead of pretending to use
+// them. Flipping it together with the hook in stream.cpp
+//     present_info.pNext = swapchain->present_id_pnext();      // single present
+//     VkPresentId2KHR{... swapchainCount, pPresentIds ...}     // batched present
+// (one node whose swapchainCount matches VkPresentInfoKHR::swapchainCount,
+// filled from each Swapchain::last_present_id()) activates the whole
+// present-id/wait path without touching this file again.
+inline constexpr bool kPresentPathChainsPresentIds = false;
+// VK_EXT_present_timing would need VkPresentTimingsInfoEXT in the same
+// VkPresentInfoKHR chain plus a consumer for vkGetPastPresentationTimingEXT.
+// No public LuisaCompute API exposes per-frame present timing, so the
+// extension stays enabled-but-inactive (see the report/PresentTimingPlan).
+inline constexpr bool kPublicApiDeliversPresentTiming = false;
+
+// Answers of the optional surface capability queries. Every flag stays false
+// unless the query really ran, and a query only runs when the instance enabled
+// the extension owning its entry point.
+struct SurfacePresentCapabilities {
+    bool capability_query_ran{false};
+    bool present_id2_supported{false};
+    bool present_wait2_supported{false};
+    bool present_timing_supported{false};
+    bool mode_compatibility_query_ran{false};
+    bool mode_compatible{false};
+    bool scaling_query_ran{false};
+    VkPresentScalingFlagsKHR supported_scaling{0u};
+    VkPresentGravityFlagsKHR supported_gravity_x{0u};
+    VkPresentGravityFlagsKHR supported_gravity_y{0u};
+};
+
+  // VK_EXT_full_screen_exclusive is a Windows-only extension, so the Vulkan
+  // headers declare `PFN_vkGetPhysicalDeviceSurfacePresentModes2EXT` only in
+  // vulkan_win32.h (guarded by VK_USE_PLATFORM_WIN32_KHR). Spelling the same
+  // signature here keeps this translation unit portable: the entry point is
+  // resolved by name from the instance and is only ever called when the instance
+  // enabled the extension, which can only happen on a platform whose loader
+  // exposes it.
+  using PresentModes2PFN = VkResult(VKAPI_PTR *)(
+      VkPhysicalDevice, const VkPhysicalDeviceSurfaceInfo2KHR *,
+      uint32_t *, VkPresentModeKHR *);
+  // Fills the surface's presentation-mode list. vkGetPhysicalDeviceSurfacePresentModes2EXT
+  // belongs to VK_EXT_full_screen_exclusive, so it is only called when that
+  // instance extension is attested; otherwise the original
+  // vkGetPhysicalDeviceSurfacePresentModesKHR query runs unchanged.
+void query_present_modes(
+    VkInstance instance, VkPhysicalDevice physical_device,
+    VkSurfaceKHR surface, bool use_present_modes2,
+    luisa::vector<VkPresentModeKHR> &present_modes) noexcept {
+    present_modes.clear();
+    // vkGetPhysicalDeviceSurfacePresentModes2EXT belongs to
+    // VK_EXT_full_screen_exclusive. The vendored volk build does not export a
+    // global for it (its volk.c definition is guarded by a macro this header
+    // set never defines), so it is resolved through the instance and only when
+    // the extension was attested. A missing pointer keeps the original query in
+    // charge, exactly like an unattested extension.
+    PresentModes2PFN query_present_modes2 = nullptr;
+    if (use_present_modes2 && ::vkGetInstanceProcAddr != nullptr) {
+        query_present_modes2 =
+            reinterpret_cast<PresentModes2PFN>(
+                ::vkGetInstanceProcAddr(
+                    instance, "vkGetPhysicalDeviceSurfacePresentModes2EXT"));
+    }
+    auto count = 0u;
+    if (query_present_modes2 != nullptr) {
+        VkPhysicalDeviceSurfaceInfo2KHR surface_info{};
+        surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
+        surface_info.surface = surface;
+        if (query_present_modes2(
+                physical_device, &surface_info, &count, nullptr) != VK_SUCCESS ||
+            count == 0u) {
+            // Never fail the swapchain on an optional query: fall through to the
+            // original entry point below.
+            count = 0u;
+        } else {
+            present_modes.resize(count);
+            if (query_present_modes2(
+                    physical_device, &surface_info, &count,
+                    present_modes.data()) != VK_SUCCESS) {
+                present_modes.clear();
+                return;
+            }
+            present_modes.resize(count);
+            return;
+        }
+    }
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, nullptr);
+    if (count != 0u) {
+        present_modes.resize(count);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, present_modes.data());
+        present_modes.resize(count);
+    }
+}
+
+// Queries the present-related surface capabilities that are only reachable
+// through vkGetPhysicalDeviceSurfaceCapabilities2KHR. `want_*` flags are the
+// extensions the device actually negotiated: a structure belonging to a
+// disabled extension is never chained.
+[[nodiscard]] SurfacePresentCapabilities
+query_surface_present_capabilities(
+    VkPhysicalDevice physical_device, VkSurfaceKHR surface,
+    detail::PresentInstanceExtensions const &instance_extensions,
+    VkPresentModeKHR present_mode,
+    bool want_present_id2, bool want_present_wait2, bool want_present_timing,
+    bool want_mode_compatibility, bool want_scaling) noexcept {
+    SurfacePresentCapabilities result;
+    if (!instance_extensions.can_query_surface_capabilities2() ||
+        ::vkGetPhysicalDeviceSurfaceCapabilities2KHR == nullptr) {
+        return result;
+    }
+    VkSurfaceCapabilitiesPresentId2KHR present_id2{};
+    present_id2.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_ID_2_KHR;
+    VkSurfaceCapabilitiesPresentWait2KHR present_wait2{};
+    present_wait2.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_PRESENT_WAIT_2_KHR;
+    VkPresentTimingSurfaceCapabilitiesEXT present_timing{};
+    present_timing.sType = VK_STRUCTURE_TYPE_PRESENT_TIMING_SURFACE_CAPABILITIES_EXT;
+    VkPresentModeKHR compatible_modes[kCompatiblePresentModeCapacity] = {};
+    VkSurfacePresentModeCompatibilityKHR mode_compatibility{};
+    mode_compatibility.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_COMPATIBILITY_KHR;
+    mode_compatibility.presentModeCount = kCompatiblePresentModeCapacity;
+    mode_compatibility.pPresentModes = compatible_modes;
+    VkSurfacePresentScalingCapabilitiesKHR scaling{};
+    scaling.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_SCALING_CAPABILITIES_KHR;
+    // Pass 1: answers that do not depend on the present mode. No
+    // VkSurfacePresentModeKHR input is chained, so the reported image counts
+    // stay identical to the plain vkGetPhysicalDeviceSurfaceCapabilitiesKHR
+    // query the swapchain still uses for its own limits.
+    if (want_present_id2 || want_present_wait2 || want_present_timing) {
+        void *output_chain = nullptr;
+        if (want_present_timing) {
+            present_timing.pNext = output_chain;
+            output_chain = &present_timing;
+        }
+        if (want_present_wait2) {
+            present_wait2.pNext = output_chain;
+            output_chain = &present_wait2;
+        }
+        if (want_present_id2) {
+            present_id2.pNext = output_chain;
+            output_chain = &present_id2;
+        }
+        VkPhysicalDeviceSurfaceInfo2KHR surface_info{};
+        surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
+        surface_info.surface = surface;
+        VkSurfaceCapabilities2KHR capabilities{};
+        capabilities.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
+        capabilities.pNext = output_chain;
+        if (::vkGetPhysicalDeviceSurfaceCapabilities2KHR(
+                physical_device, &surface_info, &capabilities) == VK_SUCCESS) {
+            result.capability_query_ran = true;
+            result.present_id2_supported =
+                want_present_id2 && present_id2.presentId2Supported == VK_TRUE;
+            result.present_wait2_supported =
+                want_present_wait2 && present_wait2.presentWait2Supported == VK_TRUE;
+            result.present_timing_supported =
+                want_present_timing && present_timing.presentTimingSupported == VK_TRUE;
+        }
+    }
+    // Pass 2: per-present-mode answers. These require VkSurfacePresentModeKHR in
+    // the input chain, and their own base capabilities are deliberately
+    // ignored.
+    if (want_mode_compatibility || want_scaling) {
+        VkSurfacePresentModeKHR surface_present_mode{};
+        surface_present_mode.sType = VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_KHR;
+        surface_present_mode.presentMode = present_mode;
+        VkPhysicalDeviceSurfaceInfo2KHR surface_info{};
+        surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
+        surface_info.pNext = &surface_present_mode;
+        surface_info.surface = surface;
+        void *output_chain = nullptr;
+        if (want_scaling) {
+            scaling.pNext = output_chain;
+            output_chain = &scaling;
+        }
+        if (want_mode_compatibility) {
+            mode_compatibility.pNext = output_chain;
+            output_chain = &mode_compatibility;
+        }
+        VkSurfaceCapabilities2KHR capabilities{};
+        capabilities.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR;
+        capabilities.pNext = output_chain;
+        if (::vkGetPhysicalDeviceSurfaceCapabilities2KHR(
+                physical_device, &surface_info, &capabilities) == VK_SUCCESS) {
+            if (want_mode_compatibility) {
+                result.mode_compatibility_query_ran = true;
+                auto reported = std::min<uint32_t>(
+                    mode_compatibility.presentModeCount,
+                    kCompatiblePresentModeCapacity);
+                for (auto i = 0u; i < reported; i++) {
+                    if (compatible_modes[i] == present_mode) {
+                        result.mode_compatible = true;
+                        break;
+                    }
+                }
+            }
+            if (want_scaling) {
+                result.scaling_query_ran = true;
+                result.supported_scaling = scaling.supportedPresentScaling;
+                result.supported_gravity_x = scaling.supportedPresentGravityX;
+                result.supported_gravity_y = scaling.supportedPresentGravityY;
+            }
+        }
+    }
+    return result;
+}
+}// namespace vk_ext_present_detail
+
 struct SwapchainSupportDetails {
     VkSurfaceCapabilitiesKHR capabilities{};
     luisa::vector<VkSurfaceFormatKHR> formats;
     luisa::vector<VkPresentModeKHR> present_modes;
 };
 [[nodiscard]] auto _query_swapchain_support(
-    VkPhysicalDevice device, VkSurfaceKHR surface) noexcept {
+    VkInstance instance, VkPhysicalDevice device, VkSurfaceKHR surface,
+    bool use_present_modes2 = false) noexcept {
     SwapchainSupportDetails details;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
     auto format_count = 0u;
@@ -123,12 +347,8 @@ struct SwapchainSupportDetails {
         details.formats.resize(format_count);
         vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, details.formats.data());
     }
-    auto present_mode_count = 0u;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, nullptr);
-    if (present_mode_count != 0u) {
-        details.present_modes.resize(present_mode_count);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, details.present_modes.data());
-    }
+    vk_ext_present_detail::query_present_modes(
+        instance, device, surface, use_present_modes2, details.present_modes);
     return details;
 }
 void _create_surface(
@@ -662,6 +882,28 @@ void Swapchain::create_swapchain(
     _requested_hdr = allow_hdr;
     _requested_vsync = vsync;
 
+    // ---- optional present extensions ------------------------------------------
+    // Attest the instance-level extensions once. Vulkan cannot report which
+    // extensions a live instance enabled, so the backend relies on the list
+    // device.cpp passes verbatim to vkCreateInstance (device.cpp validates that a
+    // reused process instance was created with exactly these). Every fast path
+    // below additionally requires `optional_extension_enabled`, which stays the
+    // only switch that can turn an optional extension on.
+    _present_instance_extensions = [this] {
+        auto config = device()->config_ext();
+        auto names = config != nullptr ?
+                         config->extra_instance_exts() :
+                         luisa::vector<luisa::string>{};
+        // The backend enables the surface-capability instance extensions itself
+        // (see Device::enabled_instance_extensions), so they are attested from
+        // that record instead of the application-provided list.
+        for (auto const &name : device()->enabled_instance_extensions()) {
+            names.emplace_back(luisa::string{name.c_str()});
+        }
+        return detail::attest_present_instance_extensions(
+            luisa::span<const luisa::string>{names});
+    }();
+
     // Only create surface on first creation, not during recreation
     // Surface is destroyed in destructor
     if (!is_recreation) {
@@ -672,8 +914,19 @@ void Swapchain::create_swapchain(
             device()->instance());
     }
 
+    // VK_KHR_surface_maintenance1 is an instance extension, so the device-side
+    // registry can never report it as enabled; the attested instance list is the
+    // second necessary condition for either maintenance1 fast path below.
+    auto const surface_maintenance1_enabled =
+        device()->optional_extension_enabled(detail::OptionalExtension::SURFACE_MAINTENANCE1) &&
+        _present_instance_extensions.surface_maintenance1;
+    auto const swapchain_maintenance1_enabled =
+        device()->optional_extension_enabled(detail::OptionalExtension::SWAPCHAIN_MAINTENANCE1) &&
+        _present_instance_extensions.surface_maintenance1;
     auto support = _query_swapchain_support(
-        device()->physical_device(), _surface);
+        device()->instance(), device()->physical_device(), _surface,
+        surface_maintenance1_enabled &&
+            _present_instance_extensions.can_query_present_modes2());
     if (support.capabilities.maxImageCount == 0u) { support.capabilities.maxImageCount = std::max(back_buffers, support.capabilities.minImageCount); }
     if (!is_recreation) {// only allow change back buffer count and swapchain format on first creation
         back_buffers = std::clamp(
@@ -771,21 +1024,95 @@ void Swapchain::create_swapchain(
         return actual_extent;
     }();
 
-    auto present_mode = [&present_modes = support.present_modes, vsync] {
-        if (!vsync) {// try to use mailbox mode if vsync is disabled
-            for (auto mode : present_modes) {
-                if (mode == VK_PRESENT_MODE_MAILBOX_KHR) { return mode; }
-            }
-            for (auto mode : present_modes) {
-                if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR) { return mode; }
-            }
+    // Present-mode selection: the pre-existing mailbox/immediate/FIFO policy, plus
+    // the VK_KHR_present_mode_fifo_latest_ready upgrade when the application asked
+    // for vsync and the surface really reports the mode.
+    _present_mode_selection = detail::plan_present_mode(
+        vsync, luisa::span<const VkPresentModeKHR>{support.present_modes},
+        device()->optional_extension_enabled(detail::OptionalExtension::PRESENT_MODE_FIFO_LATEST_READY));
+    LUISA_ASSERT(
+        _present_mode_selection.status == detail::PresentModeSelectionStatus::SUCCESS,
+        "FIFO present mode is not supported.");
+    auto present_mode = _present_mode_selection.mode;
+    if (!_present_mode_logged && _present_mode_selection.fifo_latest_ready_considered) {
+        _present_mode_logged = true;
+        if (_present_mode_selection.used_fifo_latest_ready) {
+            LUISA_INFO_WITH_LOCATION(
+                "VK_KHR_present_mode_fifo_latest_ready: presenting with "
+                "VK_PRESENT_MODE_FIFO_LATEST_READY_KHR.");
+        } else {
+            LUISA_INFO_WITH_LOCATION(
+                "VK_KHR_present_mode_fifo_latest_ready is enabled but this "
+                "surface does not report VK_PRESENT_MODE_FIFO_LATEST_READY_KHR; "
+                "keeping VK_PRESENT_MODE_FIFO_KHR.");
         }
-        LUISA_ASSERT(std::find(present_modes.cbegin(),
-                               present_modes.cend(),
-                               VK_PRESENT_MODE_FIFO_KHR) != present_modes.cend(),
-                     "FIFO present mode is not supported.");
-        return VK_PRESENT_MODE_FIFO_KHR;
-    }();
+    }
+    if (_present_mode_selection.used_fifo_latest_ready) {
+        device()->mark_optional_extension_active(
+            detail::OptionalExtension::PRESENT_MODE_FIFO_LATEST_READY);
+    }
+
+    // Surface capabilities that are only reachable through
+    // vkGetPhysicalDeviceSurfaceCapabilities2KHR. Each output structure is only
+    // chained when its own extension is enabled, and the whole query is skipped
+    // when the instance did not enable the capability extension.
+    // Present-wait2 depends on present-id2, and present-timing depends on
+    // present-id2 plus the capability query, so a half-enabled combination can
+    // never reach an entry point or a structure of an extension that is off.
+    auto const present_id2_enabled =
+        device()->optional_extension_enabled(detail::OptionalExtension::PRESENT_ID2);
+    auto const present_wait2_enabled =
+        device()->optional_extension_enabled(detail::OptionalExtension::PRESENT_WAIT2) &&
+        present_id2_enabled;
+    auto const present_timing_enabled =
+        device()->optional_extension_enabled(detail::OptionalExtension::PRESENT_TIMING) &&
+        present_id2_enabled;
+    auto const present_caps = vk_ext_present_detail::query_surface_present_capabilities(
+        device()->physical_device(), _surface, _present_instance_extensions, present_mode,
+        present_id2_enabled, present_wait2_enabled, present_timing_enabled,
+        surface_maintenance1_enabled, surface_maintenance1_enabled);
+    if (present_caps.mode_compatibility_query_ran || present_caps.scaling_query_ran) {
+        // The maintenance1 capability queries really ran.
+        device()->mark_optional_extension_active(
+            detail::OptionalExtension::SURFACE_MAINTENANCE1);
+    }
+
+    _present_id_plan = detail::plan_present_id2(
+        present_id2_enabled, present_wait2_enabled,
+        _present_instance_extensions.can_query_surface_capabilities2() &&
+            present_caps.capability_query_ran,
+        present_caps.present_id2_supported,
+        present_caps.present_wait2_supported,
+        vk_ext_present_detail::kPresentPathChainsPresentIds);
+    _present_timing_plan = detail::plan_present_timing(
+        present_timing_enabled,
+        _present_id_plan.chain_present_ids,
+        _present_instance_extensions.can_query_surface_capabilities2() &&
+            present_caps.capability_query_ran,
+        present_caps.present_timing_supported,
+        vk_ext_present_detail::kPublicApiDeliversPresentTiming);
+    if (_present_id_plan.status != detail::PresentId2Status::ACTIVE &&
+        _present_id_plan.status != detail::PresentId2Status::IDS_ONLY &&
+        present_id2_enabled) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "VK_KHR_present_id2 is enabled but inactive: {}.",
+            detail::present_id2_status_name(_present_id_plan.status));
+    }
+    if (present_timing_enabled) {
+        LUISA_VERBOSE_WITH_LOCATION(
+            "VK_EXT_present_timing is enabled but inactive: {}.",
+            detail::present_timing_status_name(_present_timing_plan.status));
+    }
+    auto const present_mode_create_info_plan =
+        detail::plan_swapchain_present_mode_create_info(
+            present_mode, swapchain_maintenance1_enabled,
+            surface_maintenance1_enabled,
+            present_caps.mode_compatibility_query_ran,
+            present_caps.mode_compatible,
+            present_caps.scaling_query_ran,
+            present_caps.supported_scaling,
+            present_caps.supported_gravity_x,
+            present_caps.supported_gravity_y);
 
     // create the swapchain
     VkSwapchainCreateInfoKHR create_info{};
@@ -828,6 +1155,50 @@ void Swapchain::create_swapchain(
     create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     create_info.presentMode = present_mode;
     create_info.clipped = VK_TRUE;
+
+    // Extension structures of the swapchain-maintenance1 creation path. They are
+    // built here but only chained when the plan proved that this instance may use
+    // them; a disabled extension never leaves a dangling structure behind.
+    VkSwapchainPresentModesCreateInfoKHR present_modes_create_info{};
+    VkSwapchainPresentScalingCreateInfoKHR present_scaling_create_info{};
+    std::array<VkPresentModeKHR, 1> present_modes_create_info_storage{present_mode};
+    if (present_mode_create_info_plan.chain_present_modes) {
+        present_modes_create_info.sType =
+            VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_KHR;
+        present_modes_create_info.presentModeCount =
+            static_cast<uint32_t>(present_modes_create_info_storage.size());
+        present_modes_create_info.pPresentModes =
+            present_modes_create_info_storage.data();
+    }
+    if (present_mode_create_info_plan.chain_present_scaling) {
+        present_scaling_create_info.sType =
+            VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_SCALING_CREATE_INFO_KHR;
+        present_scaling_create_info.scalingBehavior =
+            present_mode_create_info_plan.scaling_behavior;
+        present_scaling_create_info.presentGravityX =
+            present_mode_create_info_plan.gravity_x;
+        present_scaling_create_info.presentGravityY =
+            present_mode_create_info_plan.gravity_y;
+    }
+    const void *create_info_next = nullptr;
+    if (present_mode_create_info_plan.chain_present_scaling) {
+        present_scaling_create_info.pNext = create_info_next;
+        create_info_next = &present_scaling_create_info;
+    }
+    if (present_mode_create_info_plan.chain_present_modes) {
+        present_modes_create_info.pNext = create_info_next;
+        create_info_next = &present_modes_create_info;
+    }
+    create_info.pNext = create_info_next;
+    if (_present_id_plan.create_with_present_id2_flag) {
+        create_info.flags |= VK_SWAPCHAIN_CREATE_PRESENT_ID_2_BIT_KHR;
+    }
+    if (_present_id_plan.create_with_present_wait2_flag) {
+        create_info.flags |= VK_SWAPCHAIN_CREATE_PRESENT_WAIT_2_BIT_KHR;
+    }
+    if (_present_timing_plan.create_with_present_timing_flag) {
+        create_info.flags |= VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT;
+    }
     if (transparent) {
         create_info.compositeAlpha = _choose_composite_alpha(device()->physical_device(), _surface);
     }
@@ -836,6 +1207,22 @@ void Swapchain::create_swapchain(
         LUISA_ERROR_WITH_LOCATION("vkCreateSwapchainKHR is null - volkLoadDevice not called or VK_KHR_swapchain not enabled");
     }
     VK_CHECK_RESULT(vkCreateSwapchainKHR(logic_device, &create_info, Device::alloc_callbacks(), &_swapchain));
+    // A new VkSwapchainKHR starts a fresh present-id namespace, so no id of the
+    // previous swapchain may be waited on any more. The counter itself stays
+    // monotonic across recreation (see detail::plan_present_id).
+    _last_present_id = 0u;
+    _present_id_value = 0u;
+    _present_id_generation_floor = _next_present_id;
+    _present_id2_chain = VkPresentId2KHR{};
+    _present_id2_chain.sType = VK_STRUCTURE_TYPE_PRESENT_ID_2_KHR;
+    _present_id2_chain.swapchainCount = 1u;
+    _present_id2_chain.pPresentIds = &_present_id_value;
+    if (present_mode_create_info_plan.chain_present_modes ||
+        present_mode_create_info_plan.chain_present_scaling) {
+        // The swapchain really carries a maintenance1 creation structure.
+        device()->mark_optional_extension_active(
+            detail::OptionalExtension::SWAPCHAIN_MAINTENANCE1);
+    }
 
     // get the swapchain images - first query count, then resize, then fetch
     uint32_t image_count = 0;
@@ -922,6 +1309,11 @@ Swapchain::Swapchain(Device *device)
 void Swapchain::_recreate_swapchain() {
     auto back_buffers = _swapchain_framebuffers.size();
     auto device = this->device()->logic_device();
+    // Retire the last presentation request before the swapchain is torn down.
+    // Only runs when VK_KHR_present_wait2 is active and bounded, so a stalled
+    // presentation engine can never hang recreation; the unconditional
+    // vkDeviceWaitIdle below stays the synchronization the fallback relies on.
+    (void)wait_for_last_present(vk_ext_present_detail::kPresentWaitTimeoutNs);
     vkDeviceWaitIdle(device);
 
     _destroy_swapchain();
@@ -1087,6 +1479,81 @@ void Swapchain::present(
     signal = _render_finished_semaphores[image_index];
     wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     present_wait = _render_finished_semaphores[image_index];
+    // VK_KHR_present_id2: give this present request a strictly increasing id.
+    // The node itself is handed to the caller through present_id_pnext(); when
+    // the plan is inactive nothing is assigned, _last_present_id stays 0 and the
+    // present call is byte-for-byte the pre-existing one.
+    if (_present_id_plan.chain_present_ids) {
+        auto id_plan = detail::plan_present_id(_next_present_id);
+        if (id_plan.status == detail::PresentIdStatus::ASSIGNED) {
+            _next_present_id = id_plan.next_present_id;
+            _last_present_id = id_plan.present_id;
+            _present_id_value = id_plan.present_id;
+            device()->mark_optional_extension_active(
+                detail::OptionalExtension::PRESENT_ID2);
+        } else {
+            // Never wrap: reusing an id violates the strictly-increasing rule.
+            _present_id_plan.chain_present_ids = false;
+            _present_id_plan.wait_for_present_ids = false;
+            _present_id_value = 0u;
+            _last_present_id = 0u;
+            LUISA_WARNING_WITH_LOCATION(
+                "Vulkan present-id namespace is exhausted; presenting without "
+                "VK_KHR_present_id2 for the rest of this swapchain.");
+        }
+    }
     _current_frame = (_current_frame + 1u) % _swapchain_images.size();
 }
+
+const void *Swapchain::present_id_pnext() const noexcept {
+    if (!_present_id_plan.chain_present_ids ||
+        _present_id_value == 0u ||
+        _swapchain == VK_NULL_HANDLE) {
+        return nullptr;
+    }
+    return &_present_id2_chain;
+}
+
+bool Swapchain::wait_for_present_id(uint64_t present_id, uint64_t timeout_ns) noexcept {
+    if (!_present_id_plan.wait_for_present_ids ||
+        _swapchain == VK_NULL_HANDLE ||
+        ::vkWaitForPresent2KHR == nullptr) {
+        return false;
+    }
+    // Only an id that was really attached to a successful present of *this*
+    // swapchain may be waited on
+    // (VUID-vkWaitForPresent2KHR-presentId-10817). Ids of a previous
+    // VkSwapchainKHR generation are below the floor.
+    if (present_id < _present_id_generation_floor ||
+        present_id > _last_present_id) {
+        return false;
+    }
+    VkPresentWait2InfoKHR wait_info{};
+    wait_info.sType = VK_STRUCTURE_TYPE_PRESENT_WAIT_2_INFO_KHR;
+    wait_info.presentId = present_id;
+    wait_info.timeout = timeout_ns;
+    auto result = ::vkWaitForPresent2KHR(
+        device()->logic_device(), _swapchain, &wait_info);
+    switch (result) {
+        case VK_SUCCESS:
+            device()->mark_optional_extension_active(
+                detail::OptionalExtension::PRESENT_WAIT2);
+            return true;
+        case VK_TIMEOUT:
+        case VK_ERROR_OUT_OF_DATE_KHR:
+        case VK_ERROR_SURFACE_LOST_KHR:
+        case VK_ERROR_DEVICE_LOST:
+            return false;
+        default:
+            LUISA_WARNING_WITH_LOCATION(
+                "vkWaitForPresent2KHR failed: {}.", string_VkResult(result));
+            return false;
+    }
+}
+
+bool Swapchain::wait_for_last_present(uint64_t timeout_ns) noexcept {
+    return _last_present_id != 0u &&
+           wait_for_present_id(_last_present_id, timeout_ns);
+}
+
 }// namespace lc::vk

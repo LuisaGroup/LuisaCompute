@@ -3,6 +3,7 @@
 #include <luisa/ast/type_registry.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/buffer.h>
+#include <luisa/runtime/rtx/opacity_micromap.h>
 #include <luisa/runtime/rtx/triangle.h>
 #include <luisa/core/stl/string.h>
 
@@ -24,6 +25,7 @@ class MeshFormat;
 class ProceduralPrimitive;
 class Accel;
 class Swapchain;
+struct MeshCutoutMask;
 class BindlessArray;
 class IndirectDispatchBuffer;
 class SparseBufferHeap;
@@ -178,6 +180,36 @@ public:
                  std::same_as<buffer_element_t<CBuffer>, ClusterBuildInfo>
     [[nodiscard]] Mesh create_mesh(CBuffer &&clusters,
                                    const AccelOption &option = {}) noexcept;
+
+    // Triangle mesh with a hardware opacity micromap ("cut-out mask"). The micromap
+    // is created by create_opacity_micromap() below, must already be ready (baked or
+    // uploaded) and must outlive every traced acceleration structure built from this
+    // mesh unless the driver reports the build sizes as discardable.
+    template<typename VBuffer, typename TBuffer>
+        requires is_buffer_or_view_v<VBuffer> &&
+                 is_buffer_or_view_v<TBuffer> &&
+                 std::same_as<buffer_element_t<TBuffer>, Triangle>
+    [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
+                                   TBuffer &&triangles,
+                                   MeshCutoutMask cutout_mask,
+                                   const AccelOption &option = {}) noexcept;
+
+    template<typename VBuffer, typename TBuffer>
+        requires is_buffer_or_view_v<VBuffer> &&
+                 is_buffer_or_view_v<TBuffer> &&
+                 std::same_as<buffer_element_t<TBuffer>, Triangle>
+    [[nodiscard]] Mesh create_mesh(VBuffer &&vertices,
+                                   size_t vertex_stride,
+                                   TBuffer &&triangles,
+                                   MeshCutoutMask cutout_mask,
+                                   const AccelOption &option = {}) noexcept;
+
+    // Hardware opacity micromap: `4^subdivision_level` micro triangles per triangle.
+    // Fails loudly when the backend has no micromap support; query
+    // OpacityMicromap::is_supported(*this) to test that first.
+    [[nodiscard]] OpacityMicromap create_opacity_micromap(
+        uint32_t triangle_count,
+        const OpacityMicromap::Option &option = {}) noexcept;
     // see definition in rtx/curve.h
     template<typename CPBuffer, typename SegmentBuffer>
     [[nodiscard]] Curve create_curve(CurveBasis basis,

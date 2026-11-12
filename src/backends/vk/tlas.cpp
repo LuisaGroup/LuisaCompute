@@ -98,6 +98,22 @@ void Tlas::pre_build(
         }
     }
 
+    // VK_NV_partitioned_acceleration_structure is negotiated but deliberately
+    // inert: a PTLAS is *not* a VkAccelerationStructureKHR built from an instance
+    // buffer. vkCmdBuildPartitionedAccelerationStructuresNV takes device-address
+    // inputs (srcAccelerationStructureData / dstAccelerationStructureData /
+    // scratchData / srcInfos / srcInfosCount) and the per-instance records live
+    // in a caller-supplied VkPartitionedAccelerationStructureWriteInstanceDataNV
+    // array that carries a partition index, per-instance partition flags and an
+    // optional partition translation. Nothing below can express that:
+    // _std_instance_cache packs plain VkAccelerationStructureInstanceKHR records
+    // and AccelBuildCommand has no partition id. Reaching it needs a new public
+    // accelerator shape (partition-aware instance records + a PTLAS handle that
+    // is a byte range, not an acceleration structure);
+    // detail::plan_partitioned_acceleration_structure() in rt_extension_plan.h
+    // already pins the layout and the partitionCount/maxPartitionCount limit such
+    // a path has to satisfy, and refuses an offered PTLAS request while the
+    // extension is off.
     // _instance_buffer always uses 64-byte stride (VkAccelerationStructureInstanceKHR)
     // for shader reads via StructuredBuffer<_MeshInst>.
     // When motion is enabled, _motion_instance_buffer uses 160-byte stride

@@ -540,6 +540,44 @@ if (TARGET luisa-compute-backend-vk)
     target_include_directories(test_vk_indirect_dispatch PRIVATE ../backends/common ../backends/vk)
     luisa_compute_add_test(test_vk_resource_barrier_contract unit/ext/test_vk_resource_barrier_contract.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_resource_barrier_contract PRIVATE ../backends/vk)
+     luisa_compute_add_test(test_vk_extension_registry unit/ext/test_vk_extension_registry.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_extension_registry PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_ext_layouts unit/ext/test_vk_ext_layouts.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_ext_layouts PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_ext_memory unit/ext/test_vk_ext_memory.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_ext_memory PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_ext_copy unit/ext/test_vk_ext_copy.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_ext_copy PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_ext_present unit/ext/test_vk_ext_present.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_ext_present PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_ext_raster unit/ext/test_vk_ext_raster.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_ext_raster PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_ext_shader_caps unit/ext/test_vk_ext_shader_caps.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_ext_shader_caps PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_opacity_micromap_plan unit/ext/test_opacity_micromap_plan.cpp LABELS "unit;unit_ext")
+luisa_compute_add_test(test_opacity_micromap unit/runtime/test_opacity_micromap.cpp LABELS "unit;unit_runtime")
+luisa_compute_add_test(test_vk_ext_rt unit/ext/test_vk_ext_rt.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_ext_rt PRIVATE ../backends/vk)
+    luisa_compute_add_test(test_vk_ext_misc unit/ext/test_vk_ext_misc.cpp LABELS "unit;unit_ext;vk")
+    target_include_directories(test_vk_ext_misc PRIVATE ../backends/vk)
+    target_sources(test_vk_extension_registry PRIVATE ../backends/vk/vk_extension_registry.cpp)
+    # Every optional-extension planner test consumes a backend planning header
+    # that includes <vulkan/vulkan_core.h>. Inherit the vendored Vulkan headers
+    # from Volk instead of requiring a system Vulkan SDK on the build host.
+    foreach (_vk_optional_extension_test IN ITEMS
+            test_vk_extension_registry
+            test_vk_ext_layouts
+            test_vk_ext_memory
+            test_vk_ext_copy
+            test_vk_ext_present
+            test_vk_ext_raster
+            test_vk_ext_shader_caps
+            test_vk_ext_rt
+            test_vk_ext_misc
+            )
+        target_link_libraries(${_vk_optional_extension_test} PRIVATE luisa-compute-ext-volk)
+    endforeach ()
+
     luisa_compute_add_test(test_vk_result_contract unit/ext/test_vk_result_contract.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_result_contract PRIVATE ../backends/vk)
     target_sources(test_vk_result_contract PRIVATE ../backends/vk/VulkanTools.cpp)
@@ -1303,6 +1341,10 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.
     luisa_compute_add_test(test_vk_shader_cache unit/runtime/test_vk_shader_cache.cpp)
+    luisa_compute_add_test(test_vk_optional_extensions unit/runtime/test_vk_optional_extensions.cpp LABELS "unit;unit_runtime;vk")
+    # VulkanDeviceConfigExt exposes VkDeviceCreateInfo feature-chain types, so
+    # this test needs the vendored Vulkan headers from Volk (no system SDK).
+    target_link_libraries(test_vk_optional_extensions PRIVATE luisa-compute-ext-volk)
     luisa_compute_add_test(test_vk_spirv_codegen_path unit/runtime/test_vk_spirv_codegen_path.cpp)
     target_link_libraries(test_vk_spirv_codegen_path PRIVATE
             luisa-compute-spirv

@@ -1300,11 +1300,18 @@ void SpirvCodegenEntry::_emit_kernel(
     _validate_ray_query_lifetimes(kernel);
     _predeclare_allocas(kernel);
     _emit_function_blocks(kernel);
-
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.makeReturn(false);
     }
     _builder.leaveFunction();
+    // A ray-query module may traverse a micromapped acceleration structure, and the
+    // KHR spelling of VK_KHR_opacity_micromap then requires the OpacityMicromapIdKHR
+    // execution mode. Emitted here because only now is it known whether the module
+    // really contains a ray query: declaring the capability for a shader that never
+    // traverses would needlessly restrict it.
+    if ((_required_target_features & target_feature::ray_query) != 0u) {
+        _emit_opacity_micromap_execution_mode(func);
+    }
 }
 
 Usage SpirvCodegenEntry::_resource_argument_binding_usage(const xir::Argument *argument) const noexcept {

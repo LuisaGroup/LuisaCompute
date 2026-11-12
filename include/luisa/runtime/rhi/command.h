@@ -447,6 +447,32 @@ enum struct AccelBuildRequest : uint32_t {
     FORCE_BUILD,
 };
 
+// The command-graph inputs of a micromapped mesh build. Every handle is a frontend
+// resource handle of the same device; the two buffer views are declared so the
+// command-reorder pass can order the bake (or the upload) of the packed bits
+// *before* the acceleration-structure build - without them the pass could schedule
+// the build first and the BLAS would read uninitialised micro-triangle opacity.
+struct MeshMicromapBinding {
+    // Backend handle of the OpacityMicromap. `0` means "no micromap".
+    uint64_t micromap{0u};
+    // Number of micromap triangles (the mesh's triangle count for a 1:1 mapping).
+    uint32_t triangle_count{0u};
+    // Byte size of one per-triangle micromap index; 0 = no index buffer, i.e. the
+    // mesh triangles map one-to-one onto the micromap triangles.
+    uint32_t index_stride{0u};
+    // Packed micro-triangle opacity bits (a frontend Buffer<uint>).
+    uint64_t data_buffer{0u};
+    size_t data_offset{0u};
+    size_t data_size{0u};
+    // Per-triangle micromap index, only when index_stride != 0.
+    uint64_t index_buffer{0u};
+    size_t index_offset{0u};
+    size_t index_size{0u};
+    // The shader that traces this mesh must not pass `OpaqueKHR`, which would make
+    // the traversal ignore the micromap altogether.
+    bool assumes_non_opaque_traversal{true};
+};
+
 class MeshBuildCommand final : public Command {
 
 private:
@@ -464,6 +490,9 @@ private:
     size_t _cluster_buffer_offset{};
     size_t _cluster_buffer_size{};
     bool _cluster_build{false};
+    // Opacity micromap of this build; `micromap == 0` (the default) means none, so
+    // every backend that ignores it keeps its pre-extension behaviour.
+    MeshMicromapBinding _micromap{};
 
 private:
     MeshBuildCommand() noexcept
@@ -512,6 +541,10 @@ public:
     [[nodiscard]] auto cluster_buffer_size() const noexcept { return _cluster_buffer_size; }
       // one ClusterBuildInfo is 64 bytes (see include/luisa/runtime/rtx/mesh.h)
       [[nodiscard]] uint32_t cluster_count() const noexcept { return static_cast<uint32_t>(_cluster_buffer_size / 64u); }
+    // Opacity micromap of this build (a mesh created with a cut-out mask).
+    void set_micromap(MeshMicromapBinding binding) noexcept { _micromap = binding; }
+    [[nodiscard]] bool has_micromap() const noexcept { return _micromap.micromap != 0u; }
+    [[nodiscard]] auto const &micromap() const noexcept { return _micromap; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 

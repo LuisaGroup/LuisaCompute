@@ -18,6 +18,9 @@
 #include "device_feature_plan.h"
 #include "command_buffer_sync.h"
 #include "indirect_buffer.h"
+#include "copy_command_plan.h"
+#include "device_address_command_plan.h"
+#include "indirect_copy_command_buffer.h"
 #include "descriptor_interface_plan.h"
 #include "queue_family_contract.h"
 #include "resource_barrier_contract.h"
@@ -1601,6 +1604,49 @@ BufferView BufferAllocator<T>::allocate(size_t size, size_t align) {
 }
 }// namespace temp_buffer
 
+namespace vk_ext_copy_detail {
+
+// VkQueueFlags of one queue family of the physical device. `CommandBufferState`
+// reads it once to evaluate VK_KHR_copy_memory_indirect's supportedQueues
+// requirement (VUID-vkCmdCopyMemoryIndirectKHR-commandBuffer-10936). An unknown
+// family yields 0, which selects the pre-existing copy path.
+[[nodiscard]] VkQueueFlags queue_family_flags(
+    Device &device, uint32_t family_index) noexcept {
+    if (family_index == VK_QUEUE_FAMILY_IGNORED) { return 0u; }
+    auto physical_device = device.physical_device();
+    uint32_t family_count = 0u;
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        physical_device, &family_count, nullptr);
+    if (family_index >= family_count) { return 0u; }
+    luisa::vector<VkQueueFamilyProperties> families(family_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        physical_device, &family_count, families.data());
+    return families[family_index].queueFlags;
+}
+
+// Device address of the byte range `[offset, offset + size)` of one buffer, or
+// false when the range cannot be described: a buffer without a shader device
+// address (an imported VkBuffer, or a device that does not expose buffer device
+// addresses), an out-of-bounds range, or an address overflow. Every branch keeps
+// the caller on the pre-existing per-copy path.
+[[nodiscard]] bool buffer_view_address(
+    Buffer const *buffer, uint64_t offset, uint64_t size,
+    uint64_t &address) noexcept {
+    if (buffer == nullptr || !buffer->device_address_capable()) {
+        return false;
+    }
+    auto const limit = static_cast<uint64_t>(buffer->addressable_byte_size());
+    if (offset > limit || size > limit - offset) { return false; }
+    auto base = buffer->get_device_address();
+    if (offset > std::numeric_limits<uint64_t>::max() - base) {
+        return false;
+    }
+    address = base + offset;
+    return true;
+}
+
+}// namespace vk_ext_copy_detail
+
 static constexpr size_t kTempSize = 1024ull * 1024ull;
 CommandBufferState::CommandBufferState()
     : upload_alloc(kTempSize),
@@ -1673,6 +1719,32 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
                 LUISA_ERROR("Illegal stream tag.");
         }
         VK_CHECK_RESULT(vkCreateCommandPool(device.logic_device(), &pool_ci, Device::alloc_callbacks(), &pool));
+        command_pool_queue_flags =
+            vk_ext_copy_detail::queue_family_flags(
+                device, pool_ci.queueFamilyIndex);
+    }
+    // VK_KHR_copy_memory_indirect records only into a command buffer whose pool
+    // supports one of the queue types the implementation reports
+    // (VUID-vkCmdCopyMemoryIndirectKHR-commandBuffer-10936), so both masks are
+    // read once here and fed to detail::plan_buffer_copy_batch. When the
+    // extension is not enabled the query is skipped and both masks stay zero,
+    // which keeps the pre-existing per-copy path.
+    copy_memory_indirect_supported_queues = 0u;
+    if (device.optional_extension_enabled(
+            detail::OptionalExtension::COPY_MEMORY_INDIRECT)) {
+        VkPhysicalDeviceCopyMemoryIndirectPropertiesKHR
+            copy_memory_indirect_properties{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COPY_MEMORY_INDIRECT_PROPERTIES_KHR,
+                .pNext = nullptr,
+                .supportedQueues = 0u};
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &copy_memory_indirect_properties,
+            .properties = {}};
+        vkGetPhysicalDeviceProperties2(
+            device.physical_device(), &properties2);
+        copy_memory_indirect_supported_queues =
+            copy_memory_indirect_properties.supportedQueues;
     }
 }
 CommandBufferState::~CommandBufferState() {
@@ -1680,6 +1752,12 @@ CommandBufferState::~CommandBufferState() {
     vkDestroyDescriptorPool(device->logic_device(), desc_pool, Device::alloc_callbacks());
 }
 void CommandBufferState::reset(Stream *stream, Device &device) {
+    // The command buffer that consumed the indirect copy records has completed
+    // on the device (or was never submitted), so the record namespace of the
+    // command array can start over.
+    if (indirect_copy_commands) {
+        indirect_copy_commands->reset_record_cursor();
+    }
     for (auto &i : callbacks) {
         i();
     }
@@ -3753,9 +3831,270 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             }
             pending_download.copies.clear();
         };
+        // ---- optional buffer-to-buffer copy batching -----------------------
+        //
+        // Eligible BufferCopyCommands of the current layer are accumulated
+        // instead of being recorded one at a time; `copy_command_plan.h`
+        // decides whether the batch becomes one vkCmdCopyMemoryIndirectKHR, one
+        // vkCmdCopyMemoryKHR, or exactly the pre-existing sequence of per-copy
+        // vkCmdCopyBuffer commands. Deferring a copy to the flush point is safe
+        // inside one layer: the command reorder pass only puts commands into the
+        // same layer when none of their tracked resource accesses conflict, so
+        // moving a copy later inside its own layer cannot change any observed
+        // result.
+        struct PendingBufferCopy {
+            detail::BufferCopyRange range;
+            VkBuffer src;
+            VkBuffer dst;
+            VkDeviceSize src_offset;
+            VkDeviceSize dst_offset;
+        };
+        // A null entry point means the loader did not resolve the command, so the
+        // extension cannot be used even when it is reported enabled.
+        // VK_NV_copy_memory_indirect is the alias of the KHR extension (same
+        // VkCopyMemoryIndirectCommand record layout, different entry point), so
+        // a device that only exposes the vendor spelling still gets the fast
+        // path.
+        auto const indirect_copy_khr = vkCmdCopyMemoryIndirectKHR != nullptr;
+        auto const indirect_copy_nv =
+            !indirect_copy_khr && vkCmdCopyMemoryIndirectNV != nullptr;
+        auto const indirect_copy_enabled =
+            device()->optional_extension_enabled(
+                detail::OptionalExtension::COPY_MEMORY_INDIRECT) &&
+            (indirect_copy_khr || indirect_copy_nv);
+        auto const device_address_commands_enabled =
+            device()->optional_extension_enabled(
+                detail::OptionalExtension::DEVICE_ADDRESS_COMMANDS) &&
+            vkCmdCopyMemoryKHR != nullptr;
+        luisa::vector<PendingBufferCopy> pending_buffer_copies;
+        luisa::vector<detail::BufferCopyRange> pending_buffer_copy_ranges;
+        vstd::vector<VkCopyMemoryIndirectCommandKHR> indirect_copy_records;
+        vstd::vector<VkDeviceMemoryCopyKHR> device_address_copy_regions;
+        auto record_single_buffer_copy = [&](PendingBufferCopy const &copy) {
+            VkBufferCopy2 buffer_copy{
+                VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+                nullptr,
+                copy.src_offset,
+                copy.dst_offset,
+                copy.range.size};
+            VkCopyBufferInfo2 copy_info2{
+                VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+                nullptr,
+                copy.src,
+                copy.dst,
+                1u,
+                &buffer_copy};
+            detail::cmd_copy_buffer(_cmdbuffer, device(), &copy_info2);
+        };
+        // Lazily creates the backend command array. A device without buffer
+        // device addresses cannot describe the array at all, so the indirect form
+        // is unavailable and the planner selects another path.
+        auto indirect_copy_command_array = [&]() -> IndirectCopyCommandBuffer * {
+            if (!indirect_copy_enabled ||
+                !device()->enable_device_address()) {
+                return nullptr;
+            }
+            if (!_state->indirect_copy_commands) {
+                _state->indirect_copy_commands =
+                    luisa::make_unique<IndirectCopyCommandBuffer>(
+                        device(), detail::indirect_copy_command_capacity);
+            }
+            return _state->indirect_copy_commands.get();
+        };
+        auto flush_pending_buffer_copies = [&]() {
+            if (pending_buffer_copies.empty()) { return; }
+            pending_buffer_copy_ranges.clear();
+            pending_buffer_copy_ranges.reserve(pending_buffer_copies.size());
+            for (auto &&copy : pending_buffer_copies) {
+                pending_buffer_copy_ranges.emplace_back(copy.range);
+            }
+            auto *command_array = indirect_copy_command_array();
+            // Every batch of one command buffer owns its own record region: the
+            // device reads the records when the command executes, i.e. after the
+            // whole command buffer was recorded, so a later batch must never
+            // overwrite the records of an earlier one. The cursor is restarted
+            // only once the command buffer has retired
+            // (CommandBufferState::reset).
+            auto const command_array_address =
+                command_array != nullptr ?
+                    command_array->next_record_address() :
+                    0u;
+            auto const command_array_free_records =
+                command_array != nullptr ?
+                    command_array->available_records() :
+                    size_t{0u};
+            auto plan = detail::plan_buffer_copy_batch(
+                {.indirect_extension_enabled = indirect_copy_enabled,
+                 // VUID-vkCmdCopyMemoryIndirectKHR-commandBuffer-10936: the
+                 // command pool must support one of the queue types the
+                 // implementation reports.
+                 .indirect_queue_supported =
+                     (_state->command_pool_queue_flags &
+                      _state->copy_memory_indirect_supported_queues) != 0u,
+                 .device_address_commands_enabled =
+                     device_address_commands_enabled,
+                 // Only copies whose two buffers expose a shader device address
+                 // are accumulated, so a non-empty batch always has them.
+                 .device_addresses_available = true,
+                 .candidate_count = static_cast<uint32_t>(
+                     pending_buffer_copies.size()),
+                 .minimum_batch_size =
+                     detail::indirect_copy_minimum_batch_size,
+                 .record_capacity =
+                     static_cast<uint32_t>(std::min<size_t>(
+                         command_array_free_records,
+                         std::numeric_limits<uint32_t>::max())),
+                 .command_array_address = command_array_address,
+                 .indirect_aliasing_rule_satisfied =
+                     detail::indirect_copy_ranges_honor_aliasing_rule(
+                         pending_buffer_copy_ranges.data(),
+                         pending_buffer_copy_ranges.size()),
+                 .device_address_aliasing_rule_satisfied =
+                     detail::device_address_copy_ranges_honor_aliasing_rule(
+                         pending_buffer_copy_ranges.data(),
+                         pending_buffer_copy_ranges.size())});
+            switch (plan.mode) {
+                case detail::BufferCopyBatchMode::INDIRECT_COMMANDS: {
+                    LUISA_ASSERT(
+                        command_array != nullptr &&
+                            plan.batched_copy_count ==
+                                pending_buffer_copies.size(),
+                        "Vulkan indirect copy batching planned {} of {} copies "
+                        "({}).",
+                        plan.batched_copy_count,
+                        pending_buffer_copies.size(),
+                        detail::buffer_copy_batch_status_name(plan.status));
+                    indirect_copy_records.clear();
+                    indirect_copy_records.reserve(plan.batched_copy_count);
+                    for (auto &&copy : pending_buffer_copies) {
+                        indirect_copy_records.emplace_back(
+                            detail::make_copy_memory_indirect_command(
+                                copy.range));
+                    }
+                    auto const records_address = command_array->append(
+                        indirect_copy_records.data(),
+                        indirect_copy_records.size());
+                    if (records_address == 0u) {
+                        // The command array ran out of records for this command
+                        // buffer (the planner only promises free space at plan
+                        // time), so the pre-existing per-copy path runs instead
+                        // of reusing a record region that is already in flight.
+                        for (auto &&copy : pending_buffer_copies) {
+                            record_single_buffer_copy(copy);
+                        }
+                        break;
+                    }
+                    LUISA_ASSERT(
+                        records_address == command_array_address,
+                        "Vulkan indirect copy records were appended at {:#x} "
+                        "but planned at {:#x}.",
+                        records_address, command_array_address);
+                    if (indirect_copy_khr) {
+                        auto info = detail::make_copy_memory_indirect_info(
+                            plan, records_address);
+                        vkCmdCopyMemoryIndirectKHR(_cmdbuffer, &info);
+                    } else {
+                        // VK_NV_copy_memory_indirect spelling: the very same
+                        // tightly packed record array, addressed directly.
+                        vkCmdCopyMemoryIndirectNV(
+                            _cmdbuffer,
+                            records_address,
+                            plan.batched_copy_count,
+                            static_cast<uint32_t>(plan.stride));
+                    }
+                    // The command is really recorded now, so the extension is in
+                    // use and not merely negotiated.
+                    device()->mark_optional_extension_active(
+                        detail::OptionalExtension::COPY_MEMORY_INDIRECT);
+                } break;
+                case detail::BufferCopyBatchMode::DEVICE_ADDRESS_REGIONS: {
+                    LUISA_ASSERT(
+                        plan.batched_copy_count ==
+                            pending_buffer_copies.size(),
+                        "Vulkan device-address copy batching planned {} of {} "
+                        "copies ({}).",
+                        plan.batched_copy_count,
+                        pending_buffer_copies.size(),
+                        detail::buffer_copy_batch_status_name(plan.status));
+                    device_address_copy_regions.clear();
+                    device_address_copy_regions.reserve(
+                        plan.batched_copy_count);
+                    for (auto &&copy : pending_buffer_copies) {
+                        // The batch may reference imported buffers whose
+                        // VK_BUFFER_USAGE_STORAGE_BUFFER_BIT cannot be attested,
+                        // so the always-valid UNKNOWN flag is used
+                        // (VUID-...-addressFlags-13100 / -13122 / -13123).
+                        device_address_copy_regions.emplace_back(
+                            detail::make_device_memory_copy_region(
+                                copy.range, false));
+                    }
+                    auto info = detail::make_copy_device_memory_info(
+                        plan.batched_copy_count,
+                        device_address_copy_regions.data());
+                    vkCmdCopyMemoryKHR(_cmdbuffer, &info);
+                    device()->mark_optional_extension_active(
+                        detail::OptionalExtension::DEVICE_ADDRESS_COMMANDS);
+                } break;
+                default: {
+                    // The pre-existing path: one command per copy, in order.
+                    for (auto &&copy : pending_buffer_copies) {
+                        record_single_buffer_copy(copy);
+                    }
+                } break;
+            }
+            pending_buffer_copies.clear();
+        };
         auto flush_all_pending = [&]() {
+            flush_pending_buffer_copies();
             flush_pending_upload();
             flush_pending_download();
+        };
+        // True when the copy was appended to the batch; otherwise the caller
+        // records it immediately, exactly as before.
+        auto accumulate_buffer_copy = [&](BufferCopyCommand const *c) noexcept {
+            if (!indirect_copy_enabled && !device_address_commands_enabled) {
+                // Neither optional extension is usable, so the pre-existing
+                // one-command-per-copy path keeps running untouched (and no
+                // device address is even queried).
+                return false;
+            }
+            auto *src = reinterpret_cast<Buffer const *>(c->src_handle());
+            auto *dst = reinterpret_cast<Buffer const *>(c->dst_handle());
+            auto size = static_cast<uint64_t>(c->size());
+            auto src_offset = static_cast<uint64_t>(c->src_offset());
+            auto dst_offset = static_cast<uint64_t>(c->dst_offset());
+            uint64_t src_address = 0u;
+            uint64_t dst_address = 0u;
+            if (!vk_ext_copy_detail::buffer_view_address(
+                    src, src_offset, size, src_address) ||
+                !vk_ext_copy_detail::buffer_view_address(
+                    dst, dst_offset, size, dst_address)) {
+                return false;
+            }
+            if (detail::check_buffer_copy_eligibility(
+                    src_address, dst_address, size) !=
+                detail::BufferCopyEligibility::ELIGIBLE) {
+                return false;
+            }
+            if (pending_buffer_copies.empty()) {
+                // Nothing is batched yet, so this is exactly the pre-existing
+                // "record the deferred staging copies, then the copy" order.
+                flush_all_pending();
+            }
+            pending_buffer_copies.emplace_back(PendingBufferCopy{
+                .range = detail::BufferCopyRange{
+                    .src_address = src_address,
+                    .dst_address = dst_address,
+                    .size = size},
+                .src = src->vk_buffer(),
+                .dst = dst->vk_buffer(),
+                .src_offset = static_cast<VkDeviceSize>(src_offset),
+                .dst_offset = static_cast<VkDeviceSize>(dst_offset)});
+            if (pending_buffer_copies.size() >=
+                detail::indirect_copy_command_capacity) {
+                flush_pending_buffer_copies();
+            }
+            return true;
         };
 
         // Post process: actual start record command to commandbuffer
@@ -3791,8 +4130,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                        c->size()});
                 } break;
                 case Command::Tag::EBufferCopyCommand: {
-                    flush_all_pending();
                     auto c = static_cast<BufferCopyCommand const *>(cmd);
+                    if (accumulate_buffer_copy(c)) { break; }
+                    flush_all_pending();
                     VkBufferCopy2 buffer_copy{
                         VK_STRUCTURE_TYPE_BUFFER_COPY_2,
                         nullptr,
@@ -4049,43 +4389,85 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         auto commands = prepare_indirect_dispatch(
                             indirect_source, indirect_plan, blk);
                         if (indirect_plan.command_count != 0u) {
-                            // Preparation binds its own compute pipeline and
-                            // descriptor set. Restore the target contract once,
-                            // then select one absolute source record per command.
-                            bind_shader_desc(
-                                visitor, shader,
-                                VK_PIPELINE_BIND_POINT_COMPUTE);
-                            vkCmdBindPipeline(
+                    // Preparation binds its own compute pipeline and
+                    // descriptor set. Restore the target contract once,
+                    // then select one absolute source record per command.
+                    bind_shader_desc(
+                        visitor, shader,
+                        VK_PIPELINE_BIND_POINT_COMPUTE);
+                    vkCmdBindPipeline(
+                        _cmdbuffer,
+                        VK_PIPELINE_BIND_POINT_COMPUTE,
+                        vk_pipeline);
+                    // VK_KHR_device_address_commands: the very same prepared
+                    // dispatch header can be consumed through
+                    // vkCmdDispatchIndirect2KHR, which addresses it by
+                    // VkDeviceAddress instead of by (VkBuffer, offset). The
+                    // gate and the address/range validation live in
+                    // device_address_command_plan.h; a rejected plan keeps the
+                    // pre-existing vkCmdDispatchIndirect below, so the indirect
+                    // metadata contract (same header buffer, same SPIR-V side)
+                    // is unchanged either way.
+                    auto const device_address_dispatch_enabled =
+                        device()->optional_extension_enabled(
+                            detail::OptionalExtension::DEVICE_ADDRESS_COMMANDS) &&
+                        vkCmdDispatchIndirect2KHR != nullptr;
+                    // The prepared command array is a backend-owned storage
+                    // buffer, so its VK_BUFFER_USAGE_STORAGE_BUFFER_BIT is
+                    // attestable and VK_ADDRESS_COMMAND_STORAGE_BUFFER_USAGE_BIT_KHR
+                    // is the exact flag.
+                    auto const prepared_command_address =
+                        commands.buffer->device_address_capable() ?
+                            commands.buffer->get_device_address() :
+                            0u;
+                    for (auto command_index = 0u;
+                         command_index <
+                         indirect_plan.command_count;
+                         ++command_index) {
+                        auto source_record_index =
+                            indirect_plan.source_record_offset +
+                            command_index;
+                        IndirectDispatchPushConstants value{
+                            .mode = static_cast<uint32_t>(
+                                IndirectDispatchMode::INDIRECT),
+                            .source_record_index =
+                                source_record_index};
+                        push_shader_constants(
+                            shader, VK_SHADER_STAGE_COMPUTE_BIT,
+                            0u, value);
+                        auto command_offset =
+                            static_cast<VkDeviceSize>(
+                                commands.offset) +
+                            static_cast<VkDeviceSize>(
+                                command_index) *
+                                IndirectDispatchLayout::
+                                    vulkan_command_size;
+                        // Every prepared record is one whole
+                        // vulkan_command_size block inside the scratch buffer
+                        // (validated by prepare_indirect_dispatch), and that
+                        // block is larger than sizeof(VkDispatchIndirectCommand).
+                        auto device_address_plan =
+                            detail::plan_device_address_indirect_dispatch(
+                                device_address_dispatch_enabled,
+                                prepared_command_address != 0u,
+                                prepared_command_address,
+                                static_cast<uint64_t>(command_offset),
+                                static_cast<uint64_t>(
+                                    IndirectDispatchLayout::vulkan_command_size));
+                        if (device_address_plan) {
+                            auto info =
+                                detail::make_dispatch_indirect_2_info(
+                                    device_address_plan);
+                            vkCmdDispatchIndirect2KHR(_cmdbuffer, &info);
+                            device()->mark_optional_extension_active(
+                                detail::OptionalExtension::DEVICE_ADDRESS_COMMANDS);
+                        } else {
+                            vkCmdDispatchIndirect(
                                 _cmdbuffer,
-                                VK_PIPELINE_BIND_POINT_COMPUTE,
-                                vk_pipeline);
-                            for (auto command_index = 0u;
-                                 command_index <
-                                 indirect_plan.command_count;
-                                 ++command_index) {
-                                auto source_record_index =
-                                    indirect_plan.source_record_offset +
-                                    command_index;
-                                IndirectDispatchPushConstants value{
-                                    .mode = static_cast<uint32_t>(
-                                        IndirectDispatchMode::INDIRECT),
-                                    .source_record_index =
-                                        source_record_index};
-                                push_shader_constants(
-                                    shader, VK_SHADER_STAGE_COMPUTE_BIT,
-                                    0u, value);
-                                auto command_offset =
-                                    static_cast<VkDeviceSize>(
-                                        commands.offset) +
-                                    static_cast<VkDeviceSize>(
-                                        command_index) *
-                                        IndirectDispatchLayout::
-                                            vulkan_command_size;
-                                vkCmdDispatchIndirect(
-                                    _cmdbuffer,
-                                    commands.buffer->vk_buffer(),
-                                    command_offset);
-                            }
+                                commands.buffer->vk_buffer(),
+                                command_offset);
+                        }
+                    }
                         }
                     } else if (c->is_multiple_dispatch()) {
                         uint idx = 0;

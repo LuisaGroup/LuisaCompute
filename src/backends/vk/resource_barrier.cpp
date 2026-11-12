@@ -4,6 +4,7 @@
 #include "resource_barrier_contract.h"
 #include "bindless_array.h"
 #include "command_buffer_sync.h"
+#include "device.h"
 
 namespace lc::vk {
 namespace detail {
@@ -75,27 +76,13 @@ static constexpr VkImageLayout kBarrierLayoutMap[] = {
     VK_IMAGE_LAYOUT_GENERAL,                         // kRasterAccelRead,
     VK_IMAGE_LAYOUT_GENERAL,                         // kRasterUAV,
 };
-static VkImageLayout filter_layout(VkImageLayout last_layout, VkAccessFlagBits2 access) {
-    switch (last_layout) {
-        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-            if (access != VK_ACCESS_2_SHADER_READ_BIT) {
-                return VK_IMAGE_LAYOUT_GENERAL;
-            }
-            break;
-        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-            if (access != VK_ACCESS_2_TRANSFER_READ_BIT) {
-                return VK_IMAGE_LAYOUT_GENERAL;
-            }
-            break;
-        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-            if (access != VK_ACCESS_2_TRANSFER_WRITE_BIT) {
-                return VK_IMAGE_LAYOUT_GENERAL;
-            }
-            break;
-        default: break;
-    }
-    return last_layout;
-}
+// `kBarrierLayoutMap` is only a *request*: `resolve_texture_barrier_layout`
+// turns it into the layout the tracker commits to (GENERAL for backend-owned
+// accesses when VK_KHR_unified_image_layouts, or a simultaneous-access image,
+// makes that free) and `limit_texture_layout_to_access` demotes it to GENERAL
+// when the recorded access no longer fits. Both decisions are pure functions in
+// resource_barrier_contract.h, so the enabled and the disabled path stay
+// separately testable.
 }// namespace detail
 ResourceBarrier::ResourceBarrier() {}
 
@@ -110,6 +97,40 @@ ResourceBarrier::TextureStates &ResourceBarrier::_texture_state(
         "Vulkan image 0x{:016x} does not have one canonical native state.",
         identity);
     return state;
+}
+
+// VK_KHR_unified_image_layouts is negotiated once on the owning Device, which
+// the tracker only holds as a read-only pointer. `optional_extension_enabled`
+// is false for an imported logical device and for a device that switched the
+// extension off through VulkanDeviceConfigExt, so both cases fall back to the
+// pre-existing per-usage layout choice without a second check here.
+bool ResourceBarrier::_unified_image_layouts_enabled() const noexcept {
+    return device != nullptr &&
+           device->optional_extension_enabled(
+               detail::OptionalExtension::UNIFIED_IMAGE_LAYOUTS);
+}
+
+detail::ImageLayoutPolicy ResourceBarrier::_layout_policy(
+    bool simultaneous_access) const noexcept {
+    return detail::plan_unified_image_layout_policy(
+        _unified_image_layouts_enabled(), simultaneous_access);
+}
+
+void ResourceBarrier::_mark_unified_image_layouts_active() noexcept {
+    if (_unified_image_layouts_active) { return; }
+    _unified_image_layouts_active = true;
+    if (device == nullptr ||
+        device->optional_extension_active(
+            detail::OptionalExtension::UNIFIED_IMAGE_LAYOUTS)) {
+        return;
+    }
+    // Bookkeeping only: `mark_optional_extension_active` ORs one bit into the
+    // Device's "really in use" mask, so the read-only Device pointer this
+    // tracker holds is not a promise that it issues device calls. Re-marking is
+    // idempotent, and a lost race between two streams self-heals on the next
+    // recorded barrier.
+    const_cast<Device *>(device)->mark_optional_extension_active(
+        detail::OptionalExtension::UNIFIED_IMAGE_LAYOUTS);
 }
 
 void ResourceBarrier::record(
@@ -258,9 +279,23 @@ void ResourceBarrier::_record(
     }
     tex_range.level_require_update = true;
     tex_range.after_stage |= stage;
+    // VK_KHR_unified_image_layouts: a *backend-owned* (`GENERIC_USAGE`) access
+    // may keep every mip in VK_IMAGE_LAYOUT_GENERAL, so the tracker stops
+    // paying for per-resource layout transitions between the usage-specific
+    // layouts. The stage/access masks of the barrier are recorded before and
+    // after this decision and are identical on both paths; only the layout
+    // changes. Native contracts (`EXPLICIT_NATIVE`) and attachment writes keep
+    // the exact VkImageLayout they published.
+    auto layout_policy = _layout_policy(state.native_state->simultaneous_access);
     auto resolved_layout = detail::resolve_texture_barrier_layout(
-        state.native_state->simultaneous_access,
-        access, layout, layout_contract);
+        layout_policy, access, layout, layout_contract);
+    if (layout_contract == detail::TextureLayoutContract::GENERIC_USAGE &&
+        layout_policy.uses_unified_image_layouts &&
+        resolved_layout == VK_IMAGE_LAYOUT_GENERAL) {
+        // Report the optimization only where it is really selected, not merely
+        // because the extension happens to be enabled.
+        _mark_unified_image_layouts_active();
+    }
     if (layout_contract ==
             detail::TextureLayoutContract::EXPLICIT_NATIVE &&
         tex_range.after_access != 0u) {
@@ -408,15 +443,30 @@ void ResourceBarrier::_update_state(TextureStates &state) {
         auto &range = state.ranges[idx];
         if (!range.level_require_update) continue;
         range.level_require_update = false;
+        // `plan_tracked_image_barrier` carries the hazard and the layout pair as
+        // two independent decisions: the VK_KHR_unified_image_layouts policy was
+        // already applied when the layout was selected in `_record`, so it can
+        // never reach these stage/access masks. A mip whose layout does not
+        // change (`oldLayout == newLayout`, the steady state under the unified
+        // policy) still gets a full barrier.
+        auto plan = detail::plan_tracked_image_barrier(
+            range.before_stage, range.before_access, range.before_layout,
+            range.after_stage, range.after_access, range.after_layout);
         auto &barrier = _tex_barriers.emplace_back();
-        range.after_layout = detail::filter_layout(range.after_layout, range.after_access);
-        barrier.srcStageMask = range.before_stage;
-        barrier.dstStageMask = range.after_stage;
-        barrier.srcAccessMask = range.before_access;
-        barrier.dstAccessMask = range.after_access;
-        barrier.oldLayout = range.before_layout;
-        barrier.newLayout = range.after_layout;
+        barrier.srcStageMask = plan.src_stage_mask;
+        barrier.dstStageMask = plan.dst_stage_mask;
+        barrier.srcAccessMask = plan.src_access_mask;
+        barrier.dstAccessMask = plan.dst_access_mask;
+        barrier.oldLayout = plan.old_layout;
+        barrier.newLayout = plan.new_layout;
         barrier.image = state.native_state->image;
+        // One mip, one array layer: for a 3D image (with or without
+        // VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT) baseArrayLayer 0 plus
+        // layerCount 1 addresses the whole subresource, which is exactly the
+        // range VK_KHR_maintenance9 relaxes. The tracker never addresses a
+        // slice subrange, so maintenance9's slice-scoped barrier semantics
+        // change nothing here; they only help render-pass attachment views in
+        // the raster path.
         barrier.subresourceRange = VkImageSubresourceRange{
             .aspectMask = Texture::get_aspect_from_format(
                 state.native_state->format),
@@ -745,6 +795,12 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
     for (auto &entry : _texture_frame_states) {
         auto identity = entry.first;
         auto &state = entry.second;
+        // The restore target is the backend's canonical image state, which is
+        // VK_IMAGE_LAYOUT_GENERAL. With VK_KHR_unified_image_layouts enabled,
+        // every backend-owned mip already lives there, so this barrier is a pure
+        // availability/visibility barrier with oldLayout == newLayout; without
+        // the extension the next `record` re-selects a usage-specific layout and
+        // pays one transition per direction.
         auto init_layout = VK_IMAGE_LAYOUT_GENERAL;
         auto restore_iter = _saved_texture_restore_states.find(identity);
         for (auto idx : vstd::range((int64_t)state.ranges.size())) {
@@ -820,8 +876,22 @@ void ResourceBarrier::barrier_filter(VkImageMemoryBarrier2 &barrier) const {
     barrier.dstStageMask = dst.stages;
     barrier.dstAccessMask = dst.access;
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    // The tracker never records a queue family ownership transfer: backend-owned
+    // images are created in VK_SHARING_MODE_CONCURRENT over the participating
+    // families (see queue_family_contract.h), so both indices stay IGNORED.
+    // VK_KHR_maintenance8's "src/dst sync scopes work for ownership transfers"
+    // and VK_KHR_maintenance9's "ownership transfers are optional for buffers,
+    // linear images and listed optimal images" therefore remove API friction
+    // that does not exist in this tracker; reaping it would mean switching
+    // resource creation to VK_SHARING_MODE_EXCLUSIVE using
+    // VkQueueFamilyOwnershipTransferPropertiesKHR, which lives in texture.cpp /
+    // buffer.cpp / device.cpp. The extension stays enabled but is never reported
+    // as active from here.
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    // VK_KHR_maintenance8 adds VkMemoryBarrierAccessFlags3KHR for access bits
+    // beyond VkAccessFlagBits2. The tracker only sets VkAccessFlagBits2 bits, so
+    // it keeps the chain empty on both paths.
     barrier.pNext = nullptr;
 }
 

@@ -1,6 +1,7 @@
 set(LUISA_COMPUTE_RUNTIME_RTX_SOURCES
         rtx/accel.cpp
         rtx/mesh.cpp
+        rtx/opacity_micromap.cpp
         rtx/procedural_primitive.cpp
         rtx/motion_instance.cpp
         rtx/curve.cpp)

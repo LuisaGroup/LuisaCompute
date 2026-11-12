@@ -30,14 +30,60 @@ constexpr uint32_t kGeometryFlagsShift = 29u;
 luisa::unique_ptr<Command> Mesh::build(Mesh::BuildRequest request) noexcept {
     _check_is_valid();
     if (is_cluster_mode()) {
+        LUISA_ASSERT(!has_cutout_mask(),
+                     "A cluster (mega-geometry) mesh cannot carry an opacity "
+                     "micromap: the cluster build records drive opacity themselves.");
         return luisa::make_unique<MeshBuildCommand>(
             handle(), request,
             _c_buffer, _c_buffer_offset_bytes, _c_buffer_size_bytes);
     }
-    return luisa::make_unique<MeshBuildCommand>(
+    auto cmd = luisa::make_unique<MeshBuildCommand>(
         handle(), request,
         _v_buffer, _v_buffer_offset_bytes, _v_buffer_size_bytes, _v_stride,
         _t_buffer, _t_buffer_offset_bytes, _t_buffer_size_bytes);
+    if (has_cutout_mask()) {
+        // Declare the micromap *and* its payload buffers, so the command-reorder
+        // pass can order the bake/upload before this build (see the warning about
+        // cluster meshes in mesh.h for the failure mode this avoids).
+        cmd->set_micromap(MeshMicromapBinding{
+            .micromap = _cutout_mask.micromap,
+            .triangle_count = _cutout_mask.triangle_count,
+            .index_stride = _cutout_mask.index_stride,
+            .data_buffer = _cutout_mask.data_buffer,
+            .data_offset = _cutout_mask.data_offset,
+            .data_size = _cutout_mask.data_size,
+            .index_buffer = _cutout_mask.index_buffer,
+            .index_offset = _cutout_mask.index_offset,
+            .index_size = _cutout_mask.index_size,
+            .assumes_non_opaque_traversal = _cutout_mask.assumes_non_opaque_traversal});
+    }
+    return cmd;
+}
+
+MeshCutoutMask::MeshCutoutMask(const OpacityMicromap &cutout) noexcept {
+    // Fail closed: a micromap whose packed bits were never written makes every
+    // micro triangle transparent (two-state bit 0), so attaching it would make the
+    // whole mesh silently disappear. `ready()` is monotonic, so checking it once
+    // here covers every later build of this mesh.
+    if (!cutout.ready()) [[unlikely]] {
+        LUISA_ERROR_WITH_LOCATION(
+            "A mesh cannot attach an opacity micromap that has no bits: call "
+            "OpacityMicromap::bake() or OpacityMicromap::upload() first.");
+    }
+    auto data = cutout.data();
+    micromap = cutout.handle();
+    data_buffer = data.handle();
+    data_offset = data.offset_bytes();
+    data_size = data.size_bytes();
+    if (cutout.index_format() != OpacityMicromap::IndexFormat::None) {
+        auto index = cutout.index();
+        index_buffer = index.handle();
+        index_offset = index.offset_bytes();
+        index_size = index.size_bytes();
+    }
+    triangle_count = cutout.triangle_count();
+    index_stride = static_cast<uint32_t>(cutout.index_format());
+    assumes_non_opaque_traversal = true;
 }
 
 Mesh::~Mesh() noexcept {
@@ -177,6 +223,34 @@ void check_mesh_cluster_buffer_offset_and_size(size_t offset_bytes, size_t size_
     LUISA_ASSERT(size_bytes % sizeof(ClusterBuildInfo) == 0,
                  "Required cluster build info buffer size {} can not be aligned to cluster build info size {}",
                  size_bytes, sizeof(ClusterBuildInfo));
+}
+
+void check_mesh_cutout_mask(const MeshCutoutMask &mask,
+                            size_t mesh_triangle_count,
+                            bool motion_blur) noexcept {
+    if (!mask) { return; }// the common, micromap-free case
+    LUISA_ASSERT(!motion_blur,
+                 "A motion-blur BLAS cannot carry an opacity micromap: "
+                 "VkAccelerationStructureGeometryMotionTrianglesDataNV already "
+                 "occupies the triangles pNext chain.");
+    LUISA_ASSERT(mask.data_buffer != 0u && mask.data_size != 0u,
+                 "The opacity micromap of this mesh has no packed bit payload.");
+    LUISA_ASSERT(mask.triangle_count != 0u,
+                 "The opacity micromap of this mesh has no triangles.");
+    LUISA_ASSERT(mask.triangle_count == mesh_triangle_count,
+                 "The opacity micromap covers {} triangles, but the mesh has {}. A "
+                 "shared micromap needs OpacityMicromap::IndexFormat != None.",
+                 mask.triangle_count, mesh_triangle_count);
+    LUISA_ASSERT(mask.index_stride == 0u ||
+                     (mask.index_buffer != 0u && mask.index_size != 0u),
+                 "The opacity micromap declares a per-triangle index stride of {} "
+                 "bytes but carries no index buffer.",
+                 mask.index_stride);
+    LUISA_ASSERT(mask.index_stride == 0u || mask.index_size / mask.index_stride >= mesh_triangle_count,
+                 "The opacity micromap index buffer holds {} indices of {} bytes for "
+                 "{} mesh triangles.",
+                 mask.index_size / (mask.index_stride == 0u ? 1u : mask.index_stride),
+                 mask.index_stride, mesh_triangle_count);
 }
 
 }// namespace detail

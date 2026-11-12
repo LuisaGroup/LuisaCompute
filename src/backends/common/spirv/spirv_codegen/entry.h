@@ -283,6 +283,10 @@ private:
     void _register_entry_point_interface(spv::Id id) noexcept;
     void _require_target_feature(SpirvTargetFeatureMask feature,
                                  bool supported) noexcept;
+    // VK_KHR_opacity_micromap (KHR spelling): declares the capability and the
+    // OpacityMicromapIdKHR execution mode of a ray-query entry point. A no-op
+    // unless the device enabled `target_feature::ray_tracing_opacity_micromap`.
+    void _emit_opacity_micromap_execution_mode(spv::Function *function) noexcept;
     void _require_sampled_image_array_indexing(bool nonuniform) noexcept;
     void _require_storage_buffer_array_indexing(bool nonuniform) noexcept;
     void _require_subgroup_type(const Type *type,
