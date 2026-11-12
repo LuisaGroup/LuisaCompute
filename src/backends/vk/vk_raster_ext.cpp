@@ -7,7 +7,58 @@
 #include "sampler_anisotropy.h"
 #include "texture.h"
 #include "../common/backend_print_code.h"
+
 namespace lc::vk {
+
+// Rasterisation extensions (see `raster_extension_plan.h` for the decisions and
+// `src/tests/unit/ext/test_vk_ext_raster.cpp` for the covered cases).
+//
+// The negotiated switches live in `VulkanDeviceConfigExt` and the fast paths are
+// gated on `Device::optional_extension_enabled()`, so a device that does not
+// expose an extension - or that has it switched off - keeps the code below
+// unchanged. Four of the six extensions this file group negotiates stay
+// *enabled but inactive*, because the public raster API
+// (`DrawRasterSceneCommand` / `RasterState` / `RasterMesh`) cannot express what
+// they would need; each one names the missing API here so a future change is
+// local:
+//
+//  * VK_EXT_primitive_restart_index - `vkCmdSetPrimitiveRestartIndexEXT` must be
+//    recorded after `vkCmdBindIndexBuffer` (that bind restores the index type's
+//    default), i.e. in the draw loop of `stream.cpp`, which does not call
+//    `cmd_set_primitive_restart_index()` yet. The public API has no restart index
+//    at all (`RasterState` has list topologies only, so restart is illegal
+//    without VK_EXT_primitive_topology_list_restart), so nothing requests one.
+//    Missing: a restart index on `RasterState`, and a recording point in the
+//    `RASTER_DRAW_SCENE` draw loop.
+//  * VK_EXT_custom_resolve - needs a resolve attachment on the command
+//    (`DrawRasterSceneCommand` has render targets + one depth buffer only), a
+//    multisampled attachment (`create_raster_render_pass` always uses
+//    VK_SAMPLE_COUNT_1_BIT), and a render pass instance opened by
+//    `vkCmdBeginRendering` for `vkCmdBeginCustomResolveEXT`. Missing: resolve
+//    attachments plus dynamic rendering in the raster draw path.
+//  * VK_EXT_fragment_density_map_offset - needs a fragment density map
+//    attachment (so VK_EXT_fragment_density_map must be negotiated too, and the
+//    color/depth attachments need VK_IMAGE_CREATE_FRAGMENT_DENSITY_MAP_OFFSET_BIT_EXT)
+//    and an end-of-pass structure, which requires `vkCmdEndRenderPass2` /
+//    `vkCmdEndRendering2EXT` in the draw loop of `stream.cpp`. Missing: a
+//    density map attachment in the public API and `VkSubpassEndInfo`-carrying
+//    end-pass recording.
+//  * VK_KHR_pipeline_library_group_handles - only meaningful for a ray tracing
+//    pipeline that links VK_KHR_pipeline_library libraries
+//    (VK_PIPELINE_CREATE_LIBRARY_BIT_KHR); `rt_shader.cpp` builds monolithic
+//    pipelines. Missing: a pipeline-library code path in the RT shader.
+//  * VK_EXT_multisampled_render_to_swapchain - needs the swapchain creation flag
+//    (`swapchain.cpp`), VK_EXT_multisampled_render_to_single_sampled's
+//    `VkRenderPassMultisampledRenderToSingleSampledInfoEXT` on a multisampled
+//    subpass, and swapchain-image attachments. Missing: swapchain flags plus a
+//    multisampled render pass.
+//
+// VK_KHR_depth_clamp_zero_one is the one extension of the group with a live fast
+// path: its device feature clamps the fragment depth to [0, 1] on every raster
+// pipeline, which is the range D3D12's rasteriser uses. Both pipeline creation
+// sites take that decision from `plan_raster_pipeline_extensions()` and report
+// the extension as active once such a pipeline exists.
+
 ResourceCreationInfo VkRasterExt::create_raster_shader(
     [[maybe_unused]] const MeshFormat &mesh_format,
     Function vert,

@@ -8,10 +8,17 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
+#include <limits>
 #include <memory>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace vku {
 namespace small {
@@ -45,7 +52,8 @@ class vector {
 
     vector(const vector &other) : size_(0), capacity_(N), working_store_(GetSmallStore()) { PushBackFrom(other); }
 
-    vector(vector &&other) : size_(0), capacity_(N), working_store_(GetSmallStore()) {
+    vector(vector &&other) noexcept(std::is_nothrow_move_constructible_v<T>)
+        : size_(0), capacity_(N), working_store_(GetSmallStore()) {
         if (other.large_store_) {
             MoveLargeStore(other);
         } else {
@@ -115,7 +123,7 @@ class vector {
         return *this;
     }
 
-    vector &operator=(vector &&other) {
+    vector &operator=(vector &&other) noexcept(std::is_nothrow_move_constructible_v<T> && std::is_nothrow_move_assignable_v<T>) {
         if (this != &other) {
             // Note: move assign doesn't require other to become empty (as does move construction)
             //       so we'll leave other alone except in the large store case, while moving the object
@@ -188,8 +196,15 @@ class vector {
     template <class... Args>
     void emplace_back(Args &&...args) {
         assert(size_ < kMaxCapacity);
-        reserve(size_ + 1);
-        new (GetWorkingStore() + size_) value_type(args...);
+        if (size_ == capacity_) {
+            // args may refer to an element of this vector, which reserve() moves from and destroys, so construct the new
+            // element before reallocating.
+            value_type new_value(std::forward<Args>(args)...);
+            reserve(GrowthCapacity());
+            new (GetWorkingStore() + size_) value_type(std::move(new_value));
+        } else {
+            new (GetWorkingStore() + size_) value_type(std::forward<Args>(args)...);
+        }
         size_++;
     }
 
@@ -209,9 +224,11 @@ class vector {
         size_ = new_size;
     }
 
-    template <typename Container>
+    // Only for rvalues, as a forwarding reference would otherwise also bind to (and move from) non-const lvalues
+    template <typename Container, typename = std::enable_if_t<!std::is_lvalue_reference_v<Container>>>
     void PushBackFrom(Container &&from) {
-        assert(from.size() < kMaxCapacity);
+        assert(from.size() <= kMaxCapacity);
+        assert(size_ <= kMaxCapacity - from.size());
         const size_type new_size = size_ + static_cast<size_type>(from.size());
         reserve(new_size);
 
@@ -273,7 +290,7 @@ class vector {
             // Keep the source from disappearing until the end of the function
             auto old_store = std::unique_ptr<BackingStore[]>(std::move(large_store_));
             assert(!large_store_);
-            if (size_ < kSmallCapacity) {
+            if (size_ <= kSmallCapacity) {
                 capacity_ = kSmallCapacity;
             } else {
                 large_store_ = std::unique_ptr<BackingStore[]>(new BackingStore[size_]);
@@ -282,7 +299,7 @@ class vector {
             UpdateWorkingStore();
             auto dest = GetWorkingStore();
             for (size_type i = 0; i < size_; i++) {
-                dest[i] = std::move(source[i]);
+                new (dest + i) value_type(std::move(source[i]));
                 source[i].~value_type();
             }
         }
@@ -348,6 +365,11 @@ class vector {
 #endif
 
   private:
+    // Capacity to grow to when full, geometric so that repeated emplace_back is amortized constant time
+    size_type GrowthCapacity() const {
+        return (capacity_ > kMaxCapacity / 2) ? kMaxCapacity : static_cast<size_type>(capacity_ * 2);
+    }
+
     void MoveLargeStore(vector &other) {
         assert(other.large_store_);
         assert(other.capacity_ > kSmallCapacity);
@@ -372,12 +394,21 @@ class vector {
             }
             size_ = new_size;
         } else if (new_size > size_) {
+            if constexpr (std::is_same_v<T2, T>) {
+                if (new_size > capacity_) {
+                    // value may refer to an element of this vector, which reserve() moves from and destroys
+                    const value_type value_copy(value);
+                    reserve(new_size);
+                    Resize(new_size, value_copy);
+                    return;
+                }
+            }
             reserve(new_size);
             // if T2 != T and T is not DefaultInsertable, new values will be undefined
             if constexpr (std::is_same_v<T2, T> || std::is_default_constructible_v<T>) {
                 for (size_type i = size_; i < new_size; ++i) {
                     if constexpr (std::is_same_v<T2, T>) {
-                        emplace_back(value_type(value));
+                        emplace_back(value);
                     } else if constexpr (std::is_default_constructible_v<T>) {
                         emplace_back(value_type());
                     }
@@ -615,6 +646,8 @@ class container_base {
         for (int i = 0; i < N; ++i) {
             if (small_data_allocated[i] && helper.compare_equal(small_data[i], key)) {
                 small_data_allocated[i] = false;
+                // Release any resources held by the erased element
+                helper.assign(small_data[i], value_type());
                 return 1;
             }
         }
@@ -642,7 +675,11 @@ class container_base {
 
     void clear() {
         for (int i = 0; i < N; ++i) {
-            small_data_allocated[i] = false;
+            if (small_data_allocated[i]) {
+                small_data_allocated[i] = false;
+                // Release any resources held by the erased element
+                helper.assign(small_data[i], value_type());
+            }
         }
         inner_cont.clear();
     }

@@ -1,5 +1,6 @@
 // embedding_mm engine -- Top-level EmbeddingGemma-2 multimodal model implementation.
 #include "embedding_mm/embed/models/embedding_gemma2.h"
+#include "embedding_mm/embed/buffer_copy.h"
 
 #include <cstring>
 #include <luisa/core/logging.h>
@@ -21,7 +22,7 @@ compute::Buffer<float> upload_tensor_from_package(
     auto buf = device.create_buffer<float>(elem_count);
 
     if (t->data) {
-        upload_cmds << buf.copy_from(t->data);
+        upload_cmds << copy_to_device(buf, t->data);
     } else if (t->half_data) {
         auto &fp32_data = half_storage.emplace_back(elem_count);
         for (size_t i = 0; i < elem_count; i++) {
@@ -54,7 +55,7 @@ compute::Buffer<float> upload_tensor_from_package(
                 std::memcpy(&fp32_data[i], &f_val, sizeof(float));
             }
         }
-        upload_cmds << buf.copy_from(fp32_data.data());
+        upload_cmds << copy_to_device(buf, fp32_data.data());
     }
     return buf;
 }

@@ -90,6 +90,15 @@ private:
     void _update_state(BufferStates &states);
     void _update_state(TextureStates &states);
     void _resolve_texture_descriptor_layouts();
+    // VK_KHR_unified_image_layouts is negotiated on the owning Device, which
+    // the tracker only holds as a read-only pointer. Both helpers fall back to
+    // the pre-existing per-usage layout choice when the extension is
+    // unsupported, switched off through VulkanDeviceConfigExt, or the logical
+    // device is imported.
+    [[nodiscard]] bool _unified_image_layouts_enabled() const noexcept;
+    [[nodiscard]] detail::ImageLayoutPolicy _layout_policy(
+        bool simultaneous_access) const noexcept;
+    void _mark_unified_image_layouts_active() noexcept;
     void _apply_state(
         ResourceView const &view,
         VkPipelineStageFlagBits2 stage,
@@ -163,6 +172,7 @@ public:
 private:
     vstd::HashMap<detail::NativeBufferIdentity, RestoreStates> _saved_buffer_restore_states;
     vstd::HashMap<detail::NativeImageIdentity, TextureRestoreStates> _saved_texture_restore_states;
+    bool _unified_image_layouts_active{false};
 public:
     ResourceBarrier();
     ~ResourceBarrier();
@@ -206,6 +216,13 @@ public:
     VkImageLayout get_texture_descriptor_layout(
         Texture const *texture, uint32_t base_level,
         uint32_t level_count);
+    // True once this tracker resolved at least one backend-owned texture access
+    // through the VK_KHR_unified_image_layouts "GENERAL is free" policy. The
+    // same fact is published on the Device through
+    // `mark_optional_extension_active`.
+    [[nodiscard]] bool unified_image_layouts_in_use() const noexcept {
+        return _unified_image_layouts_active;
+    }
     // Shader preprocessing records the descriptor-index/metadata buffers
     // separately because their native scopes differ from member resources.
     // These overloads therefore expand only the encoded members.

@@ -1,5 +1,6 @@
 // embedding_mm engine -- public Session API implementation.
 #include "embedding_mm/embed/session.h"
+#include "embedding_mm/embed/buffer_copy.h"
 
 #include <algorithm>
 #include <cmath>
@@ -162,12 +163,12 @@ luisa::vector<Embedding> Session::encode_batch(
     auto dev_out_view = _dev_out.view(0, total_out);
 
     compute::CommandList cmd_list;
-    cmd_list << dev_ids_view.copy_from(_host_ids.data())
-             << dev_mask_view.copy_from(_host_mask.data());
+    cmd_list << copy_to_device(dev_ids_view, _host_ids.data())
+             << copy_to_device(dev_mask_view, _host_mask.data());
 
     _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, B, S, target_dim);
 
-    cmd_list << dev_out_view.copy_to(_host_out.data());
+    cmd_list << copy_from_device(dev_out_view, _host_out.data());
 
     _stream << cmd_list.commit() << compute::synchronize();
 
@@ -241,15 +242,15 @@ Embedding Session::encode_image(const ImageFeatures &processed, const EncodeOpti
     auto dev_out_view = _dev_out.view(0, target_dim);
 
     compute::CommandList cmd_list;
-    cmd_list << dev_px_view.copy_from(processed.pixel_values.data())
-             << dev_pos_view.copy_from(processed.position_ids.data());
+    cmd_list << copy_to_device(dev_px_view, processed.pixel_values.data())
+             << copy_to_device(dev_pos_view, processed.position_ids.data());
 
     _executor->record_vision_encode(
         cmd_list, dev_px_view, dev_pos_view, dev_soft_view,
         1u, processed.num_patches_w, processed.num_patches_h, processed.max_patches, num_soft);
 
-    cmd_list << dev_ids_view.copy_from(_host_ids.data())
-             << dev_mask_view.copy_from(_host_mask.data());
+    cmd_list << copy_to_device(dev_ids_view, _host_ids.data())
+             << copy_to_device(dev_mask_view, _host_mask.data());
 
     MultimodalInputs mm_inputs{};
     mm_inputs.vision_embeds = dev_soft_view;
@@ -257,7 +258,7 @@ Embedding Session::encode_image(const ImageFeatures &processed, const EncodeOpti
     mm_inputs.num_vision_tokens = num_soft;
 
     _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
-    cmd_list << dev_out_view.copy_to(_host_out.data());
+    cmd_list << copy_from_device(dev_out_view, _host_out.data());
 
     _stream << cmd_list.commit() << compute::synchronize();
 
@@ -397,8 +398,8 @@ Embedding Session::encode_multimodal(
         auto pos_view = _dev_video_position_ids.view(pos_offset, pos_n);
         auto soft_view = _dev_video_soft_tokens.view(v_soft_offset, soft_n);
 
-        cmd_list << px_view.copy_from(img.pixel_values.data())
-                 << pos_view.copy_from(img.position_ids.data());
+        cmd_list << copy_to_device(px_view, img.pixel_values.data())
+                 << copy_to_device(pos_view, img.position_ids.data());
 
         _executor->record_vision_encode(
             cmd_list, px_view, pos_view, soft_view,
@@ -419,8 +420,8 @@ Embedding Session::encode_multimodal(
             auto pos_view = _dev_video_position_ids.view(pos_offset, pos_n);
             auto soft_view = _dev_video_soft_tokens.view(v_soft_offset, soft_n);
 
-            cmd_list << px_view.copy_from(vid.frames[f].pixel_values.data())
-                     << pos_view.copy_from(vid.frames[f].position_ids.data());
+            cmd_list << copy_to_device(px_view, vid.frames[f].pixel_values.data())
+                     << copy_to_device(pos_view, vid.frames[f].position_ids.data());
 
             _executor->record_vision_encode(
                 cmd_list, px_view, pos_view, soft_view,
@@ -442,7 +443,7 @@ Embedding Session::encode_multimodal(
         auto feat_view = _dev_audio_features.view(aud_feat_offset, feat_n);
         auto soft_view = _dev_audio_soft_tokens.view(a_soft_offset, soft_n);
 
-        cmd_list << feat_view.copy_from(aud.features.data());
+        cmd_list << copy_to_device(feat_view, aud.features.data());
         _executor->record_audio_encode(
             cmd_list, feat_view, soft_view,
             aud.num_frames, aud.num_features, aud.num_soft_tokens);
@@ -456,27 +457,27 @@ Embedding Session::encode_multimodal(
     auto dev_mask_view = _dev_mask.view(0, S);
     auto dev_out_view = _dev_out.view(0, target_dim);
 
-    cmd_list << dev_ids_view.copy_from(_host_ids.data())
-             << dev_mask_view.copy_from(_host_mask.data());
+    cmd_list << copy_to_device(dev_ids_view, _host_ids.data())
+             << copy_to_device(dev_mask_view, _host_mask.data());
 
     MultimodalInputs mm_inputs{};
     if (total_vision_soft > 0u) {
         auto v_idx_view = _dev_video_token_indices.view(0, total_vision_soft);
-        cmd_list << v_idx_view.copy_from(_host_video_token_indices.data());
+        cmd_list << copy_to_device(v_idx_view, _host_video_token_indices.data());
         mm_inputs.vision_embeds = _dev_video_soft_tokens.view(0, total_vision_soft * 512u);
         mm_inputs.num_vision_tokens = total_vision_soft;
         mm_inputs.vision_token_indices = v_idx_view;
     }
     if (total_audio_soft > 0u) {
         auto a_idx_view = _dev_audio_token_indices.view(0, total_audio_soft);
-        cmd_list << a_idx_view.copy_from(_host_audio_token_indices.data());
+        cmd_list << copy_to_device(a_idx_view, _host_audio_token_indices.data());
         mm_inputs.audio_embeds = _dev_audio_soft_tokens.view(0, total_audio_soft * 512u);
         mm_inputs.num_audio_tokens = total_audio_soft;
         mm_inputs.audio_token_indices = a_idx_view;
     }
 
     _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
-    cmd_list << dev_out_view.copy_to(_host_out.data());
+    cmd_list << copy_from_device(dev_out_view, _host_out.data());
 
     _stream << cmd_list.commit() << compute::synchronize();
 
@@ -594,15 +595,15 @@ Embedding Session::encode_multimodal_image(
     auto dev_out_view = _dev_out.view(0, target_dim);
 
     compute::CommandList cmd_list;
-    cmd_list << dev_px_view.copy_from(processed.pixel_values.data())
-             << dev_pos_view.copy_from(processed.position_ids.data());
+    cmd_list << copy_to_device(dev_px_view, processed.pixel_values.data())
+             << copy_to_device(dev_pos_view, processed.position_ids.data());
 
     _executor->record_vision_encode(
         cmd_list, dev_px_view, dev_pos_view, dev_soft_view,
         1u, processed.num_patches_w, processed.num_patches_h, processed.max_patches, num_soft);
 
-    cmd_list << dev_ids_view.copy_from(_host_ids.data())
-             << dev_mask_view.copy_from(_host_mask.data());
+    cmd_list << copy_to_device(dev_ids_view, _host_ids.data())
+             << copy_to_device(dev_mask_view, _host_mask.data());
 
     MultimodalInputs mm_inputs{};
     mm_inputs.vision_embeds = dev_soft_view;
@@ -610,7 +611,7 @@ Embedding Session::encode_multimodal_image(
     mm_inputs.num_vision_tokens = num_soft;
 
     _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
-    cmd_list << dev_out_view.copy_to(_host_out.data());
+    cmd_list << copy_from_device(dev_out_view, _host_out.data());
 
     _stream << cmd_list.commit() << compute::synchronize();
 
@@ -677,14 +678,14 @@ Embedding Session::encode_audio(
     auto dev_out_view = _dev_out.view(0, target_dim);
 
     compute::CommandList cmd_list;
-    cmd_list << dev_feat_view.copy_from(processed.features.data());
+    cmd_list << copy_to_device(dev_feat_view, processed.features.data());
 
     _executor->record_audio_encode(
         cmd_list, dev_feat_view, dev_soft_view,
         processed.num_frames, processed.num_features, num_soft);
 
-    cmd_list << dev_ids_view.copy_from(_host_ids.data())
-             << dev_mask_view.copy_from(_host_mask.data());
+    cmd_list << copy_to_device(dev_ids_view, _host_ids.data())
+             << copy_to_device(dev_mask_view, _host_mask.data());
 
     MultimodalInputs mm_inputs{};
     mm_inputs.audio_embeds = dev_soft_view;
@@ -692,7 +693,7 @@ Embedding Session::encode_audio(
     mm_inputs.num_audio_tokens = num_soft;
 
     _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
-    cmd_list << dev_out_view.copy_to(_host_out.data());
+    cmd_list << copy_from_device(dev_out_view, _host_out.data());
 
     _stream << cmd_list.commit() << compute::synchronize();
 
@@ -802,14 +803,14 @@ Embedding Session::encode_multimodal_audio(
     auto dev_out_view = _dev_out.view(0, target_dim);
 
     compute::CommandList cmd_list;
-    cmd_list << dev_feat_view.copy_from(processed.features.data());
+    cmd_list << copy_to_device(dev_feat_view, processed.features.data());
 
     _executor->record_audio_encode(
         cmd_list, dev_feat_view, dev_soft_view,
         processed.num_frames, processed.num_features, num_soft);
 
-    cmd_list << dev_ids_view.copy_from(_host_ids.data())
-             << dev_mask_view.copy_from(_host_mask.data());
+    cmd_list << copy_to_device(dev_ids_view, _host_ids.data())
+             << copy_to_device(dev_mask_view, _host_mask.data());
 
     MultimodalInputs mm_inputs{};
     mm_inputs.audio_embeds = dev_soft_view;
@@ -817,7 +818,7 @@ Embedding Session::encode_multimodal_audio(
     mm_inputs.num_audio_tokens = num_soft;
 
     _executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
-    cmd_list << dev_out_view.copy_to(_host_out.data());
+    cmd_list << copy_from_device(dev_out_view, _host_out.data());
 
     _stream << cmd_list.commit() << compute::synchronize();
 
@@ -967,20 +968,20 @@ Embedding encode_video_internal(
     auto dev_out_view = dev_out.view(0, target_dim);
 
     compute::CommandList cmd_list;
-    cmd_list << dev_pos_view.copy_from(video.frames[0].position_ids.data())
-             << dev_indices_view.copy_from(host_video_token_indices.data());
+    cmd_list << copy_to_device(dev_pos_view, video.frames[0].position_ids.data())
+             << copy_to_device(dev_indices_view, host_video_token_indices.data());
 
     for (uint32_t f = 0u; f < num_frames; f++) {
         auto px_view = dev_video_pixel_values.view(f * frame_px_elems, frame_px_elems);
         auto soft_view = dev_video_soft_tokens.view(f * num_soft_per_frame * 512u, num_soft_per_frame * 512u);
-        cmd_list << px_view.copy_from(video.frames[f].pixel_values.data());
+        cmd_list << copy_to_device(px_view, video.frames[f].pixel_values.data());
         executor->record_vision_encode(
             cmd_list, px_view, dev_pos_view, soft_view,
             1u, video.num_patches_w, video.num_patches_h, video.max_patches, num_soft_per_frame);
     }
 
-    cmd_list << dev_ids_view.copy_from(host_ids.data())
-             << dev_mask_view.copy_from(host_mask.data());
+    cmd_list << copy_to_device(dev_ids_view, host_ids.data())
+             << copy_to_device(dev_mask_view, host_mask.data());
 
     MultimodalInputs mm_inputs{};
     mm_inputs.vision_embeds = dev_video_soft_tokens.view(0, total_soft_elems);
@@ -988,7 +989,7 @@ Embedding encode_video_internal(
     mm_inputs.vision_token_indices = dev_indices_view;
 
     executor->record_encode(cmd_list, dev_ids_view, dev_mask_view, dev_out_view, 1u, S, target_dim, mm_inputs);
-    cmd_list << dev_out_view.copy_to(host_out.data());
+    cmd_list << copy_from_device(dev_out_view, host_out.data());
 
     stream << cmd_list.commit() << compute::synchronize();
 

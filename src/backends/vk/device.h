@@ -11,6 +11,8 @@
 #include "vk_allocator.h"
 #include "sparse_residency_registry.h"
 #include <luisa/backends/ext/vk_config_ext.h>
+#include <luisa/backends/ext/vk_extension_ext.h>
+#include "vk_extension_registry.h"
 #include "../common/rtx/fallback_rtx.h"
 #include <atomic>
 #include <limits>
@@ -133,6 +135,14 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     // extension map first keeps that ordering safe.
     vstd::unordered_map<vstd::string, Ext> _exts;
     vstd::vector<vstd::string> _enable_device_exts;
+    // Negotiated state of every optional device extension. The registry only
+    // holds plain values and function pointers, so destruction order relative
+    // to the logical device does not matter.
+    detail::OptionalExtensionRegistry _optional_extensions;
+    // Bitmask of optional extensions the backend actually routes work through
+    // (see `mark_optional_extension_active`). Atomic: streams record command
+    // lists concurrently and each may mark a fast path on first use.
+    std::atomic<uint64_t> _active_optional_extensions{0u};
     VkQueue _graphics_queue{};
     VkQueue _compute_queue{};
     VkQueue _copy_queue{};
@@ -216,6 +226,64 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
         const ShaderOption &option, Function kernel,
         bool requires_sampler_anisotropy,
         bool fallback_rtx) noexcept;
+    // Read-only view over `_optional_extensions`, handed out by `extension()`.
+    class VulkanExtensionStatusExtImpl final : public VulkanExtensionStatusExt {
+    private:
+        Device *_device;
+        // Built lazily on first query: the negotiation is immutable after
+        // device creation, so one build is enough and the returned span stays
+        // valid for the lifetime of the device.
+        luisa::vector<VulkanExtensionStatus> _cache;
+
+        void build() noexcept;
+
+    public:
+        explicit VulkanExtensionStatusExtImpl(Device *device) noexcept : _device{device} {}
+        [[nodiscard]] luisa::span<const VulkanExtensionStatus> extensions() const noexcept override;
+        [[nodiscard]] bool is_supported(luisa::string_view extension) const noexcept override;
+        [[nodiscard]] bool is_enabled(luisa::string_view extension) const noexcept override;
+        [[nodiscard]] bool is_active(luisa::string_view extension) const noexcept override;
+    };
+    VulkanExtensionStatusExtImpl _optional_extension_status{this};
+
+public:
+    // Optional (non-required) Vulkan device extensions, negotiated once at
+    // device creation from the physical device's extension list and the
+    // VulkanDeviceConfigExt switches. Every one of them has a fallback path,
+    // so `false` never breaks the backend.
+    [[nodiscard]] bool optional_extension_supported(detail::OptionalExtension ext) const noexcept {
+        return _optional_extensions.supported(ext);
+    }
+    [[nodiscard]] bool optional_extension_enabled(detail::OptionalExtension ext) const noexcept {
+        return _optional_extensions.enabled(ext);
+    }
+    [[nodiscard]] bool optional_extension_active(detail::OptionalExtension ext) const noexcept {
+        return (_active_optional_extensions.load(std::memory_order_relaxed) &
+                (uint64_t{1u} << static_cast<uint32_t>(ext))) != 0u;
+    }
+    // Records that the backend really takes this extension's fast path, so the
+    // status extension can distinguish "may use" from "does use". Safe to call
+    // from any recording thread; never clears a bit.
+    void mark_optional_extension_active(detail::OptionalExtension ext) noexcept {
+        _active_optional_extensions.fetch_or(
+            uint64_t{1u} << static_cast<uint32_t>(ext),
+            std::memory_order_relaxed);
+    }
+    // Instance extensions this backend actually enabled on the instance it
+    // created (surface/platform, VK_KHR_get_surface_capabilities2,
+    // VK_KHR_surface_maintenance1). Vulkan cannot report them back, so the
+    // swapchain attests its optional present extensions against this list.
+    // Always empty for a borrowed instance.
+    [[nodiscard]] luisa::span<const vstd::string> enabled_instance_extensions() const noexcept;
+    // Returned by value on purpose: `states()` hands out a temporary span, and
+    // binding that temporary to a reference return type dangles (MSVC C4172,
+    // clang -Wreturn-stack-address). Callers either copy the span or iterate it
+    // immediately.
+    [[nodiscard]] luisa::span<const detail::OptionalExtensionState>
+    optional_extensions() const noexcept {
+        return _optional_extensions.states();
+    }
+
 public:
     struct HeapAlloc {
         uint count = 0;

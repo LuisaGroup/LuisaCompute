@@ -4,7 +4,71 @@
 #include "tlas.h"
 #include "stream.h"
 #include <luisa/runtime/rtx/aabb.h>
+#include "opacity_micromap.h"
+#include "rt_extension_plan.h"
 namespace lc::vk {
+
+namespace blas_detail {
+
+// `detail::plan_geometry_flags` keeps its bits Vulkan-free so the unit test can
+// prove the decision without a Vulkan header. These two assertions are the other
+// half of that contract: if VkGeometryFlagBitsKHR ever moves, the plan's byte
+// stops matching the enum the build passes on and this fails instead of silently
+// setting the wrong bit.
+static_assert(detail::geometry_flag_opaque == VK_GEOMETRY_OPAQUE_BIT_KHR,
+              "the plan's opaque bit must stay VK_GEOMETRY_OPAQUE_BIT_KHR");
+static_assert(detail::geometry_flag_no_duplicate_any_hit ==
+                  VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR,
+              "the plan's no-duplicate-any-hit bit must stay the Vk enum value");
+// The attach struct's index stride has to be a multiple of the index size
+// (VUID-VkAccelerationStructureTrianglesOpacityMicromapKHR-indexStride-11573);
+// this build indexes triangles with uint32, so the natural stride is 4.
+static_assert(sizeof(uint32_t) == 4u,
+              "the BLAS triangle index buffer is VK_INDEX_TYPE_UINT32");
+
+// Attach request of the backend-internal opacity micromap of a BLAS.
+//
+// Only `Blas::attach_opacity_micromap()` can give a BLAS one, and nothing in the
+// public accelerator API calls it (see blas.h), so reaching this function means a
+// caller explicitly asked for a micromap: `public_api_request` is what the plan
+// requires before it answers ATTACH.
+//
+// Everything the plan refuses is refused here as well, before a single Vulkan
+// structure is filled: a geometry that already chains
+// VkAccelerationStructureGeometryMotionTrianglesDataNV, a device that resolved
+// only the KHR name (the ray query would then need the OpacityMicromapIdKHR
+// execution mode, which no codegen route of this backend emits), and a micromap
+// that was never built.
+[[nodiscard]] detail::OpacityMicromapAttachRequest micromap_attach_request(
+    Device *device, bool micromap_created, bool motion_triangles,
+    uint32_t triangle_count) noexcept {
+    detail::OpacityMicromapAttachRequest request;
+    request.extension_enabled = device->optional_extension_enabled(
+        detail::OptionalExtension::OPACITY_MICROMAP);
+    request.public_api_request = true;
+    request.micromap_available = micromap_created;
+    request.triangle_geometry = true;
+    request.motion_triangles = motion_triangles;
+    request.ext_opacity_micromap_enabled =
+        OpacityMicromap::ext_alias_negotiated(device);
+    // No codegen route emits the execution mode yet, so the KHR spelling refuses
+    // the attach instead of building a micromap the traversal would read with
+    // undefined results.
+    request.ray_query_execution_mode_emitted = false;
+    // The ray flags belong to the shader that traces the structure, not to the
+    // build; the shader side has to keep OpaqueKHR out of a micromap traversal.
+    request.opaque_ray_flags = false;
+    request.instance_disables_micromaps = false;
+    request.index_type = detail::OpacityMicromapIndexType::UINT32;
+    request.index_stride = sizeof(uint32_t);
+    request.base_triangle = 0u;
+    request.usage_count = 1u;
+    request.triangle_count = triangle_count;
+    return request;
+}
+
+}// namespace blas_detail
+
 Blas::Blas(Device *device, AccelOption const &option)
     : PrimitiveBase(device, PrimitiveBase::PrimTag::BLAS), _option(option), _acceleration_build_geometry_info(nullptr) {
     if (!device->enable_raytracing()) [[unlikely]] {
@@ -114,7 +178,14 @@ void Blas::pre_build(
     auto acceleration_structure_geometry = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureGeometryKHR>();
     acceleration_structure_geometry->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
     acceleration_structure_geometry->geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
-    acceleration_structure_geometry->flags = 0;
+    // Same single source of truth as the triangle path below: an AABB geometry
+    // never carries a geometry flag, and no optional extension can change that
+    // (an opacity micromap only exists for triangles).
+    acceleration_structure_geometry->flags = detail::plan_geometry_flags({
+        .triangle_geometry = false,
+        .opaque_requested = false,
+        .micromap_chained = false})
+                                                .flags;
     VkDeviceOrHostAddressConstKHR aabb_data_device_address{};
     aabb_data_device_address.deviceAddress = reinterpret_cast<Buffer const *>(cmd->aabb_buffer())->get_device_address() + cmd->aabb_buffer_offset();
 
@@ -139,7 +210,6 @@ void Blas::pre_build(
     auto acceleration_structure_geometry = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureGeometryKHR>();
     acceleration_structure_geometry->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
     acceleration_structure_geometry->geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-    acceleration_structure_geometry->flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
     auto &triangles = acceleration_structure_geometry->geometry.triangles;
     triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
     triangles.pNext = nullptr;
@@ -147,6 +217,38 @@ void Blas::pre_build(
     auto keyframe_count = _option.motion.is_enabled() ? _option.motion.keyframe_count : 1u;
     auto total_vertex_count = cmd->vertex_buffer_size() / cmd->vertex_stride();
     auto vertex_count_per_keyframe = total_vertex_count / keyframe_count;
+    // Opacity micromap (VK_KHR_opacity_micromap, backend-internal).
+    //
+    // `_micromap` is null in every build the public API can trigger (see blas.h),
+    // so this block is dead by construction and the build stays exactly what it
+    // was. `OpacityMicromap::fill_attach_info` runs the plan
+    // (`detail::plan_opacity_micromap_attach`) and refuses - leaving
+    // `triangles.pNext` untouched - whenever the extension is off or unsupported,
+    // the micromap was never built, or the geometry is a motion geometry that
+    // already chains VkAccelerationStructureGeometryMotionTrianglesDataNV. A refused
+    // attach also leaves the geometry flags at VK_GEOMETRY_OPAQUE_BIT_KHR.
+    VkAccelerationStructureTrianglesOpacityMicromapEXT *opacity_micromap = nullptr;
+    if (_micromap != nullptr) {
+        auto attach_info = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureTrianglesOpacityMicromapEXT>();
+        auto attach_request = blas_detail::micromap_attach_request(
+            device(), _micromap->built(),
+            _option.motion.is_enabled() && keyframe_count == 2u,
+            static_cast<uint32_t>(cmd->triangle_buffer_size() / 12));
+        if (_micromap->fill_attach_info(*attach_info, attach_request,
+                                       index_data_device_address.deviceAddress)) {
+            opacity_micromap = attach_info;
+        }
+    }
+    // Geometry flags: `plan_geometry_flags` reproduces today's
+    // VK_GEOMETRY_OPAQUE_BIT_KHR exactly while no micromap is attached, and drops
+    // the bit for a legal attach because the micromap then decides opacity
+    // ("the micromap is used to determine geometry opacity instead of the
+    // VK_GEOMETRY_OPAQUE_BIT_KHR flag", raytraversal.adoc).
+    acceleration_structure_geometry->flags = detail::plan_geometry_flags({
+        .triangle_geometry = true,
+        .opaque_requested = true,
+        .micromap_chained = opacity_micromap != nullptr})
+                                                .flags;
 
     if (_option.motion.is_enabled() && keyframe_count == 2u) {
         // VkAccelerationStructureGeometryMotionTrianglesDataNV is NV-only;
@@ -186,6 +288,8 @@ void Blas::pre_build(
         triangles.vertexStride = cmd->vertex_stride();
         triangles.indexType = VK_INDEX_TYPE_UINT32;
         triangles.indexData = index_data_device_address;
+        // Null unless a backend-internal caller attached a built micromap.
+        triangles.pNext = opacity_micromap;
     }
 
     _pre_build(cmdbuffer, acceleration_structure_geometry, cmd->triangle_buffer_size() / 12, cmd->request());

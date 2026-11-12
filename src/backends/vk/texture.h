@@ -84,14 +84,22 @@ public:
         uint mip,
         bool simultaneous_access,
         VkDeviceMemory external_memory = nullptr);
-    Texture(
-        Device *device,
-        uint dimension,
-        compute::PixelFormat format,
-        uint3 size,
-        uint mip,
-        bool simultaneous_access,
-        bool allow_raster_target);
+      Texture(
+          Device *device,
+          uint dimension,
+          compute::PixelFormat format,
+          uint3 size,
+          uint mip,
+          bool simultaneous_access,
+          bool allow_raster_target,
+          // VK_EXT_image_tiling_control tiling policy. The default policy is
+          // defined to be identical to omitting
+          // VkImageTilingControlCreateInfoEXT, so this parameter leaves the
+          // pre-existing creation path untouched. `create_texture` cannot
+          // express a policy, so the backend-internal helper
+          // `create_texture_with_tiling_policy` (vk_memory_policy.h) is the
+          // entry point that selects one.
+          detail::ImageTilingPolicy tiling_policy = detail::ImageTilingPolicy::kDefault);
     Texture(
         Device *device,
         compute::DepthFormat format,
@@ -147,7 +155,15 @@ public:
     bool allow_uav() const {
         return !is_srgb(_format) && (luisa::to_underlying(_format) <= 65535u);
     }
-    static VkFormat to_vk_format(compute::PixelFormat format);
+          static VkFormat to_vk_format(compute::PixelFormat format);
+      // Device-aware format mapping. Identical to `to_vk_format(format)` for
+      // every request except a 3D image with a 2D ASTC block format: those map
+      // onto the 3D-compressed ASTC format of
+      // VK_EXT_texture_compression_astc_3d when the extension is enabled, and
+      // otherwise return VK_FORMAT_UNDEFINED so the caller reports the existing
+      // "unsupported format" error.
+      [[nodiscard]] static VkFormat to_vk_format(
+          Device *device, compute::PixelFormat format, uint dimension) noexcept;
     Tag tag() const override { return Tag::kTexture; }
 };
 struct TexView {

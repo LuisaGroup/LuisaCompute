@@ -526,17 +526,24 @@ on_build(function(target)
     if not os.isfile(script) then
         raise("missing " .. script)
     end
-    import("core.project.config")
-    local python = os.getenv("PYTHON") or "python"
-    local output = os.iorunv(python, {script,
-                                     "--gens", path.join(os.projectdir(), config.builddir()),
-                                     "--plat", target:plat()},
-                            {curdir = os.projectdir(), try = true})
-    if not output then
-        cprint("${yellow}unity-build check could not run (python + tree-sitter/tree-sitter-cpp required)${clear}")
-        return
-    end
-    print(output)
+      import("core.project.config")
+      local python = os.getenv("PYTHON") or "python"
+      -- The checker needs tree-sitter to parse the translation units. When the
+      -- bindings are missing (a fresh machine, a CI image without pip), skip the
+      -- check with a warning instead of failing an otherwise healthy build.
+      local probe = os.iorunv(python, {"-c", "import tree_sitter, tree_sitter_cpp"},
+                              {try = true})
+      if not probe then
+          cprint("${yellow}unity-build check skipped: pip install tree-sitter tree-sitter-cpp${clear}")
+          return
+      end
+      -- Exit code 1 means real conflicts. Run without capturing the output so
+      -- the report reaches the console and the non-zero exit fails this target;
+      -- `try = true` would swallow it and report a green build for a broken tree.
+      os.execv(python, {script,
+                        "--gens", path.join(os.projectdir(), config.builddir()),
+                        "--plat", target:plat()},
+               {curdir = os.projectdir()})
 end)
 target_end()
 

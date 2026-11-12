@@ -254,6 +254,11 @@ static uint32_t live_device_count{};
 static bool vk_instance_surface_enabled{};
 static bool vk_instance_validation_enabled{};
 static vstd::unordered_set<luisa::string> vk_instance_extra_exts;
+// Instance extensions the backend enabled itself (surface/platform +
+// VK_KHR_get_surface_capabilities2 + VK_KHR_surface_maintenance1). Vulkan
+// cannot report them back, so the optional-extension registry needs them handed
+// over explicitly. Empty for a borrowed instance.
+static vstd::vector<luisa::string> vk_instance_enabled_extensions;
 static Settings settings{};
 static PFN_vkCreateDebugUtilsMessengerEXT vk_create_debug_utils_messenger_ext;
 
@@ -441,6 +446,15 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
         if (enable_surface) {
             enable_surface &= emplace_instance_ext(VK_KHR_SURFACE_EXTENSION_NAME);
             enable_surface &= emplace_instance_ext(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+            // Optional surface capability queries used by
+            // VK_KHR_surface_maintenance1 / VK_EXT_present_timing
+            // (vkGetPhysicalDeviceSurfaceCapabilities2EXT,
+            // vkGetPhysicalDeviceSurfacePresentModes2EXT). Harmless when unused.
+            emplace_instance_ext(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+            // Harmless to enable, and required for the
+            // VK_KHR_surface_maintenance1 / VK_EXT_present_timing capability
+            // queries (surface present modes / scaling).
+            emplace_instance_ext(VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
 #if defined(_WIN32)
             enable_surface &= emplace_instance_ext(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
@@ -520,6 +534,13 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
                     "VK_EXT_debug_utils is unavailable; Vulkan validation "
                     "messenger output is disabled.");
                 vk_device_detail_3::settings.validation = false;
+            }
+        }
+        {
+            auto &recorded = vk_device_detail_3::vk_instance_enabled_extensions;
+            recorded.clear();
+            for (auto name : instance_exts) {
+                recorded.emplace_back(luisa::string{name});
             }
         }
         instance_create_info.enabledExtensionCount = (uint32_t)instance_exts.size();
@@ -1215,6 +1236,38 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             _enable_device_exts.emplace_back(name);
         }
     };
+    // ---- optional extension negotiation ------------------------------
+    // Everything negotiated here is optional: the backend keeps a fallback
+    // path, so an unsupported or switched-off extension only costs the
+    // optimization it enables. VulkanDeviceConfigExt decides per extension
+    // what the application permits, the physical device decides what is
+    // possible at all.
+    {
+        luisa::vector<luisa::string> supported_extension_names;
+        supported_extension_names.reserve(supported_ext.size());
+        for (auto const &name : supported_ext) {
+            supported_extension_names.emplace_back(name.c_str());
+        }
+        luisa::vector<luisa::string> instance_extension_names;
+        for (auto const &name : detail::vk_device_detail_3::vk_instance_enabled_extensions) {
+            instance_extension_names.emplace_back(name.c_str());
+        }
+        _optional_extensions.select(
+            luisa::span<const luisa::string>{supported_extension_names.data(),
+                                             supported_extension_names.size()},
+            luisa::span<const luisa::string>{instance_extension_names.data(),
+                                             instance_extension_names.size()},
+            _config_ext.get(), external_device != VK_NULL_HANDLE);
+        // One query over every candidate's feature structure. Only extensions
+        // the physical device exposes are chained, so an unknown sType is
+        // never handed to the driver.
+        if (auto probe_chain = _optional_extensions.feature_query_chain()) {
+            VkPhysicalDeviceFeatures2 optional_features2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                .pNext = probe_chain};
+            vkGetPhysicalDeviceFeatures2(physical_device, &optional_features2);
+        }
+    }
     auto api_version = _vk_device->properties.apiVersion;
     auto has_core_timeline_semaphore = api_version >= VK_API_VERSION_1_2;
     auto has_core_synchronization2 = api_version >= VK_API_VERSION_1_3;
@@ -2172,6 +2225,25 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
         }
     }
+    // VK_KHR_maintenance5 (core in Vulkan 1.4) is enabled whenever the physical
+    // device supports it: it adds VkBufferUsageFlags2CreateInfoKHR, which the
+    // 64-bit usage masks of newer optional features (memory decompression)
+    // require, and it only removes API friction otherwise. Its feature
+    // structure is empty apart from the aggregate bool.
+    bool maintenance5_enabled = false;
+    if (supports_device_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME)) {
+        VkPhysicalDeviceMaintenance5FeaturesKHR supported_maintenance5{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
+            .pNext = nullptr};
+        VkPhysicalDeviceFeatures2 maintenance5_features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &supported_maintenance5};
+        vkGetPhysicalDeviceFeatures2(physical_device, &maintenance5_features2);
+        if (supported_maintenance5.maintenance5 == VK_TRUE) {
+            enable_device_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
+            maintenance5_enabled = true;
+        }
+    }
     luisa::vector<luisa::string> extra_exts = [&]() {
         if (_config_ext && external_device == VK_NULL_HANDLE) {
             return _config_ext->extra_device_exts();
@@ -2182,6 +2254,23 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     for (auto &i : extra_exts) {
         if (supported_ext.find(i) != supported_ext.end())
             enable_device_extension(i.c_str());
+    }
+    // Finish the optional extension negotiation after every mandatory
+    // extension has been decided, so a prerequisite (swapchain, ray tracing
+    // pipeline, ...) is already visible.
+    for (auto const &name : _enable_device_exts) {
+        _optional_extensions.note_enabled_extension(name.c_str());
+    }
+    if (surface_enabled) {
+        // VK_KHR_swapchain is appended inside create_logical_device(), so the
+        // registry cannot see it otherwise. Present/swapchain-maintenance
+        // extensions declare it as a prerequisite.
+        _optional_extensions.note_enabled_extension(
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    }
+    _optional_extensions.resolve();
+    for (auto name : _optional_extensions.enabled_extension_names()) {
+        enable_device_extension(name);
     }
     void *feature_next{nullptr};
     if (_config_ext && external_device == VK_NULL_HANDLE) {
@@ -2215,6 +2304,25 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 static_cast<int32_t>(
                     custom_feature_chain_validation.structure_type));
         }
+    }
+    // Append the optional feature structures to the caller-provided tail. The
+    // chain was validated above without them: those sTypes are owned by the
+    // backend (see backend_owned_device_feature_structure_types), so a config
+    // must not be able to supply them.
+    feature_next = _optional_extensions.device_feature_chain(feature_next);
+    // VK_KHR_maintenance5 is chained only when it is actually enabled: a feature
+    // structure whose extension is not enabled is a validation error. (The
+    // `ENABLE_HIDDEN_FEATURES` block above carries a dormant second copy of this
+    // structure; that macro is never defined, so the two cannot collide.)
+    VkPhysicalDeviceMaintenance5FeaturesKHR maintenance5_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
+        .pNext = feature_next,
+        .maintenance5 = maintenance5_enabled ? VK_TRUE : VK_FALSE};
+    if (maintenance5_enabled) {
+        feature_next = &maintenance5_features;
+    }
+    if (auto status = _optional_extensions.status_string(); !status.empty()) {
+        LUISA_INFO("Vulkan optional device extensions:\n{}", status);
     }
     VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR raster_bary{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR,
@@ -3291,6 +3399,28 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::shader_untyped_pointers);
     enable(owned_logical_device && cooperative_vector_enabled,
            target_feature::cooperative_vector);
+    // Optional shader capability extensions. `optional_extension_enabled` is
+    // already false for an imported logical device and for a switch the
+    // application turned off, so the artifact requirement bits can never claim a
+    // capability the device did not attest.
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_FMA),
+           target_feature::shader_fma_float32);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_64BIT_INDEXING),
+           target_feature::shader_64bit_indexing);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_UNIFORM_BUFFER_UNSIZED_ARRAY),
+           target_feature::shader_uniform_buffer_unsized_array);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_LONG_VECTOR),
+           target_feature::shader_long_vector);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_SUBGROUP_PARTITIONED),
+           target_feature::shader_subgroup_partitioned);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_SPLIT_BARRIER),
+           target_feature::shader_split_barrier);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_OCP_MICROSCALING_TYPES),
+           target_feature::shader_ocp_microscaling_types);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_CONSTANT_DATA),
+           target_feature::shader_constant_data);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_ABORT),
+           target_feature::shader_abort);
     return mask;
 }
 
@@ -4233,9 +4363,20 @@ SparseTextureCreationInfo Device::create_sparse_texture(
     r.tile_size = ptr->tile_size();
     return r;
 }
+luisa::span<const vstd::string>
+Device::enabled_instance_extensions() const noexcept {
+    // A borrowed instance keeps an empty record: the backend did not create it
+    // and cannot attest its enabled extension list.
+    auto &recorded = detail::vk_device_detail_3::vk_instance_enabled_extensions;
+    return luisa::span<const vstd::string>{recorded.data(), recorded.size()};
+}
+
 DeviceExtension *Device::extension(vstd::string_view name) noexcept {
     if (name == CommandReorderExt::name) {
         return &_command_reorder_ext;
+    }
+    if (name == VulkanExtensionStatusExt::name) {
+        return &_optional_extension_status;
     }
     auto ite = _exts.find(name);
     if (ite == _exts.end()) return nullptr;
@@ -4280,6 +4421,54 @@ void Device::set_stream_log_callback(uint64_t stream_handle,
     }
     reinterpret_cast<Stream *>(stream_handle)->logger = callback;
 }
+void Device::VulkanExtensionStatusExtImpl::build() noexcept {
+    if (!_cache.empty()) { return; }
+    auto states = _device->optional_extensions();
+    _cache.reserve(states.size());
+    for (auto const &state : states) {
+        VulkanExtensionStatus status{};
+        status.name = state.name == nullptr ? luisa::string{"unknown"} :
+                                              luisa::string{state.name};
+        status.supported = state.supported_by_device;
+        status.requested = state.requested_by_config;
+        status.enabled = state.enabled;
+        status.active = state.enabled &&
+                        _device->optional_extension_active(state.id);
+        _cache.emplace_back(std::move(status));
+    }
+}
+
+luisa::span<const VulkanExtensionStatus>
+Device::VulkanExtensionStatusExtImpl::extensions() const noexcept {
+    auto self = const_cast<VulkanExtensionStatusExtImpl *>(this);
+    self->build();
+    return luisa::span<const VulkanExtensionStatus>{self->_cache.data(),
+                                                   self->_cache.size()};
+}
+
+bool Device::VulkanExtensionStatusExtImpl::is_supported(
+    luisa::string_view extension) const noexcept {
+    auto id = detail::optional_extension_from_name(extension);
+    return id != detail::OptionalExtension::COUNT &&
+           _device->_optional_extensions.supported(id);
+}
+
+bool Device::VulkanExtensionStatusExtImpl::is_enabled(
+    luisa::string_view extension) const noexcept {
+    auto id = detail::optional_extension_from_name(extension);
+    return id != detail::OptionalExtension::COUNT &&
+           _device->_optional_extensions.enabled(id);
+}
+
+bool Device::VulkanExtensionStatusExtImpl::is_active(
+    luisa::string_view extension) const noexcept {
+    auto id = detail::optional_extension_from_name(extension);
+    return id != detail::OptionalExtension::COUNT &&
+           _device->_optional_extensions.enabled(id) &&
+           _device->optional_extension_active(id);
+}
+
 }// namespace lc::vk
+
 
 #include "../common/export_version.inl.h"

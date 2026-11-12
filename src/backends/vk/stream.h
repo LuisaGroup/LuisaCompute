@@ -5,6 +5,8 @@
 #include "upload_buffer.h"
 #include "readback_buffer.h"
 #include "default_buffer.h"
+#include "indirect_copy_command_buffer.h"
+#include <luisa/core/stl/memory.h>
 #include <volk.h>
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/rhi/command.h>
@@ -67,6 +69,17 @@ struct CommandBufferState {
     temp_buffer::BufferAllocator<UploadBuffer> upload_alloc;
     temp_buffer::BufferAllocator<ReadbackBuffer> readback_alloc;
     VkDescriptorPool desc_pool{};
+    // VK_KHR_copy_memory_indirect negotiation data of this state
+    // (copy_command_plan.h decides with them, this struct only carries them):
+    // VkPhysicalDeviceCopyMemoryIndirectPropertiesKHR::supportedQueues and the
+    // VkQueueFlags of the family this state's command pool belongs to. Both are
+    // queried once in init(); a zero mask means "not enabled/queried", which
+    // keeps the direct copy path.
+    VkQueueFlags copy_memory_indirect_supported_queues{0u};
+    VkQueueFlags command_pool_queue_flags{0u};
+    // Command array of the indirect copy batching fast path, created on the
+    // first batch that reaches it and reused for the lifetime of this state.
+    luisa::unique_ptr<IndirectCopyCommandBuffer> indirect_copy_commands;
     vstd::vector<VkImageView> img_views;
     vstd::vector<std::pair<void *, vstd::func_ptr_t<void(Stream *, CommandBufferState *, void *)>>> dispose_pool;
     vstd::vector<vstd::function<void()>> callbacks;

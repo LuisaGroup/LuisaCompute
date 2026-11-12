@@ -136,6 +136,204 @@ public:
     [[nodiscard]] virtual bool enable_motion_blur() const noexcept {
         return true;
     }
+    // ---------------------------------------------------------------------
+    // Optional extension switches
+    //
+    // Every switch below gates one *optional* Vulkan device extension. The
+    // backend enables an extension only when the switch returns true *and* the
+    // physical device exposes it, so returning true never makes an unsupported
+    // device fail. Returning false is always safe: the backend keeps a
+    // fallback path and only loses the optimization or the extra capability.
+    //
+    // The negotiated result (supported / requested / enabled) is queryable at
+    // runtime through VulkanExtensionStatusExt
+    // (<luisa/backends/ext/vk_extension_ext.h>) and is logged once at device
+    // creation.
+    // ---------------------------------------------------------------------
+    // Descriptor heaps (VK_EXT_descriptor_heap): device-address based
+    // descriptor storage that can replace update-after-bind descriptor sets.
+    [[nodiscard]] virtual bool enable_descriptor_heap() const noexcept {
+        return true;
+    }
+    // Device-address command variants (VK_KHR_device_address_commands):
+    // indirect draw/dispatch and copies addressed by VkDeviceAddress instead of
+    // VkBuffer handles.
+    [[nodiscard]] virtual bool enable_device_address_commands() const noexcept {
+        return true;
+    }
+    // Unified image layouts (VK_KHR_unified_image_layouts): VK_IMAGE_LAYOUT_GENERAL
+    // keeps full performance, so the barrier tracker can stop switching layouts.
+    [[nodiscard]] virtual bool enable_unified_image_layouts() const noexcept {
+        return true;
+    }
+    // Indirect memory/image copies (VK_KHR_copy_memory_indirect) whose
+    // parameters are read from a device buffer at execution time.
+    [[nodiscard]] virtual bool enable_copy_memory_indirect() const noexcept {
+        return true;
+    }
+    // GPU memory decompression (VK_EXT_memory_decompression).
+    [[nodiscard]] virtual bool enable_memory_decompression() const noexcept {
+        return true;
+    }
+    // Zero-initialized device memory (VK_EXT_zero_initialize_device_memory).
+    [[nodiscard]] virtual bool enable_zero_initialize_device_memory() const noexcept {
+        return true;
+    }
+    // Internally synchronized queues (VK_KHR_internally_synchronized_queues).
+    [[nodiscard]] virtual bool enable_internally_synchronized_queues() const noexcept {
+        return true;
+    }
+    // 64-bit flag types (VK_KHR_extended_flags).
+    [[nodiscard]] virtual bool enable_extended_flags() const noexcept {
+        return true;
+    }
+    // Per-image tiling policy selection (VK_EXT_image_tiling_control).
+    [[nodiscard]] virtual bool enable_image_tiling_control() const noexcept {
+        return true;
+    }
+    // Present id/wait v2 (VK_KHR_present_id2 / VK_KHR_present_wait2).
+    [[nodiscard]] virtual bool enable_present_id2() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_present_wait2() const noexcept {
+        return true;
+    }
+    // Tear-free "latest ready frame" present mode
+    // (VK_KHR_present_mode_fifo_latest_ready).
+    [[nodiscard]] virtual bool enable_present_mode_fifo_latest_ready() const noexcept {
+        return true;
+    }
+    // Surface/swapchain maintenance1 capability queries and creation options
+    // (VK_KHR_surface_maintenance1 / VK_KHR_swapchain_maintenance1).
+    [[nodiscard]] virtual bool enable_surface_maintenance1() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_swapchain_maintenance1() const noexcept {
+        return true;
+    }
+    // Frame pacing feedback (VK_EXT_present_timing).
+    [[nodiscard]] virtual bool enable_present_timing() const noexcept {
+        return true;
+    }
+    // Multisampled render directly to the swapchain
+    // (VK_EXT_multisampled_render_to_swapchain).
+    [[nodiscard]] virtual bool enable_multisampled_render_to_swapchain() const noexcept {
+        return true;
+    }
+    // Shader capability extensions. The backend only advertises them to the
+    // code generator when the corresponding extension is enabled.
+    [[nodiscard]] virtual bool enable_shader_fma() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_shader_64bit_indexing() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_shader_uniform_buffer_unsized_array() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_shader_long_vector() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_shader_subgroup_partitioned() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_shader_split_barrier() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_shader_ocp_microscaling_types() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_shader_constant_data() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_shader_abort() const noexcept {
+        return true;
+    }
+    // Cross-vendor shader execution reordering
+    // (VK_EXT_ray_tracing_invocation_reorder).
+    [[nodiscard]] virtual bool enable_ray_tracing_invocation_reorder() const noexcept {
+        return true;
+    }
+    // Opacity micromaps (VK_KHR_opacity_micromap; the EXT alias is accepted
+    // when the KHR name is unavailable).
+    [[nodiscard]] virtual bool enable_opacity_micromap() const noexcept {
+        return true;
+    }
+    // Shader-provided attachment resolve (VK_EXT_custom_resolve).
+    [[nodiscard]] virtual bool enable_custom_resolve() const noexcept {
+        return true;
+    }
+    // Fragment density map offsets (VK_EXT_fragment_density_map_offset).
+    [[nodiscard]] virtual bool enable_fragment_density_map_offset() const noexcept {
+        return true;
+    }
+    // Dynamic primitive restart index (VK_EXT_primitive_restart_index).
+    [[nodiscard]] virtual bool enable_primitive_restart_index() const noexcept {
+        return true;
+    }
+    // 3D ASTC compressed textures (VK_EXT_texture_compression_astc_3d).
+    [[nodiscard]] virtual bool enable_texture_compression_astc_3d() const noexcept {
+        return true;
+    }
+    // Pipeline library group handles
+    // (VK_KHR_pipeline_library_group_handles).
+    [[nodiscard]] virtual bool enable_pipeline_library_group_handles() const noexcept {
+        return true;
+    }
+    // Vulkan/Metal external memory interop (VK_EXT_external_memory_metal).
+    [[nodiscard]] virtual bool enable_external_memory_metal() const noexcept {
+        return true;
+    }
+    // D3D-style [0,1] depth clamp range (VK_KHR_depth_clamp_zero_one).
+    [[nodiscard]] virtual bool enable_depth_clamp_zero_one() const noexcept {
+        return true;
+    }
+    // Maintenance extensions. Each one only removes API friction the backend
+    // previously worked around; disabling it restores the workaround.
+    [[nodiscard]] virtual bool enable_maintenance8() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_maintenance9() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_maintenance10() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_maintenance11() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_maintenance12() const noexcept {
+        return true;
+    }
+    // Robustness2 (VK_KHR_robustness2 / VK_EXT_robustness2) is a debugging aid:
+    // the backend only considers it in non-NDEBUG builds, where nullDescriptor
+    // and out-of-bounds access are turned into well-defined behaviour.
+    [[nodiscard]] virtual bool enable_robustness2() const noexcept {
+        return true;
+    }
+    // Vendor extensions. They are only usable on the matching hardware, and
+    // the backend treats "unsupported" as "feature absent".
+    [[nodiscard]] virtual bool enable_tensor_arm() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_data_graph_arm() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_tile_shading_qcom() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_tile_memory_heap_qcom() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_partitioned_acceleration_structure() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_ray_tracing_linear_swept_spheres() const noexcept {
+        return true;
+    }
+    [[nodiscard]] virtual bool enable_dense_geometry_format() const noexcept {
+        return true;
+    }
     // A non-null result is a one-shot borrowed primary command buffer for this
     // acquisition. It must be in the initial state, be recordable for the
     // stream role's queue family, and remain alive together with its command

@@ -60,7 +60,47 @@ inline constexpr SpirvTargetFeatureMask shader_untyped_pointers = 0x000001000000
 inline constexpr SpirvTargetFeatureMask cooperative_vector = 0x0000020000000000ull;
 inline constexpr SpirvTargetFeatureMask shader_bfloat16 = 0x0000040000000000ull;
 
-inline constexpr SpirvTargetFeatureMask known_mask = 0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector | shader_bfloat16;
+// ---- optional shader capability extensions -------------------------------
+// One bit per negotiated shader capability extension of the Vulkan backend
+// (see src/backends/vk/vk_shader_capabilities.h). A bit may only be required by
+// an artifact that really contains the corresponding SPIR-V declaration, so
+// codegen records it at the exact emission site through that planner instead of
+// deriving it from the device.
+//
+// VK_KHR_shader_fma: OpFmaKHR (SPV_KHR_fma). The backend negotiates only the
+// shaderFmaFloat32 bit, so the requirement is exactly the float32 form.
+inline constexpr SpirvTargetFeatureMask shader_fma_float32 = 0x0000080000000000ull;
+// VK_EXT_shader_64bit_indexing: the Shader64BitIndexingEXT capability and
+// execution mode of SPV_EXT_shader_64bit_indexing.
+inline constexpr SpirvTargetFeatureMask shader_64bit_indexing = 0x0000100000000000ull;
+// VK_EXT_shader_uniform_buffer_unsized_array: OpTypeRuntimeArray as the last
+// member of a uniform block. The extension reuses existing SPIR-V capabilities,
+// so this bit describes a Vulkan feature requirement with no OpCapability.
+inline constexpr SpirvTargetFeatureMask shader_uniform_buffer_unsized_array = 0x0000200000000000ull;
+// VK_EXT_shader_long_vector: LongVectorEXT vectors longer than four components.
+inline constexpr SpirvTargetFeatureMask shader_long_vector = 0x0000400000000000ull;
+// VK_EXT_shader_subgroup_partitioned: GroupNonUniformPartitionedEXT and
+// OpGroupNonUniformPartitionEXT.
+inline constexpr SpirvTargetFeatureMask shader_subgroup_partitioned = 0x0000800000000000ull;
+// VK_EXT_shader_split_barrier: SplitBarrierEXT with
+// OpControlBarrierArriveEXT/OpControlBarrierWaitEXT.
+inline constexpr SpirvTargetFeatureMask shader_split_barrier = 0x0001000000000000ull;
+// VK_EXT_shader_ocp_microscaling_types: the OCP microscaling scalar types
+// (Float4EXT/Float6EXT/Float8UnsignedE8M0EXT/MXInt8EXT). The extension enables
+// whichever of those physical feature bits the driver reports.
+inline constexpr SpirvTargetFeatureMask shader_ocp_microscaling_types = 0x0002000000000000ull;
+// VK_KHR_shader_constant_data: ConstantDataKHR with OpConstantDataKHR /
+// OpSpecConstantDataKHR.
+inline constexpr SpirvTargetFeatureMask shader_constant_data = 0x0004000000000000ull;
+// VK_KHR_shader_abort: AbortKHR with OpAbortKHR.
+inline constexpr SpirvTargetFeatureMask shader_abort = 0x0008000000000000ull;
+
+inline constexpr SpirvTargetFeatureMask known_mask =
+    0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector |
+    shader_bfloat16 | shader_fma_float32 | shader_64bit_indexing |
+    shader_uniform_buffer_unsized_array | shader_long_vector |
+    shader_subgroup_partitioned | shader_split_barrier |
+    shader_ocp_microscaling_types | shader_constant_data | shader_abort;
 
 }// namespace target_feature
 
@@ -112,7 +152,16 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::buffer_device_address, "bufferDeviceAddress"},
     SpirvTargetFeatureDescription{target_feature::shader_untyped_pointers, "shaderUntypedPointers"},
     SpirvTargetFeatureDescription{target_feature::cooperative_vector, "cooperativeVector"},
-    SpirvTargetFeatureDescription{target_feature::shader_bfloat16, "shaderBFloat16Type"}};
+    SpirvTargetFeatureDescription{target_feature::shader_bfloat16, "shaderBFloat16Type"},
+    SpirvTargetFeatureDescription{target_feature::shader_fma_float32, "shaderFmaFloat32"},
+    SpirvTargetFeatureDescription{target_feature::shader_64bit_indexing, "shader64BitIndexing"},
+    SpirvTargetFeatureDescription{target_feature::shader_uniform_buffer_unsized_array, "shaderUniformBufferUnsizedArray"},
+    SpirvTargetFeatureDescription{target_feature::shader_long_vector, "shaderLongVector"},
+    SpirvTargetFeatureDescription{target_feature::shader_subgroup_partitioned, "shaderSubgroupPartitioned"},
+    SpirvTargetFeatureDescription{target_feature::shader_split_barrier, "shaderSplitBarrier"},
+    SpirvTargetFeatureDescription{target_feature::shader_ocp_microscaling_types, "shaderOCPMicroscalingTypes"},
+    SpirvTargetFeatureDescription{target_feature::shader_constant_data, "shaderConstantData"},
+    SpirvTargetFeatureDescription{target_feature::shader_abort, "shaderAbort"}};
 
 [[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {
