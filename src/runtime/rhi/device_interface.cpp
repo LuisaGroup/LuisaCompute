@@ -58,7 +58,30 @@ uint64_t DeviceInterface::mega_geometry_device_address(uint64_t handle) noexcept
     return 0u;
 }
 
-uint64_t DeviceInterface::buffer_device_address(uint64_t handle) noexcept {
+uint64_t DeviceInterface::buffer_device_address(uint64_t buffer_handle) noexcept {
+    return 0u;
+}
+
+ResourceCreationInfo DeviceInterface::create_opacity_micromap(
+    const OpacityMicromapOption &option) noexcept {
+    LUISA_ERROR_WITH_LOCATION(
+        "Opacity micromaps are not supported by the '{}' backend, so this device "
+        "cannot build one (requested {} triangles at subdivision level {}{}).",
+        backend_name(), option.triangle_count, option.subdivision_level,
+        option.format == 1u ? ", four-state" : ", two-state");
+    return ResourceCreationInfo::make_invalid();
+}
+
+void DeviceInterface::destroy_opacity_micromap(uint64_t handle) noexcept {
+    // Unreachable for a backend that never created one, but a handle this base
+    // class did not create must not be silently ignored either.
+    LUISA_ERROR_WITH_LOCATION(
+        "destroy_opacity_micromap(0x{:x}) was called on the '{}' backend, which "
+        "cannot create opacity micromaps.",
+        handle, backend_name());
+}
+
+uint32_t DeviceInterface::opacity_micromap_max_subdivision_level(bool four_state) noexcept {
     return 0u;
 }
 

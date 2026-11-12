@@ -629,7 +629,13 @@ private:
         uint64_t vb,
         Range vb_range,
         uint64_t ib,
-        Range ib_range) {
+        Range ib_range,
+        bool has_micromap = false,
+        uint64_t micromap_data = 0u,
+        Range micromap_data_range = {},
+        bool has_micromap_index = false,
+        uint64_t micromap_index = 0u,
+        Range micromap_index_range = {}) {
 
         auto vb_handle = get_handle(
             vb,
@@ -644,7 +650,28 @@ private:
             ResourceType::Buffer);
         auto range_handle = static_cast<RangeHandle *>(ib_handle);
         layer = std::max<int64_t>(layer, get_last_layer_read(range_handle, ib_range));
+        // Micromap payload: the packed bits are written by the frontend bake
+        // dispatch or by a buffer upload, so the build has to be ordered after those
+        // writes (otherwise the BLAS reads uninitialised opacity bits).
+        if (has_micromap) {
+            auto data_handle = static_cast<RangeHandle *>(
+                get_handle(micromap_data, ResourceType::Buffer));
+            layer = std::max<int64_t>(layer, get_last_layer_read(data_handle, micromap_data_range));
+        }
+        if (has_micromap_index) {
+            auto index_handle = static_cast<RangeHandle *>(
+                get_handle(micromap_index, ResourceType::Buffer));
+            layer = std::max<int64_t>(layer, get_last_layer_read(index_handle, micromap_index_range));
+        }
         range_handle->emplace_read_layer(ib_range, layer);
+        if (has_micromap) {
+            static_cast<RangeHandle *>(get_handle(micromap_data, ResourceType::Buffer))
+                ->emplace_read_layer(micromap_data_range, layer);
+            if (has_micromap_index) {
+                static_cast<RangeHandle *>(get_handle(micromap_index, ResourceType::Buffer))
+                    ->emplace_read_layer(micromap_index_range, layer);
+            }
+        }
         static_cast<RangeHandle *>(vb_handle)->emplace_read_layer(vb_range, layer);
         static_cast<NoRangeHandle *>(mesh_handle)->view.write_layer = layer;
         _max_mesh_level = std::max<int64_t>(_max_mesh_level, layer);
@@ -1179,16 +1206,24 @@ public:
                                  command->cluster_buffer_size())));
             return;
         }
-        add_command(
-            command,
-            set_mesh(
-                command->handle(),
-                command->vertex_buffer(),
-                buffer_range(command->vertex_buffer_offset(),
-                             command->vertex_buffer_size()),
-                command->triangle_buffer(),
-                buffer_range(command->triangle_buffer_offset(),
-                             command->triangle_buffer_size())));
+      add_command(
+          command,
+          set_mesh(
+              command->handle(),
+              command->vertex_buffer(),
+              buffer_range(command->vertex_buffer_offset(),
+                           command->vertex_buffer_size()),
+              command->triangle_buffer(),
+              buffer_range(command->triangle_buffer_offset(),
+                           command->triangle_buffer_size()),
+              command->has_micromap(),
+              command->micromap().data_buffer,
+              buffer_range(command->micromap().data_offset,
+                           command->micromap().data_size),
+              command->micromap().index_stride != 0u,
+              command->micromap().index_buffer,
+              buffer_range(command->micromap().index_offset,
+                           command->micromap().index_size)));
     }
     void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
         add_command(

@@ -453,6 +453,22 @@ public:
         return fallback != nullptr && fallback->owns_accel(handle);
     }
     bool enable_device_address() const { return device_address_enabled; }
+    // True when the shaders this device compiles declare the
+    // `OpacityMicromapIdKHR` execution mode, i.e. only for the KHR spelling of
+    // VK_KHR_opacity_micromap: the EXT alias makes ray-query traversal use micromap
+    // data without any execution mode, so the attach plan accepts there anyway.
+    [[nodiscard]] bool opacity_micromap_execution_mode_available() const noexcept {
+        if (!optional_extension_enabled(detail::OptionalExtension::OPACITY_MICROMAP)) {
+            return false;
+        }
+        for (auto &&state : optional_extensions()) {
+            if (state.id != detail::OptionalExtension::OPACITY_MICROMAP) { continue; }
+            return state.name != nullptr &&
+                   luisa::string_view{state.name} !=
+                       luisa::string_view{VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME};
+        }
+        return false;
+    }
     [[nodiscard]] bool enable_cuda_kernel_launch() const noexcept {
         return cuda_kernel_launch_enabled;
     }
@@ -589,6 +605,15 @@ public:
     [[nodiscard]] uint64_t mega_geometry_device_address(uint64_t handle) noexcept override;
     // 0 when this device cannot expose buffer device addresses (never asserts).
     [[nodiscard]] uint64_t buffer_device_address(uint64_t buffer_handle) noexcept override;
+
+    // Opacity micromaps (VK_KHR/VK_EXT_opacity_micromap). `create` raises with an
+    // actionable message - naming the extension, the feature and the
+    // implementation limit - whenever an attach would not be legal on this device;
+    // it never hands out a handle a build would then silently ignore.
+    [[nodiscard]] ResourceCreationInfo create_opacity_micromap(
+        const OpacityMicromapOption &option) noexcept override;
+    void destroy_opacity_micromap(uint64_t handle) noexcept override;
+    [[nodiscard]] uint32_t opacity_micromap_max_subdivision_level(bool four_state) noexcept override;
 
     ResourceCreationInfo create_procedural_primitive(
         const AccelOption &option) noexcept override;

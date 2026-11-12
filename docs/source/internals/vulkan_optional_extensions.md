@@ -158,12 +158,29 @@ so no kernel changes behaviour today.
 `VK_EXT_ray_tracing_invocation_reorder` (cross-vendor SER),
 `VK_KHR_opacity_micromap`, `VK_NV_ray_tracing_linear_swept_spheres`,
 `VK_AMDX_dense_geometry_format` and `VK_NV_partitioned_acceleration_structure`
-are negotiated. Opacity micromaps get a real build path
-(`src/backends/vk/opacity_micromap.*`: micromap allocation, `vkBuildMicromapsEXT`,
-`VkAccelerationStructureTrianglesOpacityMicromapEXT` build input) which is
-currently unreachable from the public accel API, so the extension reports
-enabled-but-inactive. The others are capability-only; each blocker is recorded in
-code with the exact entry points that would be required.
+are negotiated. Opacity micromaps are **reachable from the public API**:
+`Device::create_opacity_micromap()` creates the resource,
+`OpacityMicromap::bake()` packs the cut-out bits on the device,
+`Device::create_mesh(..., MeshCutoutMask)` attaches it, and
+`Blas::pre_build`/`Blas::build` copy the bits into a usage-correct build-input buffer
+and record `vkCmdBuildMicromapsEXT` right before the acceleration-structure build
+(`src/backends/vk/opacity_micromap.*`, `src/backends/vk/blas.cpp`).
+Two API facts follow from the spec and are worth remembering:
+
+- a micromap is not a texture and cannot be a shader argument; the bindable surface is
+  `OpacityMicromap::data()`, a plain `Buffer<uint>` of the packed bits;
+- the traversal that traces a micromapped mesh must not pass `OpaqueKHR`, and the
+  instance must not be forced opaque. `Accel::intersect()` / `intersect_any()` emit
+  `OpaqueKHR` and therefore bypass the micromap; use the loop form
+  (`Accel::traverse()` / `Accel::query()`), which is what
+  `Accel::emplace_back(mesh, ...)` assumes when it drops the opaque bit of a mesh that
+  carries a cut-out mask.
+
+On drivers that negotiate only `VK_KHR_opacity_micromap` (no EXT alias) the SPIR-V
+code generator additionally declares `OpExecutionModeId OpacityMicromapIdKHR` with an
+`OpSpecConstantTrue` operand (target feature
+`ray_tracing_opacity_micromap`). The others are capability-only; each blocker is
+recorded in code with the exact entry points that would be required.
 
 ### Rasterization
 

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
@@ -40,6 +41,10 @@ enum class TraceMode {
     accept_query,
     opaque_query,
     direct,
+    // Hardware opacity micromap ("OMM"): the cut-out of the two boxes is baked into
+    // a micromap and discarded by the traversal itself, so this mode commits every
+    // surface candidate the hardware reports (no software filter at all).
+    omm,
 };
 
 [[nodiscard]] static luisa::optional<TraceMode> parse_trace_mode(
@@ -48,6 +53,7 @@ enum class TraceMode {
     if (name == "accept-query") { return TraceMode::accept_query; }
     if (name == "opaque-query") { return TraceMode::opaque_query; }
     if (name == "direct") { return TraceMode::direct; }
+    if (name == "omm") { return TraceMode::omm; }
     return luisa::nullopt;
 }
 
@@ -58,8 +64,78 @@ enum class TraceMode {
         case TraceMode::accept_query: return "accept-query";
         case TraceMode::opaque_query: return "opaque-query";
         case TraceMode::direct: return "direct";
+        case TraceMode::omm: return "omm";
     }
     return "invalid";
+}
+
+// ---------------------------------------------------------------------------
+// Hardware opacity micromaps (--trace-mode omm)
+// ---------------------------------------------------------------------------
+// `filter_triangle_hit` below cuts the two boxes out with a *procedural,
+// barycentric* stripe mask, and neither the Cornell Box OBJ nor `Mesh` carries a UV
+// map (a mesh has no UV input at all), so the OMM path rebuilds those two boxes as
+// **de-indexed** meshes - three vertices and three UVs per triangle - with
+//     uv = {(0,0), (1,0), (0,1)} for triangle (v0, v1, v2).
+// `TriangleHit::bary` is `(w1, w2)`, so in that frame `uv.x == bary.x` and
+// `uv.y == bary.y`, and therefore
+//     fract(10 * uv.x) < 0.5   (short box, was `fract(10 * h.bary.x) < .5`)
+//     fract( 6 * uv.y) < 0.6   (tall box,  was `fract( 6 * h.bary.y) < .6`)
+// are exactly the predicates the software filter evaluates - a mask texture with
+// those values bakes to the same cut-out, modulo micro-triangle quantization.
+struct OmmBox {
+    // Accel instance index of the box (also its index in the material buffer).
+    uint instance;
+    // First de-indexed vertex of this box in the shared vertex buffer.
+    uint first_vertex;
+    uint triangle_count;
+    // Stripes per triangle edge, and the axis they run along.
+    uint stripe_frequency;
+    bool stripes_along_v;
+    float stripe_duty;
+    luisa::string_view name;
+};
+
+// RGBA mask for one box: `channel = opaque ? 1 : 0`, replicated over all four
+// channels so the bake may select any of them.
+[[nodiscard]] static luisa::vector<float> make_omm_mask(
+    const OmmBox &box, uint size) noexcept {
+    luisa::vector<float> pixels(static_cast<size_t>(size) * size * 4u, 0.0f);
+    for (auto y = 0u; y < size; y++) {
+        auto v = (static_cast<float>(y) + 0.5f) / static_cast<float>(size);
+        for (auto x = 0u; x < size; x++) {
+            auto u = (static_cast<float>(x) + 0.5f) / static_cast<float>(size);
+            auto t = box.stripes_along_v ? v : u;
+            auto f = std::fmod(t * static_cast<float>(box.stripe_frequency), 1.0f);
+            auto value = f < box.stripe_duty ? 1.0f : 0.0f;
+            auto index = (static_cast<size_t>(y) * size + x) * 4u;
+            for (auto c = 0u; c < 4u; c++) { pixels[index + c] = value; }
+        }
+    }
+    return pixels;
+}
+
+// Host-side inverse of the micromap's space-filling curve, for the debug view: for
+// every sample of a `grid x grid` barycentric raster, the micro triangle that
+// covers it (or `omm_debug_outside_triangle` for samples outside the triangle).
+// The bits themselves are then read *on the device* from `OpacityMicromap::data()`,
+// which is what the debug view is meant to demonstrate.
+static constexpr uint omm_debug_grid = 128u;
+static constexpr uint omm_debug_outside_triangle = 0xffffffffu;
+
+[[nodiscard]] static luisa::vector<uint> make_omm_debug_table(uint level) noexcept {
+    luisa::vector<uint> table(static_cast<size_t>(omm_debug_grid) * omm_debug_grid,
+                              omm_debug_outside_triangle);
+    for (auto y = 0u; y < omm_debug_grid; y++) {
+        auto v = (static_cast<float>(y) + 0.5f) / static_cast<float>(omm_debug_grid);
+        for (auto x = 0u; x < omm_debug_grid; x++) {
+            auto u = (static_cast<float>(x) + 0.5f) / static_cast<float>(omm_debug_grid);
+            if (u + v > 1.0f) { continue; }
+            table[static_cast<size_t>(y) * omm_debug_grid + x] =
+                static_cast<uint>(OpacityMicromap::micro_triangle_index(level, make_float2(u, v)));
+        }
+    }
+    return table;
 }
 
 // clang-format off
@@ -78,7 +154,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--iterations N] [--max-registers N] [--max-spp-per-dispatch N] [--trace-mode cutout-query|accept-query|opaque-query|direct] [--ray-query-lowering pipeline|loop] [--capture-float4s N]. <backend>: cuda, dx, metal, metal4, vk, hip, fallback, simd", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--iterations N] [--max-registers N] [--max-spp-per-dispatch N] [--trace-mode cutout-query|accept-query|opaque-query|direct|omm] [--omm-level N] [--omm-conservative] [--omm-debug-view] [--ray-query-lowering pipeline|loop] [--capture-float4s N]. <backend>: cuda, dx, metal, metal4, vk, hip, fallback, simd", argv[0]);
         exit(1);
     }
 
@@ -95,6 +171,14 @@ int main(int argc, char *argv[]) {
     auto trace_mode = TraceMode::cutout_query;
     auto enable_ray_query_pipeline = true;
     auto force_ray_query_pipeline = false;
+    // OMM-only knobs; ignored (and inert) in every other trace mode.
+    auto omm_level = 5u;
+    auto omm_debug_view = false;
+    // `filter_triangle_hit` tests the *hit point*, i.e. the micro triangle the hit
+    // falls into, so the centroid rule is the one that reproduces it. The
+    // conservative rule (cut only when all three corners are transparent) never lets
+    // the cut-out grow past the mask and therefore cuts distinctly less.
+    auto omm_conservative = false;
     for (auto i = 2; i < argc; i++) {
         auto option = luisa::string_view{argv[i]};
         if (option == "--max-registers") {
@@ -120,6 +204,26 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             trace_mode = *parsed;
+        } else if (option == "--omm-level") {
+            if (i + 1 >= argc) {
+                LUISA_WARNING("Missing value for {}.", option);
+                return 1;
+            }
+            auto value = luisa::string_view{argv[++i]};
+            auto parsed = luisa::ref::parse_uint32_option_value(value);
+            if (!parsed || *parsed > OpacityMicromap::max_representable_subdivision_level) {
+                LUISA_WARNING(
+                    "Invalid value '{}' for {}; expected an integer in "
+                    "[0, {}].",
+                    value, option,
+                    OpacityMicromap::max_representable_subdivision_level);
+                return 1;
+            }
+            omm_level = *parsed;
+        } else if (option == "--omm-debug-view") {
+            omm_debug_view = true;
+        } else if (option == "--omm-conservative") {
+            omm_conservative = true;
         } else if (option == "--ray-query-lowering") {
             if (i + 1 >= argc) {
                 LUISA_WARNING("Missing value for {}.", option);
@@ -170,6 +274,47 @@ int main(int argc, char *argv[]) {
 
     Device device = context.create_device(argv[1]);
 
+    // Hardware opacity micromaps are optional, so `omm` degrades to the software
+    // cut-out on a backend that cannot build one instead of failing the run.
+    // Nothing here runs for the default trace mode.
+    static constexpr uint omm_mask_size = 256u;
+    auto omm_max_level = 0u;
+    if (trace_mode == TraceMode::omm) {
+        if (!OpacityMicromap::is_supported(device)) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Backend '{}' has no opacity micromap support "
+                "(VK_KHR/EXT_opacity_micromap); falling back to "
+                "--trace-mode cutout-query.",
+                device.backend_name());
+            trace_mode = TraceMode::cutout_query;
+        } else {
+            omm_max_level = OpacityMicromap::max_subdivision_level(
+                device, OpacityMicromap::Format::TwoState);
+            if (omm_level > omm_max_level) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "This device supports two-state opacity micromaps up to "
+                    "subdivision level {}; clamping --omm-level {} to it "
+                    "(the stripe edges will be coarser than requested).",
+                    omm_max_level, omm_level);
+                omm_level = omm_max_level;
+            }
+            if (capture_float4_count != 0u) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "{} mutable callback float4(s) perturb the software "
+                    "cut-out through `filter_triangle_hit`'s capture bias, a "
+                    "baked micromap cannot be perturbed that way, so `omm` and "
+                    "`cutout-query` differ by design in this configuration.",
+                    capture_float4_count);
+            }
+            LUISA_INFO("Opacity micromap: two-state, subdivision level {} "
+                       "(device maximum {}), {}x{} mask, {} rule; the traversal "
+                       "discards the cut-out, the shader commits every candidate.",
+                       omm_level, omm_max_level, omm_mask_size, omm_mask_size,
+                       omm_conservative ? "conservative (all three corners)" :
+                                          "centroid");
+        }
+    }
+
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
     obj_reader_config.triangulate = true;
@@ -197,12 +342,93 @@ int main(int argc, char *argv[]) {
         "Loaded mesh with {} shape(s) and {} vertices.",
         obj_reader.GetShapes().size(), vertices.size());
 
+    // The instance layout of the Cornell Box: …, short box, tall box, light.
+    auto shape_count = static_cast<uint>(obj_reader.GetShapes().size());
+    auto light_inst = shape_count - 1u;
+    auto tall_inst = shape_count - 2u;
+    auto short_inst = shape_count - 3u;
+
+    // OMM path: re-emit the two cut-out boxes as de-indexed triangles appended to
+    // the *shared* vertex buffer. Appending (instead of giving the boxes their own
+    // vertex buffer) keeps the shading path below valid, which reads positions
+    // through `vertex_buffer` indexed by `hit.inst`'s triangle buffer. The UV map is
+    // per vertex and per triangle: `uv = {(0,0), (1,0), (0,1)}` for `(v0, v1, v2)`,
+    // which makes `uv.x` the barycentric weight of vertex 1 and `uv.y` the weight of
+    // vertex 2, i.e. exactly `TriangleHit::bary`.
+    //
+    // `bake()` addresses the UV buffer with the triangle's vertex indices, exactly
+    // like a vertex buffer (`uv[triangle.i0]`, …), so the UV array has to live in the
+    // same index space as `vertices` - one entry per vertex, not one per box.
+    luisa::vector<OmmBox> omm_boxes;
+    luisa::vector<float2> vertex_uvs;
+    Buffer<float2> uv_buffer;// only created in `omm` mode
+    if (trace_mode == TraceMode::omm) {
+        // The non-box vertices are never sampled by a bake; (0,0) keeps the array
+        // parallel to `vertices`.
+        vertex_uvs.resize(vertices.size(), make_float2(0.0f, 0.0f));
+        auto &&shapes = obj_reader.GetShapes();
+        auto add_box = [&](uint instance, uint frequency, bool along_v,
+                           float duty, luisa::string_view name) {
+            auto &&shape_indices = shapes[instance].mesh.indices;
+            auto first_vertex = static_cast<uint>(vertices.size());
+            for (auto k = static_cast<size_t>(0u); k < shape_indices.size(); k++) {
+                auto v = static_cast<size_t>(shape_indices[k].vertex_index) * 3u;
+                vertices.emplace_back(float3{p[v + 0u], p[v + 1u], p[v + 2u]});
+                switch (k % 3u) {
+                    case 0u: vertex_uvs.emplace_back(make_float2(0.0f, 0.0f)); break;
+                    case 1u: vertex_uvs.emplace_back(make_float2(1.0f, 0.0f)); break;
+                    default: vertex_uvs.emplace_back(make_float2(0.0f, 1.0f)); break;
+                }
+            }
+            omm_boxes.emplace_back(OmmBox{
+                .instance = instance,
+                .first_vertex = first_vertex,
+                .triangle_count = static_cast<uint>(shape_indices.size() / 3u),
+                .stripe_frequency = frequency,
+                .stripes_along_v = along_v,
+                .stripe_duty = duty,
+                .name = name});
+            LUISA_INFO("OMM box '{}' (instance {}): {} de-indexed triangle(s), "
+                       "{} stripes along {}, duty {}.",
+                       name, instance, omm_boxes.back().triangle_count,
+                       frequency, along_v ? "v" : "u", duty);
+        };
+        add_box(short_inst, 10u, false, 0.5f, "short box");
+        add_box(tall_inst, 6u, true, 0.6f, "tall box");
+    }
+
     BindlessArray heap = device.create_bindless_array();
     Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
+    if (!vertex_uvs.empty()) {
+        uv_buffer = device.create_buffer<float2>(vertex_uvs.size());
+        stream << uv_buffer.copy_from(luisa::span{vertex_uvs}) << synchronize();
+    }
     luisa::vector<Mesh> meshes;
     luisa::vector<Buffer<Triangle>> triangle_buffers;
+    // `omm` mode only: one mask texture and one micromap per cut-out box, parallel to
+    // `omm_boxes`. They are declared here - before `accel` below - because a micromap
+    // must outlive every BLAS built from the mesh that binds it.
+    luisa::vector<Image<float>> omm_masks;
+    luisa::vector<OpacityMicromap> omm_micromaps;
+    auto omm_option = OpacityMicromap::Option{
+        .format = OpacityMicromap::Format::TwoState,
+        .subdivision_level = omm_level,
+        .resolve_boundary_in_any_hit = false,
+        .alpha_cutoff = 0.5f,
+        // The rule that turns three mask samples into one bit: the centroid one cuts
+        // the micro triangle the hit point falls into (which is what
+        // `filter_triangle_hit` evaluates), the conservative one only cuts micro
+        // triangles whose three corners are *all* transparent.
+        .conservative = omm_conservative,
+        .index_format = OpacityMicromap::IndexFormat::None};
+    auto omm_box_of = [&](uint instance) noexcept -> OmmBox * {
+        for (auto &box : omm_boxes) {
+            if (box.instance == instance) { return &box; }
+        }
+        return nullptr;
+    };
     for (auto &&shape : obj_reader.GetShapes()) {
         uint index = static_cast<uint>(meshes.size());
         std::vector<tinyobj::index_t> const &t = shape.mesh.indices;
@@ -213,11 +439,56 @@ int main(int argc, char *argv[]) {
         luisa::vector<uint> indices;
         indices.reserve(t.size());
         for (tinyobj::index_t i : t) { indices.emplace_back(i.vertex_index); }
+        auto box = omm_box_of(index);
+        if (box != nullptr) {
+            // De-indexed: every triangle owns its three vertices, which is what makes
+            // a per-triangle UV parameterisation expressible at all.
+            indices.clear();
+            indices.reserve(3u * box->triangle_count);
+            for (auto k = 0u; k < box->triangle_count; k++) {
+                auto base = box->first_vertex + 3u * k;
+                indices.emplace_back(base + 0u);
+                indices.emplace_back(base + 1u);
+                indices.emplace_back(base + 2u);
+            }
+        }
         Buffer<Triangle> &triangle_buffer = triangle_buffers.emplace_back(device.create_buffer<Triangle>(triangle_count));
-        Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
-        stream << triangle_buffer.copy_from(luisa::span{indices})
-               << mesh.build();
+        if (box == nullptr) {
+            Mesh &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
+            stream << triangle_buffer.copy_from(luisa::span{indices})
+                   << mesh.build();
+        } else {
+            auto mask_pixels = make_omm_mask(*box, omm_mask_size);
+            auto &mask = omm_masks.emplace_back(device.create_image<float>(
+                PixelStorage::FLOAT4, omm_mask_size, omm_mask_size));
+            auto &micromap = omm_micromaps.emplace_back(
+                device.create_opacity_micromap(box->triangle_count, omm_option));
+            // One dispatch of the built-in baker: it samples `mask` at every micro
+            // triangle of every triangle of `triangle_buffer` - addressing the UVs as
+            // `uv_buffer[triangle.i0..i2]` - and packs the bits into
+            // `micromap.data()`. Synchronise so the mask may be released with the
+            // scope once the bits are final.
+            stream << triangle_buffer.copy_from(luisa::span{indices})
+                   << mask.copy_from(luisa::span{mask_pixels})
+                   << micromap.bake(mask.view(0u), uv_buffer.view(),
+                                    triangle_buffer.view())
+                          .commit()
+                   << synchronize();
+            LUISA_INFO("Baked the '{}' cut-out into a micromap: {} triangle(s) x "
+                       "{} micro triangle(s) = {} bytes of packed bits.",
+                       box->name, box->triangle_count,
+                       OpacityMicromap::micro_triangle_count(omm_level),
+                       OpacityMicromap::data_byte_size(
+                           OpacityMicromap::Format::TwoState, omm_level,
+                           box->triangle_count));
+            // The mesh carries the micromap *handle*; `MeshCutoutMask` refuses a
+            // micromap without bits, and the traversal - not the shader - discards
+            // the cut-out.
+            Mesh &mesh = meshes.emplace_back(device.create_mesh(
+                vertex_buffer, triangle_buffer, MeshCutoutMask{micromap}));
+            stream << mesh.build();
+        }
     }
 
     AccelOption accel_option{.hint = AccelOption::UsageHint::FAST_TRACE,
@@ -225,12 +496,12 @@ int main(int argc, char *argv[]) {
                              .allow_update = true};
     Accel accel = device.create_accel(accel_option);
     auto mesh_count = static_cast<uint>(meshes.size());
-    uint light_inst = mesh_count - 1u;
-    uint tall_inst = mesh_count - 2u;
-    uint short_inst = mesh_count - 3u;
+    LUISA_ASSERT(mesh_count == shape_count, "The accel must have one instance per shape.");
     for (auto i = 0u; i < mesh_count; i++) {
         // Only the two alpha-cutout boxes need surface-candidate filtering.
         // Marking the room and light opaque lets ray queries auto-commit them.
+        // In `omm` mode the boxes must stay non-opaque too: an opaque instance
+        // override (`FORCE_OPAQUE`) would make the traversal ignore the micromap.
         auto opaque = trace_mode == TraceMode::opaque_query ||
                       trace_mode == TraceMode::direct ||
                       (i != short_inst && i != tall_inst);
@@ -239,6 +510,69 @@ int main(int argc, char *argv[]) {
     stream << heap.update()
            << accel.build()
            << synchronize();
+
+    if (omm_debug_view && !omm_boxes.empty()) {
+        // "The bits are the bindable surface": a micromap is not a texture and has no
+        // descriptor type, so the only way to look at one from a shader is
+        // `OpacityMicromap::data()`, an ordinary `BufferView<uint>`. This kernel
+        // unpacks the two-state bits; the *spatial* mapping (which micro triangle
+        // covers a barycentric sample) comes from a host table built with the public
+        // `OpacityMicromap::micro_triangle_index()`, because the micromap's
+        // space-filling curve has no closed form in the DSL.
+        Kernel2D omm_debug_kernel = [](
+                                        BufferUInt bits,
+                                        BufferUInt coverage,
+                                        UInt words_per_triangle,
+                                        ImageFloat image) noexcept {
+            set_block_size(8u, 8u, 1u);
+            UInt2 p = dispatch_id().xy();
+            UInt triangle = p.y / omm_debug_grid;
+            UInt row = p.y % omm_debug_grid;
+            UInt index = coverage.read(row * omm_debug_grid + p.x);
+            Float3 color = make_float3(0.08f);// outside the triangle
+            $if (index != omm_debug_outside_triangle) {
+                UInt word = bits.read(triangle * words_per_triangle + (index >> 5u));
+                UInt opaque = (word >> (index & 31u)) & 1u;
+                color = ite(opaque == 0u,
+                            make_float3(0.10f, 0.10f, 0.35f),// cut out
+                            make_float3(0.90f, 0.90f, 0.85f));// opaque
+            };
+            image.write(p, make_float4(color, 1.0f));
+        };
+        auto omm_debug_shader = device.compile(omm_debug_kernel);
+        auto coverage_table = make_omm_debug_table(omm_level);
+        Buffer<uint> coverage_buffer = device.create_buffer<uint>(coverage_table.size());
+        stream << coverage_buffer.copy_from(luisa::span{coverage_table})
+               << synchronize();
+        auto words_per_triangle = static_cast<uint>(
+            (OpacityMicromap::micro_triangle_count(omm_level) + 31u) / 32u);
+        for (auto b = 0u; b < omm_boxes.size(); b++) {
+            auto &&box = omm_boxes[b];
+            auto &&micromap = omm_micromaps[b];
+            auto size = make_uint2(omm_debug_grid, omm_debug_grid * box.triangle_count);
+            Image<float> omm_debug_image = device.create_image<float>(PixelStorage::BYTE4, size);
+            luisa::vector<std::array<uint8_t, 4u>> host_debug(size.x * size.y);
+            stream << omm_debug_shader(micromap.data(), coverage_buffer,
+                                       words_per_triangle, omm_debug_image)
+                          .dispatch(size)
+                   << omm_debug_image.copy_to(luisa::span{host_debug})
+                   << synchronize();
+            auto filename = luisa::format(
+                "test_path_tracing_cutout_omm_{}.png", box.instance);
+            stbi_write_png(filename.c_str(),
+                           static_cast<int>(size.x), static_cast<int>(size.y),
+                           4, host_debug.data(), 0);
+            LUISA_INFO("OMM debug view for the '{}': {} triangle(s) x {} micro "
+                       "triangle(s) = {} bytes of packed bits, written to '{}'; "
+                       "white = opaque, blue = cut out by the hardware.",
+                       box.name, box.triangle_count,
+                       OpacityMicromap::micro_triangle_count(omm_level),
+                       OpacityMicromap::data_byte_size(
+                           OpacityMicromap::Format::TwoState, omm_level,
+                           box.triangle_count),
+                       filename);
+        }
+    }
 
     luisa::vector<Material> materials;
     materials.reserve(accel.size());
@@ -386,7 +720,14 @@ int main(int argc, char *argv[]) {
             if (trace_mode == TraceMode::opaque_query) {
                 return accel.traverse(query_ray, {}).trace();
             }
-            if (trace_mode == TraceMode::accept_query) {
+            // `accept_query` and `omm` both commit every surface candidate the
+            // traversal reports. The difference is *why*: `accept_query` has no
+            // cut-out at all, while `omm` had the cut-out discarded by the micromap
+            // *inside* the traversal. They deliberately share the code path, so
+            // re-applying `filter_triangle_hit` here would cut twice with a
+            // different (ray-dependent) predicate.
+            if (trace_mode == TraceMode::accept_query ||
+                trace_mode == TraceMode::omm) {
                 return accel.traverse(query_ray, {})
                     .on_surface_candidate([](auto &candidate) noexcept {
                         candidate.commit();
@@ -412,7 +753,8 @@ int main(int argc, char *argv[]) {
             if (trace_mode == TraceMode::opaque_query) {
                 return !accel.traverse_any(query_ray, {}).trace()->miss();
             }
-            if (trace_mode == TraceMode::accept_query) {
+            if (trace_mode == TraceMode::accept_query ||
+                trace_mode == TraceMode::omm) {
                 return !accel.traverse_any(query_ray, {})
                             .on_surface_candidate([](auto &candidate) noexcept {
                                 candidate.commit();

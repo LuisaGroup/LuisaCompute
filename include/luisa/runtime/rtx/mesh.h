@@ -9,12 +9,22 @@
 
 namespace luisa::compute {
 
+struct MeshCutoutMask;
+
 namespace detail {
 LUISA_RUNTIME_API void check_mesh_vert_align(size_t v_stride, size_t dst);
 LUISA_RUNTIME_API void check_mesh_vert_buffer_motion_keyframe_count(size_t total_vertex_count, uint motion_keyframe_count);
 LUISA_RUNTIME_API void check_mesh_triangle_buffer_offset_and_size(size_t offset_bytes, size_t size_bytes);
 LUISA_RUNTIME_API void check_mesh_vertex_buffer_offset_and_size(size_t offset_bytes, size_t size_bytes, size_t v_stride);
 LUISA_RUNTIME_API void check_mesh_cluster_buffer_offset_and_size(size_t offset_bytes, size_t size_bytes);
+// Validates an attached cut-out mask against the mesh it is attached to: the
+// micromap must have bits, the triangle counts must agree, the payload buffers
+// must be non-empty, and a motion-blur BLAS may not carry a micromap (the triangles
+// pNext chain is already occupied by VkAccelerationStructureGeometryMotionTriangles
+// DataNV, and a micromap on a motion geometry is not supported by this build shape).
+LUISA_RUNTIME_API void check_mesh_cutout_mask(const MeshCutoutMask &mask,
+                                             size_t mesh_triangle_count,
+                                             bool motion_blur) noexcept;
 }// namespace detail
 class Accel;
 
@@ -100,8 +110,59 @@ static_assert(alignof(ClusterBuildInfo) == 8u, "ClusterBuildInfo must match VkCl
     uint16_t vertex_buffer_stride = 0u,
     uint32_t position_truncate_bit_count = 0u) noexcept;
 
+// What a mesh remembers about its hardware opacity micromap ("cut-out mask").
+//
+// Holds handles only: an OpacityMicromap is a move-only Resource owned by the
+// caller, so a Mesh never copies or owns it (Resource's copy constructor is
+// deleted) and must not be able to destroy it. The micromap has to outlive every
+// acceleration structure built from this mesh that is still traced, unless the
+// driver reports the micromap build sizes as discardable.
+//
+// The two payload buffer handles are part of the struct because they are the
+// command-graph inputs of the build: declaring them is what lets the command
+// reorder pass schedule the bake (or the upload) of the packed bits before the
+// build instead of after it.
+//
+// `assumes_non_opaque_traversal` records the shader-side contract: the ray
+// traversal that traces this mesh must not pass `OpaqueKHR` (or `NoOpaqueKHR`),
+// which overrides both the geometry flag and the micromap and would silently make
+// the cut-out a no-op. In practice that means tracing with the loop form -
+// `Accel::traverse()` / `Accel::query()` - because `Accel::intersect()` and
+// `Accel::intersect_any()` emit `OpaqueKHR` and therefore bypass the micromap.
+// `Accel::emplace_back(mesh, ...)` already drops the opaque bit of its instance for
+// a mesh that carries a cut-out mask. Leaving this at `true` (the default) is what
+// the backend checks before it chains the micromap into the BLAS build inputs;
+// setting it to `false` declares that the caller traces with a flag-free traversal,
+// and is refused because this library cannot verify a shader's ray flags.
+struct LUISA_RUNTIME_API MeshCutoutMask {
+    uint64_t micromap{0u};
+    uint64_t data_buffer{0u};
+    size_t data_offset{0u};
+    size_t data_size{0u};
+    uint64_t index_buffer{0u};
+    size_t index_offset{0u};
+    size_t index_size{0u};
+    uint32_t triangle_count{0u};
+    uint32_t index_stride{0u};
+    bool assumes_non_opaque_traversal{true};
+
+    MeshCutoutMask() noexcept = default;
+    // Implicit conversion so `create_mesh(vertices, triangles, micromap)` reads like
+    // the plain overload. Raises (LUISA_ERROR) when `micromap` was never baked or
+    // uploaded: the two-state bit `0` means *transparent*, so attaching a micromap
+    // without bits would make the whole mesh silently disappear.
+    MeshCutoutMask(const OpacityMicromap &micromap) noexcept;// NOLINT(google-explicit-constructor)
+    [[nodiscard]] explicit operator bool() const noexcept { return micromap != 0u; }
+};
+
 // A Mesh is a bottom-level acceleration structure (BLAS) for ray-tracing with a set of triangles.
 // For custom intersection, see ProceduralPrimitive.
+//
+// Cut-out masks. A mesh may carry a hardware opacity micromap
+// (VK_KHR/EXT_opacity_micromap) so that the traversal itself discards the
+// fully-transparent micro triangles of an alpha-cut-out surface, without an
+// any-hit shader per candidate hit. See OpacityMicromap for the resource and
+// `MeshCutoutMask` below for what a mesh remembers about it.
 class LUISA_RUNTIME_API Mesh final : public Resource {
 
 public:
@@ -136,6 +197,11 @@ private:
     size_t _c_buffer_offset_bytes{};
     size_t _c_buffer_size_bytes{};
     size_t _c_buffer_total_size_bytes{};
+
+    // The attached cut-out mask, immutable after creation and empty by default.
+    // `micromap == 0` means "no micromap", which is what every pre-extension build
+    // sees, so all existing behaviour is bit-identical.
+    MeshCutoutMask _cutout_mask{};
 
 public:
     // WARNING: transform buffers' data without rebuild acceleration structure is undefined behavior
@@ -210,9 +276,11 @@ private:
     Mesh(DeviceInterface *device,
          const VBuffer &vertex_buffer, size_t vertex_stride,
          const TBuffer &triangle_buffer,
+         MeshCutoutMask cutout_mask,
          const AccelOption &option) noexcept
         : Resource{device, Resource::Tag::MESH,
-                   _create_resource(device, option, vertex_buffer, triangle_buffer)} {
+                   _create_resource(device, option, vertex_buffer, triangle_buffer)},
+          _cutout_mask{cutout_mask} {
 
         BufferView vb_view{vertex_buffer};
         BufferView tri_view{triangle_buffer};
@@ -235,13 +303,33 @@ private:
         _t_buffer_offset_bytes = tri_view.offset_bytes();
         _t_buffer_size_bytes = tri_view.size_bytes();
         _t_buffer_total_size_bytes = tri_view.total_size_bytes();
+
+        detail::check_mesh_cutout_mask(_cutout_mask, _triangle_count,
+                                       option.motion.is_enabled());
     }
+
+    template<typename VBuffer, typename TBuffer>
+    Mesh(DeviceInterface *device,
+         const VBuffer &vertex_buffer, size_t vertex_stride,
+         const TBuffer &triangle_buffer,
+         const AccelOption &option) noexcept
+        : Mesh{device, vertex_buffer, vertex_stride, triangle_buffer,
+               MeshCutoutMask{}, option} {}
+
+    template<typename VBuffer, typename TBuffer>
+    Mesh(DeviceInterface *device,
+         const VBuffer &vertex_buffer, const TBuffer &triangle_buffer,
+         MeshCutoutMask cutout_mask,
+         const AccelOption &option) noexcept
+        : Mesh{device, vertex_buffer, vertex_buffer.stride(), triangle_buffer,
+               cutout_mask, option} {}
 
     template<typename VBuffer, typename TBuffer>
     Mesh(DeviceInterface *device,
          const VBuffer &vertex_buffer, const TBuffer &triangle_buffer,
          const AccelOption &option) noexcept
-        : Mesh{device, vertex_buffer, vertex_buffer.stride(), triangle_buffer, option} {}
+        : Mesh{device, vertex_buffer, vertex_buffer.stride(), triangle_buffer,
+               MeshCutoutMask{}, option} {}
 
 public:
     Mesh() noexcept = default;
@@ -272,6 +360,22 @@ public:
     }
 
     [[nodiscard]] bool is_cluster_mode() const noexcept { return _mode == Mode::Cluster; }
+
+    // Whether this mesh carries a hardware opacity micromap ("cut-out mask").
+    [[nodiscard]] bool has_cutout_mask() const noexcept { return _cutout_mask.micromap != 0u; }
+
+    // Handle of the attached OpacityMicromap (0 = none). A handle, not a resource:
+    // the Mesh does not own it and must not be able to destroy it. Use it for
+    // lifetime bookkeeping, not for baking (bake through the original resource).
+    [[nodiscard]] uint64_t cutout_mask() const noexcept { return _cutout_mask.micromap; }
+
+    // Whether the traversal contract of the attached micromap is the default one
+    // (no `OpaqueKHR` ray flag). False only for a mesh built with an explicit
+    // MeshCutoutMask, which the backend then refuses to attach.
+    [[nodiscard]] bool cutout_mask_assumes_non_opaque_traversal() const noexcept {
+        return _cutout_mask.micromap == 0u ||
+               _cutout_mask.assumes_non_opaque_traversal;
+    }
 
     // Array of cluster build records owned by this mesh (empty for triangle mode).
     [[nodiscard]] BufferView<ClusterBuildInfo> cluster_buffer() const noexcept;
@@ -317,6 +421,35 @@ template<typename VBuffer, typename TBuffer>
              std::same_as<buffer_element_t<TBuffer>, Triangle>
 Mesh Device::create_mesh(VBuffer &&vertices, size_t vertex_stride, TBuffer &&triangles, const AccelOption &option) noexcept {
     return this->_create<Mesh>(std::forward<VBuffer>(vertices), vertex_stride, std::forward<TBuffer>(triangles), option);
+}
+
+// Cut-out mask overloads. `MeshCutoutMask` converts implicitly from an
+// `OpacityMicromap`, so `create_mesh(v, t, micromap)` and
+// `create_mesh(v, t, MeshCutoutMask{...})` both land here.
+//
+// UVs are deliberately *not* a mesh input: a micromap needs them only at bake time,
+// where they are an explicit buffer argument of `OpacityMicromap::bake`. A mesh
+// whose UVs differ per triangle therefore has to be de-indexed by the caller.
+template<typename VBuffer, typename TBuffer>
+    requires is_buffer_or_view_v<VBuffer> &&
+             is_buffer_or_view_v<TBuffer> &&
+             std::same_as<buffer_element_t<TBuffer>, Triangle>
+Mesh Device::create_mesh(VBuffer &&vertices, TBuffer &&triangles,
+                         MeshCutoutMask cutout_mask,
+                         const AccelOption &option) noexcept {
+    return this->_create<Mesh>(std::forward<VBuffer>(vertices), std::forward<TBuffer>(triangles),
+                               cutout_mask, option);
+}
+
+template<typename VBuffer, typename TBuffer>
+    requires is_buffer_or_view_v<VBuffer> &&
+             is_buffer_or_view_v<TBuffer> &&
+             std::same_as<buffer_element_t<TBuffer>, Triangle>
+Mesh Device::create_mesh(VBuffer &&vertices, size_t vertex_stride, TBuffer &&triangles,
+                         MeshCutoutMask cutout_mask,
+                         const AccelOption &option) noexcept {
+    return this->_create<Mesh>(std::forward<VBuffer>(vertices), vertex_stride, std::forward<TBuffer>(triangles),
+                               cutout_mask, option);
 }
 
 // Build a cluster (mega-geometry) bottom-level acceleration structure from an

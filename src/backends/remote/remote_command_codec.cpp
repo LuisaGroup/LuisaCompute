@@ -432,10 +432,18 @@ EncodedSubmission encode_submission(
                 auto c = static_cast<const MeshBuildCommand *>(command);
                 // TODO(dx): branch on is_cluster_build() and encode
                 // cluster_buffer()/cluster_buffer_offset()/cluster_buffer_size().
-                if (c->is_cluster_build()) {
-                    result.error = "Remote backend does not support cluster (mega-geometry) mesh builds.";
-                    return result;
-                }
+                        if (c->is_cluster_build()) {
+                            result.error = "Remote backend does not support cluster (mega-geometry) mesh builds.";
+                            return result;
+                        }
+                        if (c->has_micromap()) {
+                            // Keeping the wire format unchanged is deliberate: a
+                            // micromapped build would have to carry the packed bits
+                            // and the per-triangle index, and the remote backend
+                            // cannot create a micromap in the first place.
+                            result.error = "Remote backend does not support opacity micromap mesh builds.";
+                            return result;
+                        }
                 writer.write_u16(static_cast<uint16_t>(WireCommand::MESH_BUILD));
                 writer.write_u64(c->handle());
                 writer.write_u32(static_cast<uint32_t>(c->request()));

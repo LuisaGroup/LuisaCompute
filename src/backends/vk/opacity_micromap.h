@@ -12,40 +12,27 @@ class CommandBuffer;
 // accepted by the registry).
 //
 // ---------------------------------------------------------------------------
-// Why this class is not reachable from the default build
+// How the frontend reaches it
 // ---------------------------------------------------------------------------
-// The planning header (`rt_extension_plan.h`) is the single gate. Even with the
-// extension negotiated and enabled, `detail::plan_opacity_micromap_build()` only
-// answers BUILD for a request that sets `public_api_request`, and
-// `detail::plan_opacity_micromap_attach()` only answers ATTACH for the very same
-// reason. Neither is reachable today:
+// `Device::create_opacity_micromap()` (the `DeviceInterface` override in
+// `device.cpp`) is the only caller. It validates the request against the planning
+// header (`rt_extension_plan.h`), creates the object with `create_from_buffers()`
+// and raises - with the plan's status name - whenever an attach would not be legal
+// on this device, so no handle ever exists that a build would silently ignore.
 //
-//   * `AccelOption` (include/luisa/runtime/rhi/resource.h) has no micromap field,
-//     `MeshBuildCommand` (include/luisa/runtime/rhi/command.h) carries only the
-//     vertex and index buffers, and `Mesh` has no micromap input. So the public
-//     accelerator API cannot *ask* for a micromap, which is why `Blas::_micromap`
-//     is always null and `Blas::pre_build` never chains
-//     VkAccelerationStructureTrianglesOpacityMicromapEXT.
-//   * With only VK_KHR_opacity_micromap negotiated (the registry prefers the KHR
-//     name and falls back to EXT), raytraversal.adoc requires the ray query to
-//     declare the `OpacityMicromapIdKHR` execution mode with its
-//     specialization-constant operand VK_TRUE. No codegen route in this backend
-//     emits that execution mode (the HLSL route cannot express it at all, and the
-//     native XIR->SPIR-V route has no execution-mode hook for it), so
-//     `ray_query_execution_mode_emitted` stays false and the attach plan refuses.
+// `create_from_buffers()` is the public-API path: the packed bits live in a frontend
+// `Buffer<uint>` (which cannot carry VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY),
+// so `build_device(cmdbuffer, source, offset)` records a `vkCmdCopyBuffer` into this
+// object's own build-input buffer, a copy->micromap-build barrier and then
+// `vkCmdBuildMicromapsEXT`. Both are recorded by `Blas::build(MeshBuildCommand)`
+// before `vkCmdBuildAccelerationStructuresKHR`, followed by a
+// micromap-build->AS-build barrier.
 //
-// The public API additions needed for the whole feature are therefore, exactly:
-//   1. an `AccelOption`/`MeshBuildCommand` micromap input (micromap resource
-//      handle + VkAccelerationStructureTrianglesOpacityMicromapEXT's index type /
-//      index buffer / stride / base triangle / usage counts), plus a
-//      `DeviceInterface` entry point that creates the micromap resource from
-//      per-triangle format+level data, and
-//   2. `OpacityMicromapIdKHR` emission in the ray-query path (or the
-//      VK_EXT_opacity_micromap name being the negotiated one).
-//
-// Because none of that exists, `Device::mark_optional_extension_active()` is
-// never called for OPACITY_MICROMAP: the status extension reports the extension
-// as "enabled" but not "active", which is the honest answer.
+// The attach side is `fill_attach_info()`, driven by `Blas::pre_build` from the
+// `MeshMicromapBinding` of the build command. Note that
+// VkAccelerationStructureTrianglesOpacityMicromapEXT *does* carry an sType: leaving
+// it zero makes the driver skip the pNext entry, which silently turns the micromap
+// into a no-op.
 //
 // ---------------------------------------------------------------------------
 // What is implemented
@@ -104,6 +91,20 @@ public:
         luisa::span<std::byte const> data,
         luisa::span<detail::OpacityMicromapTriangleRecord const> triangles) noexcept;
 
+    // The public-API path: the packed bits live in a frontend `Buffer<uint>` that
+    // cannot carry `MICROMAP_BUILD_INPUT_READ_ONLY`, so the content is copied into
+    // this object's own build-input buffer by a `vkCmdCopyBuffer` recorded right
+    // before `vkCmdBuildMicromapsEXT`. The per-triangle records are shape data, so
+    // they are generated on the host here.
+    //
+    // Returns nullptr when the plan does not answer BUILD (extension off, illegal
+    // level/count); raises when the caller's build input is unusable (no buffer, or
+    // fewer bytes than the plan needs).
+    [[nodiscard]] static OpacityMicromap *create_from_buffers(
+        Device *device,
+        detail::OpacityMicromapBuildRequest const &request,
+        VkBuffer data_buffer, size_t data_offset, size_t data_size) noexcept;
+
     ~OpacityMicromap();
     OpacityMicromap(OpacityMicromap const &) = delete;
     OpacityMicromap &operator=(OpacityMicromap const &) = delete;
@@ -111,6 +112,12 @@ public:
     // vkCmdBuildMicromapsEXT. Device addresses, so the micromap can be built on a
     // device that does not offer `micromapHostCommands`.
     void build_device(CommandBuffer &cmdbuffer);
+
+    // Same, but first copies the packed bits out of `source` (a frontend buffer)
+    // into this object's own `MICROMAP_BUILD_INPUT_READ_ONLY` buffer: the copy, the
+    // transfer->micromap-build barrier and the build itself are recorded into
+    // `cmdbuffer`, so the whole sequence is ordered by the caller's command buffer.
+    void build_device(CommandBuffer &cmdbuffer, VkBuffer source, size_t source_offset);
 
     // vkBuildMicromapsEXT. Requires the plan's mode to be HOST (which requires
     // `micromapHostCommands`); returns false otherwise, without calling the
@@ -171,6 +178,16 @@ private:
     VkMicromapUsageEXT _usage{};
     bool _built{false};
     bool _discardable{false};
+
+    // Shared half of `create()` / `create_from_buffers()`: sizes the object with
+    // vkGetMicromapBuildSizesEXT, allocates storage/build-input/scratch buffers,
+    // generates the per-triangle records and creates the VkMicromapEXT.
+    [[nodiscard]] static OpacityMicromap *create_sized(
+        Device *device, detail::OpacityMicromapBuildRequest const &request,
+        detail::OpacityMicromapBuildPlan const &plan) noexcept;
+    // Host-side generation of the (dataOffset, level, format) records: the shape of
+    // a micromap triangle is derivable from the plan, never from the baked bits.
+    void fill_triangle_records() noexcept;
 
     [[nodiscard]] MappedBuffer create_mapped_buffer(
         VkBufferUsageFlags usage, size_t size) noexcept;

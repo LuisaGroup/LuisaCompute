@@ -94,13 +94,37 @@ struct SparseBufferCreationInfo : public BufferCreationInfo {
     }
 };
 
+// Backend-facing description of one opacity micromap
+// (VK_KHR_opacity_micromap / VK_EXT_opacity_micromap). A POD: the frontend owns
+// the packed bits in ordinary `Buffer<uint>`s and hands their handles over, so a
+// backend never sees a host pointer and the command graph can order the bake
+// against the acceleration-structure build.
+struct OpacityMicromapOption {
+    // 0 = two-state (1 bit per micro triangle), 1 = four-state (2 bits).
+    uint32_t format{0u};
+    // 0..15; each level quadruples the micro-triangle count.
+    uint32_t subdivision_level{0u};
+    // Number of micromap triangles, i.e. the number of per-triangle records the
+    // backend generates.
+    uint32_t triangle_count{0u};
+    // 0 = no index buffer, otherwise the byte size of one index (1/2/4).
+    uint32_t index_format{0u};
+    // Packed micro-triangle opacity bits (a storage buffer of this device).
+    uint64_t data_buffer{invalid_resource_handle};
+    size_t data_offset{0u};
+    size_t data_size{0u};
+    // Per-triangle micromap index, only when `index_format != 0`.
+    uint64_t index_buffer{invalid_resource_handle};
+    size_t index_offset{0u};
+    size_t index_size{0u};
+};
+
 struct AccelOption {
 
     enum struct UsageHint : uint32_t {
         FAST_TRACE,// build with best quality
         FAST_BUILD // optimize for frequent rebuild
     };
-
     enum struct MotionMode : uint8_t {
         MATRIX,
         SRT,
@@ -245,6 +269,10 @@ public:
         SPARSE_TEXTURE,
         SPARSE_BUFFER_HEAP,
         SPARSE_TEXTURE_HEAP,
+        // Hardware opacity micromap (VK_KHR/EXT_opacity_micromap). Deliberately
+        // *not* `TEXTURE`: a micromap has no image, format or layout, dies through
+        // its own destroy entry point, and cannot be bound to a shader at all.
+        OPACITY_MICROMAP,
     };
 
 private:

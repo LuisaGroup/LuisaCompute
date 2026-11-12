@@ -30,13 +30,18 @@ private:
     const Buffer *_scratch_buffer{nullptr};
     uint64_t _scratch_buffer_offset{0};
     uint32_t _last_primitive_count{0u};
-    // Optional opacity micromap of this BLAS (VK_KHR_opacity_micromap). Never
-    // owned here and always null in the default build: the public accelerator
-    // API cannot request a micromap, so nothing calls
-    // `attach_opacity_micromap()` and no Vk* micromap structure can leak into
-    // the build inputs. See `opacity_micromap.h` for the exact public API
-    // additions the feature needs.
+    // Opacity micromap attached to this BLAS (VK_KHR_opacity_micromap), or null.
+    // Set by `pre_build(MeshBuildCommand)` from the command's micromap binding (and
+    // always assigned, so a build without a micromap detaches a stale one). Never
+    // owned here: the micromap belongs to the frontend resource the user created and
+    // must outlive every traced acceleration structure built from it, unless the
+    // driver reports the build sizes as discardable.
     OpacityMicromap *_micromap{nullptr};
+    // Source of the packed micro-triangle bits, recorded by pre_build() so that
+    // build() can copy them into the micromap's usage-correct build-input buffer
+    // right before vkCmdBuildMicromapsEXT.
+    VkBuffer _micromap_data_buffer{VK_NULL_HANDLE};
+    size_t _micromap_data_offset{0u};
     vstd::fixed_vector<MeshHandle *, 2> _handles;
 
     MeshHandle *_add_accel_ref(Tlas *accel, uint index);

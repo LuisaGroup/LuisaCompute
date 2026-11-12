@@ -152,7 +152,13 @@ void Accel::set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
 }
 
 void Accel::emplace_back(const Mesh &mesh, float4x4 transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
-    emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque, user_id);
+    // A mesh with a hardware opacity micromap decides its own opacity per micro
+    // triangle, and the instance-level FORCE_OPAQUE bit overrides both the geometry
+    // flag *and* the micromap ("OpaqueKHR overrides all non-opaque geometries to
+    // behave as if they are opaque"). Forcing such a mesh opaque would therefore
+    // silently nullify the cut-out, so it is never requested for one.
+    emplace_back_handle(mesh.handle(), transform, visibility_mask,
+                        opaque && !mesh.has_cutout_mask(), user_id);
 }
 
 void Accel::emplace_back(const Curve &curve, float4x4 transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {

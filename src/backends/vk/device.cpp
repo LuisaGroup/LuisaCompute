@@ -639,6 +639,98 @@ void Device::destroy_mesh(uint64_t handle) noexcept {
     delete reinterpret_cast<Blas *>(handle);
 }
 
+ResourceCreationInfo Device::create_opacity_micromap(
+    const OpacityMicromapOption &option) noexcept {
+    // Fail closed, with a message that names the switch to flip. Nothing is created
+    // that a later build would silently ignore (D6).
+    if (!OpacityMicromap::available(this)) {
+        LUISA_ERROR(
+            "Opacity micromaps are not available on this device: they need "
+            "VK_KHR_opacity_micromap (or the VK_EXT_opacity_micromap alias), its "
+            "`micromap` feature, buffer device addresses and "
+            "enable_opacity_micromap() in the Vulkan config extension.");
+    }
+    if (use_fallback_rtx_bit) {
+        LUISA_ERROR(
+            "The software ray-tracing fallback has no opacity micromap path, so an "
+            "opacity micromap cannot be built on this device.");
+    }
+    // A micromap is not a texture and cannot be a shader argument, so an attach is
+    // only legal for one of the two spells: the EXT alias (no execution mode
+    // needed), or the KHR spelling with `OpExecutionModeId OpacityMicromapIdKHR`
+    // emitted by the SPIR-V codegen (D8).
+    if (!OpacityMicromap::ext_alias_negotiated(this) &&
+        !opacity_micromap_execution_mode_available()) {
+        LUISA_ERROR(
+            "VK_KHR_opacity_micromap requires every ray query to declare "
+            "`OpExecutionModeId OpacityMicromapIdKHR`, and this device does not "
+            "compile its ray-query modules with that execution mode, so a micromap "
+            "would be ignored by the traversal.");
+    }
+    if (option.index_format == 1u) {
+        LUISA_ERROR(
+            "A one-byte per-triangle micromap index needs VK_KHR_index_type_uint8, "
+            "which this backend does not enable; use 2 or 4 bytes, or no index "
+            "buffer at all.");
+    }
+    if (option.data_buffer == 0u || option.data_size == 0u) {
+        LUISA_ERROR(
+            "An opacity micromap needs a non-empty packed bit buffer (got handle "
+            "0x{:x}, {} bytes).",
+            option.data_buffer, option.data_size);
+    }
+    auto *source = reinterpret_cast<Buffer const *>(option.data_buffer);
+    if (!source->device_address_capable()) {
+        LUISA_ERROR(
+            "The packed bit buffer of an opacity micromap must be an ordinary "
+            "device buffer of this device.");
+    }
+    auto format = option.format == 1u ?
+                      detail::OpacityMicromapFormat::FOUR_STATE :
+                      detail::OpacityMicromapFormat::TWO_STATE;
+    auto request = OpacityMicromap::make_build_request(
+        this, option.triangle_count, format,
+        static_cast<uint8_t>(option.subdivision_level),
+        /* public_api_request */ true);
+    auto plan = detail::plan_opacity_micromap_build(request);
+    if (!plan.build) {
+        LUISA_ERROR(
+            "An opacity micromap of {} triangles at subdivision level {} cannot be "
+            "built on this device: {}.",
+            option.triangle_count, option.subdivision_level,
+            detail::opacity_micromap_build_status_name(plan.status));
+    }
+    auto micromap = OpacityMicromap::create_from_buffers(
+        this, request, source->vk_buffer(), option.data_offset, option.data_size);
+    if (micromap == nullptr) {
+        LUISA_ERROR(
+            "Failed to create an opacity micromap of {} triangles at subdivision "
+            "level {}.",
+            option.triangle_count, option.subdivision_level);
+    }
+    mark_optional_extension_active(detail::OptionalExtension::OPACITY_MICROMAP);
+    return ResourceCreationInfo{
+        .handle = reinterpret_cast<uint64_t>(micromap),
+        .native_handle = micromap->handle()};
+}
+
+void Device::destroy_opacity_micromap(uint64_t handle) noexcept {
+    // Unlike a texture the micromap holds no per-stream state, so there is no
+    // `remove_resource_state` to mirror here: it is just the object.
+    delete reinterpret_cast<OpacityMicromap *>(handle);
+}
+
+uint32_t Device::opacity_micromap_max_subdivision_level(bool four_state) noexcept {
+    if (!OpacityMicromap::available(this)) { return 0u; }
+    auto request = OpacityMicromap::make_build_request(
+        this, 1u,
+        four_state ? detail::OpacityMicromapFormat::FOUR_STATE :
+                     detail::OpacityMicromapFormat::TWO_STATE,
+        0u, /* public_api_request */ true);
+    return four_state ? request.max_four_state_subdivision_level :
+                        request.max_two_state_subdivision_level;
+}
+
 ResourceCreationInfo Device::create_mega_geometry(
     const AccelOption &option) noexcept {
     // Fail loudly rather than hand out a handle whose every build would have to
@@ -3239,6 +3331,21 @@ luisa::string Device::query(luisa::string_view property) noexcept {
     if (property == "shader_untyped_pointers") {
         return shader_untyped_pointers_enabled ? "true" : "false";
     }
+    if (property == "opacity_micromap") {
+        // "1"/"0": a micromap is usable only when an attach would actually be legal
+        // on this device, not merely when the extension was negotiated.
+        auto legal = optional_extension_enabled(detail::OptionalExtension::OPACITY_MICROMAP) &&
+                     !use_fallback_rtx_bit &&
+                     (OpacityMicromap::ext_alias_negotiated(this) ||
+                      opacity_micromap_execution_mode_available());
+        return legal ? "1" : "0";
+    }
+    if (property == "opacity_micromap_max_two_state_level") {
+        return luisa::format("{}", opacity_micromap_max_subdivision_level(false));
+    }
+    if (property == "opacity_micromap_max_four_state_level") {
+        return luisa::format("{}", opacity_micromap_max_subdivision_level(true));
+    }
     if (property == "vk_cluster_acceleration_structure") {
         // "1"/"0" (not the "true"/"false" of the neighbouring feature queries):
         // the integration test parses this value to decide whether to skip, and
@@ -3294,6 +3401,12 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::sampled_image_array_dynamic_indexing);
     enable(owned_logical_device && bindless_enabled,
            target_feature::sampled_image_array_non_uniform_indexing);
+    // Ray-query modules must declare `OpExecutionModeId OpacityMicromapIdKHR` when
+    // the *KHR* spelling of the extension was negotiated; the EXT alias does not
+    // need one. `opacity_micromap_execution_mode_available()` is the single source of
+    // truth, and `query("opacity_micromap")` uses it too.
+    enable(owned_logical_device && opacity_micromap_execution_mode_available(),
+           target_feature::ray_tracing_opacity_micromap);
     enable(owned_logical_device &&
                _vk_device->enabled_features.shaderResourceMinLod == VK_TRUE,
            target_feature::shader_resource_min_lod);

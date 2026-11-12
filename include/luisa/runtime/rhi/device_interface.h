@@ -194,6 +194,17 @@ public:
     // device addresses, so callers need this to fill ClusterBuildInfo.
     [[nodiscard]] virtual uint64_t buffer_device_address(uint64_t buffer_handle) noexcept;
 
+    // Hardware opacity micromaps (VK_KHR/EXT_opacity_micromap, DXR 1.2 OMM).
+    // Optional: backends without micromap support keep the default implementation,
+    // which reports "not implemented" and hands out an invalid handle, so a mesh
+    // can never reference a micromap that this device could not build.
+    [[nodiscard]] virtual ResourceCreationInfo create_opacity_micromap(
+        const OpacityMicromapOption &option) noexcept;
+    virtual void destroy_opacity_micromap(uint64_t handle) noexcept;
+    // VkPhysicalDeviceOpacityMicromapPropertiesEXT::maxOpacity{2,4}StateSubdivision
+    // Level, or 0 when micromaps are unavailable.
+    [[nodiscard]] virtual uint32_t opacity_micromap_max_subdivision_level(bool four_state) noexcept;
+
     [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept = 0;
     virtual void destroy_procedural_primitive(uint64_t handle) noexcept = 0;
 

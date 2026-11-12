@@ -94,13 +94,21 @@ inline constexpr SpirvTargetFeatureMask shader_ocp_microscaling_types = 0x000200
 inline constexpr SpirvTargetFeatureMask shader_constant_data = 0x0004000000000000ull;
 // VK_KHR_shader_abort: AbortKHR with OpAbortKHR.
 inline constexpr SpirvTargetFeatureMask shader_abort = 0x0008000000000000ull;
+// VK_KHR_opacity_micromap, KHR spelling only: a module that traverses an
+// acceleration structure carrying an opacity micromap must declare
+// `OpCapability RayTracingOpacityMicromapExecutionModeKHR` and
+// `OpExecutionModeId OpacityMicromapIdKHR` with an OpSpecConstantTrue operand.
+// VK_EXT_opacity_micromap (the alias) needs neither, so the bit is only ever set
+// when the KHR name is the negotiated one.
+inline constexpr SpirvTargetFeatureMask ray_tracing_opacity_micromap = 0x0010000000000000ull;
 
 inline constexpr SpirvTargetFeatureMask known_mask =
     0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector |
     shader_bfloat16 | shader_fma_float32 | shader_64bit_indexing |
     shader_uniform_buffer_unsized_array | shader_long_vector |
     shader_subgroup_partitioned | shader_split_barrier |
-    shader_ocp_microscaling_types | shader_constant_data | shader_abort;
+    shader_ocp_microscaling_types | shader_constant_data | shader_abort |
+    ray_tracing_opacity_micromap;
 
 }// namespace target_feature
 
@@ -161,7 +169,8 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::shader_split_barrier, "shaderSplitBarrier"},
     SpirvTargetFeatureDescription{target_feature::shader_ocp_microscaling_types, "shaderOCPMicroscalingTypes"},
     SpirvTargetFeatureDescription{target_feature::shader_constant_data, "shaderConstantData"},
-    SpirvTargetFeatureDescription{target_feature::shader_abort, "shaderAbort"}};
+    SpirvTargetFeatureDescription{target_feature::shader_abort, "shaderAbort"},
+    SpirvTargetFeatureDescription{target_feature::ray_tracing_opacity_micromap, "rayTracingOpacityMicromapExecutionMode"}};
 
 [[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {

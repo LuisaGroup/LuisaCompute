@@ -28,6 +28,9 @@ struct SpirvTargetFeatures {
     bool storage_image_read_without_format{false};
     bool storage_image_write_without_format{false};
     bool ray_query{false};
+    // KHR spelling of VK_KHR_opacity_micromap: ray-query modules also declare the
+    // OpacityMicromapIdKHR execution mode.
+    bool ray_tracing_opacity_micromap{false};
     bool shader_float8{false};
     bool shader_bfloat16{false};
     bool shader_float16{false};
@@ -131,6 +134,8 @@ struct SpirvTargetFeatures {
         enable(uniform_storage_buffer_16bit_access,
                target_feature::uniform_storage_buffer_16bit_access);
         enable(ray_query, target_feature::ray_query);
+        enable(ray_tracing_opacity_micromap,
+               target_feature::ray_tracing_opacity_micromap);
         enable(sampler_anisotropy, target_feature::sampler_anisotropy);
         enable(shader_buffer_int64_atomics,
                target_feature::shader_buffer_int64_atomics);
@@ -195,6 +200,8 @@ struct SpirvTargetFeatures {
             .storage_image_write_without_format =
                 has(target_feature::storage_image_write_without_format),
             .ray_query = has(target_feature::ray_query),
+            .ray_tracing_opacity_micromap =
+                has(target_feature::ray_tracing_opacity_micromap),
             .shader_float8 = has(target_feature::shader_float8),
             .shader_bfloat16 = has(target_feature::shader_bfloat16),
             .shader_float16 = has(target_feature::shader_float16),
