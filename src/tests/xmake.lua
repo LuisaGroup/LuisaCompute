@@ -991,6 +991,93 @@ test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
   embed_test("test_embed_tensor_micro", "integration/embedding/test_embed_tensor_micro.cpp")
   embed_test("test_embed_coop_probe", "integration/embedding/test_embed_coop_probe.cpp")
 
+  -- ==========================================================================
+  -- OCR engine (examples/ocr, Phase 0)
+  -- Fixture path (src/tests/data/ocr/) and examples root are compiled in,
+  -- mirroring the embedding helper. Host-only contract tests need no GPU/model.
+  -- ==========================================================================
+  local function ocr_test(name, source, extra)
+      test_proj(name, source, false, function()
+          add_includedirs("$(projectdir)/examples")
+          add_deps("lc-example-ocr")
+          add_defines(string.format('LUISA_OCR_TEST_DATA_DIR="%s"',
+              (path.join(os.projectdir(), "src/tests/data/ocr")):gsub("\\", "/")))
+          add_defines(string.format('LUISA_OCR_EXAMPLES_DIR="%s"',
+              (path.join(os.projectdir(), "examples")):gsub("\\", "/")))
+          if extra then
+              extra()
+          end
+      end)
+  end
+
+    -- unit/ocr: host-only Phase 0 tests (CTest label unit;unit_ocr)
+      ocr_test("test_ocr_recipe", "unit/ocr/test_ocr_recipe.cpp")
+      ocr_test("test_ocr_status", "unit/ocr/test_ocr_status.cpp")
+      ocr_test("test_ocr_cli", "unit/ocr/test_ocr_cli.cpp")
+      -- unit/ocr: host-only Phase 1 artifact/input/golden tests
+      ocr_test("test_ocr_quantization", "unit/ocr/test_ocr_quantization.cpp")
+      ocr_test("test_ocr_package", "unit/ocr/test_ocr_package.cpp")
+      ocr_test("test_ocr_safetensors", "unit/ocr/test_ocr_safetensors.cpp")
+      ocr_test("test_ocr_tokenizer", "unit/ocr/test_ocr_tokenizer.cpp")
+      ocr_test("test_ocr_prompt", "unit/ocr/test_ocr_prompt.cpp")
+      ocr_test("test_ocr_image", "unit/ocr/test_ocr_image.cpp")
+      ocr_test("test_ocr_document", "unit/ocr/test_ocr_document.cpp")
+      ocr_test("test_ocr_preprocess", "unit/ocr/test_ocr_preprocess.cpp")
+      ocr_test("test_ocr_json_output", "unit/ocr/test_ocr_json_output.cpp")
+              -- unit/ocr: host-only Phase 2 runtime tests (CTest label unit;unit_ocr)
+        ocr_test("test_ocr_memory_budget", "unit/ocr/test_ocr_memory_budget.cpp")
+        ocr_test("test_ocr_runtime", "unit/ocr/test_ocr_runtime.cpp")
+          -- unit/ocr: host-only Phase 3 decoder config/tensor-contract tests
+          ocr_test("test_ocr_decoder_config", "unit/ocr/test_ocr_decoder_config.cpp")
+          -- unit/ocr: host-only Phase 4 structured-output + model-contract tests
+          ocr_test("test_ocr_output_table", "unit/ocr/test_ocr_output_table.cpp")
+          ocr_test("test_ocr_output_markdown", "unit/ocr/test_ocr_output_markdown.cpp")
+          ocr_test("test_ocr_output_extract", "unit/ocr/test_ocr_output_extract.cpp")
+                      ocr_test("test_ocr_model_contract", "unit/ocr/test_ocr_model_contract.cpp")
+            -- unit/ocr: host-only Phase 5 CTC/DB/reading-order output tests
+            ocr_test("test_ocr_ctc", "unit/ocr/test_ocr_ctc.cpp")
+            ocr_test("test_ocr_db", "unit/ocr/test_ocr_db.cpp")
+            ocr_test("test_ocr_reading_order", "unit/ocr/test_ocr_reading_order.cpp")
+            ocr_test("test_ocr_cnn_result", "unit/ocr/test_ocr_cnn_result.cpp")
+    -- unit/ocr: host-only Phase 6 layout/region scheduling + layout-decode tests
+    ocr_test("test_ocr_scheduler", "unit/ocr/test_ocr_scheduler.cpp")
+    ocr_test("test_ocr_layout_decode", "unit/ocr/test_ocr_layout_decode.cpp")
+    ocr_test("test_ocr_layout_compose", "unit/ocr/test_ocr_layout_compose.cpp")
+        -- integration/ocr: Phase 2 device tests. Run with an explicit backend:
+        --   xmake run test_ocr_ops_gemm vk|cuda|fallback
+        local function ocr_device_test(name, source)
+            ocr_test(name, source, function()
+                add_includedirs("$(projectdir)/src/tests/integration/ocr")
+            end)
+        end
+        ocr_device_test("test_ocr_ops_image", "integration/ocr/test_ocr_ops_image.cpp")
+        ocr_device_test("test_ocr_ops_gemm", "integration/ocr/test_ocr_ops_gemm.cpp")
+        ocr_device_test("test_ocr_ops_norm", "integration/ocr/test_ocr_ops_norm.cpp")
+        ocr_device_test("test_ocr_ops_rope", "integration/ocr/test_ocr_ops_rope.cpp")
+        ocr_device_test("test_ocr_ops_attention", "integration/ocr/test_ocr_ops_attention.cpp")
+          ocr_device_test("test_ocr_ops_conv", "integration/ocr/test_ocr_ops_conv.cpp")
+          ocr_device_test("test_ocr_ops_vision", "integration/ocr/test_ocr_ops_vision.cpp")
+          ocr_device_test("test_ocr_runtime_device", "integration/ocr/test_ocr_runtime_device.cpp")
+          -- integration/ocr: Phase 3 dense decoder device tests. Run with an
+          -- explicit backend: xmake run test_ocr_decode_prefill vk|cuda
+            ocr_device_test("test_ocr_decode_prefill", "integration/ocr/test_ocr_decode_prefill.cpp")
+            ocr_device_test("test_ocr_decode_cache", "integration/ocr/test_ocr_decode_cache.cpp")
+            ocr_device_test("test_ocr_decode_sampling", "integration/ocr/test_ocr_decode_sampling.cpp")
+            ocr_device_test("test_ocr_decode_stop", "integration/ocr/test_ocr_decode_stop.cpp")
+            -- integration/ocr: Phase 4 Qwen3-VL vertical slice + FireRed-OCR.
+            -- Run with an explicit backend: xmake run test_ocr_model_qwen3_vl vk|cuda
+              ocr_device_test("test_ocr_model_qwen3_vl", "integration/ocr/test_ocr_model_qwen3_vl.cpp")
+              ocr_device_test("test_ocr_model_fire_red", "integration/ocr/test_ocr_model_fire_red.cpp")
+              -- integration/ocr: Phase 5 synthetic PP-OCRv6 CNN pipeline.
+              -- Run with an explicit backend: xmake run test_ocr_model_pp_ocrv6 vk|cuda
+              ocr_device_test("test_ocr_model_pp_ocrv6", "integration/ocr/test_ocr_model_pp_ocrv6.cpp")
+    -- integration/ocr: Phase 6 layout/region infrastructure + PaddleOCR-VL + OpenDoc.
+    -- Run with an explicit backend: xmake run test_ocr_layout vk|cuda
+    ocr_device_test("test_ocr_layout", "integration/ocr/test_ocr_layout.cpp")
+    ocr_device_test("test_ocr_model_paddle_ocr_vl", "integration/ocr/test_ocr_model_paddle_ocr_vl.cpp")
+    ocr_device_test("test_ocr_model_open_doc", "integration/ocr/test_ocr_model_open_doc.cpp")
+    ocr_device_test("test_ocr_region_scheduler", "integration/ocr/test_ocr_region_scheduler.cpp")
+
 -- standalone CUDA tensor dispatch example: raw CUDA runtime + driver API with
 -- runtime NVRTC JIT (kernel source is a C++ raw string; no .cu compilation).
 -- Deliberately depends only on lc-core + lc-cuda-backend-base (NOT lc-runtime,
@@ -1012,3 +1099,4 @@ if has_config("lc_cuda_backend") then
     end)
     target_end()
 end
+

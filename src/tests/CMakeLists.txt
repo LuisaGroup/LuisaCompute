@@ -1936,6 +1936,120 @@ luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
       target_link_libraries(test_embed_retrieval_rpc PRIVATE ws2_32)
   endif ()
 
+  # --- OCR engine (examples/ocr, Phase 0) ---
+  # Fixtures will live in src/tests/data/ocr/ (later phases); the path is
+  # compiled in alongside the examples root, mirroring the embedding helper.
+  set(LUISA_OCR_TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/ocr")
+  function(luisa_compute_add_ocr_test name source labels)
+      cmake_parse_arguments(PARSE_ARGV 3 OCR "" "" "ARGS")
+      luisa_compute_add_test(${name} ${source} LABELS "${labels}" ARGS ${OCR_ARGS})
+      target_link_libraries(${name} PRIVATE lc-example-ocr)
+      target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/examples)
+      target_compile_definitions(${name} PRIVATE
+              LUISA_OCR_TEST_DATA_DIR="${LUISA_OCR_TEST_DATA_DIR}"
+              LUISA_OCR_EXAMPLES_DIR="${CMAKE_SOURCE_DIR}/examples")
+  endfunction()
+  # host-only Phase 0 contract tests (no device/model; CTest label unit;unit_ocr)
+  luisa_compute_add_ocr_test(test_ocr_recipe unit/ocr/test_ocr_recipe.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_status unit/ocr/test_ocr_status.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_cli unit/ocr/test_ocr_cli.cpp
+          "unit;unit_ocr")
+  # host-only Phase 1 artifact/input/golden tests (no device/model)
+  luisa_compute_add_ocr_test(test_ocr_quantization unit/ocr/test_ocr_quantization.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_package unit/ocr/test_ocr_package.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_safetensors unit/ocr/test_ocr_safetensors.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_tokenizer unit/ocr/test_ocr_tokenizer.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_prompt unit/ocr/test_ocr_prompt.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_image unit/ocr/test_ocr_image.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_document unit/ocr/test_ocr_document.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_preprocess unit/ocr/test_ocr_preprocess.cpp
+          "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_json_output unit/ocr/test_ocr_json_output.cpp
+          "unit;unit_ocr")
+      # host-only Phase 2 runtime tests (no device/model)
+    luisa_compute_add_ocr_test(test_ocr_memory_budget unit/ocr/test_ocr_memory_budget.cpp
+            "unit;unit_ocr")
+    luisa_compute_add_ocr_test(test_ocr_runtime unit/ocr/test_ocr_runtime.cpp
+            "unit;unit_ocr")
+      # host-only Phase 3 decoder config/tensor-contract tests (no device/model)
+      luisa_compute_add_ocr_test(test_ocr_decoder_config unit/ocr/test_ocr_decoder_config.cpp
+              "unit;unit_ocr")
+      # host-only Phase 4 structured-output + model-contract tests (no device/model)
+      luisa_compute_add_ocr_test(test_ocr_output_table unit/ocr/test_ocr_output_table.cpp
+              "unit;unit_ocr")
+      luisa_compute_add_ocr_test(test_ocr_output_markdown unit/ocr/test_ocr_output_markdown.cpp
+              "unit;unit_ocr")
+      luisa_compute_add_ocr_test(test_ocr_output_extract unit/ocr/test_ocr_output_extract.cpp
+              "unit;unit_ocr")
+        luisa_compute_add_ocr_test(test_ocr_model_contract unit/ocr/test_ocr_model_contract.cpp
+                "unit;unit_ocr")
+        # host-only Phase 5 CTC/DB/reading-order output tests (no device/model)
+        luisa_compute_add_ocr_test(test_ocr_ctc unit/ocr/test_ocr_ctc.cpp
+                "unit;unit_ocr")
+        luisa_compute_add_ocr_test(test_ocr_db unit/ocr/test_ocr_db.cpp
+                "unit;unit_ocr")
+        luisa_compute_add_ocr_test(test_ocr_reading_order unit/ocr/test_ocr_reading_order.cpp
+                "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_cnn_result unit/ocr/test_ocr_cnn_result.cpp
+  "unit;unit_ocr")
+  # Phase 6 host-only layout/region scheduling + layout-decode tests
+  luisa_compute_add_ocr_test(test_ocr_scheduler unit/ocr/test_ocr_scheduler.cpp
+  "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_layout_decode unit/ocr/test_ocr_layout_decode.cpp
+  "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_layout_compose unit/ocr/test_ocr_layout_compose.cpp
+  "unit;unit_ocr")
+    # Phase 2 device tests (integration;integration_ocr). Built always; a CTest
+    # entry is created ONLY when LUISA_OCR_DEVICE_BACKEND names a backend, so an
+    # empty value never produces a silently-skipping test. Run manually with an
+    # explicit backend argument otherwise: test_ocr_ops_gemm vk|cuda|fallback.
+    set(LUISA_OCR_DEVICE_BACKEND "" CACHE STRING
+            "Backend argument for the OCR device tests' CTest entries (empty = build only, no CTest entry)")
+      set(_ocr_device_tests
+              test_ocr_ops_image
+              test_ocr_ops_gemm
+              test_ocr_ops_norm
+              test_ocr_ops_rope
+              test_ocr_ops_attention
+              test_ocr_ops_conv
+              test_ocr_ops_vision
+              test_ocr_runtime_device
+                test_ocr_decode_prefill
+                test_ocr_decode_cache
+                test_ocr_decode_sampling
+                test_ocr_decode_stop
+                  test_ocr_model_qwen3_vl
+                  test_ocr_model_fire_red
+                  test_ocr_model_pp_ocrv6
+                  test_ocr_layout
+                  test_ocr_model_paddle_ocr_vl
+                  test_ocr_model_open_doc
+                  test_ocr_region_scheduler)
+    foreach(_ocr_test IN LISTS _ocr_device_tests)
+        if(LUISA_OCR_DEVICE_BACKEND)
+            luisa_compute_add_ocr_test(${_ocr_test} integration/ocr/${_ocr_test}.cpp
+                    "integration;integration_ocr" ARGS ${LUISA_OCR_DEVICE_BACKEND})
+        else()
+            luisa_compute_add_test(${_ocr_test} integration/ocr/${_ocr_test}.cpp)
+            target_link_libraries(${_ocr_test} PRIVATE lc-example-ocr)
+            target_include_directories(${_ocr_test} PRIVATE
+                    ${CMAKE_SOURCE_DIR}/examples ${CMAKE_CURRENT_SOURCE_DIR}/integration/ocr)
+            target_compile_definitions(${_ocr_test} PRIVATE
+                    LUISA_OCR_TEST_DATA_DIR="${LUISA_OCR_TEST_DATA_DIR}"
+                    LUISA_OCR_EXAMPLES_DIR="${CMAKE_SOURCE_DIR}/examples")
+        endif()
+        target_include_directories(${_ocr_test} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/integration/ocr)
+    endforeach()
+
 # The SIMD backend is a host-only module, so its supported runtime conformance
 # subset is safe to run unattended without a GPU or driver installation.
 if (TARGET luisa-compute-backend-simd)

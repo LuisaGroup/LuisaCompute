@@ -517,6 +517,23 @@ cmake --build <build-dir> --parallel
 
 A target-only build is useful for compilation diagnostics but does not satisfy this gate. If source changes after the full build starts, repeat the full build before resuming tests.
 
+### Test and example data
+
+`scripts/test_data.py` discovers directories named `data` under `src/tests/` and `examples/`. These folders are gitignored and are distributed together as `luisa-compute-test-data.zip` on the [`LuisaGroup/SDKs` `Data` release](https://github.com/LuisaGroup/SDKs/releases/tag/Data).
+
+```bash
+# List the local folders that would be uploaded; no network or gh required.
+python scripts/test_data.py --dry-run
+
+# Download the release archive and restore its repository-relative folders.
+python scripts/test_data.py --download
+
+# Archive every discovered local folder and replace the release asset.
+python scripts/test_data.py --upload
+```
+
+Download and upload require GitHub CLI (`gh`) on `PATH` and an authenticated session (`gh auth login`); upload also requires permission to modify the release. Upload uses `--clobber`, so it replaces the existing archive with the current local data set. Check `--dry-run` first. Download overwrites same-path local files but does not delete extra local files. The archive stores paths relative to the repository root, allowing download to restore data folders that do not yet exist locally.
+
 ### iOS Metal4 device tests
 
 iOS tests are opt-in application bundles, not ordinary CTest registrations.
