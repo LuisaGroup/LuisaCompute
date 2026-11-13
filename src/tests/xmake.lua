@@ -521,6 +521,7 @@ test_proj("test_warp_sparse_collectives", "unit/runtime/test_warp_sparse_collect
 test_proj("test_hip_wave_size", "unit/runtime/test_hip_wave_size.cpp")
 test_proj("test_mha_warp_reduction", "unit/runtime/test_mha_warp_reduction.cpp")
 test_proj("test_ray_query_world_ray", "unit/runtime/test_ray_query_world_ray.cpp")
+test_proj("test_opacity_micromap_header", "unit/runtime/test_opacity_micromap_header.cpp")
 test_proj("test_buffer_io", "unit/runtime/test_buffer_io.cpp")
 test_proj("test_buffer", "unit/runtime/test_buffer.cpp")
 if has_config("lc_fallback_backend") then

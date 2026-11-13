@@ -6,6 +6,7 @@
 #include <luisa/runtime/rtx/aabb.h>
 #include "opacity_micromap.h"
 #include "rt_extension_plan.h"
+#include "command_buffer_sync.h"
 namespace lc::vk {
 
 namespace blas_detail {

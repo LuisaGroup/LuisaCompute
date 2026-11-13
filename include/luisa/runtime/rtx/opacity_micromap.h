@@ -7,6 +7,11 @@
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rtx/triangle.h>
 
+// X11 exposes None as a macro. Keep it out of the enum and inline methods,
+// then restore the caller's definition after this header.
+#pragma push_macro("None")
+#undef None
+
 namespace luisa::compute {
 
 class Device;
@@ -270,3 +275,5 @@ private:
 };
 
 }// namespace luisa::compute
+
+#pragma pop_macro("None")
