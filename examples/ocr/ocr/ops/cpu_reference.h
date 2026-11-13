@@ -112,6 +112,20 @@ enum class RefGemmEpilogue : uint32_t {
                                           luisa::span<const uint32_t> axis_of_pair, uint32_t tokens,
                                           uint32_t heads, uint32_t head_dim, uint32_t axes, float theta,
                                           luisa::vector<float> &out);
+// Additive Phase 7 partial rotary (GLM style): pairs over the FIRST rotary_dim
+// elements of each head; inv_freq[d] = theta^(-2d/rotary_dim) uses the ROTATED
+// dimension; the tail [rotary_dim, head_dim) is copied unchanged. axis_of_pair
+// has rotary_dim/2 entries. rotary_dim must be even and <= head_dim.
+// adjacent: pairs (2d, 2d+1); rotate_half: pairs (d, d+rotary_dim/2) within
+// the rotated prefix.
+[[nodiscard]] Status ref_rope_partial_adjacent(luisa::span<const float> x, luisa::span<const int32_t> positions,
+                                               luisa::span<const uint32_t> axis_of_pair, uint32_t tokens,
+                                               uint32_t heads, uint32_t head_dim, uint32_t rotary_dim,
+                                               uint32_t axes, float theta, luisa::vector<float> &out);
+[[nodiscard]] Status ref_rope_partial_rotate_half(luisa::span<const float> x, luisa::span<const int32_t> positions,
+                                                  luisa::span<const uint32_t> axis_of_pair, uint32_t tokens,
+                                                  uint32_t heads, uint32_t head_dim, uint32_t rotary_dim,
+                                                  uint32_t axes, float theta, luisa::vector<float> &out);
 // FP32-ANGLE 1D RoPE reference (S8): mirrors the device evaluation order in
 // float -- inv_freq = exp2f(log2f(theta) * (-2d/head_dim)), angle =
 // float(pos) * inv_freq, cosf/sinf -- instead of double-precision angles.

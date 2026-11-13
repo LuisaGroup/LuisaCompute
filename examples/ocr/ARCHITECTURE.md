@@ -3,14 +3,20 @@
 This document describes the frozen Phase 0 contracts, the Phase 1 host
 infrastructure, the Phase 2 portable tensor runtime and operators, the
 Phase 3 dense autoregressive decoder core, the Phase 4 Qwen3-VL vertical
-slice + FireRed-OCR recipe + structured outputs, and the architecture later
-phases implement. Nothing here is a claim that a REAL model runs. Graph
-contracts are transcribed from the requirement as contracts to verify against
-pinned official checkpoints/configs/reference implementations before any
-recipe is implemented (plan Phase 0 task 1). No official artifact has been
-inspected yet; all Phase 1/2/3/4 fixtures are synthetic. The Phase 3 dense
-decoder and the Phase 4 Qwen3-VL slice are validated only against a synthetic
-CPU oracle, not against any checkpoint.
+slice + FireRed-OCR recipe + structured outputs, the Phase 5 CNN OCR executor
++ PP-OCRv6 contracts, the Phase 6 layout/region infrastructure + PaddleOCR-VL
++ OpenDoc vertical slices, the Phase 7/8 custom and dense ViT slices, the
+Phase 9 hybrid GDN subsystem, the Phase 10 MoE subsystem, the Phase 11 opt-in
+execution features (exact-capacity P7 ragged crop chunking, optional CUDA
+graph decode, optional fused residual+RMSNorm), and the Phase 12 offline
+qualification surface (--list-models support report + QUALIFICATION.md).
+Nothing here is a claim that a REAL model runs. Graph contracts are transcribed
+from the requirement as contracts to verify against pinned official
+checkpoints/configs/reference implementations before any recipe is implemented
+(plan Phase 0 task 1). No official artifact has been inspected yet; all
+fixtures are synthetic. Every implemented slice is validated only against
+synthetic CPU oracles, not against any checkpoint; Session fails closed with
+unvalidated. See QUALIFICATION.md for the current 17-target matrix.
 
 ## Layering
 
@@ -38,7 +44,7 @@ ocr/models/qwen2_5_vl.* shared decoder geometry/config/tensor validation
 ocr/runtime/decode_cache.* contiguous + optional paged KV, device metadata
 ocr/runtime/executor.* command-recording executor contract + ownership
 ocr/runtime/dense_vlm_executor.* dense blocks + prefill/decode + controller
---- later phases (not present yet) ---
+--- Phases 4-10 per-model slices (implemented; synthetic parity only) ---
 ocr/models/* per-model graphs; CNN/layout/GDN/MoE executors
 ```
 
@@ -62,7 +68,7 @@ Rules:
 `ArchitectureFamily` distinguishes the paths directly; recipes must not
 collapse them:
 
-| Family | Executor (later phase) | Models |
+| Family | Executor (implemented; synthetic parity only) | Models |
 |---|---|---|
 | `cnn` | CnnExecutor | PP-OCRv6 tiny/small/medium (detector + CTC) |
 | `dense_vlm` | DenseVlmExecutor | TeleOCR, FireRed-OCR, Qwen3-VL-2B-Instruct, dots.mocr, GOT-OCR2.0, olmOCR-2 |
@@ -95,10 +101,13 @@ transformers; DeepSeek never gets a generic causal mask.
    (ocr/package.*), the safetensors inspection reader, tokenizer/prompt/
    detokenizer, image/document input, preprocessing reference, and the
    .ocrfeat interchange (see FORMAT.md). Component-selective DEVICE weight
-   upload and the checked memory preflight against MemoryLimits arrive with
-   the runtime phase.
-4. **Recognize (later phases):** preprocess -> overview/layout -> crops ->
-   vision batches -> decode batches -> structured output, with cancellation
+   upload and the checked memory preflight against MemoryLimits are
+   implemented by the Phase 2 runtime (runtime/weights.*, memory_budget.*).
+4. Recognize (synthetic executors implemented; real models fail closed):
+   preprocess -> overview/layout -> crops -> vision batches (P7 ragged
+   multi-crop graphs with exact-capacity chunking; Paddle/OpenDoc per-crop) ->
+   independent batch-1 decode (decode-batch planning is planning-only) ->
+   structured output, with cancellation
    polled at safe boundaries and source coordinates preserved through every
    transform (overview resize, layout crop, perspective warp, tile
    composition, cross-page merging).
@@ -128,8 +137,13 @@ refusal. There is no mock output path.
   validated optimization; GDN models carry recurrent + conv ring state plus
   periodic full-attention KV.
 - **Offload:** never implicit; `explicit_host` only, reported in metadata.
-- **Graph:** CUDA-graph capture (later) is DSL-only command lists; native
-  shader dispatches must not be assumed to compose with `CudaGraphExt`.
+- Graph: CUDA-graph capture is an OPT-IN Phase 11 feature of the dense decode
+  controller (DenseDecodeOptions.enable_cuda_graph) and the P7/Paddle region
+  recognizers (SchedulerLimits.enable_cuda_graph forwarding), with explicit
+  steps/updates/fallbacks counters; unsupported backends fall back to the
+  ordinary stream path and capture/update failures fail closed. It covers
+  DSL-only command lists; native shader dispatches must not be assumed to
+  compose with CudaGraphExt. The GDN/MoE/Surya executors have no graph path.
 - **Fast paths:** every fusion/native path needs a validated A/B arm and a
   kill switch; `automatic` may only pick parity-proven paths.
 - **Sampling:** greedy by default; non-greedy requires explicit finite
@@ -291,7 +305,9 @@ The dense autoregressive language path is implemented correctness-first in
 FP32, reusing the Phase 2 operators. It is model-agnostic: geometry and tensor
 names come from a shared contract, and the SAME executor serves the synthetic
 test decoder and (later) real Qwen2.5-VL-derived decoders. No vision tower,
-MTP/DFlash, graph capture, paged KV, or batching beyond batch 1 is present.
+MTP/DFlash, paged KV, or batching beyond batch 1 is present. (Phase 11 added
+OPT-IN single-sequence CUDA graph capture/update and an optional fused
+residual+RMSNorm to this path; both default off — see the Phase 11 section.)
 - `models/qwen2_5_vl`: SHARED dense decoder components only — `DenseDecoderConfig`
   geometry (validated: GQA divisibility, heads*head_dim==hidden, even head_dim,
   finite eps/theta) with an EXPLICIT `rope_pair_layout` field (`adjacent` pairs
@@ -472,3 +488,399 @@ strict parsers honestly — they do NOT establish hallucination safety for any
 real VLM, and no VLM confidence is produced. These are SYNTHETIC parity gates
 only; every real model remains planned and Session fails closed with
 unvalidated. The unmet official gates are recorded in MODELS.md.
+## Phase 6 layout/region infrastructure + PaddleOCR-VL + OpenDoc (implemented; synthetic parity only)
+
+Phase 6 adds the layout-routed execution path on top of the Phase 2 operators,
+the Phase 3 dense decoder, and the Phase 5 CNN recognizer. It is deliberately
+split into device-safe graph/orchestration TUs and host-only composition TUs so
+the host AttentionMaskKind (model_recipe.h/api.h) never meets the ops enum
+(ops_attention.h) in one translation unit.
+
+Device-safe pieces (no api.h/model_recipe.h):
+- models/pp_doc_layout.h/.cpp: PP-DocLayoutV2/V3 contracts (SEPARATE per-version
+  configs/tensor maps) + the CPU decode (score threshold, clamped exp box decode,
+  NMS AND class-aware NMS, region scoring, stable reading order, source
+  transforms). The decode is a host algorithm over device-safe plain types.
+- runtime/scheduler.h/.cpp: RegionScheduler (token-budgeted vision/prefill/decode
+  batch packing, restore to page/reading order), LayoutCache (bounded
+  detector-output cache keyed by an explicit content/geometry FNV-1a hash), and
+  the plain LayoutRunResult/LayoutDocument types.
+- runtime/layout_vlm_executor.h/.cpp: PpDocLayoutExecutor (device conv graph ->
+  head maps), the RegionRecognizer interface, PaddleOcrVlRecognizer (NaViT vision
+  + adaptive average-pool token reduction + LayerNorm/MLP connector + the shared
+  DenseVlmExecutor ERNIE decoder), OpenDocRecognizer (the shared CnnExecutor
+  recognizer graph in recognizer-only mode; UniRec is CNN+CTC, NOT a dense VLM),
+  and LayoutVlmExecutor (full overview->layout->crop->region->composition
+  orchestration with cancellation/time/memory checks, immediate sequence/
+  workspace release, and a documented cpu_reference layout option that consumes
+  head maps from the independent host oracle — never a silent model fallback).
+
+Host-only pieces (include api.h; never included by a device TU):
+- models/paddle_ocr_vl_result.*, models/open_doc_result.*: type-specific adapters
+  (text/formula/table) + strict Markdown/JSON/plain/spotting composition.
+  Malformed table/formula/JSON output fails closed (no plain-text fallback).
+- runtime/layout_result.*: the shared LayoutDocument -> public RecognizeResult
+  bridge (lines/blocks/source page/box/polygon/type/content/reading order).
+  Generative content carries NO confidence; only validated detector/CTC scores
+  are carried, explicitly labeled internal/test via a diagnostic.
+
+Additive Phase 5 change: CnnExecutor gained recognize_line() (per-region CNN+CTC
+entry) and create_recognizer_only() (no detector weights/workspace) so OpenDoc's
+UniRec stage reuses the real recognizer graph without a fake detector. The full
+detector->recognizer recognize() path is unchanged and fails closed in
+recognizer-only mode.
+
+PaddleOCR-VL is a DISTINCT graph from Qwen3-VL: NaViT vision uses QKV bias and
+NO QK-Norm/DeepStack; token reduction is an adaptive average pool over the patch
+grid (not a spatial merger); the ERNIE decoder uses the Phase 3 contract
+(rotate-half 1D RoPE, QKV bias, no QK-Norm). OpenDoc is a TWO-STAGE recognizer
+(PP-DocLayoutV2 + UniRec CNN+CTC) and is never forced into the dense VLM/KV path.
+
+  Phase 6 verification: host unit suites test_ocr_scheduler, test_ocr_layout_decode,
+  test_ocr_layout_compose; device integration suites test_ocr_layout,
+  test_ocr_model_paddle_ocr_vl, test_ocr_model_open_doc, test_ocr_region_scheduler
+  on cuda (vk blocked upstream, see below). Each compares against an independent
+  double-accumulating CPU oracle (layout head maps + decoded boxes/scores/classes;
+  NaViT patches + connector features + ERNIE greedy tokens; UniRec CTC ids/text;
+  region batching vs batch-1 ORDERED equivalence; repeat-run determinism).
+  Tolerances: layout conv chain 3e-3 abs + 3e-3 rel, decoded boxes 0.75 source px /
+  scores 5e-3; NaViT patches 5e-4, connector 3e-3 (GELU-erf); greedy tokens / CTC
+  ids match exactly. The host preprocessing oracle mirrors the declared FLOAT
+  stretch-resize convention so the conv-chain parity isolates the graph.
+
+  Review fix pass (M1/S1-S8): the layout source transform is source/INPUT (the
+  decode folds the backbone stride into the box exactly once; a source/map scale
+  double-counted it) — pinned by an absolute-geometry host regression at a known
+  cell and a full-pipeline crop-content test proving bright bars are hit. A Paddle
+  full-pipeline orchestrator test mirrors OpenDoc (layout->crop->connector/decode->
+  ordered output). max_output_tokens_per_page is enforced during accumulation with
+  a visible output_truncated diagnostic; max_output_tokens_per_region is the single
+  per-region cap forwarded to the recognizer. Returned pages are sorted by source
+  page_index (stable); region_id is document-global across pages. UniRec resolves
+  its DISTINCT UniRecTensorNames through a CnnExecutor recognizer name-map override
+  (no silent PP-OCRv6 alias), with wrong/missing-tensor refusal tests. The per-region
+  KV create receives a MemoryBudget; peak_device_bytes = weights + workspace + KV
+  peak. Phase 11 P7 recognizers execute ragged multi-crop vision graphs with
+  exact-capacity chunking; Paddle/OpenDoc remain per-crop. Text decode is still
+  independent batch-1, and decode-batch planning has no batched executor yet.
+
+  Backend note (S8, upstream blocker): cuda passes all Phase 6 suites in xmake and
+  CMake. vk is blocked by an upstream post-merge regression: vkCreateDevice chains
+  VkPhysicalDeviceShaderReplicatedCompositesFeaturesEXT (sType 1000657000), rejected
+  by the installed validation layer 1.4.321.1 (fatal); the baseline test_ocr_ops_gemm
+  fails identically, confirming it is not Phase 6. The merged vk backend also fails
+  CMake's non-unity compile (missing opacity_micromap.h / command_buffer_sync.h
+  includes); xmake unity masks it. Phase 6 vk parity was green pre-merge; no backend
+  edits are made here.
+
+  These are SYNTHETIC parity gates only; every real model remains planned,
+  PaddleOCR-VL is NOT a validated complex-document default, and Session fails closed
+  with unvalidated. The unmet official gates (layout mAP, reading order,
+  table/formula/Markdown/JSON, determinism, memory, RTX 4060) are recorded in
+  MODELS.md.
+
+Phase 8 remaining dense ViT models (implemented; synthetic parity only)
+
+Phase 8 adds dots.mocr, GOT-OCR2.0, and olmOCR-2 on the shared dense executor
+and the Phase 7 slice, with ADDITIVE engine support (all prior suites green):
+- DenseLinearStorage (models/qwen2_5_vl.h) + DenseExecutorConfig.linear_storage:
+  an explicit per-linear W4A32 path. Packed grouped-INT4 B operands (Phase 1
+  low-nibble/group/scale/zp semantics) are read by the Phase 2 packed GEMM/GEMV
+  kernels with FP32 activations and FP32 accumulation; embeddings/norms/QKV
+  biases stay FP32; a quantized recipe requires a standalone packed lm_head
+  (tied embeddings refused). create() validates the exact storage kind + group
+  size per weight and refuses any FP32/FP16/INT8-as-INT4 reinterpretation.
+- P7SliceConfig.linear_storage/linear_group_size forward the policy to the
+  embedded dense executor; text_qwen2_5_contract selects the Qwen2.5-VL text
+  identity (QKV bias, NO QK-Norm, rotate-half M-RoPE via the distinct named
+  make_rope_mrope_rotate_half_kernel) instead of the Qwen3 QK-Norm contract.
+- P7VisionConfig.rel_pos_window: decomposed ViTDet/SAM relative-position bias.
+  The immutable per-layer tables are downloaded ONCE at create (stream drained
+  there; no borrowed stream retained); record_vision expands them host-side
+  per image grid into completion-retained staging and the attention kernel
+  adds them to the scores. Distinct from RoPE/absolute positions; mutually
+  exclusive with vision RoPE in validation.
+- P7ConnectorConfig.rms_norm: the Qwen2.5-VL merger RMSNorm (weight only);
+  the LayerNorm default and inventory are unchanged for prior models.
+- models/dots_mocr: ViT + spatial-merge merger + dense GQA decoder contract;
+  the FULL 28-layer/12-query/2-KV geometry is declared and validated explicitly
+  (dots_mocr_declared_decoder_config) while the executing slice is scaled;
+  dots_mocr_preflight_decoder reports checked weight/workspace/KV bytes before
+  allocation; W4A32 arm + strict signature/real-artifact gates.
+- models/got_ocr2: ViTDet/SAM window/global + relative bias, linear connector,
+  Qwen decoder; EXACT prompt contracts (plain/formatted/region/color) with
+  round-trip parsing, invalid-guidance refusal, normalized->pixel region
+  transforms, and reading-order multi-crop composition (strict Markdown in
+  formatted mode; malformed fails closed).
+- models/olm_ocr2: complete Qwen2.5-VL encoder/RMSNorm-merger/decoder contract;
+  English-only enforcement (exact language match, "multi" refused); the
+  declared 8 GB path REQUIRES INT4; olm_ocr2_preflight reports the full
+  vision+decoder+workspace+KV requirement and fails BEFORE allocation;
+  explicit_host offload fails closed unsupported (no performance claim).
+Phase 8 verification (post-review): cuda, xmake AND CMake, debug. New suites:
+dots 6/113, GOT 8/143, olm 5/109 (tests/asserts). 21 affected prior device
+suites + 26 host suites green in both build systems (CTest unit_ocr 26/26).
+Review fixes S1-S4 landed with tests (prefix-restricted quantizable linears +
+wired package-load gates; owned tied-head bytes in measured residency with
+preflight==measured assertions; defensive packed-buffer count gates; olm
+languages non-array refusal). GOT adds a memory preflight, page_index in
+multi-crop composition, and locale-independent d.dddd region parsing. vk
+remains upstream blocked (backend validation callback abort; no backend
+edits). Measured synthetic memory and the W4A32 quality/preflight numbers are
+recorded in MODELS.md. These are SYNTHETIC parity gates only; all three models
+remain planned, real artifacts fail closed unconditionally, and Session fails
+closed with unvalidated. No official accuracy or RTX 4060 claim is made.
+
+## Phase 9 hybrid GDN subsystem + OvisOCR2 + Surya (implemented; synthetic parity only)
+
+Execution-path family: hybrid_gdn (NOT a KV-only transformer). New modules:
+- ops/ops_gdn: device-free DSL factories + INDEPENDENT double-accumulation host
+  oracles for the declared GDN contract: Q/K/V/z/a/b projections; causal
+  depthwise Conv1D + SiLU with an in-place ring state (last K-1 PRE-activation
+  taps, slot = absolute position mod (K-1), overwritten only after the output
+  reading it was computed); required per-head L2/QK normalization; beta=sigmoid,
+  softplus(threshold 20) decay g = -exp(A_log)*softplus(a+dt_bias); the delta
+  rule S <- alpha*S, S += beta*k*(v - S^T k)^T, o = S^T q on a [d,d] per-head
+  state (S[k,v] layout); gated output RMSNorm * silu(z); o-proj + residual.
+  Straight recurrent prefill/decode never materializes a sequence x sequence
+  matrix. The chunked prefill is the WY/UT-transform chunk algebra (L matrix,
+  forward-substituted w/u, pseudo values ue, carried-state transition,
+  inter+intra outputs) — correctness-first SERIAL substitution inside a chunk,
+  explicitly NOT chunk-parallel and NOT a sequential rename; it is a distinct
+  arithmetic path verified against BOTH the recurrent oracle and a full-L
+  host oracle at every chunk boundary. Also zero-fill + elementwise sigmoid
+  utilities reused by the cache/detector.
+- runtime/hybrid_gdn_config: HOST-SAFE geometry/tensor-name contract
+  (GdnLayerConfig, HybridCacheConfig with checked KV/GDN/Conv/metadata capacity
+  math from actual dimensions, HybridGdnExecutorConfig with the EXPLICIT
+  per-layer HybridLayerKind schedule, HybridGdnTensorNames, expected-tensor
+  inventory + fp32 package gate). No api.h/ops_attention.h, so host model TUs
+  and device TUs share one contract.
+- runtime/hybrid_gdn_executor: HybridGdnCache (contiguous KV for FULL layers
+  only + per-layer/head/request recurrent [H,d,d] + Conv ring [3*H*d,K-1] +
+  Phase 3 DecodeState metadata; synchronous zero-init; budget preflight before
+  allocation; bind/append/release/record_finished/reset with no cross-request
+  leaks; paged KV fails closed). HybridGdnExecutor: separate prefill/decode
+  command-recording loops mixing GDN and full GQA layers, dense embedding +
+  mm-scatter, RMSNorm/SwiGLU/LM head (tied transpose owned buffer), chunked
+  prefill entry (chunk_size bounded by the workspace row capacity; oversized
+  chunks fail closed), per-record heap-owned upload staging. HybridDecodeController
+  reuses the Phase 3 DeterministicSampler + Phase 1 IncrementalDetokenizer
+  (greedy/seeded sampling, EOS/stop strings, bounded output, wall-time/cancel,
+  release guard recording device finished state on every exit). HybridVlmGraph
+  pairs P7VlmExecutor::create_vision_only (ADDITIVE: identical vision path, no
+  embedded dense text executor) with the hybrid decoder; resets the cache per
+  run; optional borrowed tokenizer for end-to-end text.
+- models/ovis_ocr2: dynamic-preprocessing ViT + spatial-merge merger + the
+  Qwen3.5-0.8B-style hybrid decoder contract. The FULL 24-layer / 18-GDN /
+  6-full schedule (full at {3,7,11,15,19,23}) is validated EXPLICITLY; the
+  executing slice is scaled (6 layers = 4 GDN + 2 full) and must not pass the
+  full gate. Strict config parse (explicit layer_kinds required; MoE markers
+  refused), exact signature gate, unconditional real-artifact refusal, checked
+  memory preflight, plain/markdown composition (spotting/extract fail closed).
+- models/surya + runtime/surya_executor: EfficientViT-Segformer-style line
+  detector (scaled 4-stage CNN + DB head + sigmoid; shared conv/act/sigmoid
+  ops + output/db_postprocess) -> source-coordinate line crops -> the same
+  vision merger + hybrid decoder per line -> stable top-to-bottom reading
+  order. The FULL 24/18/6 schedule contract is validated explicitly. Confidence
+  is ONLY the detector mean box probability (labeled); generative text carries
+  none. Plain/spotting/markdown via the shared strict composer; extract fails
+  closed; no fabricated table HTML. Blank pages produce zero lines.
+
+Phase 9 review fixes (S1/S2):
+- S1: HybridGdnExecutor::record_state_reset zeroes THIS request's GDN recurrent
+  state AND Conv ring on EVERY from-scratch prefill (after bind_sequence, before
+  any chunk work, same command list ahead of all layer dispatches) via the
+  compiled zero-fill shader. Required because the delta rule accumulates onto the
+  state and the Conv reads prior taps. record_finished() is documented
+  METADATA-ONLY; release() frees only the host slot; reset() still clears all
+  sequences, and bypassing prefill requires reset() first. Full-attention KV is
+  never zeroed (bounded by kv_len / the causal prefix). HybridVlmGraph's per-run
+  reset() is belt-and-braces, not the safety mechanism.
+- S2: SuryaConfig::tokenizer is a BORROWED const Tokenizer* (caller-owned; must
+  outlive create() and every recognize(); never copied/freed/retained). create()
+  refuses null or an undersized vocabulary and recognize() re-checks it, so a
+  text-capable run never silently emits empty content; it is plumbed into
+  HybridVlmGraph::run (used only inside generate()). Line EOS comes from the
+  declared decoder contract; tokens-without-text (no EOS/stop) is an
+  internal_error, while a token-less line and a blank PAGE stay valid empty.
+
+Phase 9 verification (post-review): cuda, xmake AND CMake, debug. New suites
+(tests/asserts, identical in both build systems): gdn_conv 3/31,
+gdn_recurrent 4/26, gdn_chunked 3/25, gdn_cache 12/237, model_ovis_ocr2 8/49,
+model_surya 10/61 (40 tests / 429 asserts total). All 26 host suites (2507
+asserts / 240 tests; CTest unit_ocr 26/26) and 23 affected prior device suites
+(4537 asserts / 167 tests) green in both systems; example_ocr builds in both.
+New regressions: gdn_hybrid_reused_cache_no_leak (NONZERO GDN weights, two
+generate() calls on ONE cache with no reset between them; second run's logits /
+tokens / recurrent + Conv state BIT-EXACT vs fresh caches) and
+surya_line_text_detokenized + surya_tokenizer_required (real synthetic Unigram
+tokenizer; non-empty line text, page text, composed block content; null /
+undersized tokenizer fails closed). Both were negative-controlled (fix disabled
+=> the regression fails), then restored; no probe code remains. Declared tolerances and the exact synthetic
+equations/architectures are recorded in MODELS.md. vk remains upstream blocked
+(no backend edits). These are SYNTHETIC parity gates only: OvisOCR2 and Surya
+remain planned, real artifacts fail closed unconditionally, and Session fails
+closed with unvalidated. No official accuracy or RTX 4060 claim is made; the
+chunked path makes no performance claim (serial substitution, not parallel).
+
+## Phase 10 DeepSeek-OCR-2 MoE vertical slice (implemented; synthetic parity only)
+
+Phase 10 adds the MoE execution family. It is a SEPARATE engine, never a dense
+ViT+LLM alias and never a generic causal transformer:
+
+- `ocr/ops/ops_moe.*` — device-free MoE factories + independent double-accumulating
+  host oracles: FP32 router softmax, deterministic top-k (lowest-index tie-break,
+  renormalized weights), histogram/counts, exclusive-prefix offsets,
+  token-to-expert permutation (stable within an expert by ascending slot),
+  gather, and weighted scatter restore + two shared dense experts.
+- `ocr/runtime/moe_vlm_executor.*` — the complete synthetic graph: SAM-style local
+  perception -> BOTH convolutional downsamplers -> Qwen2-style visual LM encoder
+  with causal-flow queries and the EXACT custom visual/query block mask ->
+  connector -> DeepSeek MoE decoder (contiguous KV, ordinary target decoding).
+- `ocr/models/deepseek_ocr2.*` — host-safe identity/tensor/mask/output contract,
+  exact 64/top-6/two-shared expert gate, signature gate, real-artifact fail-closed
+  gate, EXACT shared workspace plan + memory preflight, grounded-Markdown adapter.
+
+Custom visual/query mask (mandatory, plan §3/§7.3): built host-side as DATA at
+`block_size 1`, never a generic causal mask. Visual rows are bidirectional among
+visual rows and NEVER see queries; query row q sees ALL visual rows plus query
+rows <= q (including itself) and never later queries. The text decoder attention
+IS causal (autoregressive) — the custom mask lives only in the visual LM encoder.
+
+MoE reference progression (plan §7.3): the router/permutation run on device, the
+host reads back the per-layer counts/offsets, and then a loop over ACTIVE experts
+records per-expert gate/up/SwiGLU/down GEMMs on that expert's gathered rows.
+Inactive experts are skipped entirely. There is NO grouped persistent GEMM
+framework and NO native graph for the MoE executor (Phase 11 added CUDA graph
+capture only to the dense/P7/Paddle decode paths, not here).
+
+Phase 10 correctness fixes found by the new suites (both were real defects):
+- The GEMV/small-M path implements only none/bias/residual epilogues. A gated
+  epilogue (`bias_gelu_erf`, used by the connector at M == num_queries == 4) MUST
+  take the GEMM path; routing it to GEMV silently dropped the bias AND the GELU
+  activation. `record_linear` now gates GEMV on the supported epilogue set.
+- The single-thread offsets kernel used `set_block_size(1,1,1)`, which CUDA
+  rejects (block size must be a multiple of 32). It now uses 32 with the
+  `ocr_linear_id() == 0u` guard.
+- The encoder mask and all uploaded host arrays (pixels, positions, axis map,
+  per-layer masks) live in per-record heap staging retained through command
+  completion, so a later `record_vision` can never dangle a borrowed upload.
+
+Memory is EXACT, not estimated: `deepseek_ocr2_workspace_plan` is the single
+shared arena plan used by BOTH `reserve_workspace` and the preflight, so the
+preflighted workspace bytes EQUAL the measured arena capacity. The device suite
+asserts measured == planned for vision weights, decoder weights, workspace, and
+KV, and that a tiny explicit budget refuses BEFORE allocation with
+required-vs-available details.
+
+Phase 10 independent-review fixes (all must-fix + should-fix, each with a
+permanent test; no Phase 11 / backend work):
+- M1 parse: `num_attention_heads == 0` (and a non-dividing hidden_size) is refused
+  BEFORE deriving the default head_dim, so the config parser can no longer divide
+  by zero — even when an explicit head_dim is supplied.
+- M2 record_vision: `patch_count` must equal the CHECKED `grid_h*grid_w`, and
+  `rows` is derived from that product; a forged/undersized patch_count or a zero
+  grid dimension is refused before any upload.
+- M3 record_vision: zero source width/height, an empty pixel buffer, and a zero
+  resized edge are refused before the preprocess clamp/scale math.
+- M4 downsamplers: `DeepSeekConvDownsampler::validate` proves the conv can never
+  ENLARGE the grid (stride 1 requires 2*pad+1 <= kernel; stride >= 2 is checked at
+  the smallest legal input, where out-in is maximal), so the
+  `max_vision_patches + num_queries` workspace bound stays an actual upper bound.
+  record_vision additionally checks the concrete grid per stage.
+- M5/M6 oracles: `ref_moe_gather` validates the x extent and every perm_token
+  index; `ref_moe_scatter` validates the expert_out extent and every destination
+  slot, before any read.
+- M7 `ref_moe_layer` rejects tokens == 0 before dividing ids.size() by tokens, and
+  validates the routing table geometry.
+- M8 `deepseek_ocr2_compose` now GROUNDS every region through the parser: markers
+  are stripped into canonical content, the union box + per-box polygon corners
+  populate the source geometry, and malformed/out-of-range grounding fails closed
+  (previously markers leaked with an empty box and bad coordinates passed).
+- M9 router softmax: the running max is seeded from a REAL element (not a finite
+  -3.0e38 sentinel), so a finite extreme row can no longer underflow every exp()
+  to a zero sum and produce NaN; an explicit zero-sum guard matches the oracle.
+- S1 tied word embeddings are refused for the MoE decoder and the preflight no
+  longer invents tied-head transpose bytes.
+- S2 `create_cache` refuses max_seq_len > decoder.max_position_embeddings.
+- S3 the device routing readback is validated (counts sum == slots, exclusive
+  prefix, off+count <= slots) through the SHARED `validate_moe_routing_tables`
+  before it drives any subview; it returns a Status, never aborts.
+- S4 upload staging is retained on EVERY exit path by `UploadStagingGuard`:
+  caller-owned lists get the completion callback (so a post-error commit is
+  safe); executor-owned lists are committed AND drained on error, which both
+  releases the staging and satisfies the runtime's committed-before-destroy rule.
+- S5 MemoryLimits are enforced end-to-end (weights + exact workspace + KV at the
+  actual max sequence) in create() and create_cache(), before allocation.
+- S6 the MoE input validators run on the actual execution path.
+- S7 grounding coordinates are the CLOSED [0,1000] (header + docs agree) and
+  trailing commas are rejected.
+- S8 the decoder oracle consumes the INDEPENDENT vision-oracle features, with the
+  device features separately asserted equal in the same test.
+- S9 the device custom-mask BYTES are downloaded and compared against an
+  independent structural expectation; the executor and the oracle share ONE
+  canonical builder (`MoeVlmExecutor::build_visual_query_mask`).
+- S10 the empty-assignment case runs the real device router/top-k/histogram/
+  offsets/permutation chain and drives the expert loop from the validated DEVICE
+  counts, instead of uploading oracle routing.
+- S11 the composed-route test compares EXACT device-vs-host expert ids derived
+  from the SAME x/W via the host's independent projection.
+
+Phase 10 verification (post-review): cuda, xmake AND CMake, debug. New suites
+(tests/asserts, identical in both build systems): deepseek_contract 11/105 (host),
+moe_router 7/755, moe_permutation 4/59, moe_experts 2/12,
+model_deepseek_ocr2 12/193 (36 tests / 1124 asserts total). All 27 host suites
+(2612 asserts / 251 tests; CTest unit_ocr 27/27) and the FULL OCR device set of
+36 suites (6652 asserts / 265 tests) are green in BOTH systems, i.e. the 32 prior
+device suites (5633 asserts / 240 tests) show no regression; example_ocr builds
+in both. Declared tolerances, the exact synthetic architecture, and the measured
+memory facts are recorded in MODELS.md. vk remains upstream blocked (no backend
+edits). These are SYNTHETIC parity gates only: DeepSeek-OCR-2 remains planned,
+real artifacts fail closed unconditionally, and Session fails closed with
+unvalidated. No official accuracy, no 8 GB fit claim, and no RTX 4060
+performance claim is made.
+
+Phase 11 opt-in execution features (current; synthetic parity only)
+
+Phase 11 is additive and default-off; the reference command sequences and all
+prior suites are preserved:
+- Exact-capacity P7 ragged crop chunking: P7 region recognizers record ragged
+  multi-crop vision graphs and split them by EXACT packed-patch capacity
+  (runtime/p7_vlm_executor.*). Paddle/OpenDoc recognizers remain per-crop.
+  Batch-vs-1 tests assert actual output equality, including the chunked path.
+- Optional CUDA graph decode: DenseDecodeOptions.enable_cuda_graph captures
+  and updates a single-sequence decode graph; unsupported backends use the
+  ordinary stream path and report an explicit fallback; capture/update
+  failures fail closed (no partial graph output). DenseDecodeResult and the
+  P7/Paddle recognizers expose cuda_graph_steps/updates/fallbacks counters.
+  SchedulerLimits.enable_cuda_graph forwards the opt-in through the layout
+  orchestrator to each generative region recognizer.
+- Optional DenseExecutorConfig.enable_fused_residual_rms_norm fuses the output
+  projection residual with post-attention RMSNorm; default false preserves
+  the reference sequence.
+Boundaries: text decode remains independent batch-1 per region;
+plan_decode_batches / max_decode_batch stay planning-only (no batched decode
+executor exists). The GDN/MoE/Surya executors have no CUDA graph path; paged
+KV still fails closed; native fast paths, GLM MTP, and Hunyuan DFlash remain
+unsupported. These are engine features verified by synthetic parity tests on
+cuda (RTX 4080 SUPER) — NOT real-model support, and no performance claim.
+
+Phase 12 offline qualification surface (current)
+
+- ocr/cli.*: CliArgs.list_models + --list-models short-circuit like --help
+  (no backend/package/input required). model_support_report_json() emits
+  valid JSON derived from the SAME default planned table Session will consult
+  once real loading is enabled:
+  target_count=17, one entry per target (target/model/family/support_state/
+  validated), and explicit real_model_validated=false /
+  session_status="unvalidated". Synthetic parity never upgrades a recipe.
+- example_ocr.cpp prints the report and exits 0 BEFORE session validation.
+- QUALIFICATION.md records the honest 17-target matrix (synthetic evidence,
+  backend actually measured, real checkpoint/package/precision/mode/
+  performance explicitly NOT QUALIFIED) and the exact host/device
+  qualification commands, including how real rows must be populated from
+  external licensed artifacts without tests modifying goldens.
+- Session::create / Session::recognize still fail closed with unvalidated
+  for every real artifact; no weights are bundled and no runtime downloads
+  exist.

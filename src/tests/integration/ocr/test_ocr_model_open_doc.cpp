@@ -146,7 +146,9 @@ void test_unirec_parity(Device &device) {
 }
 
 // ---------------------------------------------------------------------------
-// Region batching vs batch-1 equivalence.
+// Region batching vs batch-1 equivalence (ordered outputs). NOTE (S7): Phase 6
+// execution is batch-1; this asserts ordered equivalence of the plan/restore
+// path, not batched kernel execution (Phase 11).
 // ---------------------------------------------------------------------------
 void test_batch_equivalence(Device &device) {
     Fixture fx;
@@ -193,12 +195,11 @@ void test_full_pipeline(Device &device) {
     orch.scheduler.max_patches_per_vision_batch = 4096;
     orch.scheduler.max_regions_per_batch = 4;
     orch.scheduler.max_decode_batch = 2;
-    orch.region.max_output_tokens = 64;
+    orch.scheduler.max_output_tokens_per_region = 64;
     LayoutVlmExecutor orchestrator;
     expect(orchestrator.create(orch, fx.layout.get(), fx.weights.layout_cfg, fx.recognizer.get()).ok());
     auto page = ocr::test::p6_make_page(64, 64);
     auto run = orchestrator.recognize(stream, luisa::span<const LayoutPageInput>{&page, 1});
-    if (!run.ok()) { LUISA_WARNING("opendoc pipeline: {} [{}]", run.status.message, run.status.detail); }
     expect(run.ok());
     if (!run.ok()) { return; }
     expect(run.value->pages.size() == 1u);
@@ -245,7 +246,7 @@ void test_empty_page(Device &device) {
     LayoutVlmExecutorConfig orch;
     orch.layout_policy = LayoutDevicePolicy::device;
     orch.decode.score_threshold = 0.9f;// high threshold: blank page -> no regions
-    orch.region.max_output_tokens = 64;
+    orch.scheduler.max_output_tokens_per_region = 64;
     LayoutVlmExecutor orchestrator;
     expect(orchestrator.create(orch, fx.layout.get(), fx.weights.layout_cfg, fx.recognizer.get()).ok());
     LayoutPageInput blank;
@@ -261,7 +262,149 @@ void test_empty_page(Device &device) {
     expect(run.value->regions_processed == 0u);
 }
 
+// ---------------------------------------------------------------------------
+// S5: UniRec tensor-contract refusal. The recognizer load path resolves the
+// DISTINCT UniRec names (unirec.*), NOT a PP-OCRv6 alias. A package written under
+// PP-OCRv6 recognizer names, a missing tensor, or a wrong-shape tensor must all
+// be refused. The on-disk inventory is uni_rec_expected_tensors.
+// ---------------------------------------------------------------------------
+void test_unirec_tensor_refusal(Device &device) {
+    ocr::test::P6TempDir tmp;
+    ocr::test::OpenDocFixtureWeights w;
+    expect(ocr::test::generate_opendoc_weights(w).ok());
+    auto stream = device.create_stream();
+    const auto &rec = w.rec_cfg.recognizer;
+    const auto conv_shape = [](const PpConvStage &s) {
+        return luisa::vector<uint64_t>{s.out_c, s.in_c / s.groups, s.kh, s.kw};
+    };
+    uint32_t collapsed = 0;
+    if (auto cc = rec.collapsed_channels(); cc.ok()) { collapsed = *cc.value; }
+    // Helper: write a recognizer package with a custom name map / mutation.
+    // mode 0 = correct UniRec names; 1 = PP-OCRv6 names (alias refusal);
+    // 2 = drop the CTC weight (missing); 3 = wrong CTC bias shape.
+    const auto write_rec = [&](const luisa::filesystem::path &path, int mode) -> Status {
+        auto writer = PackageWriter::create(path);
+        if (!writer.ok()) { return writer.status; }
+        auto &wr = *writer.value;
+        const auto add = [&wr](const luisa::string &name, luisa::vector<uint64_t> shape,
+                               TensorLayout layout, luisa::span<const float> data) -> Status {
+            PackageWriter::TensorSpec spec;
+            spec.name = name;
+            spec.encoding = TensorEncoding::fp32;
+            spec.layout = layout;
+            spec.shape = std::move(shape);
+            spec.payload = ocr::test::p6_f32_bytes(data);
+            return wr->add_tensor(spec);
+        };
+        PpOcrv6TensorNames pp;
+        const auto bw = [&](uint32_t i) { return mode == 1 ? pp.rec_backbone_w(i) : w.rec_names.backbone_w(i); };
+        const auto bb = [&](uint32_t i) { return mode == 1 ? pp.rec_backbone_b(i) : w.rec_names.backbone_b(i); };
+        for (uint32_t i = 0; i < rec.backbone.size(); i++) {
+            const auto &s = rec.backbone[i];
+            if (auto st = add(bw(i), conv_shape(s), TensorLayout::conv_oihw, w.rec_folded.rec_backbone_w[i]); !st.ok()) { return st; }
+            if (auto st = add(bb(i), {s.out_c}, TensorLayout::row_major, w.rec_folded.rec_backbone_b[i]); !st.ok()) { return st; }
+        }
+        const auto f1w = mode == 1 ? pp.rec_svtr_fc1_w() : w.rec_names.svtr_fc1_w();
+        const auto f1b = mode == 1 ? pp.rec_svtr_fc1_b() : w.rec_names.svtr_fc1_b();
+        const auto f2w = mode == 1 ? pp.rec_svtr_fc2_w() : w.rec_names.svtr_fc2_w();
+        const auto f2b = mode == 1 ? pp.rec_svtr_fc2_b() : w.rec_names.svtr_fc2_b();
+        const auto cw = mode == 1 ? pp.rec_ctc_w() : w.rec_names.ctc_w();
+        const auto cb = mode == 1 ? pp.rec_ctc_b() : w.rec_names.ctc_b();
+        if (auto s = add(f1w, {collapsed, rec.svtr_intermediate}, TensorLayout::kn, w.rec_weights.svtr_fc1_w); !s.ok()) { return s; }
+        if (auto s = add(f1b, {rec.svtr_intermediate}, TensorLayout::row_major, w.rec_weights.svtr_fc1_b); !s.ok()) { return s; }
+        if (auto s = add(f2w, {rec.svtr_intermediate, collapsed}, TensorLayout::kn, w.rec_weights.svtr_fc2_w); !s.ok()) { return s; }
+        if (auto s = add(f2b, {collapsed}, TensorLayout::row_major, w.rec_weights.svtr_fc2_b); !s.ok()) { return s; }
+        if (mode != 2) {// mode 2 drops the CTC weight (missing-tensor refusal)
+            if (auto s = add(cw, {collapsed, rec.num_classes}, TensorLayout::kn, w.rec_weights.ctc_w); !s.ok()) { return s; }
+        }
+        const uint32_t cb_shape = mode == 3 ? rec.num_classes + 1u : rec.num_classes;// mode 3 wrong shape
+        luisa::vector<float> cb_data(w.rec_weights.ctc_b.begin(), w.rec_weights.ctc_b.end());
+        if (mode == 3) { cb_data.push_back(0.0f); }
+        if (auto s = add(cb, {cb_shape}, TensorLayout::row_major, cb_data); !s.ok()) { return s; }
+        return wr->finish(ocr::test::p6_manifest("unirec"));
+    };
+    // Build the recognizer config (UniRec geometry + names).
+    OpenDocRecognizerConfig rc;
+    rc.model.layout = w.layout_cfg;
+    rc.model.layout_names = w.layout_names;
+    rc.model.recognizer.recognizer = rec;
+    rc.model.recognizer.dictionary = ocr::test::pp_synthetic_dictionary();
+    rc.model.recognizer_names = UniRecTensorNames{};
+    rc.recognizer_component = "unirec";
+    // mode 0: correct UniRec names -> the on-disk inventory validates AND create succeeds.
+    {
+        const auto path = tmp.path / "unirec_ok.lcocr";
+        expect(write_rec(path, 0).ok());
+        auto reader = PackageReader::open(path);
+        expect(reader.ok());
+        if (reader.ok()) {
+            UniRecConfig uc;
+            uc.recognizer = rec;
+            uc.dictionary = ocr::test::pp_synthetic_dictionary();
+            auto expected = uni_rec_expected_tensors(uc, UniRecTensorNames{});
+            expect(uni_rec_validate_tensors((*reader.value)->tensors(), expected).ok());
+            WeightStore store;
+            expect(store.upload_component_sync(device, stream, **reader.value, "unirec").ok());
+            OpenDocRecognizer r;
+            expect(r.create(device, stream, rc, store).ok());
+        }
+    }
+    // mode 1: PP-OCRv6 names -> on-disk UniRec validation refuses (missing unirec.*).
+    {
+        const auto path = tmp.path / "unirec_pp.lcocr";
+        expect(write_rec(path, 1).ok());
+        auto reader = PackageReader::open(path);
+        expect(reader.ok());
+        if (reader.ok()) {
+            UniRecConfig uc;
+            uc.recognizer = rec;
+            uc.dictionary = ocr::test::pp_synthetic_dictionary();
+            auto expected = uni_rec_expected_tensors(uc, UniRecTensorNames{});
+            auto v = uni_rec_validate_tensors((*reader.value)->tensors(), expected);
+            expect(!v.ok()) << "PP-OCRv6 names must not satisfy the UniRec inventory";
+            // The device load path also refuses (no unirec.* tensors installed).
+            WeightStore store;
+            expect(store.upload_component_sync(device, stream, **reader.value, "unirec").ok());
+            OpenDocRecognizer r;
+            expect(!r.create(device, stream, rc, store).ok());
+        }
+    }
+    // mode 2: missing CTC weight -> refusal.
+    {
+        const auto path = tmp.path / "unirec_missing.lcocr";
+        expect(write_rec(path, 2).ok());
+        auto reader = PackageReader::open(path);
+        expect(reader.ok());
+        if (reader.ok()) {
+            UniRecConfig uc;
+            uc.recognizer = rec;
+            uc.dictionary = ocr::test::pp_synthetic_dictionary();
+            auto expected = uni_rec_expected_tensors(uc, UniRecTensorNames{});
+            expect(!uni_rec_validate_tensors((*reader.value)->tensors(), expected).ok());
+            WeightStore store;
+            expect(store.upload_component_sync(device, stream, **reader.value, "unirec").ok());
+            OpenDocRecognizer r;
+            expect(!r.create(device, stream, rc, store).ok());
+        }
+    }
+    // mode 3: wrong CTC bias shape -> refusal.
+    {
+        const auto path = tmp.path / "unirec_shape.lcocr";
+        expect(write_rec(path, 3).ok());
+        auto reader = PackageReader::open(path);
+        expect(reader.ok());
+        if (reader.ok()) {
+            UniRecConfig uc;
+            uc.recognizer = rec;
+            uc.dictionary = ocr::test::pp_synthetic_dictionary();
+            auto expected = uni_rec_expected_tensors(uc, UniRecTensorNames{});
+            expect(!uni_rec_validate_tensors((*reader.value)->tensors(), expected).ok());
+        }
+    }
+}
+
 }// namespace
+
 
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
@@ -273,4 +416,5 @@ int main(int argc, char *argv[]) {
     "opendoc_batch_equivalence"_test = [&] { test_batch_equivalence(device); };
     "opendoc_full_pipeline"_test = [&] { test_full_pipeline(device); };
     "opendoc_empty_page"_test = [&] { test_empty_page(device); };
+    "opendoc_unirec_tensor_refusal"_test = [&] { test_unirec_tensor_refusal(device); };
 }

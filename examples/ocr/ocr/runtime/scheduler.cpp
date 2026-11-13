@@ -136,6 +136,16 @@ namespace luisa::ocr {
     return R::success(std::move(order));
 }
 
+[[nodiscard]] luisa::vector<uint32_t> layout_sort_pages_by_index(
+    luisa::span<const LayoutPageResult> pages) {
+    luisa::vector<uint32_t> order(pages.size());
+    for (uint32_t i = 0; i < pages.size(); i++) { order[i] = i; }
+    std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
+        return pages[a].page_index < pages[b].page_index;
+    });
+    return order;
+}
+
 [[nodiscard]] Status RegionScheduler::preflight_page_output_budget(uint32_t region_count) const {
     if (region_count == 0u) { return Status::success(); }
     // The page budget must hold at least one output token per region; otherwise

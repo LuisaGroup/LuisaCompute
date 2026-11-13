@@ -11,6 +11,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
+#include <luisa/backends/ext/cuda/cuda_graph_ext.h>
 #include <luisa/runtime/command_list.h>
 #include <luisa/runtime/stream.h>
 
@@ -65,24 +66,49 @@ struct RecordUploadStaging {
     if (prefill_chunk_rows == 0u) {
         return Status::error(StatusCode::invalid_argument, "prefill_chunk_rows must be nonzero", "prefill_chunk_rows");
     }
-    // Additive Phase 4 switches: the defaults reproduce Phase 3 exactly.
-    if (rope_axes != 1u && rope_axes != 3u) {
-        return Status::error(StatusCode::invalid_argument, "rope_axes must be 1 (1D) or 3 (interleaved MRoPE)", "rope_axes");
+    // Additive Phase 4/7 switches: the defaults reproduce Phase 3 exactly.
+    if (rope_axes != 1u && rope_axes != 3u && rope_axes != 4u) {
+        return Status::error(StatusCode::invalid_argument,
+                             "rope_axes must be 1 (1D), 3 (M-RoPE), or 4 (XD-RoPE)", "rope_axes");
     }
-    if (rope_axes == 3u) {
+    if (rope_axes >= 3u) {
         if (mrope_axis_of_pair.size() != decoder.head_dim / 2u) {
             return Status::error(StatusCode::invalid_argument,
                                  "mrope_axis_of_pair must have head_dim/2 entries", "mrope_axis_of_pair");
         }
         for (auto axis : mrope_axis_of_pair) {
-            if (axis >= 3u) {
+            if (axis >= rope_axes) {
                 return Status::error(StatusCode::invalid_argument,
-                                     "mrope axis ids must be 0 (temporal), 1 (height), or 2 (width)", "mrope_axis_of_pair");
+                                     "multimodal rope axis ids must be < rope_axes", "mrope_axis_of_pair");
             }
         }
-        if (decoder.rope_pair_layout != RopePairLayout::rotate_half) {
+        if (rope_axes == 3u && decoder.rope_pair_layout == RopePairLayout::rotate_half) {
+            // Qwen3 interleaved MRoPE keeps its Phase 4 contract.
+        } else if (decoder.rope_pair_layout == RopePairLayout::rotate_half) {
             return Status::error(StatusCode::invalid_argument,
-                                 "interleaved MRoPE requires the rotate-half pair family", "rope_pair_layout");
+                                 "rotate-half pairs are only defined for 1-axis text or 3-axis interleaved MRoPE",
+                                 "rope_pair_layout");
+        }
+        // adjacent + 3 = adjacent-pair M-RoPE (Qwen2-VL/MinerU);
+        // adjacent + 4 = XD-RoPE (Hunyuan). Both are explicit adjacent-pair
+        // axial variants; neither borrows the interleaved Qwen3 kernel.
+    }
+    // Additive Phase 7 partial rotary factor.
+    if (partial_rotary_num == 0u || partial_rotary_den == 0u || partial_rotary_num > partial_rotary_den) {
+        return Status::error(StatusCode::invalid_argument,
+                             "partial rotary factor must satisfy 0 < num <= den", "partial_rotary");
+    }
+    {
+        const uint64_t rotated_elems = static_cast<uint64_t>(decoder.head_dim) * partial_rotary_num;
+        if (rotated_elems % (2ull * partial_rotary_den) != 0ull) {
+            return Status::error(StatusCode::invalid_argument,
+                                 "head_dim * partial_rotary_num must be divisible by 2 * partial_rotary_den "
+                                 "(whole RoPE pairs)", "partial_rotary");
+        }
+        if (partial_rotary_num != partial_rotary_den && rope_axes >= 3u) {
+            return Status::error(StatusCode::invalid_argument,
+                                 "partial rotary is a 1-axis text convention; multimodal partial rotary is not declared",
+                                 "partial_rotary");
         }
     }
     if (qk_norm && qkv_bias) {
@@ -90,6 +116,27 @@ struct RecordUploadStaging {
         // mix two decoder contracts. Explicit refusal, never a guess.
         return Status::error(StatusCode::invalid_argument,
                              "qk_norm (Qwen3) and qkv_bias (Qwen2.5) are mutually exclusive contracts", "qk_norm/qkv_bias");
+    }
+    // Additive Phase 8: explicit per-linear weight storage. The FP32 baseline
+    // needs no group size; the W4A32 path requires a supported group size and
+    // is incompatible with a tied LM head (the tied head stays FP32, so a
+    // quantized recipe must ship a standalone packed lm_head).
+    if (linear_storage != DenseLinearStorage::fp32) {
+        if (linear_storage != DenseLinearStorage::int4_sym && linear_storage != DenseLinearStorage::int4_asym) {
+            return Status::error(StatusCode::invalid_argument, "unknown dense linear storage format", "linear_storage");
+        }
+        if (!is_supported_group_size(linear_group_size)) {
+            return Status::error(StatusCode::invalid_argument,
+                                 "W4A32 linear storage requires group size 64 or 128", "linear_group_size");
+        }
+        if (tie_word_embeddings) {
+            return Status::error(StatusCode::unsupported,
+                                 "the W4A32 dense path requires a standalone packed lm_head; tied embeddings stay FP32",
+                                 "tie_word_embeddings");
+        }
+    } else if (linear_group_size != 0u) {
+        return Status::error(StatusCode::invalid_argument,
+                             "linear_group_size must be 0 for the fp32 linear path", "linear_group_size");
     }
     for (uint32_t i = 0; i < deepstack_layers.size(); i++) {
         if (deepstack_layers[i] >= decoder.num_layers) {
@@ -119,12 +166,17 @@ struct RecordUploadStaging {
     _embedding_cache = TypedShaderCache<EmbeddingLookupKernel>{device, _shader_registry};
     _mm_scatter_cache = TypedShaderCache<MmScatterKernel>{device, _shader_registry};
     _rms_norm_cache = TypedShaderCache<RmsNormKernel>{device, _shader_registry};
+ _residual_rms_norm_cache = TypedShaderCache<ResidualRmsNormKernel>{device, _shader_registry};
     _gemm_cache = TypedShaderCache<GemmKernel>{device, _shader_registry};
     _gemv_cache = TypedShaderCache<GemvKernel>{device, _shader_registry};
+    _gemm_packed_cache = TypedShaderCache<GemmPackedKernel>{device, _shader_registry};
+    _gemv_packed_cache = TypedShaderCache<GemvPackedKernel>{device, _shader_registry};
     _gated_act_cache = TypedShaderCache<GatedActKernel>{device, _shader_registry};
     _rope_cache = TypedShaderCache<RopeAxialKernel>{device, _shader_registry};
     _rope_rotate_half_cache = TypedShaderCache<RopeAxialKernel>{device, _shader_registry};
     _rope_mrope_cache = TypedShaderCache<RopeAxialKernel>{device, _shader_registry};
+    _rope_axial_multi_cache = TypedShaderCache<RopeAxialKernel>{device, _shader_registry};
+    _rope_partial_cache = TypedShaderCache<RopePartialKernel>{device, _shader_registry};
     _attn_prefill_cache = TypedShaderCache<AttentionPrefillKernel>{device, _shader_registry};
     _attn_decode_cache = TypedShaderCache<AttentionDecodeKernel>{device, _shader_registry};
     _kv_append_cache = TypedShaderCache<KvAppendKernel>{device, _shader_registry};
@@ -204,13 +256,96 @@ struct RecordUploadStaging {
         out = w->dense.view();
         return Status::success();
     };
+    // Linear B operand resolver. Under the FP32 baseline it delegates to
+    // view_of. Under the W4A32 path it requires a packed INT4 weight with the
+    // configured storage kind + group size, validates its logical descriptor,
+    // and binds the packed codes + scales (+ zero points). It NEVER reinterprets
+    // an FP32/FP16/INT8 tensor as INT4.
+    auto linear_of = [&](const luisa::string &name, LinearWeight &out) -> Status {
+        const auto *w = weights.find(comp, name);
+        if (w == nullptr) {
+            return Status::error(StatusCode::not_found,
+                                 luisa::format("decoder weight '{}' not found in component '{}'", name, comp), name);
+        }
+        const auto it = expected_by_name.find(name);
+        if (it == expected_by_name.end()) {
+            return Status::error(StatusCode::invalid_argument,
+                                 luisa::format("decoder weight '{}' has no expected-tensor contract", name), name);
+        }
+        if (auto s = validate_decoder_weight_desc(w->logical, w->element_count, *it->second); !s.ok()) { return s; }
+        if (_config.linear_storage == DenseLinearStorage::fp32) {
+            if (w->encoding != TensorEncoding::fp32 || !w->dense) {
+                return Status::error(StatusCode::unsupported,
+                                     luisa::format("decoder weight '{}' must be dense fp32 for the fp32 linear path", name), name);
+            }
+            if (w->dense.size() < w->element_count) {
+                return Status::error(StatusCode::invalid_argument,
+                                     luisa::format("decoder weight '{}' device buffer is smaller than its element count", name), name);
+            }
+            out = LinearWeight{};
+            out.dense = w->dense.view();
+            out.storage = DenseLinearStorage::fp32;
+            return Status::success();
+        }
+        // W4A32: the weight must be stored as packed grouped INT4 of the exact
+        // configured kind. Anything else fails closed (no reinterpretation).
+        const auto want_kind = _config.linear_storage == DenseLinearStorage::int4_sym
+                                   ? QuantKind::int4_symmetric
+                                   : QuantKind::int4_asymmetric;
+        if (w->encoding != TensorEncoding::int4_packed || w->quant_kind != want_kind || !w->packed) {
+            return Status::error(StatusCode::unsupported,
+                                 luisa::format("decoder weight '{}' must be packed {} for the W4A32 path",
+                                               name, quant_kind_name(want_kind)), name);
+        }
+        if (w->group_size != _config.linear_group_size) {
+            return Status::error(StatusCode::invalid_argument,
+                                 luisa::format("decoder weight '{}' group size {} does not match the configured {}",
+                                               name, w->group_size, _config.linear_group_size), name);
+        }
+        if (!w->scales || (want_kind == QuantKind::int4_asymmetric && !w->zero_points)) {
+            return Status::error(StatusCode::invalid_argument,
+                                 luisa::format("decoder weight '{}' is missing quantization scales/zero-points", name), name);
+        }
+        // S3: defensive device-buffer size gates, mirroring the FP32 dense-size
+        // check. A malformed DeviceWeight (undersized packed words / scales /
+        // zero-points) is refused BEFORE any view is bound, so a kernel can
+        // never read OOB even if the store was populated incorrectly.
+        const uint64_t want_words = (w->element_count + 7u) / 8u;
+        if (w->packed.size() < want_words) {
+            return Status::error(StatusCode::invalid_argument,
+                                 luisa::format("decoder weight '{}' packed buffer holds {} words but {} are required",
+                                               name, w->packed.size(), want_words), name);
+        }
+        uint64_t want_groups = 0;
+        if (!group_count_for(w->element_count, w->group_size, want_groups)) {
+            return Status::error(StatusCode::invalid_argument,
+                                 luisa::format("decoder weight '{}' group count overflows", name), name);
+        }
+        if (w->scales.size() < want_groups) {
+            return Status::error(StatusCode::invalid_argument,
+                                 luisa::format("decoder weight '{}' scales buffer holds {} entries but {} groups are required",
+                                               name, w->scales.size(), want_groups), name);
+        }
+        if (want_kind == QuantKind::int4_asymmetric && w->zero_points.size() < want_groups) {
+            return Status::error(StatusCode::invalid_argument,
+                                 luisa::format("decoder weight '{}' zero-point buffer holds {} entries but {} groups are required",
+                                               name, w->zero_points.size(), want_groups), name);
+        }
+        out = LinearWeight{};
+        out.packed = w->packed.view();
+        out.scales = w->scales.view();
+        if (want_kind == QuantKind::int4_asymmetric) { out.zero_points = w->zero_points.view(); }
+        out.storage = _config.linear_storage;
+        out.group_size = w->group_size;
+        return Status::success();
+    };
     if (auto s = view_of(names.embed_tokens(), _embed); !s.ok()) { return s; }
     if (auto s = view_of(names.final_norm(), _final_norm); !s.ok()) { return s; }
     // LM head: standalone tensor, else tied to the embedding table. The GEMM
     // B operand needs [hidden, vocab]; the embedding table is [vocab, hidden],
     // so a tied head is transposed ONCE here into an executor-owned buffer.
     if (const auto *head = weights.find(comp, names.lm_head()); head != nullptr) {
-        if (auto s = view_of(names.lm_head(), _lm_head); !s.ok()) { return s; }
+        if (auto s = linear_of(names.lm_head(), _lm_head); !s.ok()) { return s; }
     } else if (_config.tie_word_embeddings) {
         const uint64_t vocab = dec.vocab_size, hidden = dec.hidden_size;
         uint64_t head_elems = 0;
@@ -239,7 +374,9 @@ struct RecordUploadStaging {
             return Status::error(StatusCode::out_of_memory, "failed to allocate tied LM head", "lm_head");
         }
         stream << _tied_lm_head.copy_from(luisa::span<const float>{transposed}) << synchronize();
-        _lm_head = _tied_lm_head.view();
+        _lm_head = LinearWeight{};
+        _lm_head.dense = _tied_lm_head.view();
+        _lm_head.storage = DenseLinearStorage::fp32;
         _tied_head_staging_bytes = staging_bytes;
     } else {
         return Status::error(StatusCode::not_found,
@@ -251,18 +388,18 @@ struct RecordUploadStaging {
         auto &L = _layers[l];
         if (auto s = view_of(names.input_layernorm(l), L.input_norm); !s.ok()) { return s; }
         if (auto s = view_of(names.post_attention_layernorm(l), L.post_norm); !s.ok()) { return s; }
-        if (auto s = view_of(names.q_proj(l), L.q_w); !s.ok()) { return s; }
-        if (auto s = view_of(names.k_proj(l), L.k_w); !s.ok()) { return s; }
-        if (auto s = view_of(names.v_proj(l), L.v_w); !s.ok()) { return s; }
-        if (auto s = view_of(names.o_proj(l), L.o_w); !s.ok()) { return s; }
+        if (auto s = linear_of(names.q_proj(l), L.q_w); !s.ok()) { return s; }
+        if (auto s = linear_of(names.k_proj(l), L.k_w); !s.ok()) { return s; }
+        if (auto s = linear_of(names.v_proj(l), L.v_w); !s.ok()) { return s; }
+        if (auto s = linear_of(names.o_proj(l), L.o_w); !s.ok()) { return s; }
         if (_config.qkv_bias) {
             if (auto s = view_of(names.q_bias(l), L.q_b); !s.ok()) { return s; }
             if (auto s = view_of(names.k_bias(l), L.k_b); !s.ok()) { return s; }
             if (auto s = view_of(names.v_bias(l), L.v_b); !s.ok()) { return s; }
         }
-        if (auto s = view_of(names.gate_proj(l), L.gate_w); !s.ok()) { return s; }
-        if (auto s = view_of(names.up_proj(l), L.up_w); !s.ok()) { return s; }
-        if (auto s = view_of(names.down_proj(l), L.down_w); !s.ok()) { return s; }
+        if (auto s = linear_of(names.gate_proj(l), L.gate_w); !s.ok()) { return s; }
+        if (auto s = linear_of(names.up_proj(l), L.up_w); !s.ok()) { return s; }
+        if (auto s = linear_of(names.down_proj(l), L.down_w); !s.ok()) { return s; }
         if (_config.qk_norm) {
             if (auto s = view_of(names.q_norm(l), L.q_norm); !s.ok()) { return s; }
             if (auto s = view_of(names.k_norm(l), L.k_norm); !s.ok()) { return s; }
@@ -352,9 +489,10 @@ struct RecordUploadStaging {
     }
 
     // axis_of_pair is constant per contract: 1D RoPE maps every pair to axis
-    // 0; interleaved MRoPE uses the explicit configured section map. Stage it
-    // once; every record call uploads it before first use.
-    if (_config.rope_axes == 3u) {
+    // 0; multimodal uses the explicit configured section map. The partial-
+    // rotary kernel reads only the FIRST rotary_dim/2 entries; the full map
+    // is staged so the buffer layout is stable across variants.
+    if (_config.rope_axes >= 3u) {
         _axis_pending = _config.mrope_axis_of_pair;
     } else {
         _axis_pending.assign(d.head_dim / 2u, 0u);
@@ -373,8 +511,13 @@ struct RecordUploadStaging {
                      [] { return make_embedding_lookup_kernel(); }, _sh_embedding); !s.ok()) { return s; }
     if (auto s = get(_mm_scatter_cache, decode_variant_key("mm_scatter"),
                      [] { return make_mm_scatter_kernel(); }, _sh_mm_scatter); !s.ok()) { return s; }
-    if (auto s = get(_rms_norm_cache, norm_variant_key("rms_norm"),
-                     [] { return make_rms_norm_kernel(); }, _sh_rms_norm); !s.ok()) { return s; }
+ if (auto s = get(_rms_norm_cache, norm_variant_key("rms_norm"),
+ [] { return make_rms_norm_kernel(); }, _sh_rms_norm); !s.ok()) { return s; }
+ if (_config.enable_fused_residual_rms_norm) {
+ if (auto s = get(_residual_rms_norm_cache, norm_variant_key("residual_rms_norm"),
+ [] { return make_residual_rms_norm_kernel(); }, _sh_residual_rms_norm); !s.ok()) { return s; }
+ }
+
     if (auto s = get(_gemm_cache, gemm_variant_key(GemmEpilogue::bias, GemmWeightFormat::fp32, false),
                      [] { return make_gemm_kernel(GemmEpilogue::bias); }, _sh_gemm_bias); !s.ok()) { return s; }
     if (auto s = get(_gemm_cache, gemm_variant_key(GemmEpilogue::residual, GemmWeightFormat::fp32, false),
@@ -387,16 +530,61 @@ struct RecordUploadStaging {
                      [] { return make_gemv_kernel(GemmEpilogue::residual); }, _sh_gemv_residual); !s.ok()) { return s; }
     if (auto s = get(_gemv_cache, gemm_variant_key(GemmEpilogue::none, GemmWeightFormat::fp32, true),
                      [] { return make_gemv_kernel(GemmEpilogue::none); }, _sh_gemv_none); !s.ok()) { return s; }
+    // Additive Phase 8: packed INT4 W4A32 variants (only when configured). The
+    // storage format selects the kernel; FP32 activations/accumulation are
+    // unchanged. None of these is an alias for the FP32 path.
+    if (_config.linear_storage != DenseLinearStorage::fp32) {
+        const auto fmt = _config.linear_storage == DenseLinearStorage::int4_sym
+                             ? GemmWeightFormat::int4_sym
+                             : GemmWeightFormat::int4_asym;
+        if (auto s = get(_gemm_packed_cache, gemm_variant_key(GemmEpilogue::bias, fmt, false),
+                         [fmt] { return make_gemm_packed_kernel(GemmEpilogue::bias, fmt); }, _sh_gemm_packed_bias); !s.ok()) { return s; }
+        if (auto s = get(_gemm_packed_cache, gemm_variant_key(GemmEpilogue::residual, fmt, false),
+                         [fmt] { return make_gemm_packed_kernel(GemmEpilogue::residual, fmt); }, _sh_gemm_packed_residual); !s.ok()) { return s; }
+        if (auto s = get(_gemm_packed_cache, gemm_variant_key(GemmEpilogue::none, fmt, false),
+                         [fmt] { return make_gemm_packed_kernel(GemmEpilogue::none, fmt); }, _sh_gemm_packed_none); !s.ok()) { return s; }
+        if (auto s = get(_gemv_packed_cache, gemm_variant_key(GemmEpilogue::bias, fmt, true),
+                         [fmt] { return make_gemv_packed_kernel(GemmEpilogue::bias, fmt); }, _sh_gemv_packed_bias); !s.ok()) { return s; }
+        if (auto s = get(_gemv_packed_cache, gemm_variant_key(GemmEpilogue::residual, fmt, true),
+                         [fmt] { return make_gemv_packed_kernel(GemmEpilogue::residual, fmt); }, _sh_gemv_packed_residual); !s.ok()) { return s; }
+        if (auto s = get(_gemv_packed_cache, gemm_variant_key(GemmEpilogue::none, fmt, true),
+                         [fmt] { return make_gemv_packed_kernel(GemmEpilogue::none, fmt); }, _sh_gemv_packed_none); !s.ok()) { return s; }
+    }
     if (auto s = get(_gated_act_cache, make_shader_key("gated", "act0"),
                      [] { return make_gated_act_kernel(0u); }, _sh_gated_silu); !s.ok()) { return s; }
     // Select the RoPE pair layout explicitly from the config (adjacent vs
-    // rotate-half). The two are distinct factories/variant keys; a Qwen2.5
-    // rotate-half decoder never silently uses the adjacent synthetic kernel.
-    if (_config.rope_axes == 3u) {
-        // Interleaved MRoPE: distinct named factory/variant key; never an
-        // alias of the 1-axis rotate-half text kernel.
-        if (auto s = get(_rope_mrope_cache, rope_variant_key("interleaved_mrope"),
-                         [] { return make_rope_interleaved_mrope_kernel(); }, _sh_rope); !s.ok()) { return s; }
+    // rotate-half; 1/3/4 axes; full vs partial rotary). Each combination is a
+    // distinct named factory/variant key; a decoder never silently uses
+    // another contract's kernel.
+    if (_config.partial_rotary_num != _config.partial_rotary_den) {
+        // GLM-style partial rotary: the pair family follows the config.
+        if (_config.decoder.rope_pair_layout == RopePairLayout::rotate_half) {
+            if (auto s = get(_rope_partial_cache, rope_variant_key("partial_rotate_half"),
+                             [] { return make_rope_partial_rotate_half_kernel(); }, _sh_rope_partial); !s.ok()) { return s; }
+        } else {
+            if (auto s = get(_rope_partial_cache, rope_variant_key("partial_adjacent"),
+                             [] { return make_rope_partial_adjacent_kernel(); }, _sh_rope_partial); !s.ok()) { return s; }
+        }
+    } else if (_config.rope_axes == 3u && _config.decoder.rope_pair_layout == RopePairLayout::rotate_half) {
+        if (_config.qk_norm) {
+            // Interleaved MRoPE (Qwen3): distinct named factory/variant key.
+            if (auto s = get(_rope_mrope_cache, rope_variant_key("interleaved_mrope"),
+                             [] { return make_rope_interleaved_mrope_kernel(); }, _sh_rope); !s.ok()) { return s; }
+        } else {
+            // Qwen2.5-VL-style M-RoPE: rotate-half pairs + block-section axis
+            // map (QKV bias, no QK-Norm). Distinct named factory/variant key;
+            // never the Qwen3 interleaved identity.
+            if (auto s = get(_rope_mrope_cache, rope_variant_key("mrope_rotate_half"),
+                             [] { return make_rope_mrope_rotate_half_kernel(); }, _sh_rope); !s.ok()) { return s; }
+        }
+    } else if (_config.rope_axes == 3u) {
+        // Adjacent-pair M-RoPE (Qwen2-VL / MinerU Qwen2 decoder).
+        if (auto s = get(_rope_axial_multi_cache, rope_variant_key("mrope"),
+                         [] { return make_rope_mrope_kernel(); }, _sh_rope); !s.ok()) { return s; }
+    } else if (_config.rope_axes == 4u) {
+        // XD-RoPE (Hunyuan): adjacent pairs over text/height/width/time.
+        if (auto s = get(_rope_axial_multi_cache, rope_variant_key("xd"),
+                         [] { return make_rope_xd_kernel(); }, _sh_rope); !s.ok()) { return s; }
     } else if (_config.decoder.rope_pair_layout == RopePairLayout::rotate_half) {
         if (auto s = get(_rope_rotate_half_cache, rope_variant_key("rotate_half"),
                          [] { return make_rope_rotate_half_kernel(); }, _sh_rope); !s.ok()) { return s; }
@@ -422,7 +610,7 @@ struct RecordUploadStaging {
 // ---------------------------------------------------------------------------
 
 [[nodiscard]] Status DenseVlmExecutor::record_linear(CommandList &list,
-                                                     BufferView<float> A, BufferView<float> B,
+                                                     BufferView<float> A, const LinearWeight &B,
                                                      BufferView<float> C, BufferView<float> aux,
                                                      uint32_t m, uint32_t n, uint32_t k,
                                                      GemmEpilogue epilogue) {
@@ -430,13 +618,45 @@ struct RecordUploadStaging {
         return Status::error(StatusCode::invalid_argument, "linear dimensions must be nonzero", "m/n/k");
     }
     const auto aux_view = epilogue == GemmEpilogue::none ? ws(_dummy_f) : aux;
+    if (B.is_packed()) {
+        // W4A32: packed INT4 B reads, FP32 activations + FP32 accumulation.
+        // Only the none/bias/residual epilogues are used by the dense decoder.
+        const auto scales = B.scales;
+        const auto zero_points = B.zero_points ? B.zero_points : ws(_dummy_u).as<uint32_t>();
+        if (m <= kGemvSmallM) {
+            auto plan = plan_gemv_dispatch(m, n, k);
+            if (!plan.ok()) { return plan.status; }
+            const auto *shader = epilogue == GemmEpilogue::bias ? _sh_gemv_packed_bias
+                                 : epilogue == GemmEpilogue::residual ? _sh_gemv_packed_residual
+                                                                      : _sh_gemv_packed_none;
+            if (shader == nullptr) {
+                return Status::error(StatusCode::internal_error, "packed GEMV variant not compiled", "linear");
+            }
+            if (auto cmd = dispatch_1d((*shader)(A, B.packed, C, aux_view, scales, zero_points, m, n, k, B.group_size), *plan.value)) {
+                list << std::move(cmd);
+            }
+            return Status::success();
+        }
+        auto plan = plan_gemm_dispatch_epilogue(m, n, k, epilogue);
+        if (!plan.ok()) { return plan.status; }
+        const auto *shader = epilogue == GemmEpilogue::bias ? _sh_gemm_packed_bias
+                             : epilogue == GemmEpilogue::residual ? _sh_gemm_packed_residual
+                                                                  : _sh_gemm_packed_none;
+        if (shader == nullptr) {
+            return Status::error(StatusCode::internal_error, "packed GEMM variant not compiled", "linear");
+        }
+        if (auto cmd = dispatch_2d((*shader)(A, B.packed, C, aux_view, scales, zero_points, m, n, k, B.group_size, plan.value->padded_cols), *plan.value)) {
+            list << std::move(cmd);
+        }
+        return Status::success();
+    }
     if (m <= kGemvSmallM) {
         auto plan = plan_gemv_dispatch(m, n, k);
         if (!plan.ok()) { return plan.status; }
         const auto *shader = epilogue == GemmEpilogue::bias ? _sh_gemv_bias
                              : epilogue == GemmEpilogue::residual ? _sh_gemv_residual
                                                                   : _sh_gemv_none;
-        if (auto cmd = dispatch_1d((*shader)(A, B, C, aux_view, m, n, k), *plan.value)) {
+        if (auto cmd = dispatch_1d((*shader)(A, B.dense, C, aux_view, m, n, k), *plan.value)) {
             list << std::move(cmd);
         }
         return Status::success();
@@ -446,7 +666,7 @@ struct RecordUploadStaging {
     const auto *shader = epilogue == GemmEpilogue::bias ? _sh_gemm_bias
                          : epilogue == GemmEpilogue::residual ? _sh_gemm_residual
                                                               : _sh_gemm_none;
-    if (auto cmd = dispatch_2d((*shader)(A, B, C, aux_view, m, n, k, plan.value->padded_cols), *plan.value)) {
+    if (auto cmd = dispatch_2d((*shader)(A, B.dense, C, aux_view, m, n, k, plan.value->padded_cols), *plan.value)) {
         list << std::move(cmd);
     }
     return Status::success();
@@ -525,17 +745,30 @@ struct RecordUploadStaging {
         k_for_rope = k_normed;
     }
     // 3. RoPE on Q and K (pair layout per config: adjacent (2d,2d+1),
-    //    rotate-half (d, d+head_dim/2), or 3-axis interleaved MRoPE).
+    //    rotate-half (d, d+head_dim/2), 3-axis M-RoPE (interleaved or
+    //    adjacent), 4-axis XD-RoPE, or GLM partial rotary).
     {
         auto plan_q = plan_rope_dispatch(rows, qh);
         if (!plan_q.ok()) { return plan_q.status; }
-        if (auto cmd = dispatch_1d((*_sh_rope)(q_for_rope, q_rope_view, pos_view, axis_view, rows, qh, hd, _config.rope_axes, theta), *plan_q.value)) {
-            list << std::move(cmd);
-        }
         auto plan_k = plan_rope_dispatch(rows, kvh);
         if (!plan_k.ok()) { return plan_k.status; }
-        if (auto cmd = dispatch_1d((*_sh_rope)(k_for_rope, k_rope_view, pos_view, axis_view, rows, kvh, hd, _config.rope_axes, theta), *plan_k.value)) {
-            list << std::move(cmd);
+        if (_sh_rope_partial != nullptr) {
+            const uint32_t rotary_dim = _config.rotary_dim();
+            if (auto cmd = dispatch_1d((*_sh_rope_partial)(q_for_rope, q_rope_view, pos_view, axis_view,
+                                                           rows, qh, hd, rotary_dim, _config.rope_axes, theta), *plan_q.value)) {
+                list << std::move(cmd);
+            }
+            if (auto cmd = dispatch_1d((*_sh_rope_partial)(k_for_rope, k_rope_view, pos_view, axis_view,
+                                                           rows, kvh, hd, rotary_dim, _config.rope_axes, theta), *plan_k.value)) {
+                list << std::move(cmd);
+            }
+        } else {
+            if (auto cmd = dispatch_1d((*_sh_rope)(q_for_rope, q_rope_view, pos_view, axis_view, rows, qh, hd, _config.rope_axes, theta), *plan_q.value)) {
+                list << std::move(cmd);
+            }
+            if (auto cmd = dispatch_1d((*_sh_rope)(k_for_rope, k_rope_view, pos_view, axis_view, rows, kvh, hd, _config.rope_axes, theta), *plan_k.value)) {
+                list << std::move(cmd);
+            }
         }
     }
     // 4. Append the RoPE'd K and the V to the contiguous cache at pos0.
@@ -574,16 +807,26 @@ struct RecordUploadStaging {
             list << std::move(cmd);
         }
     }
-    // 6. Output projection + residual: x = x + attn @ Wo.
-    if (auto s = record_linear(list, attn_view, L.o_w, x, x, rows, hidden, qd, GemmEpilogue::residual); !s.ok()) { return s; }
-    // 7. Post-attention RMSNorm: norm2 = rmsnorm(x).
-    {
-        auto plan = plan_norm_dispatch(rows);
-        if (!plan.ok()) { return plan.status; }
-        if (auto cmd = dispatch_1d((*_sh_rms_norm)(x, norm2_view, L.post_norm, rows, hidden, eps, 1u), *plan.value)) {
-            list << std::move(cmd);
-        }
-    }
+ // 6/7. Output projection, residual, and post-attention RMSNorm. The opt-in
+ // fused path keeps the projection in the now-dead input-norm scratch, then
+ // produces x and norm2 in one kernel. The default path is unchanged.
+ if (_config.enable_fused_residual_rms_norm) {
+ if (auto s = record_linear(list, attn_view, L.o_w, norm_view, dummy_f, rows, hidden, qd, GemmEpilogue::none); !s.ok()) { return s; }
+ auto plan = plan_norm_dispatch(rows);
+ if (!plan.ok()) { return plan.status; }
+ if (auto cmd = dispatch_1d((*_sh_residual_rms_norm)(norm_view, x, L.post_norm, x, norm2_view,
+ rows, hidden, eps), *plan.value)) {
+ list << std::move(cmd);
+ }
+ } else {
+ if (auto s = record_linear(list, attn_view, L.o_w, x, x, rows, hidden, qd, GemmEpilogue::residual); !s.ok()) { return s; }
+ auto plan = plan_norm_dispatch(rows);
+ if (!plan.ok()) { return plan.status; }
+ if (auto cmd = dispatch_1d((*_sh_rms_norm)(x, norm2_view, L.post_norm, rows, hidden, eps, 1u), *plan.value)) {
+ list << std::move(cmd);
+ }
+ }
+
     // 8. SwiGLU MLP: gate/up projections, silu(gate)*up, down + residual.
     if (auto s = record_linear(list, norm2_view, L.gate_w, gate_view, dummy_f, rows, inter, hidden, GemmEpilogue::none); !s.ok()) { return s; }
     if (auto s = record_linear(list, norm2_view, L.up_w, up_view, dummy_f, rows, inter, hidden, GemmEpilogue::none); !s.ok()) { return s; }
@@ -686,9 +929,51 @@ struct RecordUploadStaging {
         return Status::error(StatusCode::invalid_argument,
                              "record_prefill_qwen3 requires a rope_axes==3 (interleaved MRoPE) executor", "rope_axes");
     }
+    if (_config.decoder.rope_pair_layout != RopePairLayout::rotate_half) {
+        // Phase 7: the Qwen3 entry point is reserved for the INTERLEAVED
+        // contract; adjacent-pair M-RoPE (Qwen2/MinerU) must use the generic
+        // record_prefill_positions entry point instead.
+        return Status::error(StatusCode::invalid_argument,
+                             "record_prefill_qwen3 requires the interleaved (rotate-half) MRoPE contract; "
+                             "use record_prefill_positions for adjacent-pair M-RoPE",
+                             "rope_pair_layout");
+    }
     if (position_ids.size() != request.prompt_tokens.size() * 3u) {
         return Status::error(StatusCode::invalid_argument,
                              "position_ids must have prompt_len*3 entries (temporal, height, width)", "position_ids");
+    }
+    if (deepstack_features.size() != _config.deepstack_layers.size()) {
+        return Status::error(StatusCode::invalid_argument,
+                             "deepstack_features must match the configured injection layers", "deepstack_features");
+    }
+    if (!deepstack_features.empty() && !request.has_multimodal()) {
+        return Status::error(StatusCode::invalid_argument,
+                             "deepstack features require an image (multimodal) range in the prompt", "deepstack_features");
+    }
+    const uint64_t hidden = _config.decoder.hidden_size;
+    for (const auto &f : deepstack_features) {
+        if (!f || f.size() < static_cast<size_t>(request.mm_count) * hidden) {
+            return Status::error(StatusCode::invalid_argument,
+                                 "a deepstack feature view is invalid or too small for the image rows", "deepstack_features");
+        }
+    }
+    return record_prefill_impl(list, request, position_ids, deepstack_features, cache, all_logits,
+                               last_logits_out, logits_device);
+}
+
+[[nodiscard]] Status DenseVlmExecutor::record_prefill_positions(CommandList &list, const DecodeRequest &request,
+                                                                luisa::span<const int32_t> position_ids,
+                                                                luisa::span<const BufferView<float>> deepstack_features,
+                                                                ContiguousKvCache &cache, bool all_logits,
+                                                                luisa::span<float> last_logits_out,
+                                                                BufferView<float> logits_device) {
+    if (_config.rope_axes < 3u) {
+        return Status::error(StatusCode::invalid_argument,
+                             "record_prefill_positions requires a rope_axes>=3 executor", "rope_axes");
+    }
+    if (position_ids.size() != request.prompt_tokens.size() * _config.rope_axes) {
+        return Status::error(StatusCode::invalid_argument,
+                             "position_ids must have prompt_len*rope_axes entries", "position_ids");
     }
     if (deepstack_features.size() != _config.deepstack_layers.size()) {
         return Status::error(StatusCode::invalid_argument,
@@ -870,14 +1155,17 @@ struct RecordUploadStaging {
 
 [[nodiscard]] Status DenseVlmExecutor::record_decode_step(CommandList &list, uint32_t input_token,
                                                           ContiguousKvCache &cache, luisa::span<float> logits_out) {
-    if (_config.rope_axes == 3u) {
-        // The 1-axis entry point cannot know the M-RoPE text position; the
-        // Qwen3 entry point must be used (never a silent position guess).
+    if (_config.rope_axes != 1u) {
+        // The 1-axis entry point cannot know the multimodal positions; the
+        // explicit position entry points must be used (never a silent guess).
         return Status::error(StatusCode::invalid_argument,
-                             "a rope_axes==3 executor requires record_decode_step_qwen3 with an explicit position",
+                             "a rope_axes>=3 executor requires record_decode_step_qwen3/record_decode_step_positions "
+                             "with explicit positions",
                              "rope_axes");
     }
-    return record_decode_step_impl(list, input_token, static_cast<int32_t>(cache.length(0)), cache, logits_out);
+    const int32_t cache_pos = static_cast<int32_t>(cache.length(0));
+    return record_decode_step_impl(list, input_token,
+                                   luisa::span<const int32_t>{&cache_pos, 1u}, cache, logits_out);
 }
 
 [[nodiscard]] Status DenseVlmExecutor::record_decode_step_qwen3(CommandList &list, uint32_t input_token,
@@ -887,14 +1175,42 @@ struct RecordUploadStaging {
         return Status::error(StatusCode::invalid_argument,
                              "record_decode_step_qwen3 requires a rope_axes==3 executor", "rope_axes");
     }
+    if (_config.decoder.rope_pair_layout != RopePairLayout::rotate_half) {
+        return Status::error(StatusCode::invalid_argument,
+                             "record_decode_step_qwen3 requires the interleaved (rotate-half) MRoPE contract; "
+                             "use record_decode_step_positions for adjacent-pair M-RoPE",
+                             "rope_pair_layout");
+    }
     if (position < 0) {
         return Status::error(StatusCode::invalid_argument, "decode position must be nonnegative", "position");
+    }
+    const luisa::vector<int32_t> pos3 = {position, position, position};
+    return record_decode_step_impl(list, input_token, pos3, cache, logits_out);
+}
+
+[[nodiscard]] Status DenseVlmExecutor::record_decode_step_positions(CommandList &list, uint32_t input_token,
+                                                                    luisa::span<const int32_t> position,
+                                                                    ContiguousKvCache &cache,
+                                                                    luisa::span<float> logits_out) {
+    if (_config.rope_axes < 3u) {
+        return Status::error(StatusCode::invalid_argument,
+                             "record_decode_step_positions requires a rope_axes>=3 executor", "rope_axes");
+    }
+    if (position.size() != _config.rope_axes) {
+        return Status::error(StatusCode::invalid_argument,
+                             "decode position must have rope_axes entries", "position");
+    }
+    for (auto p : position) {
+        if (p < 0) {
+            return Status::error(StatusCode::invalid_argument, "decode positions must be nonnegative", "position");
+        }
     }
     return record_decode_step_impl(list, input_token, position, cache, logits_out);
 }
 
 [[nodiscard]] Status DenseVlmExecutor::record_decode_step_impl(CommandList &list, uint32_t input_token,
-                                                               int32_t position, ContiguousKvCache &cache,
+                                                               luisa::span<const int32_t> position,
+                                                               ContiguousKvCache &cache,
                                                                luisa::span<float> logits_out) {
     const auto &d = _config.decoder;
     const uint32_t hidden = d.hidden_size, vocab = d.vocab_size;
@@ -916,11 +1232,15 @@ struct RecordUploadStaging {
     if (input_token >= vocab) {
         return Status::error(StatusCode::invalid_argument, "decode input token outside the vocabulary", "input_token");
     }
-    if (_config.rope_axes == 1u && position != static_cast<int32_t>(pos)) {
+    if (_config.rope_axes == 1u && (position.size() != 1u || position[0] != static_cast<int32_t>(pos))) {
         // The 1-axis path derives the position from the KV length; a caller
         // passing a different one would silently desynchronize RoPE.
         return Status::error(StatusCode::invalid_argument,
                              "1-axis decode position must equal the committed KV length", "position");
+    }
+    if (position.size() != _config.rope_axes) {
+        return Status::error(StatusCode::invalid_argument,
+                             "decode position axis count does not match rope_axes", "position");
     }
     // Record device metadata BEFORE the blocks: the decode attention reads
     // kv_len = pos+1 and position = pos (the new row is appended below).
@@ -937,7 +1257,7 @@ struct RecordUploadStaging {
     // one CommandList never overwrite each other's borrowed upload memory.
     auto staging = luisa::make_unique<RecordUploadStaging>();
     staging->ids = {static_cast<int32_t>(input_token)};
-    staging->positions.assign(_config.rope_axes, position);
+    staging->positions.assign(position.begin(), position.end());
     staging->axis = _axis_pending;
     auto *stage = staging.get();
     auto ids_view = ws(_ids).as<int32_t>().subview(0, 1);
@@ -1025,6 +1345,39 @@ struct RecordUploadStaging {
     const auto &d = _executor->config().decoder;
     const uint32_t vocab = d.vocab_size;
 
+    // Additive Phase 7: validate the multimodal position contract BEFORE any
+    // device work. Empty options = the exact Phase 3/4 path (rope_axes 1).
+    const auto &exec_cfg = _executor->config();
+    const bool has_positions = !_options.prompt_position_ids.empty();
+    if (has_positions) {
+        if (exec_cfg.rope_axes < 3u) {
+            return R::failure(StatusCode::invalid_argument,
+                              "prompt_position_ids require a rope_axes>=3 executor", "prompt_position_ids");
+        }
+        if (_options.prompt_position_ids.size() != request.prompt_tokens.size() * exec_cfg.rope_axes) {
+            return R::failure(StatusCode::invalid_argument,
+                              "prompt_position_ids must have prompt_len*rope_axes entries", "prompt_position_ids");
+        }
+        if (_options.next_position.size() != exec_cfg.rope_axes) {
+            return R::failure(StatusCode::invalid_argument,
+                              "next_position must have rope_axes entries", "next_position");
+        }
+        for (auto p : _options.next_position) {
+            if (p < 0) {
+                return R::failure(StatusCode::invalid_argument, "next_position entries must be nonnegative", "next_position");
+            }
+        }
+        if (_options.deepstack_features.size() != exec_cfg.deepstack_layers.size()) {
+            return R::failure(StatusCode::invalid_argument,
+                              "deepstack_features must match the executor's injection layers", "deepstack_features");
+        }
+    } else if (exec_cfg.rope_axes != 1u) {
+        return R::failure(StatusCode::invalid_argument,
+                          "a rope_axes>=3 executor requires prompt_position_ids/next_position in the options",
+                          "prompt_position_ids");
+    }
+    _last_committed_length = 0;
+
     // S7: cancellation is polled before prefill and at every per-step
     // synchronization boundary; the wall-time budget is checked at the same
     // boundaries. The clock starts here (after argument validation).
@@ -1094,11 +1447,38 @@ struct RecordUploadStaging {
     } guard{&cache, &stream, false};
     {
         auto list = CommandList::create();
-        auto s = _executor->record_prefill(list, request, cache, logits);
+        Status s = Status::success();
+        if (has_positions) {
+            s = _executor->record_prefill_positions(list, request, _options.prompt_position_ids,
+                                                    _options.deepstack_features, cache, false, logits, {});
+        } else {
+            s = _executor->record_prefill(list, request, cache, logits);
+        }
         if (!s.ok()) { return R::failure(s); }
         stream << list.commit() << synchronize();
         guard.armed = true;
     }
+
+    // Phase 11 opt-in decode graphs. Graph creation/update consumes the
+    // command list, so any capture failure is reported instead of attempting
+    // to execute a partially consumed list. Non-CUDA backends explicitly use
+    // the ordinary stream path and surface that fallback in the result.
+    CudaGraphExt *graph_ext = nullptr;
+    if (_options.enable_cuda_graph) {
+        graph_ext = _executor->device().extension<CudaGraphExt>();
+        if (graph_ext == nullptr) {
+            result.cuda_graph_fallbacks = 1u;
+            result.diagnostics.push_back(Diagnostic{
+                DiagnosticSeverity::info, "cuda_graph_unavailable",
+                "CudaGraphExt is unavailable; decode used the ordinary stream path"});
+        }
+    }
+    luisa::optional<CudaGraphInstance> decode_graph;
+    luisa::optional<CudaGraphExecInstance> decode_graph_exec;
+
+    // Additive Phase 7: the running FULL axis vector for generated tokens.
+    // Every generated step advances EVERY axis by 1 (text continuation).
+    luisa::vector<int32_t> step_position = _options.next_position;
 
     // Deterministic sampler over the full prompt history.
     luisa::vector<uint32_t> prompt32(request.prompt_tokens.begin(), request.prompt_tokens.end());
@@ -1147,10 +1527,54 @@ struct RecordUploadStaging {
         }
         // Decode one step to produce the next logits.
         auto list = CommandList::create();
-        auto s = _executor->record_decode_step(list, token, cache, logits);
+        Status s = Status::success();
+        if (has_positions) {
+            s = _executor->record_decode_step_positions(list, token, step_position, cache, logits);
+        } else {
+            s = _executor->record_decode_step(list, token, cache, logits);
+        }
         if (!s.ok()) { return R::failure(s); }
-        stream << list.commit() << synchronize();
+        if (graph_ext == nullptr) {
+            stream << list.commit() << synchronize();
+        } else if (!decode_graph.has_value()) {
+            auto graph = graph_ext->create_graph(std::move(list.commit()).command_list());
+            if (graph.handle().handle == CudaGraphExt::invalid_handle) {
+                return R::failure(StatusCode::unsupported,
+                                  "CUDA graph capture failed for the decode step; retry with enable_cuda_graph=false",
+                                  "enable_cuda_graph");
+            }
+            auto exec = graph_ext->instantiate(graph.handle().handle);
+            if (exec.handle().handle == CudaGraphExt::invalid_handle) {
+                return R::failure(StatusCode::unsupported,
+                                  "CUDA graph instantiation failed for the decode step; retry with enable_cuda_graph=false",
+                                  "enable_cuda_graph");
+            }
+            decode_graph.emplace(std::move(graph));
+            decode_graph_exec.emplace(std::move(exec));
+            graph_ext->launch(decode_graph_exec->handle().handle, stream.handle());
+            stream << synchronize();
+            result.cuda_graph_steps++;
+        } else {
+            CudaGraphExt::GraphUpdateError error;
+            if (!graph_ext->update(decode_graph_exec->handle().handle,
+                                   std::move(list.commit()).command_list(), &error)) {
+                return R::failure(StatusCode::internal_error,
+                                  luisa::format("CUDA graph update failed at node {} ({}): {}",
+                                                error.error_node, static_cast<uint32_t>(error.type), error.detail),
+                                  "enable_cuda_graph");
+            }
+            graph_ext->launch(decode_graph_exec->handle().handle, stream.handle());
+            stream << synchronize();
+            result.cuda_graph_steps++;
+            result.cuda_graph_updates++;
+        }
+        if (has_positions) {
+            for (auto &p : step_position) { p += 1; }
+        }
     }
+
+    // Record the committed KV length for layered tests / callers.
+    _last_committed_length = cache.length(0);
 
     // Flush any pending detokenizer text (complete UTF-8 only).
     if (detok.has_value() && !detok->finished()) {

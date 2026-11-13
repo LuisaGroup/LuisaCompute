@@ -272,7 +272,61 @@ struct CropRect {
     // read row_major); the ON-DISK conv_oihw gate runs in
     // create_from_packages via pp_ocrv6_validate_tensors.
     const auto det_expected = pp_ocrv6_device_expected_tensors(_config.model, names, "detector");
-    const auto rec_expected = pp_ocrv6_device_expected_tensors(_config.model, names, "recognizer");
+    // Recognizer name resolution: a DISTINCT name map (UniRec) overrides the
+    // PP-OCRv6 recognizer names. The expected inventory is rebuilt from that map
+    // so the load path validates the caller's actual tensor contract -- never a
+    // silent PP alias. The geometry (shapes) is the shared recognizer config.
+    const bool custom_rec_names = static_cast<bool>(_config.recognizer_names.backbone_w);
+    if (custom_rec_names && !_config.recognizer_names.complete()) {
+        return Status::error(StatusCode::invalid_argument,
+                             "recognizer name map is incomplete", "recognizer_names");
+    }
+    const auto rec_name = [&](auto pp_fn, auto custom_fn) -> luisa::string {
+        return custom_rec_names ? custom_fn() : (names.*pp_fn)();
+    };
+    const auto rec_name_i = [&](auto pp_fn, auto custom_fn, uint32_t i) -> luisa::string {
+        return custom_rec_names ? custom_fn(i) : (names.*pp_fn)(i);
+    };
+    luisa::vector<ExpectedTensor> rec_expected;
+    if (custom_rec_names) {
+        const auto &rec = _config.model.recognizer;
+        const auto &nm = _config.recognizer_names;
+        const auto conv_w = [](const luisa::string &n, const PpConvStage &s) {
+            ExpectedTensor t;
+            t.name = n;
+            t.shape = {s.out_c, s.in_c / s.groups, s.kh, s.kw};
+            t.layout = TensorLayout::row_major;// device view
+            return t;
+        };
+        const auto bias_t = [](const luisa::string &n, uint32_t c) {
+            ExpectedTensor t;
+            t.name = n;
+            t.shape = {c};
+            t.layout = TensorLayout::row_major;
+            return t;
+        };
+        const auto kn_w = [](const luisa::string &n, uint32_t k, uint32_t nn) {
+            ExpectedTensor t;
+            t.name = n;
+            t.shape = {k, nn};
+            t.layout = TensorLayout::kn;
+            return t;
+        };
+        for (uint32_t i = 0; i < rec.backbone.size(); i++) {
+            rec_expected.push_back(conv_w(nm.backbone_w(i), rec.backbone[i]));
+            rec_expected.push_back(bias_t(nm.backbone_b(i), rec.backbone[i].out_c));
+        }
+        uint32_t collapsed = 0;
+        if (auto cc = rec.collapsed_channels(); cc.ok()) { collapsed = *cc.value; }
+        rec_expected.push_back(kn_w(nm.svtr_fc1_w(), collapsed, rec.svtr_intermediate));
+        rec_expected.push_back(bias_t(nm.svtr_fc1_b(), rec.svtr_intermediate));
+        rec_expected.push_back(kn_w(nm.svtr_fc2_w(), rec.svtr_intermediate, collapsed));
+        rec_expected.push_back(bias_t(nm.svtr_fc2_b(), collapsed));
+        rec_expected.push_back(kn_w(nm.ctc_w(), collapsed, rec.num_classes));
+        rec_expected.push_back(bias_t(nm.ctc_b(), rec.num_classes));
+    } else {
+        rec_expected = pp_ocrv6_device_expected_tensors(_config.model, names, "recognizer");
+    }
     if (!_recognizer_only) {
         if (auto s = resolve_component(_config.detector_component, det_expected); !s.ok()) { return s; }
     }
@@ -328,17 +382,18 @@ struct CropRect {
         if (auto s = view_of(dc, names.det_db_b(), det_expected, _det_db.bias); !s.ok()) { return s; }
     }
 
+    const auto &rnm = _config.recognizer_names;
     _rec_backbone.resize(rec.backbone.size());
     for (uint32_t i = 0; i < rec.backbone.size(); i++) {
-        if (auto s = view_of(rc, names.rec_backbone_w(i), rec_expected, _rec_backbone[i].weight); !s.ok()) { return s; }
-        if (auto s = view_of(rc, names.rec_backbone_b(i), rec_expected, _rec_backbone[i].bias); !s.ok()) { return s; }
+        if (auto s = view_of(rc, rec_name_i(&PpOcrv6TensorNames::rec_backbone_w, rnm.backbone_w, i), rec_expected, _rec_backbone[i].weight); !s.ok()) { return s; }
+        if (auto s = view_of(rc, rec_name_i(&PpOcrv6TensorNames::rec_backbone_b, rnm.backbone_b, i), rec_expected, _rec_backbone[i].bias); !s.ok()) { return s; }
     }
-    if (auto s = view_of(rc, names.rec_svtr_fc1_w(), rec_expected, _rec_svtr_fc1.weight); !s.ok()) { return s; }
-    if (auto s = view_of(rc, names.rec_svtr_fc1_b(), rec_expected, _rec_svtr_fc1.bias); !s.ok()) { return s; }
-    if (auto s = view_of(rc, names.rec_svtr_fc2_w(), rec_expected, _rec_svtr_fc2.weight); !s.ok()) { return s; }
-    if (auto s = view_of(rc, names.rec_svtr_fc2_b(), rec_expected, _rec_svtr_fc2.bias); !s.ok()) { return s; }
-    if (auto s = view_of(rc, names.rec_ctc_w(), rec_expected, _rec_ctc.weight); !s.ok()) { return s; }
-    if (auto s = view_of(rc, names.rec_ctc_b(), rec_expected, _rec_ctc.bias); !s.ok()) { return s; }
+    if (auto s = view_of(rc, rec_name(&PpOcrv6TensorNames::rec_svtr_fc1_w, rnm.svtr_fc1_w), rec_expected, _rec_svtr_fc1.weight); !s.ok()) { return s; }
+    if (auto s = view_of(rc, rec_name(&PpOcrv6TensorNames::rec_svtr_fc1_b, rnm.svtr_fc1_b), rec_expected, _rec_svtr_fc1.bias); !s.ok()) { return s; }
+    if (auto s = view_of(rc, rec_name(&PpOcrv6TensorNames::rec_svtr_fc2_w, rnm.svtr_fc2_w), rec_expected, _rec_svtr_fc2.weight); !s.ok()) { return s; }
+    if (auto s = view_of(rc, rec_name(&PpOcrv6TensorNames::rec_svtr_fc2_b, rnm.svtr_fc2_b), rec_expected, _rec_svtr_fc2.bias); !s.ok()) { return s; }
+    if (auto s = view_of(rc, rec_name(&PpOcrv6TensorNames::rec_ctc_w, rnm.ctc_w), rec_expected, _rec_ctc.weight); !s.ok()) { return s; }
+    if (auto s = view_of(rc, rec_name(&PpOcrv6TensorNames::rec_ctc_b, rnm.ctc_b), rec_expected, _rec_ctc.bias); !s.ok()) { return s; }
     return Status::success();
 }
 

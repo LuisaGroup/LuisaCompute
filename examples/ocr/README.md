@@ -4,22 +4,49 @@ C++20 OCR / document-inference engine for LuisaCompute with replaceable model
 recipes and separate CNN, dense autoregressive, layout-routed, hybrid Gated
 DeltaNet (GDN), and MoE execution paths.
 
-> Phase 5 status: a portable FP32 tensor runtime, correctness-first
-> operators, a dense autoregressive decoder core, a Qwen3-VL vertical slice
-> (vision + interleaved M-RoPE + QK-Norm/GQA Qwen3 decoder + DeepStack), a
-> FireRed-OCR recipe contract reusing that graph, strict structured
-> outputs (Markdown/HTML/OTSL/LaTeX/JSON), and a conventional CNN OCR
-> executor (detector -> DB -> polygon crop -> recognizer -> CTC) with
-> per-size PP-OCRv6 contracts are implemented and tested against
-> independent CPU oracles on the vk and cuda backends. Small SYNTHETIC
+> Phase 12 status (current): Phases 0-11 provide a portable FP32 tensor
+> runtime, correctness-first operators, a dense autoregressive decoder core,
+> a Qwen3-VL vertical slice (vision + interleaved M-RoPE + QK-Norm/GQA Qwen3
+> decoder + DeepStack), a FireRed-OCR recipe contract reusing that graph,
+> strict structured outputs (Markdown/HTML/OTSL/LaTeX/JSON), a conventional
+> CNN OCR executor (detector -> DB -> polygon crop -> recognizer -> CTC) with
+> per-size PP-OCRv6 contracts, layout/region infrastructure
+> (PP-DocLayoutV2/V3 + token-budgeted region scheduling) with a PaddleOCR-VL
+> vertical slice (native-resolution NaViT + adaptive visual-token reduction +
+> MLP connector + ERNIE decoder) and an OpenDoc two-stage vertical slice
+> (PP-DocLayoutV2 + UniRec CNN+CTC), four custom dense/layout vertical slices
+> (TeleOCR, GLM-OCR, MinerU, HunyuanOCR; Phase 7), the remaining dense ViT
+> models (dots.mocr, GOT-OCR2.0, olmOCR-2) with a real packed-INT4 W4A32
+> decoder path, relative-position vision attention, and fail-before-allocation
+> memory preflights (Phase 8), the hybrid GDN subsystem (causal Conv1D ring
+> state + delta-rule recurrent prefill + hybrid cache + a decoder that
+> explicitly mixes GDN and periodic full GQA layers) with the OvisOCR2 / Surya
+> slices (Phase 9), and the MoE subsystem (FP32 router, deterministic top-k,
+> token-to-expert permutation, an active-expert reference loop, and two shared
+> dense experts) with the DeepSeek-OCR-2 slice (SAM-style local perception,
+> BOTH convolutional downsamplers, a visual LM encoder with causal-flow
+> queries and the EXACT custom visual/query block mask, and exact measured
+> memory preflights; Phase 10). Phase 11 added exact-capacity P7 ragged
+> multi-crop vision graph chunking, optional DenseDecodeOptions.enable_cuda_graph
+> (single-sequence CUDA graph capture/update with explicit fallback counters),
+> SchedulerLimits.enable_cuda_graph forwarding, P7/Paddle graph counters, and
+> optional DenseExecutorConfig.enable_fused_residual_rms_norm (all opt-in;
+> text decode remains independent batch-1 and decode-batch planning stays
+> planning-only). Phase 12 added the offline qualification surface:
+> `example_ocr --list-models` prints the registry-driven support report JSON
+> (17 targets, all planned/unvalidated) without any backend/package/input,
+> and QUALIFICATION.md records the honest 17-target matrix. Small SYNTHETIC
 > slices execute end-to-end and match reference intermediate tensors at
-> every layered golden point. No REAL model works yet.
+> every layered golden point (current device evidence: cuda on an RTX 4080
+> SUPER; historical vk notes are labeled per phase). No REAL model works yet;
+> all models remain planned and real artifacts fail closed.
 > All 15 requirement models (17 selectable targets counting the three
 > PP-OCRv6 sizes) are planned. Session creation and recognition validate
 > their arguments and then fail closed with unvalidated — there is no
 > mock OCR output, no bundled weights, and no network download. See
-> MODELS.md (MODELS.md) for the honest support matrix and the unmet official
-> gates.
+> [MODELS.md](MODELS.md) for the honest support matrix and the unmet official
+> gates, and [QUALIFICATION.md](QUALIFICATION.md) for the Phase 12
+> qualification matrix and the exact synthetic/real qualification commands.
 
 What exists in Phase 0
 
@@ -152,7 +179,8 @@ adversarial tests do NOT establish real-VLM hallucination safety, no VLM
 confidence is produced, and every real model remains planned with Session
 fail-closed. The unmet official gates are recorded in MODELS.md.
 
-Later phases add executors/models per the plan; the Phase 0/1/2/3/4 types
+Phases 5-11 add executors/models per the plan (all implemented as synthetic
+parity slices; see the per-phase sections below); the Phase 0/1/2/3/4 types
 are the stable surface they implement against. No real model is validated.
 
 What Phase 5 adds (CNN OCR executor + PP-OCRv6 contracts + CTC/DB/output; synthetic parity only)
@@ -189,6 +217,81 @@ parity gates only. PP-OCRv6 tiny/small/medium all remain planned;
 PP-OCRv6_medium is NOT a validated default; no official polygon/CER/
 confidence/calibration or RTX 4060 performance gate is met; no runtime
 downloads exist.
+
+What Phase 6 adds (layout/region infrastructure + PaddleOCR-VL + OpenDoc; synthetic parity only)
+
+| Piece | File | Purpose |
+|---|---|---|
+| PP-DocLayout contracts | models/pp_doc_layout.h/.cpp | SEPARATE V2/V3 layout detector configs/tensor maps (folded conv backbone + 1x1 class head (sigmoid) + 1x1 box head); CPU decode (score threshold, clamped exp box decode, NMS AND class-aware NMS, region scoring, stable reading order, source transforms, degenerate/empty handling); real-artifact gate (always unvalidated) |
+| Region scheduler | runtime/scheduler.h/.cpp | Token-budgeted region scheduling: one overview/layout pass; crops sorted by approximate patch/token count; vision/prefill batches under max_patches/max_regions; decode batches under max_decode_batch; separate overview/crop/output budgets; restore to page/reading order; bounded detector-output cache keyed by explicit content/geometry hash for recognition retry |
+| Layout orchestration | runtime/layout_vlm_executor.h/.cpp | PpDocLayoutExecutor (device conv graph); RegionRecognizer interface with PaddleOcrVlRecognizer (NaViT + adaptive token reduction + MLP connector + ERNIE decoder) and OpenDocRecognizer (PP-DocLayoutV2 + UniRec CNN+CTC, NOT a dense VLM); LayoutVlmExecutor full overview->layout->crop->region->composition orchestration with cancellation/time/memory checks, immediate sequence/workspace release, and a documented cpu_reference layout option |
+| PaddleOCR-VL contract | models/paddle_ocr_vl.h/.cpp | Distinct native-resolution NaViT (QKV bias, no QK-Norm/DeepStack), adaptive visual-token reduction + MLP connector, ERNIE-4.5-0.3B-style decoder (rotate-half RoPE, QKV bias); native packing; tensor inventory; real-artifact gate |
+| OpenDoc contract | models/open_doc.h/.cpp | PP-DocLayoutV2 + UniRec-0.1B two-stage text/formula/table recognizer (CNN+CTC, no autoregressive KV); tensor inventory; real-artifact gate |
+| Host composition bridges | models/paddle_ocr_vl_result.*, models/open_doc_result.*, runtime/layout_result.* | Strict Markdown/JSON/plain/spotting composition; type-specific adapters (text/formula/table); malformed output fails closed (no plain-text fallback); public RecognizeResult with lines/blocks/source page/box/polygon/type/content/reading order; confidence only from validated detector/CTC scores labeled internal/test (no pseudo-probability for generated content) |
+
+Phase 6 tests: host unit suites test_ocr_scheduler (batch packing/sort/tie/
+oversized-refusal/decode-batches/restore-order/output-budget/cache-eviction/
+hashes), test_ocr_layout_decode (threshold/box-decode/NMS/class-aware/tie/cap/
+degenerate/transform/malformed/reading-order/V2-V3-distinct), and
+test_ocr_layout_compose (type adapters, strict Markdown/JSON errors, public
+schema, confidence provenance, empty/cross-page). Device integration suites on
+vk and cuda: test_ocr_layout (detector head-map + decoded box/score/class parity
+vs an independent CPU oracle, cpu_reference option, empty/determinism),
+test_ocr_model_paddle_ocr_vl (NaViT patches + connector + ERNIE greedy-token
+parity, batch-vs-batch-1 equivalence), test_ocr_model_open_doc (UniRec CTC
+parity vs an UNFOLDED oracle, batch equivalence, full two-stage pipeline, empty
+page), and test_ocr_region_scheduler (batch-vs-single ordered equivalence,
+layout cache retry, cancellation, per-page output budget, shuffled-page sort,
+document-global region ids, memory accounting, cpu_reference layout,
+cross-page). Phase 11 P7 region recognizers execute ragged multi-crop vision
+graphs and split them by exact packed-patch capacity; Paddle/OpenDoc still
+execute crops one at a time. Text decode remains independent batch-1 and
+plan_decode_batches/max_decode_batch remain planning-only. Batch-vs-1 tests
+assert actual output equality, including P7 exact-capacity chunking. The synthetic architecture and tolerances are
+recorded in MODELS.md; they are SYNTHETIC parity gates only. PP-DocLayoutV2/V3,
+PaddleOCR-VL, and OpenDoc all remain planned; PaddleOCR-VL is NOT a validated
+complex-document default; no official
+layout mAP/reading-order/table/formula/Markdown/JSON/determinism/memory
+or RTX 4060 performance gate is met; no runtime downloads exist.
+
+Backend verification note (upstream blocker): the cuda backend passes all Phase
+6 suites in both xmake and CMake. The vk backend is currently blocked by an
+UPSTREAM post-merge regression unrelated to Phase 6: vkCreateDevice chains
+VkPhysicalDeviceShaderReplicatedCompositesFeaturesEXT (sType 1000657000), which
+the installed Khronos validation layer (1.4.321.1) rejects as an unknown
+structure, escalating to a fatal error. The pre-existing baseline
+test_ocr_ops_gemm fails identically on vk, confirming this is not a Phase 6
+issue. The merged vk backend also fails to compile under CMake's non-unity build
+(missing opacity_micromap.h / command_buffer_sync.h includes in device.cpp /
+blas.cpp); xmake's unity build masks this. Phase 6 vk parity was verified green
+before the upstream merge; no backend edits are made here. Re-run vk once the
+upstream device-create chain / validation-layer mismatch is resolved.
+
+What Phase 11 adds (opt-in execution features; synthetic parity only)
+
+| Piece | File | Purpose |
+|---|---|---|
+| Exact-capacity P7 crop chunking | ocr/runtime/p7_vlm_executor.* | P7 region recognizers record ragged multi-crop vision graphs and split them by EXACT packed-patch capacity (no approximate-cost overflow); Paddle/OpenDoc remain per-crop; batch-vs-1 tests assert actual output equality |
+| Optional CUDA graph decode | ocr/runtime/dense_vlm_executor.* | DenseDecodeOptions.enable_cuda_graph: opt-in single-sequence CUDA graph capture/update; unsupported backends use the ordinary stream path with an explicit fallback counter; capture/update failures fail closed (no partial graph output); steps/updates/fallbacks counters |
+| Scheduler graph forwarding | ocr/runtime/scheduler.h, layout_vlm_executor.* | SchedulerLimits.enable_cuda_graph forwarded through the orchestrator to each generative region recognizer (default off) |
+| P7/Paddle graph counters | ocr/runtime/p7_vlm_executor.h, layout_vlm_executor.h | cuda_graph_steps/updates/fallbacks observability on the P7 slice and PaddleOcrVlRecognizer |
+| Optional fused residual+RMSNorm | ocr/runtime/dense_vlm_executor.* | DenseExecutorConfig.enable_fused_residual_rms_norm (default false preserves the reference command sequence) |
+
+Phase 11 boundaries: text decode remains independent batch-1 per region;
+plan_decode_batches / max_decode_batch stay planning-only (no batched decode
+executor). GDN/MoE/Surya executors have no CUDA graph path. These are opt-in
+engine features verified by synthetic parity tests (test_ocr_decode_stop,
+test_ocr_region_scheduler, test_ocr_model_paddle_ocr_vl on cuda); they are NOT
+real-model support and carry no performance claim.
+
+What Phase 12 adds (offline qualification surface; no device/model required)
+
+| Piece | File | Purpose |
+|---|---|---|
+| --list-models | ocr/cli.h/.cpp, example_ocr.cpp | CliArgs.list_models short-circuits like --help (no backend/package/input); prints model_support_report_json() and exits 0 BEFORE session validation |
+| Support report | ocr/cli.cpp::model_support_report_json | Registry-driven valid JSON: target_count=17, per-target target/model/family/support_state/validated, explicit real_model_validated=false and session_status="unvalidated" |
+| Qualification matrix | QUALIFICATION.md | 17-target matrix: synthetic suite/evidence, backend actually measured (RTX 4080 SUPER cuda; historical vk notes only where already documented), real checkpoint/package/precision/mode/performance explicitly NOT QUALIFIED; exact host/device qualification commands and the external-artifact real-row procedure |
+| CLI tests | src/tests/unit/ocr/test_ocr_cli.cpp | --list-models parsing + yyjson-validated report (all 17 entries, none validated, fail-closed Session preserved) |
 
 ## Build
 
@@ -230,12 +333,11 @@ artifact, standard-library only), `preprocess.py` / `export_golden.py`
 (standard-library-only synthetic fixture generation).
 
 ## CLI
-
 ```text
 example_ocr --backend vk --package model.lcocr --input page.png --mode plain
 example_ocr --help
+example_ocr --list-models
 ```
-
 The CLI accepts backend, package/manifest, model selector, repeatable inputs,
 mode (plain|spotting|markdown|extract), output path, prompt/schema,
 region/color guidance, language (exact match), all pixel/token/region limits,
@@ -244,9 +346,12 @@ else fp32)/cache/offload/graph/fast-path policies, and memory/time budgets.
 Arguments are UTF-8 (Windows wmain converts wide argv; POSIX passes UTF-8).
 With no validated model it prints the resolved configuration and then a
 structured JSON refusal ("code":"unvalidated") — exit code 2. Bad arguments
-exit 1 with a useful message; report I/O errors exit 3; --help exits 0 without
-any device. On a future successful recognition the CLI writes the FULL result
-schema via ocr/output/json_output.h (the same serializer the public API uses).
+exit 1 with a useful message; report I/O errors exit 3; --help and
+--list-models exit 0 without any device (the latter prints the registry-driven
+support report JSON: 17 planned targets, real_model_validated=false,
+session_status="unvalidated"). On a future successful recognition the CLI
+writes the FULL result schema via ocr/output/json_output.h (the same
+serializer the public API uses).
 
 ## Design rules (all phases)
 
@@ -265,5 +370,6 @@ schema via ocr/output/json_output.h (the same serializer the public API uses).
   checkpoints. No runtime network access.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the engine design,
-[MODELS.md](MODELS.md) for the support matrix, and [FORMAT.md](FORMAT.md) for
+[MODELS.md](MODELS.md) for the support matrix, [QUALIFICATION.md](QUALIFICATION.md)
+for the Phase 12 qualification matrix, and [FORMAT.md](FORMAT.md) for
 the planned package/result formats.

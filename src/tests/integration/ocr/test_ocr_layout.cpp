@@ -170,10 +170,13 @@ void test_decode_parity(Device &device) {
                                                   fx.config.mean, fx.config.std_dev);
     ocr::test::LayoutOracleMaps oracle;
     expect(ocr::test::oracle_layout_detect(fx.cfg, fx.weights, pixels, oracle).ok());
-    // Decode both with the same options + transform.
+    // Decode both with the same options + transform. The transform is
+    // source/INPUT (the decode already folds the stride into the box); using
+    // source/map here would double-count the stride on BOTH sides and hide the
+    // bug (M1). The absolute-geometry host test pins the correct convention.
     output::DbSourceTransform transform;
-    transform.scale_x = static_cast<float>(page.source_width) / static_cast<float>(maps.value->map_width);
-    transform.scale_y = static_cast<float>(page.source_height) / static_cast<float>(maps.value->map_height);
+    transform.scale_x = static_cast<float>(page.source_width) / static_cast<float>(fx.cfg.input_width);
+    transform.scale_y = static_cast<float>(page.source_height) / static_cast<float>(fx.cfg.input_height);
     auto mh = fx.cfg.map_height();
     auto mw = fx.cfg.map_width();
     expect(mh.ok() && mw.ok());
@@ -260,6 +263,98 @@ void test_determinism(Device &device) {
     expect(identical) << "repeat detector runs must be bit-identical";
 }
 
+// ---------------------------------------------------------------------------
+// Full-pipeline crop-content regression (M1). Runs the orchestrator's REAL
+// detect_regions path (correct source/input transform) via the cpu_reference
+// layout policy with oracle head maps, then proves the produced region crops
+// actually CONTAIN the bright bars. This does NOT compare through the same
+// transform on both sides: it checks absolute crop content against the known
+// page, so a stride double-count (boxes pushed out of the page) would fail.
+// ---------------------------------------------------------------------------
+void test_pipeline_crop_content(Device &device) {
+    Fixture fx;
+    expect(fx.init(device, PpDocLayoutVersion::v2));
+    if (!fx.executor) { return; }
+    auto stream = device.create_stream();
+    // A 128x128 source page (detector input is 64x64, so source/input scale = 2).
+    auto page = ocr::test::p6_make_page(128, 128);
+    // A trivial recognizer stub: the crop-content check only needs the layout
+    // stage; recognize_batch returns one empty output per crop (no generation).
+    struct StubRecognizer final : RegionRecognizer {
+        Result<luisa::vector<RawRegionOutput>> recognize_batch(
+            Stream &, luisa::span<const RegionCropInput> crops, const RegionRecognizeOptions &) override {
+            luisa::vector<RawRegionOutput> out;
+            out.reserve(crops.size());
+            for (const auto &c : crops) {
+                RawRegionOutput r;
+                r.region_id = c.task.region_id;
+                out.push_back(std::move(r));
+            }
+            return Result<luisa::vector<RawRegionOutput>>::success(std::move(out));
+        }
+        uint64_t weight_bytes() const noexcept override { return 0; }
+        uint64_t workspace_bytes() const noexcept override { return 0; }
+        uint64_t kv_cache_peak_bytes() const noexcept override { return 0; }
+    } stub;
+    // cpu_reference layout: supply the oracle head maps for the page.
+    LayoutVlmExecutorConfig orch;
+    orch.layout_policy = LayoutDevicePolicy::cpu_reference;
+    orch.decode.score_threshold = 0.3f;
+    orch.scheduler.max_output_tokens_per_region = 8;
+    auto provider = [&](const LayoutPageInput &p) -> Result<LayoutHeadMaps> {
+        auto pixels = ocr::test::p6_oracle_preprocess(p.pixels, p.source_width, p.source_height,
+                                                      fx.cfg.input_width, fx.cfg.input_height,
+                                                      fx.config.mean, fx.config.std_dev);
+        ocr::test::LayoutOracleMaps oracle;
+        if (auto s = ocr::test::oracle_layout_detect(fx.cfg, fx.weights, pixels, oracle); !s.ok()) {
+            return Result<LayoutHeadMaps>::failure(s);
+        }
+        LayoutHeadMaps maps;
+        maps.map_width = oracle.map_w;
+        maps.map_height = oracle.map_h;
+        maps.num_classes = oracle.num_classes;
+        maps.class_probs = std::move(oracle.class_probs);
+        maps.box_deltas = std::move(oracle.box_deltas);
+        return Result<LayoutHeadMaps>::success(std::move(maps));
+    };
+    LayoutVlmExecutor exec;
+    expect(exec.create(orch, nullptr, fx.cfg, &stub, provider).ok());
+    auto run = exec.recognize(stream, luisa::span<const LayoutPageInput>{&page, 1});
+    expect(run.ok());
+    if (!run.ok()) { return; }
+    expect(run.value->pages.size() == 1u);
+    const auto &regions = run.value->pages[0].regions;
+    expect(!regions.empty()) << "the bar page must yield at least one region";
+    if (regions.empty()) { return; }
+    // The two bright bars in p6_make_page(128,128):
+    //   bar A: x [16,64), y [21,37)   bar B: x [16,112), y [64,80)
+    // At least one detected region's crop must contain a substantial number of
+    // bright pixels (proving the crop lands on a bar, not on empty background or
+    // out of the page). A stride double-count would push boxes out of the page
+    // and yield zero bright pixels in every crop.
+    uint64_t total_bright_in_crops = 0;
+    bool any_bar_hit = false;
+    for (const auto &region : regions) {
+        const auto &b = region.source_box;
+        // The box must intersect the source page (not be pushed out by a bug).
+        expect(b.x0 < 128.0f && b.y0 < 128.0f);
+        const uint32_t x0 = static_cast<uint32_t>(std::max(0.0f, std::floor(b.x0)));
+        const uint32_t y0 = static_cast<uint32_t>(std::max(0.0f, std::floor(b.y0)));
+        const uint32_t x1 = static_cast<uint32_t>(std::min(128.0f, std::ceil(b.x1)));
+        const uint32_t y1 = static_cast<uint32_t>(std::min(128.0f, std::ceil(b.y1)));
+        if (x1 <= x0 || y1 <= y0) { continue; }
+        auto crop = ocr::test::p6_crop_pixels(page, x0, y0, x1, y1);
+        const uint64_t bright = ocr::test::p6_count_bright(crop);
+        total_bright_in_crops += bright;
+        // A bar hit: the crop contains at least 32 bright pixels (a real bar
+        // segment is hundreds of pixels; background noise is < 40/255, never
+        // >= 200). This is an absolute content check, not a transform comparison.
+        if (bright >= 32u) { any_bar_hit = true; }
+    }
+    expect(any_bar_hit) << "at least one region crop must contain a bright bar (absolute content)";
+    expect(total_bright_in_crops > 0u);
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -272,4 +367,5 @@ int main(int argc, char *argv[]) {
     "layout_decode_parity"_test = [&] { test_decode_parity(device); };
     "layout_empty_page"_test = [&] { test_empty_page(device); };
     "layout_determinism"_test = [&] { test_determinism(device); };
+    "layout_pipeline_crop_content"_test = [&] { test_pipeline_crop_content(device); };
 }

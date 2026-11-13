@@ -13,6 +13,7 @@
 #include <thread>
 
 #include "ocr/runtime/dense_vlm_executor.h"
+#include <luisa/backends/ext/cuda/cuda_graph_ext.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -35,7 +36,7 @@ struct StopFixture {
     luisa::unique_ptr<Tokenizer, TokenizerDeleter> tokenizer;
     DenseExecutorConfig config;
     [[nodiscard]] bool init(Device &device, luisa::span<const uint32_t> next,
-                            uint32_t config_eos = kTokEos) {
+                            uint32_t config_eos = kTokEos, bool fused_residual_norm = false) {
         tokenizer = ocr::test::load_compact_tokenizer();
         if (!tokenizer) { return false; }
         weights = ocr::test::generate_synthetic_weights(0x5EEDu, kVocab);
@@ -47,6 +48,7 @@ struct StopFixture {
         config.decoder = ocr::test::synthetic_config(kVocab, config_eos);
         config.tie_word_embeddings = false;// standalone scripted head
         config.component = "decoder";
+        config.enable_fused_residual_rms_norm = fused_residual_norm;
         executor = luisa::make_unique<DenseVlmExecutor>();
         auto s = executor->create(device, stream, config, store);
         if (!s.ok()) { LUISA_WARNING("executor create failed: {}", s.message); }
@@ -450,6 +452,54 @@ void test_timeout_at_decode_boundary(Device &device) {
     expect(cache.length(0) == 0u);// released on timeout
 }
 
+// Phase 11: opt-in graph replay and residual+RMSNorm fusion are semantics-
+// preserving. Exercise both independently and together against the exact
+// scripted greedy chain, including multi-step graph updates.
+void test_phase11_graph_and_fusion_parity(Device &device) {
+    luisa::vector<uint32_t> chain = {kTokHe, kTokLlo, kTokSpace, kTokWo, kTokRld, kTokNi, kTokHao};
+    auto next = chain_map(chain, kTokEos);
+    const auto run = [&](bool cuda_graph, bool fused) {
+        StopFixture f;
+        expect(f.init(device, next, kTokEos, fused));
+        DenseDecodeResult empty;
+        if (!f.executor) { return empty; }
+        auto stream = device.create_stream();
+        auto cache = f.make_cache(device, 64);
+        auto options = greedy_options(32);
+        options.enable_cuda_graph = cuda_graph;
+        DenseDecodeController controller;
+        expect(controller.create(*f.executor, f.tokenizer.get(), options).ok());
+        DecodeRequest req;
+        req.prompt_tokens = {kTokHe};
+        auto result = controller.generate(stream, req, cache);
+        expect(result.ok());
+        if (!result.ok()) {
+            LUISA_WARNING("Phase 11 parity run failed: {}", result.status.message);
+            return empty;
+        }
+        expect(cache.length(0) == 0u);
+        return std::move(*result.value);
+    };
+    auto baseline = run(false, false);
+    auto graphed = run(true, false);
+    auto fused = run(false, true);
+    auto both = run(true, true);
+    expect(graphed.tokens == baseline.tokens && graphed.text == baseline.text);
+    expect(fused.tokens == baseline.tokens && fused.text == baseline.text);
+    expect(both.tokens == baseline.tokens && both.text == baseline.text);
+    expect(graphed.hit_eos && fused.hit_eos && both.hit_eos);
+    if (device.extension<CudaGraphExt>() != nullptr) {
+        expect(graphed.cuda_graph_steps >= 4u);
+        expect(graphed.cuda_graph_updates >= 3u);
+        expect(graphed.cuda_graph_fallbacks == 0u);
+        expect(both.cuda_graph_steps == graphed.cuda_graph_steps);
+        expect(both.cuda_graph_updates == graphed.cuda_graph_updates);
+    } else {
+        expect(graphed.cuda_graph_fallbacks == 1u);
+        expect(graphed.cuda_graph_steps == 0u);
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -471,4 +521,5 @@ int main(int argc, char *argv[]) {
     "decode_stop_cancel_at_decode_boundary"_test = [&] { test_cancel_at_decode_boundary(device); };
     "decode_stop_wall_time_validation"_test = [&] { test_wall_time_validation(device); };
     "decode_stop_timeout_at_decode_boundary"_test = [&] { test_timeout_at_decode_boundary(device); };
+    "decode_phase11_graph_and_fusion_parity"_test = [&] { test_phase11_graph_and_fusion_parity(device); };
 }

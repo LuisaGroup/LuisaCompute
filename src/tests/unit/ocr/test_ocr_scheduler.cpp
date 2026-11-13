@@ -178,6 +178,28 @@ void test_invalid_limits() {
     expect(!sched.plan_vision_batches(tasks).ok());
 }
 
+
+void test_sort_pages_by_index() {
+    // Shuffled page_index -> ascending permutation.
+    luisa::vector<LayoutPageResult> pages(4);
+    pages[0].page_index = 5;
+    pages[1].page_index = 1;
+    pages[2].page_index = 3;
+    pages[3].page_index = 1;// tie with pages[1]
+    auto order = layout_sort_pages_by_index(pages);
+    expect(order.size() == 4u);
+    // Ascending page_index: 1,1,3,5. Stable tie: pages[1] before pages[3].
+    expect(pages[order[0]].page_index == 1u);
+    expect(pages[order[1]].page_index == 1u);
+    expect(pages[order[2]].page_index == 3u);
+    expect(pages[order[3]].page_index == 5u);
+    expect(order[0] == 1u);// stable: first input index with page_index 1
+    expect(order[1] == 3u);
+    // Empty input -> empty permutation.
+    luisa::vector<LayoutPageResult> empty;
+    expect(layout_sort_pages_by_index(empty).empty());
+}
+
 static auto test_ocr_scheduler_registration = [] {
     "scheduler_vision_batch_packing"_test = [] { test_vision_batch_packing(); };
     "scheduler_vision_batch_stable_tie"_test = [] { test_vision_batch_stable_tie(); };
@@ -189,6 +211,7 @@ static auto test_ocr_scheduler_registration = [] {
     "scheduler_cache_hit_and_eviction"_test = [] { test_cache_hit_and_eviction(); };
     "scheduler_hashes_deterministic"_test = [] { test_hashes_deterministic(); };
     "scheduler_invalid_limits"_test = [] { test_invalid_limits(); };
+    "scheduler_sort_pages_by_index"_test = [] { test_sort_pages_by_index(); };
     return 0;
 }();
 

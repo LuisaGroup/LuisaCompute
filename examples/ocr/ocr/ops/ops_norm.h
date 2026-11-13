@@ -32,6 +32,15 @@ using RmsNormKernel = compute::Kernel1D<void(
     uint32_t /*rows*/, uint32_t /*H*/, float /*eps*/, uint32_t /*has_weight*/)>;
 [[nodiscard]] RmsNormKernel make_rms_norm_kernel() noexcept;
 
+// Fused residual + RMSNorm. residual_out = projection + residual and
+// norm_out = rmsnorm(residual_out) * gamma. residual_out may alias residual;
+// projection and norm_out must be disjoint from both outputs.
+using ResidualRmsNormKernel = compute::Kernel1D<void(
+    compute::Buffer<float> /*projection*/, compute::Buffer<float> /*residual*/,
+    compute::Buffer<float> /*gamma*/, compute::Buffer<float> /*residual_out*/,
+    compute::Buffer<float> /*norm_out*/, uint32_t /*rows*/, uint32_t /*H*/, float /*eps*/)>;
+[[nodiscard]] ResidualRmsNormKernel make_residual_rms_norm_kernel() noexcept;
+
 // L2 normalize rows: y = x / max(||x||_2, floor).
 using L2NormKernel = compute::Kernel1D<void(
     compute::Buffer<float> /*x*/,

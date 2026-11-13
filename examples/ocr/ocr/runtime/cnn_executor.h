@@ -38,7 +38,8 @@
 // (models/pp_ocrv6.h). No official checkpoint is validated; real artifacts
 // fail closed. See MODELS.md.
 #include <cstdint>
-
+#include <cstdint>
+#include <luisa/core/stl/functional.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
@@ -72,12 +73,35 @@ struct CnnPageInput {
     uint32_t page_index{0};
 };
 
+// Explicit recognizer tensor-name map. By default the recognizer resolves names
+// through PpOcrv6TensorNames (the PP-OCRv6 contract). A caller whose recognizer
+// has a DISTINCT tensor contract (e.g. OpenDoc's UniRec) installs its own names
+// here so the load path resolves/validates THAT map -- never a silent PP alias.
+// Every accessor must be set; an incomplete map is rejected at create.
+struct CnnRecognizerNameMap {
+    luisa::function<luisa::string(uint32_t)> backbone_w;
+    luisa::function<luisa::string(uint32_t)> backbone_b;
+    luisa::function<luisa::string()> svtr_fc1_w;
+    luisa::function<luisa::string()> svtr_fc1_b;
+    luisa::function<luisa::string()> svtr_fc2_w;
+    luisa::function<luisa::string()> svtr_fc2_b;
+    luisa::function<luisa::string()> ctc_w;
+    luisa::function<luisa::string()> ctc_b;
+    [[nodiscard]] bool complete() const noexcept {
+        return backbone_w && backbone_b && svtr_fc1_w && svtr_fc1_b &&
+               svtr_fc2_w && svtr_fc2_b && ctc_w && ctc_b;
+    }
+};
+
 // Configuration for one CNN executor instance.
 struct CnnExecutorConfig {
     PpOcrv6Config model;
     PpOcrv6TensorNames names;
     luisa::string detector_component{"detector"};
     luisa::string recognizer_component{"recognizer"};
+    // Optional DISTINCT recognizer name map (UniRec). When set, the recognizer
+    // load path resolves/validates these names instead of the PP-OCRv6 names.
+    CnnRecognizerNameMap recognizer_names;
     // Normalization (RGB, (pixel/255 - mean)/std). Synthetic contract values.
     luisa::vector<float> mean{0.5f, 0.5f, 0.5f};
     luisa::vector<float> std_dev{0.5f, 0.5f, 0.5f};

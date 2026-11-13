@@ -143,11 +143,15 @@ struct PpDocLayoutRegion {
 // Decode the class/box head maps into source-coordinate regions.
 //   class_probs [num_classes, map_h, map_w] sigmoid scores (row-major per class)
 //   box_deltas  [4, map_h, map_w] (dx, dy, log_w, log_h) per cell
-//   transform   maps detector-map pixels -> ORIGINAL source pixels
+//   transform   maps DETECTOR-INPUT pixels -> ORIGINAL source pixels
 // The box at cell (cx, cy) is centered at ((cx+0.5+dx)*stride, (cy+0.5+dy)*stride)
-// in MAP units with size stride*exp(clamp(log)). After decode: score threshold,
-// NMS/class-aware NMS, region cap, source transform, reading order. An empty or
-// all-background map yields ZERO regions. Fails closed on malformed inputs.
+// in DETECTOR-INPUT pixels (stride = input/map, applied HERE exactly once) with
+// size stride*exp(clamp(log)), also in detector-input pixels. `transform` must
+// therefore be source/input (NOT source/map): the stride is already folded into
+// the decoded box, so applying a source/map scale would double-count it. After
+// decode: score threshold, NMS/class-aware NMS, region cap, source transform,
+// reading order. An empty or all-background map yields ZERO regions. Fails closed
+// on malformed inputs.
 [[nodiscard]] Result<luisa::vector<PpDocLayoutRegion>> pp_doc_layout_decode(
     luisa::span<const float> class_probs, luisa::span<const float> box_deltas,
     uint32_t map_width, uint32_t map_height, uint32_t num_classes, float stride,

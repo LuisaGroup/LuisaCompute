@@ -31,7 +31,8 @@ struct Fixture {
     DenseExecutorConfig config;
 
     [[nodiscard]] bool init(Device &device, uint32_t chunk_rows = 256,
-                            RopePairLayout rope = RopePairLayout::adjacent) {
+                            RopePairLayout rope = RopePairLayout::adjacent,
+                            bool fused_residual_norm = false) {
         weights = ocr::test::generate_synthetic_weights();
         const auto path = tmp.path / "synthetic_decoder.lcocr";
         if (!ocr::test::write_synthetic_package(path, weights).ok()) { return false; }
@@ -42,6 +43,7 @@ struct Fixture {
         config.tie_word_embeddings = true;
         config.component = "decoder";
         config.prefill_chunk_rows = chunk_rows;
+        config.enable_fused_residual_rms_norm = fused_residual_norm;
         executor = luisa::make_unique<DenseVlmExecutor>();
         return executor->create(device, stream, config, store).ok();
     }
@@ -204,6 +206,35 @@ void test_prefill_chunked(Device &device) {
         stream << synchronize();
         ocr::test::expect_close(k_got, ref.k_cache[l], kAtol, kRtol, "chunked K cache");
         ocr::test::expect_close(v_got, ref.v_cache[l], kAtol, kRtol, "chunked V cache");
+    }
+}
+
+void test_prefill_fused_residual_norm(Device &device) {
+    Fixture f;
+    expect(f.init(device, 4u, RopePairLayout::adjacent, true));
+    if (!f.executor) { return; }
+    auto stream = device.create_stream();
+    auto cache = f.make_cache(device, ocr::test::kSynMaxPos);
+    luisa::vector<uint32_t> prompt = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 1, 4};
+    const uint32_t rows = static_cast<uint32_t>(prompt.size());
+    DecodeRequest req;
+    req.prompt_tokens = prompt;
+    ocr::test::OracleResult ref;
+    luisa::vector<luisa::vector<float>> kc, vc;
+    expect(ocr::test::oracle_forward(f.weights, prompt, {}, 0, 0, 0, kc, vc, ref).ok());
+    auto logits_buf = device.create_buffer<float>(static_cast<size_t>(rows) * ocr::test::kSynVocab);
+    auto list = CommandList::create();
+    expect(f.executor->record_prefill_all_logits(list, req, cache, logits_buf.view()).ok());
+    stream << list.commit() << synchronize();
+    luisa::vector<float> logits(static_cast<size_t>(rows) * ocr::test::kSynVocab);
+    stream << logits_buf.copy_to(luisa::span<float>{logits}) << synchronize();
+    ocr::test::expect_close(logits, ref.logits, kAtol, kRtol, "fused multi-row chunked prefill logits");
+    for (uint32_t l = 0; l < ocr::test::kSynLayers; l++) {
+        luisa::vector<float> k_got, v_got;
+        expect(cache.download_layer(stream, l, 0, k_got, v_got).ok());
+        stream << synchronize();
+        ocr::test::expect_close(k_got, ref.k_cache[l], kAtol, kRtol, "fused prefill K cache");
+        ocr::test::expect_close(v_got, ref.v_cache[l], kAtol, kRtol, "fused prefill V cache");
     }
 }
 
@@ -375,6 +406,7 @@ int main(int argc, char *argv[]) {
     "decode_prefill_logits"_test = [&] { test_prefill_logits(device); };
     "decode_prefill_text_only"_test = [&] { test_prefill_text_only(device); };
     "decode_prefill_chunked"_test = [&] { test_prefill_chunked(device); };
+ "decode_prefill_fused_residual_norm"_test = [&] { test_prefill_fused_residual_norm(device); };
     "decode_prefill_single_token"_test = [&] { test_prefill_single_token(device); };
     "decode_prefill_undersized_q_proj_rejected"_test = [&] { test_undersized_q_proj_rejected(device); };
     "decode_prefill_transposed_lm_head_rejected"_test = [&] { test_transposed_lm_head_rejected(device); };

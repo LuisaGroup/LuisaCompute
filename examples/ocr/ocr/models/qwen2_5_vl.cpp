@@ -18,6 +18,89 @@ namespace luisa::ocr {
     return "unknown";
 }
 
+[[nodiscard]] luisa::string_view dense_linear_storage_name(DenseLinearStorage storage) noexcept {
+    switch (storage) {
+        case DenseLinearStorage::fp32: return "fp32";
+        case DenseLinearStorage::int4_sym: return "int4_sym";
+        case DenseLinearStorage::int4_asym: return "int4_asym";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] bool dense_linear_is_quantizable(luisa::string_view name,
+                                               luisa::string_view decoder_prefix,
+                                               luisa::string_view lm_head_name) noexcept {
+    // The standalone lm_head is a decoder linear B operand.
+    if (!lm_head_name.empty() && name == lm_head_name) { return true; }
+    // Only tensors under the decoder prefix can be decoder linears. Vision /
+    // connector tensors never share this prefix, so their projection suffixes
+    // (visual.blocks.*.attn.q_proj.weight, ...) can never qualify.
+    if (decoder_prefix.empty() || name.size() < decoder_prefix.size() ||
+        name.compare(0, decoder_prefix.size(), decoder_prefix) != 0) {
+        return false;
+    }
+    for (const char *suffix : {".q_proj.weight", ".k_proj.weight", ".v_proj.weight", ".o_proj.weight",
+                               ".gate_proj.weight", ".up_proj.weight", ".down_proj.weight"}) {
+        const std::string_view s{suffix};
+        if (name.size() >= s.size() && name.compare(name.size() - s.size(), s.size(), s) == 0) { return true; }
+    }
+    return false;
+}
+
+[[nodiscard]] Status validate_dense_decoder_tensors_storage(
+    luisa::span<const PackageTensor> tensors,
+    luisa::span<const ExpectedTensor> expected,
+    DenseLinearStorage linear_storage,
+    luisa::string_view decoder_prefix,
+    luisa::string_view lm_head_name) {
+    // Reject unexpected tensor names (the inventory is exact).
+    for (const auto &t : tensors) {
+        bool known = false;
+        for (const auto &e : expected) { if (e.name == t.name) { known = true; break; } }
+        if (!known) {
+            return Status::error(StatusCode::invalid_argument,
+                                 luisa::format("unexpected tensor '{}' in the package table", t.name), t.name);
+        }
+    }
+    for (const auto &exp : expected) {
+        const PackageTensor *found = nullptr;
+        for (const auto &t : tensors) {
+            if (t.name == exp.name) { found = &t; break; }
+        }
+        if (found == nullptr) {
+            if (exp.required) {
+                return Status::error(StatusCode::not_found, luisa::format("required tensor '{}' is missing", exp.name), exp.name);
+            }
+            continue;
+        }
+        if (found->shape != exp.shape) {
+            return Status::error(StatusCode::invalid_argument, luisa::format("tensor '{}' has the wrong shape", exp.name), exp.name);
+        }
+        if (found->layout != exp.layout) {
+            return Status::error(StatusCode::invalid_argument, luisa::format("tensor '{}' has the wrong layout", exp.name), exp.name);
+        }
+        const bool quantizable = linear_storage != DenseLinearStorage::fp32 &&
+                                 dense_linear_is_quantizable(exp.name, decoder_prefix, lm_head_name);
+        if (quantizable) {
+            const auto want_kind = linear_storage == DenseLinearStorage::int4_sym
+                                       ? QuantKind::int4_symmetric
+                                       : QuantKind::int4_asymmetric;
+            if (found->encoding != TensorEncoding::int4_packed || found->quant_kind != want_kind) {
+                return Status::error(StatusCode::unsupported,
+                                     luisa::format("tensor '{}' must be packed {} for the W4A32 path", exp.name, quant_kind_name(want_kind)),
+                                     exp.name);
+            }
+            if (!is_supported_group_size(found->group_size)) {
+                return Status::error(StatusCode::invalid_argument, luisa::format("tensor '{}' has an unsupported group size", exp.name), exp.name);
+            }
+        } else if (found->encoding != TensorEncoding::fp32) {
+            return Status::error(StatusCode::unsupported,
+                                 luisa::format("tensor '{}' must be dense fp32 (only decoder linears are quantizable)", exp.name), exp.name);
+        }
+    }
+    return Status::success();
+}
+
 [[nodiscard]] Status DenseDecoderConfig::validate() const {
     const auto nonzero = [](uint32_t v, const char *what) -> Status {
         if (v == 0u) {

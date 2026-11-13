@@ -71,7 +71,69 @@ template<bool Interleaved>
 [[nodiscard]] RopeAxialKernel make_rope_2d_kernel() noexcept { return make_rope_axial_impl<false>(); }
 [[nodiscard]] RopeAxialKernel make_rope_mrope_kernel() noexcept { return make_rope_axial_impl<false>(); }
 [[nodiscard]] RopeAxialKernel make_rope_interleaved_mrope_kernel() noexcept { return make_rope_axial_impl<true>(); }
+[[nodiscard]] RopeAxialKernel make_rope_mrope_rotate_half_kernel() noexcept { return make_rope_axial_impl<true>(); }
 [[nodiscard]] RopeAxialKernel make_rope_xd_kernel() noexcept { return make_rope_axial_impl<false>(); }
+
+// Partial rotary body: `Interleaved` selects the pair family WITHIN the
+// rotated prefix (adjacent (2d,2d+1) vs rotate-half (d, d+rotary_dim/2)).
+template<bool Interleaved>
+[[nodiscard]] RopePartialKernel make_rope_partial_impl() noexcept {
+    RopePartialKernel kernel = [](BufferFloat x, BufferFloat out, BufferInt positions, BufferUInt axis_of_pair,
+                                  Var<uint> tokens, Var<uint> heads, Var<uint> head_dim,
+                                  Var<uint> rotary_dim, Var<uint> axes, Var<float> theta) noexcept {
+        set_block_size(256u, 1u, 1u);
+        set_name("ocr_rope_partial");
+        const auto row = ocr_linear_id();
+        const auto total = tokens * heads;
+        $if (row < total) {
+            const auto t = row / heads;
+            const auto base = row * head_dim;
+            const auto pairs = rotary_dim / 2u;
+            // Rotated prefix: inv_freq uses the ROTATED dimension (GLM
+            // partial-rotary convention).
+            $for (d, pairs) {
+                const auto axis = axis_of_pair.read(d);
+                Var<uint> i0 = def(0u);
+                Var<uint> i1 = def(0u);
+                if constexpr (Interleaved) {
+                    i0 = d;
+                    i1 = d + pairs;
+                } else {
+                    i0 = 2u * d;
+                    i1 = 2u * d + 1u;
+                }
+                $if (axis < axes) {
+                    const auto pos = cast<float>(positions.read(t * axes + axis));
+                    const auto inv_freq = exp2(log2(theta) * (-2.0f * cast<float>(d) / cast<float>(rotary_dim)));
+                    const auto angle = pos * inv_freq;
+                    const auto c = cos(angle);
+                    const auto s = sin(angle);
+                    const auto a = x.read(base + i0);
+                    const auto b = x.read(base + i1);
+                    out.write(base + i0, a * c - b * s);
+                    out.write(base + i1, a * s + b * c);
+                } $else {
+                    // Unknown axis: pass the pair through unchanged (never
+                    // read an out-of-range position).
+                    out.write(base + i0, x.read(base + i0));
+                    out.write(base + i1, x.read(base + i1));
+                };
+            };
+            // Unrotated tail: copied through unchanged.
+            $for (i, head_dim - rotary_dim) {
+                out.write(base + rotary_dim + i, x.read(base + rotary_dim + i));
+            };
+        };
+    };
+    return kernel;
+}
+
+[[nodiscard]] RopePartialKernel make_rope_partial_adjacent_kernel() noexcept {
+    return make_rope_partial_impl<false>();
+}
+[[nodiscard]] RopePartialKernel make_rope_partial_rotate_half_kernel() noexcept {
+    return make_rope_partial_impl<true>();
+}
 
 [[nodiscard]] SinusoidalTableKernel make_sinusoidal_table_kernel() noexcept {
     SinusoidalTableKernel kernel = [](BufferFloat out, Var<uint> len, Var<uint> dim, Var<float> theta) noexcept {

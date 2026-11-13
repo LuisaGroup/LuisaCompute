@@ -60,13 +60,16 @@ struct Fixture {
         orch.scheduler.max_patches_per_vision_batch = 4096;
         orch.scheduler.max_regions_per_batch = 4;
         orch.scheduler.max_decode_batch = 2;
-        orch.region.max_output_tokens = 64;
+        orch.scheduler.max_output_tokens_per_region = 64;
         return orch;
     }
 };
 
 // ---------------------------------------------------------------------------
-// Region batching vs batch-1: equivalent ordered outputs.
+// Region batching vs batch-1: equivalent ORDERED outputs. NOTE (S7): Phase 6
+// batch execution is batch-1 (the recognizer processes each planned batch's
+// crops one at a time). This asserts the planning/restore path produces
+// equivalent ordered content, NOT batched kernel execution (Phase 11).
 // ---------------------------------------------------------------------------
 void test_batch_vs_single(Device &device) {
     Fixture fx;
@@ -263,7 +266,165 @@ void test_cross_page(Device &device) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// S2: per-page output-token budget enforced DURING accumulation, with a visible
+// output_truncated diagnostic. A tiny page budget stops later regions.
+// ---------------------------------------------------------------------------
+void test_page_output_budget(Device &device) {
+    Fixture fx;
+    expect(fx.init(device));
+    if (!fx.recognizer || !fx.layout) { return; }
+    auto stream = device.create_stream();
+    auto page = ocr::test::p6_make_page(64, 64);
+    // First: a generous budget to learn how many regions the page yields.
+    auto orch_full = fx.orch_config();
+    orch_full.scheduler.max_output_tokens_per_page = 8192;
+    LayoutVlmExecutor exec_full;
+    expect(exec_full.create(orch_full, fx.layout.get(), fx.weights.layout_cfg, fx.recognizer.get()).ok());
+    auto run_full = exec_full.recognize(stream, luisa::span<const LayoutPageInput>{&page, 1});
+    expect(run_full.ok());
+    if (!run_full.ok()) { return; }
+    const uint64_t full_regions = run_full.value->regions_processed;
+    // A page budget of 1 token: at most one region can emit a token; if the page
+    // yields >1 region, accumulation must stop and emit output_truncated.
+    auto orch_tiny = fx.orch_config();
+    orch_tiny.scheduler.max_output_tokens_per_page = 1;
+    LayoutVlmExecutor exec_tiny;
+    expect(exec_tiny.create(orch_tiny, fx.layout.get(), fx.weights.layout_cfg, fx.recognizer.get()).ok());
+    auto run_tiny = exec_tiny.recognize(stream, luisa::span<const LayoutPageInput>{&page, 1});
+    // The preflight refuses when region_count > page budget; otherwise it runs
+    // and truncates. Either way the result is well-formed.
+    if (!run_tiny.ok()) {
+        expect(run_tiny.status.code == StatusCode::out_of_memory);
+    } else {
+        expect(run_tiny.value->output_tokens <= 1u);
+        if (full_regions > 1u) {
+            bool has_diag = false;
+            for (const auto &d : run_tiny.value->diagnostics) {
+                if (d.code == "output_truncated") { has_diag = true; }
+            }
+            expect(has_diag) << "page output budget must emit a visible output_truncated diagnostic";
+            expect(run_tiny.value->regions_processed < full_regions);
+        }
+    }
+    // Per-region cap wiring: a 1-token per-region cap bounds each region's output.
+    auto orch_region = fx.orch_config();
+    orch_region.scheduler.max_output_tokens_per_region = 1;
+    orch_region.scheduler.max_output_tokens_per_page = 8192;
+    LayoutVlmExecutor exec_region;
+    expect(exec_region.create(orch_region, fx.layout.get(), fx.weights.layout_cfg, fx.recognizer.get()).ok());
+    auto run_region = exec_region.recognize(stream, luisa::span<const LayoutPageInput>{&page, 1});
+    expect(run_region.ok());
+    if (run_region.ok()) {
+        // UniRec is CTC (no autoregressive cap), so this primarily checks the
+        // scheduler field is accepted and forwarded without error.
+        expect(run_region.value->pages.size() == 1u);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S3: shuffled input pages are sorted by source page_index before composition.
+// ---------------------------------------------------------------------------
+void test_shuffled_pages(Device &device) {
+    Fixture fx;
+    expect(fx.init(device));
+    if (!fx.recognizer || !fx.layout) { return; }
+    auto stream = device.create_stream();
+    auto page0 = ocr::test::p6_make_page(64, 64, 7u);
+    page0.page_index = 0;
+    auto page1 = ocr::test::p6_make_page(64, 64, 8u);
+    page1.page_index = 1;
+    auto page2 = ocr::test::p6_make_page(64, 64, 9u);
+    page2.page_index = 2;
+    // Shuffled input order: 2, 0, 1.
+    luisa::vector<LayoutPageInput> pages{page2, page0, page1};
+    auto orch = fx.orch_config();
+    LayoutVlmExecutor exec;
+    expect(exec.create(orch, fx.layout.get(), fx.weights.layout_cfg, fx.recognizer.get()).ok());
+    auto run = exec.recognize(stream, pages);
+    expect(run.ok());
+    if (!run.ok()) { return; }
+    expect(run.value->pages.size() == 3u);
+    if (run.value->pages.size() == 3u) {
+        expect(run.value->pages[0].page_index == 0u);
+        expect(run.value->pages[1].page_index == 1u);
+        expect(run.value->pages[2].page_index == 2u);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S4: region_id is document-global across pages (unique, monotonic in input
+// order). Two pages with regions must not reuse ids.
+// ---------------------------------------------------------------------------
+void test_global_region_ids(Device &device) {
+    Fixture fx;
+    expect(fx.init(device));
+    if (!fx.recognizer || !fx.layout) { return; }
+    auto stream = device.create_stream();
+    auto page0 = ocr::test::p6_make_page(64, 64, 7u);
+    page0.page_index = 0;
+    auto page1 = ocr::test::p6_make_page(64, 64, 8u);
+    page1.page_index = 1;
+    luisa::vector<LayoutPageInput> pages{page0, page1};
+    auto orch = fx.orch_config();
+    LayoutVlmExecutor exec;
+    expect(exec.create(orch, fx.layout.get(), fx.weights.layout_cfg, fx.recognizer.get()).ok());
+    auto run = exec.recognize(stream, pages);
+    expect(run.ok());
+    if (!run.ok()) { return; }
+    expect(run.value->pages.size() == 2u);
+    if (run.value->pages.size() != 2u) { return; }
+    luisa::vector<uint32_t> all_ids;
+    for (const auto &page : run.value->pages) {
+        for (const auto &region : page.regions) { all_ids.push_back(region.region_id); }
+    }
+    // All ids unique across the document.
+    luisa::vector<uint32_t> sorted_ids = all_ids;
+    std::sort(sorted_ids.begin(), sorted_ids.end());
+    bool unique = true;
+    for (size_t i = 1; i < sorted_ids.size(); i++) {
+        if (sorted_ids[i] == sorted_ids[i - 1]) { unique = false; }
+    }
+    expect(unique) << "region_id must be document-global (unique across pages)";
+    // Page 1's ids must all be greater than page 0's (monotonic in input order).
+    if (!run.value->pages[0].regions.empty() && !run.value->pages[1].regions.empty()) {
+        uint32_t max0 = 0;
+        for (const auto &r : run.value->pages[0].regions) { max0 = std::max(max0, r.region_id); }
+        for (const auto &r : run.value->pages[1].regions) {
+            expect(r.region_id > max0) << "page 1 region ids must follow page 0";
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S6: honest peak/resident device accounting. The OpenDoc (CTC) path has no KV
+// cache, so peak = weights + workspace; the fields must be consistent.
+// ---------------------------------------------------------------------------
+void test_memory_accounting(Device &device) {
+    Fixture fx;
+    expect(fx.init(device));
+    if (!fx.recognizer || !fx.layout) { return; }
+    auto stream = device.create_stream();
+    auto page = ocr::test::p6_make_page(64, 64);
+    auto orch = fx.orch_config();
+    LayoutVlmExecutor exec;
+    expect(exec.create(orch, fx.layout.get(), fx.weights.layout_cfg, fx.recognizer.get()).ok());
+    auto run = exec.recognize(stream, luisa::span<const LayoutPageInput>{&page, 1});
+    expect(run.ok());
+    if (!run.ok()) { return; }
+    // CTC path: no KV cache.
+    expect(run.value->kv_cache_peak_bytes == 0u);
+    // peak = weights + workspace + kv_peak.
+    expect(run.value->peak_device_bytes ==
+           run.value->weight_bytes + run.value->workspace_bytes + run.value->kv_cache_peak_bytes);
+    expect(run.value->weight_bytes > 0u);
+    expect(run.value->workspace_bytes > 0u);
+    // The recognizer's own accounting matches the orchestrator's view.
+    expect(fx.recognizer->kv_cache_peak_bytes() == 0u);
+}
+
 }// namespace
+
 
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
@@ -276,4 +437,8 @@ int main(int argc, char *argv[]) {
     "region_scheduler_memory_budget"_test = [&] { test_memory_budget(device); };
     "region_scheduler_cpu_reference"_test = [&] { test_cpu_reference_layout(device); };
     "region_scheduler_cross_page"_test = [&] { test_cross_page(device); };
+    "region_scheduler_page_output_budget"_test = [&] { test_page_output_budget(device); };
+    "region_scheduler_shuffled_pages"_test = [&] { test_shuffled_pages(device); };
+    "region_scheduler_global_region_ids"_test = [&] { test_global_region_ids(device); };
+    "region_scheduler_memory_accounting"_test = [&] { test_memory_accounting(device); };
 }

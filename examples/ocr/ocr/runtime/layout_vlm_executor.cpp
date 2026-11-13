@@ -939,16 +939,28 @@ struct VisionUploadStaging {
             return R::failure(StatusCode::out_of_memory,
                               "region prompt + output exceeds the decoder context ceiling", "max_position_embeddings");
         }
-        if (auto s = cache.create(*_device, stream, kc); !s.ok()) { return R::failure(s); }
+        // Preflight the per-region KV allocation against the caller's device
+        // memory limit, accounting for the resident weights + fixed workspace.
+        // The cache is released at the end of this region (fresh per region), so
+        // the budget records it transiently and drops it before the next region.
+        MemoryBudget kv_budget{_config.memory};
+        if (auto s = kv_budget.set_requirement("paddle_ocr_vl", MemoryCategory::weights, _weight_bytes); !s.ok()) { return R::failure(s); }
+        if (auto s = kv_budget.set_requirement("paddle_ocr_vl", MemoryCategory::workspace, workspace_bytes()); !s.ok()) { return R::failure(s); }
+        if (auto s = cache.create(*_device, stream, kc, &kv_budget); !s.ok()) { return R::failure(s); }
+        _kv_peak_bytes = std::max(_kv_peak_bytes, cache.device_bytes());
         DenseDecodeOptions dopts;
         dopts.sampling.greedy = true;
         dopts.max_new_tokens = options.max_output_tokens;
         dopts.max_wall_time_ms = options.max_wall_time_ms;
+        dopts.enable_cuda_graph = options.enable_cuda_graph;
         dopts.cancel_callback = options.cancel_callback;
         DenseDecodeController controller;
         if (auto s = controller.create(_text, nullptr, dopts); !s.ok()) { return R::failure(s); }
         auto gen = controller.generate(stream, request, cache);
         if (!gen.ok()) { return R::failure(gen.status); }
+        _cuda_graph_steps += gen.value->cuda_graph_steps;
+        _cuda_graph_updates += gen.value->cuda_graph_updates;
+        _cuda_graph_fallbacks += gen.value->cuda_graph_fallbacks;
 
         RawRegionOutput out;
         out.region_id = crop.task.region_id;
@@ -1049,12 +1061,21 @@ struct VisionUploadStaging {
     cnn.model.detector.db_conv.out_c = 1;
     cnn.model.detector.db_conv.kh = cnn.model.detector.db_conv.kw = 1;
     cnn.model.detector.db_conv.stride_h = cnn.model.detector.db_conv.stride_w = 1;
-    // Tensor names: the recognizer component uses the UniRec name map, but the
-    // CnnExecutor resolves names through PpOcrv6TensorNames. Map the UniRec
-    // recognizer tensors onto the PP-OCRv6 recognizer name contract by installing
-    // them under the PP-OCRv6 recognizer names (the orchestrator's weight upload
-    // does this renaming). Here we use the standard PP-OCRv6 recognizer names.
-    cnn.names = PpOcrv6TensorNames{};
+    // Tensor names: the UniRec recognizer has a DISTINCT tensor contract
+    // (UniRecTensorNames, "unirec." prefix). Install that name map into the
+    // CnnExecutor so the load path resolves/validates the UniRec names -- NOT a
+    // silent PP-OCRv6 alias. The on-disk/device inventory is uni_rec_*; the
+    // fixture/package writes tensors under exactly these names.
+    cnn.names = PpOcrv6TensorNames{};// detector placeholder names (never resolved)
+    const auto &un = config.model.recognizer_names;
+    cnn.recognizer_names.backbone_w = [un](uint32_t i) { return un.backbone_w(i); };
+    cnn.recognizer_names.backbone_b = [un](uint32_t i) { return un.backbone_b(i); };
+    cnn.recognizer_names.svtr_fc1_w = [un] { return un.svtr_fc1_w(); };
+    cnn.recognizer_names.svtr_fc1_b = [un] { return un.svtr_fc1_b(); };
+    cnn.recognizer_names.svtr_fc2_w = [un] { return un.svtr_fc2_w(); };
+    cnn.recognizer_names.svtr_fc2_b = [un] { return un.svtr_fc2_b(); };
+    cnn.recognizer_names.ctc_w = [un] { return un.ctc_w(); };
+    cnn.recognizer_names.ctc_b = [un] { return un.ctc_b(); };
     cnn.detector_component = "layout_placeholder";// never resolved in recognizer-only mode
     cnn.recognizer_component = config.recognizer_component;
     cnn.mean = config.mean;
@@ -1119,9 +1140,6 @@ struct VisionUploadStaging {
 [[nodiscard]] Status LayoutVlmExecutorConfig::validate() const {
     if (auto s = decode.validate(); !s.ok()) { return s; }
     if (auto s = scheduler.validate(); !s.ok()) { return s; }
-    if (region.max_output_tokens == 0u) {
-        return Status::error(StatusCode::invalid_argument, "region max_output_tokens must be nonzero", "max_output_tokens");
-    }
     if (max_overview_pixels == 0u) {
         return Status::error(StatusCode::invalid_argument, "max_overview_pixels must be nonzero", "max_overview_pixels");
     }
@@ -1173,6 +1191,7 @@ struct VisionUploadStaging {
 
 [[nodiscard]] Result<luisa::vector<RegionTask>> LayoutVlmExecutor::detect_regions(Stream &stream,
                                                                                   const LayoutPageInput &page,
+                                                                                  uint32_t region_id_base,
                                                                                   uint64_t &cache_hits) {
     using R = Result<luisa::vector<RegionTask>>;
     // Explicit content/geometry cache key. A hit returns the cached regions
@@ -1201,17 +1220,25 @@ struct VisionUploadStaging {
     if (maps.num_classes != _layout_config.num_classes()) {
         return R::failure(StatusCode::invalid_argument, "head-map class count does not match the layout config", "num_classes");
     }
-    // Detector-map -> source transform: the page was stretch-resized to the
-    // detector input, and the map is the backbone-strided detector input.
-    output::DbSourceTransform transform;
-    transform.scale_x = static_cast<float>(page.source_width) / static_cast<float>(maps.map_width);
-    transform.scale_y = static_cast<float>(page.source_height) / static_cast<float>(maps.map_height);
-    // Stride in MAP units: the backbone total stride (map -> detector input).
+    // Stride: the backbone total stride (map -> DETECTOR INPUT). The decode
+    // multiplies the decoded box by this stride exactly once, producing boxes in
+    // detector-input pixels.
     auto mh = _layout_config.map_height();
     auto mw = _layout_config.map_width();
     if (!mh.ok() || !mw.ok()) { return R::failure(mh.status); }
+    if (*mh.value == 0u || *mw.value == 0u ||
+        _layout_config.input_width == 0u || _layout_config.input_height == 0u) {
+        return R::failure(StatusCode::invalid_argument, "degenerate layout detector geometry", "input/map");
+    }
     const float stride_h = static_cast<float>(_layout_config.input_height) / static_cast<float>(*mh.value);
     const float stride_w = static_cast<float>(_layout_config.input_width) / static_cast<float>(*mw.value);
+    // Detector-input -> source transform: the page was stretch-resized to the
+    // detector input. The decoded boxes are ALREADY in detector-input pixels
+    // (stride applied by the decode), so the scale is source/input -- NOT
+    // source/map, which would double-count the stride.
+    output::DbSourceTransform transform;
+    transform.scale_x = static_cast<float>(page.source_width) / static_cast<float>(_layout_config.input_width);
+    transform.scale_y = static_cast<float>(page.source_height) / static_cast<float>(_layout_config.input_height);
     // The decode uses a single isotropic stride; the synthetic backbone has
     // equal h/w strides. Refuse anisotropic strides rather than silently skew.
     if (std::abs(stride_h - stride_w) > 1e-3f) {
@@ -1220,10 +1247,11 @@ struct VisionUploadStaging {
     auto regions = pp_doc_layout_decode(maps.class_probs, maps.box_deltas, maps.map_width, maps.map_height,
                                         maps.num_classes, stride_w, transform, _layout_config, _config.decode);
     if (!regions.ok()) { return R::failure(regions.status); }
-    // Map decoded regions to RegionTasks (stable region_id, approx costs).
+    // Map decoded regions to RegionTasks (document-global region_id, approx
+    // costs). region_id_base makes ids unique across pages in input order.
     luisa::vector<RegionTask> tasks;
     tasks.reserve(regions.value->size());
-    uint32_t next_id = 0u;
+    uint32_t next_id = region_id_base;
     for (const auto &region : *regions.value) {
         RegionTask task;
         task.region_id = next_id++;
@@ -1303,6 +1331,9 @@ struct VisionUploadStaging {
         run.diagnostics.push_back(Diagnostic{DiagnosticSeverity::info, "layout_cpu_reference",
                                              "layout ran through the documented CPU reference head-map path"});
     }
+    // Document-global region_id offset: the count of regions detected on all
+    // previously processed pages (input order), so ids are unique across pages.
+    uint32_t region_id_base = 0u;
     for (const auto &page : pages) {
         if (cancelled()) { return R::failure(StatusCode::cancelled, "request cancelled before a page", "cancel"); }
         if (timed_out()) { return R::failure(StatusCode::timeout, "wall-time budget exceeded before a page", "max_wall_time_ms"); }
@@ -1316,9 +1347,10 @@ struct VisionUploadStaging {
         }
         // ---- Stage 1: ONE overview/layout pass -> regions (source coords) ----
         uint64_t cache_hits = 0;
-        auto tasks = detect_regions(stream, page, cache_hits);
+        auto tasks = detect_regions(stream, page, region_id_base, cache_hits);
         if (!tasks.ok()) { return R::failure(tasks.status); }
         run.layout_cache_hits += cache_hits;
+        region_id_base += static_cast<uint32_t>(tasks.value->size());
 
         LayoutPageResult page_result;
         page_result.page_index = page.page_index;
@@ -1357,11 +1389,22 @@ struct VisionUploadStaging {
             crops.push_back(std::move(*crop.value));
         }
         // ---- Stage 3: token-budgeted vision/prefill batches ----
+        // plan_vision_batches packs crops under approximate patch/region caps.
+        // Phase 11 P7 recognizers execute ragged multi-crop vision graphs (and
+        // split by exact packed capacity); Paddle/OpenDoc still loop per crop.
+        // Text decode always uses a fresh batch-1 KV cache per region, and
+        // max_decode_batch remains planning-only.
         auto batches = _scheduler.plan_vision_batches(*tasks.value);
         if (!batches.ok()) { return R::failure(batches.status); }
-        // Recognize each batch independently; collect raw outputs by region_id.
+        // Recognize each batch independently; collect raw outputs by task index.
         luisa::vector<RawRegionOutput> raw_by_id(tasks.value->size());
         luisa::vector<uint8_t> filled(tasks.value->size(), 0u);
+        // Per-page output-token budget, enforced DURING accumulation. Once the
+        // page's accumulated output tokens reach the cap, later regions are not
+        // recognized and a visible output_truncated diagnostic is emitted.
+        uint64_t page_output_tokens = 0;
+        bool page_budget_hit = false;
+        const uint64_t page_budget = limits.max_output_tokens_per_page;
         for (const auto &batch : *batches.value) {
             if (cancelled()) { return R::failure(StatusCode::cancelled, "request cancelled before a region batch", "cancel"); }
             if (timed_out()) { return R::failure(StatusCode::timeout, "wall-time budget exceeded before a region batch", "max_wall_time_ms"); }
@@ -1370,14 +1413,26 @@ struct VisionUploadStaging {
             batch_crops.reserve(batch.region_indices.size());
             for (auto idx : batch.region_indices) {
                 if (skipped[idx]) { continue; }// degenerate region: not recognized
+                if (page_budget_hit) { continue; }// page output budget exhausted
+                // Stop once the page output budget is exhausted; the per-region
+                // cap below is clamped to the remaining budget so accumulation
+                // cannot overshoot it.
+                if (page_output_tokens >= page_budget) { page_budget_hit = true; continue; }
                 batch_crops.push_back(crops[idx]);
                 batch_indices.push_back(idx);
             }
             if (batch_crops.empty()) { continue; }
             RegionRecognizeOptions ropts;
-            ropts.max_output_tokens = _config.region.max_output_tokens;
-            ropts.max_wall_time_ms = limits.max_wall_time_ms;
-            ropts.cancel_callback = limits.cancel_callback;
+            // Single source of truth for the per-region output cap: the scheduler
+            // limit (forwarded to the recognizer). Clamp to the remaining page
+            // budget so accumulation cannot overshoot it.
+            const uint64_t remaining = page_budget - page_output_tokens;
+            ropts.max_output_tokens = static_cast<uint32_t>(std::min<uint64_t>(
+                limits.max_output_tokens_per_region, remaining));
+        ropts.max_wall_time_ms = limits.max_wall_time_ms;
+        ropts.enable_cuda_graph = limits.enable_cuda_graph;
+        ropts.cancel_callback = limits.cancel_callback;
+
             auto raw = _recognizer->recognize_batch(stream, batch_crops, ropts);
             if (!raw.ok()) { return R::failure(raw.status); }
             if (raw.value->size() != batch_crops.size()) {
@@ -1390,7 +1445,15 @@ struct VisionUploadStaging {
                 run.regions_processed++;
                 run.patches_processed += raw_by_id[idx].native_patches;
                 run.output_tokens += raw_by_id[idx].output_tokens;
+                page_output_tokens += raw_by_id[idx].output_tokens;
+                if (page_output_tokens >= page_budget) { page_budget_hit = true; }
             }
+        }
+        if (page_budget_hit) {
+            run.diagnostics.push_back(Diagnostic{
+                DiagnosticSeverity::warning, "output_truncated",
+                luisa::format("page {} reached max_output_tokens_per_page ({}); later regions were not recognized",
+                              page.page_index, page_budget)});
         }
         // ---- Stage 4: restore original page/reading order ----
         auto order = RegionScheduler::restore_order(*tasks.value);
@@ -1398,6 +1461,9 @@ struct VisionUploadStaging {
         for (auto idx : *order.value) {
             if (skipped[idx]) { continue; }// degenerate region: excluded from the result
             if (!filled[idx]) {
+                // A region left unfilled because the page output budget was
+                // exhausted is a deliberate, diagnosed truncation -- not an error.
+                if (page_budget_hit) { continue; }
                 return R::failure(StatusCode::internal_error, "a region was not recognized", "restore_order");
             }
             const auto &task = (*tasks.value)[idx];
@@ -1416,7 +1482,20 @@ struct VisionUploadStaging {
         }
         run.pages.push_back(std::move(page_result));
     }
+    // Sort returned pages by source page_index (stable) before composition, so a
+    // shuffled input page span still yields document-ordered pages.
+    {
+        const auto order = layout_sort_pages_by_index(run.pages);
+        luisa::vector<LayoutPageResult> sorted;
+        sorted.reserve(run.pages.size());
+        for (auto idx : order) { sorted.push_back(std::move(run.pages[idx])); }
+        run.pages = std::move(sorted);
+    }
     run.workspace_bytes = _recognizer->workspace_bytes() + (_layout != nullptr ? _layout->workspace_bytes() : 0u);
+    // Honest peak/resident device accounting: weights + fixed workspace + the
+    // peak per-region KV cache actually allocated during the run.
+    run.kv_cache_peak_bytes = _recognizer->kv_cache_peak_bytes();
+    run.peak_device_bytes = run.weight_bytes + run.workspace_bytes + run.kv_cache_peak_bytes;
     return R::success(std::move(run));
 }
 

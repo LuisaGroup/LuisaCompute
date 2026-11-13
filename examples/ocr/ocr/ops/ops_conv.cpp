@@ -216,10 +216,13 @@ using namespace luisa::compute;
             const auto oy = (id / out_w) % out_h;
             const auto ci = (id / (out_w * out_h)) % c;
             const auto ni = id / (out_w * out_h * c);
+            // PyTorch adaptive_avg_pool2d bin edges: start = floor(i*in/out),
+            // end = ceil((i+1)*in/out). Integer ceil-div for the end so bins
+            // cover the full input even when out does not divide in.
             const auto y0 = oy * h / out_h;
-            const auto y1 = (oy + 1u) * h / out_h;
+            const auto y1 = ((oy + 1u) * h + out_h - 1u) / out_h;
             const auto x0 = ox * w / out_w;
-            const auto x1 = (ox + 1u) * w / out_w;
+            const auto x1 = ((ox + 1u) * w + out_w - 1u) / out_w;
             Var<float> sum = def(0.0f);
             Var<uint> count = def(0u);
             $for (yy, y0, y1) {

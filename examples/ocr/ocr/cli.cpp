@@ -1,5 +1,5 @@
 // OCR engine -- reusable CLI parser and structured status report
-// (Phase 0 contract; unchanged in Phase 1).
+// (Phase 0 contract; Phase 12 adds --list-models / model_support_report_json).
 // Consumes UTF-8 argument bytes; see cli.h for the encoding contract.
 #include "ocr/cli.h"
 
@@ -9,6 +9,8 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+
+#include "ocr/model_registry.h"
 
 namespace luisa::ocr {
 namespace {
@@ -43,17 +45,25 @@ namespace {
 
 [[nodiscard]] luisa::string cli_usage_text() {
     return luisa::string{
-        "example_ocr -- LuisaCompute OCR engine (Phase 1: host infrastructure; no model works yet)\n"
+        "example_ocr -- LuisaCompute OCR engine (Phases 0-11: synthetic host/device\n"
+        "infrastructure only; no REAL model is validated and Session fails closed)\n"
         "\n"
         "usage: example_ocr --backend <name> (--package <file.lcocr> | --manifest <file.json>)\n"
-        "                   --input <image> [--input <image> ...] [options]\n"
-        "       example_ocr --help\n"
+        " --input <image> [--input <image> ...] [options]\n"
+        " example_ocr --help\n"
+        " example_ocr --list-models\n"
         "\n"
-        "required (except --help):\n"
-        "  --backend <name>            backend plugin: cuda | vk | dx | fallback | ...\n"
-        "  --package <path>            packed .lcocr model package\n"
-        "  --manifest <path>           package/component manifest (alternative or addition)\n"
-        "  --input <path>              input image/page (repeatable, in reading order)\n"
+        "offline (no backend/package/input required):\n"
+        "  --help show this usage text (exit 0)\n"
+        "  --list-models print the registry-driven model support report JSON\n"
+        " (exit 0); every target is planned/unvalidated, session_status\n"
+        " is \"unvalidated\", and no real model is claimed to work\n"
+        "\n"
+        "required (except --help/--list-models):\n"
+        "  --backend <name> backend plugin: cuda | vk | dx | fallback | ...\n"
+        "  --package <path> packed .lcocr model package\n"
+        "  --manifest <path> package/component manifest (alternative or addition)\n"
+        "  --input <path> input image/page (repeatable, in reading order)\n"
         "\n"
         "model selection:\n"
         "  --model <target>            pp_ocrv6:tiny|small|medium, paddle_ocr_vl_1_6, ovis_ocr2,\n"
@@ -100,7 +110,8 @@ namespace {
         "  --max-wall-time-ms <x>      wall-time budget (0 = none)\n"
         "\n"
         "No model is validated yet, so inference is always refused; the refusal\n"
-        "is reported as structured JSON, never as fabricated OCR output.\n"};
+        "is reported as structured JSON, never as fabricated OCR output. Synthetic\n"
+        "test parity is not real-model support; see examples/ocr/QUALIFICATION.md.\n"};
 }
 
 [[nodiscard]] luisa::string json_escape(luisa::string_view text) {
@@ -135,6 +146,40 @@ namespace {
     json += "\",\"detail\":\"";
     json += json_escape(status.detail);
     json += "\"}\n";
+    return json;
+}
+
+[[nodiscard]] luisa::string model_support_report_json() {
+    // Derived from the SAME default planned table Session will consult once
+    // real loading is enabled: no hard-coded target list, no invented support
+    // state. Synthetic parity never upgrades a recipe; `validated` is exactly
+    // "the registry recipe is in the validated support state" (false for all
+    // 17 targets today).
+    const ModelRegistry registry;
+    const auto recipes = registry.recipes();
+    luisa::string json;
+    json += "{\"target_count\":";
+    json += std::to_string(recipes.size());
+    json += ",\"real_model_validated\":false";
+    json += ",\"session_status\":\"unvalidated\"";
+    json += ",\"models\":[";
+    bool first = true;
+    for (const auto &recipe : recipes) {
+        if (!first) { json += ","; }
+        first = false;
+        json += "{\"target\":\"";
+        json += json_escape(recipe.target_name());
+        json += "\",\"model\":\"";
+        json += json_escape(model_id_name(recipe.id));
+        json += "\",\"family\":\"";
+        json += json_escape(architecture_family_name(recipe.family));
+        json += "\",\"support_state\":\"";
+        json += json_escape(support_state_name(recipe.support));
+        json += "\",\"validated\":";
+        json += recipe.support == SupportState::validated ? "true" : "false";
+        json += "}";
+    }
+    json += "]}\n";
     return json;
 }
 
@@ -174,6 +219,11 @@ namespace {
         luisa::string_view value;
         if (arg == "--help" || arg == "-h") {
             args.help = true;
+            return Result<CliArgs>::success(std::move(args));
+        } else if (arg == "--list-models") {
+            // Offline qualification report: like --help, needs no backend,
+            // package, input, device, or model artifact.
+            args.list_models = true;
             return Result<CliArgs>::success(std::move(args));
         } else if (arg == "--backend") {
             if (!need_value(value)) { return Result<CliArgs>::failure(StatusCode::invalid_argument, "--backend requires a value", "backend"); }

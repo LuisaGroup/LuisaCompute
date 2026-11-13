@@ -2,9 +2,10 @@
 //
 // The CLI parses and validates the full surface, then fails closed: no
 // model is validated, so the tool never claims inference succeeded and never
-// fabricates output. --help works without a device or model. Later phases
-// wire the same arguments into Session::create()/recognize() unchanged; the
-// success path already serializes via ocr/output/json_output.h (Phase 1).
+// fabricates output. --help and --list-models (the offline model support
+// report, Phase 12) work without a device or model. Later phases wire the
+// same arguments into Session::create()/recognize() unchanged; the success
+// path already serializes via ocr/output/json_output.h (Phase 1).
 //
 // Encoding: Windows narrow argv is the ANSI code page, NOT UTF-8. On Windows
 // we use wmain and convert every argument with WideCharToMultiByte(CP_UTF8)
@@ -12,7 +13,7 @@
 // POSIX main passes UTF-8 bytes through unchanged. The parser (ocr/cli.h)
 // then decodes paths with path_from_utf8. No ACP bytes are treated as UTF-8.
 //
-// Exit codes: 0 = help; 1 = bad arguments; 2 = engine refusal
+// Exit codes: 0 = help / --list-models; 1 = bad arguments; 2 = engine refusal
 // (unvalidated/unsupported) reported as structured JSON; 3 = report I/O error.
 #include <cstdio>
 #include <cwchar>
@@ -69,6 +70,13 @@ namespace {
     if (args.help) {
         const auto usage = cli_usage_text();
         std::fputs(usage.c_str(), stdout);
+        return 0;
+    }
+    if (args.list_models) {
+        // Offline qualification report (Phase 12): printed BEFORE any session
+        // validation/device work; needs no backend, package, or input.
+        const auto report = model_support_report_json();
+        if (std::fputs(report.c_str(), stdout) < 0) { return 3; }
         return 0;
     }
     // Validate the full surface before touching any device/model.

@@ -12,6 +12,7 @@
 #include "ocr_p6_test_utils.h"
 
 #include "ocr/runtime/layout_vlm_executor.h"
+#include <luisa/backends/ext/cuda/cuda_graph_ext.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -218,7 +219,9 @@ void test_decoder_parity(Device &device) {
 }
 
 // ---------------------------------------------------------------------------
-// Region batching vs batch-1 equivalence (deterministic policy).
+// Region batching vs batch-1 equivalence (deterministic policy). Paddle vision
+// remains per-crop and every region has a fresh KV cache. Phase 11 CUDA graph
+// replay is enabled here to verify real ERNIE decode capture/update parity.
 // ---------------------------------------------------------------------------
 void test_batch_equivalence(Device &device) {
     Fixture fx;
@@ -229,6 +232,7 @@ void test_batch_equivalence(Device &device) {
     for (uint32_t i = 0; i < 3u; i++) { crops.push_back(make_crop(8, 8, i, 11u + i)); }
     RegionRecognizeOptions opts;
     opts.max_output_tokens = 5;
+    opts.enable_cuda_graph = true;
     // Batch-1: recognize each crop independently.
     luisa::vector<luisa::vector<uint32_t>> single_tokens;
     for (const auto &crop : crops) {
@@ -247,6 +251,117 @@ void test_batch_equivalence(Device &device) {
         if ((*batched.value)[i].tokens != single_tokens[i]) { equivalent = false; break; }
     }
     expect(equivalent) << "region batching must equal batch-1 under the deterministic policy";
+    if (device.extension<CudaGraphExt>() != nullptr) {
+        expect(fx.recognizer->cuda_graph_steps() > 0u);
+        expect(fx.recognizer->cuda_graph_updates() > 0u);
+        expect(fx.recognizer->cuda_graph_fallbacks() == 0u);
+    } else {
+        expect(fx.recognizer->cuda_graph_fallbacks() > 0u);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Full-pipeline orchestrator (S1): layout -> crop -> connector/decode -> ordered
+// output, mirroring the OpenDoc full-pipeline test. Uses the cpu_reference layout
+// policy with the independent oracle head maps (the device detector path is
+// validated by test_ocr_layout) and the REAL PaddleOcrVlRecognizer, so the whole
+// region vision/connector/ERNIE-decode path runs inside the orchestrator.
+// ---------------------------------------------------------------------------
+void test_full_pipeline(Device &device) {
+    Fixture fx;
+    expect(fx.init(device));
+    if (!fx.recognizer) { return; }
+    auto stream = device.create_stream();
+    // Layout fixture (PP-DocLayoutV2) for the overview pass.
+    ocr::test::P6TempDir ltmp;
+    auto layout_cfg = pp_doc_layout_synthetic_config(PpDocLayoutVersion::v2);
+    PpDocLayoutTensorNames layout_names;
+    auto layout_weights = ocr::test::generate_layout_weights(layout_cfg, 0x5EEDu);
+    const auto lpath = ltmp.path / "paddle_pipeline_layout.lcocr";
+    expect(ocr::test::write_layout_package(lpath, layout_cfg, layout_names, layout_weights).ok());
+    WeightStore layout_store;
+    {
+        auto reader = PackageReader::open(lpath);
+        expect(reader.ok());
+        if (!reader.ok()) { return; }
+        expect(layout_store.upload_component_sync(device, stream, **reader.value, "layout").ok());
+    }
+    PpDocLayoutExecutorConfig layout_exec_config;
+    layout_exec_config.model = layout_cfg;
+    layout_exec_config.names = layout_names;
+    layout_exec_config.component = "layout";
+    // cpu_reference layout: oracle head maps (no device layout executor needed).
+    LayoutVlmExecutorConfig orch;
+    orch.layout_policy = LayoutDevicePolicy::cpu_reference;
+    orch.decode.score_threshold = 0.3f;
+    // The uncalibrated synthetic box head can emit very large log-scale boxes;
+    // clamp them so every crop fits the native packing cap / decoder context.
+    orch.decode.box_log_cap = 1.0f;
+    orch.scheduler.max_patches_per_vision_batch = 4096;
+    orch.scheduler.max_regions_per_batch = 4;
+    orch.scheduler.max_output_tokens_per_region = 5;
+    auto provider = [&](const LayoutPageInput &p) -> Result<LayoutHeadMaps> {
+        auto pixels = ocr::test::p6_oracle_preprocess(p.pixels, p.source_width, p.source_height,
+                                                      layout_cfg.input_width, layout_cfg.input_height,
+                                                      layout_exec_config.mean, layout_exec_config.std_dev);
+        ocr::test::LayoutOracleMaps oracle;
+        if (auto s = ocr::test::oracle_layout_detect(layout_cfg, layout_weights, pixels, oracle); !s.ok()) {
+            return Result<LayoutHeadMaps>::failure(s);
+        }
+        LayoutHeadMaps maps;
+        maps.map_width = oracle.map_w;
+        maps.map_height = oracle.map_h;
+        maps.num_classes = oracle.num_classes;
+        maps.class_probs = std::move(oracle.class_probs);
+        maps.box_deltas = std::move(oracle.box_deltas);
+        return Result<LayoutHeadMaps>::success(std::move(maps));
+    };
+    LayoutVlmExecutor orchestrator;
+    expect(orchestrator.create(orch, nullptr, layout_cfg, fx.recognizer.get(), provider).ok());
+    // A 32x32 source page: the uncalibrated synthetic box head can emit large
+    // boxes, and the native packing cap (4096 px) would push a large crop's
+    // prompt past the 256-token decoder context ceiling. A smaller page keeps
+    // every crop within the packing/context contract.
+    auto page = ocr::test::p6_make_page(64, 64);
+    auto run = orchestrator.recognize(stream, luisa::span<const LayoutPageInput>{&page, 1});
+    expect(run.ok());
+    if (!run.ok()) { return; }
+    expect(run.value->pages.size() == 1u);
+    const auto &page_result = run.value->pages[0];
+    expect(!page_result.regions.empty()) << "the bar page must yield at least one region";
+    // Regions in reading order; source coordinates preserved; generative content
+    // carries NO confidence; the Paddle recognizer consumed vision patches.
+    uint32_t prev_order = 0;
+    bool ordered = true;
+    for (const auto &region : page_result.regions) {
+        if (region.reading_order < prev_order) { ordered = false; }
+        prev_order = region.reading_order;
+        expect(region.page_index == 0u);
+        expect(!region.source_box.empty());
+        expect(!region.has_confidence) << "generative content must not carry confidence";
+    }
+    expect(ordered);
+    expect(run.value->regions_processed > 0u);
+    expect(run.value->patches_processed > 0u) << "Paddle vision patches must be consumed";
+    // The recognizer's KV peak must be accounted (generative path allocates KV).
+    expect(run.value->kv_cache_peak_bytes > 0u);
+    expect(run.value->peak_device_bytes >= run.value->weight_bytes + run.value->kv_cache_peak_bytes);
+    // Repeat-run determinism: identical region content.
+    auto run2 = orchestrator.recognize(stream, luisa::span<const LayoutPageInput>{&page, 1});
+    expect(run2.ok());
+    if (run2.ok() && run2.value->pages.size() == run.value->pages.size()) {
+        bool same = true;
+        for (size_t p = 0; p < run.value->pages.size(); p++) {
+            const auto &a = run.value->pages[p];
+            const auto &b = run2.value->pages[p];
+            if (a.regions.size() != b.regions.size()) { same = false; break; }
+            for (size_t i = 0; i < a.regions.size(); i++) {
+                if (a.regions[i].content != b.regions[i].content ||
+                    a.regions[i].reading_order != b.regions[i].reading_order) { same = false; break; }
+            }
+        }
+        expect(same) << "repeat Paddle pipeline runs must be identical";
+    }
 }
 
 }// namespace
@@ -260,4 +375,5 @@ int main(int argc, char *argv[]) {
     "paddle_vision_connector_parity"_test = [&] { test_vision_connector_parity(device); };
     "paddle_decoder_parity"_test = [&] { test_decoder_parity(device); };
     "paddle_batch_equivalence"_test = [&] { test_batch_equivalence(device); };
+    "paddle_full_pipeline"_test = [&] { test_full_pipeline(device); };
 }

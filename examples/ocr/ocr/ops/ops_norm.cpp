@@ -65,6 +65,31 @@ using namespace luisa::compute;
     return kernel;
 }
 
+[[nodiscard]] ResidualRmsNormKernel make_residual_rms_norm_kernel() noexcept {
+    ResidualRmsNormKernel kernel = [](BufferFloat projection, BufferFloat residual, BufferFloat gamma,
+                                      BufferFloat residual_out, BufferFloat norm_out,
+                                      Var<uint> rows, Var<uint> H, Var<float> eps) noexcept {
+        set_block_size(256u, 1u, 1u);
+        set_name("ocr_residual_rms_norm");
+        const auto row = ocr_linear_id();
+        $if (row < rows) {
+            const auto base = row * H;
+            Var<float> sumsq = def(0.0f);
+            $for (i, H) {
+                const auto v = projection.read(base + i) + residual.read(base + i);
+                sumsq += v * v;
+            };
+            const auto inv = rsqrt(sumsq / cast<float>(H) + eps);
+            $for (i, H) {
+                const auto v = projection.read(base + i) + residual.read(base + i);
+                residual_out.write(base + i, v);
+                norm_out.write(base + i, v * inv * gamma.read(i));
+            };
+        };
+    };
+    return kernel;
+}
+
 [[nodiscard]] L2NormKernel make_l2_norm_kernel() noexcept {
     L2NormKernel kernel = [](BufferFloat x, BufferFloat y, Var<uint> rows, Var<uint> H, Var<float> floor) noexcept {
         set_block_size(256u, 1u, 1u);

@@ -42,11 +42,25 @@ add_library(lc-example-ocr STATIC
     ocr/ops/ops_conv.cpp
     ocr/ops/ops_vision.cpp
     ocr/ops/ops_decode.cpp
+    # Phase 9 GDN operators (device-free DSL factories + independent host oracles)
+    ocr/ops/ops_gdn.cpp
+    # Phase 10 MoE operators (device-free DSL factories + independent host oracles)
+    ocr/ops/ops_moe.cpp
     # Phase 3 dense decoder core (shared components, KV cache, executor)
     ocr/models/qwen2_5_vl.cpp
     ocr/runtime/decode_cache.cpp
     ocr/runtime/executor.cpp
     ocr/runtime/dense_vlm_executor.cpp
+    # Phase 9 hybrid GDN + periodic full-attention decoder executor + cache
+    ocr/runtime/hybrid_gdn_config.cpp
+    ocr/runtime/hybrid_gdn_executor.cpp
+    # Phase 9 model vertical slices (synthetic; real artifacts fail closed).
+    ocr/models/ovis_ocr2.cpp
+    ocr/models/surya.cpp
+    ocr/runtime/surya_executor.cpp
+    # Phase 10 DeepSeek-OCR-2 MoE vertical slice (synthetic; real artifacts fail closed).
+    ocr/models/deepseek_ocr2.cpp
+    ocr/runtime/moe_vlm_executor.cpp
     # Phase 4 Qwen3-VL vertical slice + FireRed-OCR recipe
     ocr/models/qwen3_vl.cpp
     ocr/models/fire_red_ocr.cpp
@@ -72,6 +86,20 @@ add_library(lc-example-ocr STATIC
     ocr/runtime/layout_result.cpp
     ocr/models/paddle_ocr_vl_result.cpp
     ocr/models/open_doc_result.cpp
+    # Phase 7 custom dense/layout variants: shared configurable slice executor
+    # (vision window/global + connectors + Qwen2/Qwen3/GLM/Hunyuan decoders).
+    ocr/runtime/p7_slice_config.cpp
+    ocr/runtime/p7_vlm_executor.cpp
+    ocr/runtime/p7_vlm_preprocess.cpp
+    # Phase 7 model contracts (synthetic; real artifacts fail closed).
+    ocr/models/tele_ocr.cpp
+    ocr/models/glm_ocr.cpp
+    ocr/models/mineru.cpp
+    ocr/models/hunyuan_ocr.cpp
+    # Phase 8 remaining dense ViT models (synthetic; real artifacts fail closed).
+    ocr/models/dots_mocr.cpp
+    ocr/models/got_ocr2.cpp
+    ocr/models/olm_ocr2.cpp
 )
 target_link_libraries(lc-example-ocr PUBLIC luisa::compute)
 # yyjson interface, aligned with the embedding examples: link the bundled

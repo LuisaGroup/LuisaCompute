@@ -109,16 +109,13 @@ public:
     [[nodiscard]] uint64_t weight_bytes() const noexcept { return _weight_bytes; }
     [[nodiscard]] uint64_t workspace_bytes() const noexcept { return _ws.capacity_bytes(); }
 
-    // Download helpers for layered golden tests (last detect; caller drains).
+    // Layered-golden download helpers (last detect; caller drains afterwards).
+    // These are intentional test APIs: they expose the uploaded preprocessed
+    // pixels and the ping-pong backbone feature maps so a test can isolate
+    // preprocessing from the conv chain (mirrors CnnExecutor::download_det_*).
     [[nodiscard]] Status download_feat_a(compute::Stream &stream, luisa::vector<float> &out) const;
     [[nodiscard]] Status download_feat_b(compute::Stream &stream, luisa::vector<float> &out) const;
     [[nodiscard]] Status download_page_pixels(compute::Stream &stream, luisa::vector<float> &out) const;
-
-    // Debug entry: run the detector graph on ALREADY-normalized CHW pixels at the
-    // detector input size (bypasses host preprocessing). Used by layered golden
-    // tests to isolate preprocessing from the conv chain. The caller drains.
-    [[nodiscard]] Result<LayoutHeadMaps> detect_from_pixels(compute::Stream &stream,
-                                                            luisa::span<const float> pixels_chw);
 
 private:
     struct ConvWeights {
@@ -129,6 +126,12 @@ private:
         uint64_t offset{0};
         uint64_t bytes{0};
     };
+
+    // Run the detector graph on ALREADY-normalized CHW pixels at the detector
+    // input size (the shared graph body behind detect(); bypasses host
+    // preprocessing). The caller drains.
+    [[nodiscard]] Result<LayoutHeadMaps> detect_from_pixels(compute::Stream &stream,
+                                                            luisa::span<const float> pixels_chw);
 
     [[nodiscard]] Status resolve_weights(const WeightStore &weights);
     [[nodiscard]] Status reserve_workspace();
@@ -174,8 +177,11 @@ struct RegionCropInput {
 // Per-region recognition options (output budget + cancellation/time). The
 // scheduler's batch caps are applied by the orchestrator, not here.
 struct RegionRecognizeOptions {
-    uint32_t max_output_tokens{2048};
-    double max_wall_time_ms{0.0};
+ uint32_t max_output_tokens{2048};
+ double max_wall_time_ms{0.0};
+ // Phase 11 advanced opt-in; unsupported backends report an explicit fallback.
+ bool enable_cuda_graph{false};
+
     luisa::function<bool()> cancel_callback;
 };
 
@@ -191,6 +197,10 @@ public:
         const RegionRecognizeOptions &options) = 0;
     [[nodiscard]] virtual uint64_t weight_bytes() const noexcept = 0;
     [[nodiscard]] virtual uint64_t workspace_bytes() const noexcept = 0;
+    // Peak per-region KV-cache bytes allocated so far (high-water mark across
+    // recognize_batch calls). 0 for a CTC-only recognizer (no KV cache). Used by
+    // the orchestrator for honest peak/resident device-memory reporting.
+    [[nodiscard]] virtual uint64_t kv_cache_peak_bytes() const noexcept = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -229,7 +239,12 @@ public:
 
     [[nodiscard]] uint64_t weight_bytes() const noexcept override { return _weight_bytes; }
     [[nodiscard]] uint64_t workspace_bytes() const noexcept override { return _vision_ws.capacity_bytes() + _text.workspace_bytes(); }
-    [[nodiscard]] const PaddleOcrVlRecognizerConfig &config() const noexcept { return _config; }
+ [[nodiscard]] uint64_t kv_cache_peak_bytes() const noexcept override { return _kv_peak_bytes; }
+ [[nodiscard]] uint64_t cuda_graph_steps() const noexcept { return _cuda_graph_steps; }
+ [[nodiscard]] uint64_t cuda_graph_updates() const noexcept { return _cuda_graph_updates; }
+ [[nodiscard]] uint64_t cuda_graph_fallbacks() const noexcept { return _cuda_graph_fallbacks; }
+ [[nodiscard]] const PaddleOcrVlRecognizerConfig &config() const noexcept { return _config; }
+
 
     // Download helpers for layered golden tests (last recognize_batch's LAST
     // region; caller drains afterwards). The workspace must not be reset.
@@ -274,6 +289,10 @@ private:
     DeviceWorkspace _vision_ws;
     DenseVlmExecutor _text;
     uint64_t _weight_bytes{0};
+    uint64_t _kv_peak_bytes{0};
+    uint64_t _cuda_graph_steps{0};
+    uint64_t _cuda_graph_updates{0};
+    uint64_t _cuda_graph_fallbacks{0};
 
     WorkspaceAllocation _v_pixels, _v_patches, _v_x, _v_norm, _v_q, _v_k, _v_v, _v_qr, _v_kr,
         _v_attn, _v_fc1, _v_fc2, _v_pooled, _v_cnorm, _v_cfc1, _v_features, _v_positions,
@@ -337,6 +356,8 @@ public:
 
     [[nodiscard]] uint64_t weight_bytes() const noexcept override { return _cnn.weight_bytes(); }
     [[nodiscard]] uint64_t workspace_bytes() const noexcept override { return _cnn.workspace_bytes(); }
+    // UniRec is CNN+CTC: no autoregressive KV cache on this path.
+    [[nodiscard]] uint64_t kv_cache_peak_bytes() const noexcept override { return 0; }
     [[nodiscard]] const OpenDocRecognizerConfig &config() const noexcept { return _config; }
 
 private:
@@ -367,8 +388,11 @@ enum class LayoutDevicePolicy : uint32_t {
 struct LayoutVlmExecutorConfig {
     LayoutDevicePolicy layout_policy{LayoutDevicePolicy::device};
     PpDocLayoutDecodeOptions decode;
+    // The scheduler limits are the SINGLE source of truth for region batching
+    // and the per-region/per-page output-token caps. The orchestrator forwards
+    // scheduler.max_output_tokens_per_region to the recognizer and enforces
+    // scheduler.max_output_tokens_per_page during accumulation.
     SchedulerLimits scheduler;
-    RegionRecognizeOptions region;
     // Overview pixel cap (the layout detector input is fixed; this caps the
     // source page size accepted for the overview pass).
     uint64_t max_overview_pixels{4096u * 4096u};
@@ -412,8 +436,11 @@ public:
     [[nodiscard]] LayoutCache &cache() noexcept { return _cache; }
 
 private:
+    // `region_id_base` is the document-global id offset for this page (the count
+    // of regions detected on all previously processed pages, in input order).
     [[nodiscard]] Result<luisa::vector<RegionTask>> detect_regions(compute::Stream &stream,
                                                                    const LayoutPageInput &page,
+                                                                   uint32_t region_id_base,
                                                                    uint64_t &cache_hits);
     [[nodiscard]] Result<RegionCropInput> make_crop(const LayoutPageInput &page, const RegionTask &task) const;
 

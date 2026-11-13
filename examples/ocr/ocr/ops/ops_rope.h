@@ -18,6 +18,13 @@
 //                    pairs (d, d+head_dim/2), axis per pair (axes=3).
 //   rope_xd        : XD-RoPE (Hunyuan style), pairs (2d,2d+1), axis per pair
 //                    over text/height/width/time (axes=4).
+//   rope_partial_adjacent / rope_partial_rotate_half : partial rotary (GLM
+//                    style) over the FIRST rotary_dim elements of each head;
+//                    inv_freq[d] = theta^(-2d/rotary_dim) uses the ROTATED
+//                    dimension; the tail [rotary_dim, head_dim) is copied
+//                    through unchanged. rotary_dim <= head_dim, even.
+//                    adjacent: pairs (2d,2d+1); rotate_half: pairs
+//                    (d, d+rotary_dim/2) WITHIN the rotated prefix.
 // The 2D/M-RoPE/XD variants share the axial kernel but are distinct named
 // factories + variant keys; the axis count and axis_of_pair mapping are
 // caller data, never hardcoded to one model. rope_rotate_half shares the
@@ -55,6 +62,28 @@ using RopeAxialKernel = compute::Kernel1D<void(
 [[nodiscard]] RopeAxialKernel make_rope_mrope_kernel() noexcept;
 [[nodiscard]] RopeAxialKernel make_rope_interleaved_mrope_kernel() noexcept;
 [[nodiscard]] RopeAxialKernel make_rope_xd_kernel() noexcept;
+// Additive Phase 8: Qwen2.5-VL-style M-RoPE. Rotate-half pairs (d, d+head_dim/2)
+// with a BLOCK-section axis_of_pair map (mrope_section [t,h,w] assigns whole
+// contiguous pair ranges to each axis). This shares the rotate-half pair math
+// with rope_interleaved_mrope but is a DISTINCT named factory/variant key: the
+// Qwen2.5-VL text contract (QKV bias, no QK-Norm) must never silently borrow
+// the Qwen3 interleaved-MRoPE identity.
+[[nodiscard]] RopeAxialKernel make_rope_mrope_rotate_half_kernel() noexcept;
+
+// Additive Phase 7: partial rotary over the first rotary_dim elements per
+// head; inv_freq uses rotary_dim; the tail is copied unchanged. Two explicit
+// pair families (never substituted for each other).
+// Kernel args: x, out, positions(int32 [tokens*axes]), axis_of_pair(uint32
+// [rotary_dim/2]), tokens, heads, head_dim, rotary_dim, axes, theta.
+using RopePartialKernel = compute::Kernel1D<void(
+    compute::Buffer<float> /*x*/,
+    compute::Buffer<float> /*out*/,
+    compute::Buffer<int32_t> /*positions [tokens*axes]*/,
+    compute::Buffer<uint32_t> /*axis_of_pair [rotary_dim/2]*/,
+    uint32_t /*tokens*/, uint32_t /*heads*/, uint32_t /*head_dim*/,
+    uint32_t /*rotary_dim*/, uint32_t /*axes*/, float /*theta*/)>;
+[[nodiscard]] RopePartialKernel make_rope_partial_adjacent_kernel() noexcept;
+[[nodiscard]] RopePartialKernel make_rope_partial_rotate_half_kernel() noexcept;
 
 // Sinusoidal absolute position table [len, dim] (dim even). out[p,d].
 using SinusoidalTableKernel = compute::Kernel1D<void(

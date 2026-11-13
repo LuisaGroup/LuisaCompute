@@ -263,6 +263,34 @@ struct LayoutOracleMaps {
     return page;
 }
 
+// Extract an axis-aligned source crop [x0,x1)x[y0,y1) from a page (HWC uint8).
+// Used by the full-pipeline crop-content regression to prove a detected region's
+// crop actually contains the bright bar it is supposed to cover.
+[[nodiscard]] inline luisa::vector<uint8_t> p6_crop_pixels(const LayoutPageInput &page,
+                                                           uint32_t x0, uint32_t y0,
+                                                           uint32_t x1, uint32_t y1) {
+    const uint32_t cw = x1 - x0, ch = y1 - y0;
+    luisa::vector<uint8_t> out(static_cast<size_t>(cw) * ch * 3u);
+    for (uint32_t y = 0; y < ch; y++) {
+        for (uint32_t x = 0; x < cw; x++) {
+            for (uint32_t c = 0; c < 3u; c++) {
+                out[(static_cast<size_t>(y) * cw + x) * 3u + c] =
+                    page.pixels[(static_cast<size_t>(y0 + y) * page.source_width + (x0 + x)) * 3u + c];
+            }
+        }
+    }
+    return out;
+}
+
+// Count bright pixels (all channels >= threshold) in an HWC uint8 crop.
+[[nodiscard]] inline uint64_t p6_count_bright(luisa::span<const uint8_t> pixels, uint8_t threshold = 200u) {
+    uint64_t n = 0;
+    for (size_t i = 0; i + 2u < pixels.size(); i += 3u) {
+        if (pixels[i] >= threshold && pixels[i + 1] >= threshold && pixels[i + 2] >= threshold) { n++; }
+    }
+    return n;
+}
+
 // ---------------------------------------------------------------------------
 // PaddleOCR-VL synthetic weights (NaViT vision + connector + ERNIE decoder)
 // ---------------------------------------------------------------------------
@@ -715,19 +743,20 @@ struct PaddleTextOracle {
 
 // ---------------------------------------------------------------------------
 // OpenDoc synthetic fixture: PP-DocLayoutV2 layout + UniRec CNN+CTC recognizer.
-// The UniRec recognizer reuses the shared PP-OCRv6 recognizer graph; weights are
-// generated/folded with the PP helpers and written under PP-OCRv6 recognizer
-// tensor names (the CnnExecutor resolves them). The layout detector uses the
-// Phase 6 layout package. Synthetic only; no real-model claim.
+// The UniRec recognizer reuses the shared PP-OCRv6 recognizer GRAPH (geometry),
+// but its weights are written under the DISTINCT UniRec tensor names
+// (UniRecTensorNames, "unirec." prefix) -- the CnnExecutor resolves that map via
+// the recognizer name override, never a silent PP-OCRv6 alias. The layout
+// detector uses the Phase 6 layout package. Synthetic only; no real-model claim.
 // ---------------------------------------------------------------------------
 struct OpenDocFixtureWeights {
     // Layout.
     PpDocLayoutConfig layout_cfg;
     PpDocLayoutTensorNames layout_names;
     LayoutSyntheticWeights layout_weights;
-    // UniRec recognizer (PP-OCRv6 tiny geometry + dictionary).
+    // UniRec recognizer (PP-OCRv6 tiny geometry + dictionary, UniRec names).
     PpOcrv6Config rec_cfg;
-    PpOcrv6TensorNames rec_names;
+    UniRecTensorNames rec_names;
     PpSyntheticWeights rec_weights;
     PpFoldedWeights rec_folded;
 };
@@ -739,14 +768,15 @@ struct OpenDocFixtureWeights {
     // UniRec recognizer: PP-OCRv6 tiny recognizer geometry. The detector part of
     // rec_cfg is a placeholder (never run; the CnnExecutor is recognizer-only).
     out.rec_cfg = pp_ocrv6_synthetic_config(PpOcrSize::tiny);
-    out.rec_names = PpOcrv6TensorNames{};
+    out.rec_names = UniRecTensorNames{};
     out.rec_weights = generate_pp_synthetic_weights(out.rec_cfg, seed + 1u);
     return fold_pp_weights(out.rec_cfg, out.rec_weights, out.rec_folded);
 }
 
 // Write the layout package + the UniRec recognizer package. The recognizer
-// package carries ONLY the recognizer tensors (PP-OCRv6 recognizer names); the
-// detector tensors are omitted (recognizer-only mode never resolves them).
+// package carries ONLY the recognizer tensors under the DISTINCT UniRec names
+// (UniRecTensorNames); the detector tensors are omitted (recognizer-only mode
+// never resolves them). The on-disk inventory is uni_rec_expected_tensors.
 [[nodiscard]] inline Status write_opendoc_packages(const luisa::filesystem::path &layout_path,
                                                    const luisa::filesystem::path &rec_path,
                                                    const OpenDocFixtureWeights &w) {
@@ -772,19 +802,19 @@ struct OpenDocFixtureWeights {
     const auto &names = w.rec_names;
     for (uint32_t i = 0; i < rec.backbone.size(); i++) {
         const auto &s = rec.backbone[i];
-        if (auto st = add(names.rec_backbone_w(i), conv_shape(s), TensorLayout::conv_oihw, w.rec_folded.rec_backbone_w[i]); !st.ok()) { return st; }
-        if (auto st = add(names.rec_backbone_b(i), {s.out_c}, TensorLayout::row_major, w.rec_folded.rec_backbone_b[i]); !st.ok()) { return st; }
+        if (auto st = add(names.backbone_w(i), conv_shape(s), TensorLayout::conv_oihw, w.rec_folded.rec_backbone_w[i]); !st.ok()) { return st; }
+        if (auto st = add(names.backbone_b(i), {s.out_c}, TensorLayout::row_major, w.rec_folded.rec_backbone_b[i]); !st.ok()) { return st; }
     }
     uint32_t collapsed = 0;
     if (auto cc = rec.collapsed_channels(); cc.ok()) { collapsed = *cc.value; }
     const uint32_t inter = rec.svtr_intermediate;
     const uint32_t classes = rec.num_classes;
-    if (auto s = add(names.rec_svtr_fc1_w(), {collapsed, inter}, TensorLayout::kn, w.rec_weights.svtr_fc1_w); !s.ok()) { return s; }
-    if (auto s = add(names.rec_svtr_fc1_b(), {inter}, TensorLayout::row_major, w.rec_weights.svtr_fc1_b); !s.ok()) { return s; }
-    if (auto s = add(names.rec_svtr_fc2_w(), {inter, collapsed}, TensorLayout::kn, w.rec_weights.svtr_fc2_w); !s.ok()) { return s; }
-    if (auto s = add(names.rec_svtr_fc2_b(), {collapsed}, TensorLayout::row_major, w.rec_weights.svtr_fc2_b); !s.ok()) { return s; }
-    if (auto s = add(names.rec_ctc_w(), {collapsed, classes}, TensorLayout::kn, w.rec_weights.ctc_w); !s.ok()) { return s; }
-    if (auto s = add(names.rec_ctc_b(), {classes}, TensorLayout::row_major, w.rec_weights.ctc_b); !s.ok()) { return s; }
+    if (auto s = add(names.svtr_fc1_w(), {collapsed, inter}, TensorLayout::kn, w.rec_weights.svtr_fc1_w); !s.ok()) { return s; }
+    if (auto s = add(names.svtr_fc1_b(), {inter}, TensorLayout::row_major, w.rec_weights.svtr_fc1_b); !s.ok()) { return s; }
+    if (auto s = add(names.svtr_fc2_w(), {inter, collapsed}, TensorLayout::kn, w.rec_weights.svtr_fc2_w); !s.ok()) { return s; }
+    if (auto s = add(names.svtr_fc2_b(), {collapsed}, TensorLayout::row_major, w.rec_weights.svtr_fc2_b); !s.ok()) { return s; }
+    if (auto s = add(names.ctc_w(), {collapsed, classes}, TensorLayout::kn, w.rec_weights.ctc_w); !s.ok()) { return s; }
+    if (auto s = add(names.ctc_b(), {classes}, TensorLayout::row_major, w.rec_weights.ctc_b); !s.ok()) { return s; }
     return wr->finish(p6_manifest("unirec"));
 }
 

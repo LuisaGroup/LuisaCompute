@@ -2050,6 +2050,9 @@ luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
   "unit;unit_ocr")
   luisa_compute_add_ocr_test(test_ocr_layout_compose unit/ocr/test_ocr_layout_compose.cpp
   "unit;unit_ocr")
+  # Phase 10 host-only DeepSeek MoE model contract + grounded Markdown tests
+  luisa_compute_add_ocr_test(test_ocr_deepseek_contract unit/ocr/test_ocr_deepseek_contract.cpp
+  "unit;unit_ocr")
     # Phase 2 device tests (integration;integration_ocr). Built always; a CTest
     # entry is created ONLY when LUISA_OCR_DEVICE_BACKEND names a backend, so an
     # empty value never produces a silently-skipping test. Run manually with an
@@ -2062,9 +2065,19 @@ luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
               test_ocr_ops_norm
               test_ocr_ops_rope
               test_ocr_ops_attention
-              test_ocr_ops_conv
-              test_ocr_ops_vision
-              test_ocr_runtime_device
+                test_ocr_ops_conv
+                test_ocr_ops_vision
+                test_ocr_gdn_conv
+                test_ocr_gdn_recurrent
+                test_ocr_gdn_chunked
+                test_ocr_gdn_cache
+                  test_ocr_model_ovis_ocr2
+                  test_ocr_model_surya
+                  test_ocr_moe_router
+                  test_ocr_moe_permutation
+                  test_ocr_moe_experts
+                  test_ocr_model_deepseek_ocr2
+                test_ocr_runtime_device
                 test_ocr_decode_prefill
                 test_ocr_decode_cache
                 test_ocr_decode_sampling
@@ -2074,8 +2087,15 @@ luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
                   test_ocr_model_pp_ocrv6
                   test_ocr_layout
                   test_ocr_model_paddle_ocr_vl
-                  test_ocr_model_open_doc
-                  test_ocr_region_scheduler)
+                    test_ocr_model_open_doc
+                    test_ocr_region_scheduler
+                    test_ocr_model_tele_ocr
+                    test_ocr_model_glm_ocr
+                    test_ocr_model_mineru
+                    test_ocr_model_hunyuan
+                    test_ocr_model_dots_mocr
+                    test_ocr_model_got_ocr2
+                    test_ocr_model_olm_ocr2)
     foreach(_ocr_test IN LISTS _ocr_device_tests)
         if(LUISA_OCR_DEVICE_BACKEND)
             luisa_compute_add_ocr_test(${_ocr_test} integration/ocr/${_ocr_test}.cpp

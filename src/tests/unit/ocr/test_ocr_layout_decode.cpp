@@ -221,6 +221,57 @@ void test_source_transform() {
     expect(std::abs(b.y1 - 12.0f) < 1e-3f);
 }
 
+// ABSOLUTE geometry regression at a KNOWN cell (M1). The decode multiplies the
+// box by stride exactly once (boxes in detector-input pixels); the transform is
+// source/input. This pins the contract against a stride double-count: with a
+// source/map transform the coordinates would be stride times too large.
+void test_absolute_geometry_known_cell() {
+    // Detector input 64x64, backbone stride 4 -> map 16x16. Source 128x128.
+    // The CORRECT transform is source/input = 128/64 = 2 (NOT source/map = 8).
+    constexpr uint32_t kInput = 64, kMap = 16, kSource = 128;
+    constexpr float kStride = static_cast<float>(kInput) / kMap;// 4
+    luisa::vector<float> cls(static_cast<size_t>(kClasses) * kMap * kMap, 0.0f);
+    luisa::vector<float> box(static_cast<size_t>(4) * kMap * kMap, 0.0f);
+    const size_t plane = static_cast<size_t>(kMap) * kMap;
+    // Known cell (cx=3, cy=5): class 2 score 0.9, dx=0.25, dy=-0.5, log sizes 0.
+    const uint32_t cx = 3, cy = 5;
+    const size_t cell = static_cast<size_t>(cy) * kMap + cx;
+    cls[static_cast<size_t>(2) * plane + cell] = 0.9f;
+    box[0 * plane + cell] = 0.25f;  // dx
+    box[1 * plane + cell] = -0.5f;  // dy
+    box[2 * plane + cell] = 0.0f;   // log_w
+    box[3 * plane + cell] = 0.0f;   // log_h
+    // Expected center in DETECTOR-INPUT pixels: ((cx+0.5+dx)*stride, ...).
+    const float center_x = (static_cast<float>(cx) + 0.5f + 0.25f) * kStride;// 15
+    const float center_y = (static_cast<float>(cy) + 0.5f - 0.5f) * kStride;// 20
+    const float w = kStride * std::exp(0.0f);// 4
+    const float h = kStride * std::exp(0.0f);// 4
+    // Source transform: source/input = 2.
+    output::DbSourceTransform t;
+    t.scale_x = static_cast<float>(kSource) / kInput;// 2
+    t.scale_y = static_cast<float>(kSource) / kInput;// 2
+    auto cfg = config2();
+    PpDocLayoutDecodeOptions opts;
+    opts.score_threshold = 0.3f;
+    opts.nms_iou_threshold = 0.0f;
+    auto r = pp_doc_layout_decode(cls, box, kMap, kMap, kClasses, kStride, t, cfg, opts);
+    expect(r.ok());
+    if (!r.ok()) { return; }
+    expect(r.value->size() == 1u);
+    const auto &b = (*r.value)[0].bounds;
+    // Absolute source coordinates: center*2 +/- (size/2)*2.
+    expect(std::abs(b.x0 - (center_x - 0.5f * w) * 2.0f) < 1e-3f);// 26
+    expect(std::abs(b.y0 - (center_y - 0.5f * h) * 2.0f) < 1e-3f);// 36
+    expect(std::abs(b.x1 - (center_x + 0.5f * w) * 2.0f) < 1e-3f);// 34
+    expect(std::abs(b.y1 - (center_y + 0.5f * h) * 2.0f) < 1e-3f);// 44
+    expect((*r.value)[0].class_index == 2u);
+    // Guard against the stride double-count: a source/map transform (scale 8)
+    // would put x1 at 136, far outside the 128px source. The correct box must
+    // lie within the source page.
+    expect(b.x1 <= static_cast<float>(kSource));
+    expect(b.y1 <= static_cast<float>(kSource));
+}
+
 void test_malformed_input() {
     auto cfg = config2();
     PpDocLayoutDecodeOptions opts;
@@ -287,6 +338,7 @@ static auto test_ocr_layout_decode_registration = [] {
     "layout_decode_region_cap"_test = [] { test_region_cap(); };
     "layout_decode_degenerate_box"_test = [] { test_degenerate_box_dropped(); };
     "layout_decode_source_transform"_test = [] { test_source_transform(); };
+    "layout_decode_absolute_geometry"_test = [] { test_absolute_geometry_known_cell(); };
     "layout_decode_malformed_input"_test = [] { test_malformed_input(); };
     "layout_decode_reading_order"_test = [] { test_reading_order_assigned(); };
     "layout_decode_versions_distinct"_test = [] { test_versions_distinct(); };

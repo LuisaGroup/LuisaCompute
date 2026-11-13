@@ -79,23 +79,37 @@ using namespace luisa::compute;
 }
 
 [[nodiscard]] DeepStackInjectKernel make_deepstack_inject_kernel() noexcept {
-    DeepStackInjectKernel kernel = [](BufferFloat x, BufferFloat proj, BufferFloat out, Var<uint> tokens,
-                                      Var<uint> hidden, Var<uint> start, Var<uint> count) noexcept {
-        set_block_size(256u, 1u, 1u);
-        set_name("ocr_deepstack_inject");
-        const auto id = ocr_linear_id();
-        $if (id < tokens * hidden) {
-            const auto t = id / hidden;
-            const auto d = id % hidden;
-            Var<float> value = x.read(id);
-            $if (t >= start & t < start + count) {
-                value += proj.read((t - start) * hidden + d);
-            };
-            out.write(id, value);
-        };
-    };
-    return kernel;
-}
+      DeepStackInjectKernel kernel = [](BufferFloat x, BufferFloat proj, BufferFloat out, Var<uint> tokens,
+                                        Var<uint> hidden, Var<uint> start, Var<uint> count) noexcept {
+          set_block_size(256u, 1u, 1u);
+          set_name("ocr_deepstack_inject");
+          const auto id = ocr_linear_id();
+          $if (id < tokens * hidden) {
+              const auto t = id / hidden;
+              const auto d = id % hidden;
+              Var<float> value = x.read(id);
+              $if (t >= start & t < start + count) {
+                  value += proj.read((t - start) * hidden + d);
+              };
+              out.write(id, value);
+          };
+      };
+      return kernel;
+  }
+
+  [[nodiscard]] Transpose2dKernel make_transpose_2d_kernel() noexcept {
+      Transpose2dKernel kernel = [](BufferFloat x, BufferFloat out, Var<uint> rows, Var<uint> cols) noexcept {
+          set_block_size(256u, 1u, 1u);
+          set_name("ocr_transpose_2d");
+          const auto id = ocr_linear_id();
+          $if (id < rows * cols) {
+              const auto r = id / cols;
+              const auto c = id % cols;
+              out.write(c * rows + r, x.read(id));
+          };
+      };
+      return kernel;
+  }
 
 [[nodiscard]] Result<LaunchPlan1D> plan_pixel_unshuffle_dispatch(uint64_t n, uint64_t c, uint64_t h, uint64_t w) {
     uint64_t count = 0;
@@ -125,6 +139,14 @@ using namespace luisa::compute;
     uint64_t count = 0;
     if (!checked_mul(tokens, hidden, count)) {
         return Result<LaunchPlan1D>::failure(StatusCode::invalid_argument, "deepstack count overflow", "tokens*hidden");
+    }
+    return plan_threads(count, 256u);
+}
+
+[[nodiscard]] Result<LaunchPlan1D> plan_transpose_2d_dispatch(uint64_t rows, uint64_t cols) {
+    uint64_t count = 0;
+    if (!checked_mul(rows, cols, count)) {
+        return Result<LaunchPlan1D>::failure(StatusCode::invalid_argument, "transpose count overflow", "rows*cols");
     }
     return plan_threads(count, 256u);
 }

@@ -265,6 +265,60 @@ void test_conv_invalid_groups(Device &device) {
     expect(all_zero) << "conv2d invalid groups must write defined zeros";
 }
 
+// Layout-agnostic adaptive-pool TRUTH test: hand-computed PyTorch
+// adaptive_avg_pool2d values (start=floor, end=ceil) on a channel-distinct
+// input. A wrong-axis / wrong-layout pool cannot match these exact numbers.
+// Independent of ref_adaptive_avg_pool2d (the expected values are literal).
+void test_adaptive_pool_truth(Device &device) {
+    auto stream = device.create_stream();
+    auto shader = device.compile(make_adaptive_avg_pool2d_kernel());
+    expect(shader.compile_ok());
+    // n=1, c=2, h=3, w=3 -> out 2x2. Channel 0 values 1..9, channel 1 values
+    // 11..19 (row-major). PyTorch bin edges for 3->2: start floor(i*3/2),
+    // end ceil((i+1)*3/2) => bins [0,2) and [1,3) on each axis.
+    const uint32_t n = 1, c = 2, h = 3, w = 3, oh = 2, ow = 2;
+    luisa::vector<float> x(static_cast<size_t>(n) * c * h * w);
+    for (uint32_t ci = 0; ci < c; ci++) {
+        for (uint32_t p = 0; p < h * w; p++) {
+            x[static_cast<size_t>(ci) * h * w + p] = static_cast<float>(ci * 10 + p + 1);
+        }
+    }
+    // Hand-computed expected (channel-major output [c, oh, ow]):
+    //  ch0: bin(0,0)=mean{1,2,4,5}=3; (0,1)=mean{3,6}=4;
+    //       (1,0)=mean{4,5,7,8}=6; (1,1)=mean{6,9}=7.
+    //  ch1: same +10 => 13, 14, 16, 17.
+    const luisa::vector<float> expected = {3.f, 4.f, 6.f, 7.f, 13.f, 14.f, 16.f, 17.f};
+    auto bx = ocr::test::upload(device, stream, luisa::span<const float>{x});
+    auto bo = device.create_buffer<float>(expected.size());
+    auto plan = plan_conv2d_dispatch(n, c, oh, ow);
+    OCR_DISPATCH_1D(stream, shader(bx, bo, n, c, h, w, oh, ow), *plan.value);
+    luisa::vector<float> got;
+    ocr::test::download(stream, bo, got, expected.size());
+    stream << synchronize();
+    ocr::test::expect_close(got, expected, 1e-5f, 1e-5f, "adaptive pool PyTorch truth (floor/ceil bins)");
+    // The CPU reference must agree with the same hand-computed truth.
+    luisa::vector<float> ref;
+    expect(ref_adaptive_avg_pool2d(x, n, c, h, w, oh, ow, ref).ok());
+    ocr::test::expect_close(ref, expected, 1e-5f, 1e-5f, "adaptive pool reference truth");
+    // A non-divisible 5->3 case exercises ceil bins. h=5,w=1,c=1 -> out 3x1;
+    // values 1..5. PyTorch bins: [0,2)->mean{1,2}=1.5; [1,4)->mean{2,3,4}=3;
+    // [3,5)->mean{4,5}=4.5. (The old floor/floor end gave [0,1),[1,3),[3,4)
+    // = 1,2.5,4 -- so this case distinguishes the ceil convention.)
+    {
+        const uint32_t h2 = 5, w2 = 1, oh2 = 3, ow2 = 1;
+        luisa::vector<float> x2 = {1.f, 2.f, 3.f, 4.f, 5.f};
+        const luisa::vector<float> exp2 = {1.5f, 3.f, 4.5f};
+        auto bx2 = ocr::test::upload(device, stream, luisa::span<const float>{x2});
+        auto bo2 = device.create_buffer<float>(exp2.size());
+        auto plan2 = plan_conv2d_dispatch(1, 1, oh2, ow2);
+        OCR_DISPATCH_1D(stream, shader(bx2, bo2, 1u, 1u, h2, w2, oh2, ow2), *plan2.value);
+        luisa::vector<float> got2;
+        ocr::test::download(stream, bo2, got2, exp2.size());
+        stream << synchronize();
+        ocr::test::expect_close(got2, exp2, 1e-5f, 1e-5f, "adaptive pool 5->3 ceil-bin truth");
+    }
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -276,4 +330,5 @@ int main(int argc, char *argv[]) {
     "conv1d_causal_depthwise"_test = [&] { test_conv1d(device); };
     "batchnorm_pool_shape_ops"_test = [&] { test_norm_pool_shape(device); };
     "conv_invalid_groups"_test = [&] { test_conv_invalid_groups(device); };
+    "adaptive_pool_truth"_test = [&] { test_adaptive_pool_truth(device); };
 }

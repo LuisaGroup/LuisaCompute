@@ -54,6 +54,15 @@ using AddPositionKernel = compute::Kernel1D<void(
     uint32_t /*tokens*/, uint32_t /*hidden*/)>;
 [[nodiscard]] AddPositionKernel make_add_position_kernel() noexcept;
 
+// Additive Phase 7: 2D transpose [rows, cols] -> [cols, rows] (row-major both).
+// Used by the MinerU pixel-unshuffle connector to turn the channel-major
+// unshuffle output [C*r*r, tokens] into token rows [tokens, C*r*r].
+using Transpose2dKernel = compute::Kernel1D<void(
+    compute::Buffer<float> /*x [rows,cols]*/,
+    compute::Buffer<float> /*out [cols,rows]*/,
+    uint32_t /*rows*/, uint32_t /*cols*/)>;
+[[nodiscard]] Transpose2dKernel make_transpose_2d_kernel() noexcept;
+
 // DeepStack residual injection: out[t] = x[t] + proj[t-start] for t in
 // [start, start+count); other tokens copied. proj is [count, hidden].
 using DeepStackInjectKernel = compute::Kernel1D<void(
@@ -67,6 +76,7 @@ using DeepStackInjectKernel = compute::Kernel1D<void(
 [[nodiscard]] Result<LaunchPlan1D> plan_pixel_unshuffle_dispatch(uint64_t n, uint64_t c, uint64_t h, uint64_t w);
 [[nodiscard]] Result<LaunchPlan1D> plan_spatial_merge_dispatch(uint64_t out_tokens, uint64_t out_hidden);
 [[nodiscard]] Result<LaunchPlan1D> plan_add_position_dispatch(uint64_t tokens, uint64_t hidden);
+[[nodiscard]] Result<LaunchPlan1D> plan_transpose_2d_dispatch(uint64_t rows, uint64_t cols);
 [[nodiscard]] Result<LaunchPlan1D> plan_deepstack_inject_dispatch(uint64_t tokens, uint64_t hidden);
 
 [[nodiscard]] luisa::string vision_variant_key(luisa::string_view op);

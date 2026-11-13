@@ -1083,6 +1083,8 @@ test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
     ocr_test("test_ocr_scheduler", "unit/ocr/test_ocr_scheduler.cpp")
     ocr_test("test_ocr_layout_decode", "unit/ocr/test_ocr_layout_decode.cpp")
     ocr_test("test_ocr_layout_compose", "unit/ocr/test_ocr_layout_compose.cpp")
+    -- unit/ocr: host-only Phase 10 DeepSeek MoE model contract + grounded Markdown tests
+    ocr_test("test_ocr_deepseek_contract", "unit/ocr/test_ocr_deepseek_contract.cpp")
         -- integration/ocr: Phase 2 device tests. Run with an explicit backend:
         --   xmake run test_ocr_ops_gemm vk|cuda|fallback
         local function ocr_device_test(name, source)
@@ -1095,8 +1097,21 @@ test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
         ocr_device_test("test_ocr_ops_norm", "integration/ocr/test_ocr_ops_norm.cpp")
         ocr_device_test("test_ocr_ops_rope", "integration/ocr/test_ocr_ops_rope.cpp")
         ocr_device_test("test_ocr_ops_attention", "integration/ocr/test_ocr_ops_attention.cpp")
-          ocr_device_test("test_ocr_ops_conv", "integration/ocr/test_ocr_ops_conv.cpp")
-          ocr_device_test("test_ocr_ops_vision", "integration/ocr/test_ocr_ops_vision.cpp")
+            ocr_device_test("test_ocr_ops_conv", "integration/ocr/test_ocr_ops_conv.cpp")
+            ocr_device_test("test_ocr_ops_vision", "integration/ocr/test_ocr_ops_vision.cpp")
+            -- integration/ocr: Phase 9 GDN operators (synthetic).
+            ocr_device_test("test_ocr_gdn_conv", "integration/ocr/test_ocr_gdn_conv.cpp")
+            ocr_device_test("test_ocr_gdn_recurrent", "integration/ocr/test_ocr_gdn_recurrent.cpp")
+            ocr_device_test("test_ocr_gdn_chunked", "integration/ocr/test_ocr_gdn_chunked.cpp")
+            ocr_device_test("test_ocr_gdn_cache", "integration/ocr/test_ocr_gdn_cache.cpp")
+            -- integration/ocr: Phase 9 model vertical slices (synthetic).
+            ocr_device_test("test_ocr_model_ovis_ocr2", "integration/ocr/test_ocr_model_ovis_ocr2.cpp")
+            ocr_device_test("test_ocr_model_surya", "integration/ocr/test_ocr_model_surya.cpp")
+            -- integration/ocr: Phase 10 DeepSeek-OCR-2 MoE vertical slice (synthetic).
+            ocr_device_test("test_ocr_moe_router", "integration/ocr/test_ocr_moe_router.cpp")
+            ocr_device_test("test_ocr_moe_permutation", "integration/ocr/test_ocr_moe_permutation.cpp")
+            ocr_device_test("test_ocr_moe_experts", "integration/ocr/test_ocr_moe_experts.cpp")
+            ocr_device_test("test_ocr_model_deepseek_ocr2", "integration/ocr/test_ocr_model_deepseek_ocr2.cpp")
           ocr_device_test("test_ocr_runtime_device", "integration/ocr/test_ocr_runtime_device.cpp")
           -- integration/ocr: Phase 3 dense decoder device tests. Run with an
           -- explicit backend: xmake run test_ocr_decode_prefill vk|cuda
@@ -1117,6 +1132,16 @@ test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
     ocr_device_test("test_ocr_model_paddle_ocr_vl", "integration/ocr/test_ocr_model_paddle_ocr_vl.cpp")
     ocr_device_test("test_ocr_model_open_doc", "integration/ocr/test_ocr_model_open_doc.cpp")
     ocr_device_test("test_ocr_region_scheduler", "integration/ocr/test_ocr_region_scheduler.cpp")
+    -- integration/ocr: Phase 7 custom dense/layout variants (synthetic).
+    -- Run with an explicit backend: xmake run test_ocr_model_tele_ocr cuda
+    ocr_device_test("test_ocr_model_tele_ocr", "integration/ocr/test_ocr_model_tele_ocr.cpp")
+    ocr_device_test("test_ocr_model_glm_ocr", "integration/ocr/test_ocr_model_glm_ocr.cpp")
+    ocr_device_test("test_ocr_model_mineru", "integration/ocr/test_ocr_model_mineru.cpp")
+    ocr_device_test("test_ocr_model_hunyuan", "integration/ocr/test_ocr_model_hunyuan.cpp")
+    -- integration/ocr: Phase 8 remaining dense ViT models (synthetic).
+    ocr_device_test("test_ocr_model_dots_mocr", "integration/ocr/test_ocr_model_dots_mocr.cpp")
+    ocr_device_test("test_ocr_model_got_ocr2", "integration/ocr/test_ocr_model_got_ocr2.cpp")
+    ocr_device_test("test_ocr_model_olm_ocr2", "integration/ocr/test_ocr_model_olm_ocr2.cpp")
 
 -- standalone CUDA tensor dispatch example: raw CUDA runtime + driver API with
 -- runtime NVRTC JIT (kernel source is a C++ raw string; no .cu compilation).

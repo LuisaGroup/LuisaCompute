@@ -51,6 +51,32 @@ enum class RopePairLayout : uint32_t {
 
 [[nodiscard]] luisa::string_view rope_pair_layout_name(RopePairLayout layout) noexcept;
 
+// Additive Phase 8: explicit per-linear weight STORAGE policy for the shared
+// dense decoder. The FP32 baseline (fp32) is the default and reproduces the
+// exact Phase 3/4/7 behavior. int4_sym / int4_asym are the grouped W4A32 path:
+// PACKED INT4 code reads with FP32 activations and FP32 accumulation (Phase 1/2
+// quantization semantics, dequantization inside the operator kernels). This is
+// NEVER a relabeled FP32 path. Embeddings, norms, and QKV biases stay FP32.
+// FP16/BF16 arithmetic and W4A16 are separate later arms and are refused.
+// Defined here (device-safe) so both the device executor and the host model
+// modules can reference it without the host AttentionMaskKind clash.
+enum class DenseLinearStorage : uint32_t {
+    fp32 = 0,
+    int4_sym = 1,
+    int4_asym = 2,
+};
+
+[[nodiscard]] luisa::string_view dense_linear_storage_name(DenseLinearStorage storage) noexcept;
+
+// Additive Phase 8 (S1): is `name` a DECODER linear B operand eligible for the
+// W4A32 storage policy? Only tensors under the decoder `prefix` (the packed
+// q/k/v/o/gate/up/down projections) or the decoder lm_head qualify. Vision /
+// connector tensors (e.g. visual.blocks.*.attn.q_proj.weight) NEVER qualify,
+// even though they share projection suffixes; they must stay dense FP32.
+[[nodiscard]] bool dense_linear_is_quantizable(luisa::string_view name,
+                                               luisa::string_view decoder_prefix,
+                                               luisa::string_view lm_head_name) noexcept;
+
 // Geometry of ONE dense autoregressive decoder (shared by executor + cache).
 // All fields must be concrete (nonzero) before use; validate() enforces the
 // structural rules the Phase 3 kernels rely on.
@@ -120,6 +146,18 @@ struct ExpectedTensor {
     TensorLayout layout{TensorLayout::row_major};
     bool required{true};
 };
+
+// Validate a decoder-component package table against the expected inventory
+// under an explicit per-linear storage policy (fp32 baseline or packed INT4).
+// `decoder_prefix`/`lm_head_name` restrict quantizable linears (S1); every
+// other tensor must be dense FP32. Unexpected names are rejected. This is the
+// package-load gate the model load paths call BEFORE any weight upload.
+[[nodiscard]] Status validate_dense_decoder_tensors_storage(
+    luisa::span<const PackageTensor> tensors,
+    luisa::span<const ExpectedTensor> expected,
+    DenseLinearStorage linear_storage,
+    luisa::string_view decoder_prefix,
+    luisa::string_view lm_head_name);
 
 // Full expected tensor inventory for `config` under `names`. QKV biases are
 // required (Qwen2.5 contract); `tie_word_embeddings` makes lm_head optional.

@@ -167,6 +167,34 @@ void test_l2_rowsum_residual(Device &device) {
     }
 }
 
+void test_residual_rms_norm_fusion(Device &device) {
+    auto stream = device.create_stream();
+    ocr::test::Lcg lcg;
+    constexpr uint32_t rows = 7u, h = 33u;
+    luisa::vector<float> projection(static_cast<size_t>(rows) * h), residual(projection.size()), gamma(h);
+    lcg.fill(projection, -2.f, 2.f);
+    lcg.fill(residual, -1.f, 1.f);
+    lcg.fill(gamma, 0.5f, 1.5f);
+    luisa::vector<float> residual_ref, norm_ref;
+    expect(ref_residual_add(projection, residual, residual_ref).ok());
+    expect(ref_rms_norm(residual_ref, gamma, rows, h, 1e-6f, norm_ref).ok());
+    auto bp = ocr::test::upload(device, stream, luisa::span<const float>{projection});
+    auto br = ocr::test::upload(device, stream, luisa::span<const float>{residual});
+    auto bg = ocr::test::upload(device, stream, luisa::span<const float>{gamma});
+    auto bn = device.create_buffer<float>(projection.size());
+    auto shader = device.compile(make_residual_rms_norm_kernel());
+    expect(shader.compile_ok());
+    auto plan = plan_norm_dispatch(rows);
+    // residual_out aliases residual, matching the decoder's in-place stream.
+    OCR_DISPATCH_1D(stream, shader(bp, br, bg, br, bn, rows, h, 1e-6f), *plan.value);
+    luisa::vector<float> got_residual, got_norm;
+    ocr::test::download(stream, br, got_residual, projection.size());
+    ocr::test::download(stream, bn, got_norm, projection.size());
+    stream << synchronize();
+    ocr::test::expect_close(got_residual, residual_ref, 1e-5f, 1e-5f, "fused residual");
+    ocr::test::expect_close(got_norm, norm_ref, kAtol, kRtol, "fused residual rms norm");
+}
+
 void test_decode_ops(Device &device) {
     auto stream = device.create_stream();
     ocr::test::Lcg lcg;
@@ -313,6 +341,7 @@ int main(int argc, char *argv[]) {
     "layer_norm_variants"_test = [&] { test_layer_norm(device); };
     "rms_norm_qk_norm"_test = [&] { test_rms_norm_qk(device); };
     "l2_rowsum_residual"_test = [&] { test_l2_rowsum_residual(device); };
+    "residual_rms_norm_fusion"_test = [&] { test_residual_rms_norm_fusion(device); };
     "decode_embedding_scatter_argmax_softmax"_test = [&] { test_decode_ops(device); };
     "softmax_invalid_temperature"_test = [&] { test_softmax_invalid_temperature(device); };
     "flattened_residual_full_coverage"_test = [&] { test_flattened_residual_coverage(device); };

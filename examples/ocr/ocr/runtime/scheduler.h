@@ -12,13 +12,22 @@
 //   * ONE overview/layout pass per page produces the region tasks.
 //   * Crops are sorted by approximate patch/token count (descending) and packed
 //     into vision/prefill batches under max_patches_per_vision_batch and
-//     max_regions_per_batch. Decode batches are capped by max_decode_batch.
+//     max_regions_per_batch.
 //   * Overview/crop pixel budgets and per-region/per-page output-token budgets
-//     are SEPARATE limits, preflighted before any work.
+//     are SEPARATE limits, preflighted before any work. The per-region output
+//     cap is enforced by the recognizer; the per-page cap is enforced by the
+//     orchestrator DURING accumulation (a visible output_truncated diagnostic).
 //   * Regions are decoded INDEPENDENTLY (no prefix sharing across unrelated
 //     crops); results are restored to the original page/reading order.
 //   * Detector outputs can be cached for recognition retry under an explicit
 //     content/geometry key (LayoutCache); a cache hit never re-runs layout.
+//
+// EXECUTION (Phase 11): plan_vision_batches is a real approximate-cost packing
+// plan. P7 recognizers record ragged multi-crop vision graphs, split again by
+// exact packed-patch capacity when needed; Paddle/OpenDoc still loop per crop.
+// Every recognizer uses a fresh KV cache and independent batch-1 text decode.
+// plan_decode_batches / max_decode_batch remain PLANNING-ONLY: no batched decode
+// executor exists. Batch-vs-1 tests assert ordered equivalence of actual outputs.
 //
 // Determinism: plan_vision_batches / plan_decode_batches are pure, stable sorts
 // with explicit tie-breaking, so region batching and batch-1 produce equivalent
@@ -69,10 +78,13 @@ enum class LayoutOutputMode : uint32_t {
 
 // One region to recognize, in ORIGINAL source-page coordinates. `reading_order`
 // is the layout reading-order index WITHIN its page (assigned by the layout
-// pass); `region_id` is a stable per-document identifier. `approx_patches` and
-// `approx_tokens` are the scheduler's cost estimates (patch count for vision,
-// prompt+output token estimate for decode), computed host-side from the crop
-// geometry and the model packing contract.
+// pass). `region_id` is a DOCUMENT-GLOBAL identifier: the orchestrator assigns
+// it monotonically across pages in input order, so it is unique across the whole
+// request (a page's regions get a contiguous block). Within one page it is dense
+// 0-based only for the FIRST page. `approx_patches` and `approx_tokens` are the
+// scheduler's cost estimates (patch count for vision, prompt+output token
+// estimate for decode), computed host-side from the crop geometry and the model
+// packing contract.
 struct RegionTask {
     uint32_t region_id{0};
     uint32_t page_index{0};
@@ -90,10 +102,21 @@ struct RegionTask {
 struct SchedulerLimits {
     uint32_t max_patches_per_vision_batch{4096};
     uint32_t max_regions_per_batch{4};
+    // PLANNING-ONLY (Phase 6): plan_decode_batches chunks under this cap, but no
+    // batched decode executor exists yet; actual decode execution is batch-1.
     uint32_t max_decode_batch{1};
+    // Phase 11 opt-in single-sequence CUDA graph replay, forwarded through the
+    // orchestrator to each generative region recognizer. Default off.
+    bool enable_cuda_graph{false};
     uint64_t max_overview_pixels{0};
     uint64_t max_crop_pixels{0};
+    // Per-region output-token cap. The orchestrator forwards this to the
+    // recognizer's RegionRecognizeOptions::max_output_tokens (single source of
+    // truth); a generative recognizer stops at the cap and marks `truncated`.
     uint32_t max_output_tokens_per_region{2048};
+    // Per-page output-token cap, enforced DURING accumulation: once the page's
+    // accumulated output tokens reach it, later regions are not recognized and a
+    // visible `output_truncated` diagnostic is emitted.
     uint32_t max_output_tokens_per_page{8192};
     double max_wall_time_ms{0.0};
     luisa::function<bool()> cancel_callback;
@@ -241,6 +264,13 @@ struct LayoutPageResult {
     luisa::vector<LayoutRegionResult> regions;// in reading order
 };
 
+// Sort page indices by source page_index ASCENDING (stable: equal page_index
+// keeps input order). The orchestrator calls this before composition so a
+// shuffled input page span still yields document-ordered pages. Returns the
+// sorted permutation of [0, pages.size()). Pure host planning.
+[[nodiscard]] luisa::vector<uint32_t> layout_sort_pages_by_index(
+    luisa::span<const LayoutPageResult> pages);
+
 // The full plain run result: per-page composed regions plus counters and
 // diagnostics. The host bridge maps this to RecognizeResult.
 struct LayoutRunResult {
@@ -250,8 +280,18 @@ struct LayoutRunResult {
     uint64_t patches_processed{0};
     uint64_t output_tokens{0};
     uint64_t layout_cache_hits{0};
+    // Resident weight bytes (layout detector + region recognizer).
     uint64_t weight_bytes{0};
+    // Fixed per-request device workspace bytes (layout + recognizer arenas).
     uint64_t workspace_bytes{0};
+    // PEAK per-region KV-cache bytes actually allocated during the run (0 for a
+    // CTC-only recognizer, which has no KV cache). The orchestrator tracks the
+    // high-water mark reported by the recognizer.
+    uint64_t kv_cache_peak_bytes{0};
+    // Peak resident device bytes = weight_bytes + workspace_bytes +
+    // kv_cache_peak_bytes. This is the honest peak the host bridge reports as
+    // peak_device_bytes (it previously reported workspace alone).
+    uint64_t peak_device_bytes{0};
 };
 
 // One composed line/block for the public result. Plain mirror of OcrLine /

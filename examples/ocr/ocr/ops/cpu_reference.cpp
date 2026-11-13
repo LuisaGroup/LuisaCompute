@@ -318,7 +318,68 @@ inline void rotate_pair(double &a, double &b, double angle) noexcept {
                                           luisa::span<const uint32_t> axis_of_pair, uint32_t tokens,
                                           uint32_t heads, uint32_t head_dim, uint32_t axes, float theta,
                                           luisa::vector<float> &out) {
-    return rope_impl(x, positions, axis_of_pair, tokens, heads, head_dim, axes, theta, true, out);
+      return rope_impl(x, positions, axis_of_pair, tokens, heads, head_dim, axes, theta, true, out);
+}
+
+namespace {
+[[nodiscard]] Status rope_partial_impl(luisa::span<const float> x, luisa::span<const int32_t> positions,
+                                       luisa::span<const uint32_t> axis_of_pair, uint32_t tokens,
+                                       uint32_t heads, uint32_t head_dim, uint32_t rotary_dim,
+                                       uint32_t axes, float theta, bool interleaved, luisa::vector<float> &out) {
+    if (head_dim % 2u != 0u || rotary_dim % 2u != 0u || rotary_dim == 0u || rotary_dim > head_dim) {
+        return Status::error(StatusCode::invalid_argument,
+                             "partial rotary requires 0 < rotary_dim <= head_dim, both even", "rotary_dim");
+    }
+    auto s = check_size(x.size(), static_cast<size_t>(tokens) * heads * head_dim, "x");
+    if (!s.ok()) { return s; }
+    s = check_size(positions.size(), static_cast<size_t>(tokens) * axes, "positions");
+    if (!s.ok()) { return s; }
+    if (axis_of_pair.size() != rotary_dim / 2u) {
+        return Status::error(StatusCode::invalid_argument, "axis_of_pair size must equal rotary_dim/2", "axis_of_pair");
+    }
+    out.resize(x.size());
+    const uint32_t pairs = rotary_dim / 2u;
+    for (uint32_t t = 0; t < tokens; t++) {
+        for (uint32_t h = 0; h < heads; h++) {
+            const size_t base = (static_cast<size_t>(t) * heads + h) * head_dim;
+            for (uint32_t d = 0; d < pairs; d++) {
+                const uint32_t axis = axis_of_pair[d];
+                if (axis >= axes) {
+                    return Status::error(StatusCode::invalid_argument, "RoPE axis out of range", "axis_of_pair");
+                }
+                const double pos = positions[static_cast<size_t>(t) * axes + axis];
+                const double inv_freq = std::pow(static_cast<double>(theta),
+                                                 -2.0 * static_cast<double>(d) / static_cast<double>(rotary_dim));
+                const uint32_t i0 = interleaved ? d : 2u * d;
+                const uint32_t i1 = interleaved ? d + pairs : 2u * d + 1u;
+                double a = x[base + i0];
+                double b = x[base + i1];
+                rotate_pair(a, b, pos * inv_freq);
+                out[base + i0] = static_cast<float>(a);
+                out[base + i1] = static_cast<float>(b);
+            }
+            // Unrotated tail: copied unchanged.
+            for (uint32_t i = rotary_dim; i < head_dim; i++) {
+                out[base + i] = x[base + i];
+            }
+        }
+    }
+    return Status::success();
+}
+}// namespace
+
+[[nodiscard]] Status ref_rope_partial_adjacent(luisa::span<const float> x, luisa::span<const int32_t> positions,
+                                               luisa::span<const uint32_t> axis_of_pair, uint32_t tokens,
+                                               uint32_t heads, uint32_t head_dim, uint32_t rotary_dim,
+                                               uint32_t axes, float theta, luisa::vector<float> &out) {
+    return rope_partial_impl(x, positions, axis_of_pair, tokens, heads, head_dim, rotary_dim, axes, theta, false, out);
+}
+
+[[nodiscard]] Status ref_rope_partial_rotate_half(luisa::span<const float> x, luisa::span<const int32_t> positions,
+                                                  luisa::span<const uint32_t> axis_of_pair, uint32_t tokens,
+                                                  uint32_t heads, uint32_t head_dim, uint32_t rotary_dim,
+                                                  uint32_t axes, float theta, luisa::vector<float> &out) {
+    return rope_partial_impl(x, positions, axis_of_pair, tokens, heads, head_dim, rotary_dim, axes, theta, true, out);
 }
 
 [[nodiscard]] Status ref_rope_1d_fp32_angle(luisa::span<const float> x, luisa::span<const int32_t> positions,
@@ -835,11 +896,13 @@ namespace {
     for (uint32_t ni = 0; ni < n; ni++) {
         for (uint32_t ci = 0; ci < c; ci++) {
             for (uint32_t oy = 0; oy < out_h; oy++) {
+                // PyTorch adaptive_avg_pool2d bin edges: start = floor(i*in/out),
+                // end = ceil((i+1)*in/out).
                 const uint32_t y0 = static_cast<uint32_t>(static_cast<uint64_t>(oy) * h / out_h);
-                const uint32_t y1 = static_cast<uint32_t>(static_cast<uint64_t>(oy + 1) * h / out_h);
+                const uint32_t y1 = static_cast<uint32_t>((static_cast<uint64_t>(oy + 1) * h + out_h - 1u) / out_h);
                 for (uint32_t ox = 0; ox < out_w; ox++) {
                     const uint32_t x0 = static_cast<uint32_t>(static_cast<uint64_t>(ox) * w / out_w);
-                    const uint32_t x1 = static_cast<uint32_t>(static_cast<uint64_t>(ox + 1) * w / out_w);
+                    const uint32_t x1 = static_cast<uint32_t>((static_cast<uint64_t>(ox + 1) * w + out_w - 1u) / out_w);
                     double sum = 0.0;
                     uint32_t count = 0;
                     for (uint32_t yy = y0; yy < y1; yy++) {
