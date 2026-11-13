@@ -7,7 +7,7 @@
 #include <optix_function_table.h>
 
 // Keep the host ABI in sync with cuda_builtin's lightweight declarations.
-static_assert(OPTIX_VERSION == 90000 && OPTIX_ABI_VERSION == 105,
+static_assert(OPTIX_VERSION == 90100 && OPTIX_ABI_VERSION == 118,
               "Review the embedded device ABI before upgrading OptiX.");
 
 // These layouts are also consumed by the lightweight device declarations and

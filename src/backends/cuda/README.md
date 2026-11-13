@@ -1,8 +1,8 @@
 # OptiX host API
 
 The CUDA backend uses the official [NVIDIA OptiX headers](https://github.com/NVIDIA/optix-dev)
-from the `src/ext/optix` submodule, pinned to **v9.0.0**, commit
-`fff65c2a7c592f1ea5f1661ad7d2381cf965f9bd` (OptiX ABI 105).
+from the `src/ext/optix` submodule, pinned to **v9.1.0**, commit
+`f1f6dd803f3159992d248178f6e09421c6eb8b6d` (OptiX ABI 118).
 Initialize it with the other dependencies, or separately:
 
 ```sh
@@ -15,6 +15,14 @@ the SDK declarations. `optix_api.cpp` retains runtime loading of the driver
 library (`nvoptix.dll` / `libnvoptix.so.1`), platform-specific search paths,
 and the non-fatal `available()` probe used by software ray-tracing fallback.
 There is no link-time OptiX runtime dependency.
+
+OptiX 9.1 requires an **NVIDIA R590 or newer driver**, as documented in the
+[upstream release](https://github.com/NVIDIA/optix-dev/releases/tag/v9.1.0).
+An older driver that cannot provide ABI 118 fails the capability probe and
+uses the existing software ray-tracing fallback. This does not emulate OptiX
+features such as its denoiser, which still require a compatible OptiX runtime.
+The SDK removed displacement micromap support in 9.1; LuisaCompute does not
+use those removed host APIs or device intrinsics.
 
 The lightweight OptiX intrinsics and layouts in `cuda_builtin/` remain
 handwritten. Do **not** include the official device headers in that embedded

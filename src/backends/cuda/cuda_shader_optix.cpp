@@ -158,6 +158,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std
     }
     pipeline_compile_options.usesPrimitiveTypeFlags = primitive_flags;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
+    // OptiX 9.1 validates the declaration size against the launch parameter ABI.
+    pipeline_compile_options.pipelineLaunchParamsSizeInBytes = _argument_buffer_size;
 
     char log[2048] = {};               // For error reporting from OptiX creation functions
     size_t log_size = sizeof(log) - 1u;// munis one to tell OptiX not to overwrite the trailing '\0'
@@ -296,8 +298,10 @@ CUDAShaderOptiX::CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std
     }
 
     // create pipeline
+    auto max_traversal_depth = metadata.requires_motion_blur ? 3u : 2u;
     OptixPipelineLinkOptions pipeline_link_options{};
     pipeline_link_options.maxTraceDepth = 1u;
+    pipeline_link_options.maxTraversableGraphDepth = max_traversal_depth;
     LUISA_CHECK_OPTIX_WITH_LOG(
         log, log_size,
         optix::api().optixPipelineCreate(
@@ -308,7 +312,6 @@ CUDAShaderOptiX::CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std
     OptixStackSizes stack_sizes{};
     for (auto pg : program_groups) { accumulate_stack_sizes(stack_sizes, pg, _pipeline); }
     auto continuation_stack_size = compute_continuation_stack_size(stack_sizes);
-    auto max_traversal_depth = metadata.requires_motion_blur ? 3u : 2u;
     LUISA_CHECK_OPTIX(optix::api().optixPipelineSetStackSize(
         _pipeline, 0u, 0u, continuation_stack_size, max_traversal_depth));
 
