@@ -190,8 +190,10 @@ endif ()
             # Keep this archive in step with scripts/find_sdk.lua (the xmake route);
             # pack_dxsdk.py rewrites the DX SDK entries of scripts/sdks.cmake and
             # scripts/find_sdk.lua, while this one is maintained by hand.
-            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_20261113_x86_64.zip")
-            set(LUISA_COMPUTE_VK_SDK_SHA256 "d5d887132ce2d1a42da599138b538151c4d68e514ec4a92246760922a23edf88")
+            # The 20261113 Linux archive requires GLIBC_2.43 and cannot load on
+            # Ubuntu 24.04. Keep the Linux runtime on the GLIBC_2.34 baseline.
+            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_20261102_x86_64.zip")
+            set(LUISA_COMPUTE_VK_SDK_SHA256 "2bc2ae483b5167f5d47d3d60b44442ed707450926e1464e459573eb2f4026ad8")
             message(STATUS "Downloading Vulkan(DXC) SDK from ${LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL}")
             include(FetchContent)
             FetchContent_Declare(luisa_compute_vk_sdk

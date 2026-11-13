@@ -7,7 +7,8 @@ local _sdks = {
         name = 'dx_sdk_20261113.zip'
     },
     vk_sdk = {
-        name = 'linux_dxc_20261113_x86_64.zip'
+        -- Match the CMake Linux runtime: 20261113 requires GLIBC_2.43.
+        name = 'linux_dxc_20261102_x86_64.zip'
     }
 }
 
