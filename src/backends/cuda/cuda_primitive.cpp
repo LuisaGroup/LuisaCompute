@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <nvtx3/nvToolsExtCuda.h>
 
+#include "optix_error.h"
 #include "cuda_device.h"
 #include "cuda_command_encoder.h"
 #include "cuda_primitive.h"

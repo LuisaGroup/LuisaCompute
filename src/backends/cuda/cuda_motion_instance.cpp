@@ -2,6 +2,7 @@
 // Created by Mike on 2024/9/21.
 //
 
+#include "optix_error.h"
 #include "cuda_error.h"
 #include "cuda_device.h"
 #include "cuda_command_encoder.h"

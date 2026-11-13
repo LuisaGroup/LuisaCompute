@@ -3,6 +3,7 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include "optix_error.h"
 #include "optix_api.h"
 #include "cuda_error.h"
 #include "cuda_stream.h"

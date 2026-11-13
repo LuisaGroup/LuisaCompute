@@ -34,6 +34,7 @@ if (CUDAToolkit_FOUND)
 
     set(LUISA_COMPUTE_CUDA_SOURCES
             cuda_error.h
+            optix_error.h
             cuda_bindless_array.cpp cuda_bindless_array.h
             cuda_buffer.cpp cuda_buffer.h
             cuda_stream.cpp cuda_stream.h

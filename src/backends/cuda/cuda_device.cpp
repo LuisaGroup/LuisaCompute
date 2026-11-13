@@ -42,6 +42,7 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/string.h>
 
+#include "optix_error.h"
 #include "native_shader_ext.h"
 
 namespace luisa::compute::cuda {

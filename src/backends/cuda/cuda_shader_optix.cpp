@@ -1,5 +1,6 @@
 #include <luisa/core/clock.h>
 
+#include "optix_error.h"
 #include "cuda_error.h"
 #include "cuda_device.h"
 #include "cuda_stream.h"
