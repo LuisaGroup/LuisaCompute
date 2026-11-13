@@ -162,29 +162,28 @@ namespace luisa::compute::optix {
     return handle;
 }
 
-[[nodiscard]] static bool query_function_table(void *handle, FunctionTable &table) noexcept {
+[[nodiscard]] static bool query_function_table(void *handle, OptixFunctionTable &table) noexcept {
     if (handle == nullptr) { return false; }
-    using QueryFunctionTable_t =
-        Result (*)(uint32_t, uint32_t, void *, const void **, void *, size_t);
+    using QueryFunctionTable_t = OptixQueryFunctionTable_t *;
     auto optixQueryFunctionTable = reinterpret_cast<QueryFunctionTable_t>(
         dynamic_module_find_symbol(handle, "optixQueryFunctionTable"));
     if (optixQueryFunctionTable == nullptr) { return false; }
-    return optixQueryFunctionTable(ABI_VERSION, 0, nullptr, nullptr, &table, sizeof(table)) == 0u;
+    return optixQueryFunctionTable(OPTIX_ABI_VERSION, 0, nullptr, nullptr, &table, sizeof(table)) == OPTIX_SUCCESS;
 }
 
 [[nodiscard]] auto load_optix() noexcept {
     auto handle = find_optix_library();
     LUISA_ASSERT(handle != nullptr, "OptiX library could not be loaded.");
-    FunctionTable t{};
+    OptixFunctionTable t{};
     if (!query_function_table(handle, t)) {
         LUISA_ERROR_WITH_LOCATION(
             "Failed to load OptiX function table. "
-            "You may need to update your driver.");
+            "OptiX 9.1 requires an NVIDIA R590 or newer driver.");
     }
     return t;
 }
 
-[[nodiscard]] const FunctionTable &api() noexcept {
+[[nodiscard]] const OptixFunctionTable &api() noexcept {
     static auto table = load_optix();
     return table;
 }
@@ -194,7 +193,7 @@ namespace luisa::compute::optix {
     // has to be present *and* answer for this ABI version.  Cached, and silent:
     // a machine without a usable OptiX simply runs the software fallback.
     static const auto result = []() noexcept {
-        FunctionTable t{};
+        OptixFunctionTable t{};
         return query_function_table(find_optix_library(), t);
     }();
     return result;

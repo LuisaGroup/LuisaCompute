@@ -17,18 +17,18 @@ CUDAMotionInstance::CUDAMotionInstance(CUDADevice *device, const AccelMotionOpti
             case AccelOption::MotionMode::MATRIX: {
                 LUISA_ASSERT(option.keyframe_count >= 2u,
                              "Matrix motion instance should have at least two keyframes.");
-                auto size = sizeof(optix::MatrixMotionTransform) -
-                            sizeof(std::declval<optix::MatrixMotionTransform>().transform) +
+                auto size = sizeof(OptixMatrixMotionTransform) -
+                            sizeof(std::declval<OptixMatrixMotionTransform>().transform) +
                             sizeof(float[12]) * option.keyframe_count;
-                return std::make_pair(optix::TRAVERSABLE_TYPE_MATRIX_MOTION_TRANSFORM, size);
+                return std::make_pair(OPTIX_TRAVERSABLE_TYPE_MATRIX_MOTION_TRANSFORM, size);
             }
             case AccelOption::MotionMode::SRT: {
                 LUISA_ASSERT(option.keyframe_count >= 2u,
                              "SRT motion instance should have at least two keyframes.");
-                auto size = sizeof(optix::SRTMotionTransform) -
-                            sizeof(std::declval<optix::SRTMotionTransform>().srtData) +
-                            sizeof(optix::SRTData) * option.keyframe_count;
-                return std::make_pair(optix::TRAVERSABLE_TYPE_SRT_MOTION_TRANSFORM, size);
+                auto size = sizeof(OptixSRTMotionTransform) -
+                            sizeof(std::declval<OptixSRTMotionTransform>().srtData) +
+                            sizeof(OptixSRTData) * option.keyframe_count;
+                return std::make_pair(OPTIX_TRAVERSABLE_TYPE_SRT_MOTION_TRANSFORM, size);
             }
             default: break;
         }
@@ -37,7 +37,7 @@ CUDAMotionInstance::CUDAMotionInstance(CUDADevice *device, const AccelMotionOpti
     LUISA_CHECK_CUDA(cuMemAlloc(&_motion_buffer, buffer_size));
     _motion_buffer_size = buffer_size;
     auto optix_ctx = device->handle().optix_context();
-    LUISA_CHECK_OPTIX(optix::api().convertPointerToTraversableHandle(
+    LUISA_CHECK_OPTIX(optix::api().optixConvertPointerToTraversableHandle(
         optix_ctx, _motion_buffer, traversable_type, &_handle));
     LUISA_VERBOSE("Created motion instance: buffer = {}, size = {}, handle = {}.",
                   reinterpret_cast<void *>(_motion_buffer), buffer_size,
@@ -66,8 +66,8 @@ void CUDAMotionInstance::build(CUDACommandEncoder &encoder,
          buffer = _motion_buffer, size = _motion_buffer_size,
          keys = command->steal_keyframes()](auto view) noexcept {
             struct MotionTransform {
-                optix::TraversableHandle child;
-                optix::MotionOptions motionOptions;
+                OptixTraversableHandle child;
+                OptixMotionOptions motionOptions;
                 unsigned int pad[3];
                 float data[];
             };
@@ -77,9 +77,9 @@ void CUDAMotionInstance::build(CUDACommandEncoder &encoder,
             {
                 p->child = child->handle();
                 p->motionOptions.numKeys = option.keyframe_count;
-                p->motionOptions.flags = optix::MOTION_FLAG_NONE;
-                if (option.should_vanish_start) { p->motionOptions.flags |= optix::MOTION_FLAG_START_VANISH; }
-                if (option.should_vanish_end) { p->motionOptions.flags |= optix::MOTION_FLAG_END_VANISH; }
+                p->motionOptions.flags = OPTIX_MOTION_FLAG_NONE;
+                if (option.should_vanish_start) { p->motionOptions.flags |= OPTIX_MOTION_FLAG_START_VANISH; }
+                if (option.should_vanish_end) { p->motionOptions.flags |= OPTIX_MOTION_FLAG_END_VANISH; }
                 p->motionOptions.timeBegin = option.time_start;
                 p->motionOptions.timeEnd = option.time_end;
             }
@@ -104,7 +104,7 @@ void CUDAMotionInstance::build(CUDACommandEncoder &encoder,
                     break;
                 }
                 case AccelOption::MotionMode::SRT: {
-                    auto m = reinterpret_cast<optix::SRTData *>(p->data);
+                    auto m = reinterpret_cast<OptixSRTData *>(p->data);
                     for (auto i = 0u; i < option.keyframe_count; i++) {
                         m[i].pvx = keys[i].as_srt().pivot[0];
                         m[i].pvy = keys[i].as_srt().pivot[1];

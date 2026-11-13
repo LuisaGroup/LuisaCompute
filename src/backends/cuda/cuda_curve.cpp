@@ -10,9 +10,9 @@ namespace luisa::compute::cuda {
 CUDACurve::CUDACurve(const AccelOption &option) noexcept
     : CUDAPrimitive{Tag::CURVE, option} {}
 
-optix::BuildInput CUDACurve::_make_build_input() const noexcept {
-    optix::BuildInput build_input{};
-    build_input.type = optix::BUILD_INPUT_TYPE_CURVES;
+OptixBuildInput CUDACurve::_make_build_input() const noexcept {
+    OptixBuildInput build_input{};
+    build_input.type = OPTIX_BUILD_INPUT_TYPE_CURVES;
     build_input.curveArray.curveType = _basis;
     build_input.curveArray.numPrimitives = _seg_count;
     build_input.curveArray.vertexBuffers = _motion_buffer_pointers(_cp_buffer, _cp_count * _cp_stride);
@@ -28,9 +28,9 @@ optix::BuildInput CUDACurve::_make_build_input() const noexcept {
     build_input.curveArray.normalStrideInBytes = 0u;
     build_input.curveArray.indexBuffer = _seg_buffer;
     build_input.curveArray.indexStrideInBytes = sizeof(uint32_t);
-    build_input.curveArray.flag = optix::GEOMETRY_FLAG_DISABLE_ANYHIT;
+    build_input.curveArray.flag = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
     build_input.curveArray.primitiveIndexOffset = 0u;
-    build_input.curveArray.endcapFlags = optix::CURVE_ENDCAP_DEFAULT;
+    build_input.curveArray.endcapFlags = OPTIX_CURVE_ENDCAP_DEFAULT;
     return build_input;
 }
 
@@ -44,10 +44,10 @@ void CUDACurve::build(CUDACommandEncoder &encoder, CurveBuildCommand *command) n
     auto seg_count = command->seg_count();
     auto basis = [b = command->basis()] {
         switch (b) {
-            case CurveBasis::PIECEWISE_LINEAR: return optix::PRIMITIVE_TYPE_ROUND_LINEAR;
-            case CurveBasis::CUBIC_BSPLINE: return optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE;
-            case CurveBasis::CATMULL_ROM: return optix::PRIMITIVE_TYPE_ROUND_CATMULLROM;
-            case CurveBasis::BEZIER: return optix::PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER;
+            case CurveBasis::PIECEWISE_LINEAR: return OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR;
+            case CurveBasis::CUBIC_BSPLINE: return OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE;
+            case CurveBasis::CATMULL_ROM: return OPTIX_PRIMITIVE_TYPE_ROUND_CATMULLROM;
+            case CurveBasis::BEZIER: return OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER;
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Invalid curve basis 0x{:x}.", luisa::to_underlying(b));

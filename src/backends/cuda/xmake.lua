@@ -65,6 +65,11 @@ on_load(function(target)
         target:add("deps", "lc-compute-cuda-ext-lcub")
     end
     target:add("headerfiles", path.normalize(path.join(os.scriptdir(), "../common/default_binary_io.h")))
+    -- Official host headers only; do not add them to the NVRTC/device source bundle.
+    local optix_include = path.join(os.scriptdir(), "../../ext/optix/include")
+    assert(os.isfile(path.join(optix_include, "optix_function_table.h")),
+           "OptiX headers are missing. Run git submodule update --init src/ext/optix")
+    target:add("includedirs", optix_include, {system = true})
     local src_path = os.scriptdir()
     local exclude_files = {}
     exclude_files["cuda_nvrtc_compiler.cpp"] = true

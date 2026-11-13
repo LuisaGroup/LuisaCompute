@@ -75,6 +75,14 @@ if (CUDAToolkit_FOUND)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 
+    # Official host API, pinned to OptiX 9.1 (ABI 118). No OptiX runtime is linked:
+    # the NVIDIA driver library is still discovered at runtime by optix_api.cpp.
+    set(_luisa_optix_include "${PROJECT_SOURCE_DIR}/src/ext/optix/include")
+    if (NOT EXISTS "${_luisa_optix_include}/optix_function_table.h")
+        message(FATAL_ERROR "OptiX headers are missing. Run git submodule update --init src/ext/optix")
+    endif ()
+    target_include_directories(luisa-compute-backend-cuda SYSTEM PRIVATE "${_luisa_optix_include}")
+
     # extensions
     target_sources(luisa-compute-backend-cuda PRIVATE
             extensions/cuda_external_ext.cpp extensions/cuda_external_ext.h

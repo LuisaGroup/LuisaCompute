@@ -120,7 +120,7 @@ Examples using the Python frontend can be found under `src/tests/python`.
 ### Preparation
 - Check your hardware and platform. Currently, we support CUDA and Vulkan on Linux and Windows, DirectX on Windows, Metal on macOS, HIP where its toolchain is available, and an optional LLVM/Embree fallback backend. For CUDA, an RTX-enabled graphics card, e.g., NVIDIA RTX 20 and 30 series, is required. For DirectX, a DirectX-12.1 & Shader Model 6.5 compatible graphics card is required.
 
-- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, XMake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 8, you may need to, for example, upgrade your VS to 2019 or 2022 and install CUDA 11.7+ and NVIDIA driver R535+.
+- Prepare the environment and dependencies. We recommend using the latest IDEs, Compilers, XMake/CMake, CUDA drivers, etc. Since we aggressively use new technologies like C++20 and OptiX 9.1, you may need to, for example, upgrade your VS to 2019 or 2022 and install CUDA 12.1+ and NVIDIA driver R590+ for OptiX hardware ray tracing.
 
 - Clone the repo with the `--recursive` option:
     ```bash

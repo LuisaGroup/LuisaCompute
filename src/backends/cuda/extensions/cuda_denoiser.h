@@ -31,8 +31,8 @@ namespace luisa::compute::cuda {
 
 // class [[deprecated]] CUDAOldDenoiserExt final : public OldDenoiserExt {
 //     CUDADevice *_device;
-//     std::vector<optix::DenoiserLayer> _layers;
-//     optix::Denoiser _denoiser = nullptr;
+//     std::vector<OptixDenoiserLayer> _layers;
+//     OptixDenoiser _denoiser = nullptr;
 //     uint32_t _scratch_size = 0;
 //     uint32_t _state_size = 0;
 //     uint32_t _overlap = 0u;
@@ -41,7 +41,7 @@ namespace luisa::compute::cuda {
 //     CUdeviceptr _intensity = 0;
 //     CUdeviceptr _state = 0;
 //     uint2 _resolution;
-//     optix::DenoiserGuideLayer _guideLayer = {};
+//     OptixDenoiserGuideLayer _guideLayer = {};
 //     void _denoise(Stream &stream, uint2 resolution, Buffer<float> const &image, Buffer<float> &output,
 //                   Buffer<float> const &normal, Buffer<float> const &albedo, Buffer<float> *aovs, uint aov_size) noexcept;
 //     void _init(Stream &stream, DenoiserMode mode, DenoiserInput data, uint2 resolution) noexcept;

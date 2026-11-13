@@ -27,7 +27,7 @@ public:
      * 
      */
     struct alignas(16) Binding {
-        optix::TraversableHandle handle;
+        OptixTraversableHandle handle;
         CUdeviceptr instances;
         uint32_t instance_count;
     };
@@ -36,7 +36,7 @@ private:
     AccelOption _option;
     bool _requires_rebuild{true};
     mutable spin_mutex _mutex;
-    optix::TraversableHandle _handle{};
+    OptixTraversableHandle _handle{};
     CUdeviceptr _instance_buffer{};
     uint32_t _instance_count{};
     size_t _instance_buffer_size{};
@@ -56,7 +56,7 @@ public:
     explicit CUDAAccel(const AccelOption &option) noexcept;
     ~CUDAAccel() noexcept;
     void build(CUDACommandEncoder &encoder, AccelBuildCommand *command) noexcept;
-    [[nodiscard]] optix::TraversableHandle handle() const noexcept;
+    [[nodiscard]] OptixTraversableHandle handle() const noexcept;
     [[nodiscard]] CUdeviceptr instance_buffer() const noexcept;
     [[nodiscard]] Binding binding() const noexcept;
     [[nodiscard]] auto pointer_to_handle() const noexcept { return &_handle; }

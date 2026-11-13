@@ -1,5 +1,11 @@
 #pragma once
 
+// X11 exposes None as a macro. Hide it before including dependencies too:
+// platform headers such as Windows SDK headers can also use None as a name.
+// Restore the caller's definition after this header.
+#pragma push_macro("None")
+#undef None
+
 #include <luisa/core/logging.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/command_list.h>
@@ -275,3 +281,5 @@ private:
 };
 
 }// namespace luisa::compute
+
+#pragma pop_macro("None")

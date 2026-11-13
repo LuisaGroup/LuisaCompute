@@ -50,3 +50,6 @@
 [submodule "src/ext/tvm"]
 	path = src/ext/tvm
 	url = https://github.com/apache/tvm
+[submodule "src/ext/optix"]
+	path = src/ext/optix
+	url = https://github.com/NVIDIA/optix-dev.git

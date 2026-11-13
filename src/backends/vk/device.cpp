@@ -33,7 +33,6 @@
 #include "queue_family_contract.h"
 #include "bindless_array.h"
 #include "blas.h"
-#include "command_buffer_sync.h"
 #include "opacity_micromap.h"
 #include "cluster_blas.h"
 #include "tlas.h"
