@@ -24,6 +24,14 @@ features such as its denoiser, which still require a compatible OptiX runtime.
 The SDK removed displacement micromap support in 9.1; LuisaCompute does not
 use those removed host APIs or device intrinsics.
 
+The pipeline links no miss program groups: a ray that hits nothing simply ends
+traversal, which is what the ray-query loop expects. `optixLaunch` nevertheless
+rejects an empty miss region (`"sbt->missRecordCount" is zero`), so the single
+miss slot aliases a hit-group record. `LUISA_OPTIX_VALIDATION=1` therefore
+aborts with `VALIDATION_ERROR [UNEXPECTED_SHADER_TYPE]`; validation mode stays
+unusable until the generated modules carry a dedicated `__miss__` program. That
+message is a known limitation of this SBT layout, not a ray-tracing failure.
+
 The lightweight OptiX intrinsics and layouts in `cuda_builtin/` remain
 handwritten. Do **not** include the official device headers in that embedded
 NVRTC source bundle: this would increase runtime compilation work. Version
