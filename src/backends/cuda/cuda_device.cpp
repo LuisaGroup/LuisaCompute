@@ -42,6 +42,7 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/string.h>
 
+#include "optix_error.h"
 #include "native_shader_ext.h"
 
 namespace luisa::compute::cuda {
@@ -378,7 +379,7 @@ static constexpr uint64_t cuda_llvm_cache_revision = 21u;
         luisa::hash_value(luisa::string_view{LLVM_VERSION_STRING}),
         libdevice_hash,
         cuda_arch,
-        optix::VERSION,
+        OPTIX_VERSION,
         option.enable_fast_math,
         option.enable_debug_info,
         std::clamp(option.max_registers, 0u, 255u),
@@ -1103,6 +1104,23 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx};
         codegen.emit(kernel, device_lib, option.native_include);
         LUISA_VERBOSE("Generated CUDA source in {} ms.", clk.toc());
+        // Cluster launch control, shared-memory mbarriers, proxy fences and
+        // cluster barriers expand to SM 90+ PTX. NVRTC happily emits PTX for an
+        // older target, and the driver then fails the module load with an
+        // opaque CUDA_ERROR_INVALID_PTX; name the requirement here instead.
+        if (auto feature = codegen.cluster_feature();
+            !feature.empty() && _handle.compute_capability() < 90u) {
+            auto name = kernel.name();
+            if (name.empty()) { name = "<unnamed>"; }
+            LUISA_ERROR_WITH_LOCATION(
+                "'{}' (kernel '{}') lowers to SM 90+ PTX: cluster launch "
+                "control, shared-memory mbarriers and cluster barriers are "
+                "Hopper/Blackwell instructions. The device reports compute "
+                "capability {}.{}.",
+                feature, name,
+                _handle.compute_capability() / 10u,
+                _handle.compute_capability() % 10u);
+        }
         return std::move(codegen).move_print_formats();
     }();
 
@@ -1139,7 +1157,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     // NVRTC nvrtc_options
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
     auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
-    auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
+    auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", OPTIX_VERSION);
     luisa::vector<const char *> nvrtc_options{
         sm_option.c_str(),
         nvrtc_version_option.c_str(),
@@ -1399,7 +1417,7 @@ ResourceCreationInfo CUDADevice::create_mesh(const AccelOption &option) noexcept
         return new_with_allocator<CUDAMesh>(option);
     });
     return {.handle = reinterpret_cast<uint64_t>(mesh_handle),
-            .native_handle = const_cast<optix::TraversableHandle *>(mesh_handle->pointer_to_handle())};
+            .native_handle = const_cast<OptixTraversableHandle *>(mesh_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
@@ -1422,7 +1440,7 @@ ResourceCreationInfo CUDADevice::create_curve(const AccelOption &option) noexcep
         return new_with_allocator<CUDACurve>(option);
     });
     return {.handle = reinterpret_cast<uint64_t>(curve_handle),
-            .native_handle = const_cast<optix::TraversableHandle *>(curve_handle->pointer_to_handle())};
+            .native_handle = const_cast<OptixTraversableHandle *>(curve_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_curve(uint64_t handle) noexcept {
@@ -1442,7 +1460,7 @@ ResourceCreationInfo CUDADevice::create_procedural_primitive(const AccelOption &
         return new_with_allocator<CUDAProceduralPrimitive>(option);
     });
     return {.handle = reinterpret_cast<uint64_t>(primitive_handle),
-            .native_handle = const_cast<optix::TraversableHandle *>(primitive_handle->pointer_to_handle())};
+            .native_handle = const_cast<OptixTraversableHandle *>(primitive_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
@@ -1462,7 +1480,7 @@ ResourceCreationInfo CUDADevice::create_motion_instance(const AccelMotionOption 
         return new_with_allocator<CUDAMotionInstance>(this, option);
     });
     return {.handle = reinterpret_cast<uint64_t>(instance_handle),
-            .native_handle = const_cast<optix::TraversableHandle *>(instance_handle->pointer_to_handle())};
+            .native_handle = const_cast<OptixTraversableHandle *>(instance_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_motion_instance(uint64_t handle) noexcept {
@@ -1481,7 +1499,7 @@ ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcep
         return new_with_allocator<CUDAAccel>(option);
     });
     return {.handle = reinterpret_cast<uint64_t>(accel_handle),
-            .native_handle = const_cast<optix::TraversableHandle *>(accel_handle->pointer_to_handle())};
+            .native_handle = const_cast<OptixTraversableHandle *>(accel_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_accel(uint64_t handle) noexcept {
@@ -1648,7 +1666,7 @@ CUDADevice::Handle::Handle(size_t index) noexcept {
 
     CUDADevice::Handle::~Handle() noexcept {
         if (_optix_context) {
-            LUISA_CHECK_OPTIX(optix::api().deviceContextDestroy(_optix_context));
+            LUISA_CHECK_OPTIX(optix::api().optixDeviceContextDestroy(_optix_context));
         }
         // ContextGuard leaves this context bound to the calling thread (that is
         // what keeps consecutive submissions from switching contexts), so drop it
@@ -1676,15 +1694,15 @@ luisa::string_view CUDADevice::Handle::name() const noexcept {
     return device_name;
 }
 
-optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
+OptixDeviceContext CUDADevice::Handle::optix_context() const noexcept {
     std::scoped_lock lock{_mutex};
     if (_optix_context == nullptr) [[unlikely]] {
-        optix::DeviceContextOptions optix_options{};
+        OptixDeviceContextOptions optix_options{};
         optix_options.logCallbackLevel = 4u;
         if (::cuda_device_detail_5::LUISA_CUDA_ENABLE_OPTIX_VALIDATION) {
             LUISA_WARNING("OptiX validation is enabled. This may cause significant performance degradation.");
             // Disable due to too much overhead
-            optix_options.validationMode = optix::DEVICE_CONTEXT_VALIDATION_MODE_ALL;
+            optix_options.validationMode = OPTIX_DEVICE_CONTEXT_VALIDATION_MODE_ALL;
         }
         optix_options.logCallbackFunction = [](uint level, const char *tag, const char *message, void *) noexcept {
             auto log = luisa::format("Logs from OptiX ({}): {}", tag, message);
@@ -1694,7 +1712,7 @@ optix::DeviceContext CUDADevice::Handle::optix_context() const noexcept {
                 LUISA_WARNING("{}", log);
             }
         };
-        LUISA_CHECK_OPTIX(optix::api().deviceContextCreate(
+        LUISA_CHECK_OPTIX(optix::api().optixDeviceContextCreate(
             _context, &optix_options, &_optix_context));
     }
     return _optix_context;

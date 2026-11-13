@@ -1,5 +1,5 @@
 [numthreads( THREAD_GROUP_SIZE, 1, 1 )]
-void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 0 2 have 3 subsets per block
+void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
 {
  const uint MAX_USED_THREAD = 64;
  uint BLOCK_IN_GROUP = THREAD_GROUP_SIZE / MAX_USED_THREAD;
@@ -32,7 +32,7 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 0 2 hav
  }
 
  uint4 pixel_r;
- uint2x4 endPoint[3]; // endPoint[0..1 for subset id][0..1 for low and high in the subset]
+ uint2x4 endPoint[3];
  uint2x4 endPointBackup[3];
  uint color_index[16];
  if (threadInBlock < num_partitions)
@@ -113,7 +113,6 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 0 2 hav
  span_norm_sqr[1] = dot( span[1], span[1] );
  span_norm_sqr[2] = dot( span[2], span[2] );
 
- // TODO: again, this shouldn't be necessary here in error calculation
  uint ci[3] = { 0, candidateFixUpIndex1D[partition].x, candidateFixUpIndex1D[partition].y };
  for (uint i = 0; i < 3; i ++)
  {
@@ -171,7 +170,7 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 0 2 hav
  if (p_error[i] < error[i])
  {
  error[i] = p_error[i];
- final_p[i] = p; // Borrow rotation for p
+ final_p[i] = p;
  }
  }
  }
@@ -253,7 +252,7 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 0 2 hav
 
  if (g_InBuff[blockID].x > shared_temp[GI].error)
  {
- g_OutBuff[blockID] = uint4(shared_temp[GI].error, g_mode_id, shared_temp[GI].partition, shared_temp[GI].rotation); // rotation is actually p bit for mode 0. for mode 2, rotation is always 0
+ g_OutBuff[blockID] = uint4(shared_temp[GI].error, g_mode_id, shared_temp[GI].partition, shared_temp[GI].rotation);
  }
  else
  {

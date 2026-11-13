@@ -197,7 +197,7 @@ void test_opacity_micromap(Device &device) {
          .resolve_boundary_in_any_hit = false,
          .alpha_cutoff = 0.5f,
          .conservative = true,
-         .index_format = OpacityMicromap::IndexFormat::None});
+         .index_format = OpacityMicromap::IndexFormat::NoIndex});
     expect(micromap.ready() == false)
         << "a freshly created micromap has no bits yet";
     stream << micromap.bake(mask.view(0u), uv_buffer.view(), triangle_buffer.view()).commit()
@@ -261,7 +261,7 @@ void test_opacity_micromap(Device &device) {
                  .resolve_boundary_in_any_hit = false,
                  .alpha_cutoff = 0.5f,
                  .conservative = conservative,
-                 .index_format = OpacityMicromap::IndexFormat::None});
+                 .index_format = OpacityMicromap::IndexFormat::NoIndex});
             stream << map.bake(stripe_image.view(0u), uv_buffer.view(), triangle_buffer.view()).commit()
                    << synchronize();
             std::vector<uint> data(map.data().size(), 0u);
@@ -303,7 +303,7 @@ void test_opacity_micromap(Device &device) {
                  .resolve_boundary_in_any_hit = resolve_boundary,
                  .alpha_cutoff = 0.5f,
                  .conservative = true,
-                 .index_format = OpacityMicromap::IndexFormat::None});
+                 .index_format = OpacityMicromap::IndexFormat::NoIndex});
             stream << map.bake(mask.view(0u), uv_buffer.view(), triangle_buffer.view()).commit()
                    << synchronize();
             std::vector<uint> data(map.data().size(), 0u);

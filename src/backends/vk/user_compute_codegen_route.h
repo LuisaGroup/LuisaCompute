@@ -21,6 +21,7 @@ enum class UserComputeHlslFallbackReason : uint32_t {
     MOTION_BLUR = 1u << 4u,
     ACCEL_SIZE = 1u << 5u,
     BFLOAT16 = 1u << 6u,
+    RAY_QUERY_CLUSTER_ID = 1u << 7u,
 };
 
 using UserComputeHlslFallbackReasonMask = uint32_t;
@@ -50,6 +51,14 @@ struct UserComputeCodegenRequirements {
     // takes the compatibility HLSL route, where BF16 is emulated in software by
     // src/backends/common/hlsl/builtin/bfloat16_fallback.bytes.
     bool bfloat16{};
+    // The kernel reads the cluster ID of a ray-query intersection
+    // (CallOp::RAY_QUERY_CLUSTER_ID): the read is
+    // OpRayQueryGetIntersectionClusterIdNV
+    // (SPV_NV_cluster_acceleration_structure), which the native XIR-to-SPIR-V
+    // route does not emit.  The compatibility HLSL route lowers the operation to
+    // the accessor declared in
+    // src/backends/common/hlsl/builtin/hlsl_header.bytes.
+    bool ray_query_cluster_id{};
 };
 
 struct UserComputeCodegenRoute {
@@ -122,6 +131,8 @@ plan_user_compute_codegen_route(
         UserComputeHlslFallbackReason::ACCEL_SIZE);
     add(requirements.bfloat16,
         UserComputeHlslFallbackReason::BFLOAT16);
+    add(requirements.ray_query_cluster_id,
+        UserComputeHlslFallbackReason::RAY_QUERY_CLUSTER_ID);
     return {.hlsl_fallback_reasons = reasons};
 }
 
@@ -144,6 +155,8 @@ user_compute_hlsl_fallback_reason_name(
             return "accel size"sv;
         case UserComputeHlslFallbackReason::BFLOAT16:
             return "software BF16 (device has no shaderBFloat16Type)"sv;
+        case UserComputeHlslFallbackReason::RAY_QUERY_CLUSTER_ID:
+            return "ray-query cluster ID"sv;
     }
     return "unknown"sv;
 }

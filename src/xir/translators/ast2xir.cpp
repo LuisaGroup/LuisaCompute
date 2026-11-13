@@ -16,6 +16,29 @@
 
 namespace luisa::compute::xir {
 
+namespace detail {
+
+// Device-side CUDA graph control (CUDA device runtime, CUDA 12.0+; see
+// cuda_device_graph.h). ast/op.h documents the whole CUDA-only block as
+// "carried through to the CUDA AST backend and rejected by every other
+// backend/host path", so these ops must be reported as a capability boundary
+// rather than as a missing XIR feature.
+[[nodiscard]] constexpr auto is_cuda_graph_control_call(CallOp op) noexcept {
+    switch (op) {
+        case CallOp::GRAPH_SET_CONDITIONAL:
+        case CallOp::GRAPH_LAUNCH:
+        case CallOp::GET_CURRENT_GRAPH_EXEC:
+        case CallOp::GRAPH_NODE_SET_PARAM:
+        case CallOp::GRAPH_NODE_SET_GRID_DIM:
+        case CallOp::GRAPH_NODE_SET_ENABLED:
+        case CallOp::GRID_DEPENDENCY_SYNCHRONIZE:
+        case CallOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: return true;
+        default: return false;
+    }
+}
+
+}// namespace detail
+
 class AST2XIRContext {
 
 public:
@@ -1080,6 +1103,21 @@ private:
             }
             case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE);
             case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: return rq_call(RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE);
+    case CallOp::RAY_QUERY_CLUSTER_ID:
+        // SPV_NV_cluster_acceleration_structure: the cluster ID of a ray-query
+        // intersection is OpRayQueryGetIntersectionClusterIdNV, which this route
+        // does not emit (see the VK routing contract in
+        // src/backends/vk/user_compute_codegen_route.h, which sends such a kernel
+        // to the compatibility HLSL codegen).  No other backend has cluster
+        // acceleration structures at all, so there is no XIR instruction to make
+        // this operation discoverable by the passes.
+        LUISA_NOT_IMPLEMENTED(
+            "AST RAY_QUERY_CLUSTER_ID has no XIR instruction: the cluster ID of a ",
+            "ray-query intersection is OpRayQueryGetIntersectionClusterIdNV ",
+            "(SPV_NV_cluster_acceleration_structure), which only the compatibility ",
+            "HLSL-to-SPIR-V codegen emits. Compile this kernel for the Vulkan ",
+            "backend, where a kernel that reads a cluster ID routes to that ",
+            "codegen, or stop reading the cluster ID.");
             case CallOp::DDX: return cta_call(ThreadGroupOp::RASTER_QUAD_DDX);
             case CallOp::DDY: return cta_call(ThreadGroupOp::RASTER_QUAD_DDY);
             case CallOp::RASTER_SET_Z_DEPTH: return cta_call(ThreadGroupOp::RASTER_SET_Z_DEPTH);
@@ -1189,9 +1227,37 @@ private:
                     "SPIR-V events as uint32 values and exposes only ordinary lvalue references, "
                     "but OpUntypedGroupAsyncCopyKHR requires OpTypeEvent values and opposite "
                     "Workgroup/CrossWorkgroup untyped pointers.");
-            default: LUISA_NOT_IMPLEMENTED(
-                "AST Op {} is not implemented.",
-                luisa::to_string(ast_op));
+            default: {
+                // The CUDA-only operation blocks describe PTX-level hardware
+                // features. They have no XIR instruction of their own: the CUDA
+                // AST backend lowers them straight to PTX, while neither the
+                // XIR pipeline nor the HLSL/DXIL and SPIR-V code generators can
+                // express a shared-memory mbarrier, a cluster barrier or a
+                // cluster launch control transaction. Report the actual
+                // requirement instead of the generic "op is not implemented",
+                // which reads like a missing XIR feature rather than a backend
+                // capability boundary.
+                if (uses_cluster_launch_control(ast_op)) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Operation '{}' is CUDA-only: cluster launch control, "
+                        "shared-memory mbarriers and proxy fences are PTX-level "
+                        "features with no XIR, HLSL or SPIR-V equivalent. "
+                        "Compile this kernel for the CUDA backend, whose native "
+                        "codegen emits the corresponding PTX.",
+                        luisa::to_string(ast_op));
+                }
+                if (detail::is_cuda_graph_control_call(ast_op)) {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Operation '{}' is CUDA-only: device-side CUDA graph "
+                        "control requires the CUDA device runtime (see "
+                        "cuda_device_graph.h) and has no XIR lowering. Compile "
+                        "this kernel for the CUDA backend.",
+                        luisa::to_string(ast_op));
+                }
+                LUISA_NOT_IMPLEMENTED(
+                    "AST Op {} is not implemented.",
+                    luisa::to_string(ast_op));
+            }
         }
         LUISA_NOT_IMPLEMENTED();
     }

@@ -5,6 +5,7 @@
  */
 
 #include "trainer.h"
+#include <libntc/buffer_copy.h>
 #include <luisa/core/logging.h>
 #include <random>
 #include <chrono>
@@ -395,14 +396,14 @@ void Trainer::_init_parameters() {
     std::vector<float> zeros_w(NTC_TOTAL_WEIGHTS, 0.0f);
     std::vector<float> zeros_b(NTC_TOTAL_BIASES, 0.0f);
 
-    stream << _networkWeights.copy_from(hostWeights.data())
-           << _networkBiases.copy_from(hostBiases.data())
-           << _networkWeightGrads.copy_from(zeros_w.data())
-           << _networkBiasGrads.copy_from(zeros_b.data())
-           << _networkWeightM1.copy_from(zeros_w.data())
-           << _networkWeightM2.copy_from(zeros_w.data())
-           << _networkBiasM1.copy_from(zeros_b.data())
-           << _networkBiasM2.copy_from(zeros_b.data());
+    stream << copy_to_device(_networkWeights, hostWeights.data())
+           << copy_to_device(_networkBiases, hostBiases.data())
+           << copy_to_device(_networkWeightGrads, zeros_w.data())
+           << copy_to_device(_networkBiasGrads, zeros_b.data())
+           << copy_to_device(_networkWeightM1, zeros_w.data())
+           << copy_to_device(_networkWeightM2, zeros_w.data())
+           << copy_to_device(_networkBiasM1, zeros_b.data())
+           << copy_to_device(_networkBiasM2, zeros_b.data());
 }
 
 bool Trainer::train(const MaterialManifest &manifest,
@@ -431,7 +432,7 @@ bool Trainer::train(const MaterialManifest &manifest,
     }
 
     _latentMipInfoBuffer = device.create_buffer<uint4>(num_neural_mips * 2);
-    stream << _latentMipInfoBuffer.copy_from(host_latent_info.data());
+    stream << copy_to_device(_latentMipInfoBuffer, host_latent_info.data());
 
     std::mt19937 rng(_settings.randomSeed + 42);
     std::uniform_real_distribution<float> lat_dist(0.48f, 0.52f);
@@ -446,10 +447,10 @@ bool Trainer::train(const MaterialManifest &manifest,
     _latentM2 = device.create_buffer<float>(total_latents);
 
     std::vector<float> zeros_lat(total_latents, 0.0f);
-    stream << _latentFloats.copy_from(host_latents.data())
-           << _latentGrads.copy_from(zeros_lat.data())
-           << _latentM1.copy_from(zeros_lat.data())
-           << _latentM2.copy_from(zeros_lat.data());
+    stream << copy_to_device(_latentFloats, host_latents.data())
+           << copy_to_device(_latentGrads, zeros_lat.data())
+           << copy_to_device(_latentM1, zeros_lat.data())
+           << copy_to_device(_latentM2, zeros_lat.data());
 
     // Flatten and upload reference mips
     size_t total_ref_floats = 0;
@@ -489,8 +490,8 @@ bool Trainer::train(const MaterialManifest &manifest,
     _mipInfoBuffer = device.create_buffer<float4>(host_mip_info.size());
     _lossBuffer = device.create_buffer<float>(1);
 
-    stream << _referenceMips.copy_from(host_ref.data())
-           << _mipInfoBuffer.copy_from(host_mip_info.data())
+    stream << copy_to_device(_referenceMips, host_ref.data())
+           << copy_to_device(_mipInfoBuffer, host_mip_info.data())
            << synchronize();
 
     LUISA_INFO("Starting Real GPU NTC Training: {} steps, {} channels, resolution {}x{}",
@@ -509,7 +510,7 @@ bool Trainer::train(const MaterialManifest &manifest,
 
         bool report = (step % _settings.stepsPerIteration == 0 || step == _settings.trainingSteps);
         if (report) {
-            stream << _lossBuffer.copy_from(&zero_loss);
+            stream << copy_to_device(_lossBuffer, &zero_loss);
         }
 
         uint32_t step_seed = _settings.randomSeed + step * 71u;
@@ -536,7 +537,7 @@ bool Trainer::train(const MaterialManifest &manifest,
 
         if (report) {
             float host_loss_sum = 0.0f;
-            stream << _lossBuffer.copy_to(&host_loss_sum) << synchronize();
+            stream << copy_from_device(_lossBuffer, &host_loss_sum) << synchronize();
 
             float mse = host_loss_sum / static_cast<float>(batch_size * std::max(1u, manifest.totalChannels));
             float psnr = -10.0f * std::log10(std::max(mse, 1e-7f));
@@ -581,9 +582,9 @@ NtexContainer Trainer::export_container(const MaterialManifest &manifest) {
     std::vector<float> trainedBiases(NTC_TOTAL_BIASES);
     std::vector<float> trainedLatents(_latentFloats.size());
 
-    stream << _networkWeights.copy_to(trainedWeights.data())
-           << _networkBiases.copy_to(trainedBiases.data())
-           << _latentFloats.copy_to(trainedLatents.data())
+    stream << copy_from_device(_networkWeights, trainedWeights.data())
+           << copy_from_device(_networkBiases, trainedBiases.data())
+           << copy_from_device(_latentFloats, trainedLatents.data())
            << synchronize();
 
     // 1. Quantize INT8 MLP

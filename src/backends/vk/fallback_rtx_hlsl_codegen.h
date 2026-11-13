@@ -64,6 +64,10 @@ struct hlsl_codegen_supports_fallback_rtx<
 [[nodiscard]] inline constexpr bool hlsl_codegen_supports_fallback_rtx_v =
     hlsl_codegen_supports_fallback_rtx<hlsl::CodegenUtility>::value;
 
+// `spirv_capabilities` are the optional shader-capability extensions the device
+// negotiated (`hlsl::SpirvShaderCapabilities`): the codegen only emits the
+// instruction of a capability that is set, because a module that declares the
+// capability is rejected by a device that did not enable the extension.
 // The compute-shader entry of the compatibility route.  `fallback_rtx` selects
 // the software ray-tracing traversal and `bf16_fallback` the software BF16
 // emulation (src/backends/common/hlsl/builtin/bfloat16_fallback.bytes); a
@@ -73,13 +77,15 @@ template<typename Utility>
 [[nodiscard]] hlsl::CodegenResult codegen_compat_compute(
     Utility &util, Function kernel, luisa::string_view native_code,
     uint custom_mask, bool enable_debug_info, bool enable_fast_math,
-    bool fallback_rtx, bool bf16_fallback) noexcept {
+    bool fallback_rtx, bool bf16_fallback,
+    hlsl::SpirvShaderCapabilities spirv_capabilities) noexcept {
     if constexpr (hlsl_codegen_supports_bf16_fallback<Utility>::value) {
         return util.Codegen(
             kernel, native_code, custom_mask, true, false,
             enable_debug_info, enable_fast_math,
             /*fallback_rtx=*/fallback_rtx,
-            /*bf16_fallback=*/bf16_fallback);
+            /*bf16_fallback=*/bf16_fallback,
+            /*spirv_capabilities=*/spirv_capabilities);
     } else if constexpr (hlsl_codegen_supports_fallback_rtx<Utility>::value) {
         if (bf16_fallback) {
             LUISA_ERROR(

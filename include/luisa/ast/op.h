@@ -654,10 +654,29 @@ enum struct CallOp : uint32_t {
     ERFC,  // (floatN)
     EXPM1, // (floatN)
     LDEXP, // (floatN, intN)
+
+    // Appended to preserve every existing public CallOp value.
+    // Cluster acceleration structures (VK_NV_cluster_acceleration_structure /
+    // SPV_NV_cluster_acceleration_structure): reads the cluster ID of one
+    // intersection of a ray query, i.e. SPIR-V
+    // OpRayQueryGetIntersectionClusterIdNV.  A cluster acceleration structure
+    // groups the triangles of a mesh into clusters and gives each cluster an
+    // identity, which is what a renderer uses to pick the material, the level of
+    // detail or a shading bin of the triangle that was hit instead of deriving
+    // that decision from the primitive index.
+    // [(RayQuery, uint selector) -> uint], where `selector` must be a *constant*
+    // 0 (candidate intersection, i.e. the one the ray-query candidate handlers
+    // see) or 1 (committed intersection).  SPIR-V requires the operand to be a
+    // constant 32-bit integer, so a computed selector is rejected by the HLSL
+    // codegen rather than silently producing an invalid module.
+    // The value is only defined for geometry built from a cluster acceleration
+    // structure; for ordinary triangle geometry the result is undefined (the
+    // compiler cannot know how the acceleration structure was built).
+    RAY_QUERY_CLUSTER_ID,// (RayQuery, uint selector): uint
 };
 
 static constexpr size_t call_op_count =
-    to_underlying(CallOp::LDEXP) + 1u;
+    to_underlying(CallOp::RAY_QUERY_CLUSTER_ID) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -985,6 +1004,6 @@ public:
 
   };// namespace luisa::compute
 
-  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, LDEXP)
+  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, RAY_QUERY_CLUSTER_ID)
 
 #endif// LUISA_AST_OP_H

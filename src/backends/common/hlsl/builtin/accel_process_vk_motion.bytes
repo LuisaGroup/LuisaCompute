@@ -1,7 +1,3 @@
-// Motion variant of accel_process_vk
-// Writes VkAccelerationStructureMotionInstanceNV (160 bytes per instance, 16-byte aligned)
-// instead of VkAccelerationStructureInstanceKHR (64 bytes per instance).
-// Required when TLAS has VK_BUILD_ACCELERATION_STRUCTURE_MOTION_BIT_NV.
 
 struct InputInst {
 float4 p0;
@@ -19,18 +15,6 @@ uint count;
 };
 [[vk::push_constant]] ConstantBuffer<_CBType> cb:register(b0);
 
-// VkAccelerationStructureMotionInstanceNV layout (160 bytes, 16-byte aligned):
-// offset 0: uint type (0=STATIC)
-// offset 4: uint flags (0)
-// offset 8: VkAccelerationStructureInstanceKHR (64 bytes)
-//   offset 8:  float4 p0 (transform row 0)
-//   offset 24: float4 p1 (transform row 1)
-//   offset 40: float4 p2 (transform row 2)
-//   offset 56: uint InstanceID:24 | InstanceMask:8
-//   offset 60: uint InstanceContributionToHitGroupIndex:24 | Flags:8
-//   offset 64: uint2 accelerationStructureReference
-// offset 72: padding (88 bytes to reach 160)
-// Total: 160 bytes (sizeof struct is 152, padded to 16-byte alignment)
 
 static const uint MOTION_INST_STRIDE = 160u;
 static const uint STATIC_DATA_OFFSET = 8u;
@@ -53,16 +37,13 @@ uint user_id = v.UserIdFlags & 0x00FFFFFFu;
 uint flags = (v.UserIdFlags >> 24u) & 0xFFu;
 uint base = index * MOTION_INST_STRIDE;
 uint data_base = base + STATIC_DATA_OFFSET;
-// Write type = STATIC (0) and flags = 0
 _InstBuffer.Store(base, 0u);
 _InstBuffer.Store(base + 4u, 0u);
 if((flags&flag_transform)!=0){
-// Write 3x4 transform (3 rows of float4 = 48 bytes)
 _InstBuffer.Store4(data_base + 0u, asuint(v.p0));
 _InstBuffer.Store4(data_base + 16u, asuint(v.p1));
 _InstBuffer.Store4(data_base + 32u, asuint(v.p2));
 }
-// InstanceID (24 bits) | InstanceMask (8 bits) at offset 48
 if((flags&flag_visibility)!=0 || (flags&flag_user_id)!=0){
 uint existing = _InstBuffer.Load(data_base + 48u);
 uint inst_id = existing & 0x00FFFFFFu;
@@ -75,7 +56,6 @@ inst_mask = vis_mask;
 }
 _InstBuffer.Store(data_base + 48u, inst_id | (inst_mask << 24u));
 }
-// InstanceContributionToHitGroupIndex (24 bits) | Flags (8 bits) at offset 52
 {
 uint hit_flags = 0u;
 if((flags&flag_opaque)!=0){
@@ -87,7 +67,6 @@ hit_flags = 8u;
 _InstBuffer.Store(data_base + 52u, 0u | (hit_flags << 24u));
 }
 if((flags&flag_mesh)!=0){
-// accelerationStructureReference at offset 56 (uint2 = 8 bytes)
 _InstBuffer.Store2(data_base + 56u, v.mesh);
 }
 }

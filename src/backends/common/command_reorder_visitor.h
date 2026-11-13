@@ -309,6 +309,17 @@ private:
     static constexpr uint64_t max_allowed_dispatch_size = 65535ull * 32ull;
     vstd::vector<uint64> _max_dispatch_blocks;
     int64_t _max_mesh_level = -1;
+    // Highest layer any command of the current batch was placed in.
+    int64_t _max_command_layer = -1;
+    // Layer of the most recent cluster (mega-geometry) mesh build. Such a
+    // build reads its vertex and index data through the raw device addresses
+    // stored inside its ClusterBuildInfo records. Those records are device
+    // data, so the pass can neither resolve the buffers they name nor record
+    // their uploads as ordinary reads. The build is therefore a full ordering
+    // point for buffer writes: it lands after every command already recorded
+    // in the batch, and every buffer write recorded after it lands in a later
+    // layer.
+    int64_t _cluster_build_read_level = -1;
     int64_t _max_accel_read_level = -1;
     int64_t _max_accel_write_level = -1;
     // Per-layer intrusive lists of reordered commands. Backends walk each
@@ -388,6 +399,10 @@ private:
         auto layer = std::max(
             handle->get_max_read_layer(range),
             handle->get_max_write_layer(range));
+        // A cluster build reads buffers this range does not name, so its barrier
+        // layer also orders every later buffer write (see
+        // _cluster_build_read_level).
+        layer = std::max<int64_t>(layer, _cluster_build_read_level);
         return layer + 1;
     }
     // Mesh, Accel
@@ -433,6 +448,7 @@ private:
         if (!_enabled) {
             layer = _seq_layer++;
         }
+        _max_command_layer = std::max<int64_t>(_max_command_layer, layer);
         if (static_cast<int64_t>(_cmd_lists.size()) <= layer) {
             _cmd_lists.resize(layer + 1);
             _cmd_list_tails.resize(layer + 1);
@@ -693,6 +709,14 @@ private:
             ResourceType::Mesh);
         auto layer = get_last_layer_read(static_cast<RangeHandle *>(cluster_handle), cluster_range);
         layer = std::max<int64_t>(layer, get_last_layer_write(static_cast<NoRangeHandle *>(mesh_handle)));
+        // The records reach their vertex and index buffers only through raw
+        // device addresses, so those uploads cannot be registered as reads of
+        // this build. Order it after every command recorded so far and make it
+        // a barrier for the writes that follow - the conservative equivalent of
+        // naming the buffers. This is what keeps an upload + build recorded in
+        // one batch correct under reordering.
+        layer = std::max<int64_t>(layer, _max_command_layer + 1);
+        _cluster_build_read_level = std::max<int64_t>(_cluster_build_read_level, layer);
         static_cast<RangeHandle *>(cluster_handle)->emplace_read_layer(cluster_range, layer);
         static_cast<NoRangeHandle *>(mesh_handle)->view.write_layer = layer;
         _max_mesh_level = std::max<int64_t>(_max_mesh_level, layer);
@@ -1038,6 +1062,8 @@ public:
         _max_accel_read_level = -1;
         _max_accel_write_level = -1;
         _max_mesh_level = -1;
+        _max_command_layer = -1;
+        _cluster_build_read_level = -1;
         _dispatch_layer = 0;
         _use_accel_in_pass = false;
         _write_accel_in_pass = false;

@@ -41,6 +41,19 @@ public:
     /// deliberately not normalized, preserving the world-space ray parameter.
     [[nodiscard]] Var<Ray> object_ray() const noexcept;
     [[nodiscard]] Var<TriangleHit> hit() const noexcept;
+
+    /// Cluster ID of the candidate intersection, i.e. the identity of the
+    /// cluster that owns the triangle the ray hit
+    /// (VK_NV_cluster_acceleration_structure /
+    /// SPV_NV_cluster_acceleration_structure, i.e. SPIR-V
+    /// OpRayQueryGetIntersectionClusterIdNV).  A renderer reads it to pick the
+    /// material, the level of detail or a shading bin of the hit geometry
+    /// instead of deriving that decision from the primitive index.
+    ///
+    /// The value is only defined for geometry built from a *cluster*
+    /// acceleration structure; for an ordinary triangle mesh it is undefined,
+    /// and the compiler cannot tell the two apart.
+    [[nodiscard]] Expr<uint> cluster_id() const noexcept;
     void commit() const noexcept;
     void terminate() const noexcept;
 };
@@ -126,6 +139,23 @@ public:
     [[nodiscard]] ProceduralCandidate procedural_candidate() const noexcept;
     [[nodiscard]] Var<Ray> ray() const noexcept;
     [[nodiscard]] Var<CommittedHit> committed_hit() const noexcept;
+
+    /// Cluster ID of the intersection this query committed, i.e. the identity
+    /// of the cluster that owns the triangle `committed_hit()` describes
+    /// (VK_NV_cluster_acceleration_structure, i.e. SPIR-V
+    /// OpRayQueryGetIntersectionClusterIdNV with the committed intersection
+    /// selector).  Only meaningful once `proceed()` returned false and the
+    /// committed status is COMMITTED_TRIANGLE_HIT.
+    ///
+    /// The value is only defined for geometry built from a *cluster*
+    /// acceleration structure; for an ordinary triangle mesh it is undefined.
+    [[nodiscard]] Expr<uint> committed_cluster_id() const noexcept;
+
+    /// Cluster ID of the candidate intersection published by the last
+    /// `proceed()`, i.e. the intersection `surface_candidate()` describes
+    /// (the same instruction with the candidate intersection selector).
+    /// Only meaningful inside a `proceed()` iteration that returned true.
+    [[nodiscard]] Expr<uint> candidate_cluster_id() const noexcept;
     void terminate() const noexcept;
 };
 

@@ -53,7 +53,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //     if (has_aov) {
 //         _mode.kernel_pred = 1;
 //     }
-//     optix::DenoiserOptions options = {};
+//     OptixDenoiserOptions options = {};
 //     options.guideAlbedo = data.normal && bool(*data.normal);
 //     options.guideNormal = data.albedo && bool(*data.albedo);
 //     bool guideFlow = data.flow && bool(*data.flow);
@@ -62,16 +62,16 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //     if (_mode.upscale) {
 //         out_scale = 2u;
 //     }
-//     optix::DenoiserModelKind model_kind = optix::DENOISER_MODEL_KIND_HDR;
+//     OptixDenoiserModelKind model_kind = OPTIX_DENOISER_MODEL_KIND_HDR;
 //     if (_mode.kernel_pred) {
-//         model_kind = _mode.temporal ? optix::DENOISER_MODEL_KIND_TEMPORAL_AOV : optix::DENOISER_MODEL_KIND_AOV;
+//         model_kind = _mode.temporal ? OPTIX_DENOISER_MODEL_KIND_TEMPORAL_AOV : OPTIX_DENOISER_MODEL_KIND_AOV;
 //     } else {
-//         model_kind = _mode.temporal ? optix::DENOISER_MODEL_KIND_TEMPORAL : optix::DENOISER_MODEL_KIND_HDR;
+//         model_kind = _mode.temporal ? OPTIX_DENOISER_MODEL_KIND_TEMPORAL : OPTIX_DENOISER_MODEL_KIND_HDR;
 //     }
-//     LUISA_CHECK_OPTIX(optix::api().denoiserCreate(optix_ctx, model_kind, &options, &_denoiser));
+//     LUISA_CHECK_OPTIX(optix::api().optixDenoiserCreate(optix_ctx, model_kind, &options, &_denoiser));
 //
-//     optix::DenoiserSizes denoiser_sizes;
-//     LUISA_CHECK_OPTIX(optix::api().denoiserComputeMemoryResources(_denoiser, resolution.x, resolution.y, &denoiser_sizes));
+//     OptixDenoiserSizes denoiser_sizes;
+//     LUISA_CHECK_OPTIX(optix::api().optixDenoiserComputeMemoryResources(_denoiser, resolution.x, resolution.y, &denoiser_sizes));
 //     _scratch_size = static_cast<uint32_t>(denoiser_sizes.withoutOverlapScratchSizeInBytes);
 //     _overlap = 0u;
 //     if (_mode.kernel_pred) {
@@ -84,7 +84,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //     _state_size = static_cast<uint32_t>(denoiser_sizes.stateSizeInBytes);
 //
 //     auto createOptixImage2D = [&](Buffer<float> const &input) {
-//         optix::Image2D res;
+//         OptixImage2D res;
 //
 //         res.data = reinterpret_cast<CUDABuffer *>(input.handle())->device_address();
 //         res.width = resolution.x;
@@ -92,27 +92,27 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //         res.rowStrideInBytes = input.size_bytes() / resolution.y;
 //         res.pixelStrideInBytes = input.size_bytes() / resolution.y / resolution.x;
 //         if (res.pixelStrideInBytes == 4 * sizeof(float))
-//             res.format = optix::PIXEL_FORMAT_FLOAT4;
+//             res.format = OPTIX_PIXEL_FORMAT_FLOAT4;
 //         else {
-//             res.format = optix::PIXEL_FORMAT_FLOAT3;
+//             res.format = OPTIX_PIXEL_FORMAT_FLOAT3;
 //         }
 //         return res;
 //     };
 //     auto create_as = [&](Buffer<float> const &input, uint scale) {
-//         optix::Image2D res;
+//         OptixImage2D res;
 //         LUISA_CHECK_CUDA(cuMemAllocAsync(&res.data, input.size_bytes() * scale * scale, cuda_stream));
 //         res.width = resolution.x * scale;
 //         res.height = resolution.y * scale;
 //         res.rowStrideInBytes = input.size_bytes() / resolution.y * scale;
 //         res.pixelStrideInBytes = input.size_bytes() / resolution.y / resolution.x;
 //         if (res.pixelStrideInBytes == 4 * sizeof(float))
-//             res.format = optix::PIXEL_FORMAT_FLOAT4;
+//             res.format = OPTIX_PIXEL_FORMAT_FLOAT4;
 //         else {
-//             res.format = optix::PIXEL_FORMAT_FLOAT3;
+//             res.format = OPTIX_PIXEL_FORMAT_FLOAT3;
 //         }
 //         return res;
 //     };
-//     optix::DenoiserLayer layer = {};
+//     OptixDenoiserLayer layer = {};
 //     LUISA_ASSERT(data.beauty != nullptr && *data.beauty, "input image(beauty) is invalid!");
 //     layer.input = createOptixImage2D(*data.beauty);
 //     layer.output = create_as(*data.beauty, out_scale);
@@ -142,7 +142,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //         _guideLayer.previousOutputInternalGuideLayer.pixelStrideInBytes = unsigned(denoiser_sizes.internalGuideLayerPixelSizeInBytes);
 //         _guideLayer.previousOutputInternalGuideLayer.rowStrideInBytes =
 //             _guideLayer.previousOutputInternalGuideLayer.width * _guideLayer.previousOutputInternalGuideLayer.pixelStrideInBytes;
-//         _guideLayer.previousOutputInternalGuideLayer.format = optix::PIXEL_FORMAT_INTERNAL_GUIDE_LAYER;
+//         _guideLayer.previousOutputInternalGuideLayer.format = OPTIX_PIXEL_FORMAT_INTERNAL_GUIDE_LAYER;
 //         _guideLayer.outputInternalGuideLayer = _guideLayer.previousOutputInternalGuideLayer;
 //         _guideLayer.outputInternalGuideLayer.data = internalMemOut;
 //         if (data.flowtrust)
@@ -167,27 +167,27 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //         _layers.push_back(layer);
 //     }
 //     if (_mode.aov_diffuse_id != -1) {
-//         _layers[_mode.aov_diffuse_id].type = optix::DenoiserAOVType::DENOISER_AOV_TYPE_DIFFUSE;
+//         _layers[_mode.aov_diffuse_id].type = OptixDenoiserAOVType::DENOISER_AOV_TYPE_DIFFUSE;
 //     }
 //     if (_mode.aov_reflection_id != -1) {
-//         _layers[_mode.aov_reflection_id].type = optix::DenoiserAOVType::DENOISER_AOV_TYPE_REFLECTION;
+//         _layers[_mode.aov_reflection_id].type = OptixDenoiserAOVType::DENOISER_AOV_TYPE_REFLECTION;
 //     }
 //     if (_mode.aov_refract_id != -1) {
-//         _layers[_mode.aov_refract_id].type = optix::DenoiserAOVType::DENOISER_AOV_TYPE_REFRACTION;
+//         _layers[_mode.aov_refract_id].type = OptixDenoiserAOVType::DENOISER_AOV_TYPE_REFRACTION;
 //     }
 //     if (_mode.aov_specular_id != -1) {
-//         _layers[_mode.aov_specular_id].type = optix::DENOISER_AOV_TYPE_SPECULAR;
+//         _layers[_mode.aov_specular_id].type = OPTIX_DENOISER_AOV_TYPE_SPECULAR;
 //     }
 //
-//     LUISA_CHECK_OPTIX(optix::api().denoiserSetup(_denoiser, cuda_stream, resolution.x + 2 * _overlap,
+//     LUISA_CHECK_OPTIX(optix::api().optixDenoiserSetup(_denoiser, cuda_stream, resolution.x + 2 * _overlap,
 //                                                  resolution.y + 2 * _overlap, _state, _state_size, _scratch, _scratch_size));
 // }
 //
 // void CUDAOldDenoiserExt::_process(Stream &stream, DenoiserInput data) noexcept {
 //     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
 //     // auto optix_ctx = _device->handle().optix_context();
-//     optix::DenoiserParams _params = {};
-//     //_params.denoiseAlpha = _mode.alphamode ? optix::DENOISER_ALPHA_MODE_ALPHA_AS_AOV : optix::DENOISER_ALPHA_MODE_COPY;
+//     OptixDenoiserParams _params = {};
+//     //_params.denoiseAlpha = _mode.alphamode ? OPTIX_DENOISER_ALPHA_MODE_ALPHA_AS_AOV : OPTIX_DENOISER_ALPHA_MODE_COPY;
 //     _params.hdrIntensity = _intensity;
 //     _params.hdrAverageColor = _avg_color;
 //     _params.blendFactor = 0.0f;
@@ -211,7 +211,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //         _layers[i + 1].input.data = reinterpret_cast<CUDABuffer *>(data.aovs[i]->handle())->device_address();
 //
 //     if (_mode.temporal) {
-//         optix::Image2D temp = _guideLayer.previousOutputInternalGuideLayer;
+//         OptixImage2D temp = _guideLayer.previousOutputInternalGuideLayer;
 //         _guideLayer.previousOutputInternalGuideLayer = _guideLayer.outputInternalGuideLayer;
 //         _guideLayer.outputInternalGuideLayer = temp;
 //
@@ -224,7 +224,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //     }
 //
 //     if (_intensity) {
-//         LUISA_CHECK_OPTIX(optix::api().denoiserComputeIntensity(
+//         LUISA_CHECK_OPTIX(optix::api().optixDenoiserComputeIntensity(
 //             _denoiser,
 //             cuda_stream,
 //             &_layers[0].input,
@@ -234,7 +234,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //     }
 //
 //     if (_avg_color) {
-//         LUISA_CHECK_OPTIX(optix::api().denoiserComputeAverageColor(
+//         LUISA_CHECK_OPTIX(optix::api().optixDenoiserComputeAverageColor(
 //             _denoiser,
 //             cuda_stream,
 //             &_layers[0].input,
@@ -242,7 +242,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //             _scratch,
 //             _scratch_size));
 //     }
-//     LUISA_CHECK_OPTIX(optix::api().denoiserInvoke(
+//     LUISA_CHECK_OPTIX(optix::api().optixDenoiserInvoke(
 //         _denoiser,
 //         cuda_stream,
 //         &_params,
@@ -265,7 +265,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> CUDADenoiserExt::create(uint64_t stream
 //
 // void CUDAOldDenoiserExt::_destroy(Stream &stream) noexcept {
 //     auto cuda_stream = reinterpret_cast<CUDAStream *>(stream.handle())->handle();
-//     LUISA_CHECK_OPTIX(optix::api().denoiserDestroy(_denoiser));
+//     LUISA_CHECK_OPTIX(optix::api().optixDenoiserDestroy(_denoiser));
 //     LUISA_CHECK_CUDA(cuMemFreeAsync(_intensity, cuda_stream));
 //     LUISA_CHECK_CUDA(cuMemFreeAsync(_avg_color, cuda_stream));
 //     LUISA_CHECK_CUDA(cuMemFreeAsync(_scratch, cuda_stream));

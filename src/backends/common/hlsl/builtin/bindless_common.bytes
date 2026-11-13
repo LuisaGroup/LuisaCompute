@@ -22,7 +22,6 @@ return s[idx*3];
 #endif
 
 #ifdef LUISA_DEBUG_INFO
-// Debug: range-checked bindless buffer read macros with an explicit capacity.
 #define _READ_BUFFER(arr,arrIdx,idx,size,type,bf,bound) \
     (((arrIdx) < (bound)) ? \
         bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(size*idx) : \

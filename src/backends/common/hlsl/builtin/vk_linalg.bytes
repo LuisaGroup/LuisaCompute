@@ -1,13 +1,4 @@
-// Header for linear algebra APIs.
 
-// SPIR-V path: use cooperative vector extension
-// Deep-copied from D:\DirectXShaderCompiler\tools\clang\lib\Headers\hlsl\vk to avoid relying on DXC include paths.
-// ----- begin vk/spirv.h -----
-// Copyright (c) 2024 Google LLC
-//
-// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #ifndef _HLSL_VK_SPIRV_H_
 #define _HLSL_VK_SPIRV_H_
@@ -38,7 +29,6 @@ enum CooperativeMatrixOperandsMask {
   CooperativeMatrixOperandsSaturatingAccumulationKHRMask = 0x00000010,
 };
 
-// Cooperative Vector Matrix Layout (SPV_NV_cooperative_vector)
 enum CooperativeVectorMatrixLayout {
   CooperativeVectorMatrixLayoutRowMajorNV = 0,
   CooperativeVectorMatrixLayoutColumnMajorNV = 1,
@@ -47,7 +37,6 @@ enum CooperativeVectorMatrixLayout {
   CooperativeVectorMatrixLayoutMax = 0x7fffffff,
 };
 
-// Component type interpretations (matches VkComponentTypeKHR / gl_ComponentType*)
 enum CooperativeVectorComponentType {
   CooperativeVectorComponentTypeFloat16NV = 0,
   CooperativeVectorComponentTypeFloat32NV = 1,
@@ -97,33 +86,20 @@ enum StorageClass {
   StorageClassWorkgroup = 4,
 };
 
-// An opaque type to represent a Spir-V pointer to the workgroup storage class.
-// clang-format off
 template <typename PointeeType>
 using WorkgroupSpirvPointer = const vk::SpirvOpaqueType<
-    /* OpTypePointer */ 32,
+     32,
     vk::Literal<vk::integral_constant<uint, StorageClassWorkgroup> >,
     PointeeType>;
-// clang-format on
 
-// Returns an opaque Spir-V pointer to v. The memory object v's storage class
-// modifier must be groupshared. If the incorrect storage class is used, then
-// there will be a validation error, and it will not show the correct
 template <typename T>
-[[vk::ext_instruction(/* OpCopyObject */ 83)]] WorkgroupSpirvPointer<T>
+[[vk::ext_instruction( 83)]] WorkgroupSpirvPointer<T>
 GetGroupSharedAddress([[vk::ext_reference]] T v);
 
-} // namespace vk
+}
 
-#endif // _HLSL_VK_SPIRV_H_
-// ----- end vk/spirv.h -----
+#endif
 
-// ----- begin vk/opcode_selector.h -----
-// Copyright (c) 2024 Google LLC
-//
-// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #ifndef _HLSL_VK_KHR_OPCODE_SELECTOR_H_
 #define _HLSL_VK_KHR_OPCODE_SELECTOR_H_
@@ -201,7 +177,7 @@ ARITHMETIC_SELECTOR(int16_t, __builtin_spv_SNegate, __builtin_spv_IAdd,
 ARITHMETIC_SELECTOR(uint16_t, __builtin_spv_SNegate, __builtin_spv_IAdd,
                     __builtin_spv_ISub, __builtin_spv_IMul, __builtin_spv_UDiv,
                     false);
-#endif // __HLSL_ENABLE_16_BIT
+#endif
 
 ARITHMETIC_SELECTOR(int32_t, __builtin_spv_SNegate, __builtin_spv_IAdd,
                     __builtin_spv_ISub, __builtin_spv_IMul, __builtin_spv_SDiv,
@@ -216,16 +192,7 @@ ARITHMETIC_SELECTOR(uint64_t, __builtin_spv_SNegate, __builtin_spv_IAdd,
                     __builtin_spv_ISub, __builtin_spv_IMul, __builtin_spv_UDiv,
                     false);
 
-// The conversion selector is will be used to convert one type to another
-// using the SPIR-V conversion instructions. See
-// https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html#_conversion_instructions.
-// SourceType and TargetType must be integer or floating point scalar type.
 
-// ConversionSelector::Convert converts an object of type S to an object of type
-// T. S must be SourceType, a vector of SourceType, or a cooperative matrix of
-// SourceType. T must be TargetType, a vector of TargetType, or a cooperative
-// matrix of TargetType. T must have the same number of components as S. T is a
-// cooperative matrix if and only if S is a cooperative matrix.
 template <class SourceType, class TargetType> class ConversionSelector;
 
 #define CONVERSION_SELECTOR(SourceType, TargetType, OpConvert)                 \
@@ -342,18 +309,11 @@ CONVERSION_SELECTOR(double, int64_t, __builtin_spv_ConvertFtoS);
 CONVERSION_SELECTOR(double, half, __builtin_spv_FConvert);
 CONVERSION_SELECTOR(double, float, __builtin_spv_FConvert);
 CONVERSION_SELECTOR(double, double, __builtin_spv_CopyObject);
-}; // namespace util
-} // namespace vk
+};
+}
 
-#endif // _HLSL_VK_KHR_OPCODE_SELECTOR_H_
-// ----- end vk/opcode_selector.h -----
+#endif
 
-// ----- begin vk/nv/cooperative_vector.h -----
-// Copyright (c) 2024 Google LLC
-//
-// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #ifndef _HLSL_VK_NV_COOPERATIVE_VECTOR_H_
 #define _HLSL_VK_NV_COOPERATIVE_VECTOR_H_
@@ -366,131 +326,83 @@ CONVERSION_SELECTOR(double, double, __builtin_spv_CopyObject);
 namespace vk {
 namespace nv {
 
-// The base cooperative vector class. The template arguments correspond to the
-// operands in the OpTypeCooperativeVectorNV instruction.
 template <typename ComponentType, uint components>
 class CooperativeVector {
   template <class NewComponentType>
   CooperativeVector<NewComponentType, components> cast();
 
-  // Apply OpSNegate or OpFNegate, depending on ComponentType, in an element by
-  // element manner.
   CooperativeVector negate();
 
-  // Apply OpIAdd or OpFAdd, depending on ComponentType, in an element by element
-  // manner.
   CooperativeVector operator+(CooperativeVector other);
 
-  // Apply OpISub or OpFSub, depending on ComponentType, in an element by element
-  // manner.
   CooperativeVector operator-(CooperativeVector other);
 
-  // Apply OpIMul or OpFMul, depending on ComponentType, in an element by element
-  // manner.
   CooperativeVector operator*(CooperativeVector other);
 
-  // Apply OpSDiv, OpUDiv or OpFDiv, depending on ComponentType, in an element by
-  // element manner.
   CooperativeVector operator/(CooperativeVector other);
 
-  // Apply OpMatrixTimesScalar in an element by element manner.
   CooperativeVector operator*(ComponentType scalar);
 
-  // Load a cooperative vector using OpCooperativeVectorLoadNV from
-  // data[index] using the given memory access operands.
   template <uint32_t memoryAccessOperands, class Type>
   static CooperativeVector Load(RWStructuredBuffer<Type> data, uint32_t index);
 
-  // Same as above, but uses MemoryAccessMaskNone for the memory access
-  // operands.
   template <class Type>
   static CooperativeVector Load(RWStructuredBuffer<Type> data, uint32_t index) {
     return Load<MemoryAccessMaskNone>(data, index);
   }
 
-  // Load a cooperative vector using OpCooperativeVectorLoadNV from
-  // data[index] using the given memory access operands. No additional memory
-  // access bits are added since the memory is readonly.
   template <uint32_t memoryAccessOperands, class Type>
   static CooperativeVector Load(StructuredBuffer<Type> data, uint32_t index);
 
-  // Same as above, but uses MemoryAccessMaskNone for the memory access
-  // operands.
   template <class Type>
   static CooperativeVector Load(StructuredBuffer<Type> data, uint32_t index) {
     return Load<MemoryAccessMaskNone>(data, index);
   }
 
-  // Store the cooperative vector using OpCooperativeVectorStoreNV to
-  // data[index] using the given memory access operands.
   template <uint32_t memoryAccessOperands, class Type>
   void Store(RWStructuredBuffer<Type> data, uint32_t index);
 
-  // Same as above, but uses MemoryAccessMaskNone for the memory access
-  // operands.
   template <class Type>
   void Store(RWStructuredBuffer<Type> data, uint32_t index) {
     Store<MemoryAccessMaskNone>(data, index);
   }
 
-  // Load a cooperative vector using OpCooperativeVectorLoadNV from
-  // groupshared memory using the given memory access operands.
-  //
-  // This function uses a SPIR-V pointer because HLSL does not allow groupshared
-  // memory object to be passed by reference.
   template <uint32_t memoryAccessOperands, class Type>
   static CooperativeVector Load(WorkgroupSpirvPointer<Type> data);
 
-  // Same as above, but uses MemoryAccessMaskNone for the memory access
-  // operands.
   template <class Type>
   static CooperativeVector Load(WorkgroupSpirvPointer<Type> data) {
     return Load<MemoryAccessMaskNone>(data);
   }
 
-  // Store the cooperative vector using OpCooperativeVectorStoreNV to
-  // groupshared memory using the given memory access operands.
-  //
-  // This function uses a SPIR-V pointer because HLSL does not allow groupshared
-  // memory object to be passed by reference.
   template <uint32_t memoryAccessOperands, class Type>
   void Store(WorkgroupSpirvPointer<Type> data);
 
-  // Same as above, but uses MemoryAccessMaskNone for the memory access
-  // operands.
   template <class Type>
   void Store(WorkgroupSpirvPointer<Type> data) {
     Store<MemoryAccessMaskNone>(data);
   }
 
-  // Constructs a cooperative vector with all values initialized to v.
   static CooperativeVector Splat(ComponentType v);
 
-  // Returns the number of components in the cooperative vector.
   static uint32_t GetLength();
 
-  // Functions to access the elements of the cooperative vector. The index must
-  // be less than GetLength().
   void Set(ComponentType value, uint32_t index);
   ComponentType Get(uint32_t index);
 
   static const bool hasSignedIntegerComponentType =
       (ComponentType(0) - ComponentType(1) < ComponentType(0));
 
-  // clang-format off
   using SpirvVectorType = vk::SpirvOpaqueType<
-      /* OpTypeCooperativeVectorNV */ 5288,
+       5288,
       ComponentType,
       vk::integral_constant<uint, components> >;
 
   [[vk::ext_extension("SPV_NV_cooperative_vector")]]
-  [[vk::ext_capability(/* CooperativeVectorNV */ 5394)]]
+  [[vk::ext_capability( 5394)]]
   SpirvVectorType _vector;
-  // clang-format on
 };
 
-// Returns the result of OpCooperativeVectorMatrixMulNV: result = matrix * input.
-// The cooperative matrix operands are inferred from signedness.
 template <typename ResultComponentType, typename InputComponentType,
           uint M, uint K, class BufferType>
 CooperativeVector<ResultComponentType, M>
@@ -502,9 +414,6 @@ cooperativeVectorMatrixMul(
     uint stride, CooperativeVectorMatrixLayout layout,
     bool transpose);
 
-// Returns the result of OpCooperativeVectorMatrixMulAddNV:
-// result = matrix * input + bias.
-// The cooperative matrix operands are inferred from signedness.
 template <typename ResultComponentType, typename InputComponentType,
           uint M, uint K, class BufferType>
 CooperativeVector<ResultComponentType, M>
@@ -518,8 +427,6 @@ cooperativeVectorMatrixMulAdd(
     uint stride, CooperativeVectorMatrixLayout layout,
     bool transpose);
 
-// Atomically accumulates v1 * transpose(v2) into buf.
-// REQUIRES: CooperativeVectorTrainingNV capability.
 template <typename T, uint M, uint N, class BufferType>
 void cooperativeVectorOuterProductAccumulate(
     CooperativeVector<T, M> v1,
@@ -527,112 +434,93 @@ void cooperativeVectorOuterProductAccumulate(
     BufferType buf, uint offset, uint stride,
     CooperativeVectorMatrixLayout layout, uint matrixInterpretation);
 
-// Atomically adds vector components to buf.
-// REQUIRES: CooperativeVectorTrainingNV capability.
 template <typename T, uint N, class BufferType>
 void cooperativeVectorReduceSumAccumulate(
     CooperativeVector<T, N> v,
     BufferType buf, uint offset);
 
-} // namespace nv
-} // namespace vk
+}
+}
 
-#endif // _HLSL_VK_NV_COOPERATIVE_VECTOR_H_
-// ----- end vk/nv/cooperative_vector.h -----
-
-// ----- begin vk/nv/cooperative_vector.impl -----
-// Copyright (c) 2024 Google LLC
-//
-// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#endif
 
 
-// ============================================================================
-// Inline-SPIR-V Builtin Declarations
-// ============================================================================
 
-// --- Composite operations for element access ---
+
 
 template <typename ComponentType, uint components>
-[[vk::ext_instruction(/* OpCompositeExtract */ 81)]] ComponentType
+[[vk::ext_instruction( 81)]] ComponentType
 __builtin_spv_ExtractFromCooperativeVector(
     typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType vec,
     uint32_t index);
 
 template <typename CoopVecType, typename ComponentType>
-[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+[[vk::ext_instruction( 80)]] CoopVecType
 __builtin_spv_ConstructCooperativeVector(ComponentType value);
 
 template <typename CoopVecType, typename ComponentType>
-[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+[[vk::ext_instruction( 80)]] CoopVecType
 __builtin_spv_ConstructCooperativeVector_2(ComponentType v0, ComponentType v1);
 
 template <typename CoopVecType, typename ComponentType>
-[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+[[vk::ext_instruction( 80)]] CoopVecType
 __builtin_spv_ConstructCooperativeVector_4(ComponentType v0, ComponentType v1, ComponentType v2, ComponentType v3);
 
 template <typename CoopVecType, typename ComponentType>
-[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+[[vk::ext_instruction( 80)]] CoopVecType
 __builtin_spv_ConstructCooperativeVector_8(ComponentType v0, ComponentType v1, ComponentType v2, ComponentType v3, ComponentType v4, ComponentType v5, ComponentType v6, ComponentType v7);
 
 template <typename CoopVecType, typename ComponentType>
-[[vk::ext_instruction(/* OpCompositeConstruct */ 80)]] CoopVecType
+[[vk::ext_instruction( 80)]] CoopVecType
 __builtin_spv_ConstructCooperativeVector_16(ComponentType v0, ComponentType v1, ComponentType v2, ComponentType v3, ComponentType v4, ComponentType v5, ComponentType v6, ComponentType v7, ComponentType v8, ComponentType v9, ComponentType v10, ComponentType v11, ComponentType v12, ComponentType v13, ComponentType v14, ComponentType v15);
 
 template <typename ComponentType, uint components>
-[[vk::ext_instruction(/* OpCompositeInsert */ 82)]]
+[[vk::ext_instruction( 82)]]
 typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType
 __builtin_spv_InsertIntoCooperativeVector(
     ComponentType value,
     typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType vec,
     uint32_t index);
 
-// Literal-index variants. OpCompositeExtract and OpCompositeInsert require
-// their indices to be compile-time literals, so the index parameter is marked
-// with [[vk::ext_literal]].
 template <typename ComponentType, uint components>
-[[vk::ext_instruction(/* OpCompositeExtract */ 81)]] ComponentType
+[[vk::ext_instruction( 81)]] ComponentType
 __builtin_spv_ExtractFromCooperativeVectorLit(
     typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType vec,
     [[vk::ext_literal]] uint32_t index);
 
 template <typename ComponentType, uint components>
-[[vk::ext_instruction(/* OpCompositeInsert */ 82)]]
+[[vk::ext_instruction( 82)]]
 typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType
 __builtin_spv_InsertIntoCooperativeVectorLit(
     ComponentType value,
     typename vk::nv::CooperativeVector<ComponentType, components>::SpirvVectorType vec,
     [[vk::ext_literal]] uint32_t index);
 
-// --- Matrix-times-scalar for scalar multiplication ---
 
 template <typename ResultType, typename ComponentType>
-[[vk::ext_instruction(/* OpMatrixTimesScalar */ 143)]] ResultType
+[[vk::ext_instruction( 143)]] ResultType
 __builtin_spv_MatrixTimesScalar(ResultType a, ComponentType b);
 
-// --- OpCooperativeVectorMatrixMulNV (5289) ---
 
 template <typename ResultType, typename InputVectorType,
           typename MatrixPointerType>
-[[vk::ext_instruction(/* OpCooperativeVectorMatrixMulNV */ 5289)]] ResultType
+[[vk::ext_instruction( 5289)]] ResultType
 __builtin_spv_CooperativeVectorMatrixMulNV(
-    InputVectorType input,                        // IdRef
-    uint inputInterpretation,                     // IdRef
-    [[vk::ext_reference]] MatrixPointerType matrix, // IdRef (pointer)
-    uint matrixOffset,                            // IdRef
-    uint matrixInterpretation,                    // IdRef
-    uint M, uint K,                               // IdRef
-    uint memoryLayout,                            // IdRef
-    bool transpose,                               // IdRef
-    uint matrixStride,                            // IdRef
-    [[vk::ext_literal]] uint32_t operands);       // CooperativeMatrixOperands LITERAL
+    InputVectorType input,
+    uint inputInterpretation,
+    [[vk::ext_reference]] MatrixPointerType matrix,
+    uint matrixOffset,
+    uint matrixInterpretation,
+    uint M, uint K,
+    uint memoryLayout,
+    bool transpose,
+    uint matrixStride,
+    [[vk::ext_literal]] uint32_t operands);
 
-// --- OpCooperativeVectorMatrixMulAddNV (5292) ---
 
 template <typename ResultType, typename InputVectorType,
           typename MatrixPointerType, typename BiasPointerType>
-[[vk::ext_instruction(/* OpCooperativeVectorMatrixMulAddNV */ 5292)]] ResultType
+[[vk::ext_instruction( 5292)]] ResultType
 __builtin_spv_CooperativeVectorMatrixMulAddNV(
     InputVectorType input,
     uint inputInterpretation,
@@ -646,64 +534,53 @@ __builtin_spv_CooperativeVectorMatrixMulAddNV(
     uint matrixStride,
     [[vk::ext_literal]] uint32_t operands);
 
-// --- OpCooperativeVectorOuterProductAccumulateNV (5290) ---
-// NOTE: Requires CooperativeVectorTrainingNV (5435) capability
 
 template <typename VecType1, typename VecType2, typename PointerType>
-[[vk::ext_instruction(/* OpCooperativeVectorOuterProductAccumulateNV */ 5290)]]
-[[vk::ext_capability(/* CooperativeVectorTrainingNV */ 5435)]] void
+[[vk::ext_instruction( 5290)]]
+[[vk::ext_capability( 5435)]] void
 __builtin_spv_CooperativeVectorOuterProductAccumulateNV(
     [[vk::ext_reference]] PointerType buf, uint offset,
     VecType1 v1, VecType2 v2,
     uint memoryLayout, uint matrixInterpretation, uint matrixStride);
 
-// --- OpCooperativeVectorReduceSumAccumulateNV (5291) ---
-// NOTE: Requires CooperativeVectorTrainingNV (5435) capability
 
 template <typename VecType, typename PointerType>
-[[vk::ext_instruction(/* OpCooperativeVectorReduceSumAccumulateNV */ 5291)]]
-[[vk::ext_capability(/* CooperativeVectorTrainingNV */ 5435)]] void
+[[vk::ext_instruction( 5291)]]
+[[vk::ext_capability( 5435)]] void
 __builtin_spv_CooperativeVectorReduceSumAccumulateNV(
     [[vk::ext_reference]] PointerType buf, uint offset, VecType v);
 
-// --- OpCooperativeVectorLoadNV (5302) ---
 
 template <typename ResultType, typename PointerType>
-[[vk::ext_instruction(/* OpCooperativeVectorLoadNV */ 5302)]] ResultType
+[[vk::ext_instruction( 5302)]] ResultType
 __builtin_spv_CooperativeVectorLoadNV(
     [[vk::ext_reference]] PointerType pointer, uint offset,
     [[vk::ext_literal]] uint32_t memoryAccess);
 
-// --- OpCooperativeVectorStoreNV (5303) ---
 
 template <typename ObjectType, typename PointerType>
-[[vk::ext_instruction(/* OpCooperativeVectorStoreNV */ 5303)]] void
+[[vk::ext_instruction( 5303)]] void
 __builtin_spv_CooperativeVectorStoreNV(
     [[vk::ext_reference]] PointerType pointer, uint offset,
     ObjectType object,
     [[vk::ext_literal]] uint32_t memoryAccess);
 
-// --- OpCooperativeVectorLoadNV from WorkgroupSpirvPointer ---
 
 template <typename ResultType, typename PointerType>
-[[vk::ext_instruction(/* OpCooperativeVectorLoadNV */ 5302)]] ResultType
+[[vk::ext_instruction( 5302)]] ResultType
 __builtin_spv_CooperativeVectorWorkgroupLoadNV(
     vk::WorkgroupSpirvPointer<PointerType> pointer, uint offset,
     [[vk::ext_literal]] uint32_t memoryAccess);
 
-// --- OpCooperativeVectorStoreNV to WorkgroupSpirvPointer ---
 
 template <typename ObjectType, typename PointerType>
-[[vk::ext_instruction(/* OpCooperativeVectorStoreNV */ 5303)]] void
+[[vk::ext_instruction( 5303)]] void
 __builtin_spv_CooperativeVectorWorkgroupStoreNV(
     vk::WorkgroupSpirvPointer<PointerType> pointer, uint offset,
     ObjectType object,
     [[vk::ext_literal]] uint32_t memoryAccess);
 
 
-// ============================================================================
-// Template Method Implementations
-// ============================================================================
 
 namespace vk {
 namespace nv {
@@ -844,10 +721,6 @@ uint32_t CooperativeVector<ComponentType, components>::GetLength() {
   return components;
 }
 
-// OpCompositeExtract/OpCompositeInsert require compile-time literal indices,
-// so a runtime index is dispatched to the literal-index builtins through a
-// recursive template chain. After the dispatch is inlined, constant indices
-// are folded to a single literal-index instruction.
 template <uint32_t I, uint32_t N, class ComponentType>
 struct CooperativeVectorSetDispatch {
   static void
@@ -903,9 +776,6 @@ void CooperativeVector<ComponentType, components>::Set(
 }
 
 
-// ============================================================================
-// Free Function Implementations
-// ============================================================================
 
 template <typename ResultComponentType, typename InputComponentType,
           uint M, uint K, class BufferType>
@@ -993,18 +863,13 @@ void cooperativeVectorReduceSumAccumulate(
       buf, offset, v._vector);
 }
 
-} // namespace nv
-} // namespace vk
-// ----- end vk/nv/cooperative_vector.impl -----
+}
+}
 
 
 namespace dx {
 namespace linalg {
 
-// NOTE: can't be an enum class because we get this error:
-//     error: non-type template argument of type 'dx::linalg::DataType' is not
-//     an integral constant expression
-//
 enum DataType {
   DATA_TYPE_SINT16 = 2,
   DATA_TYPE_UINT16 = 3,
@@ -1027,9 +892,6 @@ enum MatrixLayout {
   MATRIX_LAYOUT_OUTER_PRODUCT_OPTIMAL = 3
 };
 
-//
-// (RW)MatrixRef
-//
 
 template <typename BufferTy, DataType DT, uint M, uint K, MatrixLayout ML,
           bool Transpose>
@@ -1045,9 +907,6 @@ using MatrixRef = MatrixRefImpl<ByteAddressBuffer, DT, M, K, ML, Transpose>;
 template <DataType DT, uint M, uint K, MatrixLayout ML, bool Transpose = false>
 using RWMatrixRef = MatrixRefImpl<RWByteAddressBuffer, DT, M, K, ML, Transpose>;
 
-//
-// (RW)VectorRef
-//
 
 template <typename BufferTy, DataType DT> struct VectorRefImpl {
   BufferTy Buffer;
@@ -1059,7 +918,6 @@ template <DataType DT> using VectorRef = VectorRefImpl<ByteAddressBuffer, DT>;
 template <DataType DT>
 using RWVectorRef = VectorRefImpl<RWByteAddressBuffer, DT>;
 
-// --- Map dx::linalg::MatrixLayout to vk::CooperativeVectorMatrixLayout ---
 
 template <MatrixLayout ML> struct MatrixLayoutMap {};
 template <> struct MatrixLayoutMap<MATRIX_LAYOUT_ROW_MAJOR> {
@@ -1079,7 +937,6 @@ template <> struct MatrixLayoutMap<MATRIX_LAYOUT_OUTER_PRODUCT_OPTIMAL> {
       vk::CooperativeVectorMatrixLayoutTrainingOptimalNV;
 };
 
-// --- Map dx::linalg::DataType to SPIR-V component type ---
 
 template <DataType DT> struct ComponentTypeMap {};
 template <> struct ComponentTypeMap<DATA_TYPE_FLOAT16> {
@@ -1119,9 +976,6 @@ template <> struct ComponentTypeMap<DATA_TYPE_FLOAT8_E5M2> {
   static const uint value = vk::CooperativeVectorComponentTypeFloatE5M2NV;
 };
 
-//
-// CoopMul — SPIR-V version (uses CooperativeVector)
-//
 template <typename MatrixBuffer, typename InType, typename OutType,
           DataType MatRefType, uint in_dim, uint out_dim>
 vk::nv::CooperativeVector<OutType, out_dim> CoopMul(
@@ -1134,14 +988,11 @@ vk::nv::CooperativeVector<OutType, out_dim> CoopMul(
         ComponentTypeMap<MatRefType>::value,
         mat_buffer, mat_offset,
         ComponentTypeMap<MatRefType>::value,
-        /*stride*/ 0,
+         0,
         vk::CooperativeVectorMatrixLayoutInferencingOptimalNV,
-        /*transpose*/ false);
+         false);
 }
 
-//
-// CoopMulAdd — SPIR-V version
-//
 template <typename MatrixBuffer, typename BiasBuffer, typename InType,
           typename OutType, DataType MatRefType, DataType BiasRefType,
           uint in_dim, uint out_dim>
@@ -1159,14 +1010,11 @@ vk::nv::CooperativeVector<OutType, out_dim> CoopMulAdd(
         ComponentTypeMap<MatRefType>::value,
         bias_buffer, bias_offset,
         ComponentTypeMap<BiasRefType>::value,
-        /*stride*/ 0,
+         0,
         vk::CooperativeVectorMatrixLayoutInferencingOptimalNV,
-        /*transpose*/ false);
+         false);
 }
 
-//
-// CoopOuterProductAccum — SPIR-V version
-//
 template <typename MatrixBuffer, typename ElTy, int MatrixM, int MatrixN,
           DataType MatrixDT>
 void CoopOuterProductAccum(
@@ -1177,14 +1025,11 @@ void CoopOuterProductAccum(
 ){
   vk::nv::cooperativeVectorOuterProductAccumulate(
       v1, v2,
-      buffer, buffer_offset, /*stride*/ 0,
+      buffer, buffer_offset,  0,
       vk::CooperativeVectorMatrixLayoutTrainingOptimalNV,
       ComponentTypeMap<MatrixDT>::value);
 }
 
-//
-// CoopVectorAccumulate — SPIR-V version
-//
 template <typename ElTy, int ElCount>
 void CoopVectorAccumulate(RWByteAddressBuffer Buffer, uint Offset,
                           vk::nv::CooperativeVector<ElTy, ElCount> InputVector) {
@@ -1192,9 +1037,6 @@ void CoopVectorAccumulate(RWByteAddressBuffer Buffer, uint Offset,
       InputVector, Buffer, Offset);
 }
 
-//
-// CoopVecLoad — SPIR-V version (element-wise load via .Set() — works reliably)
-//
 template <typename ElTy, int ElCount>
 vk::nv::CooperativeVector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint offset) {
     vk::nv::CooperativeVector<ElTy, ElCount> result;
@@ -1204,9 +1046,6 @@ vk::nv::CooperativeVector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint
     return result;
 }
 
-//
-// CoopVecStore — SPIR-V version (element-wise store via .Get() — works reliably)
-//
 template <typename ElTy, int ElCount>
 void CoopVecStore(RWByteAddressBuffer buf, uint offset, vk::nv::CooperativeVector<ElTy, ElCount> v) {
     [unroll] for (int i = 0; i < ElCount; ++i) {
@@ -1214,9 +1053,6 @@ void CoopVecStore(RWByteAddressBuffer buf, uint offset, vk::nv::CooperativeVecto
     }
 }
 
-//
-// CoopVecSplat — SPIR-V version (construct element-by-element for reliability)
-//
 template <typename ElTy, int ElCount>
 vk::nv::CooperativeVector<ElTy, ElCount> CoopVecSplat(ElTy scalar) {
     vk::nv::CooperativeVector<ElTy, ElCount> result;
@@ -1226,31 +1062,22 @@ vk::nv::CooperativeVector<ElTy, ElCount> CoopVecSplat(ElTy scalar) {
     return result;
 }
 
-//
-// CoopVecCast — SPIR-V version (cast on cooperative vector)
-//
 template <typename ToTy, typename FromTy, int ElCount>
 vk::nv::CooperativeVector<ToTy, ElCount> CoopVecCast(vk::nv::CooperativeVector<FromTy, ElCount> v) {
     return v.template cast<ToTy>();
 }
 
-//
-// CoopVecWorkgroupLoad — SPIR-V version using WorkgroupSpirvPointer
-//
 template <typename ElTy, int ElCount, typename SharedBufType>
 vk::nv::CooperativeVector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index) {
     return vk::nv::CooperativeVector<ElTy, ElCount>::Load(
         vk::GetGroupSharedAddress(shared_data[index]));
 }
 
-//
-// CoopVecWorkgroupStore — SPIR-V version using WorkgroupSpirvPointer
-//
 template <typename ElTy, int ElCount, typename SharedBufType>
 void CoopVecWorkgroupStore(SharedBufType shared_data, uint index,
                            vk::nv::CooperativeVector<ElTy, ElCount> v) {
     v.Store(vk::GetGroupSharedAddress(shared_data[index]));
 }
 
-} // namespace linalg
-} // namespace dx
+}
+}

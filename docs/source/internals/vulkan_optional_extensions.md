@@ -148,10 +148,25 @@ The backend also logs one line per negotiated extension at device creation.
 `VK_KHR_shader_abort` are appended to the persistent
 `lc::spirv::SpirvTargetFeatureMask` ABI
 (`src/backends/common/spirv/spirv_codegen/target_feature_mask.h`) and populated
-from `Device::enabled_spirv_target_features()`. A shader artifact can therefore
+from `Device::enabled_spirv_artifact_features()`. A shader artifact can therefore
 record that it requires one of these capabilities, and the artifact cache keys
-on it. They stay `active=false` until a code generator emission site uses them,
-so no kernel changes behaviour today.
+on it.
+
+Two of them are used by generated shaders, on both code generation routes:
+
+| Capability | Native XIR-to-SPIR-V | Compatibility HLSL-to-SPIR-V |
+| --- | --- | --- |
+| `VK_KHR_shader_fma` | `OpFmaKHR` for a 32-bit `fma()` | `_fma` becomes `mad()`, which dxc lowers to `OpFmaKHR` (`builtin/hlsl_header.bytes`) |
+| `VK_KHR_shader_abort` | `OpAbortKHR` | `$debug_break` becomes `vk::Abort(...)`, which dxc lowers to `OpAbortKHR` |
+
+The HLSL route reads the same negotiated mask: it fills
+`lc::hlsl::SpirvShaderCapabilities` in `Device::_create_shader_hlsl` and
+`VkRasterExt::create_raster_shader`, defines the header macros that select those
+instructions only for a capability that is set, and only then passes the
+matching `-fspv-extension=` to dxc - a module that declares a capability the
+device did not enable is rejected at pipeline creation. Every other capability
+stays `active=false` until an emission site uses it, so no kernel changes
+behaviour for those.
 
 ### Ray tracing
 
@@ -181,6 +196,29 @@ code generator additionally declares `OpExecutionModeId OpacityMicromapIdKHR` wi
 `OpSpecConstantTrue` operand (target feature
 `ray_tracing_opacity_micromap`). The others are capability-only; each blocker is
 recorded in code with the exact entry points that would be required.
+
+The cluster ID of `VK_NV_cluster_acceleration_structure` is also **reachable from the
+public API**: `InlineRayQuery::committed_cluster_id()`,
+`InlineRayQuery::candidate_cluster_id()` and `SurfaceCandidate::cluster_id()` emit
+`CallOp::RAY_QUERY_CLUSTER_ID`, which lowers to
+`OpRayQueryGetIntersectionClusterIdNV` (`SPV_NV_cluster_acceleration_structure`).
+A cluster acceleration structure groups the triangles of a mesh into clusters and gives
+each one an identity (`make_cluster_build_info(cluster_id, ...)`); reading it back is how
+a renderer picks the material, the LOD or the shading bin of a hit instead of deriving
+that decision from the primitive index. Three boundaries:
+
+- the instruction is SPIR-V only (DXIL has no cluster acceleration structures), so the DX
+  codegen rejects the operation instead of emitting a call with no definition;
+- it needs `cluster_acceleration_structure_enabled` on the device, which the HLSL route
+  turns into `-fspv-extension=SPV_NV_cluster_acceleration_structure` plus the
+  `LUISA_SPV_CLUSTER_AS` header macro - the extension is opt-in in dxc, so without it the
+  call is a compile error rather than a module that declares an extension the device
+  never enabled;
+- the native XIR-to-SPIR-V route does not emit the instruction, so a kernel that reads a
+  cluster ID takes the compatibility HLSL route
+  (`UserComputeHlslFallbackReason::RAY_QUERY_CLUSTER_ID`). The intersection selector is a
+  constant in the AST (0 = candidate, 1 = committed) because SPIR-V requires a constant
+  operand there; a computed selector is refused, not silently mis-lowered.
 
 ### Rasterization
 
@@ -229,6 +267,7 @@ invariant that none of them is ever assumed enabled.
 | `test_vk_ext_shader_caps` | Capability matrix, new `SpirvTargetFeatureMask` bits, no collisions. |
 | `test_vk_ext_rt` | Micromap build-input planning, SER applicability, geometry flags. |
 | `test_vk_ext_misc` | Descriptor-heap planner, descriptor offsets, bindless migration artifact, vendor-plan invariants. |
+| `test_rtx_cluster` (GPU) | Cluster (mega-geometry) BLAS built from `ClusterBuildInfo` records: committed t and the hit/miss decision against an analytic oracle and against an equivalent triangle BLAS, in two submission orders, plus the cluster ID read back through `OpRayQueryGetIntersectionClusterIdNV` (committed *and* candidate selector, opaque and non-opaque instance). Skips with exit code 77 on a backend/device without cluster acceleration structures. |
 | `test_vk_optional_extensions` (GPU) | Creates the device twice — once with every switch off, once with defaults — runs a compute + bindless + image workload in both, and asserts `enabled ⊆ supported`, `enabled ⊆ requested`, `active ⊆ enabled`, plus that the unified-layout fast path is genuinely active when enabled. |
 
 Run the host tests with `xmake run <target>` and the device test with

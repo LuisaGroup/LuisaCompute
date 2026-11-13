@@ -1,5 +1,11 @@
 #pragma once
 
+// X11 exposes None as a macro. Hide it before including dependencies too:
+// platform headers such as Windows SDK headers can also use None as a name.
+// Restore the caller's definition after this header.
+#pragma push_macro("None")
+#undef None
+
 #include <luisa/core/logging.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/command_list.h>
@@ -49,11 +55,16 @@ public:
 
     // Byte size of one per-triangle micromap index, i.e. the VkIndexType subset
     // `VkAccelerationStructureTrianglesOpacityMicromapEXT::indexType` allows
-    // (UINT8 additionally needs VK_KHR_index_type_uint8). `None` means the mesh
+    // (UINT8 additionally needs VK_KHR_index_type_uint8). `NoIndex` means the mesh
     // triangles map one-to-one onto the micromap triangles, which is the common
     // case and needs no index buffer at all.
+
+    // The zero enumerator is not called `None`: X11 defines `None` as a macro and
+    // depth_format.h restores that definition after its own enum (see the comment
+    // there), so an enumeration constant spelled `None` only compiles on a
+    // platform that never includes the X11 headers.
     enum class IndexFormat : uint32_t {
-        None = 0u,
+        NoIndex = 0u,
         UInt8 = 1u,
         UInt16 = 2u,
         UInt32 = 4u,
@@ -86,7 +97,7 @@ public:
         bool conservative{true};
         // Optional shared/per-triangle micromap index. `None` means the mesh's
         // triangles index the micromap triangles one-to-one.
-        IndexFormat index_format{IndexFormat::None};
+        IndexFormat index_format{IndexFormat::NoIndex};
     };
 
     // The three corners of one micro triangle, as barycentric coordinates in the
@@ -250,7 +261,7 @@ private:
         return data_byte_size(_option.format, _option.subdivision_level, _triangle_count);
     }
     [[nodiscard]] uint64_t index_byte_size() const noexcept {
-        return static_cast<uint64_t>(_option.index_format == IndexFormat::None ?
+        return static_cast<uint64_t>(_option.index_format == IndexFormat::NoIndex ?
                                          0u :
                                          static_cast<uint32_t>(_option.index_format)) *
                _triangle_count;
@@ -270,3 +281,5 @@ private:
 };
 
 }// namespace luisa::compute
+
+#pragma pop_macro("None")

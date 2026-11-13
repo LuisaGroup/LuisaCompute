@@ -1,4 +1,3 @@
-// autodiff
 #define _MARK_GRAD(x,dx) x##_grad=dx
 #define _GRAD(x) (x##_grad)
 void _accum_grad(inout float x_grad,float dx){x_grad+=select(isnan(dx),0,dx);}

@@ -688,7 +688,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "round"sv;
             break;
         case CallOp::FMA:
-            str << "_fma"sv;
+            // VK_KHR_shader_fma: only the 32-bit float forms have a fused implementation
+            // (`mad()`, which dxc lowers to OpFmaKHR), and only for a device that
+            // negotiated the extension.  Every other type - and a device without the
+            // capability - keeps the generic `_fma` template, which is an unfused
+            // multiply-add.
+            if (opt->isSpirv && opt->spirv_capabilities.fma &&
+                (expr->type()->is_float() ||
+                 (expr->type()->is_vector() && expr->type()->element()->is_float()))) {
+                str << "mad"sv;
+            } else {
+                str << "_fma"sv;
+            }
             break;
         case CallOp::COPYSIGN:
             str << "_copysign"sv;
@@ -2056,6 +2067,69 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             args[0]->accept(vis);
             str << ".CandidateType()!=CANDIDATE_NON_OPAQUE_TRIANGLE)"sv;
             return;
+        case CallOp::RAY_QUERY_CLUSTER_ID: {
+            // SPV_NV_cluster_acceleration_structure: the cluster ID of one
+            // intersection of the ray query, i.e.
+            // OpRayQueryGetIntersectionClusterIdNV.  The selector operand of the
+            // instruction has to be a constant 32-bit integer (SPIRV-Tools rejects
+            // anything else), so the AST carries it as a literal and the header
+            // bakes it into one of two wrappers - a computed selector can never
+            // reach the instruction.
+            if (!opt->isSpirv) {
+                LUISA_ERROR(
+                    "CallOp::RAY_QUERY_CLUSTER_ID is SPIR-V only: it lowers to "
+                    "OpRayQueryGetIntersectionClusterIdNV "
+                    "(SPV_NV_cluster_acceleration_structure), and DXIL has no "
+                    "cluster acceleration structure, so there is no DXIL opcode "
+                    "for it. Compile this kernel for the Vulkan backend on a "
+                    "device whose clusterAccelerationStructure feature is enabled.");
+            }
+            if (!opt->spirv_capabilities.cluster_acceleration_structure) {
+                LUISA_ERROR(
+                    "CallOp::RAY_QUERY_CLUSTER_ID needs a SPIR-V device with "
+                    "VK_NV_cluster_acceleration_structure: the accessor lowers to "
+                    "OpRayQueryGetIntersectionClusterIdNV, whose module declares "
+                    "the RayTracingClusterAccelerationStructureNV capability, and "
+                    "a device that did not enable the extension rejects a module "
+                    "that carries it. Enable the extension on the device (see "
+                    "VulkanDeviceConfigExt) or do not read the cluster ID.");
+            }
+            LUISA_ASSERT(args.size() == 2u,
+                         "RAY_QUERY_CLUSTER_ID takes the ray query and the "
+                         "intersection selector, got {} argument(s).",
+                         args.size());
+            LUISA_ASSERT(args[1]->tag() == Expression::Tag::LITERAL,
+                         "The intersection selector of RAY_QUERY_CLUSTER_ID must "
+                         "be a constant 0 (candidate) or 1 (committed): SPIR-V "
+                         "requires the operand of "
+                         "OpRayQueryGetIntersectionClusterIdNV to be a constant "
+                         "32-bit integer.");
+            auto selector = static_cast<LiteralExpr const *>(args[1])->value();
+            LUISA_ASSERT(luisa::holds_alternative<uint>(selector) ||
+                             luisa::holds_alternative<int>(selector),
+                         "The intersection selector of RAY_QUERY_CLUSTER_ID must "
+                         "be a 32-bit integer constant.");
+            auto selector_value = luisa::holds_alternative<uint>(selector) ?
+                                      luisa::get<uint>(selector) :
+                                      static_cast<uint>(luisa::get<int>(selector));
+            switch (selector_value) {
+                case 0u:
+                    str << "vk::nv::RayQueryGetCandidateIntersectionClusterId("sv;
+                    break;
+                case 1u:
+                    str << "vk::nv::RayQueryGetCommittedIntersectionClusterId("sv;
+                    break;
+                default:
+                    LUISA_ERROR(
+                        "The intersection selector of RAY_QUERY_CLUSTER_ID must be "
+                        "0 (candidate intersection) or 1 (committed intersection), "
+                        "got {}.",
+                        selector_value);
+            }
+            args[0]->accept(vis);
+            str << ')';
+            return;
+        }
         case CallOp::ZERO: {
             str << "_zero("sv;
             GetTypeName(*expr->type(), str, Usage::READ, true);

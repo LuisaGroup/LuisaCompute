@@ -246,8 +246,8 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
             auto llvm_ray = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_mask = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_zero = llvm::ConstantFP::getZero(b.getFloatTy());
-            constexpr auto flags_closest = optix::RAY_FLAG_DISABLE_ANYHIT | optix::RAY_FLAG_DISABLE_CLOSESTHIT;
-            constexpr auto flags_any = optix::RAY_FLAG_DISABLE_ANYHIT | optix::RAY_FLAG_DISABLE_CLOSESTHIT | optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT;
+            constexpr auto flags_closest = OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT;
+            constexpr auto flags_any = OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT;
             return op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST ?
                        _accel_trace_closest(b, flags_closest, llvm_accel, llvm_ray, llvm_zero, llvm_mask) :
                        _accel_trace_any(b, flags_any, llvm_accel, llvm_ray, llvm_zero, llvm_mask);
@@ -269,13 +269,13 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
             auto llvm_accel = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_instance_index = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_key_index = _get_llvm_value(b, func_ctx, inst->operand(2));
-            static_assert(sizeof(optix::SRTData) == 64);
-            auto llvm_motion_srt_ptr = _get_accel_instance_motion_data(b, llvm_accel, llvm_instance_index, llvm_key_index, sizeof(optix::SRTData));
+            static_assert(sizeof(OptixSRTData) == 64);
+            auto llvm_motion_srt_ptr = _get_accel_instance_motion_data(b, llvm_accel, llvm_instance_index, llvm_key_index, sizeof(OptixSRTData));
             b.CreateAlignmentAssumption(*_data_layout, llvm_motion_srt_ptr, 16);
             auto llvm_srt = llvm::PoisonValue::get(_get_llvm_type(inst->type())->reg_type);
             auto llvm_f32_type = b.getFloatTy();
 #define LUISA_MAKE_SRT_FIELD_LOAD(field, i0, i1) \
-    b.CreateInsertValue(llvm_srt, b.CreateLoad(llvm_f32_type, b.CreateInBoundsPtrAdd(llvm_motion_srt_ptr, b.getInt64(offsetof(optix::SRTData, field)))), {i0, i1});
+    b.CreateInsertValue(llvm_srt, b.CreateLoad(llvm_f32_type, b.CreateInBoundsPtrAdd(llvm_motion_srt_ptr, b.getInt64(offsetof(OptixSRTData, field)))), {i0, i1});
             LUISA_MAKE_SRT_FIELD_LOAD(pvx, 0, 0);
             LUISA_MAKE_SRT_FIELD_LOAD(pvy, 0, 1);
             LUISA_MAKE_SRT_FIELD_LOAD(pvz, 0, 2);
@@ -301,8 +301,8 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
             auto llvm_ray = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_time = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_mask = _get_llvm_value(b, func_ctx, inst->operand(3));
-            constexpr auto flags_closest = optix::RAY_FLAG_DISABLE_ANYHIT | optix::RAY_FLAG_DISABLE_CLOSESTHIT;
-            constexpr auto flags_any = optix::RAY_FLAG_DISABLE_ANYHIT | optix::RAY_FLAG_DISABLE_CLOSESTHIT | optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT;
+            constexpr auto flags_closest = OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT;
+            constexpr auto flags_any = OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT;
             return op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR ?
                        _accel_trace_closest(b, flags_closest, llvm_accel, llvm_ray, llvm_time, llvm_mask) :
                        _accel_trace_any(b, flags_any, llvm_accel, llvm_ray, llvm_time, llvm_mask);
@@ -688,8 +688,8 @@ void CUDACodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext 
             auto llvm_instance_index = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto llvm_key_index = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_srt = _get_llvm_value(b, func_ctx, inst->operand(3));
-            static_assert(sizeof(optix::SRTData) == 64);
-            auto llvm_motion_srt_ptr = _get_accel_instance_motion_data(b, llvm_accel, llvm_instance_index, llvm_key_index, sizeof(optix::SRTData));
+            static_assert(sizeof(OptixSRTData) == 64);
+            auto llvm_motion_srt_ptr = _get_accel_instance_motion_data(b, llvm_accel, llvm_instance_index, llvm_key_index, sizeof(OptixSRTData));
             b.CreateAlignmentAssumption(*_data_layout, llvm_motion_srt_ptr, 16);
             auto llvm_srt_pvx = b.CreateExtractValue(llvm_srt, {0, 0});
             auto llvm_srt_pvy = b.CreateExtractValue(llvm_srt, {0, 1});
@@ -709,7 +709,7 @@ void CUDACodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext 
             auto llvm_srt_tz = b.CreateExtractValue(llvm_srt, {4, 2});
             // store
 #define LUISA_MAKE_SRT_FIELD_STORE(field) \
-    b.CreateStore(llvm_srt_##field, b.CreateInBoundsPtrAdd(llvm_motion_srt_ptr, b.getInt64(offsetof(optix::SRTData, field))));
+    b.CreateStore(llvm_srt_##field, b.CreateInBoundsPtrAdd(llvm_motion_srt_ptr, b.getInt64(offsetof(OptixSRTData, field))));
             LUISA_MAKE_SRT_FIELD_STORE(pvx)
             LUISA_MAKE_SRT_FIELD_STORE(pvy)
             LUISA_MAKE_SRT_FIELD_STORE(pvz)
@@ -793,7 +793,7 @@ llvm::Value *CUDACodegenLLVMImpl::_get_accel_instance_motion_data(IB &b, llvm::V
     auto instance_data = b.CreateIntToPtr(instance_address, b.getPtrTy(nvptx_address_space_global));
     struct alignas(16) MotionDataHeader {
         uint64_t child;
-        optix::MotionOptions options;
+        OptixMotionOptions options;
         uint32_t pad[3];
     };
     static_assert(sizeof(MotionDataHeader) == 32);
@@ -819,10 +819,10 @@ void CUDACodegenLLVMImpl::_set_accel_instance_opacity(IB &b, llvm::Value *accel,
         IB fb{entry};
         auto flags_ptr = fb.CreateStructGEP(_get_llvm_accel_instance_type(), f->getArg(0), llvm_accel_instance_type_flags_index);
         auto flags = fb.CreateLoad(fb.getInt32Ty(), flags_ptr);
-        auto cleared_flags = fb.CreateAnd(flags, ~(optix::INSTANCE_FLAG_DISABLE_ANYHIT | optix::INSTANCE_FLAG_ENFORCE_ANYHIT));
+        auto cleared_flags = fb.CreateAnd(flags, ~(OPTIX_INSTANCE_FLAG_DISABLE_ANYHIT | OPTIX_INSTANCE_FLAG_ENFORCE_ANYHIT));
         auto new_flag_bit = fb.CreateSelect(f->getArg(1),
-                                            fb.getInt32(optix::INSTANCE_FLAG_DISABLE_ANYHIT),
-                                            fb.getInt32(optix::INSTANCE_FLAG_ENFORCE_ANYHIT));
+                                            fb.getInt32(OPTIX_INSTANCE_FLAG_DISABLE_ANYHIT),
+                                            fb.getInt32(OPTIX_INSTANCE_FLAG_ENFORCE_ANYHIT));
         fb.CreateStore(fb.CreateOr(cleared_flags, new_flag_bit), flags_ptr);
         fb.CreateRetVoid();
     }
@@ -858,7 +858,7 @@ void CUDACodegenLLVMImpl::_store_accel_affine_matrix(IB &b, llvm::Value *affine_
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_accel_trace_closest(IB &b, uint32_t flags, llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask) noexcept {
-    _call_optix_trace(b, optix::PAYLOAD_TYPE_ID_0, 0u, flags, accel, ray, time, mask, {});
+    _call_optix_trace(b, OPTIX_PAYLOAD_TYPE_ID_0, 0u, flags, accel, ray, time, mask, {});
     auto is_hit = _call_optix_hit_object_is_hit(b);
     auto invalid_id = b.getInt32(~0u);
     auto inst_id = b.CreateSelect(is_hit, _call_optix_hit_object_instance_index(b), invalid_id);
@@ -866,8 +866,8 @@ llvm::Value *CUDACodegenLLVMImpl::_accel_trace_closest(IB &b, uint32_t flags, ll
     auto bary = _call_optix_hit_object_triangle_barycentrics(b);
     if (_rt_analysis.curve_basis_set.any()) {// might be a curve
         auto hit_kind = _call_optix_hit_object_hit_kind(b);
-        auto is_triangle_front = b.CreateICmpEQ(hit_kind, b.getInt32(optix::HIT_KIND_TRIANGLE_FRONT_FACE));
-        auto is_triangle_back = b.CreateICmpEQ(hit_kind, b.getInt32(optix::HIT_KIND_TRIANGLE_BACK_FACE));
+        auto is_triangle_front = b.CreateICmpEQ(hit_kind, b.getInt32(OPTIX_HIT_KIND_TRIANGLE_FRONT_FACE));
+        auto is_triangle_back = b.CreateICmpEQ(hit_kind, b.getInt32(OPTIX_HIT_KIND_TRIANGLE_BACK_FACE));
         auto is_triangle = b.CreateOr(is_triangle_front, is_triangle_back);
         auto curve_param = b.CreateInsertElement(bary, llvm::ConstantFP::get(b.getFloatTy(), -1.), b.getInt64(1));
         bary = b.CreateSelect(is_triangle, bary, curve_param);
@@ -884,7 +884,7 @@ llvm::Value *CUDACodegenLLVMImpl::_accel_trace_closest(IB &b, uint32_t flags, ll
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_accel_trace_any(IB &b, uint32_t flags, llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask) noexcept {
-    _call_optix_trace(b, optix::PAYLOAD_TYPE_ID_0, 0u, flags, accel, ray, time, mask, {});
+    _call_optix_trace(b, OPTIX_PAYLOAD_TYPE_ID_0, 0u, flags, accel, ray, time, mask, {});
     auto is_hit = _call_optix_hit_object_is_hit(b);
     _call_optix_hit_object_reset(b);
     return is_hit;
@@ -967,7 +967,7 @@ void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32
     llvm_asm = llvm::InlineAsm::get(llvm_asm->getFunctionType(), llvm_asm->getAsmString(),
                                     (llvm_asm->getConstraintString() + ",~{memory}").str(), true);
     auto call = b.CreateCall(llvm_asm, args);
-    if (payload_type == optix::PAYLOAD_TYPE_ID_1) {
+    if (payload_type == OPTIX_PAYLOAD_TYPE_ID_1) {
         _ray_query_trace_calls.emplace_back(call);
         _ray_query_payload_count = std::max(_ray_query_payload_count, static_cast<uint32_t>(registers.size()));
     }

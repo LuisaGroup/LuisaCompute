@@ -4,6 +4,7 @@
  */
 
 #include "infer_engine.h"
+#include <libntc/buffer_copy.h>
 #include <luisa/core/logging.h>
 #include <chrono>
 
@@ -86,9 +87,9 @@ bool InferEngine::load_container(const NtexContainer &container) {
     _scaleBuffer = device.create_buffer<float>(hostScales.size());
     _biasBuffer = device.create_buffer<int>(hostBiases.size());
 
-    stream << _weightBuffer.copy_from(hostWeights.data())
-           << _scaleBuffer.copy_from(hostScales.data())
-           << _biasBuffer.copy_from(hostBiases.data());
+    stream << copy_to_device(_weightBuffer, hostWeights.data())
+           << copy_to_device(_scaleBuffer, hostScales.data())
+           << copy_to_device(_biasBuffer, hostBiases.data());
 
     // 2. Unpack Latents
     std::vector<uint32_t> allLatents;
@@ -120,9 +121,9 @@ bool InferEngine::load_container(const NtexContainer &container) {
     _latentMipDims = device.create_buffer<uint>(std::max<size_t>(mipDims.size(), 1));
 
     if (!allLatents.empty()) {
-        stream << _latentBuffer.copy_from(allLatents.data())
-               << _latentMipOffsets.copy_from(mipOffsets.data())
-               << _latentMipDims.copy_from(mipDims.data());
+        stream << copy_to_device(_latentBuffer, allLatents.data())
+               << copy_to_device(_latentMipOffsets, mipOffsets.data())
+               << copy_to_device(_latentMipDims, mipDims.data());
     }
 
     // 3. Compile high-throughput DSL Kernel
@@ -363,7 +364,7 @@ std::vector<DecompressedTexture> InferEngine::decompress_all_textures(const Ntex
 
     size_t total_pixels = static_cast<size_t>(mip_w) * mip_h;
     std::vector<float> host_pixels(total_pixels * NTC_MLP_OUTPUT_CHANNELS);
-    stream << out_gpu.copy_to(host_pixels.data()) << synchronize();
+    stream << copy_from_device(out_gpu, host_pixels.data()) << synchronize();
 
     std::vector<DecompressedTexture> results;
     results.reserve(container.textures.size());

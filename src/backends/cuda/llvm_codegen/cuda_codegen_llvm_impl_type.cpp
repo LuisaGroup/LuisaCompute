@@ -346,8 +346,8 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_accel_instance_type() noexcept {
                 llvm_padding_type// padding
             },
             false);
-        struct alignas(16) OptiXInstance : optix::Instance {};
-        static_assert(sizeof(OptiXInstance) == sizeof(optix::Instance));
+        struct alignas(16) OptiXInstance : OptixInstance {};
+        static_assert(sizeof(OptiXInstance) == sizeof(OptixInstance));
         detail::luisa_check_llvm_type_size_and_alignment(
             *_data_layout, _llvm_accel_instance_type,
             sizeof(OptiXInstance), alignof(OptiXInstance));

@@ -733,6 +733,11 @@ if (TARGET luisa-compute-hlsl-codegen)
     target_link_libraries(test_hlsl_validation_codegen PRIVATE
             luisa-compute-hlsl-codegen
             SPIRV-Tools-opt)
+    luisa_compute_add_test(test_hlsl_spirv_capabilities unit/ext/test_hlsl_spirv_capabilities.cpp LABELS "unit;unit_ext;hlsl")
+    target_include_directories(test_hlsl_spirv_capabilities PRIVATE ../backends/common/hlsl)
+    target_link_libraries(test_hlsl_spirv_capabilities PRIVATE
+            luisa-compute-hlsl-codegen
+            SPIRV-Tools-opt)
 endif ()
 if (TARGET luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_buffer_layout unit/ext/test_spirv_buffer_layout.cpp LABELS "unit;unit_ext;spirv")
@@ -1410,6 +1415,7 @@ if (LUISA_COMPUTE_ENABLE_CUDA)
         endforeach ()
     endif ()
 endif ()
+luisa_compute_add_test(test_opacity_micromap_header unit/runtime/test_opacity_micromap_header.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_buffer_io           unit/runtime/test_buffer_io.cpp)
 luisa_compute_add_test(test_buffer              unit/runtime/test_buffer.cpp)
 luisa_compute_add_test(test_out_of_range        unit/runtime/test_out_of_range.cpp)

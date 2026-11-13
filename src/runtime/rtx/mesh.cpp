@@ -75,7 +75,7 @@ MeshCutoutMask::MeshCutoutMask(const OpacityMicromap &cutout) noexcept {
     data_buffer = data.handle();
     data_offset = data.offset_bytes();
     data_size = data.size_bytes();
-    if (cutout.index_format() != OpacityMicromap::IndexFormat::None) {
+    if (cutout.index_format() != OpacityMicromap::IndexFormat::NoIndex) {
         auto index = cutout.index();
         index_buffer = index.handle();
         index_offset = index.offset_bytes();

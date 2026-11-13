@@ -71,6 +71,12 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     // other part of the generated source depends on it
     // (DeviceConfigExt::use_fallback_rtx()).
     bool fallback_rtx : 1 = false;
+    // Optional shader-capability extensions of the SPIR-V target
+    // (`SpirvShaderCapabilities`).  `detail::AddHeader` turns them into the header
+    // macros that select their instructions, and `$debug_break` is only emitted when
+    // `abort` is set.  Empty for the DXIL backend and for a device that negotiated
+    // neither extension.
+    SpirvShaderCapabilities spirv_capabilities{};
     // Key: pair of (function hash, variable uid) → validate index in _validate_N array
     struct ValidateKey {
         uint64_t func_hash;

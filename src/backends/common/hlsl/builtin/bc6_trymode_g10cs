@@ -102,18 +102,15 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
  GroupMemoryBarrierWithGroupSync();
  #endif
 
- //ergod mode_type 11:14
  if ( threadInBlock == 0 )
  {
  int2x3 endPoint;
- // find_axis
  endPoint[0] = shared_temp[threadBase + 0].endPoint_low;
  endPoint[1] = shared_temp[threadBase + 0].endPoint_high;
  
- //compute_index
- float3 span = endPoint[1] - endPoint[0];// fixed a bug in v0.2
- float span_norm_sqr = dot( span, span );// fixed a bug in v0.2
- float dotProduct = dot( span, shared_temp[threadBase + 0].pixel_ph - endPoint[0] );// fixed a bug in v0.2
+ float3 span = endPoint[1] - endPoint[0];
+ float span_norm_sqr = dot( span, span );
+ float dotProduct = dot( span, shared_temp[threadBase + 0].pixel_ph - endPoint[0] );
  if ( span_norm_sqr > 0 && dotProduct >= 0 && uint( dotProduct * 63.49999 / span_norm_sqr ) > 32 )
  {
  swap(endPoint[0], endPoint[1]);
@@ -155,7 +152,7 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
  float error = 0;
  [loop]for ( uint j = 0; j < 16; j ++ )
  {
- float dotProduct = dot( span, shared_temp[threadBase + j].pixel_ph - endPoint[0] );// fixed a bug in v0.2
+ float dotProduct = dot( span, shared_temp[threadBase + j].pixel_ph - endPoint[0] );
  uint index = ( span_norm_sqr <= 0 || dotProduct <= 0 ) ? 0
  : ( ( dotProduct < span_norm_sqr ) ? aStep2[ uint( dotProduct * 63.49999 / span_norm_sqr ) ] : aStep2[63] );
  

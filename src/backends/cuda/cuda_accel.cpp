@@ -3,6 +3,7 @@
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include "optix_error.h"
 #include "optix_api.h"
 #include "cuda_error.h"
 #include "cuda_stream.h"
@@ -14,10 +15,10 @@
 
 namespace luisa::compute::cuda {
 
-[[nodiscard]] inline optix::BuildInput cuda_accel_build_inputs(uint64_t instance_buffer,
+[[nodiscard]] inline OptixBuildInput cuda_accel_build_inputs(uint64_t instance_buffer,
                                                                uint instance_count) noexcept {
-    optix::BuildInput input{};
-    input.type = optix::BUILD_INPUT_TYPE_INSTANCES;
+    OptixBuildInput input{};
+    input.type = OPTIX_BUILD_INPUT_TYPE_INSTANCES;
     input.instanceArray.instances = instance_buffer;
     input.instanceArray.numInstances = instance_count;
     return input;
@@ -30,13 +31,13 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
     // build IAS
     auto instance_count = static_cast<uint>(_primitives.size());
     auto build_input = cuda_accel_build_inputs(_instance_buffer, instance_count);
-    auto build_options = make_optix_build_options(_option, optix::BUILD_OPERATION_BUILD);
+    auto build_options = make_optix_build_options(_option, OPTIX_BUILD_OPERATION_BUILD);
     auto optix_ctx = encoder.stream()->device()->handle().optix_context();
     auto cuda_stream = encoder.stream()->handle();
 
     Clock clock;
-    optix::AccelBufferSizes sizes{};
-    LUISA_CHECK_OPTIX(optix::api().accelComputeMemoryUsage(
+    OptixAccelBufferSizes sizes{};
+    LUISA_CHECK_OPTIX(optix::api().optixAccelComputeMemoryUsage(
         optix_ctx, &build_options, &build_input, 1u, &sizes));
     _update_buffer_size = sizes.tempUpdateSizeInBytes;
     // LUISA_VERBOSE("Computed accel memory usage in {} ms: "
@@ -47,7 +48,7 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
     if (_option.allow_compaction) {// with compaction
 
         static constexpr auto align = [](size_t x) noexcept {
-            constexpr auto a = optix::ACCEL_BUFFER_BYTE_ALIGNMENT;
+            constexpr auto a = OPTIX_ACCEL_BUFFER_BYTE_ALIGNMENT;
             return (x + a - 1u) / a * a;
         };
 
@@ -66,10 +67,10 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
 
         // build the acceleration structure and query the compacted size
         if (!_name.empty()) { nvtxRangePushA("build"); }
-        optix::AccelEmitDesc emit_desc{};
-        emit_desc.type = optix::PROPERTY_TYPE_COMPACTED_SIZE;
+        OptixAccelEmitDesc emit_desc{};
+        emit_desc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
         emit_desc.result = compacted_size_buffer;
-        LUISA_CHECK_OPTIX(optix::api().accelBuild(
+        LUISA_CHECK_OPTIX(optix::api().optixAccelBuild(
             optix_ctx, cuda_stream, &build_options, &build_input, 1,
             temp_buffer, sizes.tempSizeInBytes, output_buffer,
             sizes.outputSizeInBytes, &_handle, &emit_desc, 1u));
@@ -99,7 +100,7 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
             LUISA_CHECK_CUDA(cuMemAllocAsync(&_bvh_buffer, _bvh_buffer_size, cuda_stream));
         }
         if (!_name.empty()) { nvtxRangePushA("compact"); }
-        LUISA_CHECK_OPTIX(optix::api().accelCompact(
+        LUISA_CHECK_OPTIX(optix::api().optixAccelCompact(
             optix_ctx, cuda_stream, _handle, _bvh_buffer, _bvh_buffer_size, &_handle));
         if (!_name.empty()) { nvtxRangePop(); }
         LUISA_CHECK_CUDA(cuMemFreeAsync(build_buffer, cuda_stream));
@@ -115,7 +116,7 @@ void CUDAAccel::_build(CUDACommandEncoder &encoder) noexcept {
         LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, sizes.tempSizeInBytes, cuda_stream));
         // perform the build
         if (!_name.empty()) { nvtxRangePushA("build"); }
-        LUISA_CHECK_OPTIX(optix::api().accelBuild(
+        LUISA_CHECK_OPTIX(optix::api().optixAccelBuild(
             optix_ctx, cuda_stream, &build_options, &build_input, 1, temp_buffer,
             sizes.tempSizeInBytes, _bvh_buffer, _bvh_buffer_size, &_handle, nullptr, 0u));
         if (!_name.empty()) { nvtxRangePop(); }
@@ -129,11 +130,11 @@ void CUDAAccel::_update(CUDACommandEncoder &encoder) noexcept {
     if (!_name.empty()) { nvtxRangePushA(luisa::format("{}::update", _name).c_str()); }
     auto instance_count = static_cast<uint>(_primitives.size());
     auto build_input = cuda_accel_build_inputs(_instance_buffer, instance_count);
-    auto build_options = make_optix_build_options(_option, optix::BUILD_OPERATION_UPDATE);
+    auto build_options = make_optix_build_options(_option, OPTIX_BUILD_OPERATION_UPDATE);
     auto cuda_stream = encoder.stream()->handle();
     auto update_buffer = 0ull;
     LUISA_CHECK_CUDA(cuMemAllocAsync(&update_buffer, _update_buffer_size, cuda_stream));
-    LUISA_CHECK_OPTIX(optix::api().accelBuild(
+    LUISA_CHECK_OPTIX(optix::api().optixAccelBuild(
         encoder.stream()->device()->handle().optix_context(), cuda_stream,
         &build_options, &build_input, 1u, update_buffer, _update_buffer_size,
         _bvh_buffer, _bvh_buffer_size, &_handle, nullptr, 0u));
@@ -159,7 +160,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     LUISA_ASSERT(instance_count > 0u, "Instance count must be greater than 0.");
     // instance count reported by `Accel::size` (ResourceQueryOp::ACCEL_SIZE)
     _instance_count = static_cast<uint32_t>(instance_count);
-    if (auto size = instance_count * sizeof(optix::Instance); _instance_buffer_size < size) {
+    if (auto size = instance_count * sizeof(OptixInstance); _instance_buffer_size < size) {
         auto old_instance_buffer = _instance_buffer;
         auto new_instance_buffer_size = next_pow2(size);
         LUISA_CHECK_CUDA(cuMemAllocAsync(&_instance_buffer, new_instance_buffer_size, cuda_stream));
@@ -210,16 +211,16 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                                 m.flags |= mod_flag_curve_vertex_motion;
                             }
                             switch (auto basis = curve->basis()) {
-                                case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE:
+                                case OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE:
                                     m.flags |= mod_flag_curve_cubic_bspline;
                                     break;
-                                case optix::PRIMITIVE_TYPE_ROUND_LINEAR:
+                                case OPTIX_PRIMITIVE_TYPE_ROUND_LINEAR:
                                     m.flags |= mod_flag_curve_piecewise_linear;
                                     break;
-                                case optix::PRIMITIVE_TYPE_ROUND_CATMULLROM:
+                                case OPTIX_PRIMITIVE_TYPE_ROUND_CATMULLROM:
                                     m.flags |= mod_flag_curve_catmull_rom;
                                     break;
-                                case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER:
+                                case OPTIX_PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER:
                                     m.flags |= mod_flag_curve_bezier;
                                     break;
                                 default: LUISA_ERROR_WITH_LOCATION(
@@ -293,7 +294,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     if (changed_handle_count > 0u) {
         struct alignas(16u) ChangedHandle {
             size_t index;
-            optix::TraversableHandle handle;
+            OptixTraversableHandle handle;
         };
         auto size_bytes = changed_handle_count * sizeof(ChangedHandle);
         auto device_buffer = 0ull;
@@ -333,7 +334,7 @@ void CUDAAccel::set_name(luisa::string &&name) noexcept {
     _name = std::move(name);
 }
 
-optix::TraversableHandle CUDAAccel::handle() const noexcept {
+OptixTraversableHandle CUDAAccel::handle() const noexcept {
     std::scoped_lock lock{_mutex};
     return _handle;
 }

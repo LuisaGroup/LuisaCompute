@@ -10,18 +10,18 @@ namespace luisa::compute::cuda {
 CUDAMesh::CUDAMesh(const AccelOption &option) noexcept
     : CUDAPrimitive{Tag::MESH, option} {}
 
-inline optix::BuildInput CUDAMesh::_make_build_input() const noexcept {
-    optix::BuildInput build_input{};
-    static const auto geometry_flag = optix::GEOMETRY_FLAG_DISABLE_ANYHIT |
-                                      optix::GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
-    build_input.type = optix::BUILD_INPUT_TYPE_TRIANGLES;
+inline OptixBuildInput CUDAMesh::_make_build_input() const noexcept {
+    OptixBuildInput build_input{};
+    static const unsigned int geometry_flag = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT |
+                                      OPTIX_GEOMETRY_FLAG_DISABLE_TRIANGLE_FACE_CULLING;
+    build_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
     build_input.triangleArray.flags = &geometry_flag;
-    build_input.triangleArray.vertexFormat = optix::VERTEX_FORMAT_FLOAT3;
+    build_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
     build_input.triangleArray.vertexBuffers = _motion_buffer_pointers(_vertex_buffer, _vertex_buffer_size);
     build_input.triangleArray.vertexStrideInBytes = _vertex_stride;
     build_input.triangleArray.numVertices = _vertex_buffer_size / _vertex_stride / motion_keyframe_count();
     build_input.triangleArray.indexBuffer = _triangle_buffer;
-    build_input.triangleArray.indexFormat = optix::INDICES_FORMAT_UNSIGNED_INT3;
+    build_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
     build_input.triangleArray.indexStrideInBytes = sizeof(Triangle);
     build_input.triangleArray.numIndexTriplets = _triangle_buffer_size / sizeof(Triangle);
     build_input.triangleArray.numSbtRecords = 1u;

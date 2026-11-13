@@ -659,6 +659,60 @@ void test_whole_range_write_merges_sub_ranges() {
     expect(eq(reorder.command_lists().size(), 3u));
 }
 
+    // A cluster (mega-geometry) mesh build reads its vertex and index data through raw
+    // device addresses stored inside its ClusterBuildInfo records, so the pass cannot name
+    // those buffers as ordinary reads. It still has to order the build: after every command
+    // recorded before it, and before every buffer write recorded after it. Otherwise the
+    // copy engine may upload vertices concurrently with (or after) a build that already
+    // consumed the same buffer through a stale record.
+    void test_cluster_build_is_an_ordering_point() {
+        constexpr uint64_t records_buffer = 101u;
+        constexpr uint64_t vertex_buffer = 103u;
+        constexpr uint64_t mesh = 107u;
+        constexpr size_t bytes = 64u;
+        std::array<std::byte, bytes> records{};
+        std::array<std::byte, bytes> vertices{};
+        luisa::vector<luisa::unique_ptr<Command>> storage;
+        auto upload = [&](Reorder &reorder, uint64_t buffer, std::byte *data) {
+            auto cmd = luisa::make_unique<BufferUploadCommand>(buffer, 0u, bytes, data);
+            reorder.visit(cmd.get());
+            storage.emplace_back(std::move(cmd));
+        };
+        auto build = [&](Reorder &reorder) {
+            auto cmd = luisa::make_unique<MeshBuildCommand>(
+                mesh, AccelBuildRequest::FORCE_BUILD, records_buffer, 0u, bytes);
+            reorder.visit(cmd.get());
+            storage.emplace_back(std::move(cmd));
+        };
+        {
+            // uploads, cluster build, upload: three layers. The build must not share a
+            // layer with the vertex upload it reads through the records.
+            Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+            upload(reorder, vertex_buffer, vertices.data());// layer 0
+            upload(reorder, records_buffer, records.data()); // layer 0
+            build(reorder);                                 // layer 1
+            upload(reorder, vertex_buffer, vertices.data());// layer 2 (after the build)
+            expect(eq(reorder.command_lists().size(), 3u));
+        }
+        {
+            // A cluster build recorded first needs no extra layer of its own.
+            Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+            build(reorder);
+            expect(eq(reorder.command_lists().size(), 1u));
+        }
+        {
+            // A second vertex upload raises the batch maximum while the records copy stays
+            // in layer 0. The build must still land behind the vertex upload, which is the
+            // "after everything already recorded" half of the rule.
+            Reorder reorder{FakeReorderFuncTable{std::make_shared<FakeReorderState>()}};
+            upload(reorder, vertex_buffer, vertices.data()); // layer 0
+            upload(reorder, vertex_buffer, vertices.data()); // layer 1 (write after write)
+            upload(reorder, records_buffer, records.data()); // layer 0
+            build(reorder);                                  // layer 2
+            expect(eq(reorder.command_lists().size(), 3u));
+        }
+    }
+
 }// namespace
 
 static auto test_command_reorder_ranges_registration = [] {
@@ -677,6 +731,7 @@ static auto test_command_reorder_ranges_registration = [] {
     "visitor destruction with live state"_test = [] { test_visitor_destruction_with_live_state(); };
     "empty range semantics"_test = [] { test_empty_range_semantics(); };
     "whole range write merges sub ranges"_test = [] { test_whole_range_write_merges_sub_ranges(); };
+    "cluster build is an ordering point"_test = [] { test_cluster_build_is_an_ordering_point(); };
     return 0;
 }();
 

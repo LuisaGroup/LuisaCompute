@@ -53,7 +53,6 @@ static const uint candidateFixUpIndex1D[32] =
  8, 8, 2, 2
 };
 
-//0, 9, 18, 27, 37, 46, 55, 64
 static const uint aStep1[64] = {0,0,0,0,0,1,1,1,
  1,1,1,1,1,1,2,2,
  2,2,2,2,2,2,2,3,
@@ -63,7 +62,6 @@ static const uint aStep1[64] = {0,0,0,0,0,1,1,1,
  5,5,5,6,6,6,6,6,
 6,6,6,6,7,7,7,7};
 
-//0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64
 static const uint aStep2[64] = { 0, 0, 0, 1, 1, 1, 1, 2,
  2, 2, 2, 2, 3, 3, 3, 3,
  4, 4, 4, 4, 5, 5, 5, 5,
@@ -81,7 +79,6 @@ static const float3 RGB2LUM = float3(0.2126f, 0.7152f, 0.0722f);
 #define BLOCK_SIZE (BLOCK_SIZE_Y * BLOCK_SIZE_X)
 
 
-//Forward declaration
 uint3 float2half( float3 pixel_f );
 int3 start_quantize( uint3 pixel_h );
 void quantize( inout int2x3 endPoint, uint prec );
@@ -136,21 +133,17 @@ uint float2half1( float f )
  
  if (IValue > 0x47FFEFFFU)
  {
- // The number is too large to be represented as a half. Saturate to infinity.
  Result = 0x7FFFU;
  }
  else
  {
  if (IValue < 0x38800000U)
  {
- // The number is too small to be represented as a normalized half.
- // Convert it to a denormalized value.
  uint Shift = 113U - (IValue >> 23U);
  IValue = (0x800000U | (IValue & 0x7FFFFFU)) >> Shift;
  }
  else
  {
- // Rebias the exponent to represent the value as a normalized half.
  IValue += 0xC8000000U;
  }
 
@@ -161,17 +154,6 @@ uint float2half1( float f )
 
 uint3 float2half( float3 endPoint_f )
 {
- //uint3 sign = asuint(endPoint_f) & 0x80000000;
- //uint3 expo = asuint(endPoint_f) & 0x7F800000;
- //uint3 base = asuint(endPoint_f) & 0x007FFFFF;
- //return ( expo < 0x33800000 ) ? 0 
- // //0x33800000 indicating 2^-24, which is minimal denormalized number that half can present 
- // : ( ( expo < 0x38800000 ) ? ( sign >> 16 ) | ( ( base + 0x00800000 ) >> ( 23 - ( ( expo - 0x33800000 ) >> 23 ) ) )//fixed a bug in v0.2
- // //0x38800000 indicating 2^-14, which is minimal normalized number that half can present, so need to use denormalized half presentation
- // : ( ( expo == 0x7F800000 || expo > 0x47000000 ) ? ( ( sign >> 16 ) | 0x7bff )
- // // treat NaN as INF, treat INF (including NaN) as the maximum/minimum number that half can present
- // // 0x47000000 indicating 2^15, which is maximum exponent that half can present, so cut to 0x7bff which is the maximum half number
- // : ( ( sign >> 16 ) | ( ( ( expo - 0x38000000 ) | base ) >> 13 ) ) ) );
 
 
  return uint3( float2half1( endPoint_f.x ), float2half1( endPoint_f.y ), float2half1( endPoint_f.z ) );
@@ -343,13 +325,12 @@ float half2float1( uint Value )
  uint Mantissa = (uint)(Value & 0x03FF);
 
  uint Exponent;
- if ((Value & 0x7C00) != 0) // The value is normalized
+ if ((Value & 0x7C00) != 0)
  {
  Exponent = (uint)((Value >> 10) & 0x1F);
  }
- else if (Mantissa != 0) // The value is denormalized
+ else if (Mantissa != 0)
  {
- // Normalize the value in the resulting float
  Exponent = 1;
 
  do
@@ -360,51 +341,32 @@ float half2float1( uint Value )
 
  Mantissa &= 0x03FF;
  }
- else // The value is zero
+ else
  {
  Exponent = (uint)(-112);
  }
 
- uint Result = ((Value & 0x8000) << 16) | // Sign
- ((Exponent + 112) << 23) | // Exponent
- (Mantissa << 13); // Mantissa
+ uint Result = ((Value & 0x8000) << 16) |
+ ((Exponent + 112) << 23) |
+ (Mantissa << 13);
 
  return asfloat(Result);
 }
 
 float3 half2float(uint3 color_h )
 {
- //uint3 sign = color_h & 0x8000;
- //uint3 expo = color_h & 0x7C00;
- //uint3 base = color_h & 0x03FF;
- //return ( expo == 0 ) ? asfloat( ( sign << 16 ) | asuint( float3(base) / 16777216 ) ) //16777216 = 2^24
- // : asfloat( ( sign << 16 ) | ( ( ( expo + 0x1C000 ) | base ) << 13 ) ); //0x1C000 = 0x1FC00 - 0x3C00
 
  return float3( half2float1( color_h.x ), half2float1( color_h.y ), half2float1( color_h.z ) );
 }
 
-void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint partition_index ) // for mode 1 - 10
+void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint partition_index )
 {
  block.xy = 0;
  block.z &= 0xFFFC0000;
  
- //block.z |= (partition_index & 0x1f) << 13;
  
  if ( mode_type == candidateModeFlag[0])
  {
- /*block.x = candidateModeMemory[0];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00007FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x01FF8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000 );
- block.x |= ( endPoint[1][0].g >> 2 ) & 0x00000004;
- block.x |= ( endPoint[1][0].b >> 1 ) & 0x00000008;
- block.x |= endPoint[1][1].b & 0x00000010;
- block.y |= ( ( endPoint[0][0].b >> 7 ) & 0x00000007 );
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x000000F8 ) | ( ( endPoint[0][1].g << 13 ) & 0x0003E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x0F800000 );
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000003E);
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.y |= ( ( endPoint[1][1].g << 4 ) & 0x00000100 );
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00000F80);
- block.yz |= ( ( endPoint[1][1].b << uint2(27, 9) ) & uint2(0x10000000, 0x00001000) ) | ( ( endPoint[1][1].b << uint2(18, 4) ) & uint2(0x00040000, 0x00000040) );
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[0] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[0] >> 1) & 1) << 1;
@@ -491,18 +453,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[1])
  {
- /*block.x = candidateModeMemory[1];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00000FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x003F8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000 );
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x000001F8 ) | ( ( endPoint[0][1].g << 13 ) & 0x0007E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x1F800000 );
- block.x |= ( ( endPoint[1][0].g >> 3 ) & 0x00000004 ) | ( ( endPoint[1][0].g << 20 ) & 0x01000000 );
- block.x |= ( endPoint[1][1].g >> 1 ) & 0x00000018;
- block.x |= ( ( endPoint[1][1].b << 21 ) & 0x00800000 ) | ( ( endPoint[1][1].b << 12 ) & 0x00003000 );
- block.x |= ( ( endPoint[1][0].b << 17 ) & 0x00400000 ) | ( ( endPoint[1][0].b << 10 ) & 0x00004000 );
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000007E);
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00001F80);
- block.y |= ( ( endPoint[1][1].b >> 4 ) & 0x00000002 ) | ( ( endPoint[1][1].b >> 2 ) & 0x00000004 ) | ( ( endPoint[1][1].b >> 3 ) & 0x00000001 );
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[1] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[1] >> 1) & 1) << 1;
@@ -589,17 +539,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[2])
  {
- /*block.x = candidateModeMemory[2];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00007FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x01FF8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000 );
- block.y |= ( endPoint[0][0].r >> 2 ) & 0x00000100;
- block.y |= ( endPoint[0][0].g << 7 ) & 0x00020000;
- block.y |= ( ( endPoint[0][0].b << 17 ) & 0x08000000 ) | ( ( endPoint[0][0].b >> 7 ) & 0x00000007 );
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x000000F8 ) | ( ( endPoint[0][1].g << 13 ) & 0x0001E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x07800000 );
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000003E);
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00000F80);
- block.yz |= ( ( endPoint[1][1].b << uint2(27, 9) ) & uint2(0x10000000, 0x00001000) ) | ( ( endPoint[1][1].b << uint2(18, 4) ) & uint2(0x00040000, 0x00000040) );
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[2] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[2] >> 1) & 1) << 1;
@@ -686,21 +625,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[3])
  {
- /*block.x = candidateModeMemory[3];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00007FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x01FF8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000 );
- block.y |= ( endPoint[0][0].r >> 3 ) & 0x00000080;
- block.y |= ( endPoint[0][0].g << 8 ) & 0x00040000;
- block.y |= ( ( endPoint[0][0].b << 17 ) & 0x08000000 ) | ( ( endPoint[0][0].b >> 7 ) & 0x00000007 );
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x00000078 ) | ( ( endPoint[0][1].g << 13 ) & 0x0003E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x07800000 );
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000001E);
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.y |= ( ( endPoint[1][1].g << 4 ) & 0x00000100 );
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00000780);
- block.yz |= ( endPoint[1][1].b << uint2(27, 9) ) & uint2(0x10000000, 0x00001000);
- block.z |= ( ( endPoint[1][0].g << 7 ) & 0x00000800 );
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;
- block.z |= ( endPoint[1][1].b << 4 ) & 0x00000040;
- block.z |= ( endPoint[1][1].b << 5 ) & 0x00000020;*/
 
  block.x |= ((candidateModeMemory[3] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[3] >> 1) & 1) << 1;
@@ -787,19 +711,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[4])
  {
- /*block.x = candidateModeMemory[4];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00007FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x01FF8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000 );
- block.y |= ( endPoint[0][0].r >> 3 ) & 0x00000080;
- block.y |= ( endPoint[0][0].g << 7 ) & 0x00020000;
- block.y |= ( ( endPoint[0][0].b << 18 ) & 0x10000000 ) | ( ( endPoint[0][0].b >> 7 ) & 0x00000007 );
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x00000078 ) | ( ( endPoint[0][1].g << 13 ) & 0x0001E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x0F800000 );
- block.y |= ( ( endPoint[1][0].g << 9 ) & 0x00001E00 ) | ( ( endPoint[1][0].b << 4 ) & 0x00000100 );
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00000780);
- block.yz |= ( endPoint[1][1].b << uint2(18, 4) ) & uint2(0x00040000, 0x00000060);
- block.z |= ( endPoint[1][0].r << 1 ) & 0x0000001E;
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;
- block.z |= ( ( endPoint[1][1].b << 7 ) & 0x00000800 ) | ( ( endPoint[1][1].b << 9 ) & 0x00001000 );*/
 
  block.x |= ((candidateModeMemory[4] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[4] >> 1) & 1) << 1;
@@ -886,19 +797,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[5])
  {
- /*block.x = candidateModeMemory[5];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00003FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x00FF8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000);
- block.y |= ( endPoint[0][0].b >> 7 ) & 0x00000003;
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x000000F8 ) | ( ( endPoint[0][1].g << 13 ) & 0x0003E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x0F800000 );
- block.x |= ( ( endPoint[1][0].g << 20 ) & 0x01000000 ) | ( ( endPoint[1][0].b << 10 ) & 0x00004000 );
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000003E);
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.y |= ( ( endPoint[1][1].g << 4 ) & 0x00000100 ) | ( ( endPoint[1][1].b >> 2 ) & 0x00000004 );
- block.y |= ( ( endPoint[1][1].b << 27 ) & 0x10000000 );
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00000F80);
- block.yz |= ( endPoint[1][1].b << uint2(18, 4) ) & uint2(0x00040000, 0x00000040);
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;
- block.z |= ( ( endPoint[1][1].b << 9 ) & 0x00001000 );*/
 
  block.x |= ((candidateModeMemory[5] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[5] >> 1) & 1) << 1;
@@ -985,18 +883,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[6])
  {
- /*block.x = candidateModeMemory[6];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00001FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x007F8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000 );
- block.y |= ( endPoint[0][0].b >> 7 ) & 0x00000001;
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x000001F8 ) | ( ( endPoint[0][1].g << 13 ) & 0x0003E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x0F800000 );
- block.x |= ( ( endPoint[1][0].g << 20 ) & 0x01000000 ) | ( ( endPoint[1][0].b << 10 ) & 0x00004000);
- block.x |= ( ( endPoint[1][1].g << 9 ) & 0x00002000 ) | ( ( endPoint[1][1].b << 21 ) & 0x00800000);
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000007E);
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00001F80);
- block.y |= ( ( endPoint[1][1].b >> 2 ) & 0x00000006 );
- block.y |= ( ( endPoint[1][1].b << 27 ) & 0x10000000 ) | ( ( endPoint[1][1].b << 18 ) & 0x00040000 );
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[6] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[6] >> 1) & 1) << 1;
@@ -1083,20 +969,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[7])
  {
- /*block.x = candidateModeMemory[7];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00001FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x007F8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000 );
- block.y |= ( endPoint[0][0].b >> 7 ) & 0x00000001;
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x000000F8 ) | ( ( endPoint[0][1].g << 13 ) & 0x0007E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x0F800000 );
- block.x |= ( ( endPoint[1][0].g << 20 ) & 0x01000000 ) | ( ( endPoint[1][0].b << 10 ) & 0x00004000 );
- block.x |= ( ( endPoint[1][0].g << 18 ) & 0x00800000 );
- block.x |= ( ( endPoint[1][1].b << 13 ) & 0x00002000 );
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000003E);
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00000F80);
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.y |= ( ( endPoint[1][1].g >> 4 ) & 0x00000002 ) | ( ( endPoint[1][1].g << 4 ) & 0x00000100 ) | ( ( endPoint[1][1].b >> 2 ) & 0x00000004 );
- block.y |= ( endPoint[1][1].b << 27 ) & 0x10000000;
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;
- block.z |= ( ( endPoint[1][1].b << 9 ) & 0x00001000 ) | ( ( endPoint[1][1].b << 4 ) & 0x00000040 );*/
 
  block.x |= ((candidateModeMemory[7] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[7] >> 1) & 1) << 1;
@@ -1183,20 +1055,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[8])
  {
- /*block.x = candidateModeMemory[8];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x00001FE0 ) | ( ( endPoint[0][0].g << 15 ) & 0x007F8000 ) | ( ( endPoint[0][0].b << 25 ) & 0xFE000000 );
- block.y |= ( endPoint[0][0].b >> 7 ) & 0x00000001;
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x000000F8 ) | ( ( endPoint[0][1].g << 13 ) & 0x0003E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x1F800000 );
- block.x |= ( ( endPoint[1][0].g << 20 ) & 0x01000000 ) | ( ( endPoint[1][0].b << 10 ) & 0x00004000 );
- block.x |= ( ( endPoint[1][0].b << 18 ) & 0x00800000 );
- block.x |= ( endPoint[1][1].b << 12 ) & 0x00002000;
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.y |= ( ( endPoint[1][1].g << 4 ) & 0x00000100 ) | ( ( endPoint[1][1].b >> 4 ) & 0x00000002 ) | ( ( endPoint[1][1].b >> 2 ) & 0x00000004 );
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000003E);
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00000F80);
- block.y |= ( endPoint[1][1].b << 18 ) & 0x00040000;
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;
- block.z |= ( ( endPoint[1][1].b << 9 ) & 0x00001000 ) | ( ( endPoint[1][1].b << 4 ) & 0x00000040 );*/
 
  block.x |= ((candidateModeMemory[8] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[8] >> 1) & 1) << 1;
@@ -1283,18 +1141,6 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  }
  else if ( mode_type == candidateModeFlag[9])
  {
- /*block.x = candidateModeMemory[9];
- block.x |= ( ( endPoint[0][0].r << 5 ) & 0x000007E0 ) | ( ( endPoint[0][0].g << 15 ) & 0x001F8000 ) | ( ( endPoint[0][0].b << 25 ) & 0x7E000000 );
- block.y |= ( ( endPoint[0][1].r << 3 ) & 0x000001F8 ) | ( ( endPoint[0][1].g << 13 ) & 0x0007E000 ) | ( ( endPoint[0][1].b << 23 ) & 0x1F800000 );
- block.x |= ( ( endPoint[1][0].g << 16 ) & 0x00200000 ) | ( ( endPoint[1][0].g << 20 ) & 0x01000000 );
- block.x |= ( ( endPoint[1][0].b << 17 ) & 0x00400000 ) | ( ( endPoint[1][0].b << 10 ) & 0x00004000 );
- block.x |= ( ( endPoint[1][1].b << 21 ) & 0x00800000 ) | ( ( endPoint[1][1].b << 12 ) & 0x00003000 );
- block.x |= ( ( endPoint[1][1].g << 26 ) & 0x80000000 ) | ( ( endPoint[1][1].g << 7 ) & 0x00000800 );
- block.yz |= ( endPoint[1][0].gr << uint2(9, 1) ) & uint2(0x00001E00, 0x0000007E);
- block.yz |= ( endPoint[1][1].gr << uint2(19, 7) ) & uint2(0x00780000, 0x00001F80);
- block.y |= ( endPoint[1][0].b << 29 ) & 0xE0000000;
- block.y |= ( ( endPoint[1][1].b >> 4 ) & 0x00000002 ) | ( ( endPoint[1][1].b >> 2 ) & 0x00000004 ) | ( ( endPoint[1][1].b >> 3 ) & 0x00000001 );
- block.z |= ( endPoint[1][0].b >> 3 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[9] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[9] >> 1) & 1) << 1;
@@ -1380,10 +1226,8 @@ void block_package( inout uint4 block, int2x3 endPoint[2], uint mode_type, uint 
  block.z |= ((partition_index >> 4) & 1) << 17;
  }
 }
-void block_package( inout uint4 block, int2x3 endPoint, uint mode_type ) // for mode 11 - 14
+void block_package( inout uint4 block, int2x3 endPoint, uint mode_type )
 {
- /*block.x = ( ( endPoint[0].r << 5 ) & 0x00007FE0 ) | ( ( endPoint[0].g << 15 ) & 0x01FF8000 ) | ( ( endPoint[0].b << 25 ) & 0xFE000000 );
- block.y |= ( endPoint[0].b >> 7 ) & 0x00000007;*/
 
  block.xy = 0;
  block.z &= 0xFFFFFFFE;
@@ -1391,9 +1235,6 @@ void block_package( inout uint4 block, int2x3 endPoint, uint mode_type ) // for 
 
  if ( mode_type == candidateModeFlag[10])
  {
- /* block.x |= candidateModeMemory[10];
- block.y |= ( ( endPoint[1].r << 3 ) & 0x00001FF8 ) | ( ( endPoint[1].g << 13 ) & 0x007FE000 ) | ( ( endPoint[1].b << 23 ) & 0xFF800000 );
- block.z |= ( endPoint[1].b >> 9 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[10] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[10] >> 1) & 1) << 1;
@@ -1463,10 +1304,6 @@ void block_package( inout uint4 block, int2x3 endPoint, uint mode_type ) // for 
  }
  else if (mode_type == candidateModeFlag[11])
  {
- /*block.x |= candidateModeMemory[11];
- block.y |= ( ( endPoint[0].r << 2 ) & 0x00001000 ) | ( ( endPoint[0].g << 12 ) & 0x00400000 );
- block.y |= ( ( endPoint[1].r << 3 ) & 0x00000FF8 ) | ( ( endPoint[1].g << 13 ) & 0x003FE000 ) | ( ( endPoint[1].b << 23 ) & 0xFF800000 );
- block.z |= ( endPoint[0].b >> 10 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[11] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[11] >> 1) & 1) << 1;
@@ -1534,14 +1371,8 @@ void block_package( inout uint4 block, int2x3 endPoint, uint mode_type ) // for 
  block.y |= ((endPoint[1].b >> 8) & 1) << 31;
  block.z |= ((endPoint[0].b >> 10) & 1) << 0;
  }
- else if (mode_type == candidateModeFlag[12])// violate the spec in [0].low
+ else if (mode_type == candidateModeFlag[12])
  {
- /*block.x |= candidateModeMemory[12];
- block.y |= ( ( endPoint[0].r << 2 ) & 0x00001000 ) | ( ( endPoint[0].g << 12 ) & 0x00400000 );
- block.y |= ( ( endPoint[0].r << 0 ) & 0x00000800 ) | ( ( endPoint[0].g << 10 ) & 0x00200000 );
- block.y |= ( endPoint[0].b << 20 ) & 0x80000000;
- block.y |= ( ( endPoint[1].r << 3 ) & 0x000007F8 ) | ( ( endPoint[1].g << 13 ) & 0x001FE000 ) | ( ( endPoint[1].b << 23 ) & 0x7F800000 );
- block.z |= ( endPoint[0].b >> 10 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[12] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[12] >> 1) & 1) << 1;
@@ -1611,26 +1442,6 @@ void block_package( inout uint4 block, int2x3 endPoint, uint mode_type ) // for 
  }
  else if (mode_type == candidateModeFlag[13])
  {
- /*block.x |= candidateModeMemory[13];
- block.y |= ( ( endPoint[0].r >> 8 ) & 0x00000080 );
- block.y |= ( ( endPoint[0].r >> 6 ) & 0x00000100 );
- block.y |= ( ( endPoint[0].r >> 4 ) & 0x00000200 );
- block.y |= ( ( endPoint[0].r >> 2 ) & 0x00000400 );
- block.y |= ( ( endPoint[0].r >> 0 ) & 0x00000800 );
- block.y |= ( ( endPoint[0].r << 2 ) & 0x00001000 );
- block.y |= ( ( endPoint[0].g << 2 ) & 0x00020000 );
- block.y |= ( ( endPoint[0].g << 4 ) & 0x00040000 );
- block.y |= ( ( endPoint[0].g << 6 ) & 0x00080000 );
- block.y |= ( ( endPoint[0].g << 8 ) & 0x00100000 );
- block.y |= ( ( endPoint[0].g << 10 ) & 0x00200000 );
- block.y |= ( ( endPoint[0].g << 12 ) & 0x00400000 );
- block.y |= ( ( endPoint[0].b << 12 ) & 0x08000000 );
- block.y |= ( ( endPoint[0].b << 14 ) & 0x10000000 );
- block.y |= ( ( endPoint[0].b << 16 ) & 0x20000000 );
- block.y |= ( ( endPoint[0].b << 18 ) & 0x40000000 );
- block.y |= ( ( endPoint[0].b << 20 ) & 0x80000000 );
- block.y |= ( ( endPoint[1].r << 3 ) & 0x00000078 ) | ( ( endPoint[1].g << 13 ) & 0x0001E000 ) | ( ( endPoint[1].b << 23 ) & 0x07800000 ); 
- block.z |= ( endPoint[0].b >> 10 ) & 0x00000001;*/
 
  block.x |= ((candidateModeMemory[13] >> 0) & 1) << 0;
  block.x |= ((candidateModeMemory[13] >> 1) & 1) << 1;

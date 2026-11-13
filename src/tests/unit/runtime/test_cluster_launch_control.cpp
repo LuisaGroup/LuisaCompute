@@ -175,6 +175,19 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     auto &device = dc->device;
+    // Cluster launch control is a PTX feature of SM 90+ (Blackwell) with no
+    // HLSL/DXIL, SPIR-V or Metal equivalent; no other backend can compile the
+    // kernels. Skip instead of reporting a backend failure.
+    auto backend = device.backend_name();
+    if (backend.empty() && argc > 1 && argv[1] != nullptr) {
+        backend = luisa::string_view{argv[1]};
+    }
+    if (backend != "cuda") {
+        LUISA_INFO("Cluster launch control tests are CUDA-only (PTX, SM 90+); "
+                   "skipping backend '{}'.",
+                   backend);
+        return 0;
+    }
     test_clc_vector_scalar_multiply(device);
     test_clc_work_stealing_helper(device);
     return 0;

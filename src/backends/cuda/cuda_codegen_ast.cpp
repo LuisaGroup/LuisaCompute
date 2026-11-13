@@ -56,6 +56,13 @@ public:
         uint index;
         luisa::vector<Variable> captured_resources;
         luisa::vector<CapturedElement> captured_elements;
+        // Kernel arguments are bound as `const auto &` in the generated
+        // dispatch prologue, so the copy-back of a captured element whose base
+        // variable is an argument generates `v = ctx.v;` on a const reference,
+        // which NVRTC rejects ("expression must be a modifiable lvalue"). That
+        // copy-back is also semantically dead: by-value kernel arguments are
+        // read-only for the whole dispatch, so no write-back is ever needed.
+        luisa::unordered_set<Variable> read_only_elements;
     };
 
     struct FunctionResource {
@@ -393,7 +400,11 @@ private:
             _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
             for (auto &&v : captured_resources) {
                 _codegen->_scratch << "\n  ";
-                _codegen->_emit_variable_decl(f, v, false);
+                // Resource members deliberately drop the leading `const`: the context
+                // is published back with a single whole-struct assignment (see
+                // generate_intersection_body), and a const-qualified member would
+                // delete the implicit copy-assignment operator.
+                _codegen->_emit_variable_decl(f, v, false, true);
                 _codegen->_scratch << ";";
             }
             for (auto &&v : captured_elements) {
@@ -516,7 +527,9 @@ private:
                 }
                 _codegen->_emit_indent();
                 _codegen->_scratch << "lc_assume(__isLocal(ctx_in));\n";
-                _codegen->_emit_indent();
+                // One struct store publishes every captured value. This relies on the
+                // context members being assignable, which is why resource members are
+                // emitted without a leading `const` qualifier.
                 _codegen->_scratch << "*static_cast<LCRayQueryCtx"
                                    << rq_index << " *>(ctx_in) = ctx;\n";
             }
@@ -537,9 +550,12 @@ private:
                               "}\n\n";
 
         // record the outline function
+        luisa::unordered_set<Variable> read_only_elements;
+        for (auto arg : f.arguments()) { read_only_elements.emplace(arg); }
         OutlineInfo info{rq_index,
                          std::move(captured_resources),
-                         std::move(captured_elements)};
+                         std::move(captured_elements),
+                         std::move(read_only_elements)};
         _outline_infos.emplace(s, std::move(info));
     }
 
@@ -563,7 +579,7 @@ public:
     void lower(const RayQueryStmt *stmt) noexcept {
         LUISA_ASSERT(_outline_infos.contains(stmt),
                      "Ray query statement not outlined.");
-        auto &&[rq_index, captured_resources, captured_elements] = _outline_infos.at(stmt);
+        auto &&[rq_index, captured_resources, captured_elements, read_only_elements] = _outline_infos.at(stmt);
         // create ray query context
         _codegen->_scratch << "\n";
         _codegen->_emit_indent();
@@ -602,7 +618,8 @@ public:
         }
         // copy back captured variables
         for (auto v : captured_elements) {
-            if (!v.base_variable.is_resource()) {
+            if (!v.base_variable.is_resource() &&
+                !read_only_elements.contains(v.base_variable)) {
                 _codegen->_emit_indent();
                 _emit_captured_element(
                     v.base_variable, v.access_indices);
@@ -814,6 +831,13 @@ void CUDACodegenAST::visit(const RefExpr *expr) {
 }
 
 void CUDACodegenAST::visit(const CallExpr *expr) {
+    // Cluster launch control, shared-memory mbarriers, proxy fences and cluster
+    // barriers all expand to SM 90+ PTX helpers (see the CallOp arms below).
+    // Record the first one so the device can reject the kernel with a named
+    // requirement instead of an opaque CUDA_ERROR_INVALID_PTX at module load.
+    if (_cluster_feature.empty() && uses_cluster_launch_control(expr->op())) {
+        _cluster_feature = luisa::to_string(expr->op());
+    }
     auto args = expr->arguments();
     auto to_coopvec_elemtype = [&]<typename T>(T type) {
         if constexpr (std::is_same_v<T, CoopRefVecType>) {
@@ -2188,7 +2212,8 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
     }
 }
 
-void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_const) noexcept {
+void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_const,
+                                         bool resource_member) noexcept {
     auto usage = f.variable_usage(v.uid());
     auto readonly = usage == Usage::NONE || usage == Usage::READ;
     switch (v.tag()) {
@@ -2216,7 +2241,7 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             if (v.type() == _indirect_buffer_type) {
                 _scratch << "LCIndirectBuffer ";
             } else {
-                _scratch << "const LCBuffer<";
+                _scratch << (resource_member ? "LCBuffer<" : "const LCBuffer<");
                 if (readonly || force_const) { _scratch << "const "; }
                 if (auto elem = v.type()->element()) {
                     _emit_type_name(elem);
@@ -2228,7 +2253,7 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             _emit_variable_name(v);
             break;
         case Variable::Tag::TEXTURE:
-            _scratch << "const LCTexture"
+            _scratch << (resource_member ? "LCTexture" : "const LCTexture")
                      << v.type()->dimension()
                      << "D<";
             _emit_type_name(v.type()->element());
@@ -2236,7 +2261,7 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             _emit_variable_name(v);
             break;
         case Variable::Tag::BINDLESS_ARRAY:
-            _scratch << "const LCBindlessArray ";
+            _scratch << (resource_member ? "LCBindlessArray " : "const LCBindlessArray ");
             _emit_variable_name(v);
             break;
         case Variable::Tag::ACCEL:
@@ -2244,7 +2269,9 @@ void CUDACodegenAST::_emit_variable_decl(Function f, Variable v, bool force_cons
             // the fallback's heap argument (cuda_builtin/
             // cuda_device_fallback_rtx.h), which carries the bindless heap the
             // traversal resolves its regions through.
-            _scratch << (_fallback_rtx ? "const LCFallbackAccel " : "const LCAccel ");
+            _scratch << (resource_member
+                             ? (_fallback_rtx ? "LCFallbackAccel " : "LCAccel ")
+                             : (_fallback_rtx ? "const LCFallbackAccel " : "const LCAccel "));
             _emit_variable_name(v);
             break;
         default:

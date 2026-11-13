@@ -4,6 +4,7 @@
  */
 
 #include "bcn_encoder.h"
+#include <libntc/buffer_copy.h>
 #include <luisa/core/logging.h>
 #include <fstream>
 #include <cstring>
@@ -583,7 +584,7 @@ bool BCnEncoder::encode_and_save_dds(const Buffer<float> &input_float_buffer,
     Buffer<uint> gpu_bcn = encode_to_gpu_buffer(input_float_buffer, width, height,
                                                 channel_offset, num_channels, format);
     std::vector<uint32_t> host_bcn(gpu_bcn.size());
-    stream << gpu_bcn.copy_to(host_bcn.data()) << synchronize();
+    stream << copy_from_device(gpu_bcn, host_bcn.data()) << synchronize();
 
     std::ofstream dds_file(out_path, std::ios::binary);
     if (!dds_file.is_open()) {

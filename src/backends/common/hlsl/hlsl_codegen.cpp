@@ -1,6 +1,7 @@
 #include "hlsl_codegen.h"
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
+#include <luisa/core/stl/format.h>
 namespace lc::hlsl {
 
 namespace {
@@ -910,6 +911,26 @@ void StringStateVisitor::visit(const RayQueryStmt *stmt) {
     str << "}}}\n"sv;
 }
 void StringStateVisitor::visit(const SuspendStmt *) {
+}
+
+void StringStateVisitor::visit(const DebugBreakStmt *stmt) {
+    if (util->opt->isSpirv && util->opt->spirv_capabilities.abort) {
+        // VK_KHR_shader_abort: OpAbortKHR ends the invocation that executes it and
+        // hands one 32-bit word to the client API (vkGetDeviceFaultDebugInfoKHR).
+        // The AST carries no text for a break point - `watches` are debugger
+        // expressions that never reach the device - so the word is the low half of
+        // the statement's hash: the host enumerates the debug breaks of the same
+        // Function and matches the value it receives to one of them.
+        str << "vk::Abort("sv
+            << luisa::format("0x{:08x}u", static_cast<uint32_t>(stmt->hash()))
+            << ");\n"sv;
+        return;
+    }
+    LUISA_ERROR(
+        "Debug break is not supported for the target of this shader: it lowers to "
+        "OpAbortKHR, which needs a SPIR-V device with VK_KHR_shader_abort "
+        "(src/backends/vk/vk_shader_capabilities.h), and DXIL has no equivalent "
+        "instruction. Enable the extension on the device, or remove $debug_break.");
 }
 StringStateVisitor::StringStateVisitor(
     Function f,
