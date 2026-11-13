@@ -18,6 +18,7 @@ coro_sdf.png
 /spirv_output*.spvasm
 /kernel.*.xir*
 # Benchmark / profiling artifacts
+/benchmark_results/
 /archlinux-desktop/
 /results.db
 /results.json

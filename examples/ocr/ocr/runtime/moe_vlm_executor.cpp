@@ -82,8 +82,9 @@ namespace {
 
 // Per-record heap-owned upload staging (retained through completion). Buffer
 // copy commands borrow host pointers until EXECUTION, so every uploaded host
-// array (pixels, positions, axis maps, per-layer attention masks) lives here
-// and is released only by a completion callback.
+// array (pixels, positions, vision axis maps, per-layer attention masks) lives
+// here and is released only by a completion callback. The constant text RoPE
+// axis map is uploaded once at executor creation; vision keeps its own staging.
 struct RecordUploadStaging {
     luisa::vector<int32_t> ids;
     luisa::vector<int32_t> positions;
@@ -175,9 +176,10 @@ struct UploadStagingGuard {
     _moe_gather_cache = TypedShaderCache<MoeGatherKernel>{device, _shader_registry};
     _moe_scatter_cache = TypedShaderCache<MoeScatterKernel>{device, _shader_registry};
     _residual_cache = TypedShaderCache<ResidualAddKernel>{device, _shader_registry};
-    (void)stream;
     if (auto s = resolve_weights(weights); !s.ok()) { return s; }
     if (auto s = reserve_workspace(); !s.ok()) { return s; }
+    stream << ws(_axis).as<uint32_t>().copy_from(luisa::span<const uint32_t>{_axis_pending})
+           << synchronize();
     // S5: preflight the FULL footprint (borrowed weights + the exact workspace
     // arena + the KV cache at the configured max sequence) BEFORE any cache is
     // allocated, so an over-budget configuration fails with required-vs-available.
@@ -1279,12 +1281,10 @@ struct UploadStagingGuard {
     stage->ids.assign(request.prompt_tokens.begin(), request.prompt_tokens.end());
     stage->positions.resize(prompt_len);
     for (uint32_t i = 0; i < prompt_len; i++) { stage->positions[i] = static_cast<int32_t>(i); }
-    stage->axis = _axis_pending;
     auto ids_view = ws(_ids_tok).as<int32_t>().subview(0, prompt_len);
     auto pos_view = ws(_positions).as<int32_t>().subview(0, prompt_len);
     list << ids_view.copy_from(luisa::span<const int32_t>{stage->ids})
-         << pos_view.copy_from(luisa::span<const int32_t>{stage->positions})
-         << ws(_axis).as<uint32_t>().copy_from(luisa::span<const uint32_t>{stage->axis});
+         << pos_view.copy_from(luisa::span<const int32_t>{stage->positions});
     auto emb = ws(_emb).subview(0, static_cast<size_t>(prompt_len) * hidden);
     auto x = ws(_x).subview(0, static_cast<size_t>(prompt_len) * hidden);
     {
@@ -1357,23 +1357,17 @@ struct UploadStagingGuard {
     auto *stage = guard.staging.get();
     stage->ids = {static_cast<int32_t>(input_token)};
     stage->positions = {static_cast<int32_t>(pos)};
-    stage->axis = _axis_pending;
     auto ids_view = ws(_ids_tok).as<int32_t>().subview(0, 1);
     auto pos_view = ws(_positions).as<int32_t>().subview(0, 1);
     list << ids_view.copy_from(luisa::span<const int32_t>{stage->ids})
-         << pos_view.copy_from(luisa::span<const int32_t>{stage->positions})
-         << ws(_axis).as<uint32_t>().copy_from(luisa::span<const uint32_t>{stage->axis});
-    auto emb = ws(_emb).subview(0, hidden);
+         << pos_view.copy_from(luisa::span<const int32_t>{stage->positions});
     auto x = ws(_x).subview(0, hidden);
+    // Decode has no visual replacement; write the embedding directly to x
+    // instead of following it with an mm_scatter(count=0) copy launch.
     {
         auto plan = plan_embedding_dispatch(1, hidden);
         if (!plan.ok()) { return plan.status; }
-        if (auto cmd = dispatch_1d((*_sh_embedding)(_embed, ids_view, emb, 1u, hidden), *plan.value)) { list << std::move(cmd); }
-    }
-    {
-        auto plan = plan_mm_scatter_dispatch(1, hidden);
-        if (!plan.ok()) { return plan.status; }
-        if (auto cmd = dispatch_1d((*_sh_mm_scatter)(emb, ws(_dummy_f), x, 1u, hidden, 0u, 0u), *plan.value)) { list << std::move(cmd); }
+        if (auto cmd = dispatch_1d((*_sh_embedding)(_embed, ids_view, x, 1u, hidden), *plan.value)) { list << std::move(cmd); }
     }
     if (auto s = flush(list, stream); !s.ok()) { return s; }
     for (uint32_t l = 0; l < d.num_layers; l++) {

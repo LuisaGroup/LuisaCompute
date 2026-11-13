@@ -115,6 +115,89 @@ void test_rms_norm_qk(Device &device) {
     }
 }
 
+void test_cooperative_norm_large(Device &device) {
+    auto stream = device.create_stream();
+    ocr::test::Lcg lcg;
+    auto dummy = device.create_buffer<float>(1);
+    auto layer_shader = device.compile(make_layer_norm_cooperative_kernel());
+    auto rms_shader = device.compile(make_rms_norm_cooperative_kernel());
+    expect(layer_shader.compile_ok());
+    expect(rms_shader.compile_ok());
+    // Cover both sides of the 256-thread stride boundary, a non-multiple tail,
+    // the scalable benchmark shape, and weighted/parameterless epilogues.
+    for (uint32_t rows : {1u, 7u}) {
+        for (uint32_t h : {255u, 256u, 257u, 1024u, 1033u}) {
+            for (bool weighted : {false, true}) {
+                luisa::vector<float> x(static_cast<size_t>(rows) * h);
+                lcg.fill(x, -2.f, 2.f);
+                luisa::vector<float> gamma(weighted ? h : 0), beta(weighted ? h : 0);
+                if (weighted) {
+                    lcg.fill(gamma, 0.5f, 1.5f);
+                    lcg.fill(beta, -0.2f, 0.2f);
+                }
+                auto bx = ocr::test::upload(device, stream, luisa::span<const float>{x});
+                auto bg_storage = weighted ? ocr::test::upload(device, stream, luisa::span<const float>{gamma}) : Buffer<float>{};
+                auto bb_storage = weighted ? ocr::test::upload(device, stream, luisa::span<const float>{beta}) : Buffer<float>{};
+                auto bg = weighted ? bg_storage.view() : dummy.view();
+                auto bb = weighted ? bb_storage.view() : dummy.view();
+                auto by = device.create_buffer<float>(x.size());
+                auto plan = plan_norm_cooperative_dispatch(rows);
+                expect(plan.ok());
+                luisa::vector<float> layer_ref;
+                expect(ref_layer_norm(x, gamma, beta, rows, h, 1e-5f, layer_ref).ok());
+                OCR_DISPATCH_1D(stream, layer_shader(bx, by, bg, bb, rows, h, 1e-5f, weighted ? 1u : 0u), *plan.value);
+                luisa::vector<float> got;
+                ocr::test::download(stream, by, got, x.size());
+                stream << synchronize();
+                ocr::test::expect_close(got, layer_ref, kAtol, kRtol, "cooperative layer_norm");
+
+                luisa::vector<float> rms_ref;
+                expect(ref_rms_norm(x, gamma, rows, h, 1e-6f, rms_ref).ok());
+                OCR_DISPATCH_1D(stream, rms_shader(bx, by, bg, rows, h, 1e-6f, weighted ? 1u : 0u), *plan.value);
+                ocr::test::download(stream, by, got, x.size());
+                stream << synchronize();
+                ocr::test::expect_close(got, rms_ref, kAtol, kRtol, "cooperative rms_norm");
+            }
+        }
+    }
+    // NaN propagation and zero-row behavior match the reference at large H.
+    constexpr uint32_t rows = 2u, h = 1024u;
+    luisa::vector<float> x(static_cast<size_t>(rows) * h, 0.f);
+    for (uint32_t i = 0; i < h; i++) { x[h + i] = std::numeric_limits<float>::quiet_NaN(); }
+    auto bx = ocr::test::upload(device, stream, luisa::span<const float>{x});
+    auto by = device.create_buffer<float>(x.size());
+    auto plan = plan_norm_cooperative_dispatch(rows);
+    luisa::vector<float> ref;
+    expect(ref_rms_norm(x, {}, rows, h, 1e-6f, ref).ok());
+    OCR_DISPATCH_1D(stream, rms_shader(bx, by, dummy, rows, h, 1e-6f, 0u), *plan.value);
+    luisa::vector<float> got;
+    ocr::test::download(stream, by, got, x.size());
+    stream << synchronize();
+    ocr::test::expect_close(got, ref, kAtol, kRtol, "cooperative rms_norm degenerate");
+    expect(ref_layer_norm(x, {}, {}, rows, h, 1e-5f, ref).ok());
+    OCR_DISPATCH_1D(stream, layer_shader(bx, by, dummy, dummy, rows, h, 1e-5f, 0u), *plan.value);
+    ocr::test::download(stream, by, got, x.size());
+    stream << synchronize();
+    ocr::test::expect_close(got, ref, kAtol, kRtol, "cooperative layer_norm degenerate");
+
+    // More than 65535 row-blocks forces the flattened 2D plan. H=1 keeps the
+    // buffers small while checking that every flattened row is recovered.
+    expect(!plan_norm_cooperative_dispatch(std::numeric_limits<uint64_t>::max()).ok());
+    constexpr uint32_t flattened_rows = 65536u + 3u;
+    luisa::vector<float> flat_x(flattened_rows, 1.0f);
+    auto flat_bx = ocr::test::upload(device, stream, luisa::span<const float>{flat_x});
+    auto flat_by = device.create_buffer<float>(flat_x.size());
+    auto flat_plan = plan_norm_cooperative_dispatch(flattened_rows);
+    expect(flat_plan.ok());
+    expect(flat_plan.value->is_2d());
+    luisa::vector<float> flat_ref;
+    expect(ref_rms_norm(flat_x, {}, flattened_rows, 1u, 1e-6f, flat_ref).ok());
+    OCR_DISPATCH_1D(stream, rms_shader(flat_bx, flat_by, dummy, flattened_rows, 1u, 1e-6f, 0u), *flat_plan.value);
+    ocr::test::download(stream, flat_by, got, flat_x.size());
+    stream << synchronize();
+    ocr::test::expect_close(got, flat_ref, kAtol, kRtol, "cooperative rms_norm flattened coverage");
+}
+
 void test_l2_rowsum_residual(Device &device) {
     auto stream = device.create_stream();
     ocr::test::Lcg lcg;
@@ -340,6 +423,7 @@ int main(int argc, char *argv[]) {
     auto &device = dc->device;
     "layer_norm_variants"_test = [&] { test_layer_norm(device); };
     "rms_norm_qk_norm"_test = [&] { test_rms_norm_qk(device); };
+    "cooperative_norm_large"_test = [&] { test_cooperative_norm_large(device); };
     "l2_rowsum_residual"_test = [&] { test_l2_rowsum_residual(device); };
     "residual_rms_norm_fusion"_test = [&] { test_residual_rms_norm_fusion(device); };
     "decode_embedding_scatter_argmax_softmax"_test = [&] { test_decode_ops(device); };

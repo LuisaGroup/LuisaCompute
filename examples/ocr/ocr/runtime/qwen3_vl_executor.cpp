@@ -163,6 +163,8 @@ struct VisionUploadStaging {
     text_config.deepstack_layers = config.model.deepstack.decoder_layers;
     text_config.component = config.decoder_component;
     text_config.prefill_chunk_rows = config.prefill_chunk_rows;
+    text_config.enable_fused_residual_rms_norm = config.enable_fused_residual_rms_norm;
+    text_config.enable_cooperative_norm = config.enable_cooperative_norm;
     text_config.memory = config.memory;
     if (auto s = _text.create(device, stream, text_config, weights); !s.ok()) { return s; }
 

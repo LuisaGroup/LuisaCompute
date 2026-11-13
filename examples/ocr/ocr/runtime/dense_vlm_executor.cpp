@@ -39,14 +39,14 @@ namespace {
 }
 
 // Per-record heap-owned upload staging. BufferUploadCommand borrows the host
-// pointer, so uploaded ids/positions/axis data must outlive command EXECUTION,
-// not just encoding. Each record_* call owns a distinct Staging block released
-// by a completion callback, so multiple records into ONE CommandList never
-// overwrite each other's borrowed memory (S3).
+// pointer, so uploaded ids/positions must outlive command EXECUTION, not just
+// encoding. Each record_* call owns a distinct Staging block released by a
+// completion callback, so multiple records into ONE CommandList never overwrite
+// each other's borrowed memory (S3). The constant RoPE axis map is uploaded
+// once during executor creation instead of being staged by every record.
 struct RecordUploadStaging {
     luisa::vector<int32_t> ids;      // token ids uploaded as int32
     luisa::vector<int32_t> positions;// absolute positions
-    luisa::vector<uint32_t> axis;    // RoPE axis_of_pair map
 };
 
 }// namespace
@@ -186,6 +186,10 @@ struct RecordUploadStaging {
     if (!s.ok()) { return s; }
     s = reserve_workspace();
     if (!s.ok()) { return s; }
+    // axis_of_pair is immutable for this executor. Upload it at creation rather
+    // than repeating an identical device copy for every prefill chunk/decode.
+    stream << ws(_axis_of_pair).as<uint32_t>().copy_from(luisa::span<const uint32_t>{_axis_pending})
+           << synchronize();
     return compile_shaders();
 }
 
@@ -511,12 +515,16 @@ struct RecordUploadStaging {
                      [] { return make_embedding_lookup_kernel(); }, _sh_embedding); !s.ok()) { return s; }
     if (auto s = get(_mm_scatter_cache, decode_variant_key("mm_scatter"),
                      [] { return make_mm_scatter_kernel(); }, _sh_mm_scatter); !s.ok()) { return s; }
- if (auto s = get(_rms_norm_cache, norm_variant_key("rms_norm"),
- [] { return make_rms_norm_kernel(); }, _sh_rms_norm); !s.ok()) { return s; }
- if (_config.enable_fused_residual_rms_norm) {
- if (auto s = get(_residual_rms_norm_cache, norm_variant_key("residual_rms_norm"),
- [] { return make_residual_rms_norm_kernel(); }, _sh_residual_rms_norm); !s.ok()) { return s; }
- }
+    if (auto s = get(_rms_norm_cache, norm_variant_key("rms_norm"),
+                     [] { return make_rms_norm_kernel(); }, _sh_rms_norm); !s.ok()) { return s; }
+    if (_config.enable_cooperative_norm && _config.decoder.hidden_size >= kCooperativeNormMinHidden) {
+        if (auto s = get(_rms_norm_cache, norm_variant_key("rms_norm_cooperative"),
+                         [] { return make_rms_norm_cooperative_kernel(); }, _sh_rms_norm_cooperative); !s.ok()) { return s; }
+    }
+    if (_config.enable_fused_residual_rms_norm) {
+        if (auto s = get(_residual_rms_norm_cache, norm_variant_key("residual_rms_norm"),
+                         [] { return make_residual_rms_norm_kernel(); }, _sh_residual_rms_norm); !s.ok()) { return s; }
+    }
 
     if (auto s = get(_gemm_cache, gemm_variant_key(GemmEpilogue::bias, GemmWeightFormat::fp32, false),
                      [] { return make_gemm_kernel(GemmEpilogue::bias); }, _sh_gemm_bias); !s.ok()) { return s; }
@@ -690,6 +698,8 @@ struct RecordUploadStaging {
     const float eps = d.rms_norm_eps;
     const float theta = d.rope_theta;
     const float scale = 1.0f / std::sqrt(static_cast<float>(hd));
+    const bool cooperative_hidden_norm = _config.enable_cooperative_norm && hidden >= kCooperativeNormMinHidden;
+    const auto *hidden_norm_shader = cooperative_hidden_norm ? _sh_rms_norm_cooperative : _sh_rms_norm;
 
     auto norm_view = ws(_norm).subview(0, static_cast<size_t>(rows) * hidden);
     auto norm2_view = ws(_norm2).subview(0, static_cast<size_t>(rows) * hidden);
@@ -709,9 +719,9 @@ struct RecordUploadStaging {
 
     // 1. input RMSNorm: norm = rmsnorm(x).
     {
-        auto plan = plan_norm_dispatch(rows);
+        auto plan = cooperative_hidden_norm ? plan_norm_cooperative_dispatch(rows) : plan_norm_dispatch(rows);
         if (!plan.ok()) { return plan.status; }
-        if (auto cmd = dispatch_1d((*_sh_rms_norm)(x, norm_view, L.input_norm, rows, hidden, eps, 1u), *plan.value)) {
+        if (auto cmd = dispatch_1d((*hidden_norm_shader)(x, norm_view, L.input_norm, rows, hidden, eps, 1u), *plan.value)) {
             list << std::move(cmd);
         }
     }
@@ -807,25 +817,25 @@ struct RecordUploadStaging {
             list << std::move(cmd);
         }
     }
- // 6/7. Output projection, residual, and post-attention RMSNorm. The opt-in
- // fused path keeps the projection in the now-dead input-norm scratch, then
- // produces x and norm2 in one kernel. The default path is unchanged.
- if (_config.enable_fused_residual_rms_norm) {
- if (auto s = record_linear(list, attn_view, L.o_w, norm_view, dummy_f, rows, hidden, qd, GemmEpilogue::none); !s.ok()) { return s; }
- auto plan = plan_norm_dispatch(rows);
- if (!plan.ok()) { return plan.status; }
- if (auto cmd = dispatch_1d((*_sh_residual_rms_norm)(norm_view, x, L.post_norm, x, norm2_view,
- rows, hidden, eps), *plan.value)) {
- list << std::move(cmd);
- }
- } else {
- if (auto s = record_linear(list, attn_view, L.o_w, x, x, rows, hidden, qd, GemmEpilogue::residual); !s.ok()) { return s; }
- auto plan = plan_norm_dispatch(rows);
- if (!plan.ok()) { return plan.status; }
- if (auto cmd = dispatch_1d((*_sh_rms_norm)(x, norm2_view, L.post_norm, rows, hidden, eps, 1u), *plan.value)) {
- list << std::move(cmd);
- }
- }
+    // 6/7. Output projection, residual, and post-attention RMSNorm. The opt-in
+    // fused path keeps the projection in the now-dead input-norm scratch, then
+    // produces x and norm2 in one kernel. The default path is unchanged.
+    if (_config.enable_fused_residual_rms_norm) {
+        if (auto s = record_linear(list, attn_view, L.o_w, norm_view, dummy_f, rows, hidden, qd, GemmEpilogue::none); !s.ok()) { return s; }
+        auto plan = plan_norm_dispatch(rows);
+        if (!plan.ok()) { return plan.status; }
+        if (auto cmd = dispatch_1d((*_sh_residual_rms_norm)(norm_view, x, L.post_norm, x, norm2_view,
+                                                           rows, hidden, eps), *plan.value)) {
+            list << std::move(cmd);
+        }
+    } else {
+        if (auto s = record_linear(list, attn_view, L.o_w, x, x, rows, hidden, qd, GemmEpilogue::residual); !s.ok()) { return s; }
+        auto plan = cooperative_hidden_norm ? plan_norm_cooperative_dispatch(rows) : plan_norm_dispatch(rows);
+        if (!plan.ok()) { return plan.status; }
+        if (auto cmd = dispatch_1d((*hidden_norm_shader)(x, norm2_view, L.post_norm, rows, hidden, eps, 1u), *plan.value)) {
+            list << std::move(cmd);
+        }
+    }
 
     // 8. SwiGLU MLP: gate/up projections, silu(gate)*up, down + residual.
     if (auto s = record_linear(list, norm2_view, L.gate_w, gate_view, dummy_f, rows, inter, hidden, GemmEpilogue::none); !s.ok()) { return s; }
@@ -884,9 +894,11 @@ struct RecordUploadStaging {
     const auto &d = _config.decoder;
     const uint32_t hidden = d.hidden_size, vocab = d.vocab_size;
     auto norm_view = ws(_norm).subview(0, static_cast<size_t>(rows) * hidden);
-    auto plan = plan_norm_dispatch(rows);
+    const bool cooperative = _config.enable_cooperative_norm && hidden >= kCooperativeNormMinHidden;
+    auto plan = cooperative ? plan_norm_cooperative_dispatch(rows) : plan_norm_dispatch(rows);
     if (!plan.ok()) { return plan.status; }
-    if (auto cmd = dispatch_1d((*_sh_rms_norm)(x, norm_view, _final_norm, rows, hidden, d.rms_norm_eps, 1u), *plan.value)) {
+    const auto *shader = cooperative ? _sh_rms_norm_cooperative : _sh_rms_norm;
+    if (auto cmd = dispatch_1d((*shader)(x, norm_view, _final_norm, rows, hidden, d.rms_norm_eps, 1u), *plan.value)) {
         list << std::move(cmd);
     }
     return record_linear(list, norm_view, _lm_head, C, ws(_dummy_f), rows, vocab, hidden, GemmEpilogue::none);
@@ -1055,7 +1067,6 @@ struct RecordUploadStaging {
         // Phase 3 sequential 1-axis positions.
         for (uint32_t i = 0; i < prompt_len; i++) { staging->positions[i] = static_cast<int32_t>(i); }
     }
-    staging->axis = _axis_pending;
     auto *stage = staging.get();
 
     auto chunks = plan_row_chunks(prompt_len, _config.prefill_chunk_rows);
@@ -1075,10 +1086,9 @@ struct RecordUploadStaging {
         // Upload this chunk's ids + positions + the constant RoPE axis map
         // from the per-record heap staging (stable through completion).
         list << ids_full.subview(0, rows).copy_from(luisa::span<const int32_t>{stage->ids.data() + pos0, rows})
-             << pos_full.subview(0, static_cast<size_t>(rows) * _config.rope_axes)
-                    .copy_from(luisa::span<const int32_t>{stage->positions.data() + static_cast<size_t>(pos0) * _config.rope_axes,
-                                                          static_cast<size_t>(rows) * _config.rope_axes})
-             << ws(_axis_of_pair).as<uint32_t>().copy_from(luisa::span<const uint32_t>{stage->axis});
+         << pos_full.subview(0, static_cast<size_t>(rows) * _config.rope_axes)
+                .copy_from(luisa::span<const int32_t>{stage->positions.data() + static_cast<size_t>(pos0) * _config.rope_axes,
+                                                      static_cast<size_t>(rows) * _config.rope_axes});
         auto ids_view = ids_full.subview(0, rows);
         // Embedding lookup: emb = table[ids].
         {
@@ -1252,33 +1262,26 @@ struct RecordUploadStaging {
     const luisa::vector<uint32_t> meta_state = {static_cast<uint32_t>(DecodeSeqState::decoding)};
     if (auto s = cache.state().record(list, meta_kv_len, meta_positions, meta_step, meta_state); !s.ok()) { return s; }
 
-    // Per-record heap-owned staging for the single token id + position + axis
-    // map (S3): retained through completion so two decode steps recorded into
-    // one CommandList never overwrite each other's borrowed upload memory.
+    // Per-record heap-owned staging for the single token id + positions (S3):
+    // retained through completion so two decode steps recorded into one
+    // CommandList never overwrite each other's borrowed upload memory.
     auto staging = luisa::make_unique<RecordUploadStaging>();
     staging->ids = {static_cast<int32_t>(input_token)};
     staging->positions.assign(position.begin(), position.end());
-    staging->axis = _axis_pending;
     auto *stage = staging.get();
     auto ids_view = ws(_ids).as<int32_t>().subview(0, 1);
     auto pos_view = ws(_positions).as<int32_t>().subview(0, _config.rope_axes);
     list << ids_view.copy_from(luisa::span<const int32_t>{stage->ids})
-         << pos_view.copy_from(luisa::span<const int32_t>{stage->positions})
-         << ws(_axis_of_pair).as<uint32_t>().copy_from(luisa::span<const uint32_t>{stage->axis});
+         << pos_view.copy_from(luisa::span<const int32_t>{stage->positions});
 
     auto x = ws(_x).subview(0, hidden);
-    auto emb = ws(_emb).subview(0, hidden);
+    // Decode has no multimodal scatter: embedding directly into the residual
+    // stream is element-for-element identical to the old embedding -> scratch
+    // -> mm_scatter(count=0) sequence, and removes one launch per decode step.
     {
         auto plan = plan_embedding_dispatch(1, hidden);
         if (!plan.ok()) { return plan.status; }
-        if (auto cmd = dispatch_1d((*_sh_embedding)(_embed, ids_view, emb, 1u, hidden), *plan.value)) {
-            list << std::move(cmd);
-        }
-    }
-    {
-        auto plan = plan_mm_scatter_dispatch(1, hidden);
-        if (!plan.ok()) { return plan.status; }
-        if (auto cmd = dispatch_1d((*_sh_mm_scatter)(emb, ws(_dummy_f), x, 1u, hidden, 0u, 0u), *plan.value)) {
+        if (auto cmd = dispatch_1d((*_sh_embedding)(_embed, ids_view, x, 1u, hidden), *plan.value)) {
             list << std::move(cmd);
         }
     }

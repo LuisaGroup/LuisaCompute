@@ -97,7 +97,7 @@ Operators (ocr/ops/, naive correct portable FP32 DSL; device-free factories):
 |---|---|---|
 | Image | ops_image.h/.cpp | Fused color-convert + bilinear/area resize + normalization (matches Phase 1 preprocess convention); crop; letterbox; patchify/packing |
 | GEMM/GEMV | ops_gemm.h/.cpp | Ragged M/N/K FP32 GEMM with FP32 accumulation; compile-time epilogues (none/bias/GELU-erf/GELU-tanh/ReLU/ReLU6/SiLU/hard-swish/residual/bias-residual); separate decode GEMV/small-M; packed FP16/BF16 B; grouped INT4 sym/asym W4A32 (Phase 1 low-nibble/group/scale/zp semantics); grouped INT8; SwiGLU/GeGLU gated act; W4A16 is an INDEPENDENT variant that fails closed (no FP16 activation arithmetic yet) |
-| Norm | ops_norm.h/.cpp | LayerNorm/RMSNorm (weighted + parameterless), QK-Norm shape, L2, row-sum reduction, residual add |
+| Norm | ops_norm.h/.cpp | LayerNorm/RMSNorm (weighted + parameterless), QK-Norm shape, L2, row-sum reduction, residual add; explicit cooperative 256-thread/shared-tree LayerNorm/RMSNorm variants for large H, with dense hidden-RMSNorm threshold routing and a reference kill switch |
 | RoPE | ops_rope.h/.cpp | 1D, 2D axial, M-RoPE, interleaved MRoPE, XD-RoPE as SEPARATE variants with position buffers + axis mapping data; sinusoidal table |
 | Attention | ops_attention.h/.cpp | Explicit AttentionMaskDescriptor (BIDIRECTIONAL/CAUSAL/WINDOWED/PREFIX_CAUSAL/CUSTOM_BLOCK_MASK); reference scores+FP32 softmax+PV and online-softmax A/B; GQA/MHA; softcap; relative bias; DeepSeek-style custom block mask expressible; separate contiguous-KV decode |
 | Conv | ops_conv.h/.cpp | Conv2D general kernels/stride(asym)/pad/dilation/groups/depthwise; Conv1D + causal depthwise; BatchNorm; avg/adaptive/global pool; concat/split/shuffle |
@@ -313,11 +313,14 @@ xmake build test_ocr_recipe test_ocr_status test_ocr_cli test_ocr_quantization t
 xmake run test_ocr_recipe
 xmake run test_ocr_package
 ```
-
-Targets: `lc-example-ocr` (static engine library), `example_ocr` (CLI).
-`example_ocr_bench` is reserved for the performance/budget harness phase and
-does not exist yet. Host tests live in `src/tests/unit/ocr/` (CTest label
-`unit;unit_ocr`) and need no GPU or model. Frozen SYNTHETIC fixtures live in
+Targets: lc-example-ocr (static engine library), example_ocr (CLI), and
+example_ocr_bench (manual, correctness-gated synthetic benchmark harness).
+The benchmark protocol, workload catalog, report schema, and real-model
+qualification boundary are documented in BENCHMARK.md (BENCHMARK.md). Benchmark
+binaries are not CTest timing tests and produce no official-model claims.
+Host tests live in src/tests/unit/ocr/ (CTest label unit;unit_ocr) and need no
+GPU or model.
+model. Frozen SYNTHETIC fixtures live in
 `src/tests/data/ocr/` (see `golden_manifest.json`); they are regenerated only
 by `tools/generate_fixtures.py`, never by tests. Official
 checkpoint/tokenizer/processor golden qualification is UNMET: no official

@@ -30,6 +30,7 @@
 #include "ocr_test_utils.h"
 #include "ocr_p7_test_utils.h"
 
+#include "ocr/models/surya.h"
 #include "ocr/ops/cpu_reference.h"
 #include "ocr/ops/ops_gdn.h"
 #include "ocr/package.h"
@@ -224,6 +225,119 @@ struct HybridSyntheticWeights {
     auto reader = PackageReader::open(decoder_path);
     if (!reader.ok()) { return reader.status; }
     return store.upload_component_sync(device, stream, **reader.value, "decoder");
+}
+
+// ---------------------------------------------------------------------------
+// Controllable Surya detector fixture + independent CPU detector oracle.
+// Shared with the benchmark adapter; no production code depends on test fixtures.
+// ---------------------------------------------------------------------------
+struct SuryaDetectorWeights {
+    luisa::vector<float> stem_w, stem_b, s1_w, s1_b, s2_w, s2_b, db_w, db_b;
+};
+
+[[nodiscard]] inline SuryaDetectorWeights make_surya_detector_weights(const SuryaDetectorConfig &det) {
+    SuryaDetectorWeights w;
+    const auto center_conv = [](uint32_t oc, uint32_t ic, uint32_t k, bool identity) {
+        luisa::vector<float> v(static_cast<size_t>(oc) * ic * k * k, 0.0f);
+        const uint32_t c = k / 2u;
+        for (uint32_t o = 0; o < oc; o++) {
+            for (uint32_t i = 0; i < ic; i++) {
+                float val = 0.0f;
+                if (identity) { val = (o == i) ? 1.0f : 0.0f; }
+                else { val = (i < 3u && o == i) ? 1.0f : (o >= 3u ? 1.0f / 3.0f : 0.0f); }
+                v[((static_cast<size_t>(o) * ic + i) * k + c) * k + c] = val;
+            }
+        }
+        return v;
+    };
+    w.stem_w = center_conv(det.stem.out_c, det.stem.in_c, det.stem.k, false);
+    w.stem_b.assign(det.stem.out_c, 0.0f);
+    w.s1_w = center_conv(det.stage1.out_c, det.stage1.in_c, det.stage1.k, true);
+    w.s1_b.assign(det.stage1.out_c, 0.0f);
+    w.s2_w = center_conv(det.stage2.out_c, det.stage2.in_c, det.stage2.k, true);
+    w.s2_b.assign(det.stage2.out_c, 0.0f);
+    w.db_w.assign(static_cast<size_t>(det.db_head.out_c) * det.db_head.in_c,
+                  -1.0f / static_cast<float>(det.db_head.in_c));
+    w.db_b.assign(det.db_head.out_c, 0.0f);
+    return w;
+}
+
+[[nodiscard]] inline Status write_surya_detector_package(
+    const luisa::filesystem::path &path, const SuryaDetectorConfig &det,
+    const SuryaDetectorTensorNames &names, const SuryaDetectorWeights &w) {
+    auto writer = PackageWriter::create(path);
+    if (!writer.ok()) { return writer.status; }
+    auto &wr = *writer.value;
+    const auto add = [&wr](const luisa::string &name, luisa::vector<uint64_t> shape,
+                           luisa::span<const float> data) -> Status {
+        PackageWriter::TensorSpec spec;
+        spec.name = name;
+        spec.encoding = TensorEncoding::fp32;
+        spec.layout = TensorLayout::row_major;
+        spec.shape = std::move(shape);
+        spec.payload = p7_f32_bytes(data);
+        return wr->add_tensor(spec);
+    };
+    const auto cs = [](const SuryaConvStage &s) {
+        return luisa::vector<uint64_t>{s.out_c, s.in_c, s.k, s.k};
+    };
+    if (auto s = add(names.stem_weight(), cs(det.stem), w.stem_w); !s.ok()) { return s; }
+    if (auto s = add(names.stem_bias(), {det.stem.out_c}, w.stem_b); !s.ok()) { return s; }
+    if (auto s = add(names.stage1_weight(), cs(det.stage1), w.s1_w); !s.ok()) { return s; }
+    if (auto s = add(names.stage1_bias(), {det.stage1.out_c}, w.s1_b); !s.ok()) { return s; }
+    if (auto s = add(names.stage2_weight(), cs(det.stage2), w.s2_w); !s.ok()) { return s; }
+    if (auto s = add(names.stage2_bias(), {det.stage2.out_c}, w.s2_b); !s.ok()) { return s; }
+    if (auto s = add(names.db_weight(), cs(det.db_head), w.db_w); !s.ok()) { return s; }
+    if (auto s = add(names.db_bias(), {det.db_head.out_c}, w.db_b); !s.ok()) { return s; }
+    return wr->finish(p7_manifest("detector", "surya_2_5"));
+}
+
+[[nodiscard]] inline luisa::vector<float> surya_detector_oracle(
+    const SuryaDetectorConfig &det, const SuryaDetectorWeights &w,
+    luisa::span<const float> pixels_chw, uint32_t &map_h, uint32_t &map_w) {
+    uint32_t h = det.input_height, ww = det.input_width;
+    luisa::vector<float> cur(pixels_chw.begin(), pixels_chw.end());
+    const auto stage = [&](const SuryaConvStage &s, luisa::span<const float> weight,
+                           luisa::span<const float> bias) {
+        luisa::vector<float> out;
+        uint32_t oh = 0, ow = 0;
+        LUISA_ASSERT(ref_conv2d(cur, weight, bias, 1, s.in_c, h, ww, s.out_c, s.k, s.k,
+                                s.stride, s.stride, s.pad, s.pad, 1, 1, 1, out, oh, ow).ok(),
+                     "oracle conv");
+        if (s.act != 0u) {
+            luisa::vector<float> act;
+            LUISA_ASSERT(ref_cnn_act(out, s.act, act).ok(), "oracle act");
+            out = act;
+        }
+        cur = out;
+        h = oh;
+        ww = ow;
+    };
+    stage(det.stem, w.stem_w, w.stem_b);
+    stage(det.stage1, w.s1_w, w.s1_b);
+    stage(det.stage2, w.s2_w, w.s2_b);
+    stage(det.db_head, w.db_w, w.db_b);
+    luisa::vector<float> prob;
+    LUISA_ASSERT(ref_sigmoid(cur, prob).ok(), "oracle sigmoid");
+    map_h = h;
+    map_w = ww;
+    return prob;
+}
+
+[[nodiscard]] inline luisa::vector<uint8_t> make_surya_page_with_bars(
+    uint32_t w, uint32_t h, luisa::span<const std::pair<uint32_t, uint32_t>> bars) {
+    luisa::vector<uint8_t> px(static_cast<size_t>(w) * h * 3u, 255u);
+    for (const auto &[y0, y1] : bars) {
+        for (uint32_t y = y0; y < y1 && y < h; y++) {
+            for (uint32_t x = 0; x < w; x++) {
+                const size_t i = (static_cast<size_t>(y) * w + x) * 3u;
+                px[i] = 0;
+                px[i + 1] = 0;
+                px[i + 2] = 0;
+            }
+        }
+    }
+    return px;
 }
 
 // ---------------------------------------------------------------------------

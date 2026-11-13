@@ -37,6 +37,36 @@ target("example_ocr")
     add_deps("lc-example-ocr")
 target_end()
 
--- example_ocr_bench is reserved for the performance/budget harness phase
--- (plan Phase 11); its source does not exist yet and is intentionally not
--- referenced here.
+-- Benchmark-only device support: private fixture includes live here, never in
+-- lc-example-ocr. Production and the fail-closed CLI stay independent of tests.
+target("lc-example-ocr-bench")
+    add_deps("lc-backends-dummy", {inherit = false, links = false})
+    _config_project({
+        project_kind = "static"
+    })
+    add_files("bench/*.cpp")
+    add_includedirs("$(projectdir)/examples/ocr", {public = true})
+    add_includedirs(
+        "$(projectdir)/src/tests",
+        "$(projectdir)/src/tests/integration/ocr")
+    add_deps("lc-example-ocr")
+    -- Target parsing may disallow subprocess capture. Never invent a revision:
+    -- callers can pin it with LUISA_OCR_SOURCE_REVISION or --source-revision.
+    local source_revision = os.getenv("LUISA_OCR_SOURCE_REVISION") or "unknown"
+    source_revision = source_revision:gsub("%s+", "")
+    add_defines("LUISA_OCR_BENCHMARK_SOURCE_REVISION=" .. source_revision)
+    add_defines(string.format('LUISA_OCR_TEST_DATA_DIR="%s"',
+        (path.join(os.projectdir(), "src/tests/data/ocr")):gsub("\\", "/")))
+    add_defines(string.format('LUISA_OCR_EXAMPLES_DIR="%s"',
+        (path.join(os.projectdir(), "examples")):gsub("\\", "/")))
+target_end()
+
+target("example_ocr_bench")
+    add_deps("lc-backends-dummy", {inherit = false, links = false})
+    _config_project({
+        project_kind = "binary"
+    })
+    add_files("example_ocr_bench.cpp")
+    add_includedirs("$(projectdir)/examples/ocr")
+    add_deps("lc-example-ocr-bench")
+target_end()

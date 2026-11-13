@@ -1069,6 +1069,7 @@ test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
       ocr_test("test_ocr_document", "unit/ocr/test_ocr_document.cpp")
       ocr_test("test_ocr_preprocess", "unit/ocr/test_ocr_preprocess.cpp")
       ocr_test("test_ocr_json_output", "unit/ocr/test_ocr_json_output.cpp")
+      ocr_test("test_ocr_benchmark", "unit/ocr/test_ocr_benchmark.cpp")
               -- unit/ocr: host-only Phase 2 runtime tests (CTest label unit;unit_ocr)
         ocr_test("test_ocr_memory_budget", "unit/ocr/test_ocr_memory_budget.cpp")
         ocr_test("test_ocr_runtime", "unit/ocr/test_ocr_runtime.cpp")
@@ -1092,9 +1093,12 @@ test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
     ocr_test("test_ocr_deepseek_contract", "unit/ocr/test_ocr_deepseek_contract.cpp")
         -- integration/ocr: Phase 2 device tests. Run with an explicit backend:
         --   xmake run test_ocr_ops_gemm vk|cuda|fallback
-        local function ocr_device_test(name, source)
+        local function ocr_device_test(name, source, extra)
             ocr_test(name, source, function()
                 add_includedirs("$(projectdir)/src/tests/integration/ocr")
+                if extra then
+                    extra()
+                end
             end)
         end
         ocr_device_test("test_ocr_ops_image", "integration/ocr/test_ocr_ops_image.cpp")
@@ -1147,6 +1151,9 @@ test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
     ocr_device_test("test_ocr_model_dots_mocr", "integration/ocr/test_ocr_model_dots_mocr.cpp")
     ocr_device_test("test_ocr_model_got_ocr2", "integration/ocr/test_ocr_model_got_ocr2.cpp")
     ocr_device_test("test_ocr_model_olm_ocr2", "integration/ocr/test_ocr_model_olm_ocr2.cpp")
+    ocr_device_test("test_ocr_benchmark_device", "integration/ocr/test_ocr_benchmark_device.cpp", function()
+        add_deps("lc-example-ocr-bench")
+    end)
 
 -- standalone CUDA tensor dispatch example: raw CUDA runtime + driver API with
 -- runtime NVRTC JIT (kernel source is a C++ raw string; no .cu compilation).

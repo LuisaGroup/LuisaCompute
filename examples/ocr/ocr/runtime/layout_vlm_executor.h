@@ -217,6 +217,10 @@ struct PaddleOcrVlRecognizerConfig {
     // Maximum TOTAL native patch rows the vision workspace is sized for.
     uint32_t max_vision_patches{4096};
     uint32_t prefill_chunk_rows{256};
+    // Opt-in dense residual+RMSNorm fusion A/B for the ERNIE decoder.
+    bool enable_fused_residual_rms_norm{false};
+    // Hidden-sized cooperative RMSNorm; false restores the reference kernel.
+    bool enable_cooperative_norm{true};
     // Prompt token ids surrounding the visual tokens (synthetic contract). The
     // visual tokens are inserted between prefix and suffix.
     luisa::vector<uint32_t> prompt_prefix{1u};

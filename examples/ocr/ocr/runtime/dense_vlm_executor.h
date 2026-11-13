@@ -107,9 +107,12 @@ struct DenseExecutorConfig {
     // The whole prompt is still prefilled; long prompts are split into
     // causal chunks that read the already-written KV prefix.
     uint32_t prefill_chunk_rows{256};
- // Phase 11 opt-in fusion of output projection residual and post-attention
- // RMSNorm. Default false preserves the reference command sequence.
- bool enable_fused_residual_rms_norm{false};
+    // Phase 11 opt-in fusion of output projection residual and post-attention
+    // RMSNorm. Default false preserves the reference command sequence.
+    bool enable_fused_residual_rms_norm{false};
+    // Cooperative hidden RMSNorm for hidden_size >= kCooperativeNormMinHidden.
+    // Default on for parity-proven shapes; false is the reference kill switch.
+    bool enable_cooperative_norm{true};
     // Optional byte budget (0 = unset). Preflighted BEFORE allocation against
     // the executor-owned device bytes (workspace arena + tied-LM-head transpose
     // buffer when present) and host staging (the tied-head transpose staging).
@@ -129,8 +132,8 @@ public:
 
     // Validate config, resolve every weight view from `weights` (already
     // installed), preflight + reserve the workspace, compile shader variants.
-    // `stream` is used only for the one-time tied-LM-head transpose upload
-    // (when tie_word_embeddings and no standalone lm_head tensor exists).
+    // `stream` is used for one-time tied-LM-head transpose (when needed) and
+    // constant RoPE-axis-map uploads, drained before create returns.
     // `device`/`weights` are borrowed for the executor's lifetime.
     [[nodiscard]] Status create(compute::Device &device, compute::Stream &stream,
                                 const DenseExecutorConfig &config,
@@ -349,8 +352,8 @@ private:
 
     // Constant RoPE axis map: 1D maps every pair to axis 0; multimodal uses
     // the explicit configured section map TRUNCATED to the rotated prefix
-    // (partial rotary). Uploaded through heap-owned per-record staging (see
-    // record_*), so it is stable host data, not borrowed per-call scratch.
+    // (partial rotary). Uploaded once during create; the stable host vector is
+    // retained only as the source of that one-time upload.
     luisa::vector<uint32_t> _axis_pending;
     // Host mirror of the tied-LM-head transpose staging size (for accounting).
     uint64_t _tied_head_staging_bytes{0};
@@ -385,7 +388,9 @@ private:
     const TypedShaderCache<EmbeddingLookupKernel>::ShaderT *_sh_embedding{nullptr};
     const TypedShaderCache<MmScatterKernel>::ShaderT *_sh_mm_scatter{nullptr};
     const TypedShaderCache<RmsNormKernel>::ShaderT *_sh_rms_norm{nullptr};
- const TypedShaderCache<ResidualRmsNormKernel>::ShaderT *_sh_residual_rms_norm{nullptr};
+    // Hidden-sized norm variant; QK-Norm continues to use _sh_rms_norm.
+    const TypedShaderCache<RmsNormKernel>::ShaderT *_sh_rms_norm_cooperative{nullptr};
+    const TypedShaderCache<ResidualRmsNormKernel>::ShaderT *_sh_residual_rms_norm{nullptr};
     const TypedShaderCache<GemmKernel>::ShaderT *_sh_gemm_bias{nullptr};
     const TypedShaderCache<GemmKernel>::ShaderT *_sh_gemm_residual{nullptr};
     const TypedShaderCache<GemmKernel>::ShaderT *_sh_gemm_none{nullptr};

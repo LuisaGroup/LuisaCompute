@@ -231,6 +231,11 @@ struct P7SliceConfig {
     luisa::vector<float> std_dev{0.5f, 0.5f, 0.5f};
     uint32_t max_vision_patches{4096};
     uint32_t prefill_chunk_rows{256};
+    // Opt-in dense residual+RMSNorm fusion A/B. Default preserves the
+    // reference command sequence; forwarded to the embedded text executor.
+    bool enable_fused_residual_rms_norm{false};
+    // Hidden-sized cooperative RMSNorm; false restores the reference kernel.
+    bool enable_cooperative_norm{true};
     MemoryLimits memory;
 
     // Derived text RoPE axis count.

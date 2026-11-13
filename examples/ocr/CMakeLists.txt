@@ -21,6 +21,8 @@ add_library(lc-example-ocr STATIC
     ocr/preprocess.cpp
     ocr/feature_bundle.cpp
     ocr/output/json_output.cpp
+    # Host-safe benchmark options/statistics/reporting (no device/fixture dependency)
+    ocr/benchmark.cpp
     # Phase 4 structured outputs (Markdown/table/LaTeX/JSON extraction)
     ocr/output/markdown.cpp
     ocr/output/table.cpp
@@ -124,6 +126,41 @@ target_include_directories(example_ocr PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/examples)
 
-# example_ocr_bench is reserved for the performance/budget harness phase
-# (plan Phase 11); its source does not exist yet and is intentionally not
-# referenced here.
+# Benchmark-only device support. This target (not lc-example-ocr) privately
+# includes the synthetic test fixtures, keeping production/library dependencies
+# acyclic and ensuring benchmark-only code cannot enter the public OCR CLI.
+add_library(lc-example-ocr-bench STATIC
+    bench/benchmark_device.cpp
+    bench/benchmark_ops.cpp
+    bench/benchmark_decode.cpp
+    bench/benchmark_cnn_layout.cpp
+    bench/benchmark_gdn_moe.cpp
+    bench/benchmark_qwen.cpp
+    bench/benchmark_layout_models.cpp
+    bench/benchmark_p7_models.cpp
+    bench/benchmark_surya.cpp
+)
+target_link_libraries(lc-example-ocr-bench PUBLIC lc-example-ocr)
+target_include_directories(lc-example-ocr-bench
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/tests
+        ${CMAKE_SOURCE_DIR}/src/tests/integration/ocr)
+set(LUISA_OCR_BENCHMARK_SOURCE_REVISION "unknown")
+find_package(Git QUIET)
+if (GIT_EXECUTABLE)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE LUISA_OCR_BENCHMARK_SOURCE_REVISION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif ()
+target_compile_definitions(lc-example-ocr-bench PRIVATE
+    LUISA_OCR_BENCHMARK_SOURCE_REVISION=${LUISA_OCR_BENCHMARK_SOURCE_REVISION}
+    LUISA_OCR_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/src/tests/data/ocr"
+    LUISA_OCR_EXAMPLES_DIR="${CMAKE_SOURCE_DIR}/examples")
+
+luisa_compute_add_executable(example_ocr_bench example_ocr_bench.cpp)
+target_link_libraries(example_ocr_bench PRIVATE lc-example-ocr-bench)
+target_include_directories(example_ocr_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

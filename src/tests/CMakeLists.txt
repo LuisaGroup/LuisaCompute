@@ -2023,6 +2023,8 @@ luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
           "unit;unit_ocr")
   luisa_compute_add_ocr_test(test_ocr_json_output unit/ocr/test_ocr_json_output.cpp
           "unit;unit_ocr")
+  luisa_compute_add_ocr_test(test_ocr_benchmark unit/ocr/test_ocr_benchmark.cpp
+          "unit;unit_ocr")
       # host-only Phase 2 runtime tests (no device/model)
     luisa_compute_add_ocr_test(test_ocr_memory_budget unit/ocr/test_ocr_memory_budget.cpp
             "unit;unit_ocr")
@@ -2101,7 +2103,8 @@ luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
                     test_ocr_model_hunyuan
                     test_ocr_model_dots_mocr
                     test_ocr_model_got_ocr2
-                    test_ocr_model_olm_ocr2)
+                    test_ocr_model_olm_ocr2
+                    test_ocr_benchmark_device)
     foreach(_ocr_test IN LISTS _ocr_device_tests)
         if(LUISA_OCR_DEVICE_BACKEND)
             luisa_compute_add_ocr_test(${_ocr_test} integration/ocr/${_ocr_test}.cpp
@@ -2117,6 +2120,9 @@ luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
         endif()
         target_include_directories(${_ocr_test} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/integration/ocr)
     endforeach()
+    # The benchmark smoke test reuses the separate benchmark-support target;
+    # it checks correctness/reporting only and has no wall-time threshold.
+    target_link_libraries(test_ocr_benchmark_device PRIVATE lc-example-ocr-bench)
 
 # The SIMD backend is a host-only module, so its supported runtime conformance
 # subset is safe to run unattended without a GPU or driver installation.

@@ -1,6 +1,8 @@
 // OCR engine -- normalization / reduction operator implementations (Phase 2).
 #include "ocr/ops/ops_norm.h"
 
+#include <limits>
+
 #include <luisa/dsl/sugar.h>
 
 #include "ocr/ops/ops_common.h"
@@ -41,6 +43,54 @@ using namespace luisa::compute;
     return kernel;
 }
 
+[[nodiscard]] LayerNormKernel make_layer_norm_cooperative_kernel() noexcept {
+    LayerNormKernel kernel = [](BufferFloat x, BufferFloat y, BufferFloat gamma, BufferFloat beta,
+                                Var<uint> rows, Var<uint> H, Var<float> eps, Var<uint> has_weight) noexcept {
+        constexpr uint32_t block = 256u;
+        set_block_size(block, 1u, 1u);
+        set_name("ocr_layer_norm_cooperative");
+        Shared<float> reduction{block};
+        const auto lane = thread_x();
+        const auto width = block_size().x;
+        const auto row = dispatch_id().y * (dispatch_size().x / width) + dispatch_id().x / width;
+        const auto base = row * H;
+        const auto block_sum = [&](Var<float> partial) noexcept {
+            reduction[lane] = partial;
+            sync_block();
+            for (uint32_t stride = block / 2u; stride != 0u; stride >>= 1u) {
+                $if (lane < stride) { reduction[lane] += reduction[lane + stride]; };
+                sync_block();
+            }
+            const auto total = reduction[0u];
+            sync_block();
+            return total;
+        };
+        Var<float> sum = def(0.0f);
+        Var<uint> i = lane;
+        $while (i < H) {
+            sum += x.read(base + i);
+            i += width;
+        };
+        const auto mean = block_sum(sum) / cast<float>(H);
+        Var<float> var_sum = def(0.0f);
+        i = lane;
+        $while (i < H) {
+            const auto delta = x.read(base + i) - mean;
+            var_sum += delta * delta;
+            i += width;
+        };
+        const auto inv = rsqrt(block_sum(var_sum) / cast<float>(H) + eps);
+        i = lane;
+        $while (i < H) {
+            Var<float> value = (x.read(base + i) - mean) * inv;
+            $if (has_weight != 0u) { value = value * gamma.read(i) + beta.read(i); };
+            y.write(base + i, value);
+            i += width;
+        };
+    };
+    return kernel;
+}
+
 [[nodiscard]] RmsNormKernel make_rms_norm_kernel() noexcept {
     RmsNormKernel kernel = [](BufferFloat x, BufferFloat y, BufferFloat gamma,
                                 Var<uint> rows, Var<uint> H, Var<float> eps, Var<uint> has_weight) noexcept {
@@ -60,6 +110,47 @@ using namespace luisa::compute;
                 $if (has_weight != 0u) { v = v * gamma.read(i); };
                 y.write(base + i, v);
             };
+        };
+    };
+    return kernel;
+}
+
+[[nodiscard]] RmsNormKernel make_rms_norm_cooperative_kernel() noexcept {
+    RmsNormKernel kernel = [](BufferFloat x, BufferFloat y, BufferFloat gamma,
+                              Var<uint> rows, Var<uint> H, Var<float> eps, Var<uint> has_weight) noexcept {
+        constexpr uint32_t block = 256u;
+        set_block_size(block, 1u, 1u);
+        set_name("ocr_rms_norm_cooperative");
+        Shared<float> reduction{block};
+        const auto lane = thread_x();
+        const auto width = block_size().x;
+        const auto row = dispatch_id().y * (dispatch_size().x / width) + dispatch_id().x / width;
+        const auto base = row * H;
+        const auto block_sum = [&](Var<float> partial) noexcept {
+            reduction[lane] = partial;
+            sync_block();
+            for (uint32_t stride = block / 2u; stride != 0u; stride >>= 1u) {
+                $if (lane < stride) { reduction[lane] += reduction[lane + stride]; };
+                sync_block();
+            }
+            const auto total = reduction[0u];
+            sync_block();
+            return total;
+        };
+        Var<float> sumsq = def(0.0f);
+        Var<uint> i = lane;
+        $while (i < H) {
+            const auto value = x.read(base + i);
+            sumsq += value * value;
+            i += width;
+        };
+        const auto inv = rsqrt(block_sum(sumsq) / cast<float>(H) + eps);
+        i = lane;
+        $while (i < H) {
+            Var<float> value = x.read(base + i) * inv;
+            $if (has_weight != 0u) { value *= gamma.read(i); };
+            y.write(base + i, value);
+            i += width;
         };
     };
     return kernel;
@@ -136,6 +227,14 @@ using namespace luisa::compute;
 
 [[nodiscard]] Result<LaunchPlan1D> plan_norm_dispatch(uint64_t rows) {
     return plan_threads(rows, 256u);
+}
+
+[[nodiscard]] Result<LaunchPlan1D> plan_norm_cooperative_dispatch(uint64_t rows) {
+    if (rows > std::numeric_limits<uint64_t>::max() / 256ull) {
+        return Result<LaunchPlan1D>::failure(StatusCode::invalid_argument,
+                                             "cooperative norm thread count overflow", "rows*256");
+    }
+    return plan_threads(rows * 256ull, 256u);
 }
 
 [[nodiscard]] Result<LaunchPlan1D> plan_residual_add_dispatch(uint64_t count) {

@@ -68,6 +68,11 @@ struct Qwen3VlExecutorConfig {
     uint32_t max_vision_patches{4096};
     // Maximum prompt rows per decoder prefill chunk (forwarded).
     uint32_t prefill_chunk_rows{256};
+    // Opt-in dense residual+RMSNorm fusion A/B. Default preserves the
+    // reference command sequence; forwarded to the embedded text executor.
+    bool enable_fused_residual_rms_norm{false};
+    // Hidden-sized cooperative RMSNorm; false restores the reference kernel.
+    bool enable_cooperative_norm{true};
     // Optional byte budget (0 = unset), preflighted before allocation against
     // the executor-owned workspace arenas (vision + decoder).
     MemoryLimits memory;

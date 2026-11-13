@@ -299,6 +299,10 @@ void HybridGdnCache::release(uint32_t index) noexcept {
 
     if (auto s = resolve_weights(stream, weights); !s.ok()) { return s; }
     if (auto s = reserve_workspace(); !s.ok()) { return s; }
+    // The 1-axis RoPE map is immutable; do not repeat this upload in every
+    // prefill chunk and recurrent decode step.
+    stream << ws(_axis_of_pair).as<uint32_t>().copy_from(luisa::span<const uint32_t>{_axis_pending})
+           << synchronize();
     return compile_shaders();
 }
 
@@ -859,7 +863,6 @@ namespace {
 struct HybridRecordStaging {
     luisa::vector<int32_t> ids;
     luisa::vector<int32_t> positions;
-    luisa::vector<uint32_t> axis;
 };
 }// namespace
 
@@ -950,7 +953,6 @@ struct HybridRecordStaging {
     staging->ids.assign(request.prompt_tokens.begin(), request.prompt_tokens.end());
     staging->positions.resize(prompt_len);
     for (uint32_t i = 0; i < prompt_len; i++) { staging->positions[i] = static_cast<int32_t>(i); }
-    staging->axis = _axis_pending;
     auto *stage = staging.get();
 
     auto chunks = plan_row_chunks(prompt_len, effective_chunk);
@@ -967,8 +969,7 @@ struct HybridRecordStaging {
         auto x = x_full.subview(0, static_cast<size_t>(rows) * hidden);
         auto emb = emb_full.subview(0, static_cast<size_t>(rows) * hidden);
         list << ids_full.subview(0, rows).copy_from(luisa::span<const int32_t>{stage->ids.data() + pos0, rows})
-             << pos_full.subview(0, rows).copy_from(luisa::span<const int32_t>{stage->positions.data() + pos0, rows})
-             << ws(_axis_of_pair).as<uint32_t>().copy_from(luisa::span<const uint32_t>{stage->axis});
+             << pos_full.subview(0, rows).copy_from(luisa::span<const int32_t>{stage->positions.data() + pos0, rows});
         auto ids_view = ids_full.subview(0, rows);
         {
             auto plan = plan_embedding_dispatch(rows, hidden);
@@ -1059,27 +1060,19 @@ struct HybridRecordStaging {
     auto staging = luisa::make_unique<HybridRecordStaging>();
     staging->ids = {static_cast<int32_t>(input_token)};
     staging->positions = {static_cast<int32_t>(pos)};
-    staging->axis = _axis_pending;
     auto *stage = staging.get();
     auto ids_view = ws(_ids).as<int32_t>().subview(0, 1);
     auto pos_view = ws(_positions).as<int32_t>().subview(0, 1);
     list << ids_view.copy_from(luisa::span<const int32_t>{stage->ids})
-         << pos_view.copy_from(luisa::span<const int32_t>{stage->positions})
-         << ws(_axis_of_pair).as<uint32_t>().copy_from(luisa::span<const uint32_t>{stage->axis});
+         << pos_view.copy_from(luisa::span<const int32_t>{stage->positions});
 
     auto x = ws(_x).subview(0, hidden);
-    auto emb = ws(_emb).subview(0, hidden);
+    // Recurrent decode has no multimodal scatter, so embedding can write the
+    // residual stream directly instead of launching a count=0 copy kernel.
     {
         auto plan = plan_embedding_dispatch(1, hidden);
         if (!plan.ok()) { return plan.status; }
-        if (auto cmd = dispatch_1d((*_sh_embedding)(_embed, ids_view, emb, 1u, hidden), *plan.value)) {
-            list << std::move(cmd);
-        }
-    }
-    {
-        auto plan = plan_mm_scatter_dispatch(1, hidden);
-        if (!plan.ok()) { return plan.status; }
-        if (auto cmd = dispatch_1d((*_sh_mm_scatter)(emb, ws(_dummy_f), x, 1u, hidden, 0u, 0u), *plan.value)) {
+        if (auto cmd = dispatch_1d((*_sh_embedding)(_embed, ids_view, x, 1u, hidden), *plan.value)) {
             list << std::move(cmd);
         }
     }

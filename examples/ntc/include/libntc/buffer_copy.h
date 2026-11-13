@@ -27,7 +27,7 @@ template<typename Destination, typename T>
 // Downloads `source` into `destination`; the transfer covers exactly `source`.
 template<typename Source, typename T>
 [[nodiscard]] auto copy_from_device(Source &source, T *destination) noexcept {
-    return source.copy_to(luisa::span<T>{destination, source.size()});
+    return source.copy_to(luisa::span<T>{destination, source.view().size_bytes() / sizeof(T)});
 }
 
 }// namespace luisa::ntc
