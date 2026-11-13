@@ -158,7 +158,6 @@ void main(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
 
  if (threadInBlock < 2)
  {
- // find_axis
  int2x3 endPoint;
  endPoint[0] = shared_temp[threadBase + threadInBlock * 16].endPoint_low;
  endPoint[1] = shared_temp[threadBase + threadInBlock * 16].endPoint_high;
@@ -363,7 +362,7 @@ void main(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
  finish_quantize_0( bBadQuantize, endPoint_q, prec, transformed );
  }
  }
- else // if (threadInBlock == 1)
+ else
  {
  if (best_mode <= 10)
  {

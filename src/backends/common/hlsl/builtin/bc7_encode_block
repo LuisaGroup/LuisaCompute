@@ -2,7 +2,7 @@
 void main(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
 {
  const uint MAX_USED_THREAD = 16;
- uint BLOCK_IN_GROUP = THREAD_GROUP_SIZE / MAX_USED_THREAD; //4
+ uint BLOCK_IN_GROUP = THREAD_GROUP_SIZE / MAX_USED_THREAD;
  uint blockInGroup = GI / MAX_USED_THREAD;
  uint blockID = g_start_block_id + groupID.x * BLOCK_IN_GROUP + blockInGroup;
  uint threadBase = blockInGroup * MAX_USED_THREAD;
@@ -207,7 +207,7 @@ void main(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
  {
  ep_quantized = compress_endpoints6( ep, P );
  }
- else //if (7 == mode)
+ else
  {
  ep_quantized = compress_endpoints7( ep, P );
  }
@@ -236,7 +236,7 @@ void main(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
  }
  }
  }
- else //if ((0 == mode) || (2 == mode) || (1 == mode) || (3 == mode) || (7 == mode) || (6 == mode))
+ else
  {
  int p;
  if (0 == threadInBlock)
@@ -247,7 +247,7 @@ void main(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
  {
  p = candidateFixUpIndex1D[partition].x;
  }
- else //if (2 == threadInBlock)
+ else
  {
  p = candidateFixUpIndex1D[partition].y;
  }
@@ -390,7 +390,7 @@ void main(uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID)
  {
  block_package6( block, threadBase );
  }
- else //if (7 == mode)
+ else
  {
  block_package7( block, partition, threadBase );
  }

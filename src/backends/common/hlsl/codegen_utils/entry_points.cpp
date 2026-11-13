@@ -86,7 +86,32 @@ namespace detail {
            ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX) ||
            ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT);
 }
-size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg, bool fallback_rtx, bool bf16_fallback) {
+size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities) {
+    // The capability switches have to be defined before the header that tests them
+    // with #ifdef (builtin/hlsl_header*.bytes).  Each one selects an instruction that
+    // declares an OpCapability, and a module that carries that capability is rejected by
+    // a device whose logical device did not enable the extension - so a macro is only
+    // defined for a device that negotiated it, and a device that negotiated neither gets
+    // the pre-feature header byte for byte.
+    if (is_spirv) {
+        if (spirv_capabilities.fma) {
+            // VK_KHR_shader_fma: `mad()` on 32-bit float becomes OpFmaKHR.
+            builder << "#define LUISA_SPV_FMA 1\n";
+        }
+        if (spirv_capabilities.abort) {
+            // VK_KHR_shader_abort: `$debug_break` becomes OpAbortKHR.
+            builder << "#define LUISA_SPV_ABORT 1\n";
+        }
+        if (spirv_capabilities.cluster_acceleration_structure) {
+            // VK_NV_cluster_acceleration_structure: the ray-query cluster-ID
+            // accessor becomes OpRayQueryGetIntersectionClusterIdNV.  The accessor
+            // is only declared when the device negotiated the extension, so a
+            // shader that reads a cluster ID on a device without it fails to
+            // compile instead of emitting a module that declares an extension the
+            // logical device never enabled.
+            builder << "#define LUISA_SPV_CLUSTER_AS 1\n";
+        }
+    }
     builder << CodegenUtility::ReadInternalHLSLFile(fallback ? "hlsl_header_fallback" : "hlsl_header");
     if (bf16_fallback) {
         // Software BF16: the host selected this header because the target
@@ -193,11 +218,12 @@ bool IsCBuffer(Variable::Tag t);
 }// namespace detail
 
 // Main compute kernel codegen
-CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback) {
+CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
     opt->bf16_fallback = bf16_fallback;
+    opt->spirv_capabilities = spirv_capabilities;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
@@ -241,7 +267,7 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     if (enable_debug_info) {
         finalResult << "#define LUISA_DEBUG_INFO 1\n";
     }
-    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx, bf16_fallback);
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx, bf16_fallback, spirv_capabilities);
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';
@@ -370,11 +396,12 @@ uint4 v;
 
 // Ray tracing pipeline codegen for motion blur
 // Generates a lib_6_5 HLSL with raygen/miss/closesthit entry points
-CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback) {
+CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
     opt->bf16_fallback = bf16_fallback;
+    opt->spirv_capabilities = spirv_capabilities;
     opt->noRegister = noRegister;
     opt->isRayTracing = true;
     opt->enable_debug_info = enable_debug_info;
@@ -394,7 +421,7 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
     if (enable_debug_info) {
         finalResult << "#define LUISA_DEBUG_INFO 1\n";
     }
-    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx, bf16_fallback);
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations(), fallback_rtx, bf16_fallback, spirv_capabilities);
     // Add motion blur ray tracing header (miss/closesthit entry points + _TraceClosestMotion)
     finalResult << ReadInternalHLSLFile("raytracing_motion_header");
     finalResult << native_code << "\n//"sv;
@@ -472,11 +499,13 @@ CodegenResult CodegenUtility::RasterCodegen(
     bool enable_debug_info,
     bool enable_fast_math,
     bool fallback_rtx,
-    bool bf16_fallback) {
+    bool bf16_fallback,
+    SpirvShaderCapabilities spirv_capabilities) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
     opt->bf16_fallback = bf16_fallback;
+    opt->spirv_capabilities = spirv_capabilities;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
     // CodegenStackData::ThreadLocalSpirv() = false;
@@ -498,7 +527,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     }
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
-    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister, vertFunc.use_cooperative_operations() || pixelFunc.use_cooperative_operations(), fallback_rtx, bf16_fallback);
+    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister, vertFunc.use_cooperative_operations() || pixelFunc.use_cooperative_operations(), fallback_rtx, bf16_fallback, spirv_capabilities);
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';

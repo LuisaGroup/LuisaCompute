@@ -422,7 +422,7 @@ int main(int argc, char *argv[]) {
         // `filter_triangle_hit` evaluates), the conservative one only cuts micro
         // triangles whose three corners are *all* transparent.
         .conservative = omm_conservative,
-        .index_format = OpacityMicromap::IndexFormat::None};
+        .index_format = OpacityMicromap::IndexFormat::NoIndex};
     auto omm_box_of = [&](uint instance) noexcept -> OmmBox * {
         for (auto &box : omm_boxes) {
             if (box.instance == instance) { return &box; }

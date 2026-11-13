@@ -646,7 +646,7 @@ OpacityMicromap Device::create_opacity_micromap(
             OpacityMicromap::max_representable_subdivision_level);
     }
     switch (option.index_format) {
-        case OpacityMicromap::IndexFormat::None:
+        case OpacityMicromap::IndexFormat::NoIndex:
         case OpacityMicromap::IndexFormat::UInt8:
         case OpacityMicromap::IndexFormat::UInt16:
         case OpacityMicromap::IndexFormat::UInt32: break;
@@ -663,7 +663,7 @@ OpacityMicromap Device::create_opacity_micromap(
     auto data = this->_create<Buffer<uint>>(data_words);
     Buffer<uint> index;
     auto index_bytes = uint64_t{0u};
-    if (option.index_format != OpacityMicromap::IndexFormat::None) {
+    if (option.index_format != OpacityMicromap::IndexFormat::NoIndex) {
         index_bytes = static_cast<uint64_t>(static_cast<uint32_t>(option.index_format)) *
                       triangle_count;
         index = this->_create<Buffer<uint>>(static_cast<size_t>((index_bytes + 3u) / 4u));

@@ -31,7 +31,14 @@ void check(luisa::span<const float> values, float offset, size_t base) {
 }// namespace
 
 int main(int argc, char *argv[]) {
-    if (argc != 3 || string_view{argv[1]} != "cuda" ||
+    // Check the argument count before touching argv[1] / argv[2]: folding both
+    // checks into one condition lets the compiler treat the out-of-range reads
+    // as unreachable, which crashed instead of printing the usage line.
+    if (argc != 3) {
+        LUISA_WARNING("Usage: test_tile_cuda_graph cuda native|tirx (native requires LUISA_CUDA_TILE_IR=1)");
+        return 1;
+    }
+    if (string_view{argv[1]} != "cuda" ||
         (string_view{argv[2]} != "native" && string_view{argv[2]} != "tirx")) {
         LUISA_WARNING("Usage: test_tile_cuda_graph cuda native|tirx (native requires LUISA_CUDA_TILE_IR=1)");
         return 1;

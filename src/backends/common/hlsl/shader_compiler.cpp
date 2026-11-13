@@ -203,6 +203,47 @@ static void AddCompileFlags(Vec &args, bool debug) {
         args.emplace_back(L"-no-warnings");
     }
 }
+// Shader-capability extensions the HLSL-to-SPIR-V route may use
+// (`hlsl::SpirvShaderCapabilities`).  dxc rejects an `-fspv-extension=` name it does
+// not know, so a capability is only enabled when the device negotiated it; the
+// generated source then contains the matching instruction, whose OpCapability and
+// OpExtension dxc declares on its own (see builtin/hlsl_header.bytes).
+//
+// `-fspv-extension=` is an allow-list, not an addition: as soon as one name is given,
+// dxc drops every extension the option does not name - *including* the ones that are
+// enabled by default (`FeatureManager::allowAllKnownExtensions` resets every
+// non-default extension, and the option path resets everything but the named ones).
+// The generated source relies on parts of that default set: an inline ray query needs
+// `SPV_KHR_ray_query`, a non-uniform descriptor index (every bindless access) needs
+// `SPV_EXT_descriptor_indexing`.  Naming them here whenever a capability is enabled is
+// therefore not optional - without it a shader that compiled before the capability
+// became available would start failing with "extension ... not permitted to use".
+// `KHR` is dxc's spelling for "every KHR extension", and permitting an extension never
+// emits anything by itself, so the module still declares only what its instructions
+// require.
+template<typename Vec>
+static void AddSpirvCapabilityFlags(Vec &args, SpirvShaderCapabilities capabilities) {
+    if (!capabilities.fma && !capabilities.abort &&
+        !capabilities.cluster_acceleration_structure) {
+        return;// no allow-list at all, so dxc keeps its default set
+    }
+    args.emplace_back(L"-fspv-extension=KHR");
+    args.emplace_back(L"-fspv-extension=SPV_EXT_descriptor_indexing");
+    if (capabilities.fma) {
+        args.emplace_back(L"-fspv-extension=SPV_KHR_fma");
+    }
+    if (capabilities.abort) {
+        args.emplace_back(L"-fspv-extension=SPV_KHR_abort");
+    }
+    if (capabilities.cluster_acceleration_structure) {
+        // OpRayQueryGetIntersectionClusterIdNV is opt-in in dxc: without this flag the
+        // call is a compile error rather than a module that declares an extension the
+        // device never asked for.  The ray query object the accessor reads is covered by
+        // the KHR allow-list above (`SPV_KHR_ray_query`).
+        args.emplace_back(L"-fspv-extension=SPV_NV_cluster_acceleration_structure");
+    }
+}
+
 template<typename Vec>
 static void AddUnsafeMathFlags(Vec &args) {
     // unsafe opt may conflict with dxc
@@ -224,7 +265,8 @@ CompileResult ShaderCompiler::_compile_with_profile(
     bool spirv,
     bool debug,
     vstd::string_view entry_point,
-    luisa::span<const luisa::filesystem::path> include_dirs) const {
+    luisa::span<const luisa::filesystem::path> include_dirs,
+    SpirvShaderCapabilities spirv_capabilities) const {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -250,6 +292,7 @@ CompileResult ShaderCompiler::_compile_with_profile(
         } else if (shaderModel > 60) {
             args.emplace_back(L"-fspv-target-env=vulkan1.2");
         }
+        AddSpirvCapabilityFlags(args, spirv_capabilities);
     }
     if (!entry_str.empty()) {
         args.emplace_back(L"-E");
@@ -281,12 +324,13 @@ CompileResult ShaderCompiler::compile_compute(
     bool spirv,
     bool debug,
     vstd::string_view entry_point,
-    luisa::span<const luisa::filesystem::path> include_dirs) const {
+    luisa::span<const luisa::filesystem::path> include_dirs,
+    SpirvShaderCapabilities spirv_capabilities) const {
     vstd::wstring profile;
     profile << L"cs_" << GetSM(shaderModel);
     return _compile_with_profile(
         code, profile, optimize, shaderModel, enableUnsafeMath, spirv, debug,
-        entry_point, include_dirs);
+        entry_point, include_dirs, spirv_capabilities);
 }
 CompileResult ShaderCompiler::compile_graphics_stage(
     vstd::string_view code,
@@ -297,12 +341,13 @@ CompileResult ShaderCompiler::compile_graphics_stage(
     bool spirv,
     bool debug,
     vstd::string_view entry_point,
-    luisa::span<const luisa::filesystem::path> include_dirs) const {
+    luisa::span<const luisa::filesystem::path> include_dirs,
+    SpirvShaderCapabilities spirv_capabilities) const {
     vstd::wstring profile;
     profile << (vertex ? L"vs_" : L"ps_") << GetSM(shaderModel);
     return _compile_with_profile(
         code, profile, optimize, shaderModel, enableUnsafeMath, spirv, debug,
-        entry_point, include_dirs);
+        entry_point, include_dirs, spirv_capabilities);
 }
 RasterBin ShaderCompiler::compile_raster(
     vstd::string_view code,
@@ -310,7 +355,8 @@ RasterBin ShaderCompiler::compile_raster(
     uint shaderModel,
     bool enableUnsafeMath,
     bool spirv,
-    bool debug) const {
+    bool debug,
+    SpirvShaderCapabilities spirv_capabilities) const {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -326,6 +372,7 @@ RasterBin ShaderCompiler::compile_raster(
         } else if (shaderModel > 60) {
             args.emplace_back(L"-fspv-target-env=vulkan1.2");
         }
+        AddSpirvCapabilityFlags(args, spirv_capabilities);
     }
     if (enableUnsafeMath) {
         AddUnsafeMathFlags(args);
@@ -355,7 +402,8 @@ CompileResult ShaderCompiler::compile_raytracing(
     uint shaderModel,
     bool enableUnsafeMath,
     bool spirv,
-    bool debug) const {
+    bool debug,
+    SpirvShaderCapabilities spirv_capabilities) const {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -372,6 +420,7 @@ CompileResult ShaderCompiler::compile_raytracing(
         }
         // Enable ray tracing SPIR-V extensions
         args.emplace_back(L"-fspv-extension=SPV_KHR_ray_tracing");
+        AddSpirvCapabilityFlags(args, spirv_capabilities);
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());

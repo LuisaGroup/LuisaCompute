@@ -1103,6 +1103,23 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx};
         codegen.emit(kernel, device_lib, option.native_include);
         LUISA_VERBOSE("Generated CUDA source in {} ms.", clk.toc());
+        // Cluster launch control, shared-memory mbarriers, proxy fences and
+        // cluster barriers expand to SM 90+ PTX. NVRTC happily emits PTX for an
+        // older target, and the driver then fails the module load with an
+        // opaque CUDA_ERROR_INVALID_PTX; name the requirement here instead.
+        if (auto feature = codegen.cluster_feature();
+            !feature.empty() && _handle.compute_capability() < 90u) {
+            auto name = kernel.name();
+            if (name.empty()) { name = "<unnamed>"; }
+            LUISA_ERROR_WITH_LOCATION(
+                "'{}' (kernel '{}') lowers to SM 90+ PTX: cluster launch "
+                "control, shared-memory mbarriers and cluster barriers are "
+                "Hopper/Blackwell instructions. The device reports compute "
+                "capability {}.{}.",
+                feature, name,
+                _handle.compute_capability() / 10u,
+                _handle.compute_capability() % 10u);
+        }
         return std::move(codegen).move_print_formats();
     }();
 

@@ -108,6 +108,37 @@ struct StructPacking {
 [[nodiscard]] StructPacking plan_struct_packing(Type const *structType,
                                                 bool bf16_fallback);
 
+/// Optional shader-capability extensions of the SPIR-V target, as negotiated by
+/// the host (see src/backends/vk/vk_shader_capabilities.h).
+///
+/// Each flag corresponds to a Vulkan extension that adds *shader* capability to a
+/// module: a module that declares OpCapability FMAKHR, AbortKHR or
+/// RayTracingClusterAccelerationStructureNV is rejected by every device whose
+/// logical device did not enable the matching extension, so the generated source
+/// may only contain the corresponding instruction when the flag is set.  The DXIL
+/// backend passes nothing (DXIL has none of these instructions) and the Vulkan
+/// compatibility HLSL-to-SPIR-V route fills the flags in from the device it
+/// compiles for; a default-constructed set keeps the generated source
+/// byte-identical to a build without these features.
+struct SpirvShaderCapabilities {
+    /// VK_KHR_shader_fma: `mad()` on 32-bit float lowers to OpFmaKHR, the only
+    /// fused multiply-add SPIR-V has.  Without it dxc lowers `mad()` to an unfused
+    /// OpFMul/OpFAdd pair, so an emitted `_fma` would round twice while
+    /// `luisa::compute::fma` promises a single rounding.
+    bool fma{false};
+    /// VK_KHR_shader_abort: `$debug_break` lowers to OpAbortKHR, which reports a
+    /// 32-bit message to the host and ends the invocation.  Without it the HLSL
+    /// backend has no way to express a debug break and rejects the statement.
+    bool abort{false};
+    /// VK_NV_cluster_acceleration_structure: `CallOp::RAY_QUERY_CLUSTER_ID` lowers
+    /// to OpRayQueryGetIntersectionClusterIdNV, which reads the cluster ID of one
+    /// intersection of a ray query.  Without it there is no instruction for the
+    /// operation at all (DXIL has no cluster acceleration structures, and the
+    /// SPIR-V extension is opt-in), so the codegen refuses the operation instead
+    /// of emitting a module that declares an extension the device never enabled.
+    bool cluster_acceleration_structure{false};
+};
+
 struct RegisterIndexer;
 class CodegenUtility {
 public:
@@ -166,8 +197,11 @@ public:
     // builtin/bfloat16_fallback.bytes).  The host decides: it is always on for
     // the DirectX backend, and on for the Vulkan compatibility HLSL-to-SPIR-V
     // route when the physical device lacks shaderBFloat16Type.
-    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false);
-    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false);
+    // `spirv_capabilities` names the optional shader-capability extensions the
+    // SPIR-V target device negotiated (see `SpirvShaderCapabilities`); it is inert
+    // unless `isSpirV` is set and every flag defaults to off.
+    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {});
+    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {});
     CodegenResult RasterCodegen(
         Function vertFunc,
         Function pixelFunc,
@@ -178,7 +212,8 @@ public:
         bool enable_debug_info = false,
         bool enable_fast_math = false,
         bool fallback_rtx = false,
-        bool bf16_fallback = false);
+        bool bf16_fallback = false,
+        SpirvShaderCapabilities spirv_capabilities = {});
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
     /// Fails closed when an atomic access chain targets a member of a packed
     /// struct word: such a member is a slice of a `uint`, so it has no address.
@@ -257,7 +292,7 @@ public:
 
     void visit(const AutoDiffStmt *stmt) override;
     void visit(const PrintStmt *stmt) override;
-    void visit(const DebugBreakStmt *stmt) override { LUISA_NOT_IMPLEMENTED(); }
+    void visit(const DebugBreakStmt *stmt) override;
     void VisitFunction(Function func);
     StringStateVisitor(
         Function f,

@@ -33,6 +33,8 @@
 #include "queue_family_contract.h"
 #include "bindless_array.h"
 #include "blas.h"
+#include "command_buffer_sync.h"
+#include "opacity_micromap.h"
 #include "cluster_blas.h"
 #include "tlas.h"
 #include "motion_instance.h"
@@ -3619,6 +3621,27 @@ ShaderCreationInfo Device::_create_shader_hlsl(
     if (option.enable_fast_math) { mask |= 1u; }
     if (option.enable_debug_info) { mask |= 2u; }
 
+    // The shader-capability extensions this device negotiated, in the form the HLSL
+    // codegen takes them: the generated source only contains an optional
+    // instruction when its flag is set here (SpirvShaderCapabilities).  The mask is
+    // the one the native SPIR-V route publishes for its artifacts, so both routes of
+    // the backend agree on what the device can execute.
+    auto artifact_features = enabled_spirv_artifact_features();
+    hlsl::SpirvShaderCapabilities spirv_capabilities;
+    spirv_capabilities.fma =
+        (artifact_features & spirv::target_feature::shader_fma_float32) != 0u;
+    spirv_capabilities.abort =
+        (artifact_features & spirv::target_feature::shader_abort) != 0u;
+    // VK_NV_cluster_acceleration_structure is negotiated as a device feature
+    // (clusterAccelerationStructure) rather than as a shader-capability opt-in, so
+    // the flag follows the device decision directly.  Its SPIR-V counterpart
+    // SPV_NV_cluster_acceleration_structure is what the HLSL codegen then enables
+    // for dxc, and both are required for
+    // OpRayQueryGetIntersectionClusterIdNV: the module declares
+    // RayTracingClusterAccelerationStructureNV, which a device that did not
+    // enable the extension rejects at pipeline creation.
+    spirv_capabilities.cluster_acceleration_structure =
+        cluster_acceleration_structure_enabled;
     auto code = [&]() -> hlsl::CodegenResult {
         hlsl::CodegenUtility util;
         // The traversal and the argument layout of a fallback acceleration
@@ -3628,7 +3651,8 @@ ShaderCreationInfo Device::_create_shader_hlsl(
         return detail::codegen_compat_compute(
             util, kernel, option.native_include, mask,
             option.enable_debug_info, option.enable_fast_math,
-            fallback_rtx, /*bf16_fallback=*/!supports_native_bfloat16());
+            fallback_rtx, /*bf16_fallback=*/!supports_native_bfloat16(),
+            spirv_capabilities);
     }();
     if (fallback_rtx &&
         luisa::compute::detail::env_flag("LUISA_VK_DUMP_FALLBACK_HLSL")) {
@@ -3705,7 +3729,10 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             shader_model,
             option.enable_fast_math,
             true,
-            option.enable_debug_info);
+            option.enable_debug_info,
+            /*entry_point=*/{},
+            /*include_dirs=*/{},
+            /*spirv_capabilities=*/spirv_capabilities);
         if (comp_result.is_type_of<vstd::string>()) {
             LUISA_WARNING("DXC compile error for Vulkan shader '{}': {}",
                           option.name, comp_result.get<1>());
@@ -3765,6 +3792,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             serde_type,
             shader_model,
             option.enable_fast_math,
+            spirv_capabilities,
             validation_count,
             kernel.allowed_warp_size(),
             requires_sampler_anisotropy,
@@ -3836,7 +3864,14 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
           .motion_blur = requires_motion_blur,
           .accel_size = requires_accel_size,
           .fallback_rtx = requires_fallback_rtx_traversal,
-          .bfloat16 = requires_bfloat16_fallback};
+          .bfloat16 = requires_bfloat16_fallback,
+          // The cluster ID of a ray-query intersection is
+          // OpRayQueryGetIntersectionClusterIdNV
+          // (SPV_NV_cluster_acceleration_structure), which the native
+          // XIR-to-SPIR-V route does not emit, so a kernel that reads it
+          // takes the compatibility HLSL route.
+          .ray_query_cluster_id =
+              builtin_calls.test(CallOp::RAY_QUERY_CLUSTER_ID)};
     auto codegen_route =
         detail::plan_user_compute_codegen_route(codegen_requirements);
     auto native_requirement = detail::plan_required_native_xir_spirv(

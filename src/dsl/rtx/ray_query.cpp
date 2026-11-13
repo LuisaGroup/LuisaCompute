@@ -21,6 +21,18 @@ Var<TriangleHit> SurfaceCandidate::hit() const noexcept {
         {_query}));
 }
 
+Expr<uint> SurfaceCandidate::cluster_id() const noexcept {
+    // VK_NV_cluster_acceleration_structure: the cluster ID of the candidate
+    // intersection, i.e. OpRayQueryGetIntersectionClusterIdNV with the
+    // candidate selector.  The selector is a literal because SPIR-V requires
+    // that operand to be a constant 32-bit integer; the HLSL codegen refuses a
+    // computed selector instead of emitting an invalid module.
+    auto builder = detail::FunctionBuilder::current();
+    return Expr<uint>{builder->call(
+        Type::of<uint>(), CallOp::RAY_QUERY_CLUSTER_ID,
+        {_query, builder->literal(Type::of<uint>(), 0u)})};
+}
+
 void SurfaceCandidate::commit() const noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::RAY_QUERY_COMMIT_TRIANGLE, {_query});
@@ -118,6 +130,27 @@ Var<CommittedHit> InlineRayQuery<terminate_on_first>::committed_hit() const noex
     return def<CommittedHit>(detail::FunctionBuilder::current()->call(
         Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT,
         {_query}));
+}
+
+template<bool terminate_on_first>
+Expr<uint> InlineRayQuery<terminate_on_first>::committed_cluster_id() const noexcept {
+    // VK_NV_cluster_acceleration_structure: the cluster ID of the committed
+    // intersection, i.e. OpRayQueryGetIntersectionClusterIdNV with the
+    // committed selector (1).
+    auto builder = detail::FunctionBuilder::current();
+    return Expr<uint>{builder->call(
+        Type::of<uint>(), CallOp::RAY_QUERY_CLUSTER_ID,
+        {_query, builder->literal(Type::of<uint>(), 1u)})};
+}
+
+template<bool terminate_on_first>
+Expr<uint> InlineRayQuery<terminate_on_first>::candidate_cluster_id() const noexcept {
+    // Same instruction, candidate selector (0): the intersection the last
+    // proceed() published.
+    auto builder = detail::FunctionBuilder::current();
+    return Expr<uint>{builder->call(
+        Type::of<uint>(), CallOp::RAY_QUERY_CLUSTER_ID,
+        {_query, builder->literal(Type::of<uint>(), 0u)})};
 }
 
 template<bool terminate_on_first>

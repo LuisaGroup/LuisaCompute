@@ -132,4 +132,4 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
     if (iter == dict.dict.end()) return {};
     return iter->second;
 }
-}// namespace lc_hlsl
+}

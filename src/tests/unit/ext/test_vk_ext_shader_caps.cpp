@@ -218,8 +218,11 @@ int main(int argc, char *argv[]) {
         expect(eq(lc::spirv::target_feature::shader_ocp_microscaling_types, 0x0002000000000000ull));
         expect(eq(lc::spirv::target_feature::shader_constant_data, 0x0004000000000000ull));
         expect(eq(lc::spirv::target_feature::shader_abort, 0x0008000000000000ull));
-        // `known_mask` gained exactly those nine bits.
-        expect(eq(lc::spirv::target_feature::known_mask, 0x000fffffffffffffull));
+        // `known_mask` covers those nine bits plus the ray tracing opacity
+        // micromap bit, which belongs to the ray tracing capability family
+        // rather than to the shader capability table iterated above.
+        expect(eq(lc::spirv::target_feature::ray_tracing_opacity_micromap, 0x0010000000000000ull));
+        expect(eq(lc::spirv::target_feature::known_mask, 0x001fffffffffffffull));
         expect(eq(lc::spirv::target_feature::known_mask & seen, seen));
     };
 

@@ -6,7 +6,7 @@
 #define MAX_UINT 0xFFFFFFFF
 #define MIN_UINT 0
 
-static const uint candidateSectionBit[64] = //Associated to partition 0-63
+static const uint candidateSectionBit[64] =
 {
  0xCCCC, 0x8888, 0xEEEE, 0xECC8,
  0xC880, 0xFEEC, 0xFEC8, 0xEC80,
@@ -25,7 +25,7 @@ static const uint candidateSectionBit[64] = //Associated to partition 0-63
  0x9336, 0x9cc6, 0x817e, 0xe718, 
  0xccf0, 0xfcc, 0x7744, 0xee22, 
 };
-static const uint candidateSectionBit2[64] = //Associated to partition 64-127
+static const uint candidateSectionBit2[64] =
 {
  0xaa685050, 0x6a5a5040, 0x5a5a4200, 0x5450a0a8,
  0xa5a50000, 0xa0a05050, 0x5555a0a0, 0x5a5a5050,
@@ -63,7 +63,6 @@ static const uint2 candidateFixUpIndex1D[128] =
  {15, 0},{15, 0},{ 2, 0},{ 2, 0},
  {15, 0},{15, 0},{15, 0},{15, 0},
  {15, 0},{ 2, 0},{ 2, 0},{15, 0},
- //candidateFixUpIndex1D[i][1], i < 64 should not be used
  
  { 3,15},{ 3, 8},{15, 8},{15, 3},
  { 8,15},{ 3,15},{15, 3},{15, 8},
@@ -77,13 +76,13 @@ static const uint2 candidateFixUpIndex1D[128] =
  { 8,15},{15, 3},{ 3,15},{ 5,10},
  { 6,10},{10, 8},{ 8, 9},{15,10},
  {15, 6},{ 3,15},{15, 8},{ 5,15},
- {15, 3},{15, 6},{15, 6},{15, 8}, //The Spec doesn't mark the first fixed up index in this row, so I apply 15 for them, and seems correct
+ {15, 3},{15, 6},{15, 6},{15, 8},
  { 3,15},{15, 3},{ 5,15},{ 5,15},
  { 5,15},{ 8,15},{ 5,15},{10,15},
  { 5,15},{10,15},{ 8,15},{13,15},
  {15, 3},{12,15},{ 3,15},{ 3, 8},
 };
-static const uint2 candidateFixUpIndex1DOrdered[128] = //Same with candidateFixUpIndex1D but order the result when i >= 64
+static const uint2 candidateFixUpIndex1DOrdered[128] =
 {
  {15, 0},{15, 0},{15, 0},{15, 0},
  {15, 0},{15, 0},{15, 0},{15, 0},
@@ -102,7 +101,6 @@ static const uint2 candidateFixUpIndex1DOrdered[128] = //Same with candidateFixU
  {15, 0},{15, 0},{ 2, 0},{ 2, 0},
  {15, 0},{15, 0},{15, 0},{15, 0},
  {15, 0},{ 2, 0},{ 2, 0},{15, 0},
- //candidateFixUpIndex1DOrdered[i][1], i < 64 should not be used
  
  { 3,15},{ 3, 8},{ 8,15},{ 3,15},
  { 8,15},{ 3,15},{ 3,15},{ 8,15},
@@ -116,28 +114,17 @@ static const uint2 candidateFixUpIndex1DOrdered[128] = //Same with candidateFixU
  { 8,15},{ 3,15},{ 3,15},{ 5,10},
  { 6,10},{ 8,10},{ 8, 9},{10,15},
  { 6,15},{ 3,15},{ 8,15},{ 5,15},
- { 3,15},{ 6,15},{ 6,15},{ 8,15}, //The Spec doesn't mark the first fixed up index in this row, so I apply 15 for them, and seems correct
+ { 3,15},{ 6,15},{ 6,15},{ 8,15},
  { 3,15},{ 3,15},{ 5,15},{ 5,15},
  { 5,15},{ 8,15},{ 5,15},{10,15},
  { 5,15},{10,15},{ 8,15},{13,15},
  { 3,15},{12,15},{ 3,15},{ 3, 8},
 };
-//static const uint4x4 candidateRotation[4] = 
-//{
- // {1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1},
- // {0,0,0,1},{0,1,0,0},{0,0,1,0},{1,0,0,0},
- // {1,0,0,0},{0,0,0,1},{0,0,1,0},{0,1,0,0},
- // {1,0,0,0},{0,1,0,0},{0,0,0,1},{0,0,1,0}
-//};
-//static const uint2 candidateIndexPrec[8] = {{3,0},{3,0},{2,0},{2,0},
-// {2,3}, //color index and alpha index can exchange
-// {2,2},{4,4},{2,2}};
 
 static const uint aWeight[3][16] = { {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64},
 {0, 9, 18, 27, 37, 46, 55, 64, 0, 0, 0, 0, 0, 0, 0, 0},
 {0, 21, 43, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} };
 
-//4 bit index: 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64
 static const uint aStep[3][64] = { { 0, 0, 0, 1, 1, 1, 1, 2,
  2, 2, 2, 2, 3, 3, 3, 3,
  4, 4, 4, 4, 5, 5, 5, 5,
@@ -146,7 +133,6 @@ static const uint aStep[3][64] = { { 0, 0, 0, 1, 1, 1, 1, 2,
  9,10,10,10,10,10,11,11,
  11,11,12,12,12,12,13,13,
 13,13,14,14,14,14,15,15 },
-//3 bit index: 0, 9, 18, 27, 37, 46, 55, 64
 { 0,0,0,0,0,1,1,1,
  1,1,1,1,1,1,2,2,
  2,2,2,2,2,2,2,3,
@@ -155,7 +141,6 @@ static const uint aStep[3][64] = { { 0, 0, 0, 1, 1, 1, 1, 2,
  4,4,5,5,5,5,5,5,
  5,5,5,6,6,6,6,6,
 6,6,6,6,7,7,7,7 },
-//2 bit index: 0, 21, 43, 64
 { 0,0,0,0,0,0,0,0,
  0,0,0,1,1,1,1,1,
  1,1,1,1,1,1,1,1,
@@ -178,24 +163,23 @@ Texture2D g_Input: register(t0);
 StructuredBuffer<uint4> g_InBuff: register(t1);
 RWStructuredBuffer<uint4> g_OutBuff: register(u0);
 
-//Forward declaration
-uint2x4 compress_endpoints0( inout uint2x4 endPoint, uint2 P ); //Mode = 0
-uint2x4 compress_endpoints1( inout uint2x4 endPoint, uint2 P ); //Mode = 1
-uint2x4 compress_endpoints2( inout uint2x4 endPoint ); //Mode = 2
-uint2x4 compress_endpoints3( inout uint2x4 endPoint, uint2 P ); //Mode = 3
-uint2x4 compress_endpoints7( inout uint2x4 endPoint, uint2 P ); //Mode = 7
-uint2x4 compress_endpoints6( inout uint2x4 endPoint, uint2 P ); //Mode = 6
-uint2x4 compress_endpoints4( inout uint2x4 endPoint ); //Mode = 4
-uint2x4 compress_endpoints5( inout uint2x4 endPoint ); //Mode = 5
+uint2x4 compress_endpoints0( inout uint2x4 endPoint, uint2 P );
+uint2x4 compress_endpoints1( inout uint2x4 endPoint, uint2 P );
+uint2x4 compress_endpoints2( inout uint2x4 endPoint );
+uint2x4 compress_endpoints3( inout uint2x4 endPoint, uint2 P );
+uint2x4 compress_endpoints7( inout uint2x4 endPoint, uint2 P );
+uint2x4 compress_endpoints6( inout uint2x4 endPoint, uint2 P );
+uint2x4 compress_endpoints4( inout uint2x4 endPoint );
+uint2x4 compress_endpoints5( inout uint2x4 endPoint );
 
-void block_package0( out uint4 block, uint partition, uint threadBase ); //Mode0
-void block_package1( out uint4 block, uint partition, uint threadBase ); //Mode1
-void block_package2( out uint4 block, uint partition, uint threadBase ); //Mode2
-void block_package3( out uint4 block, uint partition, uint threadBase ); //Mode3
-void block_package4( out uint4 block, uint rotation, uint index_selector, uint threadBase ); //Mode4
-void block_package5( out uint4 block, uint rotation, uint threadBase ); //Mode5
-void block_package6( out uint4 block, uint threadBase ); //Mode6
-void block_package7( out uint4 block, uint partition, uint threadBase ); //Mode7
+void block_package0( out uint4 block, uint partition, uint threadBase );
+void block_package1( out uint4 block, uint partition, uint threadBase );
+void block_package2( out uint4 block, uint partition, uint threadBase );
+void block_package3( out uint4 block, uint partition, uint threadBase );
+void block_package4( out uint4 block, uint rotation, uint index_selector, uint threadBase );
+void block_package5( out uint4 block, uint rotation, uint threadBase );
+void block_package6( out uint4 block, uint threadBase );
+void block_package7( out uint4 block, uint partition, uint threadBase );
 
 
 void swap(inout uint4 lhs, inout uint4 rhs)
@@ -256,32 +240,6 @@ struct BufferShared
 };
 groupshared BufferShared shared_temp[THREAD_GROUP_SIZE];
 
-//uint4 truncate_and_round( uint4 color, uint bits)
-//{
- // uint precisionMask = ((1 << bits) - 1) << (8 - bits);
- // uint precisionHalf = (1 << (7-bits));
- //
- // uint4 truncated = color & precisionMask; 
- // uint4 rounded = min(255, color + precisionHalf) & precisionMask;
- // 
- // uint4 truncated_bak = truncated = truncated | (truncated >> bits);
- // uint4 rounded_bak = rounded = rounded | (rounded >> bits);
- //
- // uint4 color_bak = color;
- // 
- // Ensure_A_Is_Larger( rounded, color );
- // Ensure_A_Is_Larger( truncated, color_bak );
- //
- // if (dot(rounded - color, rounded - color) < 
- // dot(truncated - color_bak, truncated - color_bak))
- // {
- // return rounded_bak;
- // }
- // else
- // {
- // return truncated_bak;
- // }
-//}
 
 uint4 quantize( uint4 color, uint uPrec )
 {
@@ -380,7 +338,6 @@ uint2x4 compress_endpoints5( inout uint2x4 endPoint )
  quantized[j].a = endPoint[j].a;
 
  endPoint[j].rgb = unquantize(quantized[j].rgbb, 7).rgb;
- // endPoint[j].a Alpha is full precision
 
  quantized[j].rgb <<= 1;
  } 
@@ -440,12 +397,12 @@ void block_package0( out uint4 block, uint partition, uint threadBase )
  {
  block.z |= get_color_index(i) << ( i * 3 + 18 );
  }
- if ( candidateFixUpIndex1DOrdered[partition][0] < 4 ) //i = 4
+ if ( candidateFixUpIndex1DOrdered[partition][0] < 4 )
  {
  block.z |= get_color_index(4) << 29;
  i += 1;
  }
- else //i = 5
+ else
  {
  block.w |= ( get_color_index(4) & 0x04 ) >> 2;
  for ( ; i <= candidateFixUpIndex1DOrdered[partition][0]; i ++ )
@@ -490,7 +447,7 @@ void block_package1( out uint4 block, uint partition, uint threadBase )
  | (get_color_index(9) << 11) | (get_color_index(8) << 9) | (get_color_index(7) << 6) | (get_color_index(6) << 3) | get_color_index(5);
  block.z |= (get_color_index(4) << 29) | (get_color_index(3) << 26) | (get_color_index(2) << 23) | (get_color_index(1) << 20) | (get_color_index(0) << 18);
  }
- else //candidateFixUpIndex1DOrdered[partition] == 6
+ else
  {
  block.w = (get_color_index(15) << 29) | (get_color_index(14) << 26) | (get_color_index(13) << 23) | (get_color_index(12) << 20) | (get_color_index(11) << 17) | (get_color_index(10) << 14)
  | (get_color_index(9) << 11) | (get_color_index(8) << 8) | (get_color_index(7) << 5) | (get_color_index(6) << 3) | get_color_index(5);

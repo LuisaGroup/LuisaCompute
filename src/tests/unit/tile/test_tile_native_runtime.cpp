@@ -94,7 +94,7 @@ void run(Device &device, Gemm cfg, tile::CompileOptions options = {}) {
     auto sb = storage.view(b_offset, b.size());
     auto sc = storage.view(c_offset, cfg.m * cfg.n);
     stream << sa.copy_from(luisa::span{a}) << sb.copy_from(luisa::span{b})
-           << shader(sa, sb, sc).dispatch() << sc.copy_to(c.data() + pad) << synchronize();
+           << shader(sa, sb, sc).dispatch() << sc.copy_to(luisa::span<float>{c.data() + pad, sc.size()}) << synchronize();
     expect(check(cfg, a, b, span{c}.subspan(pad, cfg.m * cfg.n)));
 
 #ifdef LUISA_TEST_TILE_NATIVE_TIRX

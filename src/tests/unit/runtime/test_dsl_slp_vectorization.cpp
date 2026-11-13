@@ -68,10 +68,8 @@ void test_adjacent_stores_same_arithmetic(Device &device) {
     luisa::vector<float> host_out(n * 4u);
     stream << out4.copy_to(luisa::span{host_out}) << synchronize();
     luisa::vector<float> expected(n * 4u);
-    for (auto t = 0u; t < n; t++) {
-        for (auto i = 0u; i < 4u; i++) {
-            expected[t * 4u + i] = host_in[t] + static_cast<float>(i);
-        }
+    for (auto j = 0u; j < n * 4u; j++) {
+        expected[j] = host_in[j / 4u] + static_cast<float>(j % 4u);
     }
     check_close(host_out, expected, "adjacent_stores_same_arithmetic");
 }
@@ -100,10 +98,8 @@ void test_adjacent_stores_unary_ops(Device &device) {
     luisa::vector<float> host_out(n * 4u);
     stream << out4.copy_to(luisa::span{host_out}) << synchronize();
     luisa::vector<float> expected(n * 4u);
-    for (auto t = 0u; t < n; t++) {
-        for (auto i = 0u; i < 4u; i++) {
-            expected[t * 4u + i] = std::abs(host_in[t * 4u + i]);
-        }
+    for (auto j = 0u; j < n * 4u; j++) {
+        expected[j] = std::abs(host_in[j]);
     }
     check_close(host_out, expected, "adjacent_stores_unary_ops");
 }

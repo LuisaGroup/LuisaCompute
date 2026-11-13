@@ -1,7 +1,3 @@
-// Convert the backend-neutral Vulkan-compatible ClusterBuildInfo records to
-// D3D12_RTAS_OPERATION_BUILD_CLAS_FROM_TRIANGLES_ARGS. DXR selects the index
-// format per operation batch, so records are compacted into three independent
-// arrays. Explicit destinations preserve the original cluster order.
 
 struct ClusterBuildInfo {
     uint cluster_id;
@@ -66,9 +62,6 @@ void main(uint id : SV_DispatchThreadID) {
                   index_format == 2u ? 1u :
                   index_format == 4u ? 2u : 3u;
 
-    // Invalid records become null CLAS references, which the Cluster BLAS
-    // operation skips. make_cluster_build_info() rejects these on the host;
-    // this guard also keeps GPU-authored malformed records fail-closed.
     _ClasAddresses[id] = 0;
     if (format == 3u || src.cluster_id == 0xffffffffu) return;
 
@@ -85,8 +78,6 @@ void main(uint id : SV_DispatchThreadID) {
         ((triangle_count != 0u || vertex_count != 0u) && src.vertex_buffer == 0) ||
         (triangle_count != 0u && src.index_buffer == 0)) return;
 
-    // OMM is intentionally outside the initial DX feature boundary. Skip such
-    // records instead of passing them to a batch that did not opt into OMM.
     if (((src.packed0 >> 28u) & 0x0fu) != 0u ||
         src.opacity_micromap_array != 0 ||
         src.opacity_micromap_index_buffer != 0) return;
@@ -96,9 +87,6 @@ void main(uint id : SV_DispatchThreadID) {
     dst.ClusterFlags = src.cluster_flags & 1u;
     dst.TriangleCount = (uint16_t)(src.packed0 & 0x1ffu);
     dst.UniqueVertexIndexCount = (uint16_t)((src.packed0 >> 9u) & 0x1ffu);
-    // Vulkan's opaque/no-duplicate bits already occupy bits 31/30 after the
-    // public packing operation. DXR reserves bits 24-29 (including Vulkan's
-    // cull-disable bit), so clear them instead of forwarding reserved bits.
     dst.BaseGeometryIndexAndFlags = src.packed1 & 0xc0ffffffu;
     dst.OpacityMicromapBaseLocation = 0u;
     dst.VertexBufferStride = src.vertex_buffer_stride;
@@ -110,7 +98,6 @@ void main(uint id : SV_DispatchThreadID) {
     dst.VertexBuffer = src.vertex_buffer;
     dst.IndexBuffer = src.index_buffer;
     dst.GeometryIndexAndFlagsArray = src.geometry_index_and_flags_buffer;
-    // Vulkan's public record has no per-triangle geometry-index indirection.
     dst.GeometryIndexAndFlagsIndexBuffer = 0;
     dst.OpacityMicromapArray = src.opacity_micromap_array;
     dst.OpacityMicromapIndexBuffer = src.opacity_micromap_index_buffer;

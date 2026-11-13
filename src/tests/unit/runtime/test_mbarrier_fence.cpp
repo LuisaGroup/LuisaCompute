@@ -383,6 +383,22 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     auto &device = dc->device;
+    // The whole file covers the CUDA Blackwell Cluster Launch Control
+    // programming model: shared-memory mbarriers, proxy fences, cluster
+    // barriers and the canonical CLC PTX. These are PTX-level SM 90+ features
+    // with no HLSL/DXIL, SPIR-V or Metal equivalent, so no other backend can
+    // compile the kernels (ast2xir and every non-CUDA code generator reject
+    // the corresponding CallOps). Skip instead of reporting a backend failure.
+    auto backend = device.backend_name();
+    if (backend.empty() && argc > 1 && argv[1] != nullptr) {
+        backend = luisa::string_view{argv[1]};
+    }
+    if (backend != "cuda") {
+        LUISA_INFO("mbarrier/cluster-barrier/cluster-launch-control tests are "
+                   "CUDA-only (PTX, SM 90+); skipping backend '{}'.",
+                   backend);
+        return 0;
+    }
     // Optional single-test selection: test_mbarrier_fence <backend> <name>
     // (Boost.UT convention; exact literal match on the test name).
     auto filter = argc > 2 ? luisa::string_view{argv[2]} : luisa::string_view{};

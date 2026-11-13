@@ -37,6 +37,11 @@ private:
     // `kernel_main`, and the operations the fallback does not implement are
     // reported instead of being emitted.
     bool _fallback_rtx{false};
+    // First cluster/mbarrier operation emitted for this kernel. Those helpers
+    // expand to SM 90+ PTX, and emitting them for an older target produces an
+    // opaque CUDA_ERROR_INVALID_PTX when the module is loaded; the device
+    // compares this against its own capability and reports the requirement.
+    luisa::string_view _cluster_feature;
 
 private:
     const Type *_ray_type;
@@ -96,7 +101,12 @@ private:
 private:
     void _emit_string_ids(Function f) noexcept;
     void _emit_type_decl(Function f) noexcept;
-    void _emit_variable_decl(Function f, Variable v, bool force_const) noexcept;
+    // `resource_member` emits resource types without the leading `const`
+    // qualifier. The ray-query context struct needs that: a const-qualified
+    // member deletes the implicit copy-assignment operator, and the context is
+    // published back to the caller by a single struct assignment.
+    void _emit_variable_decl(Function f, Variable v, bool force_const,
+                             bool resource_member = false) noexcept;
     void _emit_type_name(const Type *type, bool hack_float_to_int = false) noexcept;
     void _emit_function(Function f) noexcept;
     void _emit_variable_name(Variable v) noexcept;
@@ -115,6 +125,9 @@ public:
 
 public:
     [[nodiscard]] auto move_print_formats() && noexcept { return std::move(_print_formats); }
+    /// Name of the first cluster/mbarrier operation the kernel used, or an
+    /// empty view. See `_cluster_feature`.
+    [[nodiscard]] auto cluster_feature() const noexcept { return _cluster_feature; }
 };
 
 }// namespace luisa::compute::cuda

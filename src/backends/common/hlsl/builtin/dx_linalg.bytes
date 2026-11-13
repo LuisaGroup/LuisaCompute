@@ -1,8 +1,5 @@
-// Header for linear algebra APIs (DXIL path).
-// Uses element-wise HLSL operations when DXC SM 6.10 LinAlg intrinsics are not available.
 
 
-// DirectX path: existing code, unchanged
 
 #if ((__SHADER_TARGET_MAJOR > 6) ||                                            \
      (__SHADER_TARGET_MAJOR == 6 && __SHADER_TARGET_MINOR >= 9)) &&            \
@@ -11,25 +8,19 @@
 namespace dx {
 namespace linalg {
 
-// NOTE: can't be an enum class because we get this error:
-//     error: non-type template argument of type 'dx::linalg::DataType' is not
-//     an integral constant expression
-//
 enum DataType {
-  DATA_TYPE_SINT16 = 2,           // ComponentType::I16
-  DATA_TYPE_UINT16 = 3,           // ComponentType::U16
-  DATA_TYPE_SINT32 = 4,           // ComponentType::I32
-  DATA_TYPE_UINT32 = 5,           // ComponentType::U32
-  DATA_TYPE_FLOAT16 = 8,          // ComponentType::F16
-  DATA_TYPE_FLOAT32 = 9,          // ComponentType::F32
-  DATA_TYPE_SINT8_T4_PACKED = 17, // ComponentType::PackedS8x32
-  DATA_TYPE_UINT8_T4_PACKED = 18, // ComponentType::PackedU8x32
-  DATA_TYPE_UINT8 = 19,           // ComponentType::U8
-  DATA_TYPE_SINT8 = 20,           // ComponentType::I8
-  DATA_TYPE_FLOAT8_E4M3 = 21,     // ComponentType::F8_E4M3
-                                  // (1 sign, 4 exp, 3 mantissa bits)
-  DATA_TYPE_FLOAT8_E5M2 = 22,     // ComponentType::F8_E5M2
-                                  // (1 sign, 5 exp, 2 mantissa bits)
+  DATA_TYPE_SINT16 = 2,
+  DATA_TYPE_UINT16 = 3,
+  DATA_TYPE_SINT32 = 4,
+  DATA_TYPE_UINT32 = 5,
+  DATA_TYPE_FLOAT16 = 8,
+  DATA_TYPE_FLOAT32 = 9,
+  DATA_TYPE_SINT8_T4_PACKED = 17,
+  DATA_TYPE_UINT8_T4_PACKED = 18,
+  DATA_TYPE_UINT8 = 19,
+  DATA_TYPE_SINT8 = 20,
+  DATA_TYPE_FLOAT8_E4M3 = 21,
+  DATA_TYPE_FLOAT8_E5M2 = 22,
 };
 
 enum MatrixLayout {
@@ -39,9 +30,6 @@ enum MatrixLayout {
   MATRIX_LAYOUT_OUTER_PRODUCT_OPTIMAL = 3
 };
 
-//
-// Helper for signedness
-//
 namespace details {
 
 template <typename T> struct IsUnsigned {};
@@ -61,17 +49,14 @@ _SPECIALIZE_ISUNSIGNED(float32_t, false);
 _SPECIALIZE_ISUNSIGNED(uint16_t, true);
 _SPECIALIZE_ISUNSIGNED(int16_t, false);
 _SPECIALIZE_ISUNSIGNED(float16_t, false);
-#else  // //__HLSL_ENABLE_16_BIT
+#else
 _SPECIALIZE_ISUNSIGNED(half, false);
-#endif //__HLSL_ENABLE_16_BIT
+#endif
 
 #undef _SPECIALIZE_ISUNSIGNED
 
-} // namespace details
+}
 
-//
-// (RW)MatrixRef
-//
 
 template <typename BufferTy, DataType DT, uint M, uint K, MatrixLayout ML,
           bool Transpose>
@@ -87,9 +72,6 @@ using MatrixRef = MatrixRefImpl<ByteAddressBuffer, DT, M, K, ML, Transpose>;
 template <DataType DT, uint M, uint K, MatrixLayout ML, bool Transpose = false>
 using RWMatrixRef = MatrixRefImpl<RWByteAddressBuffer, DT, M, K, ML, Transpose>;
 
-//
-// (RW)VectorRef
-//
 
 template <typename BufferTy, DataType DT> struct VectorRefImpl {
   BufferTy Buffer;
@@ -101,9 +83,6 @@ template <DataType DT> using VectorRef = VectorRefImpl<ByteAddressBuffer, DT>;
 template <DataType DT>
 using RWVectorRef = VectorRefImpl<RWByteAddressBuffer, DT>;
 
-//
-// Vector
-//
 
 template <typename T, int N, DataType DT> struct InterpretedVector {
   vector<T, N> Data;
@@ -115,9 +94,6 @@ InterpretedVector<T, N, DT> MakeInterpretedVector(vector<T, N> Vec) {
   return IV;
 }
 
-//
-// Mul — element-wise matrix-vector multiply
-//
 template <typename OutputElTy, typename InputElTy, int InputElCount,
           typename MatrixBufferTy, DataType InputDT, DataType MatrixDT,
           uint MatrixM, uint MatrixK, MatrixLayout ML,
@@ -146,9 +122,6 @@ Mul(MatrixRefImpl<MatrixBufferTy, MatrixDT, MatrixM, MatrixK, ML,
   return OutputVector;
 }
 
-//
-// MulAdd — element-wise matrix-vector multiply-add
-//
 template <typename OutputElTy, typename InputElTy, int InputElCount,
           typename MatrixBufferTy, DataType InputDT, DataType MatrixDT,
           uint MatrixM, uint MatrixK, MatrixLayout ML,
@@ -169,9 +142,6 @@ MulAdd(MatrixRefImpl<MatrixBufferTy, MatrixDT, MatrixM, MatrixK, ML,
   return mul_result;
 }
 
-//
-// OuterProductAccumulate — element-wise outer product
-//
 template <typename ElTy, int MatrixM, int MatrixN, DataType MatrixDT,
           MatrixLayout ML>
 void OuterProductAccumulate(
@@ -187,9 +157,6 @@ void OuterProductAccumulate(
   }
 }
 
-//
-// VectorAccumulate — element-wise vector accumulation
-//
 template <typename ElTy, int ElCount>
 void CoopVectorAccumulate(RWByteAddressBuffer Buffer, uint Offset, vector<ElTy, ElCount> InputVector) {
   [unroll] for (int i = 0; i < ElCount; ++i) {
@@ -230,9 +197,6 @@ void CoopOuterProductAccum(
   OuterProductAccumulate<ElTy, MatrixM, MatrixN, MatrixDT, MATRIX_LAYOUT_OUTER_PRODUCT_OPTIMAL>(InputVector1, InputVector2, Matrix);
 }
 
-//
-// CoopVecLoad — DX version (element-wise load from byte buffer)
-//
 template <typename ElTy, int ElCount>
 vector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint offset) {
     vector<ElTy, ElCount> result;
@@ -242,9 +206,6 @@ vector<ElTy, ElCount> CoopVecLoad(ByteAddressBuffer buf, uint offset) {
     return result;
 }
 
-//
-// CoopVecStore — DX version (element-wise store to byte buffer)
-//
 template <typename ElTy, int ElCount>
 void CoopVecStore(RWByteAddressBuffer buf, uint offset, vector<ElTy, ElCount> v) {
     [unroll] for (int i = 0; i < ElCount; ++i) {
@@ -252,25 +213,16 @@ void CoopVecStore(RWByteAddressBuffer buf, uint offset, vector<ElTy, ElCount> v)
     }
 }
 
-//
-// CoopVecSplat — DX version (native HLSL vector splat)
-//
 template <typename ElTy, int ElCount>
 vector<ElTy, ElCount> CoopVecSplat(ElTy scalar) {
     return vector<ElTy, ElCount>(scalar);
 }
 
-//
-// CoopVecCast — DX version (native HLSL cast on vector)
-//
 template <typename ToTy, typename FromTy, int ElCount>
 vector<ToTy, ElCount> CoopVecCast(vector<FromTy, ElCount> v) {
     return (vector<ToTy, ElCount>)v;
 }
 
-//
-// CoopVecWorkgroupLoad — DX version (element-wise from groupshared)
-//
 template <typename ElTy, int ElCount, typename SharedBufType>
 vector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index) {
     vector<ElTy, ElCount> result;
@@ -280,9 +232,6 @@ vector<ElTy, ElCount> CoopVecWorkgroupLoad(SharedBufType shared_data, uint index
     return result;
 }
 
-//
-// CoopVecWorkgroupStore — DX version (element-wise to groupshared)
-//
 template <typename ElTy, int ElCount, typename SharedBufType>
 void CoopVecWorkgroupStore(SharedBufType shared_data, uint index,
                            vector<ElTy, ElCount> v) {
@@ -291,6 +240,6 @@ void CoopVecWorkgroupStore(SharedBufType shared_data, uint index,
     }
 }
 
-} // namespace linalg
-} // namespace dx
-#endif // SM 6.9 check and HV version check
+}
+}
+#endif

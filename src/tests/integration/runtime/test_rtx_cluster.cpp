@@ -17,13 +17,17 @@
 // Two submission patterns are exercised, because the cluster build takes raw device
 // addresses that the command graph cannot see (documented on
 // Device::create_mesh(ClusterBuildInfo array) in <luisa/runtime/rtx/mesh.h>):
-//   1. the uploads in their own, earlier flush (the safe pattern), and
-//   2. uploads + cluster build + TLAS build in one flush with command reordering turned
-//      off through CommandReorderExt, i.e. strict submission order. Pattern 2 is what a
-//      user writes naturally and is only deterministic because reordering is off; the
-//      env-var equivalent (LUISA_DISABLE_COMMAND_REORDER=1) forces the same thing for
-//      the whole process, the extension does it for one device without touching the
-//      process environment.
+// 1. the uploads in their own, earlier flush (the pattern the public header documents),
+//    and
+// 2. uploads + cluster build + TLAS build in one flush, with command reordering left at
+//    its default (enabled).
+// Pattern 2 is what a user writes naturally, and it is the regression test for the
+// ordering rule the reorder pass applies to cluster builds: the vertex and index buffers
+// are reachable only through the records' raw addresses, so the pass cannot name them; it
+// therefore places a cluster build after every command already recorded in the batch and
+// treats it as a barrier for the buffer writes that follow (set_cluster_mesh in
+// src/backends/common/command_reorder_visitor.h). Without that rule the uploads could be
+// recorded after the build, and the build would read poisoned or stale geometry.
 //
 // Run with `<backend>`, or `dx --warp` to select the WARP device explicitly.
 // The DX configuration opts into RaytracingPreview and optionally selects WARP.
@@ -156,16 +160,19 @@ public:
 //     interchangeable and a permutation of the two records changes the covered
 //     geometry instead of only which cluster owns it.
 //
-// What a ray-only oracle can and cannot see (F2):
-// A ray query reports only "hit at t" (the DSL does not expose the per-cluster
-// ClusterIDNV), so it constrains the *union* of geometry the acceleration structure
-// covers. A permutation of two interchangeable records - same vertex count, same index
-// list - leaves that union unchanged and is therefore invisible to any ray set, however
-// dense; the previous version of this test used two congruent quads and could not see a
-// swap at all. The asymmetric layout above closes most of that gap, because the records
-// are no longer interchangeable. Still out of reach: winding/orientation (every ray here
-// hits the front face) and per-cluster flags/opacity, which the test leaves at their
-// documented defaults. Do not read the two-cluster setup as full per-cluster validation.
+// What a hit-only oracle can and cannot see (F2):
+// `Accel::intersect()` reports only "hit at t", so it constrains the *union* of geometry
+// the acceleration structure covers. A permutation of two interchangeable records - same
+// vertex count, same index list - leaves that union unchanged and is therefore invisible
+// to any ray set, however dense; the previous version of this test used two congruent
+// quads and could not see a swap at all. The asymmetric layout above closes most of that
+// gap, because the records are no longer interchangeable. The cluster ID that section 9
+// reads back through the ray query closes the rest of it: it is a per-record value that no
+// distance can express, so a permutation of the records shows up as a changed value even
+// when the covered geometry is identical. Still out of reach: winding/orientation (every
+// ray here hits the front face) and per-cluster flags/opacity, which the test leaves at
+// their documented defaults. Do not read the two-cluster setup as full per-cluster
+// validation.
 constexpr uint cluster_count = 2u;
 
 // Per-cluster geometry sizes carried by the ClusterBuildInfo records. They differ on
@@ -332,6 +339,38 @@ constexpr size_t position_stride_bytes = position_bytes_per_vertex;
 // a thousandth of a unit.
 constexpr float relative_tolerance = 1.0e-3f;
 
+// The cluster ID a ray-query intersection reports for "no cluster", i.e. the value the
+// probe kernel stores for a ray that misses every cluster. It is the same all-ones
+// sentinel the other RayQuery accessors use for "nothing committed"
+// (CommittedHit::miss() is `inst == 0xFFFFFFFF`), so a miss and a wrong ID cannot be
+// confused with a real cluster index.
+constexpr uint cluster_id_miss = 0xFFFFFFFFu;
+
+// Which cluster each ray of the table above must report through the cluster-ID accessor:
+// the cluster that owns its *closest* hit, or cluster_id_miss for a ray that misses both.
+// Ray 0, 1 and 9 can only reach cluster 0 (x = 0.25, x = -0.5 and the t = 1 hit at
+// x = 0.5), rays 2 and 10 only cluster 1 (x = 3, x = 2.75 at t = 3), and everything else
+// misses - see the per-ray comments above. The records themselves are built with
+// `make_cluster_build_info(i, ...)`, i.e. cluster i carries cluster ID i, so the expected
+// value is the record index and a swapped/mis-based cluster ID is a changed value rather
+// than a plausible one.
+constexpr std::array<uint, rays.size()> expected_cluster_ids{
+    0u, 0u, 1u, cluster_id_miss, cluster_id_miss, cluster_id_miss,
+    cluster_id_miss, cluster_id_miss, cluster_id_miss, 0u, 1u, cluster_id_miss};
+static_assert(expected_cluster_ids.size() == rays.size());
+// The table is only meaningful if it agrees with the hit/miss expectation of the ray it
+// belongs to: a ray that hits must name the cluster of its closest hit, and a ray that
+// misses must report the sentinel. Checked at compile time so the two tables cannot drift.
+static_assert([] {
+    for (auto i = 0u; i < rays.size(); i++) {
+        if ((expected_cluster_ids[i] == cluster_id_miss) == rays[i].expect_hit) {
+            return false;
+        }
+    }
+    return true;
+}(), "expected_cluster_ids must name a cluster exactly for the rays that hit");
+
+
     // The published BLAS address is aligned to the backend's Cluster BLAS
 // alignment (256 B on current Vulkan and DXR implementations), so 16 B is a
 // conservative floor: it still
@@ -347,6 +386,18 @@ constexpr uint64_t cluster_address_alignment = 16u;
 // What one traced ray set reports, in the order of `rays`.
 struct traced_rays {
     std::array<uint, ray_count> hits{};
+    std::array<float, ray_count> distances{};
+};
+
+// What the cluster-identity probe of section 9 reports, in the order of `rays`: the
+// hit/miss decision and the committed t (so the same oracle applies), the cluster ID
+// the committed intersection reports, and the cluster ID of the closest *candidate*
+// intersection (the sentinel when the instance is opaque and the traversal never
+// publishes one).
+struct cluster_id_probe {
+    std::array<uint, ray_count> hits{};
+    std::array<uint, ray_count> committed_ids{};
+    std::array<uint, ray_count> candidate_ids{};
     std::array<float, ray_count> distances{};
 };
 
@@ -598,19 +649,13 @@ struct test_outcome {
     // Flush 1 puts the vertex data, the index data *and* the build records on the device
     // before anything reads them. Flush 2 records the cluster build itself.
     //
-    // Why this split: nothing *guarantees* the relative order of an upload and a cluster
-    // build that shares its batch. The command-reorder pass sees only the records buffer
-    // as a dependency of a cluster build - the vertex and index buffers are reachable
-    // only through the raw device addresses stored inside those records, which the pass
-    // cannot follow (see the "TODO(cluster)" note in
-    // src/backends/common/command_reorder_visitor.h). For *this particular* submission
-    // the order happens to be preserved anyway (each copy lands in layer 0 of its own
-    // buffer and the build consequently in layer 1), but that is an accident of layer
-    // arithmetic, not a guarantee: one more write to the vertex buffer, or a dispatch
-    // that fills it from a buffer with a longer history, is enough to lose it. The split
-    // flush is the pattern the public header documents, so the test uses it here and
-    // exercises the single-flush pattern separately in scenario 2, where command
-    // reordering is switched off and strict submission order makes it deterministic.
+    // Why this split: a cluster build's vertex and index buffers are reachable only through
+    // the raw device addresses stored inside its records, so the reorder pass cannot name
+    // them as reads. It therefore treats the build as a full ordering point (see
+    // set_cluster_mesh in src/backends/common/command_reorder_visitor.h), which is what
+    // makes the single-flush pattern of scenario 2 correct. The split flush is still the
+    // pattern the public header documents, because it also holds for a backend that does
+    // not reorder at all: the uploads are in an earlier batch by construction.
     //
     // The records themselves are uploaded by flush 1 above; this is flush 2.
     Mesh cluster_mesh = device.create_mesh(cluster_buffer, {});
@@ -659,43 +704,44 @@ struct test_outcome {
     check_against_oracle("split-flush/reference", triangle_traced);
     check_against_reference("split-flush", cluster_traced, triangle_traced);
 
-    //----------------- 8. scenario 2: the natural single-flush pattern, no reordering ----
-    // A user writing the obvious code uploads and builds in one batch. That is only
-    // deterministic when the backend submits in strict order, which is exactly what
-    // CommandReorderExt::set_command_reorder_enabled(false) selects (and what
-    // LUISA_DISABLE_COMMAND_REORDER=1 forces for the whole process - the extension is
-    // the in-process equivalent, no environment trickery and no second device).
+    //----------------- 8. scenario 2: the natural single-flush pattern, reordering on ----
+    // A user writing the obvious code uploads and builds in one batch. This scenario is the
+    // regression test for the cluster ordering rule in
+    // src/backends/common/command_reorder_visitor.h: a cluster build is placed after every
+    // command already recorded in the batch and every buffer write recorded after it is
+    // placed in a later layer, because the buffers it reads are reachable only through the
+    // raw device addresses stored inside the records. Reordering is left at whatever the
+    // backend selects (enabled by default; LUISA_DISABLE_COMMAND_REORDER=1 forces strict
+    // submission order, in which case this scenario degrades to a plain ordering check).
     auto *reorder_ext = device.extension<CommandReorderExt>();
     if (reorder_ext == nullptr) {
-        LUISA_WARNING(
-            "[test_rtx_cluster] backend '{}' exposes no CommandReorderExt; skipping the "
-            "single-flush scenario. The split-flush scenario above already validated the "
-            "cluster geometry.",
+        LUISA_INFO(
+            "[test_rtx_cluster] backend '{}' exposes no CommandReorderExt; the single-flush "
+            "scenario runs in strict submission order here.",
             device.backend_name());
     } else {
-        reorder_ext->set_command_reorder_enabled(false);
         LUISA_INFO("[test_rtx_cluster] command reorder enabled={} for the single-flush scenario",
                    reorder_ext->command_reorder_enabled());
-
-        // Poison the vertex and index memory first. Without this the copies below would
-        // write the same bytes that are already there, the scenario would pass even if the
-        // build ran before them, and it would prove nothing about the ordering it claims
-        // to exercise. The records are left intact on purpose: a reordered build then sees
-        // zeroed (i.e. empty) geometry and fails an assertion, instead of building an
-        // acceleration structure from null vertex addresses.
+    }
+    {
+        // Poison, then the real uploads, then both builds - all in one batch. The poison
+        // copy advances the vertex and index buffers' write layer, so a pass that knew only
+        // about the records buffer would place the cluster build in the same layer as the
+        // real upload; the copy engine may then run that upload concurrently with (or
+        // after) the build, which reads the vertex and index data through the records' raw
+        // addresses. The ordering rule pushes the build one layer past every earlier
+        // command, so the ray table below always sees the uploaded geometry instead of the
+        // poison.
         std::array<float, position_float_count> poison_positions{};
         std::array<ushort, index_element_count> poison_indices{};
         stream << vertex_buffer.copy_from(luisa::span{poison_positions})
-               << index_buffer.copy_from(luisa::span{poison_indices})
-               << synchronize();
-
+               << index_buffer.copy_from(luisa::span{poison_indices});
+        upload_host_data();
         Mesh single_flush_mesh = device.create_mesh(cluster_buffer, {});
         Accel single_flush_accel = device.create_accel();
         single_flush_accel.emplace_back(single_flush_mesh);
-        // One flush: uploads, cluster build, TLAS build. Strict order = the copies run
-        // before the build that reads them through the records' raw addresses, and the
-        // cluster build runs before the TLAS build that bakes its address.
-        upload_host_data();
+        LUISA_INFO("[test_rtx_cluster] single-flush batch: 2 poison copies, 3 uploads, "
+                   "cluster build, TLAS build");
         stream << single_flush_mesh.build()
                << single_flush_accel.build()
                << synchronize();
@@ -712,10 +758,196 @@ struct test_outcome {
         auto single_flush_traced = trace_rays(single_flush_accel);
         check_against_oracle("single-flush", single_flush_traced);
         check_against_reference("single-flush", single_flush_traced, triangle_traced);
-
-        // Leave the device as we found it for whatever runs next in this process.
-        reorder_ext->set_command_reorder_enabled(true);
     }
+
+    //------------------------------------------------- 9. cluster identity ----
+    // Sections 5-8 constrain the *geometry* of the cluster BLAS through the committed
+    // distance and the hit/miss decision. The cluster ID is the second, independent fact
+    // a cluster acceleration structure carries: every ClusterBuildInfo record names its
+    // cluster (`make_cluster_build_info`'s first argument) and a ray query can read back
+    // which cluster the intersection belongs to. That identity is what a renderer picks
+    // the material, the LOD or the shading bin from - and it is the only observable that
+    // separates two records whose covered geometry is identical, i.e. the failure mode
+    // the sections above cannot see (F2 at the top of this file).
+    //
+    // The read is CallOp::RAY_QUERY_CLUSTER_ID, which the Vulkan HLSL-to-SPIR-V route
+    // lowers to OpRayQueryGetIntersectionClusterIdNV
+    // (SPV_NV_cluster_acceleration_structure). What the table in the probe kernel buys:
+    // * the two records carry cluster IDs 0 and 1 (their record indices), so a swapped,
+    //   mis-based or truncated cluster ID is a *changed value*, not a plausible one;
+    // * rays 0/1/9 can only reach cluster 0, rays 2/10 only cluster 1 and the remaining
+    //   rays miss, so `expected_cluster_ids` is the cluster of each ray's closest hit and
+    //   the sentinel for a miss - the same oracle the distance arm uses.
+    //
+    // The kernel is dispatched twice, and the two runs are the two selectors of the
+    // instruction:
+    // * against the opaque TLAS of section 6, whose traversal commits opaque triangle
+    //   hits without publishing candidates, so `proceed()` never reports a candidate and
+    //   only the *committed* selector (1) has a defined value;
+    // * against the same cluster BLAS behind a non-opaque instance, which makes the
+    //   traversal publish each triangle as a candidate and leaves the commit to the
+    //   shader. That is the only configuration in which the *candidate* selector (0) has
+    //   a defined value, and the two selectors have to agree on the cluster of the
+    //   closest intersection, so one cannot be silently off while the other passes.
+    //
+    // DXIL has no cluster acceleration structure and therefore no
+    // OpRayQueryGetIntersectionClusterIdNV (see the rejection in
+    // src/backends/common/hlsl/codegen_utils/function_codegen.cpp), so this section is a
+    // Vulkan-only surface and is skipped - loudly, not silently passed - on DirectX.
+    if (backend != "vk") {
+        LUISA_WARNING(
+            "[test_rtx_cluster] backend '{}' has no shader-visible cluster ID: "
+            "OpRayQueryGetIntersectionClusterIdNV is SPIR-V only "
+            "(SPV_NV_cluster_acceleration_structure) and DXIL has no equivalent "
+            "instruction. Skipping the cluster-identity section; the cluster "
+            "geometry was still validated by the sections above.",
+            backend);
+    } else if (cluster_mesh.cluster_address() == 0u) {
+        LUISA_WARNING(
+            "[test_rtx_cluster] the cluster BLAS was never built, so there is no "
+            "cluster to read an ID from; skipping the cluster-identity section.");
+    } else {
+        // The probe kernel. `proceed()` publishes a candidate only for geometry the
+        // instance does not declare opaque, so one kernel serves both runs: an opaque
+        // instance leaves the candidate sentinel untouched and reports the
+        // hardware-committed intersection, a non-opaque one publishes the triangles and
+        // the kernel commits the closest itself (the standard closest-hit idiom).
+        Kernel1D cluster_id_kernel = [](AccelVar accel,
+                                        BufferFloat3 origins,
+                                        BufferFloat3 directions,
+                                        BufferUInt hit_flags,
+                                        BufferUInt committed_cluster_ids,
+                                        BufferUInt candidate_cluster_ids,
+                                        BufferFloat distances) noexcept {
+            UInt i = dispatch_id().x;
+            Var<Ray> ray = make_ray(origins.read(i), directions.read(i),
+                                    0.0f, ray_t_max);
+            auto query = accel.query(ray, {});
+            // Closest-hit bookkeeping for the candidate path: the candidate selector of
+            // the instruction is only defined inside a `proceed()` iteration, i.e. for the
+            // intersection that very call published.
+            Float best_t = ray_t_max;
+            UInt closest_candidate_cluster = cluster_id_miss;
+            $while (query.proceed()) {
+                $if (query.is_surface_candidate()) {
+                    auto candidate = query.surface_candidate();
+                    Float t = candidate.hit()->committed_ray_t;
+                    $if (t < best_t) {
+                        best_t = t;
+                        closest_candidate_cluster = candidate.cluster_id();
+                        candidate.commit();
+                    };
+                };
+            };
+            auto committed = query.committed_hit();
+            UInt committed_cluster = cluster_id_miss;
+            $if (!committed->miss()) {
+                committed_cluster = query.committed_cluster_id();
+            };
+            hit_flags.write(i, ite(committed->miss(), 0u, 1u));
+            distances.write(i, committed->distance());
+            committed_cluster_ids.write(i, committed_cluster);
+            candidate_cluster_ids.write(i, closest_candidate_cluster);
+        };
+        auto cluster_id_shader = device.compile(cluster_id_kernel);
+        auto probe_cluster_ids = [&](const Accel &accel, bool expect_candidates,
+                                     const char *label) {
+            Buffer<uint> hit_flags = device.create_buffer<uint>(ray_count);
+            Buffer<uint> committed_cluster_ids = device.create_buffer<uint>(ray_count);
+            Buffer<uint> candidate_cluster_ids = device.create_buffer<uint>(ray_count);
+            Buffer<float> distances = device.create_buffer<float>(ray_count);
+            cluster_id_probe probe;
+            stream << ray_origins.copy_from(luisa::span{host_origins})
+                   << ray_directions.copy_from(luisa::span{host_directions})
+                   << cluster_id_shader(accel, ray_origins, ray_directions,
+                                        hit_flags, committed_cluster_ids,
+                                        candidate_cluster_ids, distances)
+                          .dispatch(ray_count)
+                   << hit_flags.copy_to(luisa::span{probe.hits})
+                   << committed_cluster_ids.copy_to(luisa::span{probe.committed_ids})
+                   << candidate_cluster_ids.copy_to(luisa::span{probe.candidate_ids})
+                   << distances.copy_to(luisa::span{probe.distances})
+                   << synchronize();
+            // The hit/miss decision and the committed t of the same ray table must still
+            // match the analytic oracle: the probe is a second, independent kernel over
+            // the same acceleration structure, so a cluster-ID read that perturbed the
+            // traversal would show up here as a changed decision or distance.
+            check_against_oracle(label, traced_rays{.hits = probe.hits,
+                                                    .distances = probe.distances});
+            for (auto i = 0u; i < ray_count; i++) {
+                LUISA_INFO(
+                    "[test_rtx_cluster] {} ray {}: hit={} expected_cluster={} "
+                    "committed_cluster={} closest_candidate_cluster={} t={}",
+                    label, i, probe.hits[i], expected_cluster_ids[i],
+                    probe.committed_ids[i], probe.candidate_ids[i],
+                    probe.distances[i]);
+                // The committed intersection names the cluster that owns it. This is the
+                // assertion no distance can make: both records cover a different part of
+                // a plane, so "the ray hit a cluster" is not enough - it has to be
+                // *this* cluster.
+                check(probe.committed_ids[i] == expected_cluster_ids[i],
+                      luisa::format("{} ray {}: the committed intersection reports cluster "
+                                    "ID {} (0x{:08x}), expected {} (0x{:08x}); cluster "
+                                    "records are built with make_cluster_build_info(i, "
+                                    "...), so record i has to report ID i",
+                                    label, i, probe.committed_ids[i],
+                                    probe.committed_ids[i], expected_cluster_ids[i],
+                                    expected_cluster_ids[i]));
+                if (expect_candidates) {
+                    // Non-opaque instance: the traversal published the triangle as a
+                    // candidate and the kernel committed the closest one, so the
+                    // candidate selector has to land on the same cluster.
+                    check(probe.candidate_ids[i] == expected_cluster_ids[i],
+                          luisa::format("{} ray {}: the closest candidate intersection "
+                                        "reports cluster ID {} (0x{:08x}), expected {} "
+                                        "(0x{:08x}) - the candidate and the committed "
+                                        "selector have to agree on the cluster",
+                                        label, i, probe.candidate_ids[i],
+                                        probe.candidate_ids[i], expected_cluster_ids[i],
+                                        expected_cluster_ids[i]));
+                } else {
+                    // Opaque instance: no candidate is ever published, so the kernel has
+                    // to leave the candidate sentinel untouched. That control is what
+                    // proves the value above came from the committed selector and not
+                    // from a candidate read that happens to agree.
+                    check(probe.candidate_ids[i] == cluster_id_miss,
+                          luisa::format("{} ray {}: an opaque cluster instance must not "
+                                        "publish candidates, but the probe recorded "
+                                        "candidate cluster ID {} (0x{:08x})",
+                                        label, i, probe.candidate_ids[i],
+                                        probe.candidate_ids[i]));
+                }
+            }
+            return probe;
+        };
+        // The opaque TLAS of section 6 first: only the committed selector is defined.
+        auto opaque_probe = probe_cluster_ids(cluster_accel, /*expect_candidates=*/false,
+                                              "cluster-id/opaque");
+        // Then the same cluster BLAS behind a non-opaque instance, which is what makes the
+        // traversal publish candidates. Identity transform and the same mask, so the
+        // geometry and the committed distances are identical; only the commit decision
+        // differs.
+        Accel candidate_accel = device.create_accel();
+        candidate_accel.emplace_back(cluster_mesh, make_float4x4(1.0f), 0xffu,
+                                     /*opaque=*/false);
+        stream << candidate_accel.build() << synchronize();
+        auto candidate_probe = probe_cluster_ids(candidate_accel,
+                                                 /*expect_candidates=*/true,
+                                                 "cluster-id/non-opaque");
+        // Neither the identity nor the decision may depend on the instance opacity.
+        for (auto i = 0u; i < ray_count; i++) {
+            check(candidate_probe.committed_ids[i] == opaque_probe.committed_ids[i],
+                  luisa::format("ray {}: the committed cluster ID depends on the instance "
+                                "opacity: {} (opaque) vs {} (non-opaque)",
+                                i, opaque_probe.committed_ids[i],
+                                candidate_probe.committed_ids[i]));
+            check(candidate_probe.hits[i] == opaque_probe.hits[i],
+                  luisa::format("ray {}: the hit decision depends on the instance opacity: "
+                                "{} (opaque) vs {} (non-opaque)",
+                                i, opaque_probe.hits[i], candidate_probe.hits[i]));
+        }
+    }
+
 
     LUISA_INFO("[test_rtx_cluster] {} rays traced through the cluster and reference "
                "acceleration structures in both submission patterns, {} failed check(s).",

@@ -100,6 +100,10 @@ if has_config("lc_vk_backend") or has_config("lc_dx_backend") then
         add_includedirs("../backends/common/hlsl")
         add_deps("lc-hlsl-codegen", "spirv-tools")
     end)
+    test_proj("test_hlsl_spirv_capabilities", "unit/ext/test_hlsl_spirv_capabilities.cpp", false, function()
+        add_includedirs("../backends/common/hlsl")
+        add_deps("lc-hlsl-codegen", "spirv-tools")
+    end)
 end
 
 if has_config("lc_vk_backend") and

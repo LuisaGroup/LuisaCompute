@@ -187,11 +187,11 @@ endif ()
             message(STATUS "Vulkan(DXC) SDK directory: ${LUISA_COMPUTE_VK_SDK_DIR}")
         endif ()
         if (NOT LUISA_COMPUTE_VK_SDK_DIR OR NOT EXISTS "${LUISA_COMPUTE_VK_SDK_DIR}")
-            # The 2026-07-29 binary requires GLIBC 2.43 and cannot load on
-            # supported Ubuntu 24.04 package builders. Keep the compatible
-            # baseline until the newer SDK is rebuilt against an older glibc.
-            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_20260815_x86_64.zip")
-            set(LUISA_COMPUTE_VK_SDK_SHA256 "1522a849b12e717a128b10c037be5d74fd491e04074ad75dde1df4691cfe8fde")
+            # Keep this archive in step with scripts/find_sdk.lua (the xmake route);
+            # pack_dxsdk.py rewrites the DX SDK entries of scripts/sdks.cmake and
+            # scripts/find_sdk.lua, while this one is maintained by hand.
+            set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_20261113_x86_64.zip")
+            set(LUISA_COMPUTE_VK_SDK_SHA256 "3f90a3cecfb066ac792dd7cbc05568ae49f8ad0907176f041a0ca690da2d1b85")
             message(STATUS "Downloading Vulkan(DXC) SDK from ${LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL}")
             include(FetchContent)
             FetchContent_Declare(luisa_compute_vk_sdk

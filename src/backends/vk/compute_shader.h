@@ -12,6 +12,7 @@ class BinaryIO;
 }// namespace luisa
 namespace lc::hlsl {
 struct CodegenResult;
+struct SpirvShaderCapabilities;
 }// namespace lc::hlsl
 namespace lc::vk {
 using namespace luisa;
@@ -68,6 +69,12 @@ public:
         SerdeType serde_type,
         uint shader_model,
         bool unsafe_math,
+        // The optional shader-capability extensions the device negotiated. The
+        // `codegen` functor uses the same set to select its instructions, so the dxc
+        // invocation that compiles the result has to enable exactly the same
+        // extensions: an instruction whose OpCapability/OpExtension was not
+        // permitted there is a compile error, not a silently different module.
+        const hlsl::SpirvShaderCapabilities &spirv_capabilities,
         uint validation_count = 0,
         luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
         bool requires_sampler_anisotropy = false,

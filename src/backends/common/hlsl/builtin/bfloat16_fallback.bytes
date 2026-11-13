@@ -1,34 +1,12 @@
-// Software BF16 emulation for backends that cannot compile the native HLSL
-// `bfloat16_t` type: the DirectX backend (DXIL has no BF16 type, dxc reserves
-// that identifier for `-spirv`) and the Vulkan compatibility HLSL-to-SPIR-V
-// route on a device without `shaderBFloat16Type`
-// (VK_KHR_shader_bfloat16).  The emulated storage types are named
-// `lc_bf16_t`/`lc_bf16_tN` because dxc rejects the native identifiers.
-//
-// The host decides whether this header is part of the immutable header (see
-// `hlsl::CodegenStackData::bf16_fallback`): a device that compiles the native
-// type never sees it.
-//
-// A value is stored as its raw 16-bit BF16 pattern, so buffers, constants,
-// swizzles and bit casts keep the layout and the bit pattern of the native
-// type, and every operation is evaluated in binary32 and rounded back to BF16
-// once -- the same contract as native BF16 arithmetic and as the CUDA device
-// library (src/backends/cuda/cuda_builtin/cuda_device_math.h).  The codegen
-// emits `_lc_bf16_*` calls for BF16 values instead of HLSL operators and
-// intrinsics when the fallback is on (see `bf16_call_helper_name` in
-// codegen_utils/function_codegen.cpp).
 typedef uint16_t lc_bf16_t;
 typedef uint16_t2 lc_bf16_t2;
 typedef uint16_t3 lc_bf16_t3;
 typedef uint16_t4 lc_bf16_t4;
-// Non-local 3-component vectors carry a padding lane, exactly like the float16
-// and integer wrappers of the base header.
 struct _wlc_bf16_t3 {
     uint16_t3 v;
     uint16_t a;
 };
 
-// ---- widening and narrowing (round to nearest even, quieten NaN payload) ----
 #define _LC_BF16_CONV_DIM(SUFFIX)                                         \
     float##SUFFIX _lc_bf16_to_f32(lc_bf16_t##SUFFIX v) {                  \
         return asfloat(((uint##SUFFIX)v) << 16u);                         \
@@ -52,10 +30,6 @@ _LC_BF16_CONV_DIM(3)
 _LC_BF16_CONV_DIM(4)
 #undef _LC_BF16_CONV_DIM
 
-// Narrow a value that is already exactly representable as BF16.  This is used
-// by rounding intrinsics: for every finite BF16 input, ceil/floor/trunc/round/
-// rint/fract produce another exactly representable BF16 value.  NaNs still
-// need quieting, but the round-to-nearest-even add/mask sequence is redundant.
 #define _LC_BF16_EXACT_CONV_DIM(SUFFIX)                                \
     lc_bf16_t##SUFFIX _lc_bf16_from_f32_exact(float##SUFFIX v) {       \
         uint##SUFFIX u = asuint(v);                                     \
@@ -69,7 +43,6 @@ _LC_BF16_EXACT_CONV_DIM(3)
 _LC_BF16_EXACT_CONV_DIM(4)
 #undef _LC_BF16_EXACT_CONV_DIM
 
-// ---- value conversions ----
 #define _LC_BF16_CAST_DIM(SUFFIX)                                                          \
     lc_bf16_t##SUFFIX _lc_bf16_from_i32(int##SUFFIX v) {                                  \
         return _lc_bf16_from_f32((float##SUFFIX)v);                                        \
@@ -101,7 +74,6 @@ _LC_BF16_CAST_DIM(3)
 _LC_BF16_CAST_DIM(4)
 #undef _LC_BF16_CAST_DIM
 
-// ---- bit-level operations (sign, magnitude, classification) ----
 lc_bf16_t _lc_bf16_pos(lc_bf16_t a) { return a; }
 lc_bf16_t2 _lc_bf16_pos(lc_bf16_t2 a) { return a; }
 lc_bf16_t3 _lc_bf16_pos(lc_bf16_t3 a) { return a; }
@@ -127,7 +99,6 @@ bool2 _lc_bf16_isinf(lc_bf16_t2 a) { return ((((uint2)a) & 0x7fffu) == 0x7f80u);
 bool3 _lc_bf16_isinf(lc_bf16_t3 a) { return ((((uint3)a) & 0x7fffu) == 0x7f80u); }
 bool4 _lc_bf16_isinf(lc_bf16_t4 a) { return ((((uint4)a) & 0x7fffu) == 0x7f80u); }
 
-// ---- arithmetic, comparison and unary operators ----
 #define _LC_BF16_BIN_DIM(SUFFIX, NAME, OP)                              \
     lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a,            \
                                        lc_bf16_t##SUFFIX b) {          \
@@ -164,7 +135,6 @@ _LC_BF16_CMP(ne, !=)
 #undef _LC_BF16_CMP
 #undef _LC_BF16_CMP_DIM
 
-// ---- select ----
 #define _LC_BF16_SELECT_DIM(SUFFIX)                                     \
     lc_bf16_t##SUFFIX _lc_bf16_select(bool##SUFFIX c,                   \
                                       lc_bf16_t##SUFFIX t,              \
@@ -177,7 +147,6 @@ _LC_BF16_SELECT_DIM(3)
 _LC_BF16_SELECT_DIM(4)
 #undef _LC_BF16_SELECT_DIM
 
-// ---- unary math intrinsics (evaluated in binary32) ----
 #define _LC_BF16_UNARY_DIM(SUFFIX, NAME, EXPR)                          \
     lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a) {          \
         return _lc_bf16_from_f32(EXPR);                                 \
@@ -205,7 +174,6 @@ _LC_BF16_UNARY(sqrt)
 _LC_BF16_UNARY(rsqrt)
 _LC_BF16_UNARY(sign)
 
-// ceil/floor/trunc map a BF16 input to an exactly representable BF16 result.
 #define _LC_BF16_UNARY_EXACT_DIM(SUFFIX, NAME)                         \
     lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a) {          \
         return _lc_bf16_from_f32_exact(NAME(_lc_bf16_to_f32(a)));       \
@@ -225,7 +193,6 @@ _LC_BF16_UNARY_EXACT(saturate)
 #undef _LC_BF16_UNARY
 #undef _LC_BF16_UNARY_DIM
 
-// asinh/acosh/atanh: the same closed forms the base header uses for float32.
 #define _LC_BF16_INVHYP_DIM(SUFFIX, NAME, EXPR)                         \
     lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a) {          \
         float##SUFFIX x = _lc_bf16_to_f32(a);                           \
@@ -243,8 +210,6 @@ _LC_BF16_INVHYP(exp10, pow(10.0f, x))
 #undef _LC_BF16_INVHYP
 #undef _LC_BF16_INVHYP_DIM
 
-// The fractional and rounding results of a BF16 input are exactly BF16 too;
-// see _lc_bf16_from_f32_exact above.
 #define _LC_BF16_ROUND_DIM(SUFFIX, NAME, EXPR)                          \
     lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a) {           \
         float##SUFFIX x = _lc_bf16_to_f32(a);                            \
@@ -278,7 +243,6 @@ lc_bf16_t4 _lc_bf16_atan2(lc_bf16_t4 y, lc_bf16_t4 x) {
     return _lc_bf16_from_f32(select((fx == 0.0f) & (fy == 0.0f), 0.0f, atan2(fy, fx)));
 }
 
-// ---- binary math intrinsics ----
 #define _LC_BF16_BINARY_DIM(SUFFIX, NAME, EXPR)                         \
     lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a,            \
                                        lc_bf16_t##SUFFIX b) {          \
@@ -291,8 +255,6 @@ lc_bf16_t4 _lc_bf16_atan2(lc_bf16_t4 y, lc_bf16_t4 x) {
     _LC_BF16_BINARY_DIM(2, NAME, EXPR)                                  \
     _LC_BF16_BINARY_DIM(3, NAME, EXPR)                                  \
     _LC_BF16_BINARY_DIM(4, NAME, EXPR)
-// min/max return one of their already-representable inputs (or a quiet NaN),
-// so they do not need the general round-to-nearest-even sequence.
 #define _LC_BF16_BINARY_EXACT_DIM(SUFFIX, NAME, EXPR)                   \
     lc_bf16_t##SUFFIX _lc_bf16_##NAME(lc_bf16_t##SUFFIX a,             \
                                        lc_bf16_t##SUFFIX b) {          \
@@ -310,8 +272,6 @@ _LC_BF16_BINARY_EXACT(max, max(x, y))
 #undef _LC_BF16_BINARY_EXACT
 #undef _LC_BF16_BINARY_EXACT_DIM
 
-// step returns exactly zero or one; keep the comparison in FP32 but return
-// the BF16 constants directly instead of narrowing them.
 #define _LC_BF16_STEP_DIM(SUFFIX)                                       \
     lc_bf16_t##SUFFIX _lc_bf16_step(lc_bf16_t##SUFFIX a,                \
                                      lc_bf16_t##SUFFIX b) {            \
@@ -330,7 +290,6 @@ _LC_BF16_BINARY(mod, fmod(x, y))
 _LC_BF16_BINARY(distance, distance(x, y))
 #undef _LC_BF16_BINARY
 #undef _LC_BF16_BINARY_DIM
-// copysign is not an HLSL intrinsic: it is exactly a sign-bit transfer.
 lc_bf16_t _lc_bf16_copysign(lc_bf16_t a, lc_bf16_t b) {
     return (lc_bf16_t)((((uint)a) & 0x7fffu) | (((uint)b) & 0x8000u));
 }
@@ -346,7 +305,6 @@ lc_bf16_t4 _lc_bf16_copysign(lc_bf16_t4 a, lc_bf16_t4 b) {
 #undef _LC_BF16_BINARY
 #undef _LC_BF16_BINARY_DIM
 
-// ---- ternary math intrinsics ----
 #define _LC_BF16_TERNARY(NAME, EXPR)                                    \
     lc_bf16_t _lc_bf16_##NAME(lc_bf16_t a, lc_bf16_t b,              \
                                lc_bf16_t c) {                          \
@@ -374,8 +332,6 @@ lc_bf16_t4 _lc_bf16_copysign(lc_bf16_t4 a, lc_bf16_t4 b) {
     }
 _LC_BF16_TERNARY(fma, x * y + z)
 
-// clamp returns one of its inputs (or a quiet NaN), all of which are already
-// exactly representable without another general rounding step.
 #define _LC_BF16_CLAMP_DIM(SUFFIX)                                      \
     lc_bf16_t##SUFFIX _lc_bf16_clamp(lc_bf16_t##SUFFIX a,               \
                                       lc_bf16_t##SUFFIX b,              \
@@ -394,7 +350,6 @@ _LC_BF16_TERNARY(smoothstep, smoothstep(x, y, z))
 _LC_BF16_TERNARY(faceforward, faceforward(x, y, z))
 #undef _LC_BF16_TERNARY
 
-// ---- vector products and reductions ----
 #define _LC_BF16_VEC_DIM(SUFFIX)                                        \
     lc_bf16_t _lc_bf16_dot(lc_bf16_t##SUFFIX a,                       \
                             lc_bf16_t##SUFFIX b) {                     \
@@ -447,7 +402,5 @@ _LC_BF16_REDUCE(max, max(f.x, f.y),
                 max(f.x, max(f.y, max(f.z, f.w))))
 #undef _LC_BF16_REDUCE
 #undef _LC_BF16_REDUCE_DIM
-// Packed 32-bit word accessors for a software BF16 member (its storage is a raw
-// 16-bit pattern; see PackedStructMember in the HLSL codegen).
 lc_bf16_t _lc_pack_get_bf16(uint w,uint byte){return (lc_bf16_t)(w>>(byte*8u));}
 uint _lc_pack_set_bf16(uint w,uint byte,lc_bf16_t v){uint s=byte*8u;return (w&~(0xffffu<<s))|(((uint)v&0xffffu)<<s);}

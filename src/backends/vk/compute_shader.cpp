@@ -136,6 +136,7 @@ ComputeShader *ComputeShader::compile(
     SerdeType serde_type,
     uint shader_model,
     bool unsafe_math,
+    const hlsl::SpirvShaderCapabilities &spirv_capabilities,
     uint validation_count,
     luisa::optional<uint8_t> required_subgroup_size,
     bool requires_sampler_anisotropy,
@@ -218,7 +219,12 @@ ComputeShader *ComputeShader::compile(
             shader_model,
             unsafe_math,
             true,
-            false);
+            false,
+            /*entry_point=*/{},
+            /*include_dirs=*/{},
+            // The capability set the codegen functor was given: the -fspv-extension
+            // flags have to match the instructions the generated source contains.
+            spirv_capabilities);
         return comp_result.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {

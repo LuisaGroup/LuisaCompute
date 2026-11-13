@@ -38,10 +38,8 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
  GroupMemoryBarrierWithGroupSync();
  #endif
  
- //ergod mode_type 1:10
  if (threadInBlock < 32)
  {
- // find_axis
  int2x3 endPoint[2];
  endPoint[0][0] = MAX_INT;
  endPoint[0][1] = MIN_INT;
@@ -59,7 +57,7 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
  {
  int3 pixel_ph = shared_temp[threadBase + i].pixel_ph;
  float pixel_lum = shared_temp[threadBase + i].pixel_lum;
- if ( (bit >> i) & 1 ) //It gets error when using "candidateSection" as "endPoint_ph" index
+ if ( (bit >> i) & 1 )
  {
  if (endPoint_lum[1][0] > pixel_lum)
  {
@@ -87,16 +85,15 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
  }
  }
  
- //compute_index
- float3 span[2];// fixed a bug in v0.2
- float span_norm_sqr[2];// fixed a bug in v0.2
+ float3 span[2];
+ float span_norm_sqr[2];
  [unroll]
  for (uint p = 0; p < 2; ++ p)
  {
  span[p] = endPoint[p][1] - endPoint[p][0];
  span_norm_sqr[p] = dot( span[p], span[p] );
 
- float dotProduct = dot( span[p], shared_temp[threadBase + (0 == p ? 0 : candidateFixUpIndex1D[threadInBlock])].pixel_ph - endPoint[p][0] );// fixed a bug in v0.2
+ float dotProduct = dot( span[p], shared_temp[threadBase + (0 == p ? 0 : candidateFixUpIndex1D[threadInBlock])].pixel_ph - endPoint[p][0] );
  if ( span_norm_sqr[p] > 0 && dotProduct >= 0 && uint( dotProduct * 63.49999 / span_norm_sqr[p] ) > 32 )
  {
  span[p] = -span[p];
@@ -132,14 +129,14 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
  uint3 pixel_rh;
  if ((bit >> j) & 1)
  {
- float dotProduct = dot( span[1], shared_temp[threadBase + j].pixel_ph - endPoint[1][0] );// fixed a bug in v0.2
+ float dotProduct = dot( span[1], shared_temp[threadBase + j].pixel_ph - endPoint[1][0] );
  uint index = ( span_norm_sqr[1] <= 0 || dotProduct <= 0 ) ? 0
  : ( ( dotProduct < span_norm_sqr[1] ) ? aStep1[ uint( dotProduct * 63.49999 / span_norm_sqr[1] ) ] : aStep1[63] );
  generate_palette_unquantized8( pixel_rh, endPoint_q[1][0], endPoint_q[1][1], index );
  }
  else
  {
- float dotProduct = dot( span[0], shared_temp[threadBase + j].pixel_ph - endPoint[0][0] );// fixed a bug in v0.2
+ float dotProduct = dot( span[0], shared_temp[threadBase + j].pixel_ph - endPoint[0][0] );
  uint index = ( span_norm_sqr[0] <= 0 || dotProduct <= 0 ) ? 0
  : ( ( dotProduct < span_norm_sqr[0] ) ? aStep1[ uint( dotProduct * 63.49999 / span_norm_sqr[0] ) ] : aStep1[63] );
  generate_palette_unquantized8( pixel_rh, endPoint_q[0][0], endPoint_q[0][1], index );

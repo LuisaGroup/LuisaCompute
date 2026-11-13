@@ -5,6 +5,7 @@
 #include "stream.h"
 #include <luisa/runtime/rtx/aabb.h>
 #include "opacity_micromap.h"
+#include "command_buffer_sync.h"
 #include "rt_extension_plan.h"
 namespace lc::vk {
 

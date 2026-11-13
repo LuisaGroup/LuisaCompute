@@ -8,6 +8,7 @@
 #include <luisa/core/stl/filesystem.h>
 
 #include "dxcapi.h"
+#include "hlsl_codegen.h"
 
 namespace lc::hlsl {
 template <typename T>
@@ -42,6 +43,11 @@ class ShaderCompiler final : public vstd::IOperatorNewBase {
     // differ only in the profile (target) string, so every HLSL stage flag
     // (`-spirv`, `/DSPV`, `-fspv-target-env`, `-HV 2021`, ...) lives in exactly
     // one place.
+    // `spirv_capabilities` names the optional shader-capability extensions the
+    // target device negotiated (`SpirvShaderCapabilities`).  It only selects the
+    // `-fspv-extension=` flags of the SPIR-V route: dxc rejects an extension name it
+    // does not know, so a capability is only enabled when the caller asks for it, and
+    // the default (nothing) passes exactly the pre-feature flag set.
     CompileResult _compile_with_profile(
         vstd::string_view code,
         vstd::wstring_view profile,
@@ -56,7 +62,8 @@ class ShaderCompiler final : public vstd::IOperatorNewBase {
         // Directories searched for `#include`d headers, in addition to the
         // raw include spelling itself. Empty keeps the historical behaviour:
         // no include handler is registered.
-        luisa::span<const luisa::filesystem::path> include_dirs) const;
+        luisa::span<const luisa::filesystem::path> include_dirs,
+        SpirvShaderCapabilities spirv_capabilities = {}) const;
 
 public:
     // Optional include handler for `#include` resolution. nullptr keeps
@@ -86,7 +93,8 @@ public:
         // Directories searched for `#include`d headers, in addition to the
         // raw include spelling itself. Empty keeps the historical behaviour:
         // no include handler is registered.
-        luisa::span<const luisa::filesystem::path> include_dirs = {}) const;
+        luisa::span<const luisa::filesystem::path> include_dirs = {},
+        SpirvShaderCapabilities spirv_capabilities = {}) const;
     // Compiles *one* stage of a graphics pipeline: profile `vs_<sm>` when
     // `vertex` is true, `ps_<sm>` otherwise. Behaviour is otherwise identical
     // to `compile_compute` (same SPIR-V flags, same entry-point/include
@@ -105,20 +113,23 @@ public:
         bool spirv,
         bool debug,
         vstd::string_view entry_point = {},
-        luisa::span<const luisa::filesystem::path> include_dirs = {}) const;
+        luisa::span<const luisa::filesystem::path> include_dirs = {},
+        SpirvShaderCapabilities spirv_capabilities = {}) const;
     RasterBin compile_raster(
         vstd::string_view code,
         bool optimize,
         uint shaderModel,
         bool enableUnsafeMath,
         bool spirv,
-        bool debug) const;
+        bool debug,
+        SpirvShaderCapabilities spirv_capabilities = {}) const;
     CompileResult compile_raytracing(
         vstd::string_view code,
         bool optimize,
         uint shaderModel,
         bool enableUnsafeMath,
         bool spirv,
-        bool debug) const;
+        bool debug,
+        SpirvShaderCapabilities spirv_capabilities = {}) const;
 };
 }// namespace lc::hlsl
