@@ -15,7 +15,7 @@ class CUDACommandEncoder;
 class CUDACurve final : public CUDAPrimitive {
 
 private:
-    optix::PrimitiveType _basis{};
+    OptixPrimitiveType _basis{};
     size_t _cp_count{};
     size_t _seg_count{};
     CUdeviceptr _cp_buffer{};
@@ -23,7 +23,7 @@ private:
     CUdeviceptr _seg_buffer{};
 
 private:
-    [[nodiscard]] optix::BuildInput _make_build_input() const noexcept override;
+    [[nodiscard]] OptixBuildInput _make_build_input() const noexcept override;
 
 public:
     explicit CUDACurve(const AccelOption &option) noexcept;

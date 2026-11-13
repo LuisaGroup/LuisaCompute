@@ -111,7 +111,7 @@ public:
         uint32_t _driver_version{};
         CUuuid _uuid{};
         // will be lazily initialized
-        mutable optix::DeviceContext _optix_context{nullptr};
+        mutable OptixDeviceContext _optix_context{nullptr};
         mutable spin_mutex _mutex{};
 
     public:
@@ -129,7 +129,7 @@ public:
         [[nodiscard]] auto driver_version() const noexcept { return _driver_version; }
         void force_compute_capability(uint32_t cc) noexcept { _compute_capability = cc; }
         [[nodiscard]] auto compute_capability() const noexcept { return _compute_capability; }
-        [[nodiscard]] optix::DeviceContext optix_context() const noexcept;
+        [[nodiscard]] OptixDeviceContext optix_context() const noexcept;
     };
 
 private:

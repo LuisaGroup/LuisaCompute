@@ -21,18 +21,18 @@ public:
 
 private:
     size_t _argument_buffer_size{};
-    optix::Module _module{};
-    optix::ProgramGroup _program_group_rg{};
+    OptixModule _module{};
+    OptixProgramGroup _program_group_rg{};
     // Four bases for static vertices, followed by four for vertex motion.
-    std::array<optix::ProgramGroup, 8u> _program_groups_curve{};
-    optix::ProgramGroup _program_group_ray_query{};
-    std::array<optix::ProgramGroup, 8u> _program_groups_ray_query_curve{};
-    optix::Pipeline _pipeline{};
+    std::array<OptixProgramGroup, 8u> _program_groups_curve{};
+    OptixProgramGroup _program_group_ray_query{};
+    std::array<OptixProgramGroup, 8u> _program_groups_ray_query_curve{};
+    OptixPipeline _pipeline{};
     luisa::vector<ShaderDispatchCommand::Argument> _bound_arguments;
     CUdeviceptr _sbt_buffer{};
 
 private:
-    [[nodiscard]] optix::ShaderBindingTable _make_sbt() const noexcept;
+    [[nodiscard]] OptixShaderBindingTable _make_sbt() const noexcept;
     void _do_launch(CUstream stream, CUdeviceptr argument_buffer, uint3 dispatch_size) const noexcept;
     void _do_launch_indirect(CUstream stream, CUdeviceptr argument_buffer,
                              size_t dispatch_offset, size_t dispatch_count,
@@ -41,7 +41,7 @@ private:
     void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 
 public:
-    CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<std::byte> ptx,
+    CUDAShaderOptiX(OptixDeviceContext optix_ctx, luisa::vector<std::byte> ptx,
                     const char *entry, const CUDAShaderMetadata &metadata,
                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;

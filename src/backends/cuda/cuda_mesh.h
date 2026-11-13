@@ -26,7 +26,7 @@ private:
     size_t _triangle_buffer_size{};
 
 private:
-    [[nodiscard]] optix::BuildInput _make_build_input() const noexcept override;
+    [[nodiscard]] OptixBuildInput _make_build_input() const noexcept override;
 
 public:
     explicit CUDAMesh(const AccelOption &option) noexcept;

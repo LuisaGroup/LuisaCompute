@@ -24,10 +24,10 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
     auto build_input = _make_build_input();
     auto cuda_stream = encoder.stream()->handle();
     auto optix_ctx = encoder.stream()->device()->handle().optix_context();
-    auto build_options = make_optix_build_options(option(), optix::BUILD_OPERATION_BUILD);
+    auto build_options = make_optix_build_options(option(), OPTIX_BUILD_OPERATION_BUILD);
 
-    optix::AccelBufferSizes sizes{};
-    LUISA_CHECK_OPTIX(optix::api().accelComputeMemoryUsage(
+    OptixAccelBufferSizes sizes{};
+    LUISA_CHECK_OPTIX(optix::api().optixAccelComputeMemoryUsage(
         optix_ctx, &build_options,
         &build_input, 1u, &sizes));
     // LUISA_VERBOSE(
@@ -35,7 +35,7 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
     //     sizes.tempSizeInBytes, sizes.tempUpdateSizeInBytes, sizes.outputSizeInBytes);
     _update_buffer_size = sizes.tempUpdateSizeInBytes;
     static constexpr auto align = [](size_t x) noexcept -> size_t {
-        static constexpr auto alignment = optix::ACCEL_BUFFER_BYTE_ALIGNMENT;
+        static constexpr auto alignment = OPTIX_ACCEL_BUFFER_BYTE_ALIGNMENT;
         return (x + alignment - 1u) / alignment * alignment;
     };
 
@@ -51,10 +51,10 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
         auto output_buffer = build_buffer + output_buffer_offset;
 
         if (!_name.empty()) { nvtxRangePushA("build"); }
-        optix::AccelEmitDesc emit_desc{};
-        emit_desc.type = optix::PROPERTY_TYPE_COMPACTED_SIZE;
+        OptixAccelEmitDesc emit_desc{};
+        emit_desc.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
         emit_desc.result = compacted_size_buffer;
-        LUISA_CHECK_OPTIX(optix::api().accelBuild(
+        LUISA_CHECK_OPTIX(optix::api().optixAccelBuild(
             optix_ctx, cuda_stream,
             &build_options, &build_input, 1, temp_buffer, sizes.tempSizeInBytes,
             output_buffer, sizes.outputSizeInBytes, &_handle, &emit_desc, 1u));
@@ -82,7 +82,7 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
             LUISA_CHECK_CUDA(cuMemAllocAsync(&_bvh_buffer_handle, _bvh_buffer_size, cuda_stream));
         }
         if (!_name.empty()) { nvtxRangePushA("compact"); }
-        LUISA_CHECK_OPTIX(optix::api().accelCompact(
+        LUISA_CHECK_OPTIX(optix::api().optixAccelCompact(
             optix_ctx, cuda_stream, _handle,
             _bvh_buffer_handle, _bvh_buffer_size, &_handle));
         if (!_name.empty()) { nvtxRangePop(); }
@@ -96,7 +96,7 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
         auto temp_buffer = 0ull;
         LUISA_CHECK_CUDA(cuMemAllocAsync(&temp_buffer, sizes.tempSizeInBytes, cuda_stream));
         if (!_name.empty()) { nvtxRangePushA("build"); }
-        LUISA_CHECK_OPTIX(optix::api().accelBuild(
+        LUISA_CHECK_OPTIX(optix::api().optixAccelBuild(
             optix_ctx, cuda_stream, &build_options, &build_input, 1,
             temp_buffer, sizes.tempSizeInBytes, _bvh_buffer_handle,
             _bvh_buffer_size, &_handle, nullptr, 0u));
@@ -115,11 +115,11 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
 void CUDAPrimitive::_update(CUDACommandEncoder &encoder) noexcept {
     if (!_name.empty()) { nvtxRangePushA(luisa::format("{}::update", _name).c_str()); }
     auto build_input = _make_build_input();
-    auto build_options = make_optix_build_options(option(), optix::BUILD_OPERATION_UPDATE);
+    auto build_options = make_optix_build_options(option(), OPTIX_BUILD_OPERATION_UPDATE);
     auto cuda_stream = encoder.stream()->handle();
     auto update_buffer = 0ull;
     LUISA_CHECK_CUDA(cuMemAllocAsync(&update_buffer, _update_buffer_size, cuda_stream));
-    LUISA_CHECK_OPTIX(optix::api().accelBuild(
+    LUISA_CHECK_OPTIX(optix::api().optixAccelBuild(
         encoder.stream()->device()->handle().optix_context(), cuda_stream,
         &build_options, &build_input, 1u, update_buffer, _update_buffer_size,
         _bvh_buffer_handle, _bvh_buffer_size, &_handle, nullptr, 0u));
@@ -148,7 +148,7 @@ void CUDAPrimitiveBase::set_name(luisa::string &&name) noexcept {
     _name = std::move(name);
 }
 
-optix::TraversableHandle CUDAPrimitiveBase::handle() const noexcept {
+OptixTraversableHandle CUDAPrimitiveBase::handle() const noexcept {
     std::scoped_lock lock{_mutex};
     return _handle;
 }

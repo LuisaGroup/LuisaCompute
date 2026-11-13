@@ -338,8 +338,8 @@ llvm::Value *CUDACodegenLLVMImpl::_ray_query_surface_candidate(IB &b) noexcept {
     auto bary = _call_optix_get_triangle_barycentrics(b);
     if (_rt_analysis.curve_basis_set.any()) {
         auto kind = _call_optix_get_hit_kind(b);
-        auto triangle = b.CreateOr(b.CreateICmpEQ(kind, b.getInt32(optix::HIT_KIND_TRIANGLE_FRONT_FACE)),
-                                   b.CreateICmpEQ(kind, b.getInt32(optix::HIT_KIND_TRIANGLE_BACK_FACE)));
+        auto triangle = b.CreateOr(b.CreateICmpEQ(kind, b.getInt32(OPTIX_HIT_KIND_TRIANGLE_FRONT_FACE)),
+                                   b.CreateICmpEQ(kind, b.getInt32(OPTIX_HIT_KIND_TRIANGLE_BACK_FACE)));
         auto curve_bary = _create_llvm_vector(b, {_call_optix_get_curve_parameter(b),
                                                   llvm::ConstantFP::get(b.getFloatTy(), -1.)});
         bary = b.CreateSelect(triangle, bary, curve_bary);
@@ -501,12 +501,12 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
     // General handlers observe software state while traversing and must
     // track opaque hits too. Qualified callbacks use native traversal bounds
     // and recover the final hardware result after traversal instead.
-    auto flags = static_cast<uint32_t>(optix::RAY_FLAG_DISABLE_CLOSESTHIT);
-    if (!hardware_result) { flags |= optix::RAY_FLAG_ENFORCE_ANYHIT; }
+    auto flags = static_cast<uint32_t>(OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT);
+    if (!hardware_result) { flags |= OPTIX_RAY_FLAG_ENFORCE_ANYHIT; }
     if (inst->query_object()->type() == Type::of<RayQueryAny>()) {
-        flags |= optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT;
+        flags |= OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT;
     }
-    _call_optix_trace(b, optix::PAYLOAD_TYPE_ID_1, 5u, flags, accel, ray, time, mask, payload);
+    _call_optix_trace(b, OPTIX_PAYLOAD_TYPE_ID_1, 5u, flags, accel, ray, time, mask, payload);
     if (hardware_result) {
         auto function = b.GetInsertBlock()->getParent();
         auto hit_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.hit", function);
@@ -520,8 +520,8 @@ void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionCont
         auto kind = _rt_analysis.curve_basis_set.any() || has_procedural ? _call_optix_hit_object_hit_kind(b) : nullptr;
         auto emit_surface_bary = [&]() noexcept -> llvm::Value * {
             if (_rt_analysis.curve_basis_set.any()) {
-                auto triangle = b.CreateOr(b.CreateICmpEQ(kind, b.getInt32(optix::HIT_KIND_TRIANGLE_FRONT_FACE)),
-                                           b.CreateICmpEQ(kind, b.getInt32(optix::HIT_KIND_TRIANGLE_BACK_FACE)));
+                auto triangle = b.CreateOr(b.CreateICmpEQ(kind, b.getInt32(OPTIX_HIT_KIND_TRIANGLE_FRONT_FACE)),
+                                           b.CreateICmpEQ(kind, b.getInt32(OPTIX_HIT_KIND_TRIANGLE_BACK_FACE)));
                 auto triangle_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.triangle", function);
                 auto curve_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.curve", function);
                 auto bary_block = llvm::BasicBlock::Create(_llvm_context, "surface.filter.bary", function);
@@ -617,7 +617,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             b.CreateRetVoid();
             continue;
         }
-        b.CreateCall(_get_inline_asm("call (), _optix_set_payload_types, ($0);", "r", true), {b.getInt32(optix::PAYLOAD_TYPE_ID_1)});
+        b.CreateCall(_get_inline_asm("call (), _optix_set_payload_types, ($0);", "r", true), {b.getInt32(OPTIX_PAYLOAD_TYPE_ID_1)});
         auto exit = llvm::BasicBlock::Create(_llvm_context, "exit", function);
         auto terminate = llvm::BasicBlock::Create(_llvm_context, "terminate", function);
         auto dispatch = llvm::BasicBlock::Create(_llvm_context, "dispatch", function);
@@ -768,7 +768,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_pipelines() noexcept {
             auto accel = _load_ray_query_field(b, query, llvm_ray_query_type_accel_index);
             auto instance = _get_accel_instance_pointer(b, accel, _call_optix_read_instance_index(b));
             auto flags = b.CreateLoad(b.getInt32Ty(), b.CreateStructGEP(_get_llvm_accel_instance_type(), instance, llvm_accel_instance_type_flags_index));
-            auto opaque = b.CreateICmpEQ(b.CreateAnd(flags, b.getInt32(optix::INSTANCE_FLAG_ENFORCE_ANYHIT)), b.getInt32(0));
+            auto opaque = b.CreateICmpEQ(b.CreateAnd(flags, b.getInt32(OPTIX_INSTANCE_FLAG_ENFORCE_ANYHIT)), b.getInt32(0));
             auto accept_opaque = llvm::BasicBlock::Create(_llvm_context, "opaque", function);
             b.CreateCondBr(opaque, accept_opaque, dispatch);
             b.SetInsertPoint(accept_opaque);
