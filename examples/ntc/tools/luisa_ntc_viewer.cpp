@@ -223,7 +223,7 @@ int main(int argc, char *argv[]) {
            << synchronize();
 
     std::vector<uint8_t> screenshot(tw * th * 4);
-    stream << copy_from_device(display_image, screenshot.data()) << synchronize();
+    stream << display_image.copy_to(luisa::span<uint8_t>{screenshot.data(), screenshot.size()}) << synchronize();
     stbi_write_png("viewer_output.png", tw, th, 4, screenshot.data(), tw * 4);
     LUISA_INFO("Headless mode: Saved viewer output to 'viewer_output.png' ({}x{})", tw, th);
 #endif
