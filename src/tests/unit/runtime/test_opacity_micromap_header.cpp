@@ -11,8 +11,8 @@ static_assert(None == 0u);
 #undef None
 
 using luisa::compute::OpacityMicromap;
-static_assert(static_cast<uint32_t>(OpacityMicromap::IndexFormat::None) == 0u);
-static_assert(OpacityMicromap::Option{}.index_format == OpacityMicromap::IndexFormat::None);
+static_assert(static_cast<uint32_t>(OpacityMicromap::IndexFormat::NoIndex) == 0u);
+static_assert(OpacityMicromap::Option{}.index_format == OpacityMicromap::IndexFormat::NoIndex);
 static_assert(OpacityMicromap::triangle_data_byte_size(OpacityMicromap::Format::TwoState, 2u) == 2u);
 
 int main() {}

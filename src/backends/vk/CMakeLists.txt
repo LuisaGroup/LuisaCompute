@@ -191,7 +191,7 @@ endif ()
             # pack_dxsdk.py rewrites the DX SDK entries of scripts/sdks.cmake and
             # scripts/find_sdk.lua, while this one is maintained by hand.
             set(LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/linux_dxc_20261113_x86_64.zip")
-            set(LUISA_COMPUTE_VK_SDK_SHA256 "3f90a3cecfb066ac792dd7cbc05568ae49f8ad0907176f041a0ca690da2d1b85")
+            set(LUISA_COMPUTE_VK_SDK_SHA256 "d5d887132ce2d1a42da599138b538151c4d68e514ec4a92246760922a23edf88")
             message(STATUS "Downloading Vulkan(DXC) SDK from ${LUISA_COMPUTE_VK_SDK_DOWNLOAD_URL}")
             include(FetchContent)
             FetchContent_Declare(luisa_compute_vk_sdk
