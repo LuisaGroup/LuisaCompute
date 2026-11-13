@@ -4,6 +4,13 @@
 #include "ocr/cli.h"
 
 #include <charconv>
+#include <cerrno>
+#include <cstdlib>
+#include <string>
+
+#if defined(__APPLE__)
+#include <xlocale.h>
+#endif
 #include <cmath>
 #include <cstdio>
 #include <string_view>
@@ -34,8 +41,33 @@ namespace {
 [[nodiscard]] bool parse_double(std::string_view text, double &out) noexcept {
     if (text.empty()) { return false; }
     double value = 0.0;
+#if defined(__APPLE__)
+    // libc++ floating-point from_chars requires macOS 26. Use a private C
+    // locale on older deployment targets without changing the process locale.
+    // strtod_l also accepts whitespace, a leading '+', and hex floats, unlike
+    // from_chars(general), so reject those extensions explicitly.
+    auto number = text;
+    if (number.front() == '-') { number.remove_prefix(1); }
+    if (number.empty() || !((number.front() >= '0' && number.front() <= '9') || number.front() == '.')) { return false; }
+    if (number.size() >= 2 && number[0] == '0' && (number[1] == 'x' || number[1] == 'X')) { return false; }
+    struct NumericLocale {
+        locale_t value{newlocale(LC_NUMERIC_MASK, "C", nullptr)};
+        ~NumericLocale() { if (value != nullptr) { freelocale(value); } }
+    };
+    static const NumericLocale locale;
+    if (locale.value == nullptr) { return false; }
+    const std::string terminated{text};
+    char *end = nullptr;
+    errno = 0;
+    value = strtod_l(terminated.c_str(), &end, locale.value);
+    if (end != terminated.c_str() + terminated.size() || end == terminated.c_str()) { return false; }
+    // libc reports ERANGE for representable subnormals too. Like from_chars,
+    // accept those, but reject a nonzero value that underflows to zero.
+    if (errno == ERANGE && value == 0.0) { return false; }
+#else
     const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
     if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) { return false; }
+#endif
     if (!std::isfinite(value)) { return false; }
     out = value;
     return true;

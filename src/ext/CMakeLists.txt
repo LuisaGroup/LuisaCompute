@@ -43,9 +43,9 @@ if ((APPLE AND LUISA_COMPUTE_ENABLE_METAL4) OR
     set(LUISA_LLVM_DOWNGRADE_PATCH
             "${CMAKE_CURRENT_SOURCE_DIR}/llvm-downgrade-llvm22-air.patch")
     set(LUISA_LLVM_DOWNGRADE_EXPECTED_COMMIT
-            "4244e2a1ec56dd9c714755453ba840a48a0b5ee5")
+            "9a9505f992c02b5e8dea642bceef71a3da46fe30")
     set(LUISA_LLVM_DOWNGRADE_EXPECTED_SOURCE_FINGERPRINT
-            "fb1144a70631e27bae3cdba193d89c28f4e54e75a28a9d1788244b0f856d3edc")
+            "8e6f275216c0b3b809df0cde394d1848856f5d3ff69dab8ec472e5667735bf43")
     if (NOT EXISTS "${LUISA_LLVM_DOWNGRADE_SOURCE_DIR}/src/BitcodeWriter140.cpp")
         message(FATAL_ERROR
                 "The llvm-downgrade submodule is missing. Run "

@@ -1,7 +1,9 @@
 # LuisaCompute LLVM 22/23 and AIR overlay for JuliaLLVM/llvm-downgrade.
-# Base commit: 4244e2a1ec56dd9c714755453ba840a48a0b5ee5.
+# Base commit: 9a9505f992c02b5e8dea642bceef71a3da46fe30.
 # CMake applies this patch only to a disposable build-tree mirror.
 
+diff --git a/common/DowngradeError.h b/common/DowngradeError.h
+index a59c1f1..12bec08 100644
 --- a/common/DowngradeError.h
 +++ b/common/DowngradeError.h
 @@ -1,6 +1,9 @@
@@ -14,7 +16,7 @@
  #include <string>
  
  namespace llvmdg {
-@@ -9,9 +12,15 @@
+@@ -9,9 +12,15 @@ struct DowngradeError {
    std::string Message;
  };
  
@@ -31,6 +33,9 @@
  }
  
  } // namespace llvmdg
+diff --git a/common/LegacyAttributes.h b/common/LegacyAttributes.h
+new file mode 100644
+index 0000000..97b18f8
 --- /dev/null
 +++ b/common/LegacyAttributes.h
 @@ -0,0 +1,35 @@
@@ -69,6 +74,9 @@
 +
 +} // namespace llvmdg
 +#endif
+diff --git a/common/LegacyConstants.h b/common/LegacyConstants.h
+new file mode 100644
+index 0000000..f0e7aa7
 --- /dev/null
 +++ b/common/LegacyConstants.h
 @@ -0,0 +1,30 @@
@@ -102,6 +110,8 @@
 +}
 +
 +} // namespace llvmdg
+diff --git a/src/BitcodeWriter140.cpp b/src/BitcodeWriter140.cpp
+index 5f2f543..4d5df3d 100644
 --- a/src/BitcodeWriter140.cpp
 +++ b/src/BitcodeWriter140.cpp
 @@ -11,6 +11,9 @@
@@ -114,7 +124,7 @@
  #include "llvm/Bitcode/BitcodeWriter.h"
  #include "ValueEnumerator140.h"
  #include "PointerRewriter.h"
-@@ -155,6 +158,8 @@
+@@ -155,6 +158,8 @@ protected:
    /// The Module to write to bitcode.
    const Module &M;
  
@@ -123,7 +133,7 @@
    /// Enumerates ids for all values in the module.
    ValueEnumerator140 VE;
  
-@@ -183,7 +188,8 @@
+@@ -183,7 +188,8 @@ public:
                            bool ShouldPreserveUseListOrder,
                            const ModuleSummaryIndex *Index)
        : BitcodeWriterBase140(Stream, StrtabBuilder), M(M),
@@ -133,7 +143,7 @@
      // Enumerate typed pointers, in a deterministic module order so the emitted
      // type table (and thus the whole bitcode) is reproducible across runs.
      PointerMap = PointerRewriter::buildPointerMap(M);
-@@ -800,6 +806,11 @@
+@@ -800,6 +806,11 @@ unsigned encodeAttribute140(const Attribute &Attr,
        Record->append(Vals);
    };
  
@@ -145,7 +155,7 @@
    // LLVM 14 has no memory(...) attribute; decompose the MemoryEffects into
    // the legacy standalone enum attributes the LLVM 14 reader knows.
    if (Attr.hasAttribute(Attribute::Memory)) {
-@@ -1085,8 +1096,13 @@
+@@ -1085,8 +1096,13 @@ void ModuleBitcodeWriter140::writeTypeTable() {
        // STRUCT: [ispacked, eltty x N]
        TypeVals.push_back(ST->isPacked());
        // Output all of the element types.
@@ -160,7 +170,7 @@
  
        if (ST->isLiteral()) {
          Code = bitc::TYPE_CODE_STRUCT_ANON;
-@@ -1127,9 +1143,11 @@
+@@ -1127,9 +1143,11 @@ void ModuleBitcodeWriter140::writeTypeTable() {
          TypeVals.push_back(true);
        break;
      }
@@ -172,7 +182,7 @@
      case Type::TargetExtTyID:
        llvmdg::reportError("Target extension types are not supported with LLVM 14");
        break;
-@@ -1342,6 +1360,7 @@
+@@ -1342,6 +1360,7 @@ void ModuleBitcodeWriter140::writeModuleInfo() {
    const std::string &DL = M.getDataLayoutStr();
    if (!DL.empty())
      writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
@@ -180,7 +190,7 @@
    // Since LLVM 23 module-level inline asm is a list of fragments with
    // per-fragment target properties. The legacy record is a single string, so
    // concatenate the fragments and drop the properties.
-@@ -1351,6 +1370,11 @@
+@@ -1351,6 +1370,11 @@ void ModuleBitcodeWriter140::writeModuleInfo() {
        Asm += Frag.Asm;
      writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
    }
@@ -192,7 +202,7 @@
  
    // Emit information about sections and GC, computing how many there are. Also
    // compute the maximum alignment value.
-@@ -2275,6 +2299,9 @@
+@@ -2275,6 +2299,9 @@ void ModuleBitcodeWriter140::writeNamedMetadata(
  
    unsigned Abbrev = createNamedMetadataAbbrev();
    for (const NamedMDNode &NMD : M.named_metadata()) {
@@ -202,19 +212,40 @@
      // Write name.
      StringRef Str = NMD.getName();
      Record.append(Str.bytes_begin(), Str.bytes_end());
-@@ -2705,6 +2732,11 @@
-       Code = bitc::CST_CODE_POISON;
-     } else if (isa<UndefValue>(C)) {
-       Code = bitc::CST_CODE_UNDEF;
-+    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
-+      Code = bitc::CST_CODE_AGGREGATE;
-+      auto *VT = cast<FixedVectorType>(C->getType());
-+      Record.append(VT->getNumElements(), VE.getValueID(Splat));
-+      AbbrevToUse = AggregateAbbrev;
+@@ -2710,14 +2737,24 @@ void ModuleBitcodeWriter140::writeConstants(unsigned FirstVal, unsigned LastVal,
+       // can be ConstantInt too). Readers before LLVM 19 only accept scalar
+       // INTEGER/FLOAT records, so spell the splat out as a data array.
+       auto *VTy = dyn_cast<FixedVectorType>(C->getType());
+-      if (!VTy || !ConstantDataSequential::isElementTypeCompatible(
+-                      VTy->getElementType()))
+-        llvmdg::reportError("unsupported vector splat constant");
+-      APInt Elt = isa<ConstantInt>(C)
+-                      ? cast<ConstantInt>(C)->getValue()
+-                      : cast<ConstantFP>(C)->getValueAPF().bitcastToAPInt();
+-      Code = bitc::CST_CODE_DATA;
+-      Record.append(VTy->getNumElements(), Elt.getZExtValue());
++      if (VTy && ConstantDataSequential::isElementTypeCompatible(
++                     VTy->getElementType())) {
++        APInt Elt = isa<ConstantInt>(C)
++                        ? cast<ConstantInt>(C)->getValue()
++                        : cast<ConstantFP>(C)->getValueAPF().bitcastToAPInt();
++        Code = bitc::CST_CODE_DATA;
++        Record.append(VTy->getNumElements(), Elt.getZExtValue());
++      } else {
++        // Keep the upstream compact encoding where possible, but preserve
++        // wide integers and extended floating-point splats through scalar
++        // records. The enumerator reserves these scalar values first.
++        const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C);
++        if (!Splat || !VTy)
++          llvmdg::reportError("unsupported vector splat constant");
++        Code = bitc::CST_CODE_AGGREGATE;
++        Record.append(VTy->getNumElements(), VE.getValueID(Splat));
++        AbbrevToUse = AggregateAbbrev;
++      }
      } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
        if (IV->getBitWidth() <= 64) {
          uint64_t V = IV->getSExtValue();
-@@ -2901,7 +2933,8 @@
+@@ -2914,7 +2951,8 @@ void ModuleBitcodeWriter140::writeConstants(unsigned FirstVal, unsigned LastVal,
        Record.push_back(VE.getValueID(NC->getGlobalValue()));
      } else {
  #ifndef NDEBUG
@@ -224,7 +255,7 @@
  #endif
        llvm_unreachable("Unknown constant!");
      }
-@@ -3110,6 +3143,7 @@
+@@ -3123,6 +3161,7 @@ void ModuleBitcodeWriter140::writeInstruction(const Instruction &I,
        }
      }
      break;
@@ -232,7 +263,7 @@
    case Instruction::UncondBr:
      {
        Code = bitc::FUNC_CODE_INST_BR;
-@@ -3126,6 +3160,19 @@
+@@ -3139,6 +3178,19 @@ void ModuleBitcodeWriter140::writeInstruction(const Instruction &I,
        pushValue(II.getCondition(), InstID, Vals);
      }
      break;
@@ -252,7 +283,7 @@
    case Instruction::Switch:
      {
        Code = bitc::FUNC_CODE_INST_SWITCH;
-@@ -4559,8 +4606,12 @@
+@@ -4572,8 +4624,12 @@ void IndexBitcodeWriter140::writeCombinedGlobalValueSummary() {
    }
  
    if (!Index.cfiFunctionDefs().empty()) {
@@ -265,7 +296,7 @@
        if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
                GlobalValue::dropLLVMManglingEscape(S)))) {
          NameVals.push_back(StrtabBuilder.add(S));
-@@ -4574,8 +4625,12 @@
+@@ -4587,8 +4643,12 @@ void IndexBitcodeWriter140::writeCombinedGlobalValueSummary() {
    }
  
    if (!Index.cfiFunctionDecls().empty()) {
@@ -278,128 +309,8 @@
        if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
                GlobalValue::dropLLVMManglingEscape(S)))) {
          NameVals.push_back(StrtabBuilder.add(S));
---- a/src/BitcodeWriter150.cpp
-+++ b/src/BitcodeWriter150.cpp
-@@ -11,6 +11,9 @@
- //===----------------------------------------------------------------------===//
- 
- #include "DowngradeError.h"
-+#include "LegacyAttributes.h"
-+#include "LegacyConstants.h"
-+#include "llvm/Config/llvm-config.h"
- #include "llvm/Bitcode/BitcodeWriter.h"
- #include "ValueEnumerator150.h"
- #include "llvm/ADT/APFloat.h"
-@@ -808,6 +811,11 @@
-       Record->append(Vals);
-   };
- 
-+#if LLVM_VERSION_MAJOR >= 23
-+  if (Attr.hasAttribute(Attribute::DenormalFPEnv))
-+    return llvmdg::encodeLegacyDenormalFPEnv(Attr.getDenormalFPEnv(), Record);
-+#endif
-+
-   // LLVM 15 has no memory(...) attribute; decompose the MemoryEffects into
-   // the legacy standalone enum attributes the LLVM 15 reader knows.
-   if (Attr.hasAttribute(Attribute::Memory)) {
-@@ -1111,9 +1119,11 @@
-         TypeVals.push_back(true);
-       break;
-     }
-+#if LLVM_VERSION_MAJOR >= 23
-     case Type::ByteTyID:
-       llvmdg::reportError("Byte types are not supported with LLVM 15");
-       break;
-+#endif
-     case Type::TargetExtTyID:
-       llvmdg::reportError("Target extension types are not supported with LLVM 15");
-       break;
-@@ -1334,6 +1344,7 @@
-   const std::string &DL = M.getDataLayoutStr();
-   if (!DL.empty())
-     writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
-+#if LLVM_VERSION_MAJOR >= 23
-   // Since LLVM 23 module-level inline asm is a list of fragments with
-   // per-fragment target properties. The legacy record is a single string, so
-   // concatenate the fragments and drop the properties.
-@@ -1343,6 +1354,11 @@
-       Asm += Frag.Asm;
-     writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
-   }
-+#else
-+  if (!M.getModuleInlineAsm().empty())
-+    writeStringRecord(Stream, bitc::MODULE_CODE_ASM, M.getModuleInlineAsm(),
-+                      0 /*TODO*/);
-+#endif
- 
-   // Emit information about sections and GC, computing how many there are. Also
-   // compute the maximum alignment value.
-@@ -2683,6 +2699,11 @@
-       Code = bitc::CST_CODE_POISON;
-     } else if (isa<UndefValue>(C)) {
-       Code = bitc::CST_CODE_UNDEF;
-+    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
-+      Code = bitc::CST_CODE_AGGREGATE;
-+      auto *VT = cast<FixedVectorType>(C->getType());
-+      Record.append(VT->getNumElements(), VE.getValueID(Splat));
-+      AbbrevToUse = AggregateAbbrev;
-     } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
-       if (IV->getBitWidth() <= 64) {
-         uint64_t V = IV->getSExtValue();
-@@ -3052,6 +3073,7 @@
-       }
-     }
-     break;
-+#if LLVM_VERSION_MAJOR >= 23
-   case Instruction::UncondBr:
-     {
-       Code = bitc::FUNC_CODE_INST_BR;
-@@ -3068,6 +3090,19 @@
-       pushValue(II.getCondition(), InstID, Vals);
-     }
-     break;
-+#else
-+  case Instruction::Br:
-+    {
-+      Code = bitc::FUNC_CODE_INST_BR;
-+      const BranchInst &II = cast<BranchInst>(I);
-+      Vals.push_back(VE.getValueID(II.getSuccessor(0)));
-+      if (II.isConditional()) {
-+        Vals.push_back(VE.getValueID(II.getSuccessor(1)));
-+        pushValue(II.getCondition(), InstID, Vals);
-+      }
-+    }
-+    break;
-+#endif
-   case Instruction::Switch:
-     {
-       Code = bitc::FUNC_CODE_INST_SWITCH;
-@@ -4527,8 +4562,12 @@
-   }
- 
-   if (!Index.cfiFunctionDefs().empty()) {
-+#if LLVM_VERSION_MAJOR >= 23
-     for (const auto &Sym : Index.cfiFunctionDefs().getSortedSymbols()) {
-       StringRef S = Sym.first;
-+#else
-+    for (StringRef S : Index.cfiFunctionDefs().symbols()) {
-+#endif
-       if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
-               GlobalValue::dropLLVMManglingEscape(S)))) {
-         NameVals.push_back(StrtabBuilder.add(S));
-@@ -4542,8 +4581,12 @@
-   }
- 
-   if (!Index.cfiFunctionDecls().empty()) {
-+#if LLVM_VERSION_MAJOR >= 23
-     for (const auto &Sym : Index.cfiFunctionDecls().getSortedSymbols()) {
-       StringRef S = Sym.first;
-+#else
-+    for (StringRef S : Index.cfiFunctionDecls().symbols()) {
-+#endif
-       if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
-               GlobalValue::dropLLVMManglingEscape(S)))) {
-         NameVals.push_back(StrtabBuilder.add(S));
+diff --git a/src/BitcodeWriter180.cpp b/src/BitcodeWriter180.cpp
+index ab28ad2..df68242 100644
 --- a/src/BitcodeWriter180.cpp
 +++ b/src/BitcodeWriter180.cpp
 @@ -11,6 +11,9 @@
@@ -412,7 +323,7 @@
  #include "llvm/Bitcode/BitcodeWriter.h"
  #include "ValueEnumerator180.h"
  #include "llvm/ADT/APFloat.h"
-@@ -870,6 +873,11 @@
+@@ -886,6 +889,11 @@ unsigned encodeAttribute180(const Attribute &Attr,
        Record->append(Vals);
    };
  
@@ -424,7 +335,7 @@
    // LLVM 18 has no captures(...) attribute; it only knows the legacy
    // standalone "nocapture" enum attribute. Emit it when the pointer is
    // not captured at all; otherwise drop the (conservative) hint.
-@@ -1136,9 +1144,11 @@
+@@ -1158,9 +1166,11 @@ void ModuleBitcodeWriter180::writeTypeTable() {
          TypeVals.push_back(true);
        break;
      }
@@ -436,7 +347,7 @@
      case Type::TargetExtTyID: {
        TargetExtType *TET = cast<TargetExtType>(T);
        Code = bitc::TYPE_CODE_TARGET_TYPE;
-@@ -1379,6 +1389,7 @@
+@@ -1401,6 +1411,7 @@ void ModuleBitcodeWriter180::writeModuleInfo() {
    const std::string &DL = M.getDataLayoutStr();
    if (!DL.empty())
      writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
@@ -444,7 +355,7 @@
    // Since LLVM 23 module-level inline asm is a list of fragments with
    // per-fragment target properties. The legacy record is a single string, so
    // concatenate the fragments and drop the properties.
-@@ -1388,6 +1399,11 @@
+@@ -1410,6 +1421,11 @@ void ModuleBitcodeWriter180::writeModuleInfo() {
        Asm += Frag.Asm;
      writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
    }
@@ -456,19 +367,40 @@
  
    // Emit information about sections and GC, computing how many there are. Also
    // compute the maximum alignment value.
-@@ -2738,6 +2754,11 @@
-       Code = bitc::CST_CODE_POISON;
-     } else if (isa<UndefValue>(C)) {
-       Code = bitc::CST_CODE_UNDEF;
-+    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
-+      Code = bitc::CST_CODE_AGGREGATE;
-+      auto *VT = cast<FixedVectorType>(C->getType());
-+      Record.append(VT->getNumElements(), VE.getValueID(Splat));
-+      AbbrevToUse = AggregateAbbrev;
+@@ -2729,14 +2745,24 @@ void ModuleBitcodeWriter180::writeConstants(unsigned FirstVal, unsigned LastVal,
+       // can be ConstantInt too). Readers before LLVM 19 only accept scalar
+       // INTEGER/FLOAT records, so spell the splat out as a data array.
+       auto *VTy = dyn_cast<FixedVectorType>(C->getType());
+-      if (!VTy || !ConstantDataSequential::isElementTypeCompatible(
+-                      VTy->getElementType()))
+-        llvmdg::reportError("unsupported vector splat constant");
+-      APInt Elt = isa<ConstantInt>(C)
+-                      ? cast<ConstantInt>(C)->getValue()
+-                      : cast<ConstantFP>(C)->getValueAPF().bitcastToAPInt();
+-      Code = bitc::CST_CODE_DATA;
+-      Record.append(VTy->getNumElements(), Elt.getZExtValue());
++      if (VTy && ConstantDataSequential::isElementTypeCompatible(
++                     VTy->getElementType())) {
++        APInt Elt = isa<ConstantInt>(C)
++                        ? cast<ConstantInt>(C)->getValue()
++                        : cast<ConstantFP>(C)->getValueAPF().bitcastToAPInt();
++        Code = bitc::CST_CODE_DATA;
++        Record.append(VTy->getNumElements(), Elt.getZExtValue());
++      } else {
++        // Keep the upstream compact encoding where possible, but preserve
++        // wide integers and extended floating-point splats through scalar
++        // records. The enumerator reserves these scalar values first.
++        const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C);
++        if (!Splat || !VTy)
++          llvmdg::reportError("unsupported vector splat constant");
++        Code = bitc::CST_CODE_AGGREGATE;
++        Record.append(VTy->getNumElements(), VE.getValueID(Splat));
++        AbbrevToUse = AggregateAbbrev;
++      }
      } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
        if (IV->getBitWidth() <= 64) {
          uint64_t V = IV->getSExtValue();
-@@ -3107,6 +3128,7 @@
+@@ -3106,6 +3132,7 @@ void ModuleBitcodeWriter180::writeInstruction(const Instruction &I,
        }
      }
      break;
@@ -476,7 +408,7 @@
    case Instruction::UncondBr:
      {
        Code = bitc::FUNC_CODE_INST_BR;
-@@ -3123,6 +3145,19 @@
+@@ -3122,6 +3149,19 @@ void ModuleBitcodeWriter180::writeInstruction(const Instruction &I,
        pushValue(II.getCondition(), InstID, Vals);
      }
      break;
@@ -496,7 +428,7 @@
    case Instruction::Switch:
      {
        Code = bitc::FUNC_CODE_INST_SWITCH;
-@@ -4685,8 +4720,12 @@
+@@ -4684,8 +4724,12 @@ void IndexBitcodeWriter180::writeCombinedGlobalValueSummary() {
    }
  
    if (!Index.cfiFunctionDefs().empty()) {
@@ -509,7 +441,7 @@
        if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
                GlobalValue::dropLLVMManglingEscape(S)))) {
          NameVals.push_back(StrtabBuilder.add(S));
-@@ -4700,8 +4739,12 @@
+@@ -4699,8 +4743,12 @@ void IndexBitcodeWriter180::writeCombinedGlobalValueSummary() {
    }
  
    if (!Index.cfiFunctionDecls().empty()) {
@@ -522,6 +454,8 @@
        if (DefOrUseGUIDs.count(GlobalValue::getGUIDAssumingExternalLinkage(
                GlobalValue::dropLLVMManglingEscape(S)))) {
          NameVals.push_back(StrtabBuilder.add(S));
+diff --git a/src/BitcodeWriter50.cpp b/src/BitcodeWriter50.cpp
+index 64d6910..c473df0 100644
 --- a/src/BitcodeWriter50.cpp
 +++ b/src/BitcodeWriter50.cpp
 @@ -12,6 +12,9 @@
@@ -534,7 +468,7 @@
  #include "llvm/Bitcode/BitcodeWriter.h"
  #include "ValueEnumerator50.h"
  #include "PointerRewriter.h"
-@@ -708,6 +711,11 @@
+@@ -708,6 +711,11 @@ unsigned encodeAttribute50(const Attribute &Attr,
        Record->append(Vals);
    };
  
@@ -546,7 +480,7 @@
    // The memory(...) attribute postdates 5.0; decompose the MemoryEffects into
    // the legacy standalone enum attributes the 5.0 reader (and verifier) knows.
    if (Attr.hasAttribute(Attribute::Memory)) {
-@@ -1025,9 +1033,11 @@
+@@ -1025,9 +1033,11 @@ void ModuleBitcodeWriter50::writeTypeTable() {
      case Type::X86_AMXTyID:
        llvmdg::reportError("AMX types are not supported with LLVM 5.0");
        break;
@@ -558,7 +492,7 @@
      case Type::TargetExtTyID:
        llvmdg::reportError("Target extension types are not supported with LLVM 5.0");
        break;
-@@ -1213,6 +1223,7 @@
+@@ -1213,6 +1223,7 @@ void ModuleBitcodeWriter50::writeModuleInfo() {
    const std::string &DL = M.getDataLayoutStr();
    if (!DL.empty())
      writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
@@ -566,7 +500,7 @@
    // Since LLVM 23 module-level inline asm is a list of fragments with
    // per-fragment target properties. The legacy record is a single string, so
    // concatenate the fragments and drop the properties.
-@@ -1222,6 +1233,11 @@
+@@ -1222,6 +1233,11 @@ void ModuleBitcodeWriter50::writeModuleInfo() {
        Asm += Frag.Asm;
      writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
    }
@@ -578,19 +512,40 @@
  
    // Emit information about sections and GC, computing how many there are. Also
    // compute the maximum alignment value.
-@@ -2449,6 +2465,11 @@
-       Code = bitc::CST_CODE_NULL;
-     } else if (isa<UndefValue>(C)) {
-       Code = bitc::CST_CODE_UNDEF;
-+    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
-+      Code = bitc::CST_CODE_AGGREGATE;
-+      auto *VT = cast<FixedVectorType>(C->getType());
-+      Record.append(VT->getNumElements(), VE.getValueID(Splat));
-+      AbbrevToUse = AggregateAbbrev;
+@@ -2454,14 +2470,24 @@ void ModuleBitcodeWriter50::writeConstants(unsigned FirstVal, unsigned LastVal,
+       // can be ConstantInt too). Readers before LLVM 19 only accept scalar
+       // INTEGER/FLOAT records, so spell the splat out as a data array.
+       auto *VTy = dyn_cast<FixedVectorType>(C->getType());
+-      if (!VTy || !ConstantDataSequential::isElementTypeCompatible(
+-                      VTy->getElementType()))
+-        llvmdg::reportError("unsupported vector splat constant");
+-      APInt Elt = isa<ConstantInt>(C)
+-                      ? cast<ConstantInt>(C)->getValue()
+-                      : cast<ConstantFP>(C)->getValueAPF().bitcastToAPInt();
+-      Code = bitc::CST_CODE_DATA;
+-      Record.append(VTy->getNumElements(), Elt.getZExtValue());
++      if (VTy && ConstantDataSequential::isElementTypeCompatible(
++                     VTy->getElementType())) {
++        APInt Elt = isa<ConstantInt>(C)
++                        ? cast<ConstantInt>(C)->getValue()
++                        : cast<ConstantFP>(C)->getValueAPF().bitcastToAPInt();
++        Code = bitc::CST_CODE_DATA;
++        Record.append(VTy->getNumElements(), Elt.getZExtValue());
++      } else {
++        // Keep the upstream compact encoding where possible, but preserve
++        // wide integers and extended floating-point splats through scalar
++        // records. The enumerator reserves these scalar values first.
++        const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C);
++        if (!Splat || !VTy)
++          llvmdg::reportError("unsupported vector splat constant");
++        Code = bitc::CST_CODE_AGGREGATE;
++        Record.append(VTy->getNumElements(), VE.getValueID(Splat));
++        AbbrevToUse = AggregateAbbrev;
++      }
      } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
        if (IV->getBitWidth() <= 64) {
          uint64_t V = IV->getSExtValue();
-@@ -2634,7 +2655,8 @@
+@@ -2647,7 +2673,8 @@ void ModuleBitcodeWriter50::writeConstants(unsigned FirstVal, unsigned LastVal,
        Record.push_back(VE.getGlobalBasicBlockID(BA->getBasicBlock()));
      } else {
  #ifndef NDEBUG
@@ -600,7 +555,7 @@
  #endif
        llvm_unreachable("Unknown constant!");
      }
-@@ -2828,6 +2850,7 @@
+@@ -2841,6 +2868,7 @@ void ModuleBitcodeWriter50::writeInstruction(const Instruction &I,
        }
      }
      break;
@@ -608,7 +563,7 @@
    case Instruction::UncondBr:
      {
        Code = bitc::FUNC_CODE_INST_BR;
-@@ -2844,6 +2867,19 @@
+@@ -2857,6 +2885,19 @@ void ModuleBitcodeWriter50::writeInstruction(const Instruction &I,
        pushValue(II.getCondition(), InstID, Vals);
      }
      break;
@@ -628,7 +583,7 @@
    case Instruction::Switch:
      {
        Code = bitc::FUNC_CODE_INST_SWITCH;
-@@ -3983,8 +4019,12 @@
+@@ -3996,8 +4037,12 @@ void IndexBitcodeWriter50::writeCombinedGlobalValueSummary() {
    }
  
    if (!Index.cfiFunctionDefs().empty()) {
@@ -641,7 +596,7 @@
        NameVals.push_back(StrtabBuilder.add(S));
        NameVals.push_back(S.size());
      }
-@@ -3993,8 +4033,12 @@
+@@ -4006,8 +4051,12 @@ void IndexBitcodeWriter50::writeCombinedGlobalValueSummary() {
    }
  
    if (!Index.cfiFunctionDecls().empty()) {
@@ -654,6 +609,8 @@
        NameVals.push_back(StrtabBuilder.add(S));
        NameVals.push_back(S.size());
      }
+diff --git a/src/BitcodeWriter70.cpp b/src/BitcodeWriter70.cpp
+index 4590206..632c6c5 100644
 --- a/src/BitcodeWriter70.cpp
 +++ b/src/BitcodeWriter70.cpp
 @@ -12,6 +12,9 @@
@@ -666,7 +623,7 @@
  #include "llvm/Bitcode/BitcodeWriter.h"
  #include "ValueEnumerator70.h"
  #include "PointerRewriter.h"
-@@ -735,6 +738,11 @@
+@@ -735,6 +738,11 @@ unsigned encodeAttribute70(const Attribute &Attr,
        Record->append(Vals);
    };
  
@@ -678,7 +635,7 @@
    // The memory(...) attribute postdates 7.0; decompose the MemoryEffects into
    // the legacy standalone enum attributes the 7.0 reader (and verifier) knows.
    if (Attr.hasAttribute(Attribute::Memory)) {
-@@ -1047,9 +1055,11 @@
+@@ -1047,9 +1055,11 @@ void ModuleBitcodeWriter70::writeTypeTable() {
      case Type::X86_AMXTyID:
        llvmdg::reportError("AMX types are not supported with LLVM 7.0");
        break;
@@ -690,7 +647,7 @@
      case Type::TargetExtTyID:
        llvmdg::reportError("Target extension types are not supported with LLVM 7.0");
        break;
-@@ -1247,6 +1257,7 @@
+@@ -1247,6 +1257,7 @@ void ModuleBitcodeWriter70::writeModuleInfo() {
    const std::string &DL = M.getDataLayoutStr();
    if (!DL.empty())
      writeStringRecord(Stream, bitc::MODULE_CODE_DATALAYOUT, DL, 0 /*TODO*/);
@@ -698,7 +655,7 @@
    // Since LLVM 23 module-level inline asm is a list of fragments with
    // per-fragment target properties. The legacy record is a single string, so
    // concatenate the fragments and drop the properties.
-@@ -1256,6 +1267,11 @@
+@@ -1256,6 +1267,11 @@ void ModuleBitcodeWriter70::writeModuleInfo() {
        Asm += Frag.Asm;
      writeStringRecord(Stream, bitc::MODULE_CODE_ASM, Asm, 0 /*TODO*/);
    }
@@ -710,19 +667,40 @@
  
    // Emit information about sections and GC, computing how many there are. Also
    // compute the maximum alignment value.
-@@ -2501,6 +2517,11 @@
-       Code = bitc::CST_CODE_NULL;
-     } else if (isa<UndefValue>(C)) {
-       Code = bitc::CST_CODE_UNDEF;
-+    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
-+      Code = bitc::CST_CODE_AGGREGATE;
-+      auto *VT = cast<FixedVectorType>(C->getType());
-+      Record.append(VT->getNumElements(), VE.getValueID(Splat));
-+      AbbrevToUse = AggregateAbbrev;
+@@ -2506,14 +2522,24 @@ void ModuleBitcodeWriter70::writeConstants(unsigned FirstVal, unsigned LastVal,
+       // can be ConstantInt too). Readers before LLVM 19 only accept scalar
+       // INTEGER/FLOAT records, so spell the splat out as a data array.
+       auto *VTy = dyn_cast<FixedVectorType>(C->getType());
+-      if (!VTy || !ConstantDataSequential::isElementTypeCompatible(
+-                      VTy->getElementType()))
+-        llvmdg::reportError("unsupported vector splat constant");
+-      APInt Elt = isa<ConstantInt>(C)
+-                      ? cast<ConstantInt>(C)->getValue()
+-                      : cast<ConstantFP>(C)->getValueAPF().bitcastToAPInt();
+-      Code = bitc::CST_CODE_DATA;
+-      Record.append(VTy->getNumElements(), Elt.getZExtValue());
++      if (VTy && ConstantDataSequential::isElementTypeCompatible(
++                     VTy->getElementType())) {
++        APInt Elt = isa<ConstantInt>(C)
++                        ? cast<ConstantInt>(C)->getValue()
++                        : cast<ConstantFP>(C)->getValueAPF().bitcastToAPInt();
++        Code = bitc::CST_CODE_DATA;
++        Record.append(VTy->getNumElements(), Elt.getZExtValue());
++      } else {
++        // Keep the upstream compact encoding where possible, but preserve
++        // wide integers and extended floating-point splats through scalar
++        // records. The enumerator reserves these scalar values first.
++        const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C);
++        if (!Splat || !VTy)
++          llvmdg::reportError("unsupported vector splat constant");
++        Code = bitc::CST_CODE_AGGREGATE;
++        Record.append(VTy->getNumElements(), VE.getValueID(Splat));
++        AbbrevToUse = AggregateAbbrev;
++      }
      } else if (const ConstantInt *IV = dyn_cast<ConstantInt>(C)) {
        if (IV->getBitWidth() <= 64) {
          uint64_t V = IV->getSExtValue();
-@@ -2686,7 +2707,8 @@
+@@ -2699,7 +2725,8 @@ void ModuleBitcodeWriter70::writeConstants(unsigned FirstVal, unsigned LastVal,
        Record.push_back(VE.getGlobalBasicBlockID(BA->getBasicBlock()));
      } else {
  #ifndef NDEBUG
@@ -732,7 +710,7 @@
  #endif
        llvm_unreachable("Unknown constant!");
      }
-@@ -2881,6 +2903,7 @@
+@@ -2894,6 +2921,7 @@ void ModuleBitcodeWriter70::writeInstruction(const Instruction &I,
        }
      }
      break;
@@ -740,7 +718,7 @@
    case Instruction::UncondBr:
      {
        Code = bitc::FUNC_CODE_INST_BR;
-@@ -2897,6 +2920,19 @@
+@@ -2910,6 +2938,19 @@ void ModuleBitcodeWriter70::writeInstruction(const Instruction &I,
        pushValue(II.getCondition(), InstID, Vals);
      }
      break;
@@ -760,7 +738,7 @@
    case Instruction::Switch:
      {
        Code = bitc::FUNC_CODE_INST_SWITCH;
-@@ -4132,8 +4168,12 @@
+@@ -4145,8 +4186,12 @@ void IndexBitcodeWriter70::writeCombinedGlobalValueSummary() {
    }
  
    if (!Index.cfiFunctionDefs().empty()) {
@@ -773,7 +751,7 @@
        NameVals.push_back(StrtabBuilder.add(S));
        NameVals.push_back(S.size());
      }
-@@ -4142,8 +4182,12 @@
+@@ -4155,8 +4200,12 @@ void IndexBitcodeWriter70::writeCombinedGlobalValueSummary() {
    }
  
    if (!Index.cfiFunctionDecls().empty()) {
@@ -786,9 +764,11 @@
        NameVals.push_back(StrtabBuilder.add(S));
        NameVals.push_back(S.size());
      }
+diff --git a/src/PointerRewriter.cpp b/src/PointerRewriter.cpp
+index 53b931d..dc5a51a 100644
 --- a/src/PointerRewriter.cpp
 +++ b/src/PointerRewriter.cpp
-@@ -299,10 +299,13 @@
+@@ -299,10 +299,13 @@ static FunctionType *getTypedFunctionType(const Function *F) {
      }
    }
  
@@ -804,7 +784,7 @@
    if (MDNode *MD = F->getMetadata("arg_eltypes")) {
      for (unsigned i = 0; i < MD->getNumOperands(); i += 2) {
        auto IdxConstant = cast<ConstantAsMetadata>(MD->getOperand(i))->getValue();
-@@ -311,9 +314,8 @@
+@@ -311,9 +314,8 @@ static FunctionType *getTypedFunctionType(const Function *F) {
            cast<ValueAsMetadata>(MD->getOperand(i + 1))->getValue()->getType();
  
        auto OpaquePtrTy = cast<PointerType>(Args[Idx]);
@@ -815,7 +795,7 @@
        Changed = true;
      }
    }
-@@ -341,9 +343,15 @@
+@@ -341,9 +343,15 @@ static FunctionType *getTypedFunctionType(const Function *F) {
      Changed = true;
    }
  
@@ -834,7 +814,7 @@
  }
  
  static bool isNoopCast(const Value *V) {
-@@ -528,6 +536,7 @@
+@@ -528,6 +536,7 @@ bool bitcastInstructionOperands(Module &M) {
  // bitcast operands to calls, whose type can be altered by metadata attached to
  // the function
  bool bitcastFunctionOperands(Module &M) {
@@ -842,7 +822,7 @@
    for (Function &F : M) {
      auto *FTy = F.getFunctionType();
      auto *NewFTy = getTypedFunctionType(&F);
-@@ -544,18 +553,22 @@
+@@ -544,18 +553,22 @@ bool bitcastFunctionOperands(Module &M) {
              continue;
  
            prependBitcast(M, CI, Idx);
@@ -869,7 +849,7 @@
  }
  
  // The value type a global value is emitted with (the pointee of its typed
-@@ -726,6 +739,15 @@
+@@ -726,6 +739,15 @@ PointerTypeMap PointerRewriter::buildPointerMap(const Module &M) {
          }
        }
      }
@@ -885,7 +865,7 @@
    }
  
    return PointerMap;
-@@ -980,6 +1002,46 @@
+@@ -1002,6 +1024,46 @@ static bool bitcastBlockAddresses(Module &M) {
    return !BAs.empty();
  }
  
@@ -932,9 +912,11 @@
  bool PointerRewriter::run() {
    bool Changed = demotePointerConstants(M);
  
+diff --git a/src/PointerRewriter.h b/src/PointerRewriter.h
+index c053222..50b0fbf 100644
 --- a/src/PointerRewriter.h
 +++ b/src/PointerRewriter.h
-@@ -22,9 +22,12 @@
+@@ -22,9 +22,12 @@ namespace llvm {
  class Constant;
  class Value;
  class Module;
@@ -947,7 +929,7 @@
  
  class PointerRewriter {
  public:
-@@ -33,6 +36,7 @@
+@@ -33,6 +36,7 @@ public:
    bool run();
  
    static PointerTypeMap buildPointerMap(const Module &M);
@@ -955,6 +937,8 @@
    static bool requiresPointerRewriting(const Constant *C);
  
    // Lower intrinsics to their legacy form: drop lifetime markers (whose
+diff --git a/src/ValueEnumerator140.cpp b/src/ValueEnumerator140.cpp
+index 746330a..6500b9d 100644
 --- a/src/ValueEnumerator140.cpp
 +++ b/src/ValueEnumerator140.cpp
 @@ -11,6 +11,7 @@
@@ -973,7 +957,7 @@
  #include "llvm/IR/Use.h"
  #include "llvm/IR/User.h"
  #include "llvm/IR/Value.h"
-@@ -367,9 +369,11 @@
+@@ -367,9 +369,11 @@ static bool isIntOrIntVectorValue(const std::pair<const Value*, unsigned> &V) {
    return V.first->getType()->isIntOrIntVectorTy();
  }
  
@@ -988,7 +972,7 @@
    if (ShouldPreserveUseListOrder)
      UseListOrders = predictUseListOrder(M);
  
-@@ -977,6 +981,14 @@
+@@ -977,6 +981,14 @@ void ValueEnumerator140::EnumerateValue(const Value *V) {
    if (const Constant *C = dyn_cast<Constant>(V)) {
      if (isa<GlobalValue>(C)) {
        // Initializers for globals are handled explicitly elsewhere.
@@ -1003,7 +987,7 @@
      } else if (C->getNumOperands()) {
        // If a constant has operands, enumerate them.  This makes sure that if a
        // constant has uses (for example an array of const ints), that they are
-@@ -1022,10 +1034,22 @@
+@@ -1022,10 +1034,22 @@ void ValueEnumerator140::EnumerateType(Type *Ty) {
      if (!STy->isLiteral())
        *TypeID = ~0U;
  
@@ -1029,6 +1013,8 @@
  
    // Refresh the TypeID pointer in case the table rehashed.
    TypeID = &TypeMap[Ty];
+diff --git a/src/ValueEnumerator140.h b/src/ValueEnumerator140.h
+index de6f81c..8b26b3e 100644
 --- a/src/ValueEnumerator140.h
 +++ b/src/ValueEnumerator140.h
 @@ -13,6 +13,7 @@
@@ -1039,7 +1025,7 @@
  #include "llvm/ADT/ArrayRef.h"
  #include "llvm/ADT/DenseMap.h"
  #include "llvm/ADT/UniqueVector.h"
-@@ -115,6 +116,7 @@
+@@ -115,6 +116,7 @@ private:
    SmallDenseMap<unsigned, MDRange, 1> FunctionMDInfo;
  
    bool ShouldPreserveUseListOrder;
@@ -1047,7 +1033,7 @@
  
    using AttributeGroupMapType = DenseMap<IndexAndAttrSet, unsigned>;
    AttributeGroupMapType AttributeGroupMap;
-@@ -149,7 +151,8 @@
+@@ -149,7 +151,8 @@ private:
    unsigned FirstInstID;
  
  public:
@@ -1057,31 +1043,8 @@
    ValueEnumerator140(const ValueEnumerator140 &) = delete;
    ValueEnumerator140 &operator=(const ValueEnumerator140 &) = delete;
  
---- a/src/ValueEnumerator150.cpp
-+++ b/src/ValueEnumerator150.cpp
-@@ -11,6 +11,7 @@
- //===----------------------------------------------------------------------===//
- 
- #include "ValueEnumerator150.h"
-+#include "LegacyConstants.h"
- #include "llvm/ADT/SmallVector.h"
- #include "llvm/Config/llvm-config.h"
- #include "llvm/IR/Argument.h"
-@@ -891,6 +892,14 @@
-   if (const Constant *C = dyn_cast<Constant>(V)) {
-     if (isa<GlobalValue>(C)) {
-       // Initializers for globals are handled explicitly elsewhere.
-+    } else if (const Constant *Splat = llvmdg::getLegacyVectorSplatElement(C)) {
-+      // Numeric splats have no IR operands in LLVM 23, but the legacy
-+      // aggregate record needs the scalar's value ID before the vector.
-+      EnumerateValue(Splat);
-+      Values.push_back(std::make_pair(V, 1U));
-+      // Enumeration may rehash ValueMap; do not reuse the ValueID reference.
-+      ValueMap[V] = Values.size();
-+      return;
-     } else if (C->getNumOperands()) {
-       // If a constant has operands, enumerate them.  This makes sure that if a
-       // constant has uses (for example an array of const ints), that they are
+diff --git a/src/ValueEnumerator180.cpp b/src/ValueEnumerator180.cpp
+index b1822e2..0dc5058 100644
 --- a/src/ValueEnumerator180.cpp
 +++ b/src/ValueEnumerator180.cpp
 @@ -11,6 +11,7 @@
@@ -1092,7 +1055,7 @@
  #include "llvm/ADT/SmallVector.h"
  #include "llvm/Config/llvm-config.h"
  #include "llvm/IR/Argument.h"
-@@ -891,6 +892,14 @@
+@@ -891,6 +892,14 @@ void ValueEnumerator180::EnumerateValue(const Value *V) {
    if (const Constant *C = dyn_cast<Constant>(V)) {
      if (isa<GlobalValue>(C)) {
        // Initializers for globals are handled explicitly elsewhere.
@@ -1107,6 +1070,8 @@
      } else if (C->getNumOperands()) {
        // If a constant has operands, enumerate them.  This makes sure that if a
        // constant has uses (for example an array of const ints), that they are
+diff --git a/src/ValueEnumerator50.cpp b/src/ValueEnumerator50.cpp
+index faf5cd8..39197c7 100644
 --- a/src/ValueEnumerator50.cpp
 +++ b/src/ValueEnumerator50.cpp
 @@ -12,6 +12,7 @@
@@ -1117,7 +1082,7 @@
  #include "llvm/ADT/SmallPtrSet.h"
  #include "llvm/ADT/SmallVector.h"
  #include "llvm/Config/llvm-config.h"
-@@ -883,6 +884,14 @@
+@@ -883,6 +884,14 @@ void ValueEnumerator50::EnumerateValue(const Value *V) {
    if (const Constant *C = dyn_cast<Constant>(V)) {
      if (isa<GlobalValue>(C)) {
        // Initializers for globals are handled explicitly elsewhere.
@@ -1132,6 +1097,8 @@
      } else if (C->getNumOperands()) {
        // If a constant has operands, enumerate them.  This makes sure that if a
        // constant has uses (for example an array of const ints), that they are
+diff --git a/src/ValueEnumerator70.cpp b/src/ValueEnumerator70.cpp
+index 5fec1c4..ffd6b42 100644
 --- a/src/ValueEnumerator70.cpp
 +++ b/src/ValueEnumerator70.cpp
 @@ -12,6 +12,7 @@
@@ -1142,7 +1109,7 @@
  #include "llvm/ADT/STLExtras.h"
  #include "llvm/ADT/SmallPtrSet.h"
  #include "llvm/IR/Constants.h"
-@@ -857,6 +858,14 @@
+@@ -857,6 +858,14 @@ void ValueEnumerator70::EnumerateValue(const Value *V) {
    if (const Constant *C = dyn_cast<Constant>(V)) {
      if (isa<GlobalValue>(C)) {
        // Initializers for globals are handled explicitly elsewhere.
@@ -1157,17 +1124,23 @@
      } else if (C->getNumOperands()) {
        // If a constant has operands, enumerate them.  This makes sure that if a
        // constant has uses (for example an array of const ints), that they are
+diff --git a/test/tests/denormal_fpenv.ll b/test/tests/denormal_fpenv.ll
+new file mode 100644
+index 0000000..a5889fa
 --- /dev/null
 +++ b/test/tests/denormal_fpenv.ll
 @@ -0,0 +1,8 @@
 +; MIN-LLVM: 23
-+; VERSIONS: 5.0 7.0 14.0 15.0 18.0
++; VERSIONS: 5.0 7.0 14.0 18.0
 +; Modern denormal controls must not disappear as unknown enum attributes.
 +; Asymmetric modes also check output/input ordering and the f32 override.
 +define float @keep_modes(float %x) denormal_fpenv(ieee|positivezero, float: preservesign|ieee) {
 +  ret float %x
 +}
 +; CHECK: attributes #0 = { "denormal-fp-math"="ieee,positive-zero" "denormal-fp-math-f32"="preserve-sign,ieee" }
+diff --git a/test/tests/ret_eltype.ll b/test/tests/ret_eltype.ll
+new file mode 100644
+index 0000000..45a6d49
 --- /dev/null
 +++ b/test/tests/ret_eltype.ll
 @@ -0,0 +1,23 @@
@@ -1194,6 +1167,9 @@
 +; CHECK: declare{{.*}}void @consume_resource(%resource addrspace(2)*)
 +; CHECK: call %resource addrspace(2)* @get_resource()
 +; CHECK: call void @consume_resource(%resource addrspace(2)*
+diff --git a/test/tests/struct_eltypes.ll b/test/tests/struct_eltypes.ll
+new file mode 100644
+index 0000000..d6db949
 --- /dev/null
 +++ b/test/tests/struct_eltypes.ll
 @@ -0,0 +1,22 @@
@@ -1219,3 +1195,34 @@
 +; CHECK-DAG: %argument_buffer = type { i32, %resource_wrapper addrspace(2)* }
 +; CHECK: define void @consume_argument_buffer(%argument_buffer addrspace(2)*
 +; CHECK-NOT: !llvm.struct_eltypes
+diff --git a/test/tests/unsupported_vector_splat.ll b/test/tests/unsupported_vector_splat.ll
+index 9918ef5..56709b5 100644
+--- a/test/tests/unsupported_vector_splat.ll
++++ b/test/tests/unsupported_vector_splat.ll
+@@ -1,8 +1,9 @@
+ ; VERSIONS: 5.0 7.0 14.0 18.0
+-; Before LLVM 19, vector splats have to be written as data arrays, which cannot
+-; hold x86_fp80 elements.
+-; XFAIL-AS: unsupported vector splat constant
++; Extended floating-point splats use aggregate/scalar records rather than
++; the compact data-array encoding, which cannot hold x86_fp80 elements.
+ define <2 x x86_fp80> @f(<2 x x86_fp80> %x) {
+   %r = fadd <2 x x86_fp80> %x, splat (x86_fp80 0xK3FFF8000000000000000)
+   ret <2 x x86_fp80> %r
+ }
++
++; CHECK: fadd <2 x x86_fp80> %x,
+diff --git a/test/tests/wide_integer_vector_splat.ll b/test/tests/wide_integer_vector_splat.ll
+new file mode 100644
+index 0000000..c14a368
+--- /dev/null
++++ b/test/tests/wide_integer_vector_splat.ll
+@@ -0,0 +1,8 @@
++; VERSIONS: 5.0 7.0 14.0 18.0
++; Wide integer splats preserve every bit through scalar/aggregate records.
++define <2 x i128> @wide(<2 x i128> %x) {
++  %r = add <2 x i128> %x, splat (i128 18446744073709551617)
++  ret <2 x i128> %r
++}
++; CHECK: add <2 x i128> %x,
++; CHECK-SAME: 18446744073709551617

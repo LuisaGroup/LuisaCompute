@@ -23,7 +23,14 @@
 #include <llvm/Support/MemoryBufferRef.h>
 #include <llvm/Support/raw_ostream.h>
 
+#ifndef LUISA_TEST_LLVM_DOWNGRADE_VERSION
+#define LUISA_TEST_LLVM_DOWNGRADE_VERSION 7
+#endif
+
 namespace {
+
+constexpr int target_version = LUISA_TEST_LLVM_DOWNGRADE_VERSION;
+static_assert(target_version == 7 || target_version == 14);
 
 using Mode = llvm::DenormalMode;
 
@@ -130,7 +137,11 @@ constexpr std::array splat_cases{
     SplatCase{"i16_high", SplatKind::integer, 16u, "8001"},
     SplatCase{"i32_pattern", SplatKind::integer, 32u, "deadbeef"},
     SplatCase{"i64_pattern", SplatKind::integer, 64u, "fedcba9876543210"},
-    SplatCase{"i128_pattern", SplatKind::integer, 128u, "fedcba98765432100123456789abcdef"}};
+    SplatCase{"i128_pattern", SplatKind::integer, 128u, "fedcba98765432100123456789abcdef"},
+    // Non-data-array widths exercise the scalar/aggregate fallback retained
+    // alongside upstream's compact splat encoding.
+    SplatCase{"i65_high", SplatKind::integer, 65u, "10000000000000001"},
+    SplatCase{"i256_pattern", SplatKind::integer, 256u, "fedcba98765432100123456789abcdeffedcba98765432100123456789abcdef"}};
 
 llvm::Type *splat_element_type(llvm::LLVMContext &context, const SplatCase &test) {
     switch (test.kind) {
@@ -275,15 +286,19 @@ int main() {
     }
 
     // This is the real project wrapper/library, not a copied writer implementation.
+#if LUISA_TEST_LLVM_DOWNGRADE_VERSION == 14
+    auto bitcode = luisa::compute::llvm_downgrade_to_14(std::move(module));
+#else
     auto bitcode = luisa::compute::llvm_downgrade_to_7(std::move(module));
+#endif
     if (bitcode.empty()) {
-        llvm::errs() << "Project LLVM 7 writer returned no bytes\n";
+        llvm::errs() << "Project LLVM " << target_version << " writer returned no bytes\n";
         return 1;
     }
     llvm::LLVMContext output_context;
     llvm::MemoryBufferRef buffer{
         llvm::StringRef{reinterpret_cast<const char *>(bitcode.data()), bitcode.size()},
-        "project-writer70.bc"};
+        "project-legacy-writer.bc"};
     auto parsed = llvm::parseBitcodeFile(buffer, output_context);
     if (!parsed) {
         llvm::errs() << "Same-SDK reader failed: " << llvm::toString(parsed.takeError()) << '\n';
@@ -294,8 +309,8 @@ int main() {
     bool valid = check_splat_cases("readback", roundtrip);
     for (const auto &test : cases) { valid &= check_function("readback", roundtrip, test); }
     if (!valid) { return 1; }
-    llvm::outs() << "PASS LLVM " << LLVM_VERSION_STRING << " -> project writer70 -> same-SDK reader: "
-                 << "2 denormal functions and 27 exact-bit vector patterns preserved; "
+    llvm::outs() << "PASS LLVM " << LLVM_VERSION_STRING << " -> project writer" << target_version << "0 -> same-SDK reader: "
+                 << "2 denormal functions and " << splat_cases.size() << " exact-bit vector patterns preserved; "
                  << bitcode.size() << " bitcode bytes\n";
     return 0;
 }

@@ -48,6 +48,17 @@ namespace {
     return parse_cli_args(static_cast<int>(argv.size()), argv.data());
 }
 
+void test_floating_arguments() {
+    for (auto value : {"0", "-0", ".5", "1.", "2.5e-1", "1E+2", "4.9406564584124654e-324"}) {
+        const auto parsed = parse({"--backend", "vk", "--package", "m", "--input", "p", "--max-wall-time-ms", value});
+        expect(parsed.ok()) << value;
+    }
+    for (auto value : {"", "+1", " 1", "1 ", "0x1p0", "nan", "inf", "1e9999", "1e-9999", "1,5", "1e", ".", "--1"}) {
+        const auto parsed = parse({"--backend", "vk", "--package", "m", "--input", "p", "--max-wall-time-ms", value});
+        expect(!parsed.ok()) << value;
+    }
+}
+
 void test_help() {
     const auto parsed = parse({"--help"});
     expect(parsed.ok());
@@ -318,6 +329,7 @@ void test_status_report() {
 }// namespace
 
 static auto test_ocr_cli_registration = [] {
+    "floating_arguments"_test = [] { test_floating_arguments(); };
     "help"_test = [] { test_help(); };
     "list_models_parsing"_test = [] { test_list_models_parsing(); };
     "model_support_report"_test = [] { test_model_support_report(); };
