@@ -320,8 +320,9 @@ template<typename IndexAt>
         case ArithmeticOp::CLAMP:
         case ArithmeticOp::LERP:
         case ArithmeticOp::SMOOTHSTEP:
+        case ArithmeticOp::FACEFORWARD:
         case ArithmeticOp::FMA:
-        case ArithmeticOp::FACEFORWARD: return count == 3u;
+        case ArithmeticOp::DOT2ADD: return count == 3u;
 
         case ArithmeticOp::AGGREGATE: return count > 0u;
         case ArithmeticOp::SHUFFLE:
@@ -529,6 +530,9 @@ template<typename IndexAt>
         case ThreadGroupOp::GRAPH_NODE_SET_ENABLED: return count == 2u;
         case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE: return count == 0u;
         case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: return count == 0u;
+        // Split workgroup barrier (compute-only; see ThreadGroupOp).
+        case ThreadGroupOp::SPLIT_BARRIER_ARRIVE: return count == 0u;
+        case ThreadGroupOp::SPLIT_BARRIER_WAIT: return count == 0u;
     }
     return false;
 }
@@ -580,12 +584,12 @@ template<typename Enum>
         case DerivedInstructionTag::ARITHMETIC:
             return enum_value_between(
                 static_cast<const ArithmeticInst *>(instruction)->op(),
-                ArithmeticOp::UNARY_MINUS, ArithmeticOp::LDEXP);
+                ArithmeticOp::UNARY_MINUS, ArithmeticOp::DOT2ADD);
         case DerivedInstructionTag::THREAD_GROUP:
             return enum_value_between(
                 static_cast<const ThreadGroupInst *>(instruction)->op(),
                 ThreadGroupOp::SHADER_EXECUTION_REORDER,
-                ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION);
+                ThreadGroupOp::SPLIT_BARRIER_WAIT);
         case DerivedInstructionTag::RESOURCE_QUERY:
             return enum_value_between(
                 static_cast<const ResourceQueryInst *>(instruction)->op(),
@@ -1036,6 +1040,13 @@ template<typename OperandSpan>
             return operands[0]->type() == operands[1]->type() &&
                    operands[0]->type()->is_float_vector() &&
                    result == operands[0]->type()->element();
+        case ArithmeticOp::DOT2ADD:
+            // The only supported shape is the HLSL `dot2add` intrinsic:
+            // (half2 a, half2 b, float acc) -> float.
+            return result == Type::of<float>() &&
+                   operands[0]->type() == Type::of<half2>() &&
+                   operands[1]->type() == Type::of<half2>() &&
+                   operands[2]->type() == Type::of<float>();
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
             return operands[0]->type()->is_float_vector() &&

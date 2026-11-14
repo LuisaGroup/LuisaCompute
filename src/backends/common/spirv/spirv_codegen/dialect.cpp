@@ -575,6 +575,25 @@ private:
                         xir::to_string(inst->op())));
             }
         }
+        if (inst->op() == xir::ArithmeticOp::DOT2ADD) {
+            // The exact public signature is the only supported shape; the
+            // generic verifier enforces it too, but the native handoff must
+            // fail closed on its own for exact-XIR input.
+            auto exact_shape =
+                inst->operand_count() == 3u &&
+                inst->type() == Type::of<float>() &&
+                inst->operand(0) != nullptr &&
+                inst->operand(0)->type() == Type::of<half2>() &&
+                inst->operand(1) != nullptr &&
+                inst->operand(1)->type() == Type::of<half2>() &&
+                inst->operand(2) != nullptr &&
+                inst->operand(2)->type() == Type::of<float>();
+            if (!exact_shape) {
+                _error(function, block, inst,
+                       "Native XIR-to-SPIR-V dot2add requires the exact "
+                       "(half2 a, half2 b, float acc) -> float signature.");
+            }
+        }
         if (inst->op() == xir::ArithmeticOp::EXTRACT &&
             inst->operand_count() >= 2u && inst->operand(0) != nullptr) {
             _validate_aggregate_indices(
@@ -1164,6 +1183,11 @@ private:
                         result_type == value_type;
                 break;
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK:
+            expected = "no operands and no result";
+            valid = inst->operand_count() == 0u && result_type == nullptr;
+            break;
+        case xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE:
+        case xir::ThreadGroupOp::SPLIT_BARRIER_WAIT:
             expected = "no operands and no result";
             valid = inst->operand_count() == 0u && result_type == nullptr;
             break;
@@ -2448,7 +2472,14 @@ spirv_xir_dialect_support(xir::ArithmeticOp op) noexcept {
         case xir::ArithmeticOp::SHUFFLE:
         case xir::ArithmeticOp::INSERT:
         case xir::ArithmeticOp::EXTRACT:
-        case xir::ArithmeticOp::LDEXP: return supported();
+        case xir::ArithmeticOp::LDEXP:
+        // DOT2ADD is accepted only in its exact (half2, half2, float) -> float
+        // shape (checked per instruction below). It lowers to the fused
+        // OpFDot2MixAcc32VALVE when the target negotiated
+        // SPV_VALVE_mixed_float_dot_product, and to the DXC-equivalent unfused
+        // half-product/float-accumulate sequence otherwise; the absence of the
+        // VALVE feature is therefore not a dialect rejection.
+        case xir::ArithmeticOp::DOT2ADD: return supported();
         case xir::ArithmeticOp::ERF:
         case xir::ArithmeticOp::ERFC:
         case xir::ArithmeticOp::EXPM1:
@@ -2702,6 +2733,15 @@ spirv_xir_dialect_support(xir::ThreadGroupOp op) noexcept {
         case xir::ThreadGroupOp::WARP_READ_LANE:
         case xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE:
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK: return supported();
+        case xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE:
+        case xir::ThreadGroupOp::SPLIT_BARRIER_WAIT:
+            // OpControlBarrierArriveEXT/OpControlBarrierWaitEXT are legal only
+            // in GLCompute (or Kernel) execution models. This path emits only
+            // compute kernels, and the validator below walks exactly the
+            // kernel-reachable call graph, so a callable reached from a kernel
+            // inherits the compute restriction. Emission additionally requires
+            // the shaderSplitBarrier target feature and fails closed without it.
+            return supported();
         case xir::ThreadGroupOp::GRAPH_SET_CONDITIONAL:
         case xir::ThreadGroupOp::GRAPH_LAUNCH:
         case xir::ThreadGroupOp::GET_CURRENT_GRAPH_EXEC:

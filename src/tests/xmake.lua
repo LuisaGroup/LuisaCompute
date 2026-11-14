@@ -969,6 +969,7 @@ end
 test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
 test_proj("test_dsl_special_functions", "unit/dsl/test_dsl_special_functions.cpp")
 test_proj("test_dsl_bfloat16", "unit/dsl/test_dsl_bfloat16.cpp")
+test_proj("test_dot2add", "unit/dsl/test_dot2add.cpp")
 
   -- unit/runtime: FP4/FP8 quantization tests
   test_proj("test_fp4", "unit/runtime/test_fp4.cpp")

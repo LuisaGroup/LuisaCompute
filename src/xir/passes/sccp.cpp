@@ -554,6 +554,9 @@ Constant *try_fold_arithmetic_for_sccp(Module *module, ArithmeticOp op,
         case ArithmeticOp::MATRIX_INVERSE:
         case ArithmeticOp::CROSS:
         case ArithmeticOp::DOT:
+        // DOT2ADD's fused/unfused rounding is target-dependent; never fold it
+        // with host numerics (same boundary as the const-fold pass).
+        case ArithmeticOp::DOT2ADD:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::NORMALIZE:

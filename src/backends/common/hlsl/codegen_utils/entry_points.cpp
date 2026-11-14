@@ -102,6 +102,11 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
             // VK_KHR_shader_abort: `$debug_break` becomes OpAbortKHR.
             builder << "#define LUISA_SPV_ABORT 1\n";
         }
+        if (spirv_capabilities.split_barrier) {
+            // VK_EXT_shader_split_barrier: the split-barrier arrive/wait
+            // become OpControlBarrierArriveEXT/WaitEXT (compute only).
+            builder << "#define LUISA_SPV_SPLIT_BARRIER 1\n";
+        }
         if (spirv_capabilities.cluster_acceleration_structure) {
             // VK_NV_cluster_acceleration_structure: the ray-query cluster-ID
             // accessor becomes OpRayQueryGetIntersectionClusterIdNV.  The accessor

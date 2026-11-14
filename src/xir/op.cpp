@@ -127,6 +127,7 @@ luisa::string_view to_string(ArithmeticOp op) noexcept {
         case ArithmeticOp::ERFC: return "erfc"sv;
         case ArithmeticOp::EXPM1: return "expm1"sv;
         case ArithmeticOp::LDEXP: return "ldexp"sv;
+        case ArithmeticOp::DOT2ADD: return "dot2add"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown arithmetic operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -231,6 +232,7 @@ ArithmeticOp arithmetic_op_from_string(luisa::string_view name) noexcept {
         {"erfc"sv, ArithmeticOp::ERFC},
         {"expm1"sv, ArithmeticOp::EXPM1},
         {"ldexp"sv, ArithmeticOp::LDEXP},
+        {"dot2add"sv, ArithmeticOp::DOT2ADD},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown arithmetic operation: {}.", name);
@@ -738,6 +740,8 @@ luisa::string_view to_string(ThreadGroupOp op) noexcept {
         case ThreadGroupOp::GRAPH_NODE_SET_ENABLED: return "graph_node_set_enabled"sv;
         case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE: return "grid_dependency_synchronize"sv;
         case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: return "trigger_programmatic_launch_completion"sv;
+        case ThreadGroupOp::SPLIT_BARRIER_ARRIVE: return "split_barrier_arrive"sv;
+        case ThreadGroupOp::SPLIT_BARRIER_WAIT: return "split_barrier_wait"sv;
     }
     LUISA_ERROR_WITH_LOCATION("Unknown thread_group operation (code = {}).", static_cast<uint32_t>(op));
 }
@@ -779,6 +783,8 @@ ThreadGroupOp thread_group_op_from_string(luisa::string_view name) noexcept {
         {"graph_node_set_enabled"sv, ThreadGroupOp::GRAPH_NODE_SET_ENABLED},
         {"grid_dependency_synchronize"sv, ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE},
         {"trigger_programmatic_launch_completion"sv, ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION},
+        {"split_barrier_arrive"sv, ThreadGroupOp::SPLIT_BARRIER_ARRIVE},
+        {"split_barrier_wait"sv, ThreadGroupOp::SPLIT_BARRIER_WAIT},
     };
     auto iter = m.find(name);
     LUISA_ASSERT(iter != m.end(), "Unknown thread_group operation: {}.", name);

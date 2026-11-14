@@ -138,6 +138,247 @@ template<typename Kernel>
         compiled.property_types, type));
 }
 
+// Exact instruction-shape facts for the DOT2ADD lowering. The fused path must
+// emit one OpFDot2MixAcc32VALVE (float result, half2 vectors, float accumulator);
+// the unfused path must emit the DXC-equivalent sequence: one half2 OpFMul,
+// one OpFConvert to float2, two lane extracts, and two ordered float OpFAdd.
+struct Dot2AddSpirvFacts {
+    size_t valve_count{0u};
+    size_t valve_capability_count{0u};
+    size_t valve_extension_count{0u};
+    size_t half2_mul_count{0u};
+    size_t half2_to_float2_convert_count{0u};
+    size_t float_add_count{0u};
+    size_t no_contraction_count{0u};
+    bool valve_shape_valid{false};
+    bool unfused_sequence_valid{false};
+    bool parse_succeeded{true};
+};
+
+[[nodiscard]] Dot2AddSpirvFacts inspect_dot2add_path(
+    luisa::span<const uint32_t> words) noexcept {
+    Dot2AddSpirvFacts facts;
+    if (words.size() < 5u || words[3u] == 0u) {
+        facts.parse_succeeded = false;
+        return facts;
+    }
+    const auto id_bound = words[3u];
+    struct FloatType {
+        uint32_t width{0u};
+        bool valid{false};
+    };
+    luisa::vector<FloatType> float_types(id_bound);
+    luisa::vector<uint32_t> vector_components(id_bound, 0u);
+    luisa::vector<uint32_t> vector_element(id_bound, 0u);
+    luisa::vector<uint32_t> value_types(id_bound, 0u);
+    luisa::vector<spv::Op> value_opcodes(id_bound, spv::Op::OpNop);
+    luisa::vector<uint32_t> convert_sources(id_bound, 0u);
+    luisa::vector<uint32_t> add_lhs(id_bound, 0u);
+    luisa::vector<uint32_t> add_rhs(id_bound, 0u);
+    luisa::vector<uint32_t> extract_sources(id_bound, 0u);
+    luisa::vector<uint32_t> extract_indices(id_bound, ~0u);
+    luisa::vector<bool> no_contraction(id_bound, false);
+    auto is_half2 = [&](uint32_t type) noexcept {
+        return type < id_bound && vector_components[type] == 2u &&
+               vector_element[type] < id_bound &&
+               float_types[vector_element[type]].valid &&
+               float_types[vector_element[type]].width == 16u;
+    };
+    auto is_float2 = [&](uint32_t type) noexcept {
+        return type < id_bound && vector_components[type] == 2u &&
+               vector_element[type] < id_bound &&
+               float_types[vector_element[type]].valid &&
+               float_types[vector_element[type]].width == 32u;
+    };
+    auto is_float = [&](uint32_t type) noexcept {
+        return type < id_bound && float_types[type].valid &&
+               float_types[type].width == 32u;
+    };
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        const auto word_count = words[offset] >> 16u;
+        const auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            facts.parse_succeeded = false;
+            return facts;
+        }
+        auto result_in_range = [&](uint32_t id) noexcept {
+            return id < id_bound;
+        };
+        switch (opcode) {
+            case spv::Op::OpTypeFloat:
+                if (word_count >= 3u && result_in_range(words[offset + 1u])) {
+                    float_types[words[offset + 1u]] = {words[offset + 2u], true};
+                }
+                break;
+            case spv::Op::OpTypeVector:
+                if (word_count == 4u && result_in_range(words[offset + 1u])) {
+                    vector_element[words[offset + 1u]] = words[offset + 2u];
+                    vector_components[words[offset + 1u]] = words[offset + 3u];
+                }
+                break;
+            case spv::Op::OpCapability:
+                if (word_count == 2u &&
+                    words[offset + 1u] == static_cast<uint32_t>(
+                                              spv::Capability::DotProductFloat16AccFloat32VALVE)) {
+                    facts.valve_capability_count++;
+                }
+                break;
+            case spv::Op::OpExtension: {
+                // The extension name starts at word 1 as a literal string.
+                luisa::string_view name{
+                    reinterpret_cast<const char *>(&words[offset + 1u]),
+                    (word_count - 1u) * sizeof(uint32_t)};
+                if (name.find("SPV_VALVE_mixed_float_dot_product") !=
+                    luisa::string_view::npos) {
+                    facts.valve_extension_count++;
+                }
+                break;
+            }
+            case spv::Op::OpDecorate:
+                if (word_count == 3u &&
+                    words[offset + 2u] == static_cast<uint32_t>(
+                                              spv::Decoration::NoContraction) &&
+                    result_in_range(words[offset + 1u])) {
+                    no_contraction[words[offset + 1u]] = true;
+                    facts.no_contraction_count++;
+                }
+                break;
+            case spv::Op::OpFMul:
+                if (word_count == 5u && result_in_range(words[offset + 2u])) {
+                    const auto result = words[offset + 2u];
+                    value_types[result] = words[offset + 1u];
+                    value_opcodes[result] = opcode;
+                    if (is_half2(words[offset + 1u])) {
+                        facts.half2_mul_count++;
+                    }
+                }
+                break;
+            case spv::Op::OpFConvert:
+                if (word_count == 4u && result_in_range(words[offset + 2u])) {
+                    const auto result = words[offset + 2u];
+                    value_types[result] = words[offset + 1u];
+                    value_opcodes[result] = opcode;
+                    convert_sources[result] = words[offset + 3u];
+                    if (is_float2(words[offset + 1u]) &&
+                        is_half2(value_types[words[offset + 3u]])) {
+                        facts.half2_to_float2_convert_count++;
+                    }
+                }
+                break;
+            case spv::Op::OpCompositeExtract:
+                if (word_count >= 5u && result_in_range(words[offset + 2u])) {
+                    const auto result = words[offset + 2u];
+                    value_types[result] = words[offset + 1u];
+                    value_opcodes[result] = opcode;
+                    extract_sources[result] = words[offset + 3u];
+                    extract_indices[result] = words[offset + 4u];
+                }
+                break;
+            case spv::Op::OpFAdd:
+                if (word_count == 5u && result_in_range(words[offset + 2u])) {
+                    const auto result = words[offset + 2u];
+                    value_types[result] = words[offset + 1u];
+                    value_opcodes[result] = opcode;
+                    add_lhs[result] = words[offset + 3u];
+                    add_rhs[result] = words[offset + 4u];
+                    if (is_float(words[offset + 1u])) {
+                        facts.float_add_count++;
+                    }
+                }
+                break;
+            case spv::Op::OpFDot2MixAcc32VALVE:
+                if (word_count == 6u && result_in_range(words[offset + 2u])) {
+                    facts.valve_count++;
+                    const auto result_type = words[offset + 1u];
+                    const auto a = words[offset + 3u];
+                    const auto b = words[offset + 4u];
+                    const auto acc = words[offset + 5u];
+                    facts.valve_shape_valid =
+                        is_float(result_type) &&
+                        is_half2(value_types[a]) &&
+                        is_half2(value_types[b]) &&
+                        is_float(value_types[acc]);
+                }
+                break;
+            case spv::Op::OpLoad:
+            case spv::Op::OpConstant:
+            case spv::Op::OpConstantComposite:
+            case spv::Op::OpCompositeConstruct:
+            case spv::Op::OpFunctionParameter:
+            case spv::Op::OpUConvert:
+            case spv::Op::OpSConvert:
+            case spv::Op::OpBitcast:
+                if (word_count >= 3u && result_in_range(words[offset + 2u])) {
+                    value_types[words[offset + 2u]] = words[offset + 1u];
+                    value_opcodes[words[offset + 2u]] = opcode;
+                }
+                break;
+            default:
+                break;
+        }
+        offset += word_count;
+    }
+    // Unfused sequence: half2 mul -> float2 convert -> lane extracts ->
+    // ordered float adds (x + y, then + acc), with NoContraction on the
+    // multiply and both adds when fast math is off.
+    for (auto convert = uint32_t{1u}; convert < id_bound; ++convert) {
+        const auto source = convert_sources[convert];
+        if (value_opcodes[convert] != spv::Op::OpFConvert ||
+            !is_float2(value_types[convert]) ||
+            source == 0u || source >= id_bound ||
+            value_opcodes[source] != spv::Op::OpFMul ||
+            !is_half2(value_types[source])) {
+            continue;
+        }
+        // Find the two lane extracts of this convert.
+        auto lane_x = uint32_t{0u};
+        auto lane_y = uint32_t{0u};
+        for (auto candidate = uint32_t{1u}; candidate < id_bound; ++candidate) {
+            if (value_opcodes[candidate] != spv::Op::OpCompositeExtract ||
+                extract_sources[candidate] != convert) {
+                continue;
+            }
+            if (extract_indices[candidate] == 0u) { lane_x = candidate; }
+            if (extract_indices[candidate] == 1u) { lane_y = candidate; }
+        }
+        if (lane_x == 0u || lane_y == 0u) { continue; }
+        // Find the ordered adds: (x + y) then (+ acc).
+        for (auto first = uint32_t{1u}; first < id_bound; ++first) {
+            if (value_opcodes[first] != spv::Op::OpFAdd ||
+                !is_float(value_types[first])) {
+                continue;
+            }
+            auto matches_xy =
+                (add_lhs[first] == lane_x && add_rhs[first] == lane_y) ||
+                (add_lhs[first] == lane_y && add_rhs[first] == lane_x);
+            if (!matches_xy) { continue; }
+            for (auto second = uint32_t{1u}; second < id_bound; ++second) {
+                if (value_opcodes[second] != spv::Op::OpFAdd ||
+                    !is_float(value_types[second])) {
+                    continue;
+                }
+                auto acc_operand = uint32_t{0u};
+                if (add_lhs[second] == first) {
+                    acc_operand = add_rhs[second];
+                } else if (add_rhs[second] == first) {
+                    acc_operand = add_lhs[second];
+                }
+                if (acc_operand == 0u || acc_operand >= id_bound ||
+                    !is_float(value_types[acc_operand]) ||
+                    value_opcodes[acc_operand] == spv::Op::OpFAdd ||
+                    value_opcodes[acc_operand] == spv::Op::OpCompositeExtract) {
+                    continue;
+                }
+                facts.unfused_sequence_valid =
+                    no_contraction[source] &&
+                    no_contraction[first] &&
+                    no_contraction[second];
+            }
+        }
+    }
+    return facts;
+}
+
 [[nodiscard]] std::unordered_set<int16_t> signed_16bit_constants(
     const std::vector<uint32_t> &words) {
     std::unordered_set<int16_t> result;
@@ -795,6 +1036,102 @@ make_direct_sampler_kernel(
     return kernel;
 }
 
+// Exact instruction-shape facts for the SPV_EXT_split_barrier lowering: one
+// OpControlBarrierArriveEXT (6142) with Workgroup/Workgroup/WorkgroupMemory|
+// Release (2, 2, 260) and one OpControlBarrierWaitEXT (6143) with
+// Workgroup/Workgroup/WorkgroupMemory|Acquire (2, 2, 258), one SplitBarrierEXT
+// (6141) capability, and one SPV_EXT_split_barrier extension declaration.
+// The classic OpControlBarrier must keep its (2, 2, 264) operands.
+struct SplitBarrierSpirvFacts {
+    size_t arrive_count{0u};
+    size_t wait_count{0u};
+    size_t classic_barrier_count{0u};
+    size_t capability_count{0u};
+    size_t extension_count{0u};
+    bool arrive_shape_valid{false};
+    bool wait_shape_valid{false};
+    bool classic_shape_valid{false};
+    bool parse_succeeded{true};
+};
+
+[[nodiscard]] SplitBarrierSpirvFacts inspect_split_barrier_path(
+    luisa::span<const uint32_t> words) noexcept {
+    SplitBarrierSpirvFacts facts;
+    if (words.size() < 5u || words[3u] == 0u) {
+        facts.parse_succeeded = false;
+        return facts;
+    }
+    const auto id_bound = words[3u];
+    luisa::vector<uint32_t> uint_constants(id_bound, ~0u);
+    luisa::vector<bool> uint32_types(id_bound, false);
+    auto constant_value = [&](uint32_t id) noexcept {
+        return id < id_bound ? uint_constants[id] : ~0u;
+    };
+    auto barrier_shape = [&](size_t offset, size_t word_count,
+                             uint32_t semantics) noexcept {
+        return word_count == 4u &&
+               constant_value(words[offset + 1u]) == 2u &&
+               constant_value(words[offset + 2u]) == 2u &&
+               constant_value(words[offset + 3u]) == semantics;
+    };
+    for (auto offset = size_t{5u}; offset < words.size();) {
+        const auto word_count = words[offset] >> 16u;
+        const auto opcode = static_cast<spv::Op>(words[offset] & 0xffffu);
+        if (word_count == 0u || word_count > words.size() - offset) {
+            facts.parse_succeeded = false;
+            return facts;
+        }
+        switch (opcode) {
+            case spv::Op::OpTypeInt:
+                if (word_count == 4u && words[offset + 1u] < id_bound &&
+                    words[offset + 2u] == 32u && words[offset + 3u] == 0u) {
+                    uint32_types[words[offset + 1u]] = true;
+                }
+                break;
+            case spv::Op::OpConstant:
+                if (word_count == 4u && words[offset + 1u] < id_bound &&
+                    uint32_types[words[offset + 1u]] &&
+                    words[offset + 2u] < id_bound) {
+                    uint_constants[words[offset + 2u]] = words[offset + 3u];
+                }
+                break;
+            case spv::Op::OpCapability:
+                if (word_count == 2u &&
+                    words[offset + 1u] == static_cast<uint32_t>(
+                                              spv::Capability::SplitBarrierEXT)) {
+                    facts.capability_count++;
+                }
+                break;
+            case spv::Op::OpExtension: {
+                // The extension name starts at word 1 as a literal string.
+                luisa::string_view name{
+                    reinterpret_cast<const char *>(&words[offset + 1u]),
+                    (word_count - 1u) * sizeof(uint32_t)};
+                if (name.find("SPV_EXT_split_barrier") !=
+                    luisa::string_view::npos) {
+                    facts.extension_count++;
+                }
+                break;
+            }
+            case spv::Op::OpControlBarrierArriveEXT:
+                facts.arrive_count++;
+                facts.arrive_shape_valid = barrier_shape(offset, word_count, 260u);
+                break;
+            case spv::Op::OpControlBarrierWaitEXT:
+                facts.wait_count++;
+                facts.wait_shape_valid = barrier_shape(offset, word_count, 258u);
+                break;
+            case spv::Op::OpControlBarrier:
+                facts.classic_barrier_count++;
+                facts.classic_shape_valid = barrier_shape(offset, word_count, 264u);
+                break;
+            default: break;
+        }
+        offset += word_count;
+    }
+    return facts;
+}
+
 }// namespace
 
 int main(int argc, char *argv[]) {
@@ -1437,6 +1774,388 @@ int main(int argc, char *argv[]) {
         expect(eq(facts.safe_sampler_index_count, 1u));
         expect_bounded_configured_sampler_path(
             facts, 1u, false);
+    };
+
+    "spirv_float32_fma_uses_core_instruction_only_with_shader_fma"_test = [] {
+        Kernel1D kernel = [](BufferFloat x, BufferFloat y, BufferFloat z,
+                             BufferFloat out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, fma(x.read(i), y.read(i), z.read(i)));
+        };
+        lc::spirv::SpirvTargetFeatures features{};
+        features.shader_fma_float32 = true;
+        auto fused = compile_spirv_fixture(kernel, features);
+        expect(contains(fused.text, "OpFmaKHR"));
+        expect(contains(fused.text, "OpCapability FMAKHR"));
+        expect(contains(fused.text, "OpExtension \"SPV_KHR_fma\""));
+        expect(eq(fused.required_features,
+                  lc::spirv::target_feature::shader_fma_float32));
+
+        auto extended = compile_spirv_fixture(
+            kernel, lc::spirv::SpirvTargetFeatures{});
+        expect(!contains(extended.text, "OpFmaKHR"));
+        expect(!contains(extended.text, "SPV_KHR_fma"));
+        expect(contains(extended.text, " Fma"));
+        expect(eq(extended.required_features, 0u));
+    };
+
+    "spirv_dot2add_fused_valve_path_is_exact"_test = [] {
+        // Isolate emission: the capability-owned VALVE requirement must be
+        // recorded even though the trim-capabilities allowlist deliberately
+        // excludes capability 6912.
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        Kernel1D ast_kernel = [](BufferHalf2, BufferHalf2, BufferFloat,
+                                 BufferFloat) noexcept {};
+        auto ast_function = ast_kernel.function()->function();
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(ast_function.block_size());
+        auto *a_buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<half2>()));
+        auto *b_buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<half2>()));
+        auto *acc_buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<float>()));
+        auto *out_buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<float>()));
+        auto *index = module.create_constant_zero(Type::of<uint32_t>());
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *a = builder.call(Type::of<half2>(),
+                               xir::ResourceReadOp::BUFFER_READ,
+                               {a_buffer, index});
+        auto *b = builder.call(Type::of<half2>(),
+                               xir::ResourceReadOp::BUFFER_READ,
+                               {b_buffer, index});
+        auto *acc = builder.call(Type::of<float>(),
+                                 xir::ResourceReadOp::BUFFER_READ,
+                                 {acc_buffer, index});
+        auto *result = builder.call(Type::of<float>(),
+                                    xir::ArithmeticOp::DOT2ADD, {a, b, acc});
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE,
+                     {out_buffer, index, result});
+        builder.return_void();
+        expect(xir::xir_verify_module(&module).succeeded());
+
+        auto compile = [&](bool valve_enabled) {
+            lc::spirv::SpirvTargetFeatures features{};
+            features.shader_float16 = true;
+            features.storage_buffer_16bit_access = true;
+            features.shader_mixed_float_dot_product_float16_acc_float32 =
+                valve_enabled;
+            return lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+                ast_function, &module,
+                ShaderOption{.enable_cache = false, .enable_fast_math = false},
+                features);
+        };
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        auto validate_and_disassemble = [&](const std::vector<uint32_t> &words,
+                                            std::string &text) {
+            std::string diagnostics;
+            tools.SetMessageConsumer(
+                [&diagnostics](spv_message_level_t, const char *,
+                               const spv_position_t &, const char *message) {
+                    if (!diagnostics.empty()) { diagnostics.push_back('\n'); }
+                    diagnostics.append(message);
+                });
+            expect(tools.Validate(words.data(), words.size()))
+                << "dot2add SPIR-V failed Vulkan 1.2 validation: " << diagnostics;
+            expect(tools.Disassemble(words.data(), words.size(), &text));
+        };
+
+        // On-path: one fused OpFDot2MixAcc32VALVE, the VALVE capability and
+        // extension, and the exact required feature bit. The half2 operands
+        // additionally require the Float16 capability (shader_float16).
+        auto fused = compile(true);
+        std::string fused_text;
+        validate_and_disassemble(fused.spv_bin, fused_text);
+        constexpr auto fused_expected =
+            lc::spirv::target_feature::shader_mixed_float_dot_product_float16_acc_float32 |
+            lc::spirv::target_feature::shader_float16 |
+            lc::spirv::target_feature::storage_buffer_16bit_access;
+        expect(eq(fused.required_target_features, fused_expected));
+        expect(contains(fused_text, "OpFDot2MixAcc32VALVE"));
+        expect(contains(fused_text,
+                        "OpExtension \"SPV_VALVE_mixed_float_dot_product\""));
+        expect(contains(fused_text,
+                        "OpCapability DotProductFloat16AccFloat32VALVE"));
+        auto fused_facts = inspect_dot2add_path(
+            luisa::span<const uint32_t>{fused.spv_bin.data(), fused.spv_bin.size()});
+        expect(fused_facts.parse_succeeded);
+        expect(eq(fused_facts.valve_count, 1u));
+        expect(fused_facts.valve_shape_valid)
+            << "OpFDot2MixAcc32VALVE must take half2 a/b, float acc, and return float";
+        expect(eq(fused_facts.valve_capability_count, 1u));
+        expect(eq(fused_facts.valve_extension_count, 1u));
+        expect(eq(fused_facts.half2_mul_count, 0u));
+        expect(eq(fused_facts.float_add_count, 0u));
+
+        // Off-path: the DXC-equivalent unfused sequence, no VALVE opcode,
+        // capability, extension, or required feature. NoContraction must keep
+        // the multiply and both ordered adds from re-fusing.
+        auto unfused = compile(false);
+        std::string unfused_text;
+        validate_and_disassemble(unfused.spv_bin, unfused_text);
+        expect(eq(unfused.required_target_features,
+                  lc::spirv::target_feature::shader_float16 |
+                      lc::spirv::target_feature::storage_buffer_16bit_access));
+        expect(!contains(unfused_text, "OpFDot2MixAcc32VALVE"));
+        expect(!contains(unfused_text, "SPV_VALVE_mixed_float_dot_product"));
+        expect(!contains(unfused_text, "DotProductFloat16AccFloat32VALVE"));
+        auto unfused_facts = inspect_dot2add_path(
+            luisa::span<const uint32_t>{unfused.spv_bin.data(), unfused.spv_bin.size()});
+        expect(unfused_facts.parse_succeeded);
+        expect(eq(unfused_facts.valve_count, 0u));
+        expect(eq(unfused_facts.valve_capability_count, 0u));
+        expect(eq(unfused_facts.valve_extension_count, 0u));
+        expect(eq(unfused_facts.half2_mul_count, 1u));
+        expect(eq(unfused_facts.half2_to_float2_convert_count, 1u));
+        expect(eq(unfused_facts.float_add_count, 2u));
+        expect(unfused_facts.unfused_sequence_valid)
+            << "the unfused path must be half2 OpFMul -> OpFConvert float2 -> "
+               "lane extracts -> ordered float adds, all NoContraction\n"
+            << unfused_text;
+        expect(eq(unfused_facts.no_contraction_count, 3u));
+    };
+
+    "spirv_dot2add_live_requirement_survives_optimization"_test = [] {
+        // With the optimizer enabled, the capability-owned VALVE bit must be
+        // reconciled from the final binary and retained for a live dot2add.
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "1"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        Kernel1D ast_kernel = [](BufferHalf2, BufferHalf2, BufferFloat,
+                                 BufferFloat) noexcept {};
+        auto ast_function = ast_kernel.function()->function();
+        auto build_module = [&](xir::Module &module) {
+            auto *kernel = module.create_kernel();
+            kernel->set_block_size(ast_function.block_size());
+            auto *a_buffer = kernel->create_resource_argument(
+                Type::buffer(Type::of<half2>()));
+            auto *b_buffer = kernel->create_resource_argument(
+                Type::buffer(Type::of<half2>()));
+            auto *acc_buffer = kernel->create_resource_argument(
+                Type::buffer(Type::of<float>()));
+            auto *out_buffer = kernel->create_resource_argument(
+                Type::buffer(Type::of<float>()));
+            auto *index = module.create_constant_zero(Type::of<uint32_t>());
+            xir::XIRBuilder builder;
+            builder.set_insertion_point(kernel->create_body_block());
+            auto *a = builder.call(Type::of<half2>(),
+                                   xir::ResourceReadOp::BUFFER_READ,
+                                   {a_buffer, index});
+            auto *b = builder.call(Type::of<half2>(),
+                                   xir::ResourceReadOp::BUFFER_READ,
+                                   {b_buffer, index});
+            auto *acc = builder.call(Type::of<float>(),
+                                     xir::ResourceReadOp::BUFFER_READ,
+                                     {acc_buffer, index});
+            auto *result = builder.call(Type::of<float>(),
+                                        xir::ArithmeticOp::DOT2ADD, {a, b, acc});
+            builder.call(xir::ResourceWriteOp::BUFFER_WRITE,
+                         {out_buffer, index, result});
+            builder.return_void();
+        };
+        lc::spirv::SpirvTargetFeatures features{};
+        features.shader_float16 = true;
+        features.storage_buffer_16bit_access = true;
+        features.shader_mixed_float_dot_product_float16_acc_float32 = true;
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        {
+            xir::Module module;
+            build_module(module);
+            expect(xir::xir_verify_module(&module).succeeded());
+            auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+                ast_function, &module,
+                ShaderOption{.enable_cache = false, .enable_fast_math = false},
+                features);
+            expect(tools.Validate(compiled.spv_bin.data(), compiled.spv_bin.size()));
+            constexpr auto expected =
+                lc::spirv::target_feature::shader_mixed_float_dot_product_float16_acc_float32 |
+                lc::spirv::target_feature::shader_float16 |
+                lc::spirv::target_feature::storage_buffer_16bit_access;
+            expect(eq(compiled.required_target_features, expected));
+            std::string text;
+            expect(tools.Disassemble(compiled.spv_bin.data(),
+                                     compiled.spv_bin.size(), &text));
+            expect(contains(text, "OpFDot2MixAcc32VALVE"));
+            expect(contains(text, "OpCapability DotProductFloat16AccFloat32VALVE"));
+        }
+    };
+
+    "spirv_split_barrier_exact_opcodes_scopes_and_feature"_test = [] {
+        // Isolate emission: the capability-owned SplitBarrierEXT requirement
+        // must be recorded even though the trim-capabilities allowlist
+        // deliberately excludes capability 6141.
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        // The classic sync_block() must keep its exact (2, 2, 264)
+        // OpControlBarrier alongside the split arrive/wait pair.
+        Kernel1D ast_kernel = [](BufferUInt) noexcept {
+            sync_block();
+            split_barrier_arrive();
+            split_barrier_wait();
+        };
+        auto compiled = compile_spirv_fixture(ast_kernel);
+        expect(eq(compiled.required_features,
+                  lc::spirv::target_feature::shader_split_barrier));
+        expect(contains(compiled.text, "OpControlBarrierArriveEXT"));
+        expect(contains(compiled.text, "OpControlBarrierWaitEXT"));
+        expect(contains(compiled.text, "OpCapability SplitBarrierEXT"));
+        expect(contains(compiled.text,
+                        "OpExtension \"SPV_EXT_split_barrier\""));
+        auto facts = inspect_split_barrier_path(
+            luisa::span<const uint32_t>{compiled.words});
+        expect(facts.parse_succeeded);
+        expect(eq(facts.arrive_count, 1u));
+        expect(eq(facts.wait_count, 1u));
+        expect(facts.arrive_shape_valid)
+            << "arrive must be OpControlBarrierArriveEXT Workgroup(2), "
+               "Workgroup(2), WorkgroupMemory|Release(260)\n"
+            << compiled.text;
+        expect(facts.wait_shape_valid)
+            << "wait must be OpControlBarrierWaitEXT Workgroup(2), "
+               "Workgroup(2), WorkgroupMemory|Acquire(258)\n"
+            << compiled.text;
+        expect(eq(facts.classic_barrier_count, 1u));
+        expect(facts.classic_shape_valid)
+            << "sync_block must keep OpControlBarrier Workgroup(2), "
+               "Workgroup(2), WorkgroupMemory|AcquireRelease(264)\n"
+            << compiled.text;
+        expect(eq(facts.capability_count, 1u));
+        expect(eq(facts.extension_count, 1u));
+        expect(lc::spirv::spirv_target_feature_is_capability_owned(
+            lc::spirv::target_feature::shader_split_barrier));
+        // Reconciliation recovers the requirement from the capability alone.
+        auto reconciled = lc::spirv::reconcile_spirv_target_features(
+            compiled.words.data(), compiled.words.size(), 0u);
+        expect((reconciled & lc::spirv::target_feature::shader_split_barrier) != 0u);
+    };
+
+    "spirv_split_barrier_in_reached_callable_is_exact"_test = [] {
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        // Callables may use the split barrier when reached from a compute
+        // kernel; the callable-reachable call graph is the only accepted path.
+        Kernel1D ast_kernel = [](BufferUInt) noexcept {};
+        auto ast_function = ast_kernel.function()->function();
+        xir::Module module;
+        auto *callable = module.create_callable(nullptr);
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(callable->create_body_block());
+        builder.split_barrier_wait();
+        builder.return_void();
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(ast_function.block_size());
+        auto *out_buffer = kernel->create_resource_argument(
+            Type::buffer(Type::of<uint32_t>()));
+        auto *index = module.create_constant_zero(Type::of<uint32_t>());
+        auto *value = module.create_constant_one(Type::of<uint32_t>());
+        builder.set_insertion_point(kernel->create_body_block());
+        builder.split_barrier_arrive();
+        builder.call(nullptr, callable, {});
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE,
+                     {out_buffer, index, value});
+        builder.return_void();
+        expect(xir::xir_verify_module(&module).succeeded());
+        lc::spirv::SpirvTargetFeatures features{};
+        features.shader_split_barrier = true;
+        auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            ast_function, &module,
+            ShaderOption{.enable_cache = false}, features);
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        std::string diagnostics;
+        tools.SetMessageConsumer(
+            [&diagnostics](spv_message_level_t, const char *,
+                           const spv_position_t &, const char *message) {
+                if (!diagnostics.empty()) { diagnostics.push_back('\n'); }
+                diagnostics.append(message);
+            });
+        expect(tools.Validate(compiled.spv_bin.data(), compiled.spv_bin.size()))
+            << "split-barrier SPIR-V failed Vulkan 1.2 validation: " << diagnostics;
+        expect(eq(compiled.required_target_features,
+                  lc::spirv::target_feature::shader_split_barrier));
+        auto facts = inspect_split_barrier_path(
+            luisa::span<const uint32_t>{compiled.spv_bin});
+        expect(facts.parse_succeeded);
+        expect(eq(facts.arrive_count, 1u));
+        expect(eq(facts.wait_count, 1u));
+        expect(facts.arrive_shape_valid);
+        expect(facts.wait_shape_valid);
+        expect(eq(facts.classic_barrier_count, 0u));
+        expect(eq(facts.capability_count, 1u));
+        expect(eq(facts.extension_count, 1u));
+    };
+
+    "spirv_split_barrier_live_requirement_survives_optimization"_test = [] {
+        // With the optimizer enabled, the capability-owned SplitBarrierEXT bit
+        // must be reconciled from the final binary and retained for a live
+        // arrive/wait pair. The vendored trim pass does not support capability
+        // 6141, so the conservative allowlist keeps every declaration intact.
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "1"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        Kernel1D ast_kernel = [](BufferUInt) noexcept {
+            sync_block();
+            split_barrier_arrive();
+            split_barrier_wait();
+        };
+        auto compiled = compile_spirv_fixture(ast_kernel);
+        expect(eq(compiled.required_features,
+                  lc::spirv::target_feature::shader_split_barrier));
+        auto facts = inspect_split_barrier_path(
+            luisa::span<const uint32_t>{compiled.words});
+        expect(facts.parse_succeeded);
+        expect(eq(facts.arrive_count, 1u));
+        expect(eq(facts.wait_count, 1u));
+        expect(facts.arrive_shape_valid);
+        expect(facts.wait_shape_valid);
+        expect(eq(facts.classic_barrier_count, 1u));
+        expect(facts.classic_shape_valid);
+        expect(eq(facts.capability_count, 1u));
+        expect(eq(facts.extension_count, 1u));
+        // The vendored trim-capabilities pass does not support capability
+        // 6141: the conservative allowlist must refuse to register it for a
+        // split-barrier module, so no declaration can be trimmed away.
+        auto report = lc::spirv::optimize_spirv(
+            compiled.words,
+            lc::spirv::spirv_optimizer_options_from_environment());
+        expect(report.attempted);
+        expect(!report.capability_trim_registered)
+            << "trim-capabilities must stay unregistered for SplitBarrierEXT";
+    };
+
+    "spirv_split_barrier_absent_without_the_ops"_test = [] {
+        // A kernel that only uses the classic barrier must remain byte-exact
+        // in its feature contract: no split-barrier capability, extension,
+        // opcodes, or required feature even with the feature enabled.
+        ScopedEnvironmentVariable optimization_level{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        Kernel1D ast_kernel = [](BufferUInt) noexcept {
+            sync_block();
+        };
+        auto compiled = compile_spirv_fixture(ast_kernel);
+        expect(eq(compiled.required_features, 0u));
+        expect(!contains(compiled.text, "OpControlBarrierArriveEXT"));
+        expect(!contains(compiled.text, "OpControlBarrierWaitEXT"));
+        expect(!contains(compiled.text, "SplitBarrierEXT"));
+        expect(!contains(compiled.text, "SPV_EXT_split_barrier"));
+        auto facts = inspect_split_barrier_path(
+            luisa::span<const uint32_t>{compiled.words});
+        expect(facts.parse_succeeded);
+        expect(eq(facts.classic_barrier_count, 1u));
+        expect(facts.classic_shape_valid);
     };
 
     "spirv_target_features_uniform_bindless_texture_indexing_is_exact"_test = [] {

@@ -656,6 +656,47 @@ void reg_xir2ast_direct() {
         expect(call_count == 1u);
     };
 
+    "xir_to_ast_roundtrips_split_barrier_operations"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.synchronize_block();
+        b.split_barrier_arrive();
+        b.split_barrier_wait();
+        b.return_void();
+        expect(xir_verify_module(&module).succeeded());
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        expect(xir_verify_module(roundtrip.get()).succeeded());
+        auto *roundtrip_kernel = first_kernel_definition(roundtrip.get());
+        expect(roundtrip_kernel != nullptr);
+        auto sync_count = 0u;
+        auto arrive_count = 0u;
+        auto wait_count = 0u;
+        for (auto *block : roundtrip_kernel->basic_blocks()) {
+            for (auto *inst : block->instructions()) {
+                if (!inst->isa<ThreadGroupInst>()) { continue; }
+                auto op = static_cast<ThreadGroupInst *>(inst)->op();
+                sync_count += op == ThreadGroupOp::SYNCHRONIZE_BLOCK;
+                arrive_count += op == ThreadGroupOp::SPLIT_BARRIER_ARRIVE;
+                wait_count += op == ThreadGroupOp::SPLIT_BARRIER_WAIT;
+                if (op == ThreadGroupOp::SPLIT_BARRIER_ARRIVE ||
+                    op == ThreadGroupOp::SPLIT_BARRIER_WAIT) {
+                    expect(inst->operand_count() == 0u);
+                    expect(inst->type() == nullptr);
+                }
+            }
+        }
+        expect(sync_count == 1u);
+        expect(arrive_count == 1u);
+        expect(wait_count == 1u);
+    };
+
     "xir_to_ast_roundtrips_fragment_depth_operations"_test = [] {
         Module module;
         auto *callable = module.create_callable(nullptr);
@@ -1525,6 +1566,50 @@ void reg_xir2ast_ast_roundtrip() {
         expect(text.find("resource_write buffer_write") != string::npos);
     };
 
+    "xir_to_ast_ast_xir_dot2add_roundtrip"_test = [] {
+        // The exact public signature (half2, half2, float) -> float must
+        // survive AST -> XIR -> AST -> XIR as one DOT2ADD instruction.
+        Kernel1D kernel = [](BufferHalf2 a, BufferHalf2 b, BufferFloat acc,
+                             BufferFloat out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, dot2add(a.read(i), b.read(i), acc.read(i)));
+        };
+        auto original = ast_to_xir_translate(kernel.function()->function(), {});
+        expect(original != nullptr);
+        if (original == nullptr) { return; }
+        expect(xir_verify_module(original.get()).succeeded());
+        xir_to_ast_normalize_module(original.get());
+        auto *def = first_kernel_definition(original.get());
+        expect(def != nullptr);
+        if (def == nullptr) { return; }
+        auto count_dot2add = [](FunctionDefinition *definition) noexcept {
+            auto count = 0u;
+            definition->traverse_instructions([&](Instruction *instruction) noexcept {
+                if (!instruction->isa<ArithmeticInst>()) { return; }
+                auto *arithmetic = static_cast<ArithmeticInst *>(instruction);
+                if (arithmetic->op() != ArithmeticOp::DOT2ADD) { return; }
+                count++;
+                expect(arithmetic->operand_count() == 3u);
+                expect(arithmetic->type() == Type::of<float>());
+                expect(arithmetic->operand(0)->type() == Type::of<half2>());
+                expect(arithmetic->operand(1)->type() == Type::of<half2>());
+                expect(arithmetic->operand(2)->type() == Type::of<float>());
+            });
+            return count;
+        };
+        expect(count_dot2add(def) == 1u);
+        auto ast = xir_to_ast_translate(*def, {});
+        expect(ast != nullptr);
+        if (ast == nullptr) { return; }
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        if (rebuilt == nullptr) { return; }
+        expect(xir_verify_module(rebuilt.get()).succeeded());
+        auto *rebuilt_def = first_kernel_definition(rebuilt.get());
+        expect(rebuilt_def != nullptr);
+        if (rebuilt_def == nullptr) { return; }
+        expect(count_dot2add(rebuilt_def) == 1u);
+    };
     "xir_to_ast_ast_xir_control_flow_roundtrip"_test = [] {
         Kernel1D kernel = [](BufferFloat buffer) {
             auto idx = dispatch_id().x;

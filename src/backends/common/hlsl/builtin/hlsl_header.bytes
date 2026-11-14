@@ -17,6 +17,16 @@ float _lc_spv_atomic_exchange([[vk::ext_reference]] float target,uint scope,uint
 #ifdef LUISA_SPV_ABORT
 namespace vk { void Abort(uint message); }
 #endif
+#ifdef LUISA_SPV_SPLIT_BARRIER
+// Compiler builtins (no definition): dxc emits OpControlBarrierArriveEXT /
+// OpControlBarrierWaitEXT in place of the call, with Workgroup execution and
+// memory scopes, Release on the arrive and Acquire on the wait.  They must
+// be called directly from the function that should contain the barrier.
+namespace vk {
+void SplitBarrierArrive();
+void SplitBarrierWait();
+}
+#endif
 #ifdef LUISA_SPV_CLUSTER_AS
 namespace vk { namespace nv {
 static const uint IntersectionCandidate = 0;

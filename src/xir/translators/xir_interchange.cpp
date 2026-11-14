@@ -7,6 +7,7 @@
 #include <type_traits>
 
 #include <luisa/ast/type.h>
+#include <luisa/ast/type_registry.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
@@ -1209,7 +1210,8 @@ constexpr std::array arithmetic_wire_ops{
     wire_op(ArithmeticOp::ERF, "erf"sv),
     wire_op(ArithmeticOp::ERFC, "erfc"sv),
     wire_op(ArithmeticOp::EXPM1, "expm1"sv),
-    wire_op(ArithmeticOp::LDEXP, "ldexp"sv)};
+    wire_op(ArithmeticOp::LDEXP, "ldexp"sv),
+    wire_op(ArithmeticOp::DOT2ADD, "dot2add"sv)};
 
 constexpr std::array atomic_wire_ops{
     wire_op(AtomicOp::EXCHANGE, "exchange"sv),
@@ -1430,7 +1432,10 @@ constexpr std::array thread_group_wire_ops{
     wire_op(ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM, "graph_node_set_grid_dim"sv),
     wire_op(ThreadGroupOp::GRAPH_NODE_SET_ENABLED, "graph_node_set_enabled"sv),
     wire_op(ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE, "grid_dependency_synchronize"sv),
-    wire_op(ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, "trigger_programmatic_launch_completion"sv)};
+    wire_op(ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, "trigger_programmatic_launch_completion"sv),
+    // Appended split workgroup barrier ops; existing wire values stay stable.
+    wire_op(ThreadGroupOp::SPLIT_BARRIER_ARRIVE, "split_barrier_arrive"sv),
+    wire_op(ThreadGroupOp::SPLIT_BARRIER_WAIT, "split_barrier_wait"sv)};
 
 template<typename Op, size_t N>
 [[nodiscard]] luisa::optional<int64_t>
@@ -3368,6 +3373,7 @@ public:
         case ArithmeticOp::LERP:
         case ArithmeticOp::SMOOTHSTEP:
         case ArithmeticOp::FMA:
+        case ArithmeticOp::DOT2ADD:
         case ArithmeticOp::FACEFORWARD: return count == 3u;
 
         case ArithmeticOp::AGGREGATE: return count > 0u;
@@ -3533,6 +3539,9 @@ public:
         case ThreadGroupOp::GRAPH_NODE_SET_ENABLED: return count == 2u;
         case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE: return count == 0u;
         case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION: return count == 0u;
+        // Split workgroup barrier (compute-only; see ThreadGroupOp).
+        case ThreadGroupOp::SPLIT_BARRIER_ARRIVE: return count == 0u;
+        case ThreadGroupOp::SPLIT_BARRIER_WAIT: return count == 0u;
     }
     return false;
 }
@@ -3877,6 +3886,13 @@ template<typename OperandSpan>
             return operands[0]->type() == operands[1]->type() &&
                    operands[0]->type()->is_float_vector() &&
                    result == operands[0]->type()->element();
+        case ArithmeticOp::DOT2ADD:
+            // The only supported shape is the HLSL `dot2add` intrinsic:
+            // (half2 a, half2 b, float acc) -> float.
+            return result == Type::of<float>() &&
+                   operands[0]->type() == Type::of<half2>() &&
+                   operands[1]->type() == Type::of<half2>() &&
+                   operands[2]->type() == Type::of<float>();
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
             return operands[0]->type()->is_float_vector() &&
@@ -4750,6 +4766,10 @@ template<typename OperandSpan>
                            operands[1]->type()->is_bool();
                 case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE:
                 case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION:
+                    return type == nullptr;
+                // Split workgroup barrier halves: no operands, no result.
+                case ThreadGroupOp::SPLIT_BARRIER_ARRIVE:
+                case ThreadGroupOp::SPLIT_BARRIER_WAIT:
                     return type == nullptr;
             }
             return false;

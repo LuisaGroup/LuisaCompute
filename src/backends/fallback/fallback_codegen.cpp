@@ -3619,6 +3619,15 @@ private:
             b.SetInsertPoint(llvm_coro_resume_block);
             return nullptr;
         }
+        // Split workgroup barriers are a Vulkan-only shader feature
+        // (SPV_EXT_split_barrier). The CPU coroutine scheduler must not
+        // silently degrade them to a full barrier or a no-op.
+        if (inst->op() == xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE ||
+            inst->op() == xir::ThreadGroupOp::SPLIT_BARRIER_WAIT) {
+            LUISA_ERROR_WITH_LOCATION(
+                "Split workgroup barriers (SPLIT_BARRIER_ARRIVE/WAIT) are not "
+                "supported by the fallback backend.");
+        }
         LUISA_NOT_IMPLEMENTED();
     }
 

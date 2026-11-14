@@ -123,6 +123,7 @@ LC_VK_OPTIONAL_EXTENSION_SWITCH(tile_memory_heap_qcom, enable_tile_memory_heap_q
 LC_VK_OPTIONAL_EXTENSION_SWITCH(partitioned_acceleration_structure, enable_partitioned_acceleration_structure)
 LC_VK_OPTIONAL_EXTENSION_SWITCH(ray_tracing_linear_swept_spheres, enable_ray_tracing_linear_swept_spheres)
 LC_VK_OPTIONAL_EXTENSION_SWITCH(dense_geometry_format, enable_dense_geometry_format)
+LC_VK_OPTIONAL_EXTENSION_SWITCH(shader_mixed_float_dot_product, enable_shader_mixed_float_dot_product)
 
 #undef LC_VK_OPTIONAL_EXTENSION_SWITCH
 
@@ -566,6 +567,16 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
      check_single_bit<VkPhysicalDeviceDenseGeometryFormatFeaturesAMDX,
                       &VkPhysicalDeviceDenseGeometryFormatFeaturesAMDX::denseGeometryFormat>},
 #endif
+    {OptionalExtension::SHADER_MIXED_FLOAT_DOT_PRODUCT,
+     VK_VALVE_SHADER_MIXED_FLOAT_DOT_PRODUCT_EXTENSION_NAME, nullptr, nullptr,
+     requested_shader_mixed_float_dot_product,
+     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MIXED_FLOAT_DOT_PRODUCT_FEATURES_VALVE,
+     make_feature_of<VkPhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE,
+                     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_MIXED_FLOAT_DOT_PRODUCT_FEATURES_VALVE>,
+     // Only the FP16-input/FP32-accumulator pair is negotiated: it is the only
+     // shape HLSL's `dot2add` can express.
+     check_single_bit<VkPhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE,
+                      &VkPhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE::shaderMixedFloatDotProductFloat16AccFloat32>},
 };
 
 inline constexpr size_t descriptor_count =

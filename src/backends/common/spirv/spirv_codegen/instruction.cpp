@@ -1386,9 +1386,23 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::RINT:
             id = glsl(GLSLstd450RoundEven, operand(0));
             break;
-        case xir::ArithmeticOp::FMA:
-            id = glsl(GLSLstd450Fma, operand(0), operand(1), operand(2));
+        case xir::ArithmeticOp::FMA: {
+            auto is_float32 = t->is_float32() ||
+                              (t->is_vector() && t->element()->is_float32());
+            if (is_float32 && _target_features.shader_fma_float32) {
+                _require_target_feature(
+                    target_feature::shader_fma_float32,
+                    _target_features.shader_fma_float32);
+                _builder.addExtension("SPV_KHR_fma");
+                _builder.addCapability(spv::Capability::FMAKHR);
+                id = _builder.createTriOp(
+                    spv::Op::OpFmaKHR, type,
+                    operand(0), operand(1), operand(2));
+            } else {
+                id = glsl(GLSLstd450Fma, operand(0), operand(1), operand(2));
+            }
             break;
+        }
         case xir::ArithmeticOp::COPYSIGN:
             id = copy_float_sign(operand(0), operand(1));
             break;
@@ -1398,6 +1412,55 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::DOT:
             id = emit_dot(operand(0), operand(1), operand_type(0));
             break;
+        case xir::ArithmeticOp::DOT2ADD: {
+            // The dialect handoff verified the exact public signature
+            // (half2 a, half2 b, float acc) -> float.
+            LUISA_ASSERT(
+                inst->operand_count() == 3u &&
+                    t == Type::of<float>() &&
+                    inst->operand(0)->type() == Type::of<half2>() &&
+                    inst->operand(1)->type() == Type::of<half2>() &&
+                    inst->operand(2)->type() == Type::of<float>(),
+                "SPIR-V dot2add requires the exact (half2, half2, float) -> float signature.");
+            auto a = operand(0);
+            auto b = operand(1);
+            auto acc = operand(2);
+            if (_target_features.shader_mixed_float_dot_product_float16_acc_float32) {
+                // Fused VALVE form: one OpFDot2MixAcc32VALVE with a float
+                // result, half2 vectors, and a float accumulator. The
+                // requirement is capability-owned (DotProductFloat16AccFloat32VALVE),
+                // so it is recorded here and reconciled against the final
+                // binary after optimization.
+                _require_target_feature(
+                    target_feature::shader_mixed_float_dot_product_float16_acc_float32,
+                    _target_features.shader_mixed_float_dot_product_float16_acc_float32);
+                _builder.addExtension("SPV_VALVE_mixed_float_dot_product");
+                _builder.addCapability(
+                    spv::Capability::DotProductFloat16AccFloat32VALVE);
+                id = _builder.createOp(
+                    spv::Op::OpFDot2MixAcc32VALVE, type, {a, b, acc});
+            } else {
+                // DXC-equivalent unfused semantics: the two products are
+                // computed and rounded in half, widened to float2, then
+                // accumulated in float with ordered adds (x + y, then + acc).
+                // NoContraction on every multiply/add keeps the fallback from
+                // silently re-fusing when fast math is off.
+                auto half_scalar_type = _builder.makeFloatType(16);
+                auto half2_type = _builder.makeVectorType(half_scalar_type, 2);
+                auto float2_type = _builder.makeVectorType(type, 2);
+                auto products = mark_no_contraction(
+                    _builder.createBinOp(spv::Op::OpFMul, half2_type, a, b));
+                auto wide = _builder.createUnaryOp(
+                    spv::Op::OpFConvert, float2_type, products);
+                auto x = _builder.createCompositeExtract(wide, type, 0u);
+                auto y = _builder.createCompositeExtract(wide, type, 1u);
+                auto sum = mark_no_contraction(
+                    _builder.createBinOp(spv::Op::OpFAdd, type, x, y));
+                id = mark_no_contraction(
+                    _builder.createBinOp(spv::Op::OpFAdd, type, sum, acc));
+            }
+            break;
+        }
         case xir::ArithmeticOp::LENGTH: {
             // Lower to native SPIR-V: sqrt(dot(v, v)). The native form lets
             // downstream optimizers CSE the dot product with sibling
@@ -5066,6 +5129,37 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
             _builder.createControlBarrier(spv::Scope::Workgroup, spv::Scope::Workgroup,
                                           spv::MemorySemanticsMask::WorkgroupMemory |
                                               spv::MemorySemanticsMask::AcquireRelease);
+            break;
+        }
+        case xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE:
+        case xir::ThreadGroupOp::SPLIT_BARRIER_WAIT: {
+            // SPV_EXT_split_barrier: the arrive publishes this invocation's
+            // workgroup-memory writes (Release) and the wait acquires the
+            // other invocations' published writes (Acquire). Both cover
+            // exactly the memory of the classic workgroup barrier above:
+            // execution scope Workgroup, memory scope Workgroup, semantics
+            // WorkgroupMemory plus the one-sided memory order. Pairing and
+            // uniform control flow remain the caller's responsibility.
+            // The requirement is capability-owned (SplitBarrierEXT), so it is
+            // recorded here and reconciled against the final binary after
+            // optimization; a device without the feature fails closed.
+            _require_target_feature(
+                target_feature::shader_split_barrier,
+                _target_features.shader_split_barrier);
+            _builder.addExtension("SPV_EXT_split_barrier");
+            _builder.addCapability(spv::Capability::SplitBarrierEXT);
+            // The dedicated builder helper emits the result-less three-id
+            // form (execution scope, memory scope, semantics); the generic
+            // createOp path would allocate a result id these ops must not have.
+            _builder.createSplitControlBarrier(
+                inst->op() == xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE ?
+                    spv::Op::OpControlBarrierArriveEXT :
+                    spv::Op::OpControlBarrierWaitEXT,
+                spv::Scope::Workgroup, spv::Scope::Workgroup,
+                spv::MemorySemanticsMask::WorkgroupMemory |
+                    (inst->op() == xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE ?
+                         spv::MemorySemanticsMask::Release :
+                         spv::MemorySemanticsMask::Acquire));
             break;
         }
         case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE: {

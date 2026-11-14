@@ -55,6 +55,9 @@ enum class ShaderCapability : uint32_t {
     CONSTANT_DATA,
     // VK_KHR_shader_abort: OpAbortKHR.
     ABORT,
+    // VK_VALVE_shader_mixed_float_dot_product: OpFDot2MixAcc32VALVE
+    // (FP16 inputs, FP32 accumulator).
+    MIXED_FLOAT_DOT_PRODUCT,
     COUNT
 };
 
@@ -103,7 +106,10 @@ inline constexpr std::array shader_capability_declarations{
                                 spirv::target_feature::shader_constant_data},
     ShaderCapabilityDeclaration{ShaderCapability::ABORT,
                                 "VK_KHR_shader_abort",
-                                spirv::target_feature::shader_abort}};
+                                spirv::target_feature::shader_abort},
+    ShaderCapabilityDeclaration{ShaderCapability::MIXED_FLOAT_DOT_PRODUCT,
+                                "VK_VALVE_shader_mixed_float_dot_product",
+                                spirv::target_feature::shader_mixed_float_dot_product_float16_acc_float32}};
 
 // One OpCapability an enabled capability may need.
 //
@@ -175,7 +181,12 @@ inline constexpr std::array shader_spirv_capability_declarations{
                                      "ConstantDataKHR"},
     // SPV_KHR_abort: OpAbortKHR.
     ShaderSpirvCapabilityDeclaration{ShaderCapability::ABORT,
-                                     "SPV_KHR_abort", 5120u, "AbortKHR"}};
+                                     "SPV_KHR_abort", 5120u, "AbortKHR"},
+    // SPV_VALVE_mixed_float_dot_product: OpFDot2MixAcc32VALVE. The backend
+    // negotiates shaderMixedFloatDotProductFloat16AccFloat32 only.
+    ShaderSpirvCapabilityDeclaration{ShaderCapability::MIXED_FLOAT_DOT_PRODUCT,
+                                     "SPV_VALVE_mixed_float_dot_product", 6912u,
+                                     "DotProductFloat16AccFloat32VALVE"}};
 
 // Declaration of exactly one capability. `ShaderCapability::COUNT` is not a
 // capability; it falls back to the first row instead of inventing an entry.
@@ -203,6 +214,7 @@ struct ShaderExtensionAvailability {
     bool ocp_microscaling_types{false};
     bool constant_data{false};
     bool abort{false};
+    bool mixed_float_dot_product{false};
 
     [[nodiscard]] constexpr bool enabled(
         ShaderCapability capability) const noexcept {
@@ -219,6 +231,8 @@ struct ShaderExtensionAvailability {
                 return ocp_microscaling_types;
             case ShaderCapability::CONSTANT_DATA: return constant_data;
             case ShaderCapability::ABORT: return abort;
+            case ShaderCapability::MIXED_FLOAT_DOT_PRODUCT:
+                return mixed_float_dot_product;
             case ShaderCapability::COUNT: break;
         }
         return false;

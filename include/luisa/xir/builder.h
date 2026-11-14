@@ -189,6 +189,8 @@ public:
     ThreadGroupInst *shader_execution_reorder() noexcept;
     ThreadGroupInst *shader_execution_reorder(Value *hint, Value *hint_bits) noexcept;
     ThreadGroupInst *synchronize_block() noexcept;
+    ThreadGroupInst *split_barrier_arrive() noexcept;
+    ThreadGroupInst *split_barrier_wait() noexcept;
     ThreadGroupInst *raster_quad_ddx(const Type *type, Value *value) noexcept;
     ThreadGroupInst *raster_quad_ddy(const Type *type, Value *value) noexcept;
 };

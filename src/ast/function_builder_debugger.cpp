@@ -97,8 +97,9 @@
 //   * RASTER_DISCARD/RASTER_SET_Z_DEPTH: raster-stage functions are rejected
 //     by the transform in v1.
 //   * COOPERATIVE_*, ASYNC_COPY, PIPELINE_COMMIT/WAIT_PRIOR,
-//     CLUSTER_LAUNCH_CONTROL_*, MBARRIER_*, FENCE_PROXY_ASYNC_*: expert
-//     paths; functions using them are rejected with a clear error.
+//     CLUSTER_LAUNCH_CONTROL_*, MBARRIER_*, FENCE_PROXY_ASYNC_*,
+//     SPLIT_BARRIER_ARRIVE/WAIT: expert paths; functions using them are
+//     rejected with a clear error.
 //
 // ============================================================================
 // Phase 2 — transform algorithm
@@ -550,6 +551,12 @@ private:
         reject(CallOp::BARRIER_CLUSTER_ARRIVE_RELAXED, "cluster barrier");
         reject(CallOp::BARRIER_CLUSTER_WAIT, "cluster barrier");
         reject(CallOp::BARRIER_CLUSTER_WAIT_ACQUIRE, "cluster barrier");
+        // Split workgroup barrier: the transform may hoist guards and
+        // temporaries between statements, which could insert instrumentation
+        // between the arrive and its matching wait (or duplicate one half
+        // along a guarded path) and break the caller's uniform pairing.
+        reject(CallOp::SPLIT_BARRIER_ARRIVE, "split workgroup barrier");
+        reject(CallOp::SPLIT_BARRIER_WAIT, "split workgroup barrier");
         // Device-side CUDA graph control: the debug transform cannot instrument
         // host-graph mutation or device-side launches.
         reject(CallOp::GRAPH_SET_CONDITIONAL, "device-side CUDA graph control");

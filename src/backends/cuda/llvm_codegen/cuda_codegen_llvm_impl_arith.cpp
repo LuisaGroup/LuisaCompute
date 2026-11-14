@@ -906,6 +906,10 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
         case xir::ArithmeticOp::SHUFFLE: return _translate_shuffle(b, func_ctx, inst);
         case xir::ArithmeticOp::INSERT: return _translate_insert(b, func_ctx, inst);
         case xir::ArithmeticOp::EXTRACT: return _translate_extract(b, func_ctx, inst);
+        case xir::ArithmeticOp::DOT2ADD:
+            // The mixed-precision dot2add intrinsic is implemented only by the
+            // HLSL and native SPIR-V routes; no CUDA emulation is provided.
+            LUISA_ERROR_WITH_LOCATION("DOT2ADD is not supported by the CUDA XIR-to-LLVM backend.");
     }
     LUISA_NOT_IMPLEMENTED();
 }

@@ -673,10 +673,29 @@ enum struct CallOp : uint32_t {
     // structure; for ordinary triangle geometry the result is undefined (the
     // compiler cannot know how the acceleration structure was built).
     RAY_QUERY_CLUSTER_ID,// (RayQuery, uint selector): uint
+
+    // Appended to preserve every existing public CallOp value.
+    // Mixed-precision two-element dot product with accumulation:
+    // a.x * b.x + a.y * b.y + acc, on FP16 inputs with an FP32 accumulator.
+    // HLSL lowers it to the `dot2add` intrinsic (DXIL, and SPIR-V through dxc:
+    // OpFDot2MixAcc32VALVE with SPV_VALVE_mixed_float_dot_product when the
+    // device negotiated it, otherwise dxc's unfused half-product/FP32-add
+    // sequence). The exact signature is the only supported shape.
+    DOT2ADD,// (half2 a, half2 b, float acc): float
+
+    // Split workgroup barrier (SPV_EXT_split_barrier /
+    // VK_EXT_shader_split_barrier), Vulkan compute only.  The arrive is a
+    // Release on Workgroup execution / Workgroup memory; the wait is the
+    // matching Acquire.  Between them an invocation may run work that does
+    // not depend on the rest of the group.  Both take no arguments and
+    // return void; pairing and uniform control flow are the caller's
+    // responsibility (see split_barrier_arrive/split_barrier_wait in the DSL).
+    SPLIT_BARRIER_ARRIVE,// (): void
+    SPLIT_BARRIER_WAIT,  // (): void
 };
 
 static constexpr size_t call_op_count =
-    to_underlying(CallOp::RAY_QUERY_CLUSTER_ID) + 1u;
+    to_underlying(CallOp::SPLIT_BARRIER_WAIT) + 1u;
 
 [[nodiscard]] constexpr auto is_builtin_operation(CallOp op) noexcept {
     return op != CallOp::CUSTOM && op != CallOp::EXTERNAL;
@@ -1004,6 +1023,6 @@ public:
 
   };// namespace luisa::compute
 
-  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, RAY_QUERY_CLUSTER_ID)
+  LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, SPLIT_BARRIER_WAIT)
 
 #endif// LUISA_AST_OP_H

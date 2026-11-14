@@ -453,6 +453,9 @@ namespace detail {
                    reject("value contains a type that AIR SIMD broadcast cannot legalize");
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK:
             return group->operand_count() == 0u || reject("expected no operands");
+        case xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE: [[fallthrough]];
+        case xir::ThreadGroupOp::SPLIT_BARRIER_WAIT:
+            return reject("split workgroup barriers are a Vulkan-only shader feature; AIR provides no arrive/wait emulation");
     }
     return reject("unknown operation");
 }

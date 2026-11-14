@@ -1287,6 +1287,10 @@ namespace detail {
         case ArithmeticOp::MATRIX_INVERSE:
         case ArithmeticOp::CROSS:
         case ArithmeticOp::DOT:
+        // DOT2ADD mixes half products with a float accumulator; the fused
+        // VALVE form and the unfused fallback round differently, so host
+        // evaluation would pick one target's numerics before a target exists.
+        case ArithmeticOp::DOT2ADD:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::NORMALIZE:

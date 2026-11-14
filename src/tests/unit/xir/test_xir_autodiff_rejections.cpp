@@ -1,7 +1,8 @@
 // Host-only fatal-rejection test for the XIR autodiff pass.
 //
 // Feature under test: the elementary special functions added to the XIR
-// ArithmeticOp enum (ERF, ERFC, EXPM1, LDEXP) have no derivative rule, so both
+// ArithmeticOp enum (ERF, ERFC, EXPM1, LDEXP) and the mixed-precision DOT2ADD
+// have no derivative rule, so both
 // autodiff directions must reject them with a named, fatal diagnostic instead of
 // silently producing a wrong gradient:
 //   reverse mode: "Unsupported reverse-mode autodiff arithmetic operation <op>."
@@ -64,6 +65,7 @@ constexpr std::string_view child_probe = "--autodiff-probe";
     if (name == "erfc") { return ArithmeticOp::ERFC; }
     if (name == "expm1") { return ArithmeticOp::EXPM1; }
     if (name == "ldexp") { return ArithmeticOp::LDEXP; }
+    if (name == "dot2add") { return ArithmeticOp::DOT2ADD; }
     if (name == "sin") { return ArithmeticOp::SIN; }
     LUISA_ERROR("Unknown autodiff probe op '{}'.", name);
 }
@@ -80,6 +82,15 @@ constexpr std::string_view child_probe = "--autodiff-probe";
         case ArithmeticOp::LDEXP: return builder.call(
             Type::of<float>(), op,
             {x, module.create_constant_one(Type::of<int32_t>())});
+        case ArithmeticOp::DOT2ADD: {
+            // The exact (half2, half2, float) -> float signature; the float
+            // probe value is widened and packed into the half2 lanes.
+            auto half_type = Type::of<half>();
+            auto lane = builder.static_cast_(half_type, x);
+            auto packed = builder.call(
+                Type::of<half2>(), ArithmeticOp::AGGREGATE, {lane, lane});
+            return builder.call(Type::of<float>(), op, {packed, packed, x});
+        }
         default: break;
     }
     LUISA_ERROR("Not a probe op.");
@@ -150,7 +161,7 @@ void build_forward_mode_probe(Module &module, ArithmeticOp op,
 
 [[nodiscard]] int run_autodiff_probe(int argc, char *argv[]) noexcept {
     if (argc < 4 || argv[2] == nullptr || argv[3] == nullptr) {
-        LUISA_ERROR("Usage: {} {} <erf|erfc|expm1|ldexp|sin> <reverse|forward>.",
+        LUISA_ERROR("Usage: {} {} <erf|erfc|expm1|ldexp|dot2add|sin> <reverse|forward>.",
                     argc > 0 ? argv[0] : "test_xir_autodiff_rejections",
                     child_probe);
     }
@@ -245,8 +256,8 @@ int main(int argc, char *argv[]) {
             << result.text;
     };
 
-    "autodiff_reverse_mode_rejects_the_four_ops"_test = [&] {
-        for (auto op : {"erf", "erfc", "expm1", "ldexp"}) {
+    "autodiff_reverse_mode_rejects_the_derivative_free_ops"_test = [&] {
+        for (auto op : {"erf", "erfc", "expm1", "ldexp", "dot2add"}) {
             auto log_path = log_directory / luisa::format("reverse_{}.log", op);
             auto result = run_autodiff_child(executable_path, op, "reverse", log_path);
             expect(result.status != 0)
@@ -262,8 +273,8 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    "autodiff_forward_mode_rejects_the_four_ops"_test = [&] {
-        for (auto op : {"erf", "erfc", "expm1", "ldexp"}) {
+    "autodiff_forward_mode_rejects_the_derivative_free_ops"_test = [&] {
+        for (auto op : {"erf", "erfc", "expm1", "ldexp", "dot2add"}) {
             auto log_path = log_directory / luisa::format("forward_{}.log", op);
             auto result = run_autodiff_child(executable_path, op, "forward", log_path);
             expect(result.status != 0)

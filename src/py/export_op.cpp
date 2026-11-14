@@ -93,6 +93,7 @@ void export_op(py::module &m) {
         .value("ERFC", CallOp::ERFC)
         .value("EXPM1", CallOp::EXPM1)
         .value("LDEXP", CallOp::LDEXP)
+        .value("DOT2ADD", CallOp::DOT2ADD)
 
         .value("SQRT", CallOp::SQRT)
         .value("RSQRT", CallOp::RSQRT)
@@ -122,6 +123,8 @@ void export_op(py::module &m) {
         .value("INVERSE", CallOp::INVERSE)
 
         .value("SYNCHRONIZE_BLOCK", CallOp::SYNCHRONIZE_BLOCK)
+        .value("SPLIT_BARRIER_ARRIVE", CallOp::SPLIT_BARRIER_ARRIVE)
+        .value("SPLIT_BARRIER_WAIT", CallOp::SPLIT_BARRIER_WAIT)
 
         .value("ATOMIC_EXCHANGE", CallOp::ATOMIC_EXCHANGE)                /// [(atomic_ref, desired) -> old]: stores desired, returns old.
         .value("ATOMIC_COMPARE_EXCHANGE", CallOp::ATOMIC_COMPARE_EXCHANGE)/// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.

@@ -129,6 +129,12 @@ ResourceCreationInfo VkRasterExt::create_raster_shader(
       // feature, not a shader-capability opt-in.
       spirv_capabilities.cluster_acceleration_structure =
           _device->enable_cluster_acceleration_structure();
+      // Same device decision as Device::_create_shader_hlsl: maintenance9 only
+      // relaxes the bitwise operand width, so it follows the negotiated
+      // extension rather than an artifact-feature bit.
+      spirv_capabilities.maintenance9_bitwise =
+          _device->optional_extension_enabled(
+              detail::OptionalExtension::MAINTENANCE9);
       auto code = hlsl::CodegenUtility{}.RasterCodegen(
           vert, pixel, option.native_include, mask, true, false,
           option.enable_debug_info, option.enable_fast_math,

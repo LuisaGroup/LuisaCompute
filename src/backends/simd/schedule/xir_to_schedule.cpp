@@ -154,7 +154,13 @@ struct CFGEdgeHash {
         case Tag::ASSUME:
         case Tag::OUTLINE: return true;
         case Tag::THREAD_GROUP: {
-            return true;
+            auto op = static_cast<const xir::ThreadGroupInst *>(instruction)->op();
+            // Split workgroup barriers are a Vulkan-only shader feature
+            // (SPV_EXT_split_barrier). Classifying them as warp collectives
+            // would defer the failure to packet emission and misstate their
+            // block-wide semantics; reject them at the lowering boundary.
+            return op != xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE &&
+                   op != xir::ThreadGroupOp::SPLIT_BARRIER_WAIT;
         }
         default: return false;
     }
@@ -511,10 +517,14 @@ private:
                                "' is not supported by the Phase 1 SIMD lowering";
                 if (tag == xir::DerivedInstructionTag::CALL) {
                     message += "; run the XIR inline pass first";
-                } else if (tag ==
-                           xir::DerivedInstructionTag::THREAD_GROUP) {
+                } else if (tag == xir::DerivedInstructionTag::THREAD_GROUP) {
+                    auto group_op =
+                        static_cast<const xir::ThreadGroupInst *>(instruction)->op();
                     message +=
-                        "; block barriers require cooperative-block scheduling";
+                        group_op == xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE ||
+                                group_op == xir::ThreadGroupOp::SPLIT_BARRIER_WAIT ?
+                            "; split workgroup barriers are a Vulkan-only shader feature with no CPU emulation" :
+                            "; block barriers require cooperative-block scheduling";
                 } else if (is_structured_control(tag)) {
                     message += "; run destructure_cfg first";
                 }

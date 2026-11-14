@@ -579,8 +579,8 @@ instruction 4 2 return "void" -1 1 3 0 }
         expect(unknown.diagnostics.front().line > 0u);
 
         // The legacy numeric form indexes the frozen zero-based op table, which
-        // currently ends at 96 (ldexp); 93 used to be out of range until erf,
-        // erfc, expm1 and ldexp were appended as 93..96. Use a value that stays
+        // currently ends at 97 (dot2add); 93 used to be out of range until erf,
+        // erfc, expm1, ldexp and dot2add were appended as 93..97. Use a value that stays
         // outside the table: the property under test is "an index that has no
         // op is rejected with a located diagnostic", not the bound itself.
         constexpr auto invalid_legacy = R"(
@@ -727,6 +727,12 @@ void reg_vulkan_priority_instruction_validation() {
             MalformedCase{R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 0 blocks 2 block 1 block 2 body 1 instructions 3 instruction 3 1 thread_group "void" shader_execution_reorder 2 1 2 0 instruction 4 1 return "void" -1 1 -1 0 instruction 5 2 return "void" -1 1 -1 0 } })",
                           "XIR instruction operands or result type do not match its operation."},
             MalformedCase{R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 1 argument 1 value "int" blocks 1 block 2 body 2 instructions 1 instruction 3 2 break "void" -1 1 1 0 } })",
+                          "XIR instruction operands or result type do not match its operation."},
+            // Split-barrier halves take no operands...
+            MalformedCase{R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 1 argument 1 value "uint" blocks 1 block 2 body 2 instructions 2 instruction 3 2 thread_group "void" split_barrier_arrive 1 1 0 instruction 4 2 return "void" -1 1 -1 0 } })",
+                          "XIR instruction has an invalid operand, auxiliary, or opcode layout."},
+            // ...and return void.
+            MalformedCase{R"(xir.text 1 module { globals 0 functions 1 function 0 callable "void" 0 0 0 { arguments 0 blocks 1 block 1 body 1 instructions 2 instruction 2 1 thread_group "uint" split_barrier_wait 0 0 instruction 3 1 return "void" -1 1 -1 0 } })",
                           "XIR instruction operands or result type do not match its operation."}};
         for (auto &&test_case : malformed) {
             auto decoded = xir_from_interchange_text(test_case.text);
@@ -753,6 +759,63 @@ void reg_vulkan_priority_instruction_validation() {
         expect(!encoded.succeeded());
         expect(encoded.text.empty());
         expect(!encoded.diagnostics.empty());
+    };
+}
+
+void reg_split_barrier_round_trip() {
+    "xir_interchange_split_barrier_round_trip"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+        auto *body = kernel->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.synchronize_block();
+        builder.split_barrier_arrive();
+        builder.split_barrier_wait();
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+
+        auto encoded = xir_to_interchange_text(&module);
+        expect(encoded.succeeded());
+        if (!encoded.succeeded()) { return; }
+        expect(encoded.text.find("thread_group \"void\" synchronize_block") != luisa::string::npos);
+        expect(encoded.text.find("thread_group \"void\" split_barrier_arrive") != luisa::string::npos);
+        expect(encoded.text.find("thread_group \"void\" split_barrier_wait") != luisa::string::npos);
+
+        auto decoded = xir_from_interchange_text(encoded.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        expect(xir_verify_module(decoded.module.get()).succeeded());
+        auto arrive_count = 0u;
+        auto wait_count = 0u;
+        auto sync_count = 0u;
+        for (auto *function : decoded.module->function_list()) {
+            for (auto *block : function->basic_blocks()) {
+                for (auto *instruction : block->instructions()) {
+                    if (!instruction->isa<ThreadGroupInst>()) { continue; }
+                    auto op = static_cast<ThreadGroupInst *>(instruction)->op();
+                    arrive_count += op == ThreadGroupOp::SPLIT_BARRIER_ARRIVE;
+                    wait_count += op == ThreadGroupOp::SPLIT_BARRIER_WAIT;
+                    sync_count += op == ThreadGroupOp::SYNCHRONIZE_BLOCK;
+                }
+            }
+        }
+        expect(arrive_count == 1u);
+        expect(wait_count == 1u);
+        expect(sync_count == 1u);
+        auto canonical_again = xir_to_interchange_text(decoded.module.get());
+        expect(canonical_again.succeeded());
+        expect(canonical_again.text == encoded.text);
+
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        auto decoded_bitcode = xir_from_bitcode(bitcode.bitcode);
+        expect(decoded_bitcode.succeeded());
+        if (!decoded_bitcode.succeeded()) { return; }
+        auto bitcode_text = xir_to_interchange_text(decoded_bitcode.module.get());
+        expect(bitcode_text.succeeded());
+        expect(bitcode_text.text == encoded.text);
     };
 }
 
@@ -2087,6 +2150,62 @@ void reg_instruction_type_validation() {
             << "the bitcode path must preserve the same wire names";
     };
 
+    "xir_interchange_dot2add_wire_round_trip"_test = [] {
+        // DOT2ADD was appended after LDEXP, so the frozen zero-based wire
+        // table must name it "dot2add" at its own index and keep the exact
+        // (half2, half2, float) -> float shape through text and bitcode.
+        Module module;
+        auto float_type = Type::of<float>();
+        auto half2_type = Type::of<half2>();
+        auto callable = module.create_callable(nullptr);
+        auto a = callable->create_value_argument(half2_type);
+        auto b = callable->create_value_argument(half2_type);
+        auto acc = callable->create_value_argument(float_type);
+        auto body = callable->create_body_block();
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        builder.call(float_type, ArithmeticOp::DOT2ADD, {a, b, acc});
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+        auto text = xir_to_interchange_text(&module);
+        expect(text.succeeded());
+        if (!text.succeeded()) { return; }
+        expect(text.text.find("arithmetic \"float\" dot2add") !=
+               luisa::string::npos)
+            << "the wire text must name the appended operation 'dot2add'";
+        auto decoded = xir_from_interchange_text(text.text);
+        expect(decoded.succeeded());
+        if (!decoded.succeeded()) { return; }
+        expect(xir_verify_module(decoded.module.get()).succeeded());
+        auto *decoded_body =
+            decoded.module->function_list().front()->definition()->body_block();
+        auto *first = decoded_body->instructions().front();
+        expect(first->isa<ArithmeticInst>());
+        if (!first->isa<ArithmeticInst>()) { return; }
+        auto *dot2add = static_cast<ArithmeticInst *>(first);
+        expect(dot2add->op() == ArithmeticOp::DOT2ADD);
+        expect(dot2add->operand_count() == 3u);
+        expect(dot2add->type() == float_type);
+        expect(dot2add->operand(0)->type() == half2_type);
+        expect(dot2add->operand(1)->type() == half2_type);
+        expect(dot2add->operand(2)->type() == float_type);
+        auto reencoded = xir_to_interchange_text(decoded.module.get());
+        expect(reencoded.succeeded());
+        if (!reencoded.succeeded()) { return; }
+        expect(reencoded.text == text.text);
+        auto bitcode = xir_to_bitcode(&module);
+        expect(bitcode.succeeded());
+        if (!bitcode.succeeded()) { return; }
+        auto decoded_bitcode = xir_from_bitcode(bitcode.bitcode);
+        expect(decoded_bitcode.succeeded());
+        if (!decoded_bitcode.succeeded()) { return; }
+        auto bitcode_text = xir_to_interchange_text(decoded_bitcode.module.get());
+        expect(bitcode_text.succeeded());
+        if (!bitcode_text.succeeded()) { return; }
+        expect(bitcode_text.text == text.text)
+            << "the bitcode path must preserve the same wire name and shape";
+    };
+
     "xir_interchange_malformed_instruction_types_rejected"_test = [] {
         constexpr std::array<luisa::string_view, 15u> malformed{
             // Arithmetic result and operand types must agree.
@@ -3036,6 +3155,7 @@ int main(int argc, char *argv[]) {
     reg_symbolic_op_tokens_and_compatibility();
     reg_vulkan_priority_instruction_round_trip();
     reg_vulkan_priority_instruction_validation();
+    reg_split_barrier_round_trip();
     reg_strict_atomic_validation();
     reg_strict_operand_and_resource_validation();
     reg_interchange_safety_validation();

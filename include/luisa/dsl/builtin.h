@@ -1356,6 +1356,23 @@ template<typename X, typename Y, typename Z>
         std::forward<Z>(z));
 }
 
+/// Mixed-precision dot product with accumulation: a.x * b.x + a.y * b.y + acc.
+/// The only supported shape is (half2, half2, float) -> float, the HLSL
+/// `dot2add` intrinsic. On a Vulkan device that negotiated
+/// VK_VALVE_shader_mixed_float_dot_product the fused VALVE form
+/// (OpFDot2MixAcc32VALVE) rounds exactly once; without the extension the
+/// fallback follows DXC's semantics: the two products are rounded to half,
+/// then widened and accumulated in FP32 (several roundings).
+template<typename A, typename B, typename Acc>
+    requires any_dsl_v<A, B, Acc> &&
+             is_same_expr_v<A, half2> && is_same_expr_v<B, half2> &&
+             is_same_expr_v<Acc, float>
+[[nodiscard]] inline Float dot2add(A &&a, B &&b, Acc &&acc) noexcept {
+    return def<float>(detail::FunctionBuilder::current()->call(
+        Type::of<float>(), CallOp::DOT2ADD,
+        {LUISA_EXPR(a), LUISA_EXPR(b), LUISA_EXPR(acc)}));
+}
+
 /// Saturate. Equals to clamp(v, 0, 1)
 template<typename Tv>
     requires is_dsl_v<Tv> && is_floating_point_or_vector_expr_v<Tv>
@@ -2127,6 +2144,33 @@ template<typename T>
 inline void sync_block() noexcept {
     detail::FunctionBuilder::current()->call(
         CallOp::SYNCHRONIZE_BLOCK, {});
+}
+
+/// Arrive half of a split workgroup barrier (Vulkan only:
+/// VK_EXT_shader_split_barrier / SPV_EXT_split_barrier, compute stages).
+/// Execution and memory scope are Workgroup, and the arrive carries the
+/// Release memory order: shared-memory writes issued before it become
+/// visible to the other invocations after their matching
+/// split_barrier_wait().  The arrive does not wait for other invocations, so
+/// independent work that does not read another invocation's shared-memory
+/// writes may run between the arrive and the wait.  Every invocation of
+/// the group must execute the arrive and the wait exactly once, in uniform
+/// control flow, with the wait dominated by the arrive; the pairing is the
+/// programmer's responsibility and is not validated.  Devices without the
+/// extension (and every non-Vulkan backend, including DXIL) reject the
+/// operation instead of silently degrading it to sync_block() or a no-op.
+inline void split_barrier_arrive() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::SPLIT_BARRIER_ARRIVE, {});
+}
+
+/// Wait half of a split workgroup barrier; see split_barrier_arrive().
+/// Execution and memory scope are Workgroup with the Acquire memory order:
+/// after it, shared-memory writes published by the other invocations
+/// before their arrive are visible to this invocation.
+inline void split_barrier_wait() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::SPLIT_BARRIER_WAIT, {});
 }
 
 // CUDA graph device control (CUDA device runtime)

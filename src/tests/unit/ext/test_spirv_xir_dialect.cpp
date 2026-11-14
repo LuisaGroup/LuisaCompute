@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
 
     "spirv_xir_dialect_matrix_is_complete_and_fails_closed"_test = [] {
         expect_complete_matrix(AllocaOp::SHARED, 0u);
-        expect_complete_matrix(ArithmeticOp::LDEXP, 3u);
+        expect_complete_matrix(ArithmeticOp::DOT2ADD, 3u);
         // The three unary special functions have no GLSL.std.450 instruction, so the
         // native route must fail closed with a reason that names the boundary; the
         // count above alone would also accept e.g. "ERF supported, EXTRACT not".
@@ -244,6 +244,14 @@ int main(int argc, char *argv[]) {
         expect(lc::spirv::spirv_xir_dialect_support(ArithmeticOp::LDEXP).support ==
                lc::spirv::SpirvXIRDialectSupport::SUPPORTED)
             << "ldexp must stay natively supported (GLSLstd450Ldexp)";
+        // DOT2ADD is supported in its exact (half2, half2, float) -> float
+        // shape: fused OpFDot2MixAcc32VALVE with the VALVE target feature,
+        // DXC-equivalent unfused half-product/float-accumulate sequence
+        // without it. The per-instruction shape check is exercised by the
+        // handoff-boundary tests.
+        expect(lc::spirv::spirv_xir_dialect_support(ArithmeticOp::DOT2ADD).support ==
+               lc::spirv::SpirvXIRDialectSupport::SUPPORTED)
+            << "dot2add must stay natively supported (fused VALVE or unfused fallback)";
         expect_complete_matrix(AtomicOp::FETCH_MAX, 0u);
         expect_complete_matrix(
             luisa::compute::xir::CastOp::BITWISE_CAST, 0u);
@@ -254,7 +262,15 @@ int main(int argc, char *argv[]) {
             ResourceReadOp::COOPERATIVE_VECTOR_NOT_EQUAL, 44u);
         expect_complete_matrix(
             ResourceWriteOp::COOPERATIVE_VECTOR_WORKGROUP_STORE, 3u);
-        expect_complete_matrix(ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, 13u, 1u);
+        expect_complete_matrix(ThreadGroupOp::SPLIT_BARRIER_WAIT, 13u, 1u);
+        // Split barriers are compute-kernel-only ops (callables inherit the
+        // restriction through the kernel-reachable call graph); the op-level
+        // matrix must classify them as supported, with the target-feature
+        // availability check owned by emission.
+        expect(lc::spirv::spirv_xir_dialect_support(ThreadGroupOp::SPLIT_BARRIER_ARRIVE).support ==
+               lc::spirv::SpirvXIRDialectSupport::SUPPORTED);
+        expect(lc::spirv::spirv_xir_dialect_support(ThreadGroupOp::SPLIT_BARRIER_WAIT).support ==
+               lc::spirv::SpirvXIRDialectSupport::SUPPORTED);
         expect_complete_matrix(
             RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED, 0u);
         expect_complete_matrix(

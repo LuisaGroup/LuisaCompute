@@ -332,7 +332,10 @@ constexpr auto capability_owned_target_features =
     target_feature::storage_buffer_array_non_uniform_indexing |
     target_feature::storage_buffer_array_dynamic_indexing |
     target_feature::shader_device_clock |
-    target_feature::cooperative_vector;
+    target_feature::cooperative_vector |
+    target_feature::shader_fma_float32 |
+    target_feature::shader_mixed_float_dot_product_float16_acc_float32 |
+    target_feature::shader_split_barrier;
 
 [[nodiscard]] constexpr SpirvTargetFeatureMask
 target_feature_from_capability(spv::Capability capability) noexcept {
@@ -400,6 +403,17 @@ target_feature_from_capability(spv::Capability capability) noexcept {
         case spv::Capability::CooperativeVectorNV:
         case spv::Capability::CooperativeVectorTrainingNV:
             return target_feature::cooperative_vector;
+        case spv::Capability::FMAKHR:
+            return target_feature::shader_fma_float32;
+        case spv::Capability::DotProductFloat16AccFloat32VALVE:
+            return target_feature::shader_mixed_float_dot_product_float16_acc_float32;
+        case spv::Capability::SplitBarrierEXT:
+            // OpControlBarrierArriveEXT/OpControlBarrierWaitEXT are the only
+            // instructions this capability owns. The vendored trim pass does
+            // not support SplitBarrierEXT, so can_safely_trim_capabilities()
+            // keeps every declaration of a module that uses it; reconciliation
+            // therefore never observes a trimmed live split barrier.
+            return target_feature::shader_split_barrier;
         default: return 0u;
     }
 }

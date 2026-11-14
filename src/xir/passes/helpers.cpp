@@ -274,6 +274,9 @@ bool is_arithmetic_op_safe_to_speculate(ArithmeticOp op) noexcept {
         case ArithmeticOp::COPYSIGN:
         case ArithmeticOp::CROSS:
         case ArithmeticOp::DOT:
+        // DOT2ADD is a total value computation on its exact
+        // (half2, half2, float) -> float shape: no traps, no memory.
+        case ArithmeticOp::DOT2ADD:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::NORMALIZE:

@@ -249,6 +249,12 @@ public:
     [[nodiscard]] virtual bool enable_shader_abort() const noexcept {
         return true;
     }
+    // Mixed-precision dot product with FP32 accumulation
+    // (VK_VALVE_shader_mixed_float_dot_product, feature bit
+    // shaderMixedFloatDotProductFloat16AccFloat32 only).
+    [[nodiscard]] virtual bool enable_shader_mixed_float_dot_product() const noexcept {
+        return true;
+    }
     // Cross-vendor shader execution reordering
     // (VK_EXT_ray_tracing_invocation_reorder).
     [[nodiscard]] virtual bool enable_ray_tracing_invocation_reorder() const noexcept {

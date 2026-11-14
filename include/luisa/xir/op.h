@@ -179,6 +179,12 @@ enum class ArithmeticOp {
     ERFC,  // (floatN)
     EXPM1, // (floatN)
     LDEXP, // (floatN, intN)
+
+    // Appended to preserve every existing public ArithmeticOp value.
+    // Mixed-precision two-element dot product with accumulation:
+    // a.x * b.x + a.y * b.y + acc. The only supported shape is
+    // (half2, half2, float) -> float (the HLSL `dot2add` intrinsic).
+    DOT2ADD,// (half2, half2, float) -> float
 };
 
 enum class AtomicOp {
@@ -541,6 +547,15 @@ enum class ThreadGroupOp {
     GRAPH_NODE_SET_ENABLED,                 // (uint64 node, bool enabled): void
     GRID_DEPENDENCY_SYNCHRONIZE,            // (): void
     TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION, // (): void
+
+    // Split workgroup barrier (SPV_EXT_split_barrier /
+    // VK_EXT_shader_split_barrier), compute kernels only. Keep these appended
+    // so existing serialized ThreadGroupOp values remain stable. The arrive
+    // publishes this invocation's workgroup-memory writes (Release); the wait
+    // acquires the other invocations' published writes (Acquire). Pairing and
+    // uniform control flow are the caller's responsibility.
+    SPLIT_BARRIER_ARRIVE,// (): void
+    SPLIT_BARRIER_WAIT,  // (): void
 };
 
 #include <luisa/xir/op_to_string.inl.h>

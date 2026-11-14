@@ -285,6 +285,14 @@ ThreadGroupInst *XIRBuilder::synchronize_block() noexcept {
     return this->call(nullptr, ThreadGroupOp::SYNCHRONIZE_BLOCK, {});
 }
 
+ThreadGroupInst *XIRBuilder::split_barrier_arrive() noexcept {
+    return this->call(nullptr, ThreadGroupOp::SPLIT_BARRIER_ARRIVE, {});
+}
+
+ThreadGroupInst *XIRBuilder::split_barrier_wait() noexcept {
+    return this->call(nullptr, ThreadGroupOp::SPLIT_BARRIER_WAIT, {});
+}
+
 ThreadGroupInst *XIRBuilder::raster_quad_ddx(const Type *type, Value *value) noexcept {
     return this->call(type, ThreadGroupOp::RASTER_QUAD_DDX, std::array{value});
 }

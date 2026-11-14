@@ -80,6 +80,7 @@ struct SpirvTargetFeatures {
     bool shader_ocp_microscaling_types{false};
     bool shader_constant_data{false};
     bool shader_abort{false};
+    bool shader_mixed_float_dot_product_float16_acc_float32{false};
     SpirvBufferFloat32AtomicRmwPolicy buffer_float32_atomic_rmw_policy{
         SpirvBufferFloat32AtomicRmwPolicy::NATIVE_IF_SUPPORTED};
 
@@ -179,6 +180,8 @@ struct SpirvTargetFeatures {
                target_feature::shader_constant_data);
         enable(shader_abort,
                target_feature::shader_abort);
+        enable(shader_mixed_float_dot_product_float16_acc_float32,
+               target_feature::shader_mixed_float_dot_product_float16_acc_float32);
         return mask;
     }
 
@@ -278,7 +281,9 @@ struct SpirvTargetFeatures {
             .shader_constant_data =
                 has(target_feature::shader_constant_data),
             .shader_abort =
-                has(target_feature::shader_abort)};
+                has(target_feature::shader_abort),
+            .shader_mixed_float_dot_product_float16_acc_float32 =
+                has(target_feature::shader_mixed_float_dot_product_float16_acc_float32)};
     }
 };
 

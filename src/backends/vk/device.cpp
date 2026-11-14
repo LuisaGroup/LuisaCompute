@@ -788,7 +788,27 @@ uint Device::compute_warp_size() const noexcept {
     return subgroup_properties.subgroupSize;
 }
 size_t Device::compute_max_shared_memory_size() const noexcept {
-    return properties().limits.maxComputeSharedMemorySize;
+    auto limit = static_cast<size_t>(properties().limits.maxComputeSharedMemorySize);
+    if (optional_extension_enabled(detail::OptionalExtension::SHADER_SPLIT_BARRIER)) {
+        // VK_EXT_shader_split_barrier reserves part of the workgroup shared
+        // memory for its barriers; shaders may only use the remainder. This
+        // infrequently-called query does a direct properties2 read instead of
+        // caching another physical-device property block. The public query has
+        // no per-shader usage input, so this is deliberately conservative for
+        // kernels that do not use split barriers.
+        VkPhysicalDeviceShaderSplitBarrierPropertiesEXT split_barrier_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SPLIT_BARRIER_PROPERTIES_EXT};
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &split_barrier_properties};
+        vkGetPhysicalDeviceProperties2(physical_device(), &properties2);
+        auto reserved = static_cast<size_t>(
+            split_barrier_properties.splitBarrierReservedSharedMemory);
+        // Saturating subtraction: a driver reporting more reserved memory than
+        // the total limit leaves no usable shared memory rather than wrapping.
+        return reserved >= limit ? 0u : limit - reserved;
+    }
+    return limit;
 }
 uint64_t Device::memory_granularity() const noexcept {
     return kSparseBufferSize;
@@ -3535,6 +3555,8 @@ uint64_t Device::enabled_spirv_artifact_features() const noexcept {
            target_feature::shader_constant_data);
     enable(optional_extension_enabled(detail::OptionalExtension::SHADER_ABORT),
            target_feature::shader_abort);
+    enable(optional_extension_enabled(detail::OptionalExtension::SHADER_MIXED_FLOAT_DOT_PRODUCT),
+           target_feature::shader_mixed_float_dot_product_float16_acc_float32);
     return mask;
 }
 
@@ -3631,6 +3653,12 @@ ShaderCreationInfo Device::_create_shader_hlsl(
         (artifact_features & spirv::target_feature::shader_fma_float32) != 0u;
     spirv_capabilities.abort =
         (artifact_features & spirv::target_feature::shader_abort) != 0u;
+    spirv_capabilities.mixed_float_dot_product =
+        (artifact_features & spirv::target_feature::shader_mixed_float_dot_product_float16_acc_float32) != 0u;
+    // VK_EXT_shader_split_barrier is a shader-capability opt-in published in
+    // the artifact-feature mask; compute only (raster never enables it).
+    spirv_capabilities.split_barrier =
+        (artifact_features & spirv::target_feature::shader_split_barrier) != 0u;
     // VK_NV_cluster_acceleration_structure is negotiated as a device feature
     // (clusterAccelerationStructure) rather than as a shader-capability opt-in, so
     // the flag follows the device decision directly.  Its SPIR-V counterpart
@@ -3641,6 +3669,12 @@ ShaderCreationInfo Device::_create_shader_hlsl(
     // enable the extension rejects at pipeline creation.
     spirv_capabilities.cluster_acceleration_structure =
         cluster_acceleration_structure_enabled;
+    // VK_KHR_maintenance9 only relaxes the operand width of the bitwise
+    // instructions, so it declares no shader capability of its own and has no
+    // artifact-feature bit: the flag follows the negotiated device extension
+    // directly.  Off (the default) keeps the legacy 32-bit emulation.
+    spirv_capabilities.maintenance9_bitwise =
+        optional_extension_enabled(detail::OptionalExtension::MAINTENANCE9);
     auto code = [&]() -> hlsl::CodegenResult {
         hlsl::CodegenUtility util;
         // The traversal and the argument layout of a fallback acceleration

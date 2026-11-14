@@ -663,6 +663,25 @@ LUISA_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, 
                          "Device-side grid dependency control takes no arguments.");
             break;
         }
+        case CallOp::DOT2ADD: {
+            // The only supported shape is the HLSL `dot2add` intrinsic:
+            // (half2 a, half2 b, float acc) -> float.
+            if (!(return_type == Type::of<float>() &&
+                  args.size() == 3u &&
+                  args[0]->type() == Type::of<half2>() &&
+                  args[1]->type() == Type::of<half2>() &&
+                  args[2]->type() == Type::of<float>())) [[unlikely]] {
+                LUISA_ERROR("DOT2ADD expects (half2 a, half2 b, float acc) and returns float.");
+            }
+            break;
+        }
+        case CallOp::SPLIT_BARRIER_ARRIVE:
+        case CallOp::SPLIT_BARRIER_WAIT: {
+            if (!(return_type == Type::of<void>() && args.empty())) [[unlikely]] {
+                LUISA_ERROR("Split-barrier arrive/wait take no arguments and return void.");
+            }
+            break;
+        }
         default: break;
     }
 }

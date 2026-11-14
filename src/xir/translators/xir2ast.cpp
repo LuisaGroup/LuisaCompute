@@ -174,6 +174,7 @@ namespace detail {
         case ArithmeticOp::COPYSIGN: return CallOp::COPYSIGN;
         case ArithmeticOp::CROSS: return CallOp::CROSS;
         case ArithmeticOp::DOT: return CallOp::DOT;
+    case ArithmeticOp::DOT2ADD: return CallOp::DOT2ADD;
         case ArithmeticOp::LENGTH: return CallOp::LENGTH;
         case ArithmeticOp::LENGTH_SQUARED: return CallOp::LENGTH_SQUARED;
         case ArithmeticOp::NORMALIZE: return CallOp::NORMALIZE;
@@ -400,6 +401,8 @@ namespace detail {
         case ThreadGroupOp::WARP_READ_LANE: return CallOp::WARP_READ_LANE;
         case ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE: return CallOp::WARP_READ_FIRST_ACTIVE_LANE;
         case ThreadGroupOp::SYNCHRONIZE_BLOCK: return CallOp::SYNCHRONIZE_BLOCK;
+        case ThreadGroupOp::SPLIT_BARRIER_ARRIVE: return CallOp::SPLIT_BARRIER_ARRIVE;
+        case ThreadGroupOp::SPLIT_BARRIER_WAIT: return CallOp::SPLIT_BARRIER_WAIT;
         // Device-side CUDA graph control (CUDA-only; see cuda_device_graph.h).
         case ThreadGroupOp::GRAPH_SET_CONDITIONAL: return CallOp::GRAPH_SET_CONDITIONAL;
         case ThreadGroupOp::GRAPH_LAUNCH: return CallOp::GRAPH_LAUNCH;

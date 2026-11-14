@@ -761,6 +761,9 @@ private:
             case CallOp::COPYSIGN: return alu_call(ArithmeticOp::COPYSIGN);
             case CallOp::CROSS: return alu_call(ArithmeticOp::CROSS);
             case CallOp::DOT: return alu_call(ArithmeticOp::DOT);
+        // DOT2ADD is the exact (half2, half2, float) -> float shape already
+        // enforced by check_builtin_call_valid; XIR DOT2ADD is 1:1.
+        case CallOp::DOT2ADD: return alu_call(ArithmeticOp::DOT2ADD);
             case CallOp::LENGTH: return alu_call(ArithmeticOp::LENGTH);
             case CallOp::LENGTH_SQUARED: return alu_call(ArithmeticOp::LENGTH_SQUARED);
             case CallOp::NORMALIZE: return alu_call(ArithmeticOp::NORMALIZE);
@@ -1125,6 +1128,8 @@ private:
             case CallOp::RASTER_SET_Z_DEPTH_LESS_EQUAL: return cta_call(ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL);
             case CallOp::SHADER_EXECUTION_REORDER: return cta_call(ThreadGroupOp::SHADER_EXECUTION_REORDER);
             case CallOp::SYNCHRONIZE_BLOCK: return cta_call(ThreadGroupOp::SYNCHRONIZE_BLOCK);
+            case CallOp::SPLIT_BARRIER_ARRIVE: return cta_call(ThreadGroupOp::SPLIT_BARRIER_ARRIVE);
+            case CallOp::SPLIT_BARRIER_WAIT: return cta_call(ThreadGroupOp::SPLIT_BARRIER_WAIT);
             case CallOp::WARP_IS_FIRST_ACTIVE_LANE: return cta_call(ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE);
             case CallOp::WARP_FIRST_ACTIVE_LANE: return cta_call(ThreadGroupOp::WARP_FIRST_ACTIVE_LANE);
             case CallOp::WARP_ACTIVE_ALL_EQUAL: return cta_call(ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL);

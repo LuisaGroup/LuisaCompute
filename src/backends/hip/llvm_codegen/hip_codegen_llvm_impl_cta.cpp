@@ -389,6 +389,13 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_thread_group_inst(IB &b, FunctionCon
             b.CreateFence(llvm::AtomicOrdering::Acquire, workgroup_scope);
             return barrier;
         }
+        case xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE:
+        case xir::ThreadGroupOp::SPLIT_BARRIER_WAIT:
+            // Split workgroup barriers are a Vulkan-only shader feature
+            // (SPV_EXT_split_barrier); no HIP emulation is provided.
+            LUISA_ERROR_WITH_LOCATION(
+                "Split workgroup barriers (SPLIT_BARRIER_ARRIVE/WAIT) are not "
+                "supported by the HIP XIR-to-LLVM backend.");
     }
     LUISA_NOT_IMPLEMENTED();
 }

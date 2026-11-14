@@ -477,6 +477,13 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_thread_group_inst(IB &b, FunctionCo
             return b.CreateIntrinsic(llvm::Intrinsic::nvvm_barrier0, {});
 #endif
         }
+        case xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE:
+        case xir::ThreadGroupOp::SPLIT_BARRIER_WAIT:
+            // Split workgroup barriers are a Vulkan-only shader feature
+            // (SPV_EXT_split_barrier); no CUDA emulation is provided.
+            LUISA_ERROR_WITH_LOCATION(
+                "Split workgroup barriers (SPLIT_BARRIER_ARRIVE/WAIT) are not "
+                "supported by the CUDA XIR-to-LLVM backend.");
     }
     LUISA_NOT_IMPLEMENTED();
 }

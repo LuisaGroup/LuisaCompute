@@ -1926,6 +1926,7 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
         LABELS "unit;unit_dsl" TIMEOUT 240)
 endif ()
 luisa_compute_add_test(test_dsl_bfloat16 unit/dsl/test_dsl_bfloat16.cpp)
+luisa_compute_add_test(test_dot2add unit/dsl/test_dot2add.cpp)
 
   # --- unit/runtime: FP4/FP8 quantization tests ---
   luisa_compute_add_test(test_fp4 unit/runtime/test_fp4.cpp)

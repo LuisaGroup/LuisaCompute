@@ -144,20 +144,28 @@ The backend also logs one line per negotiated extension at device creation.
 `VK_KHR_shader_fma`, `VK_EXT_shader_64bit_indexing`,
 `VK_EXT_shader_uniform_buffer_unsized_array`, `VK_EXT_shader_long_vector`,
 `VK_EXT_shader_subgroup_partitioned`, `VK_EXT_shader_split_barrier`,
-`VK_EXT_shader_ocp_microscaling_types`, `VK_KHR_shader_constant_data` and
-`VK_KHR_shader_abort` are appended to the persistent
+`VK_EXT_shader_ocp_microscaling_types`, `VK_KHR_shader_constant_data`,
+`VK_KHR_shader_abort` and `VK_VALVE_shader_mixed_float_dot_product` are appended to the persistent
 `lc::spirv::SpirvTargetFeatureMask` ABI
 (`src/backends/common/spirv/spirv_codegen/target_feature_mask.h`) and populated
 from `Device::enabled_spirv_artifact_features()`. A shader artifact can therefore
 record that it requires one of these capabilities, and the artifact cache keys
 on it.
 
-Two of them are used by generated shaders, on both code generation routes:
+The following capabilities are used by generated shaders on both code generation routes:
 
 | Capability | Native XIR-to-SPIR-V | Compatibility HLSL-to-SPIR-V |
 | --- | --- | --- |
-| `VK_KHR_shader_fma` | `OpFmaKHR` for a 32-bit `fma()` | `_fma` becomes `mad()`, which dxc lowers to `OpFmaKHR` (`builtin/hlsl_header.bytes`) |
+| `VK_KHR_shader_fma` | `OpFmaKHR` for a 32-bit `fma()`; other widths and unsupported devices keep GLSL FMA | `_fma` becomes `mad()`, which dxc lowers to `OpFmaKHR` (`codegen_utils/function_codegen.cpp`) |
+| `VK_EXT_shader_split_barrier` | `split_barrier_arrive()/wait()` emit `OpControlBarrierArriveEXT/WaitEXT` with Workgroup scope and Release/Acquire semantics | Emits `vk::SplitBarrierArrive()/Wait()`; DXIL and unsupported devices reject the operations |
+| `VK_VALVE_shader_mixed_float_dot_product` | `dot2add(half2, half2, float)` emits `OpFDot2MixAcc32VALVE`; unsupported devices use an unfused half-product/FP32-add sequence | Emits `dot2add`; dxc selects the fused or unfused sequence from the extension flag |
 | `VK_KHR_shader_abort` | `OpAbortKHR` | `$debug_break` becomes `vk::Abort(...)`, which dxc lowers to `OpAbortKHR` |
+
+`VK_KHR_maintenance9` needs no persistent SPIR-V capability bit. When negotiated, the
+HLSL route keeps 16/64-bit `reversebits` and `countbits` operands at their natural
+width and passes `-fspv-enable-maintenance9`. Sixteen-bit reversal adds a shift by
+16 to preserve the existing 32-bit result contract; the legacy emulation remains
+unchanged otherwise.
 
 The HLSL route reads the same negotiated mask: it fills
 `lc::hlsl::SpirvShaderCapabilities` in `Device::_create_shader_hlsl` and

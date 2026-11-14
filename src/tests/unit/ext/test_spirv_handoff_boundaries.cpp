@@ -366,6 +366,118 @@ int main(int argc, char *argv[]) {
         }
     };
 
+    "spirv_dot2add_requires_the_exact_signature_at_dialect_handoff"_test = [] {
+        // The op-level classification accepts DOT2ADD, but the per-instruction
+        // handoff must reject every shape other than (half2, half2, float) ->
+        // float. The generic verifier rejects these modules too; the dialect
+        // must fail closed on its own for exact-XIR input.
+        auto float_type = Type::of<float>();
+        auto half_type = Type::of<half>();
+        auto half2_type = Type::of<half2>();
+        auto float2_type = Type::of<float2>();
+        struct ShapeCase {
+            const Type *result;
+            const Type *a;
+            const Type *b;
+            const Type *acc;
+        };
+        constexpr auto case_count = 4u;
+        const ShapeCase cases[case_count]{
+            {float_type, float2_type, float2_type, float_type},
+            {float_type, half2_type, half2_type, half_type},
+            {half_type, half2_type, half2_type, float_type},
+            {float2_type, half2_type, half2_type, float_type}};
+        for (auto &&shape : cases) {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *a = kernel->create_value_argument(shape.a);
+            auto *b = kernel->create_value_argument(shape.b);
+            auto *acc = kernel->create_value_argument(shape.acc);
+            XIRBuilder builder;
+            builder.set_insertion_point(kernel->create_body_block());
+            auto *instruction = builder.call(
+                shape.result, ArithmeticOp::DOT2ADD, {a, b, acc});
+            builder.return_void();
+            auto dialect =
+                lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+            expect(!dialect.succeeded());
+            expect(has_instruction_diagnostic(
+                dialect, instruction,
+                "dot2add requires the exact (half2 a, half2 b, float acc) -> float signature"));
+        }
+        // The exact shape passes the handoff without any VALVE target feature.
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *a = kernel->create_value_argument(half2_type);
+        auto *b = kernel->create_value_argument(half2_type);
+        auto *acc = kernel->create_value_argument(float_type);
+        XIRBuilder builder;
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *instruction = builder.call(
+            float_type, ArithmeticOp::DOT2ADD, {a, b, acc});
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+        auto dialect =
+            lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+        expect(dialect.succeeded());
+        expect(instruction != nullptr);
+    };
+
+    "spirv_split_barrier_requires_zero_operands_and_void_at_dialect_handoff"_test = [] {
+        // The op-level classification accepts the split barrier halves, but
+        // the per-instruction handoff must reject operands and non-void
+        // results on its own for exact-XIR input.
+        for (auto op : {ThreadGroupOp::SPLIT_BARRIER_ARRIVE,
+                        ThreadGroupOp::SPLIT_BARRIER_WAIT}) {
+            {
+                Module module;
+                auto *kernel = module.create_kernel();
+                auto *value = kernel->create_value_argument(Type::of<uint32_t>());
+                XIRBuilder builder;
+                builder.set_insertion_point(kernel->create_body_block());
+                auto *instruction = builder.call(nullptr, op, {value});
+                builder.return_void();
+                auto dialect =
+                    lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+                expect(!dialect.succeeded());
+                expect(has_instruction_diagnostic(
+                    dialect, instruction, "no operands and no result"));
+            }
+            {
+                Module module;
+                auto *kernel = module.create_kernel();
+                XIRBuilder builder;
+                builder.set_insertion_point(kernel->create_body_block());
+                auto *instruction = builder.call(Type::of<uint32_t>(), op, {});
+                builder.return_void();
+                auto dialect =
+                    lc::spirv::validate_spirv_xir_codegen_dialect(&module);
+                expect(!dialect.succeeded());
+                expect(has_instruction_diagnostic(
+                    dialect, instruction, "no operands and no result"));
+            }
+        }
+        // The exact zero-operand void shape passes the handoff in a kernel
+        // and in a callable reached from that kernel; the target-feature
+        // availability check belongs to emission, not to the dialect.
+        Module module;
+        auto *callable = module.create_callable(nullptr);
+        XIRBuilder builder;
+        builder.set_insertion_point(callable->create_body_block());
+        builder.split_barrier_wait();
+        builder.return_void();
+        auto *kernel = module.create_kernel();
+        builder.set_insertion_point(kernel->create_body_block());
+        auto *arrive = builder.split_barrier_arrive();
+        builder.call(nullptr, callable, {});
+        builder.synchronize_block();
+        builder.return_void();
+        expect(xir_verify_module(&module).succeeded());
+        expect(lc::spirv::validate_spirv_xir_codegen_dialect(&module)
+                   .succeeded());
+        expect(arrive != nullptr);
+    };
+
     "spirv_float64_sqrt_remains_supported_at_dialect_handoff"_test = [] {
         ScopedEnvironmentVariable disable_spirv_optimization{
             "LUISA_SPIRV_OPT_LEVEL", "0"};

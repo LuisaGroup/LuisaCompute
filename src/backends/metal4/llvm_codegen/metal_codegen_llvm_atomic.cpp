@@ -415,6 +415,13 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_thread_group(
             call->setConvergent();
             return nullptr;
         }
+        case xir::ThreadGroupOp::SPLIT_BARRIER_ARRIVE: [[fallthrough]];
+        case xir::ThreadGroupOp::SPLIT_BARRIER_WAIT:
+            // Vulkan-only split workgroup barrier; preflight rejects it before
+            // translation, and no AIR emulation is provided here either.
+            LUISA_ERROR_WITH_LOCATION(
+                "Split workgroup barriers (SPLIT_BARRIER_ARRIVE/WAIT) are not "
+                "supported by the Metal AIR backend.");
     }
     _unsupported_instruction(inst);
 }

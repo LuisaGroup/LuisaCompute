@@ -551,16 +551,50 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::POPCOUNT:
             str << "countbits"sv;
             break;
-        case CallOp::REVERSE:
+        case CallOp::REVERSE: {
             // REVERSE always returns uint (32-bit) per DSL semantics,
             // so cast argument to uint before reversing bits.
             LUISA_DEBUG_ASSERT(args.size() == 1);
+            auto operand_type = args[0]->type();
+            auto operand_is_vector = operand_type->is_vector();
+            auto operand_element = operand_is_vector ? operand_type->element() : operand_type;
+            // Only integer operands have a bitwise meaning; a float of the same
+            // byte size must keep the legacy path.
+            auto operand_is_integer = operand_element->is_int() || operand_element->is_uint();
+            // VK_KHR_maintenance9 lifts the 32-bit operand restriction of
+            // OpBitReverse, so a 16/64-bit operand can be reversed at its own width
+            // instead of being widened to 32 bits (16-bit: widen, reverse, shift the
+            // result back down) or split into two 32-bit halves (64-bit).  The DSL
+            // result type stays uint/uintN, so the natural-width result is converted
+            // explicitly afterwards.  8-bit operands keep the legacy widening: the
+            // codegen has no 8-bit bitwise path, and DXIL / a device without the
+            // extension must keep the pre-feature source byte for byte.
+            auto natural_width = operand_element->size();
+            auto use_natural_width =
+                opt->isSpirv && opt->spirv_capabilities.maintenance9_bitwise &&
+                operand_is_integer && (natural_width == 2u || natural_width == 8u);
+            if (use_natural_width) {
+                if (natural_width == 2u) { str << '('; }
+                GetTypeName(*expr->type(), str, Usage::READ);
+                str << "(reversebits("sv;
+                args[0]->accept(vis);
+                if (natural_width == 2u) {
+                    // Preserve the established 32-bit reversal contract:
+                    // reverse32(x) == uint(reverse16(x)) << 16.
+                    str << ")) << 16)"sv;
+                } else {
+                    // The 64-bit intrinsic already has the legacy value; the
+                    // outer uint/uintN conversion retains its low 32 bits.
+                    str << "))"sv;
+                }
+                return;
+            }
             str << "reversebits("sv;
-            if (args[0]->type()->is_vector()) {
-                str << "uint"sv << args[0]->type()->dimension() << '(';
+            if (operand_is_vector) {
+                str << "uint"sv << operand_type->dimension() << '(';
                 args[0]->accept(vis);
                 str << ")"sv;
-            } else if (args[0]->type()->size() < 4u) {
+            } else if (natural_width < 4u) {
                 str << "uint("sv;
                 args[0]->accept(vis);
                 str << ")"sv;
@@ -569,6 +603,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             str << ')';
             return;
+        }
         case CallOp::ISINF:
             str << "isinf"sv;
             break;
@@ -709,6 +744,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             break;
         case CallOp::DOT:
             str << "dot"sv;
+            break;
+        case CallOp::DOT2ADD:
+            // (half2, half2, float) -> float. dxc lowers `dot2add` to the fused
+            // OpFDot2MixAcc32VALVE when SPV_VALVE_mixed_float_dot_product is
+            // enabled, and to its unfused half-product/FP32-accumulation
+            // sequence otherwise; DXIL has the intrinsic natively.
+            str << "dot2add"sv;
             break;
         case CallOp::LENGTH:
             str << "length"sv;
@@ -1922,6 +1964,30 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::SYNCHRONIZE_BLOCK:
             str << "GroupMemoryBarrierWithGroupSync()"sv;
             return;
+        case CallOp::SPLIT_BARRIER_ARRIVE:
+        case CallOp::SPLIT_BARRIER_WAIT: {
+            // A split barrier is not a full barrier and never a no-op: only
+            // a device that negotiated VK_EXT_shader_split_barrier may run
+            // it, and only in a compute stage.  Refuse everything else
+            // instead of silently degrading the arrive/wait semantics.
+            if (!opt->isSpirv || !opt->spirv_capabilities.split_barrier) [[unlikely]] {
+                LUISA_ERROR(
+                    "split_barrier_arrive()/split_barrier_wait() require a Vulkan device "
+                    "with VK_EXT_shader_split_barrier (shaderSplitBarrier) enabled and "
+                    "the SPV_EXT_split_barrier HLSL-to-SPIR-V route; they are unsupported "
+                    "on DXIL and on Vulkan devices without the extension. Use sync_block() "
+                    "for a full workgroup barrier instead.");
+            }
+            if (opt->isRaster) [[unlikely]] {
+                LUISA_ERROR(
+                    "split_barrier_arrive()/split_barrier_wait() are compute-only: "
+                    "the SplitBarrierEXT capability is illegal in raster stages.");
+            }
+            str << (expr->op() == CallOp::SPLIT_BARRIER_ARRIVE
+                        ? "vk::SplitBarrierArrive()"sv
+                        : "vk::SplitBarrierWait()"sv);
+            return;
+        }
         case CallOp::RASTER_DISCARD:
             LUISA_ASSERT(opt->isPixelShader, "Raster-Discard can only be used in pixel shader");
             str << "discard";

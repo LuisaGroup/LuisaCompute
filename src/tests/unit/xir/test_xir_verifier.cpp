@@ -1210,6 +1210,59 @@ void reg_xir_verifier() {
         }
     };
 
+    "xir_verifier_accepts_split_barrier_and_rejects_invalid_shapes"_test = [] {
+        // The appended split-barrier ops are zero-operand void instructions.
+        {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *body = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            builder.synchronize_block();
+            auto *arrive = builder.split_barrier_arrive();
+            auto *wait = builder.split_barrier_wait();
+            builder.return_void();
+            expect(xir_verify_module(&module).succeeded());
+            expect(arrive->op() == ThreadGroupOp::SPLIT_BARRIER_ARRIVE);
+            expect(wait->op() == ThreadGroupOp::SPLIT_BARRIER_WAIT);
+            expect(arrive->type() == nullptr);
+            expect(wait->type() == nullptr);
+        }
+        // Operands and non-void results must be rejected per operation.
+        for (auto op : {ThreadGroupOp::SPLIT_BARRIER_ARRIVE,
+                        ThreadGroupOp::SPLIT_BARRIER_WAIT}) {
+            {
+                Module module;
+                auto *kernel = module.create_kernel();
+                auto *body = kernel->create_body_block();
+                auto *value = module.create_constant_zero(Type::of<uint32_t>());
+                XIRBuilder builder;
+                builder.set_insertion_point(body);
+                auto *instruction = builder.call(nullptr, op, {value});
+                builder.return_void();
+                auto result = xir_verify_module(&module);
+                expect(!result.succeeded());
+                expect(has_verification_error(
+                    result, body, instruction,
+                    "Instruction operand count is invalid."));
+            }
+            {
+                Module module;
+                auto *kernel = module.create_kernel();
+                auto *body = kernel->create_body_block();
+                XIRBuilder builder;
+                builder.set_insertion_point(body);
+                auto *instruction = builder.call(Type::of<uint32_t>(), op, {});
+                builder.return_void();
+                auto result = xir_verify_module(&module);
+                expect(!result.succeeded());
+                expect(has_verification_error(
+                    result, body, instruction,
+                    "Instruction operands or result type are invalid."));
+            }
+        }
+    };
+
     "xir_verifier_rejects_invalid_ray_query_and_autodiff_semantics"_test = [] {
         Module module;
         auto query_type = Type::custom("LC_RayQueryAll");
@@ -1963,6 +2016,76 @@ void reg_xir_verifier() {
         expect(has_verification_error(
             result, body, dispatch,
             "Ray-query dispatch operands are invalid."));
+    };
+    "xir_verifier_dot2add_requires_the_exact_signature"_test = [] {
+        auto float_type = Type::of<float>();
+        auto half_type = Type::of<half>();
+        auto half2_type = Type::of<half2>();
+        auto float2_type = Type::of<float2>();
+        // The only supported shape: (half2 a, half2 b, float acc) -> float.
+        {
+            Module module;
+            auto *callable = module.create_callable(nullptr);
+            auto *a = callable->create_value_argument(half2_type);
+            auto *b = callable->create_value_argument(half2_type);
+            auto *acc = callable->create_value_argument(float_type);
+            auto *body = callable->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *dot2add = builder.call(
+                float_type, ArithmeticOp::DOT2ADD, {a, b, acc});
+            builder.return_void();
+            expect(dot2add != nullptr);
+            expect(xir_verify_module(&module).succeeded());
+        }
+        // Every one-over shape deviation must be rejected by the generic
+        // verifier, not silently accepted for a backend to repair.
+        {
+            Module module;
+            auto *callable = module.create_callable(nullptr);
+            auto *a = callable->create_value_argument(half2_type);
+            auto *b = callable->create_value_argument(half2_type);
+            auto *acc = callable->create_value_argument(float_type);
+            auto *half_acc = callable->create_value_argument(half_type);
+            auto *float2_a = callable->create_value_argument(float2_type);
+            auto *body = callable->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            luisa::vector<ArithmeticInst *> malformed;
+            // float2 operands instead of half2.
+            malformed.emplace_back(builder.call(
+                float_type, ArithmeticOp::DOT2ADD, {float2_a, float2_a, acc}));
+            // half accumulator instead of float.
+            malformed.emplace_back(builder.call(
+                float_type, ArithmeticOp::DOT2ADD, {a, b, half_acc}));
+            // half result instead of float.
+            malformed.emplace_back(builder.call(
+                half_type, ArithmeticOp::DOT2ADD, {a, b, acc}));
+            // float2 result instead of float.
+            malformed.emplace_back(builder.call(
+                float2_type, ArithmeticOp::DOT2ADD, {a, b, acc}));
+            // Missing accumulator.
+            malformed.emplace_back(builder.call(
+                float_type, ArithmeticOp::DOT2ADD, {a, b}));
+            // Extra operand.
+            auto *extra = builder.call(
+                float_type, ArithmeticOp::DOT2ADD, {a, b, acc});
+            extra->add_operand(acc);
+            malformed.emplace_back(extra);
+            builder.return_void();
+            auto result = xir_verify_module(&module);
+            expect(!result.succeeded());
+            for (auto i = 0u; i < 4u; ++i) {
+                expect(has_verification_error(
+                    result, body, malformed[i],
+                    "Arithmetic operands or result type are invalid."));
+            }
+            for (auto i = 4u; i < malformed.size(); ++i) {
+                expect(has_verification_error(
+                    result, body, malformed[i],
+                    "Instruction operand count is invalid."));
+            }
+        }
     };
 }
 

@@ -137,6 +137,38 @@ struct SpirvShaderCapabilities {
     /// SPIR-V extension is opt-in), so the codegen refuses the operation instead
     /// of emitting a module that declares an extension the device never enabled.
     bool cluster_acceleration_structure{false};
+    /// VK_KHR_maintenance9: the `maintenance9` feature lets the bitwise
+    /// instructions (OpBitReverse / OpBitCount) take an integer operand of any
+    /// width, not only 32-bit.  Without it dxc has to widen a 16-bit operand to
+    /// 32 bits (and fix up the result afterwards), or split a 64-bit one into two
+    /// 32-bit halves, so `reverse()` on a 16/64-bit value costs several extra
+    /// instructions.  With it the codegen hands `reversebits` the natural operand
+    /// and converts the result to the DSL result type (`uint`/`uintN`) itself.
+    /// The 16-bit form also shifts by 16, preserving the established 32-bit
+    /// reversal semantics rather than changing results on capable devices.
+    /// Unlike the flags above this one declares no OpCapability of its own: it
+    /// only removes an operand-width restriction, so it is an optimization, never
+    /// a correctness requirement, and it stays off unless the device negotiated
+    /// the extension.  8-bit operands keep the legacy widening either way (the
+    /// codegen has no 8-bit bitwise path), and `countbits` already receives the
+    /// natural operand, so it needs no flag at the source level.
+    bool maintenance9_bitwise{false};
+    /// VK_VALVE_shader_mixed_float_dot_product: `dot2add(half2, half2, float)`
+    /// lowers to OpFDot2MixAcc32VALVE, which rounds exactly once. Without it dxc
+    /// emits the unfused sequence (half products rounded to 16 bits, widened,
+    /// then added in FP32), so the flag only selects the fused form, never a
+    /// different source spelling.
+    bool mixed_float_dot_product{false};
+    /// VK_EXT_shader_split_barrier: `split_barrier_arrive()` /
+    /// `split_barrier_wait()` lower to OpControlBarrierArriveEXT /
+    /// OpControlBarrierWaitEXT (Workgroup execution and memory scopes,
+    /// Release on the arrive, Acquire on the wait), so independent work can
+    /// run between the two halves of a workgroup barrier.  Without it there
+    /// is no instruction for the operation (DXIL has no split barrier, and
+    /// the SPIR-V extension is opt-in), so the codegen refuses the operation
+    /// instead of degrading it to a full barrier or a no-op.  Compute only:
+    /// the SplitBarrierEXT capability is illegal in raster stages.
+    bool split_barrier{false};
 };
 
 struct RegisterIndexer;

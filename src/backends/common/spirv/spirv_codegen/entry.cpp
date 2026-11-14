@@ -88,6 +88,20 @@ void SpirvCodegenEntry::_require_target_feature(
             "but it is not enabled for this logical device.",
             spirv_target_feature_name(feature));
     }
+    if (!supported &&
+        feature == target_feature::shader_split_barrier) [[unlikely]] {
+        // Actionable off-feature diagnostic: the generic capability-owned
+        // message only names the abstract bit, while the fix is a concrete
+        // device-extension opt-in. Never silently fall back to sync_block.
+        LUISA_ERROR(
+            "Vulkan XIR-to-SPIR-V split workgroup barriers "
+            "(split_barrier_arrive()/split_barrier_wait()) require "
+            "VK_EXT_shader_split_barrier with the shaderSplitBarrier feature "
+            "enabled on this logical device "
+            "(VulkanDeviceConfigExt::enable_shader_split_barrier()); the "
+            "extension is not enabled here. Use sync_block() for a full "
+            "workgroup barrier instead.");
+    }
     _required_target_features |= feature;
 }
 

@@ -149,6 +149,7 @@ namespace detail {
         case ArithmeticOp::SMOOTHSTEP:
         case ArithmeticOp::CROSS:
         case ArithmeticOp::DOT:
+        case ArithmeticOp::DOT2ADD:
         case ArithmeticOp::LENGTH:
         case ArithmeticOp::LENGTH_SQUARED:
         case ArithmeticOp::FACEFORWARD:

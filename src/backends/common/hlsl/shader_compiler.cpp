@@ -221,10 +221,19 @@ static void AddCompileFlags(Vec &args, bool debug) {
 // `KHR` is dxc's spelling for "every KHR extension", and permitting an extension never
 // emits anything by itself, so the module still declares only what its instructions
 // require.
+//
+// VK_KHR_maintenance9 is the one capability that is *not* an extension name: its
+// bitwise relaxation is selected by the dedicated `-fspv-enable-maintenance9`
+// switch, which only changes the operand width of instructions that already exist.
+// It still has to participate in the early return below, because it needs the same
+// allow-list preservation as the extension-named capabilities.
 template<typename Vec>
 static void AddSpirvCapabilityFlags(Vec &args, SpirvShaderCapabilities capabilities) {
     if (!capabilities.fma && !capabilities.abort &&
-        !capabilities.cluster_acceleration_structure) {
+        !capabilities.cluster_acceleration_structure &&
+        !capabilities.maintenance9_bitwise &&
+        !capabilities.mixed_float_dot_product &&
+        !capabilities.split_barrier) {
         return;// no allow-list at all, so dxc keeps its default set
     }
     args.emplace_back(L"-fspv-extension=KHR");
@@ -235,12 +244,33 @@ static void AddSpirvCapabilityFlags(Vec &args, SpirvShaderCapabilities capabilit
     if (capabilities.abort) {
         args.emplace_back(L"-fspv-extension=SPV_KHR_abort");
     }
+    if (capabilities.maintenance9_bitwise) {
+        // VK_KHR_maintenance9's bitwise relaxation is a dedicated dxc switch, not
+        // an `-fspv-extension=` name: it changes how the *existing* OpBitReverse /
+        // OpBitCount are emitted (natural operand width instead of 32-bit
+        // emulation) and declares no extension of its own, so naming
+        // `SPV_KHR_maintenance9` in the allow-list would be rejected.  The
+        // allow-list above is still required, because passing any
+        // `-fspv-extension=` at all drops dxc's default set.
+        args.emplace_back(L"-fspv-enable-maintenance9");
+    }
     if (capabilities.cluster_acceleration_structure) {
         // OpRayQueryGetIntersectionClusterIdNV is opt-in in dxc: without this flag the
         // call is a compile error rather than a module that declares an extension the
         // device never asked for.  The ray query object the accessor reads is covered by
         // the KHR allow-list above (`SPV_KHR_ray_query`).
         args.emplace_back(L"-fspv-extension=SPV_NV_cluster_acceleration_structure");
+    }
+    if (capabilities.mixed_float_dot_product) {
+        // `dot2add` is lowered to OpFDot2MixAcc32VALVE only with this extension;
+        // without it dxc supplies the unfused half-product/FP32-accumulation
+        // sequence itself, so no source-level fallback exists.
+        args.emplace_back(L"-fspv-extension=SPV_VALVE_mixed_float_dot_product");
+    }
+    if (capabilities.split_barrier) {
+        // vk::SplitBarrierArrive/Wait are compile errors without this flag;
+        // dxc never lowers them to a plain OpControlBarrier on its own.
+        args.emplace_back(L"-fspv-extension=SPV_EXT_split_barrier");
     }
 }
 

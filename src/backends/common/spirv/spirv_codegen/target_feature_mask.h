@@ -101,6 +101,11 @@ inline constexpr SpirvTargetFeatureMask shader_abort = 0x0008000000000000ull;
 // VK_EXT_opacity_micromap (the alias) needs neither, so the bit is only ever set
 // when the KHR name is the negotiated one.
 inline constexpr SpirvTargetFeatureMask ray_tracing_opacity_micromap = 0x0010000000000000ull;
+// VK_VALVE_shader_mixed_float_dot_product: DotProductFloat16AccFloat32VALVE
+// with OpFDot2MixAcc32VALVE (SPV_VALVE_mixed_float_dot_product). The backend
+// negotiates only the shaderMixedFloatDotProductFloat16AccFloat32 bit, so the
+// requirement is exactly the FP16-input/FP32-accumulator form.
+inline constexpr SpirvTargetFeatureMask shader_mixed_float_dot_product_float16_acc_float32 = 0x0020000000000000ull;
 
 inline constexpr SpirvTargetFeatureMask known_mask =
     0x000000ffffffffffull | shader_untyped_pointers | cooperative_vector |
@@ -108,7 +113,8 @@ inline constexpr SpirvTargetFeatureMask known_mask =
     shader_uniform_buffer_unsized_array | shader_long_vector |
     shader_subgroup_partitioned | shader_split_barrier |
     shader_ocp_microscaling_types | shader_constant_data | shader_abort |
-    ray_tracing_opacity_micromap;
+    ray_tracing_opacity_micromap |
+    shader_mixed_float_dot_product_float16_acc_float32;
 
 }// namespace target_feature
 
@@ -170,7 +176,8 @@ inline constexpr std::array spirv_target_feature_descriptions{
     SpirvTargetFeatureDescription{target_feature::shader_ocp_microscaling_types, "shaderOCPMicroscalingTypes"},
     SpirvTargetFeatureDescription{target_feature::shader_constant_data, "shaderConstantData"},
     SpirvTargetFeatureDescription{target_feature::shader_abort, "shaderAbort"},
-    SpirvTargetFeatureDescription{target_feature::ray_tracing_opacity_micromap, "rayTracingOpacityMicromapExecutionMode"}};
+    SpirvTargetFeatureDescription{target_feature::ray_tracing_opacity_micromap, "rayTracingOpacityMicromapExecutionMode"},
+    SpirvTargetFeatureDescription{target_feature::shader_mixed_float_dot_product_float16_acc_float32, "shaderMixedFloatDotProductFloat16AccFloat32"}};
 
 [[nodiscard]] constexpr luisa::string_view spirv_target_feature_name(
     SpirvTargetFeatureMask bit) noexcept {
