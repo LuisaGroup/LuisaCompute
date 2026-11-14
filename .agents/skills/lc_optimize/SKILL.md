@@ -1025,7 +1025,7 @@ Per-element index computation (div/mod decompositions, stride multiplies) is inv
 ### 10.8 Host emission hygiene
 
 - `[[likely]]`/`[[unlikely]]` on the *host-side* emission branches (section 9) is free and appropriate: common shapes (fragment dest, rank-2 tile) are strongly skewed.
-- Small per-dispatch kernels (< 0.2 ms) are dominated by fixed launch overheads and measurement noise (±50% run-to-run is normal); evaluate them with min-of-N runs and distrust single-run deltas. Large kernels are stable within ~5%.
+- Small per-dispatch kernels (< 0.2 ms) are dominated by fixed launch overheads and measurement noise (±50% run-to-run is possible); do not promote on min-of-N or single-run deltas. Interleave independent A/B processes, retain raw samples, compare per-process medians and paired deltas, and control CPU affinity as well as GPU clocks (§25). Large kernels are usually more stable, but still require the same correctness gate.
 - A structural fix (replication removal, MLP batching, guard elision) beats micro-tuning of tile sizes; once the structure is right, tile-size parameters usually stop mattering.
 
 ### 10.9 Verification discipline for lowering changes
@@ -1126,7 +1126,7 @@ Persistent kernels (grid = #SMs × blocks/SM, inner loop over tiles) also let yo
 A six-tier optimization playbook measured in agent-driven kernel search ([arXiv 2603.21331](https://arxiv.org/html/2603.21331v1)) gives typical payoff ranges: block-size/tile sweeps **10–50%**, memory-access fixes (coalescing, prefetch, L2 swizzle, SMEM padding) **10–30%**, compute-level (TF32 accumulation, epilogue fusion, invariant hoisting) **5–15%**, advanced (split-K, persistent kernels, warp specialization) **5–20%**, architecture-specific (TMA on Hopper, cp.async on Ampere) **5–15%**. Practical rules:
 
 - Sweep powers of two **and** rectangular tiles; change one thing at a time; re-autotune after every structural change (in one published walkthrough, the best pre-pipelining config lost >100 TFLOPS once pipelining was added ([tessl.io](https://tessl.io/registry/skills/github/fla-org/flash-linear-attention/fla-triton-to-gluon))).
-- For small kernels (< 0.2 ms) use min-of-N runs — run-to-run noise is ±50% (§10.8).
+- For small kernels (< 0.2 ms), use per-process medians and interleaved A/B runs (§25); min-of-N may describe a best case but is not promotion evidence.
 - Block-size results do not transfer across architectures; a sweep on one GPU must be redone on another ([SCITEPRESS 113148](https://www.scitepress.org/PublishedPapers/2022/113148/113148.pdf)), which matches the repo's measured §5.7 findings.
 
 ## 14. Memory-Access Optimization: Coalescing, Vectorization, Caching
@@ -1359,7 +1359,7 @@ The bugs that survive porting are the ones that **compile and pass small tests**
 21. **Redistribute registers when warps have different jobs** (`setmaxnreg`, Hopper+); a TMA producer warp needs ~24 (§16.2).
 22. **Wave32 is the industry's converging granularity** (RDNA native, RDNA4/CDNA5 exclusive) — algorithms pinned to 32 lanes port best (§18.1).
 23. **Privatize atomics hierarchically** (warp → block → global), but only when contention is measured, not assumed (§21).
-24. **Batch host submissions** (CommandList §8) and capture graphs when shapes are static; on the newest GPUs the CPU is often the bottleneck (§20.1). Measured on the cuda backend: CommandList alone ≈5%, CUDA-graph replay ≈7–8× on tiny kernels (§24) — prefer the graph when shapes are static.
+24. **Batch host submissions** (CommandList §8) and consider graphs when shapes are static; on the newest GPUs the CPU is often the bottleneck (§20.1). Measured on the cuda backend: CommandList alone ≈5%, CUDA-graph replay ≈7–8× on tiny static kernels (§24). This is not a blanket preference: per-step graph capture/update can cost more than it saves in dynamic autoregressive decode, so compare against the ordinary stream path and retain a non-graph fallback (§25).
 25. **Occupancy is a means, not a goal.** "Runs" ≠ "fits": 1024-thread blocks with heavy registers spill and crawl 19× slower while launching fine (§5.7, measured on vk/dx); on CUDA the same over-subscribed launch **hard-fails at dispatch** with `CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES` (observed at 512 and 1024 threads with 32+ live `float4` accumulators, §24) — either way, check the slowdown *and* the launch, not just launch success. Latency is hidden by ILP as much as by warps (§13.1).
 26. **Re-measure per backend, per generation, per tile shape.** Every measured table in this document (§5.7, §24, FA3 configs, RDNA GEMM steps) was the result of a sweep; none of the constants transfer unchanged. Warm the GPU first: on a cold RTX 4080 SUPER the first sweep run read up to 70% slower on compute-bound cases than warm back-to-back runs (§24).
 
@@ -1398,3 +1398,49 @@ Every claim in Part II §11–§23 that could be checked locally was re-measured
 2. **CUDA kills over-subscribed launches; vk/dx spill.** A 512-thread block with 32+ live `float4` accumulators fails on CUDA with `CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES` (fatal, process-level via `LUISA_ERROR`); the same DSL kernel spills and crawls on the HLSL/DXC path. Sweep harnesses must record rows incrementally and run canary cases last (the §5.7 harness now does).
 3. **vk/dx release-only crash — root-caused and fixed (2026-10-18):** fresh release builds segfaulted in `lc::vk::Stream`'s constructor with an aligned-store access violation, while debug/releasedbg passed. Cause: `alignof(lc::vk::Stream)` is 64 (from `LockFreeArrayQueue`'s `alignas(64)` cache-line structs), but its base `vstd::IOperatorNewBase` declares only plain class-specific `operator new` overloads. C++ name lookup stops at the class scope, so the class-specific plain `new` **hides the global aligned overloads** and `vengine_malloc` (16-byte aligned) served a 64-byte-aligned object; release codegen then used `vmovaps` on the `alignas` members → fault. Debug passes only because it doesn't vectorize the stores. Fix: `vstd::IOperatorNewBase` (`include/luisa/vstl/meta_lib.h`) now also declares `operator new/delete(size_t, std::align_val_t)` (+ nothrow variant) forwarding to `luisa::detail::allocator_allocate(size, alignment)`. Lesson: any class-specific `operator new` on a potentially over-aligned type must provide the `align_val_t` overloads — otherwise over-aligned allocations silently come from the under-aligned plain overload.
 4. Two harnesses now exist for re-measuring every number in this document: `test_block_size_bench` (block-size/shape sweeps, §5.7) and `benchmark_part2_verify` (roofline/vectorization/pipelining/launch-overhead, §24.2). Re-run both after any structural kernel change.
+
+
+## 25. Measured End-to-End Optimization Workflow
+
+This section distills lessons from optimizing small autoregressive executors and their operators. The reusable unit is the experiment, not any one latency or threshold.
+
+### 25.1 Make the A/B comparison trustworthy first
+
+1. **Gate every arm on correctness before accepting a timing row.** Compare final outputs and relevant intermediates against an independent reference, with identical seeds, shapes, stopping behavior, and precision. Run the gate before and after timed samples; a fallback, early stop, or failed parity check invalidates the row.
+2. **Preserve an actual reference arm.** Keep the original executable for old/new interleaving, and provide a runtime kill switch for a default fast path. A same-binary switch is ideal for diagnosing process effects; an old/new executable pair is useful for combined changes.
+3. **Use at least three independent processes per arm and alternate their order.** Warm each process, retain every raw sample, then compare per-process medians and paired deltas. Do not use min-of-N, a single process, or a hand-picked run as promotion evidence.
+4. **Control host scheduling as well as GPU clocks.** Microsecond, launch-heavy requests can vary by 20% between processes on asymmetric/multi-CCD CPUs even with a fixed GPU clock. Pin compared processes to one logical CPU (or one explicitly chosen CPU set), record the affinity, and fix GPU clocks where permitted. Restore driver-managed clocks afterward. Fixed GPU clocks alone do not stabilize CPU dispatch cost.
+5. **Record the whole execution context.** Compiler/options, backend, source/tree state, cache state, shape, warmup, affinity, power/clock state, and raw commands are part of the measurement. If stages are timed at existing synchronization boundaries, label them host wall intervals; do not call them per-kernel GPU time or invent Nsight attribution when no profiler is available.
+6. **Compare original versus final directly.** Do not add percentages from sequential experiments and present the sum as a combined result. Re-run the final combined path against the original under one protocol.
+
+If two comparisons contradict each other, first run the **same binary in both arms**. Check CPU placement, clocks, cache/JIT state, and whether generated PTX is actually different before bisecting source. Identical binaries can occupy different host-performance classes; an apparent code regression is not valid until that is controlled.
+
+### 25.2 Remove provably redundant launches and uploads before adding complexity
+
+Audit the recorded command sequence for operations whose result is already available in the required destination:
+
+- `embedding -> scratch -> scatter(count=0) -> residual` is just an embedding plus a copy. Write the embedding directly to the residual buffer when the original scatter has no replacement rows. This removes one launch per decode step with element-for-element semantics.
+- Hoist immutable per-record uploads (for example, a fixed RoPE axis map) to executor creation, and synchronize creation before any consumer. Keep per-request or per-image maps in completion-retained staging. Do not classify every similarly named map as constant: a text axis map may be fixed while a vision map remains request-dependent.
+- Prefer these exact eliminations over speculative fusion. They simplify invariants as well as reducing launches/H2D traffic, but still measure their end-to-end effect; below the promotion threshold, call them simplifications rather than proven speedups.
+
+### 25.3 Route cooperative row norms by measured row width
+
+A one-thread-per-row LayerNorm/RMSNorm walks an entire row serially and gives adjacent lanes widely separated addresses. For sufficiently large `H`, use one block per row instead:
+
+- Each lane accumulates elements `lane, lane + block_size, ...`, giving coalesced loads and memory-level parallelism.
+- Reduce with a shared-memory tree (§4.4), or warp then shared reduction when the backend contract allows it (§4.5). A shared tree avoids a warp-width assumption and works on fallback backends with only block barriers.
+- Keep all barrier calls block-uniform, use weighted/parameterless epilogues outside the reduction, and compute the row from the flattened block index so >65,535 groups work with the host-flattened 2D plan (§8).
+- Test both sides of the block boundary, non-multiple tails, weighted/unweighted forms, zero/NaN rows, and flattened coverage. The reduction order changes, so use the existing numerical tolerance rather than claiming bit identity.
+
+Do not route every row width to the cooperative kernel: barrier/launch overhead can lose at tiny `H`. In one RTX 4080 SUPER FP32 sweep, `H=4` regressed, `H=16` was near neutral, `H=33` improved roughly 14%, and `H=1024` improved over 25×. These are **local crossover observations, not portable constants**. Measure the target shapes and route hidden-sized norms independently from tiny per-head QK norms. Keep the reference factory and an explicit disable option.
+
+### 25.4 Prove transfer from operator to model and between model families
+
+- A large isolated-kernel win may vanish at the model's actual geometry. An online-softmax attention variant can dominate at large `head_dim` yet be neutral at a tiny synthetic `head_dim`; always benchmark the model-shaped case and the full request before replacing the default.
+- Test each execution family independently. Dense FP32, packed W4A32, hybrid recurrent, and MoE paths have different launch/readback structures; correctness or improvement in one proves nothing about the others.
+- CUDA graphs are not a universal launch-overhead fix. Static replay can be much faster (§20.1), but per-token host sampling forces synchronization and may require repeated graph updates. Update/instantiate cost can exceed the saved launch tax on short dynamic decode. Compare graph and ordinary-stream arms, count captures/updates/fallbacks, and first remove no-op launches and repeated constant uploads.
+- When family transfer is correct but below the promotion threshold, either revert the unneeded default change or retain it explicitly as a simplification with no performance claim.
+
+### 25.5 Promotion and evidence discipline
+
+A useful starting policy is >=5% for an operator and >=3% for a full request, reproduced in at least three paired process runs and outside measured noise; calibrate thresholds to the workload rather than treating them as laws. Smaller changes need another clear benefit, such as fewer redundant commands or simpler lifetime invariants. Record rejected experiments and their evidence so they are not retried blindly, and never silently drop a regressed shape from the report.
