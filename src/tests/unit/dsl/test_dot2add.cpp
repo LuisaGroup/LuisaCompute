@@ -24,7 +24,8 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
     auto &device = dc->device;
-    if (device.backend_name() != "dx" && device.backend_name() != "vk") {
+    if (device.backend_name() != "dx" && device.backend_name() != "vk" &&
+        device.backend_name() != "cuda") {
         LUISA_INFO("Skipping dot2add runtime test on unsupported backend '{}'.",
                    device.backend_name());
         return 0;

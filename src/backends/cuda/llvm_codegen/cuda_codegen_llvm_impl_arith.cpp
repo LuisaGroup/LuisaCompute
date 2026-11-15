@@ -906,10 +906,25 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_arithmetic_inst(IB &b, FunctionCont
         case xir::ArithmeticOp::SHUFFLE: return _translate_shuffle(b, func_ctx, inst);
         case xir::ArithmeticOp::INSERT: return _translate_insert(b, func_ctx, inst);
         case xir::ArithmeticOp::EXTRACT: return _translate_extract(b, func_ctx, inst);
-        case xir::ArithmeticOp::DOT2ADD:
-            // The mixed-precision dot2add intrinsic is implemented only by the
-            // HLSL and native SPIR-V routes; no CUDA emulation is provided.
-            LUISA_ERROR_WITH_LOCATION("DOT2ADD is not supported by the CUDA XIR-to-LLVM backend.");
+        case xir::ArithmeticOp::DOT2ADD: {
+            LUISA_DEBUG_ASSERT(inst->operand_count() == 3u &&
+                               inst->type() == Type::of<float>() &&
+                               inst->operand(0)->type() == Type::of<half2>() &&
+                               inst->operand(1)->type() == Type::of<half2>() &&
+                               inst->operand(2)->type() == Type::of<float>());
+            auto a = _get_llvm_value(b, func_ctx, inst->operand(0));
+            auto b_value = _get_llvm_value(b, func_ctx, inst->operand(1));
+            auto acc = _get_llvm_value(b, func_ctx, inst->operand(2));
+            // Match the unfused dot2add semantics: round both products to half,
+            // widen them to float, then accumulate with ordered rn float adds.
+            // The NVVM add intrinsics keep the global fast-math decoration pass
+            // from reassociating the additions.
+            auto products = b.CreateFMul(a, b_value);
+            auto x = b.CreateFPExt(b.CreateExtractElement(products, b.getInt32(0)), b.getFloatTy());
+            auto y = b.CreateFPExt(b.CreateExtractElement(products, b.getInt32(1)), b.getFloatTy());
+            auto sum = b.CreateIntrinsic(llvm::Intrinsic::nvvm_add_rn_f, {x, y});
+            return b.CreateIntrinsic(llvm::Intrinsic::nvvm_add_rn_f, {sum, acc});
+        }
     }
     LUISA_NOT_IMPLEMENTED();
 }

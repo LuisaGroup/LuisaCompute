@@ -5237,6 +5237,15 @@ template<typename I>
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
 
+[[nodiscard]] __device__ inline lc_float lc_dot2add(lc_half2 a, lc_half2 b, lc_float acc) noexcept {
+    // Match dot2add's unfused semantics: round the products to half, then
+    // widen and accumulate in float with ordered round-to-nearest adds.
+    auto product_x = __hmul(a.x, b.x);
+    auto product_y = __hmul(a.y, b.y);
+    auto sum = __fadd_rn(static_cast<lc_float>(product_x), static_cast<lc_float>(product_y));
+    return __fadd_rn(sum, acc);
+}
+
 [[nodiscard]] __device__ inline auto lc_length(lc_half2 v) noexcept { return lc_sqrt(lc_dot(v, v)); }
 [[nodiscard]] __device__ inline auto lc_length(lc_half3 v) noexcept { return lc_sqrt(lc_dot(v, v)); }
 [[nodiscard]] __device__ inline auto lc_length(lc_half4 v) noexcept { return lc_sqrt(lc_dot(v, v)); }
