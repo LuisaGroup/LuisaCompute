@@ -12,6 +12,10 @@ struct CoroAllocaScopeOptions {
     // Expensive compiler-validation oracle. Every snapshot-order query is
     // compared with a linear walk over the current intrusive instruction list.
     bool verify_instruction_order{false};
+    // Bound the optional path-sensitive proof per allocation. Exhaustion
+    // rejects that proof; other lifetime proofs may still establish safety.
+    // Zero requests an unlimited proof (useful for compiler validation).
+    size_t max_guarded_state_evaluations{8192u};
 };
 
 // Contracts local-allocation lifetimes in the augmented coroutine CFG. For
@@ -77,6 +81,7 @@ struct CoroAllocaScopeInfo {
     size_t rejected_prior_lifetime_observation_count{0u};
     size_t definite_initialization_block_evaluation_count{0u};
     size_t guarded_initialization_state_evaluation_count{0u};
+    size_t guarded_initialization_budget_exhausted_count{0u};
     size_t initialized_prefix_block_evaluation_count{0u};
     size_t discriminated_prefix_candidate_count{0u};
     size_t discriminated_prefix_rejected_missing_publication_count{0u};

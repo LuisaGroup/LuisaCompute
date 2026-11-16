@@ -94,28 +94,20 @@ CoroBooleanSetManager::Set CoroBooleanSetManager::_apply(
 
 CoroBooleanSetManager::Set CoroBooleanSetManager::_forget(
     Set set, uint32_t variable) noexcept {
-    luisa::unordered_map<Set, Set> cache;
-    const auto visit = [&](auto &&self, Set current) noexcept -> Set {
-        if (current <= universe()) { return current; }
-        if (auto iter = cache.find(current); iter != cache.end()) {
-            return iter->second;
-        }
-        auto node = _nodes[current];
-        Set result;
-        if (node.variable > variable) {
-            result = current;
-        } else if (node.variable == variable) {
-            result = unite(node.low, node.high);
-        } else {
-            result = _make_node(
-                node.variable,
-                self(self, node.low),
-                self(self, node.high));
-        }
-        cache.emplace(current, result);
-        return result;
-    };
-    return visit(visit, set);
+    if (set <= universe() || _nodes[set].variable > variable) { return set; }
+    // BDD nodes and variable IDs are immutable. Reuse exact projections across
+    // transfers/iterations instead of allocating a fresh memo for each call.
+    // These are ordered operands, unlike the commutative union/intersection.
+    auto key = static_cast<uint64_t>(set) | (static_cast<uint64_t>(variable) << 32u);
+    if (auto iter = _forget_cache.find(key); iter != _forget_cache.end()) { return iter->second; }
+    auto node = _nodes[set];
+    auto result = node.variable == variable
+                      ? unite(node.low, node.high)
+                      : _make_node(node.variable, _forget(node.low, variable), _forget(node.high, variable));
+    // Bound additional memo storage independently of the precision budget.
+    // A full cache only recomputes results; it never changes analysis facts.
+    if (_forget_cache.size() < max_bdd_nodes) { _forget_cache.emplace(key, result); }
+    return result;
 }
 
 CoroBooleanSetManager::Set CoroBooleanSetManager::literal(
@@ -165,6 +157,36 @@ CoroBooleanSetManager::Set CoroBooleanSetManager::assign(
         intersect(destination_true, source_true),
         intersect(destination_false, source_false));
     return intersect(result, equality);
+}
+
+CoroBooleanSetManager::Set CoroBooleanSetManager::project(
+    Set set, luisa::span<Value *const> retained) noexcept {
+    if (set <= universe()) { return set; }
+    luisa::vector<uint32_t> variables;
+    variables.reserve(retained.size());
+    for (auto *value : retained) {
+        if (auto it = _variables.find(value); it != _variables.end()) {
+            variables.emplace_back(it->second);
+        }
+    }
+    if (variables.empty()) { return universe(); }
+    std::sort(variables.begin(), variables.end());
+    luisa::unordered_map<Set, Set> memo;
+    const auto visit = [&](auto &&self, Set current) noexcept -> Set {
+        if (current <= universe()) { return current; }
+        if (auto it = memo.find(current); it != memo.end()) { return it->second; }
+        // Node storage may grow during recursion; retain a value, not a view.
+        auto node = _nodes[current];
+        auto low = self(self, node.low);
+        auto high = self(self, node.high);
+        auto result = std::binary_search(variables.begin(), variables.end(), node.variable)
+                          ? (low == node.low && high == node.high
+                                 ? current : _make_node(node.variable, low, high))
+                          : unite(low, high);
+        memo.emplace(current, result);
+        return result;
+    };
+    return visit(visit, set);
 }
 
 luisa::string CoroBooleanSetManager::describe(Set set) const noexcept {

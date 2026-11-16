@@ -25,6 +25,11 @@
 
 namespace luisa::compute::coro {
 
+namespace detail {
+LUISA_CORO_API void coro_scheduler_compile_shaders(
+    luisa::span<luisa::move_only_function<void()>> jobs, uint max_threads);
+}// namespace detail
+
 struct WavefrontCoroContinuationBlockSize {
     luisa::string continuation;
     uint execution_block_size = 0u;
@@ -94,6 +99,10 @@ struct WavefrontCoroSchedulerConfig {
     // changes user-kernel structure and resource pressure. Kept last for
     // positional aggregate source compatibility.
     bool fused_continuation_counts = false;
+    // Host compilation only; does not change shader structure or scheduling.
+    // Keep serial by default for callers/backends without concurrent compile
+    // support. A small explicit limit bounds compiler memory consumption.
+    uint shader_compile_threads = 1u;
 };
 
 /// Host-observed work executed by one coroutine graph node during the most
@@ -725,6 +734,7 @@ private:
                 "wavefront_generate/<entry>");
         }
 
+        luisa::vector<luisa::move_only_function<void()>> pending_compilations;
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
@@ -812,15 +822,32 @@ private:
                     };
                 }
             };
-            _resume_kernels[i] = _compile_shader(
-                device,
-                k_cont,
-                detail::coro_scheduler_shader_option(
-                    _config.shader_option,
-                    luisa::format("wavefront_resume_{}", i)),
-                luisa::format("wavefront_resume_{}/{}", i,
-                              coro.graph().node(i).name));
+            auto option = detail::coro_scheduler_shader_option(
+                _config.shader_option,
+                luisa::format("wavefront_resume_{}", i));
+            auto stage = luisa::format("wavefront_resume_{}/{}", i,
+                                       coro.graph().node(i).name);
+            if (_config.shader_compile_threads <= 1u) {
+                _resume_kernels[i] = _compile_shader(
+                    device, k_cont, std::move(option), std::move(stage));
+            } else {
+                // Register diagnostics in graph order on the constructing
+                // thread. Workers own the AST and label and write only their
+                // preallocated shader slot; no shared vectors are appended.
+                auto structural_hash = k_cont.function()->function().hash();
+                _shader_structure_hashes.emplace_back(structural_hash);
+                _shader_infos.emplace_back(WavefrontCoroShaderInfo{
+                    .stage = stage, .structural_hash = structural_hash});
+                pending_compilations.emplace_back(
+                    [this, &device, i, kernel = std::move(k_cont),
+                     option = std::move(option), stage = std::move(stage)]() mutable {
+                        _resume_kernels[i] = detail::coro_scheduler_label_shader(
+                            device.compile(kernel, std::move(option)), stage);
+                    });
+            }
         }
+        detail::coro_scheduler_compile_shaders(
+            pending_compilations, _config.shader_compile_threads);
 
         if (!_extension_stages.empty()) {
             Kernel1D advance_extension_stage =

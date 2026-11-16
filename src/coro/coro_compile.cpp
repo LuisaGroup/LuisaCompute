@@ -603,6 +603,8 @@ void verify_coro_xir_or_error(
                     i.definite_initialization_block_evaluation_count);
               r.set("guarded_initialization_state_evaluation",
                     i.guarded_initialization_state_evaluation_count);
+              r.set("guarded_initialization_budget_exhausted",
+                    i.guarded_initialization_budget_exhausted_count);
               r.set("initialized_prefix_block_evaluation",
                     i.initialized_prefix_block_evaluation_count);
               r.set("discriminated_prefix_candidate",
@@ -631,6 +633,7 @@ void verify_coro_xir_or_error(
                       "rejected_prior_lifetime={} "
                       "proof_block_evaluations={} "
                       "guarded_state_evaluations={} "
+                      "guarded_budget_exhausted={} "
                       "prefix_block_evaluations={} "
                       "discriminated_candidates={} "
                       "discriminated_missing_publication={} "
@@ -646,6 +649,7 @@ void verify_coro_xir_or_error(
                       i.rejected_prior_lifetime_observation_count,
                       i.definite_initialization_block_evaluation_count,
                       i.guarded_initialization_state_evaluation_count,
+                      i.guarded_initialization_budget_exhausted_count,
                       i.initialized_prefix_block_evaluation_count,
                       i.discriminated_prefix_candidate_count,
                       i.discriminated_prefix_rejected_missing_publication_count,

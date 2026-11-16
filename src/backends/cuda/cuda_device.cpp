@@ -353,9 +353,9 @@ static const bool cuda_llvm_optix_ir_requested = [] {
 }  // namespace cuda_device_detail_3
 #if defined(LUISA_ENABLE_XIR) && defined(LUISA_COMPUTE_ENABLE_LLVM)
 // Bump this when LLVM lowering, the XIR schedule, or the kernel ABI changes.
-// Revision 21 shares equivalent zero-capture hardware ray-query callbacks.
+// Revision 29 honors explicit no-inline metadata in the CUDA LLVM pipeline.
 namespace cuda_device_detail_2 {
-static constexpr uint64_t cuda_llvm_cache_revision = 21u;
+static constexpr uint64_t cuda_llvm_cache_revision = 29u;
 
 [[nodiscard]] static uint64_t cuda_llvm_shader_hash(Function kernel, const ShaderOption &option,
                                                    uint32_t cuda_arch) noexcept {

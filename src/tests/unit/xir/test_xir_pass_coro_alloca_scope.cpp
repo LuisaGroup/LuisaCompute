@@ -2188,7 +2188,21 @@ void register_coro_alloca_scope_tests() {
         builder.return_void();
 
         expect(xir_verify_module(&module).succeeded());
-        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        CoroAllocaScopeOptions options;
+        options.max_guarded_state_evaluations = 1u;
+        auto bounded = coro_alloca_scope_pass_run_on_function(kernel, options);
+        expect(bounded.guarded_initialization_state_evaluation_count == 1u);
+        expect(bounded.guarded_initialization_budget_exhausted_count == 1u);
+        expect(bounded.guarded_initialization_proof_count == 0u);
+        expect(bounded.contracted_alloca_count == 0u);
+        expect(scratch->parent_block() == entry);
+        expect(xir_verify_module(&module).succeeded());
+
+        // Exhaustion must leave the lifetime intact: rerunning the very same
+        // graph without a budget can still prove and perform the contraction.
+        options.max_guarded_state_evaluations = 0u;
+        auto info = coro_alloca_scope_pass_run_on_function(kernel, options);
+        expect(info.guarded_initialization_budget_exhausted_count == 0u);
         expect(info.definite_initialization_proof_count == 1u);
         expect(info.guarded_initialization_proof_count == 1u);
         expect(info.rejected_prior_lifetime_observation_count == 0u);

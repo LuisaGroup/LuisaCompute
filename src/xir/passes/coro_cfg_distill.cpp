@@ -8,6 +8,7 @@
 #include <luisa/ast/type.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/clock.h>
 #include <luisa/core/stl/hash.h>
 #include <luisa/core/stl/deque.h>
 #include <luisa/core/stl/format.h>
@@ -40,6 +41,23 @@
 namespace luisa::compute::xir {
 
 namespace detail {
+
+class DistillPhaseProfiler {
+private:
+    Clock _clock;
+    bool _enabled;
+public:
+    DistillPhaseProfiler() noexcept : _enabled{[] {
+        auto *value = std::getenv("LUISA_CORO_PROFILE_COMPILATION");
+        return value != nullptr && luisa::string_view{value} == "1";
+    }()} {}
+    void checkpoint(luisa::string_view phase) noexcept {
+        if (_enabled) {
+            LUISA_INFO("Coroutine distill phase '{}': {:.3f} ms.", phase, _clock.toc());
+            _clock.tic();
+        }
+    }
+};
 
 class DistillCertificateHasher {
 
@@ -813,6 +831,7 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
 static void analyze_live_variables(
     CoroCfgDistillResult &result, FunctionDefinition *def,
     CoroCfgDistillStats *stats) noexcept {
+    DistillPhaseProfiler profiler;
     auto n = result.scopes.size();
     // Collect the semantic scheduler ABI before constructing the immutable
     // atom domain. A designated value may otherwise be omitted as replayable
@@ -902,12 +921,14 @@ static void analyze_live_variables(
             *atom_index, designated_aliases_by_value.at(value));
     }
 
+    profiler.checkpoint("value domain");
     luisa::vector<DenseScopeDataflowResult> scope_data;
     scope_data.reserve(n);
     for (auto &scope : result.scopes) {
         scope_data.emplace_back(
             analyze_scope_use_def(scope, value_domain, replayable));
     }
+    profiler.checkpoint("scope use-def");
     // Intra-scope fixed points use compact local coordinates. All relations
     // crossing a scope boundary are embedded once into the immutable global
     // atom numbering, so the rest of the analysis remains unchanged.
@@ -1227,6 +1248,7 @@ static void analyze_live_variables(
         return call_contexts.state_count == 0u ? live_begin[result.transition_edges[edge_index].to_scope] :
                                                  call_contexts.edge_target_live[edge_index];
     };
+    profiler.checkpoint("transition dataflow");
     luisa::deque<size_t> worklist;
     luisa::vector<uint8_t> queued(n, 1u);
     for (size_t i = 0u; i < n; ++i) { worklist.emplace_back(i); }
@@ -1322,6 +1344,7 @@ static void analyze_live_variables(
         }
     }
 
+    profiler.checkpoint("inter-scope liveness");
     auto frame_value_set = DenseValueSet{value_count};
     for (size_t i = 0u; i < n; ++i) {
         frame_value_set.union_with(live_begin[i]);
@@ -1576,7 +1599,9 @@ static void analyze_live_variables(
 
     if (result.invalid_cfg_error_count != 0u) { return; }
 
+    profiler.checkpoint("frame ABI");
     color_frame_slots(result);
+    profiler.checkpoint("frame coloring");
 
     // Shared callables verify against the matched-state set oracle inside
     // analyze_coro_call_contexts; this oracle describes context-free scopes.
@@ -1933,6 +1958,7 @@ static void analyze_live_variables(
 [[nodiscard]] static CoroCfgDistillResult distill_function(
     FunctionDefinition *def, CoroCfgDistillStats *stats) noexcept {
 
+    DistillPhaseProfiler profiler;
     CoroCfgDistillResult result;
     if (def == nullptr || def->body_block() == nullptr) { return result; }
 
@@ -1958,7 +1984,9 @@ static void analyze_live_variables(
     }
 
     auto reachable = collect_coro_reachable_blocks(def, token_to_resume);
+    profiler.checkpoint("semantic graph");
     auto feasible = analyze_coro_scope_reachability(def);
+    profiler.checkpoint("predicate reachability");
     if (stats != nullptr) {
         stats->reachability_state_count = feasible.state_count;
         stats->reachability_widened = feasible.widened;
@@ -2103,7 +2131,9 @@ static void analyze_live_variables(
         }
     }
 
+    profiler.checkpoint("scope construction");
     analyze_live_variables(result, def, stats);
+    profiler.checkpoint("liveness and frame layout");
     return result;
 }
 

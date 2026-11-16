@@ -3,6 +3,7 @@
 //
 
 #include <luisa/xir/passes/dom_tree.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/core/stl/memory.h>
@@ -67,6 +68,9 @@ llvm::Function *CUDACodegenLLVMImpl::_declare_llvm_callable_function(const xir::
     auto llvm_func = llvm::Function::Create(llvm_func_type, llvm::Function::PrivateLinkage, 0,
                                             func->name().value_or("callable"), _llvm_module.get());
     llvm_func->setCallingConv(llvm::CallingConv::PTX_Device);
+    if (func->find_metadata<xir::NoInlineMD>() != nullptr) {
+        llvm_func->addFnAttr(llvm::Attribute::NoInline);
+    }
     return llvm_func;
 }
 

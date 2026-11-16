@@ -402,6 +402,7 @@ struct LifetimeFactLayout {
 struct LifetimeProofResult {
     bool succeeded{false};
     bool guarded{false};
+    bool guarded_budget_exhausted{false};
     Instruction *failing_read{nullptr};
     size_t failing_predicate_count{0u};
     size_t block_evaluation_count{0u};
@@ -1291,12 +1292,24 @@ make_guarded_transfer_events(
     const LifetimeProofProblem &problem,
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain,
-    const CoroPredicateAnalysis &predicates) noexcept {
+    const CoroPredicateAnalysis &predicates,
+    size_t max_state_evaluations) noexcept {
     LifetimeProofResult result;
     result.guarded = true;
     if (!problem.valid || predicates.predicate_count() == 0u) {
         return result;
     }
+    auto consume_state_evaluation = [&]() noexcept {
+        if (max_state_evaluations != 0u &&
+            result.guarded_state_evaluation_count >= max_state_evaluations) {
+            // No partial fixed point is a proof. Keep succeeded=false and
+            // let the caller retain this lifetime or try another sound proof.
+            result.guarded_budget_exhausted = true;
+            return false;
+        }
+        ++result.guarded_state_evaluation_count;
+        return true;
+    };
     auto transfers = make_guarded_transfer_events(
         problem, graph, predicates);
     constexpr auto invalid_active_index = ~size_t{0u};
@@ -1320,7 +1333,7 @@ make_guarded_transfer_events(
         queued[block_id] = 0u;
         auto states = in_states[block_id];
         for (auto state : states) {
-            ++result.guarded_state_evaluation_count;
+            if (!consume_state_evaluation()) { return result; }
             // The guarded domain is a forward May partition of paths whose
             // fact component is a Must property. Merging states only
             // intersects facts, predicate widening only admits more paths,
@@ -1365,6 +1378,7 @@ make_guarded_transfer_events(
          active_index < problem.active_blocks.size(); ++active_index) {
         auto block_id = problem.active_blocks[active_index];
         for (auto state : in_states[block_id]) {
+            if (!consume_state_evaluation()) { return result; }
             if (!apply_guarded_transfer(
                     transfers[active_index], state, predicates,
                     problem.layout, domain, true,
@@ -1388,6 +1402,7 @@ make_guarded_transfer_events(
     ReferenceArgumentEffectAnalysis &reference_effects,
     const InstructionLocationMap &instruction_locations,
     luisa::span<const size_t> atom_indices,
+    size_t max_guarded_state_evaluations,
     LifetimeProofTimings *timings) noexcept {
     using Clock = std::chrono::steady_clock;
     auto begin = timings == nullptr ?
@@ -1413,7 +1428,8 @@ make_guarded_transfer_events(
     }
     if (unconditional.succeeded) { return unconditional; }
     auto guarded = prove_guarded_fresh_lifetime(
-        problem, graph, domain, predicates);
+        problem, graph, domain, predicates,
+        max_guarded_state_evaluations);
     if (timings != nullptr) {
         timings->guarded_ms +=
             std::chrono::duration<double, std::milli>{
@@ -1589,12 +1605,15 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                 frame_domain, predicates, reference_effects,
                 instruction_locations,
                 atom_indices,
+                options.max_guarded_state_evaluations,
                 profile_compilation ? &proof_timings : nullptr);
             proof_ms += profile_elapsed_ms(phase_begin);
             info.definite_initialization_block_evaluation_count +=
                 proof.block_evaluation_count;
             info.guarded_initialization_state_evaluation_count +=
                 proof.guarded_state_evaluation_count;
+            info.guarded_initialization_budget_exhausted_count +=
+                proof.guarded_budget_exhausted ? 1u : 0u;
             info.predicate_widening_count +=
                 proof.predicate_widening_count;
             if (!proof.succeeded) {
@@ -1618,7 +1637,9 @@ CoroAllocaScopeInfo coro_alloca_scope_pass_run_on_function(
                     proof.failing_read = prefix_proof.failing_read;
                 }
             }
-            if (!proof.succeeded) {
+            if (!proof.succeeded && alloca->type() != nullptr &&
+                alloca->type()->tag() == Type::Tag::ARRAY &&
+                alloca->type()->dimension() != 0u) {
                 phase_begin = profile_begin();
                 // Earlier alloca contractions may move another local's
                 // first defining store. A discriminated counted-array proof

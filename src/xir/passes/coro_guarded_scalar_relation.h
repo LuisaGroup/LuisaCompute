@@ -48,6 +48,7 @@ private:
     luisa::unordered_map<uint64_t, luisa::vector<Set>> _node_buckets;
     luisa::unordered_map<uint64_t, Set> _union_cache;
     luisa::unordered_map<uint64_t, Set> _intersection_cache;
+    luisa::unordered_map<uint64_t, Set> _forget_cache;
     bool _widened{false};
 
 private:
@@ -71,6 +72,9 @@ public:
     [[nodiscard]] Set unite(Set lhs, Set rhs) noexcept;
     [[nodiscard]] Set intersect(Set lhs, Set rhs) noexcept;
     [[nodiscard]] Set forget(Set set, Value *predicate) noexcept;
+    // Existentially eliminate every predicate outside retained in one DAG
+    // traversal, rather than enumerating support and projecting one at a time.
+    [[nodiscard]] Set project(Set set, luisa::span<Value *const> retained) noexcept;
     [[nodiscard]] Set assign(
         Set set, Value *destination, Value *source,
         bool true_when_source_is,

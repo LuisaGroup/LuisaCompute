@@ -6,6 +6,7 @@
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/DebugInfo.h>
+#include <llvm/IR/PassInstrumentation.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Support/TargetSelect.h>
@@ -23,6 +24,7 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
+#include <chrono>
 
 #include "cuda_codegen_llvm_device_bitcode.h"
 #include "cuda_codegen_llvm_impl.h"
@@ -37,6 +39,24 @@
 #undef None
 
 namespace luisa::compute::cuda {
+
+namespace {
+[[nodiscard]] bool cuda_llvm_profile_compilation_enabled() noexcept {
+    static const auto enabled = [] {
+        auto value = std::getenv("LUISA_CUDA_PROFILE_COMPILATION");
+        return value != nullptr && luisa::string_view{value} == "1";
+    }();
+    return enabled;
+}
+
+[[nodiscard]] bool cuda_llvm_profile_passes_enabled() noexcept {
+    static const auto enabled = [] {
+        auto value = std::getenv("LUISA_CUDA_PROFILE_PASSES");
+        return value != nullptr && luisa::string_view{value} == "1";
+    }();
+    return enabled;
+}
+}// namespace
 
 CUDACodegenLLVMImpl::CUDACodegenLLVMImpl(CUDACodegenLLVMConfig config) noexcept
     : _config{std::move(config)} {
@@ -248,12 +268,61 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
         }
     }
 
-    auto do_optimize = [&] {
+    auto do_optimize = [&](luisa::string_view phase) {
+        Clock clock;
         // run optimization passes
         llvm::LoopAnalysisManager LAM;
         llvm::FunctionAnalysisManager FAM;
         llvm::CGSCCAnalysisManager CGAM;
         llvm::ModuleAnalysisManager MAM;
+
+        // Per-compilation timers: unlike process-global LLVM timing flags,
+        // these remain independent when continuation shaders compile together.
+        llvm::PassInstrumentationCallbacks instrumentation;
+        struct ActivePass {
+            luisa::string name;
+            std::chrono::steady_clock::time_point begin;
+            double nested_ms = 0.;
+            luisa::string function;
+            size_t blocks = 0u;
+            size_t instructions = 0u;
+        };
+        struct PassTime { double ms = 0.; size_t count = 0u; };
+        luisa::vector<ActivePass> active_passes;
+        luisa::unordered_map<luisa::string, PassTime> pass_times;
+        if (cuda_llvm_profile_passes_enabled()) {
+            instrumentation.registerBeforeNonSkippedPassCallback(
+                [&](llvm::StringRef name, llvm::Any ir) {
+                    active_passes.emplace_back(ActivePass{
+                        luisa::string{name.data(), name.size()}, std::chrono::steady_clock::now()});
+                    if (auto function_ptr = llvm::any_cast<const llvm::Function *>(&ir);
+                        name == "SimplifyCFGPass" && function_ptr != nullptr) {
+                        auto *function = *function_ptr;
+                        auto &active = active_passes.back();
+                        active.function = function->getName().str();
+                        active.blocks = function->size();
+                        active.instructions = function->getInstructionCount();
+                    }
+                });
+            auto finish_pass = [&] {
+                auto end = std::chrono::steady_clock::now();
+                auto active = std::move(active_passes.back());
+                active_passes.pop_back();
+                auto elapsed = std::chrono::duration<double, std::milli>{end - active.begin}.count();
+                auto &total = pass_times[active.name];
+                total.ms += elapsed - active.nested_ms;
+                ++total.count;
+                if (active.name == "SimplifyCFGPass" && elapsed > 500.) {
+                    LUISA_INFO("CUDA LLVM slow CFG: function='{}' blocks={} instructions={} ms={:.3f} phase='{}'.",
+                               active.function, active.blocks, active.instructions, elapsed, phase);
+                }
+                if (!active_passes.empty()) { active_passes.back().nested_ms += elapsed; }
+            };
+            instrumentation.registerAfterPassCallback(
+                [&, finish_pass](llvm::StringRef, llvm::Any, const llvm::PreservedAnalyses &) { finish_pass(); });
+            instrumentation.registerAfterPassInvalidatedCallback(
+                [&, finish_pass](llvm::StringRef, const llvm::PreservedAnalyses &) { finish_pass(); });
+        }
 
         llvm::PipelineTuningOptions PTO;
         PTO.LoopInterleaving = true;
@@ -265,7 +334,8 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
         PTO.LoopUnrolling = true;
         PTO.MergeFunctions = true;
         auto PB = luisa::compute::detail::make_llvm_pass_builder(
-            _llvm_module->getContext(), _target_machine, PTO);
+            _llvm_module->getContext(), _target_machine, PTO, std::nullopt,
+            &instrumentation);
         PB.registerModuleAnalyses(MAM);
         PB.registerCGSCCAnalyses(CGAM);
         PB.registerFunctionAnalyses(FAM);
@@ -287,23 +357,37 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
         llvm::ModulePassManager MPM = PB.buildPerModuleDefaultPipeline(opt_level);
         if (callback) { callback(MPM); }
         MPM.run(*_llvm_module, MAM);
+        if (cuda_llvm_profile_passes_enabled()) {
+            luisa::vector<std::pair<luisa::string, PassTime>> sorted{pass_times.begin(), pass_times.end()};
+            std::sort(sorted.begin(), sorted.end(), [](auto &&a, auto &&b) { return a.second.ms > b.second.ms; });
+            for (size_t i = 0u; i < std::min<size_t>(sorted.size(), 20u); ++i) {
+                auto &&[name, timing] = sorted[i];
+                LUISA_INFO("CUDA LLVM pass '{}': {:.3f} ms runs={} phase='{}'.",
+                           name, timing.ms, timing.count, phase);
+            }
+        }
+        if (cuda_llvm_profile_compilation_enabled()) {
+            LUISA_INFO("CUDA LLVM phase '{}': {:.3f} ms ({}).",
+                       phase, clock.toc(), _config.source_file);
+        }
     };
 
     // primary optimization pass
-    do_optimize();
+    do_optimize("primary optimization");
 
     // run a second pass if any device function is not inlined
     {
         auto any_not_inlined = false;
         for (auto &f : *_llvm_module) {
-            if (!f.isDeclaration() && f.getCallingConv() == llvm::CallingConv::PTX_Device) {
+            if (!f.isDeclaration() && f.getCallingConv() == llvm::CallingConv::PTX_Device &&
+                !f.hasFnAttribute(llvm::Attribute::NoInline)) {
                 f.addFnAttr(llvm::Attribute::AlwaysInline);
                 any_not_inlined = true;
             }
         }
         if (any_not_inlined) {
             LUISA_VERBOSE("Running secondary optimization passes to inline device functions...");
-            do_optimize();
+            do_optimize("secondary optimization");
         }
     }
     // Legacy Strict was a codegen policy, not an IR optimization flag. Leave
@@ -407,6 +491,14 @@ luisa::string CUDACodegenLLVMImpl::_generate_optix_ir() noexcept {
 }
 
 luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
+    Clock phase_clock;
+    auto checkpoint = [&](luisa::string_view phase) {
+        if (cuda_llvm_profile_compilation_enabled()) {
+            LUISA_INFO("CUDA LLVM phase '{}': {:.3f} ms ({}).",
+                       phase, phase_clock.toc(), _config.source_file);
+            phase_clock.tic();
+        }
+    };
     _analyze_ray_tracing_usage(xir_module);
     if (_rt_analysis.uses_ray_query) {
         _ray_query_resource_origins = xir::analyze_unique_resource_origins(&xir_module);
@@ -440,8 +532,10 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
         }
     }
     verify();
+    checkpoint("translation and verification");
     _run_optimization_passes();
     verify();
+    checkpoint("optimization and verification");
     static auto dump_llvm_ir = [] {
         using namespace std::string_view_literals;
         auto env = getenv("LUISA_DUMP_LLVM_IR");
@@ -450,11 +544,15 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
     if (dump_llvm_ir) {
         _llvm_module->print(llvm::errs(), nullptr, false, true);
     }
-    switch (_config.output_format) {
-        case CUDACodegenLLVMConfig::OutputFormat::PTX: return _generate_ptx();
-        case CUDACodegenLLVMConfig::OutputFormat::OPTIX_IR: return _generate_optix_ir();
-    }
-    LUISA_ERROR_WITH_LOCATION("Invalid CUDA LLVM output format.");
+    auto code = [&] {
+        switch (_config.output_format) {
+            case CUDACodegenLLVMConfig::OutputFormat::PTX: return _generate_ptx();
+            case CUDACodegenLLVMConfig::OutputFormat::OPTIX_IR: return _generate_optix_ir();
+        }
+        LUISA_ERROR_WITH_LOCATION("Invalid CUDA LLVM output format.");
+    }();
+    checkpoint("code emission");
+    return code;
 }
 
 }// namespace luisa::compute::cuda

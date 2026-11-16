@@ -1,10 +1,13 @@
 #include "coro_scope_reachability.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <deque>
 #include <map>
 
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/clock.h>
+#include <luisa/core/logging.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
@@ -159,6 +162,14 @@ struct BooleanTransfer {
 
 CoroScopeReachability analyze_coro_scope_reachability(
     FunctionDefinition *definition) noexcept {
+    Clock phase_clock;
+    auto *profile = std::getenv("LUISA_CORO_PROFILE_COMPILATION");
+    auto checkpoint = [&](luisa::string_view phase) {
+        if (profile != nullptr && luisa::string_view{profile} == "1") {
+            LUISA_INFO("Coroutine reachability phase '{}': {:.3f} ms.", phase, phase_clock.toc());
+            phase_clock.tic();
+        }
+    };
     CoroScopeReachability result;
     CoroSemanticGraph graph{definition};
     if (!graph.valid()) { return result; }
@@ -219,8 +230,10 @@ CoroScopeReachability analyze_coro_scope_reachability(
         }
     }
     luisa::vector<uint8_t> active(graph.block_count(), 1u);
+    checkpoint("semantic values");
     CoroBooleanPredicateLiveness liveness{
         graph, active, graph.block_count(), predicates, uses, definitions};
+    checkpoint("predicate liveness");
     CoroBooleanSetManager sets;
     BooleanTransfer transfer{sets, slots};
     struct State {
@@ -240,12 +253,7 @@ CoroScopeReachability analyze_coro_scope_reachability(
         }
         // Remove branch history only after its outgoing states were refined.
         // This also projects values that die on only this incoming edge.
-        auto live = liveness.live_in(block);
-        for (auto *predicate : sets.support(incoming)) {
-            if (std::find(live.begin(), live.end(), predicate) == live.end()) {
-                incoming = sets.forget(incoming, predicate);
-            }
-        }
+        incoming = sets.project(incoming, liveness.live_in(block));
         auto [iter, inserted] = state_ids.try_emplace({owner, block}, states.size());
         if (inserted) { states.push_back({owner, block}); }
         auto id = iter->second;
@@ -293,6 +301,7 @@ CoroScopeReachability analyze_coro_scope_reachability(
             for (auto successor : graph.successors(block_id)) { enqueue(owner, successor, outgoing); }
         }
     }
+    checkpoint("Boolean propagation");
     for (const auto &state : states) {
         auto *block = graph.block(state.block);
         auto &scope = result.scopes[state.owner];
