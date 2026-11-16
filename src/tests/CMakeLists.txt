@@ -309,16 +309,6 @@ luisa_compute_add_test(test_hash               unit/core/test_hash.cpp          
 luisa_compute_add_test(test_spin_mutex         unit/core/test_spin_mutex.cpp         LABELS "unit;unit_core")
 luisa_compute_add_test(test_fiber              unit/core/test_fiber.cpp              LABELS "unit;unit_core")
 luisa_compute_add_test(test_platform_utils     unit/core/test_platform.cpp           LABELS "unit;unit_core")
-luisa_compute_add_test(test_foreground_moments unit/core/test_foreground_moments.cpp LABELS "unit;unit_core")
-target_include_directories(test_foreground_moments PRIVATE ${CMAKE_SOURCE_DIR}/examples/common)
-luisa_compute_add_test(test_example_options unit/core/test_example_options.cpp LABELS "unit;unit_core")
-target_include_directories(test_example_options PRIVATE ${CMAKE_SOURCE_DIR}/examples/common)
-luisa_compute_add_test(test_path_tracing_sample_plan unit/core/test_path_tracing_sample_plan.cpp LABELS "unit;unit_core")
-target_include_directories(test_path_tracing_sample_plan PRIVATE ${CMAKE_SOURCE_DIR}/examples/common)
-luisa_compute_add_test(test_nbody_render_plan unit/core/test_nbody_render_plan.cpp LABELS "unit;unit_core")
-target_include_directories(test_nbody_render_plan PRIVATE ${CMAKE_SOURCE_DIR}/examples/common)
-luisa_compute_add_test(test_photon_mapping_plan unit/core/test_photon_mapping_plan.cpp LABELS "unit;unit_core")
-target_include_directories(test_photon_mapping_plan PRIVATE ${CMAKE_SOURCE_DIR}/examples/common)
 luisa_compute_add_test(test_sparse_buffer_tile_plan unit/core/test_sparse_buffer_tile_plan.cpp LABELS "unit;unit_core")
 target_include_directories(test_sparse_buffer_tile_plan PRIVATE ../runtime)
 luisa_compute_add_test(test_sparse_texture_tile_plan unit/core/test_sparse_texture_tile_plan.cpp LABELS "unit;unit_core")
@@ -495,17 +485,6 @@ target_include_directories(test_command_reorder_ranges PRIVATE ../backends/commo
 luisa_compute_add_test(benchmark_command_reorder benchmark/benchmark_command_reorder.cpp)
 # Host-side counterpart (GPU-idle kernels) measuring pure submission cost.
 luisa_compute_add_test(benchmark_command_reorder_host benchmark/benchmark_command_reorder_host.cpp)
-# Optimization-phase benchmark for the bge-m3 embedding engine
-# (embedding_model_opt_plan.md O0.1; needs the packed model via --model/BGEM3_MODEL_DIR).
-luisa_compute_add_test(benchmark_embed benchmark/benchmark_embed.cpp)
-target_link_libraries(benchmark_embed PRIVATE lc-example-embedding)
-target_include_directories(benchmark_embed PRIVATE ${CMAKE_SOURCE_DIR}/examples)
-# GEMM-family tile sweep for the bge-m3 embedding engine
-# (embedding_model_opt_plan.md §3.1 G1/G2/G3/G4/G8, agent O-A; synthetic shapes only,
-# no packed model needed): benchmark_embed_gemm <dx|vk|fallback> [--rows 512,4096] [--csv f.csv]
-luisa_compute_add_test(benchmark_embed_gemm benchmark/benchmark_embed_gemm.cpp)
-target_link_libraries(benchmark_embed_gemm PRIVATE lc-example-embedding)
-target_include_directories(benchmark_embed_gemm PRIVATE ${CMAKE_SOURCE_DIR}/examples)
 # Verification benchmark for the lc_optimize SKILL.md Part II claims
 # (roofline, vectorization, cp.async pipelining, launch overhead):
 # benchmark_part2_verify <backend> [--csv f.csv]
@@ -684,16 +663,25 @@ if (TARGET luisa-compute-backend-metal4)
                 TIMEOUT 60)
     endif ()
 
-    luisa_compute_add_test(test_metal4_device_conformance
-            integration/runtime/test_metal4_device_conformance.cpp
-            LABELS "integration;integration_metal4;integration_render"
-            ARGS metal4)
-    target_sources(test_metal4_device_conformance PRIVATE
-            ios/metal4_device_conformance.cpp)
-    target_include_directories(test_metal4_device_conformance PRIVATE
-            ios)
-    set_tests_properties(test_metal4_device_conformance PROPERTIES
-            TIMEOUT 300)
+ # The conformance harness (metal4_device_conformance.{h,cpp}) moved to the gallery
+ # together with the examples (tests/ios), so its shared body is no longer part of
+ # this tree. Point LUISA_METAL4_IOS_HARNESS_DIR at the directory holding it
+ # (default: <gallery>/tests/ios) to keep the target; without it the target is
+ # skipped instead of failing to link.
+ set(LUISA_METAL4_IOS_HARNESS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../tests/ios"
+ CACHE PATH "Directory with the moved Metal4 device-conformance harness")
+ if (EXISTS "${LUISA_METAL4_IOS_HARNESS_DIR}/metal4_device_conformance.cpp")
+ luisa_compute_add_test(test_metal4_device_conformance
+ integration/runtime/test_metal4_device_conformance.cpp
+ LABELS "integration;integration_metal4;integration_render"
+ ARGS metal4)
+ target_sources(test_metal4_device_conformance PRIVATE
+ "${LUISA_METAL4_IOS_HARNESS_DIR}/metal4_device_conformance.cpp")
+ target_include_directories(test_metal4_device_conformance PRIVATE
+ "${LUISA_METAL4_IOS_HARNESS_DIR}")
+ set_tests_properties(test_metal4_device_conformance PROPERTIES
+ TIMEOUT 300)
+ endif ()
 
     foreach (_metal4_test IN ITEMS
             test_metal_xir_air
@@ -1936,208 +1924,6 @@ luisa_compute_add_test(test_dot2add unit/dsl/test_dot2add.cpp)
   luisa_compute_add_test(test_fp4_quantization unit/runtime/test_fp4_quantization.cpp)
   luisa_compute_add_test(test_fp8 unit/runtime/test_fp8.cpp)
   luisa_compute_add_test(test_fp8_quantization unit/runtime/test_fp8_quantization.cpp)
-
-  # --- embedding engine (bge-m3, embedding_model_plan.md) ---
-  # Goldens live in src/tests/data/embedding/; the path is compiled in.
-  set(LUISA_EMBED_TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/embedding")
-  function(luisa_compute_add_embed_test name source labels)
-      cmake_parse_arguments(PARSE_ARGV 3 EMB "" "" "ARGS")
-      luisa_compute_add_test(${name} ${source} LABELS "${labels}" ARGS ${EMB_ARGS})
-      target_link_libraries(${name} PRIVATE lc-example-embedding)
-      target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/examples)
-      target_compile_definitions(${name} PRIVATE
-              LUISA_EMBED_TEST_DATA_DIR="${LUISA_EMBED_TEST_DATA_DIR}")
-  endfunction()
-  # host-only (runs under plain CTest)
-  luisa_compute_add_embed_test(test_embed_chunker unit/embedding/test_embed_chunker.cpp
-          "unit;unit_embedding")
-  target_compile_definitions(test_embed_chunker PRIVATE LUISA_EMBED_HOST_ONLY=1)
-  luisa_compute_add_embed_test(test_embed_tokenizer unit/embedding/test_embed_tokenizer.cpp
-          "unit;unit_embedding")
-  # device tests: pass the backend as argv[1] when run by hand; CTest runs them
-  # on the fallback backend unless a GPU backend is selected via LUISA_TEST_BACKEND.
-  set(LUISA_EMBED_DEVICE_BACKEND "fallback" CACHE STRING "Backend for embedding device tests")
-  foreach (_embed_dev_test IN ITEMS test_embed_kernel_gemm test_embed_kernel_layernorm
-          test_embed_kernel_embed test_embed_kernel_heads
-          # Phase B (attention/executor/scheduler/debug) + test-plan wave
-          # (L1 robust, L2 e2e, L3 retrieval, L5 robustness)
-          test_embed_kernel_attention test_embed_executor test_embed_scheduler
-          test_embed_debug test_embed_kernel_robust test_embed_e2e
-          test_embed_retrieval test_embed_robustness
-          # Phase-0 tensor/coop probes (tensor_optimize.md Phase 0)
-          test_embed_tensor_micro test_embed_coop_probe)
-      luisa_compute_add_embed_test(${_embed_dev_test}
-              integration/embedding/${_embed_dev_test}.cpp
-              "integration;integration_embedding"
-              ARGS "${LUISA_EMBED_DEVICE_BACKEND}")
-      set_tests_properties(${_embed_dev_test} PROPERTIES
-              ENVIRONMENT "LUISA_ENABLE_VALIDATION=1")
-  endforeach ()
-
-  # Test-plan L0 host-only additions (CTest label unit;unit_embedding).
-  luisa_compute_add_embed_test(test_embed_package unit/embedding/test_embed_package.cpp
-          "unit;unit_embedding")
-  luisa_compute_add_embed_test(test_embed_pack unit/embedding/test_embed_pack.cpp
-          "unit;unit_embedding")
-  luisa_compute_add_embed_test(test_embed_tokenizer_mt
-          unit/embedding/test_embed_tokenizer_mt.cpp "unit;unit_embedding")
-  luisa_compute_add_embed_test(test_embed_tokenizer_pool
-          unit/embedding/test_embed_tokenizer_pool.cpp "unit;unit_embedding")
-  luisa_compute_add_embed_test(test_embed_retrieval_index
-          unit/embedding/test_embed_retrieval_index.cpp "unit;unit_embedding")
-  target_compile_definitions(test_embed_retrieval_index PRIVATE LUISA_EMBED_HOST_ONLY=1)
-  luisa_compute_add_embed_test(test_embed_retrieval_rpc
-          unit/embedding/test_embed_retrieval_rpc.cpp "unit;unit_embedding")
-  target_compile_definitions(test_embed_retrieval_rpc PRIVATE LUISA_EMBED_HOST_ONLY=1)
-  # C-FFI shared library front-end (examples/embedding/api): host-only, it
-  # drives every exported step in callback mode, so it needs no GPU/model.
-  luisa_compute_add_embed_test(test_embed_retrieval_api
-          unit/embedding/test_embed_retrieval_api.cpp "unit;unit_embedding")
-  target_compile_definitions(test_embed_retrieval_api PRIVATE LUISA_EMBED_HOST_ONLY=1)
-  target_link_libraries(test_embed_retrieval_api PRIVATE example_embed_retrieval_lib)
-  if (WIN32)
-      target_link_libraries(test_embed_retrieval_rpc PRIVATE ws2_32)
-  endif ()
-
-  # --- OCR engine (examples/ocr, Phase 0) ---
-  # Fixtures will live in src/tests/data/ocr/ (later phases); the path is
-  # compiled in alongside the examples root, mirroring the embedding helper.
-  set(LUISA_OCR_TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data/ocr")
-  function(luisa_compute_add_ocr_test name source labels)
-      cmake_parse_arguments(PARSE_ARGV 3 OCR "" "" "ARGS")
-      luisa_compute_add_test(${name} ${source} LABELS "${labels}" ARGS ${OCR_ARGS})
-      target_link_libraries(${name} PRIVATE lc-example-ocr)
-      target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/examples)
-      target_compile_definitions(${name} PRIVATE
-              LUISA_OCR_TEST_DATA_DIR="${LUISA_OCR_TEST_DATA_DIR}"
-              LUISA_OCR_EXAMPLES_DIR="${CMAKE_SOURCE_DIR}/examples")
-  endfunction()
-  # host-only Phase 0 contract tests (no device/model; CTest label unit;unit_ocr)
-  luisa_compute_add_ocr_test(test_ocr_recipe unit/ocr/test_ocr_recipe.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_status unit/ocr/test_ocr_status.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_cli unit/ocr/test_ocr_cli.cpp
-          "unit;unit_ocr")
-  # host-only Phase 1 artifact/input/golden tests (no device/model)
-  luisa_compute_add_ocr_test(test_ocr_quantization unit/ocr/test_ocr_quantization.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_package unit/ocr/test_ocr_package.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_safetensors unit/ocr/test_ocr_safetensors.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_tokenizer unit/ocr/test_ocr_tokenizer.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_prompt unit/ocr/test_ocr_prompt.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_image unit/ocr/test_ocr_image.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_document unit/ocr/test_ocr_document.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_preprocess unit/ocr/test_ocr_preprocess.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_json_output unit/ocr/test_ocr_json_output.cpp
-          "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_benchmark unit/ocr/test_ocr_benchmark.cpp
-          "unit;unit_ocr")
-      # host-only Phase 2 runtime tests (no device/model)
-    luisa_compute_add_ocr_test(test_ocr_memory_budget unit/ocr/test_ocr_memory_budget.cpp
-            "unit;unit_ocr")
-    luisa_compute_add_ocr_test(test_ocr_runtime unit/ocr/test_ocr_runtime.cpp
-            "unit;unit_ocr")
-      # host-only Phase 3 decoder config/tensor-contract tests (no device/model)
-      luisa_compute_add_ocr_test(test_ocr_decoder_config unit/ocr/test_ocr_decoder_config.cpp
-              "unit;unit_ocr")
-      # host-only Phase 4 structured-output + model-contract tests (no device/model)
-      luisa_compute_add_ocr_test(test_ocr_output_table unit/ocr/test_ocr_output_table.cpp
-              "unit;unit_ocr")
-      luisa_compute_add_ocr_test(test_ocr_output_markdown unit/ocr/test_ocr_output_markdown.cpp
-              "unit;unit_ocr")
-      luisa_compute_add_ocr_test(test_ocr_output_extract unit/ocr/test_ocr_output_extract.cpp
-              "unit;unit_ocr")
-        luisa_compute_add_ocr_test(test_ocr_model_contract unit/ocr/test_ocr_model_contract.cpp
-                "unit;unit_ocr")
-        # host-only Phase 5 CTC/DB/reading-order output tests (no device/model)
-        luisa_compute_add_ocr_test(test_ocr_ctc unit/ocr/test_ocr_ctc.cpp
-                "unit;unit_ocr")
-        luisa_compute_add_ocr_test(test_ocr_db unit/ocr/test_ocr_db.cpp
-                "unit;unit_ocr")
-        luisa_compute_add_ocr_test(test_ocr_reading_order unit/ocr/test_ocr_reading_order.cpp
-                "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_cnn_result unit/ocr/test_ocr_cnn_result.cpp
-  "unit;unit_ocr")
-  # Phase 6 host-only layout/region scheduling + layout-decode tests
-  luisa_compute_add_ocr_test(test_ocr_scheduler unit/ocr/test_ocr_scheduler.cpp
-  "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_layout_decode unit/ocr/test_ocr_layout_decode.cpp
-  "unit;unit_ocr")
-  luisa_compute_add_ocr_test(test_ocr_layout_compose unit/ocr/test_ocr_layout_compose.cpp
-  "unit;unit_ocr")
-  # Phase 10 host-only DeepSeek MoE model contract + grounded Markdown tests
-  luisa_compute_add_ocr_test(test_ocr_deepseek_contract unit/ocr/test_ocr_deepseek_contract.cpp
-  "unit;unit_ocr")
-    # Phase 2 device tests (integration;integration_ocr). Built always; a CTest
-    # entry is created ONLY when LUISA_OCR_DEVICE_BACKEND names a backend, so an
-    # empty value never produces a silently-skipping test. Run manually with an
-    # explicit backend argument otherwise: test_ocr_ops_gemm vk|cuda|fallback.
-    set(LUISA_OCR_DEVICE_BACKEND "" CACHE STRING
-            "Backend argument for the OCR device tests' CTest entries (empty = build only, no CTest entry)")
-      set(_ocr_device_tests
-              test_ocr_ops_image
-              test_ocr_ops_gemm
-              test_ocr_ops_norm
-              test_ocr_ops_rope
-              test_ocr_ops_attention
-                test_ocr_ops_conv
-                test_ocr_ops_vision
-                test_ocr_gdn_conv
-                test_ocr_gdn_recurrent
-                test_ocr_gdn_chunked
-                test_ocr_gdn_cache
-                  test_ocr_model_ovis_ocr2
-                  test_ocr_model_surya
-                  test_ocr_moe_router
-                  test_ocr_moe_permutation
-                  test_ocr_moe_experts
-                  test_ocr_model_deepseek_ocr2
-                test_ocr_runtime_device
-                test_ocr_decode_prefill
-                test_ocr_decode_cache
-                test_ocr_decode_sampling
-                test_ocr_decode_stop
-                  test_ocr_model_qwen3_vl
-                  test_ocr_model_fire_red
-                  test_ocr_model_pp_ocrv6
-                  test_ocr_layout
-                  test_ocr_model_paddle_ocr_vl
-                    test_ocr_model_open_doc
-                    test_ocr_region_scheduler
-                    test_ocr_model_tele_ocr
-                    test_ocr_model_glm_ocr
-                    test_ocr_model_mineru
-                    test_ocr_model_hunyuan
-                    test_ocr_model_dots_mocr
-                    test_ocr_model_got_ocr2
-                    test_ocr_model_olm_ocr2
-                    test_ocr_benchmark_device)
-    foreach(_ocr_test IN LISTS _ocr_device_tests)
-        if(LUISA_OCR_DEVICE_BACKEND)
-            luisa_compute_add_ocr_test(${_ocr_test} integration/ocr/${_ocr_test}.cpp
-                    "integration;integration_ocr" ARGS ${LUISA_OCR_DEVICE_BACKEND})
-        else()
-            luisa_compute_add_test(${_ocr_test} integration/ocr/${_ocr_test}.cpp)
-            target_link_libraries(${_ocr_test} PRIVATE lc-example-ocr)
-            target_include_directories(${_ocr_test} PRIVATE
-                    ${CMAKE_SOURCE_DIR}/examples ${CMAKE_CURRENT_SOURCE_DIR}/integration/ocr)
-            target_compile_definitions(${_ocr_test} PRIVATE
-                    LUISA_OCR_TEST_DATA_DIR="${LUISA_OCR_TEST_DATA_DIR}"
-                    LUISA_OCR_EXAMPLES_DIR="${CMAKE_SOURCE_DIR}/examples")
-        endif()
-        target_include_directories(${_ocr_test} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/integration/ocr)
-    endforeach()
-    # The benchmark smoke test reuses the separate benchmark-support target;
-    # it checks correctness/reporting only and has no wall-time threshold.
-    target_link_libraries(test_ocr_benchmark_device PRIVATE lc-example-ocr-bench)
 
 # The SIMD backend is a host-only module, so its supported runtime conformance
 # subset is safe to run unattended without a GPU or driver installation.

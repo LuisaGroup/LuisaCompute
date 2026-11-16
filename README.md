@@ -543,7 +543,11 @@ Limitation (might be removed in the future):
 
 ## Applications
 
-We implement several proof-of-concept examples in tree under `src/tests` (sorry for the misleading naming; they are also test programs we used during the development). Besides, you may also found the following applications interesting:
+The examples and application-style demos that used to live in `examples/` have moved to
+the separate [LuisaComputeGallery](https://github.com/LuisaGroup/LuisaComputeGallery)
+repository: sources are under `src/` there, one directory per group, with both xmake and
+CMake configurations and a headless (`--headless`) mode for every demo. The
+proof-of-concept programs under `src/tests` in this tree stay here (sorry for the misleading naming; they are also test programs we used during the development). Besides, you may also found the following applications interesting:
 
 - [LuisaRender](https://github.com/LuisaGroup/LuisaRender.git), a high-performance cross-platform Monte Carlo renderer.
 - [LuisaShaderToy](https://github.com/LuisaGroup/LuisaShaderToy.git), a collection of amazing shaders ported from [Shadertoy](https://www.shadertoy.com).

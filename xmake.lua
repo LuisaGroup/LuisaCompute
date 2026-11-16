@@ -201,7 +201,7 @@ if has_config('_lc_check_env') then
     end
     includes("src")
     if has_config("lc_enable_tests") then
-        includes("examples")
+        -- Examples moved out: see https://github.com/LuisaGroup/LuisaComputeGallery
         includes("tutorials")
     end
 end

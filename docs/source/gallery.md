@@ -1,5 +1,11 @@
 # Gallery
 
+```{note}
+The examples moved to the [LuisaComputeGallery](https://github.com/LuisaGroup/LuisaComputeGallery)
+repository (sources under `src/`, one directory per example group). The "Source" links below
+point at the new locations; the reference images stay in `docs/gallery/`.
+```
+
 This gallery showcases output images from LuisaCompute examples and integration tests.
 Checked-in reference images are stored in `docs/gallery/`. Offline rendering does
 not create or select a reference automatically; pass the reference explicitly.
@@ -24,7 +30,7 @@ soft shadows, and color bleeding.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/path_tracing.cpp`
+**Source:** [src/rendering/path_tracing.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/path_tracing.cpp)
 
 ### Path Tracing (HDR)
 
@@ -35,7 +41,7 @@ High dynamic range path tracing with tone mapping.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/path_tracing_hdr.cpp`
+**Source:** [src/rendering/path_tracing_hdr.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/path_tracing_hdr.cpp)
 
 ### Path Tracing (Camera)
 
@@ -46,7 +52,7 @@ Path tracing with depth of field camera model.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/path_tracing_camera.cpp`
+**Source:** [src/rendering/path_tracing_camera.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/path_tracing_camera.cpp)
 
 ### Path Tracing (Cutout)
 
@@ -57,7 +63,7 @@ Path tracing with alpha-tested cutout geometry.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/path_tracing_cutout.cpp`
+**Source:** [src/rendering/path_tracing_cutout.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/path_tracing_cutout.cpp)
 
 ### Path Tracing (Nested Callable)
 
@@ -68,7 +74,7 @@ Path tracing demonstrating nested callable composition.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/path_tracing_nested_callable.cpp`
+**Source:** [src/rendering/path_tracing_nested_callable.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/path_tracing_nested_callable.cpp)
 
 ### Path Tracing (Ray Masks)
 
@@ -79,7 +85,7 @@ Path tracing with per-instance ray visibility masks.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/path_tracing_ray_masks.cpp`
+**Source:** [src/rendering/path_tracing_ray_masks.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/path_tracing_ray_masks.cpp)
 
 ### Path Tracing (Spectral)
 
@@ -90,7 +96,7 @@ Spectral path tracing with wavelength-dependent rendering.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/path_tracing_spectrum.cpp`
+**Source:** [src/rendering/path_tracing_spectrum.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/path_tracing_spectrum.cpp)
 
 ### Path Tracing (IR Backend)
 
@@ -101,7 +107,7 @@ Path tracing compiled through the IR pipeline.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/path_tracing_ir.cpp`
+**Source:** [src/rendering/path_tracing_ir.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/path_tracing_ir.cpp)
 
 ### Photon Mapping
 
@@ -112,7 +118,7 @@ Global illumination via photon mapping with caustics.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/photon_mapping.cpp`
+**Source:** [src/rendering/photon_mapping.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/photon_mapping.cpp)
 
 ### SDF Renderer
 
@@ -123,7 +129,7 @@ Signed distance field renderer with ray marching.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/sdf_renderer.cpp`
+**Source:** [src/rendering/sdf_renderer.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/sdf_renderer.cpp)
 
 ### SDF Renderer (IR Backend)
 
@@ -134,7 +140,7 @@ SDF renderer compiled through the IR pipeline.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/sdf_renderer_ir.cpp`
+**Source:** [src/rendering/sdf_renderer_ir.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/sdf_renderer_ir.cpp)
 
 ### Voxel Ray Tracer
 
@@ -145,7 +151,7 @@ Real-time voxel rendering with ray tracing.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/voxel_raytracer.cpp`
+**Source:** [src/rendering/voxel_raytracer.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/voxel_raytracer.cpp)
 
 ### Black Hole
 
@@ -156,7 +162,7 @@ Interstellar-style black hole with gravitational lensing and accretion disk.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/blackhole.cpp`
+**Source:** [src/rendering/blackhole.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/blackhole.cpp)
 
 ### ShaderToy
 
@@ -167,7 +173,7 @@ Classic ShaderToy-style procedural rendering.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/shader_toy.cpp`
+**Source:** [src/rendering/shader_toy.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/shader_toy.cpp)
 
 ### ShaderToy (SpaceX)
 
@@ -178,7 +184,7 @@ SpaceX-inspired ShaderToy effect.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/shader_toy_spacex.cpp`
+**Source:** [src/rendering/shader_toy_spacex.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/shader_toy_spacex.cpp)
 
 ### Procedural Geometry
 
@@ -189,7 +195,7 @@ Procedural geometry rendering with ray tracing.
 :width: 512px
 ```
 
-**Source:** `examples/rendering/procedural.cpp`
+**Source:** [src/rendering/procedural.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/rendering/procedural.cpp)
 
 ---
 
@@ -204,7 +210,7 @@ Material Point Method fluid simulation.
 :width: 512px
 ```
 
-**Source:** `examples/simulation/mpm88.cpp`
+**Source:** [src/simulation/mpm88.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/simulation/mpm88.cpp)
 
 ### Game of Life
 
@@ -215,7 +221,7 @@ Conway's Game of Life cellular automaton.
 :width: 512px
 ```
 
-**Source:** `examples/simulation/game_of_life.cpp`
+**Source:** [src/simulation/game_of_life.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/simulation/game_of_life.cpp)
 
 ### Wave Equation
 
@@ -226,7 +232,7 @@ Interactive wave equation PDE solver.
 :width: 512px
 ```
 
-**Source:** `examples/simulation/wave_equation.cpp`
+**Source:** [src/simulation/wave_equation.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/simulation/wave_equation.cpp)
 
 ### Fire Simulation
 
@@ -237,7 +243,7 @@ Physics-based fire particle system.
 :width: 512px
 ```
 
-**Source:** `examples/simulation/fire_simulation.cpp`
+**Source:** [src/simulation/fire_simulation.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/simulation/fire_simulation.cpp)
 
 ### N-Body Simulation
 
@@ -248,7 +254,7 @@ Gravitational N-body particle simulation.
 :width: 512px
 ```
 
-**Source:** `examples/simulation/nbody_simulation.cpp`
+**Source:** [src/simulation/nbody_simulation.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/simulation/nbody_simulation.cpp)
 
 ---
 
@@ -263,7 +269,7 @@ Multi-pass image processing pipeline with filters and effects.
 :width: 512px
 ```
 
-**Source:** `examples/compute/image_processing.cpp`
+**Source:** [src/compute/image_processing.cpp](https://github.com/LuisaGroup/LuisaComputeGallery/blob/master/src/compute/image_processing.cpp)
 
 ---
 

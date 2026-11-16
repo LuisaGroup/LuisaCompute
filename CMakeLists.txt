@@ -349,12 +349,8 @@ endif ()
 add_subdirectory(utils)
 add_subdirectory(src)
 
-if (LUISA_COMPUTE_BUILD_IOS_EXAMPLES)
-    add_subdirectory(examples/ios)
-endif ()
-if (LUISA_COMPUTE_BUILD_IOS_BENCHMARKS)
-    add_subdirectory(examples/ios/benchmark)
-endif ()
+# The examples (including the iOS ones) moved to the LuisaComputeGallery
+# repository: https://github.com/LuisaGroup/LuisaComputeGallery
 
 if (NOT SKBUILD)
     include(CMakePackageConfigHelpers)
@@ -398,7 +394,6 @@ endif ()
 
 if (LUISA_COMPUTE_BUILD_TESTS)
     enable_testing()
-    add_subdirectory(examples)
     add_subdirectory(tutorials)
 endif()
 
