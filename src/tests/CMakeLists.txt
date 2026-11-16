@@ -1552,6 +1552,11 @@ luisa_compute_add_test(test_coro_wavefront_resume_batching
         unit/coro/test_coro_wavefront_resume_batching.cpp)
 luisa_compute_add_test(test_coro_wavefront_resume_batching_guarded
         unit/coro/test_coro_wavefront_resume_batching_guarded.cpp LABELS "unit;unit_coro")
+if (TARGET luisa-compute-backend-cuda)
+    luisa_compute_add_test(test_coro_parallel_compilation
+            unit/coro/test_coro_parallel_compilation.cpp
+            LABELS "integration;unit_coro;unit_cuda" ARGS cuda)
+endif ()
 add_test(NAME test_coro_wavefront_resume_batching_metadata
         COMMAND test_coro_wavefront_resume_batching
                 fallback resume_batching_rejects_incompatible_metadata)
