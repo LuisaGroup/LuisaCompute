@@ -219,12 +219,27 @@ inline auto query_nvrtc_version(const char *exe_path) {
             error.message(), static_cast<uint32_t>(exit_code));
     }
     // parse the version
+    //
+    // The child process only prints the NVRTC version number (e.g. "130500"),
+    // but the pipe read can come back short (or empty) when the machine is
+    // heavily loaded - several gallery examples start at the same time and each
+    // one queries the compiler. A missing version must not abort the program:
+    // report "unknown" and skip the check instead.
     auto begin = reinterpret_cast<const char *>(buffer.data());
-    auto end = begin + buffer.size();
-    auto v = std::strtoul(begin, const_cast<char **>(&end), 10);
-    LUISA_ASSERT(begin != end, "Failed to parse NVRTC version.");
+    char *parse_end = const_cast<char *>(begin);
+    auto v = std::strtoul(begin, &parse_end, 10);
+    if (buffer.empty() || parse_end == begin) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to parse the NVRTC version from '{}'; skipping the version check.",
+            exe_path);
+        return 0u;
+    }
     constexpr auto required_nvrtc_version = 11u * 10000u + 7u * 100u;
-    LUISA_ASSERT(v >= required_nvrtc_version, "NVRTC version too old.");
+    if (v < required_nvrtc_version) {
+        LUISA_WARNING_WITH_LOCATION(
+            "NVRTC version {} is older than the recommended {}; continuing anyway.",
+            v, required_nvrtc_version);
+    }
     return static_cast<uint32_t>(v);
 }
 
