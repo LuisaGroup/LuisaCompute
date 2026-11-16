@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
                 // Keep routine correctness runs bounded. The 4x8x8 GEMM
                 // machine-scheduler compile-time cliff is retained in the
                 // migration report/benchmark, not hidden as a timing pass.
-                auto block = op == migrated::Operation::GEMM ? example::tile::Block{2, 2, 4} : example::tile::Block{4, 8, 8};
+                auto block = op == migrated::Operation::GEMM ? luisa::test::tile_kernels::Block{2, 2, 4} : luisa::test::tile_kernels::Block{4, 8, 8};
                 auto fixture = migrated::make(op, rows, columns, op == migrated::Operation::GEMM ? 19 : 1, block);
                 expect(fixture.kernel.valid()) << name;
                 if (!fixture.kernel.valid()) { continue; }

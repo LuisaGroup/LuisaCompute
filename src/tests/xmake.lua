@@ -334,15 +334,12 @@ test_proj("test_tile_memory", "unit/tile/test_tile_memory.cpp", false, function(
 end)
 test_proj("test_tile_migrated", "unit/tile/test_tile_migrated.cpp", false, function()
     add_deps("lc-tile")
-    add_includedirs("$(projectdir)/examples")
 end)
 test_proj("test_tile_types", "unit/tile/test_tile_types.cpp", false, function()
     add_deps("lc-tile")
-    add_includedirs("$(projectdir)/examples")
 end)
 test_proj("benchmark_tile_migrated", "benchmark/benchmark_tile_migrated.cpp", false, function()
     add_deps("lc-tile")
-    add_includedirs("$(projectdir)/examples")
 end)
 -- A/B benchmark for the vk/dx command-reordering pass; run with
 -- `xmake run benchmark_command_reorder vk` (or dx).

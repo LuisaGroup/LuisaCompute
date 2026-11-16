@@ -225,3 +225,24 @@ On Windows, install Git for Windows and Python 3, then run
 from the repository in PowerShell, CMD, or Git Bash. Git runs the shell hooks
 using its bundled shell. Hooks try `python3`, `python`, then `py -3`.
 Git clients that do not execute standard Git hooks are covered only by CI.
+
+### iOS library CI after the Gallery split
+
+Application examples, benchmarks, and device-conformance bundles are maintained
+in [LuisaComputeGallery](https://github.com/LuisaGroup/LuisaComputeGallery).
+This repository's `build-ios` workflow cross-builds the library and links an
+unsigned smoke executable for each backend instead:
+
+```sh
+scripts/build_ios_library.sh --backend metal4 \
+  --llvm-dir .ci/llvm-ios/lib/cmake/llvm --build-dir build-ios-metal4
+scripts/build_ios_library.sh --backend metal --build-dir build-ios-metal
+```
+
+The opt-in `LUISA_COMPUTE_BUILD_IOS_LINK_TESTS` CMake option requires an iOS
+toolchain. Each test references the backend's static-registration entry point,
+so the linker must resolve the runtime and, for Metal4, AIR/LLVM dependencies.
+The script audits arm64, the iPhoneOS platform tag, and system-only dynamic
+libraries. These are compilation/link checks, not device execution or image
+conformance tests. The old application build scripts require the Gallery
+sources and are no longer used by this repository's CI.

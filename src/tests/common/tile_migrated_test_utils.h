@@ -1,6 +1,6 @@
 #pragma once
 
-#include "compute/tile/kernels.h"
+#include "tile_kernel_test_utils.h"
 #include <array>
 #include <cmath>
 #include <optional>
@@ -59,8 +59,8 @@ struct Case {
 }
 
 [[nodiscard]] inline Case make(Operation op, int64_t rows, int64_t columns, int64_t depth = 1,
-                               example::tile::Block block = {}) {
-    namespace kernels = example::tile;
+                               luisa::test::tile_kernels::Block block = {}) {
+    namespace kernels = luisa::test::tile_kernels;
     auto matrix = op == Operation::GEMM;
     auto pointwise = op <= Operation::EXP;
     auto capture = [&]() -> compute::tile::Kernel {

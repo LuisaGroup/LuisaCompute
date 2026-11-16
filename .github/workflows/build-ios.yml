@@ -24,6 +24,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Test iOS library build and audit scripts
+        run: python3 scripts/test/test_ios_library.py
+
       - name: Select Xcode 26 and install host build tools
         id: toolchain
         run: |
@@ -76,33 +79,21 @@ jobs:
             .ci/llvm-source
           key: ios-llvm-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}-${{ env.IOS_DEPLOYMENT_TARGET }}-${{ steps.toolchain.outputs.xcode_key }}-${{ hashFiles('scripts/build_ios_llvm.sh') }}
 
-      - name: Build all Metal4 iOS examples, benchmark, and device tests without signing
+      # Application/device-conformance bundles moved to LuisaComputeGallery.
+      # Keep both backends' library and static-link closure checks in this repo.
+      - name: Build and audit unsigned Metal4 iOS library link test
         run: |
-          scripts/build_ios_metal4.sh \
+          scripts/build_ios_library.sh \
+            --backend metal4 \
             --llvm-dir .ci/llvm-ios/lib/cmake/llvm \
-            --build-dir build-ios \
+            --build-dir build-ios-metal4 \
             --deployment-target "$IOS_DEPLOYMENT_TARGET" \
-            --mode all \
-            --unsigned \
             --jobs 4
 
-      - name: Audit iPhoneOS bundles
+      - name: Build and audit unsigned Metal iOS library link test
         run: |
-          scripts/audit_ios_bundles.sh \
-            --bin-dir build-ios/bin/Release \
-            --expected-count 21
-
-      - name: Build matched old-Metal iOS benchmark without signing
-        run: |
-          scripts/build_ios_backend_benchmark.sh \
+          scripts/build_ios_library.sh \
             --backend metal \
-            --build-dir build-ios-metal-benchmark \
+            --build-dir build-ios-metal \
             --deployment-target "$IOS_DEPLOYMENT_TARGET" \
-            --unsigned \
             --jobs 4
-
-      - name: Audit old-Metal iPhoneOS benchmark bundle
-        run: |
-          scripts/audit_ios_bundles.sh \
-            --bin-dir build-ios-metal-benchmark/bin/Release \
-            --expected-count 1

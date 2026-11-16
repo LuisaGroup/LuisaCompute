@@ -12,7 +12,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/core/stl/memory.h>
-#include <compute/tile/kernels.h>
+#include "tile_kernel_test_utils.h"
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -128,7 +128,7 @@ template<typename T, typename Acc = float>
 void test_gemm(Device &device, Stream &stream, const t::CompileOptions &options) {
     for (auto dims : {std::array<int64_t, 3>{1, 1, 1}, {7, 9, 11}}) {
         auto [m, n, k] = dims;
-        auto kernel = example::tile::gemm<T, Acc>(m, n, k, {2, 2, 4});
+        auto kernel = luisa::test::tile_kernels::gemm<T, Acc>(m, n, k, {2, 2, 4});
         expect(kernel.valid());
         auto shader = t::compile(device, kernel, options);
         expect(static_cast<bool>(shader)) << shader.metadata().error;
@@ -242,7 +242,7 @@ int main(int argc, char *argv[]) {
         }
         // The TIRx route has not qualified BF16 accumulation yet, even with
         // reassociation allowed. Do not erase that independent route boundary.
-        auto kernel = example::tile::gemm<t::bf16, t::bf16>(1, 1, 1, {1, 1, 1});
+        auto kernel = luisa::test::tile_kernels::gemm<t::bf16, t::bf16>(1, 1, 1, {1, 1, 1});
         expect(kernel.valid());
         auto shader = t::compile(device, kernel, options);
         expect(!static_cast<bool>(shader));

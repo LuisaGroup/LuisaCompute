@@ -79,8 +79,8 @@ function(luisa_compute_add_executable name)
     target_link_libraries(${name} PRIVATE luisa::compute)
 endfunction()
 
-if (LUISA_COMPUTE_BUILD_IOS_TESTS)
-    add_subdirectory(tests/ios)
+if (LUISA_COMPUTE_BUILD_IOS_LINK_TESTS)
+    add_subdirectory(tests/integration/runtime/ios)
 endif ()
 
 if (LUISA_COMPUTE_BUILD_TESTS)

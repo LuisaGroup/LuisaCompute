@@ -47,7 +47,7 @@ int run(int argc, char *argv[]) {
         return value;
     };
     auto rows = integer(argv[3]), columns = integer(argv[4]), depth = integer(argv[5]);
-    auto block = example::tile::Block{integer(argv[6]), integer(argv[7]), integer(argv[8])};
+    auto block = luisa::test::tile_kernels::Block{integer(argv[6]), integer(argv[7]), integer(argv[8])};
     auto samples = integer(argv[9]), sample_ms = integer(argv[10]), warmup_ms = integer(argv[11]);
     LUISA_ASSERT(rows <= 16384 && columns <= 16384 && depth <= 16384 &&
                      rows * columns <= (1ll << 26) && rows * depth <= (1ll << 26) && depth * columns <= (1ll << 26) &&
@@ -80,7 +80,7 @@ int run(int argc, char *argv[]) {
         fixture.kernel = test::tile_native::gemm({rows, columns, depth, block.m, block.n});
     }
     if constexpr (!std::same_as<T, float>) {
-        fixture.kernel = example::tile::gemm<T>(rows, columns, depth, block);
+        fixture.kernel = luisa::test::tile_kernels::gemm<T>(rows, columns, depth, block);
         // These /64 inputs are exactly representable in both FP16/BF16.
         // The oracle is the FP64 dot product rounded to output storage.
         for (auto &value : fixture.expected) { value = static_cast<float>(static_cast<T>(static_cast<float>(value))); }
