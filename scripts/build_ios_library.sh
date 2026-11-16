@@ -68,4 +68,4 @@ cmake "${cmake_args[@]}"
 cmake --build "$build_dir" --config Release --parallel "$jobs" \
     --target luisa-ios-link-tests -- CODE_SIGNING_ALLOWED=NO
 "$script_dir/audit_ios_link_test.sh" \
-    "$build_dir/bin/Release/test_ios_${backend}_link"
+    "$build_dir/bin/Release/test_ios_${backend}_link.app/test_ios_${backend}_link"

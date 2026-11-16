@@ -5,7 +5,7 @@ set(_luisa_ios_link_targets)
 foreach (backend IN ITEMS metal metal4)
     if (TARGET luisa-compute-backend-${backend})
         set(target test_ios_${backend}_link)
-        add_executable(${target} backend_link.cpp)
+        add_executable(${target} MACOSX_BUNDLE backend_link.cpp)
         target_include_directories(${target} PRIVATE
                 ${PROJECT_SOURCE_DIR}/src/backends/${backend})
         target_compile_definitions(${target} PRIVATE
@@ -13,6 +13,9 @@ foreach (backend IN ITEMS metal metal4)
         target_link_libraries(${target} PRIVATE
                 luisa::compute luisa-compute-backend-${backend})
         set_target_properties(${target} PROPERTIES
+                MACOSX_BUNDLE_GUI_IDENTIFIER "org.luisa-compute.tests.ios.${backend}-link"
+                MACOSX_BUNDLE_BUNDLE_VERSION "1"
+                MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
                 XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO
                 FOLDER tests/ios)
         list(APPEND _luisa_ios_link_targets ${target})

@@ -39,7 +39,7 @@ class IOSLibraryTest(unittest.TestCase):
         for backend in ("metal", "metal4"):
             with self.subTest(backend=backend):
                 build = self.path / backend
-                executable = build / "bin/Release" / f"test_ios_{backend}_link"
+                executable = build / "bin/Release" / f"test_ios_{backend}_link.app" / f"test_ios_{backend}_link"
                 executable.parent.mkdir(parents=True)
                 executable.touch()
                 self.log.write_text("")
