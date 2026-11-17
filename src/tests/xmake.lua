@@ -681,7 +681,7 @@ if has_config("lc_enable_xir") then
     coro_xir_test_proj("test_coro_persistent", "unit/coro/test_coro_persistent.cpp")
     coro_xir_test_proj("test_coro_persistent_opt", "unit/coro/test_coro_persistent_opt.cpp")
     coro_xir_test_proj("test_coro_persistent_integration", "unit/coro/test_coro_persistent_integration.cpp")
-    coro_xir_test_proj("test_coro_soa_layout", "unit/coro/test_coro_soa_layout.cpp")
+    coro_xir_test_proj("test_coro_soa_layout", "unit/coro/test_coro_soa_layout.cpp", true)
     coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp", true)
     coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp", true)
     coro_xir_test_proj("test_coro_packed_word", "unit/coro/test_coro_packed_word.cpp", true)
