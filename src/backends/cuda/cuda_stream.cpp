@@ -208,6 +208,9 @@ CUDAStream::~CUDAStream() noexcept {
 void CUDAStream::synchronize() noexcept {
     auto ticket = _current_ticket.load();
     LUISA_CHECK_CUDA(cuStreamSynchronize(_stream));
+    // A drained stream holds no predecessor at all: whatever the next launch
+    // enters is not the kernel that just retired.
+    clear_pdl_predecessor();
     // Only reclaim what the stream has provably passed: a concurrent dispatch() on
     // another thread may have recorded a fresh event between cuStreamSynchronize()
     // and this call, and forcing it would hand its block back to the pool while the
@@ -242,6 +245,8 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
         }
         // notify the callback thread
         _callback_cv.notify_one();
+        // A host function drains the stream, so it is never a kernel predecessor.
+        note_pdl_predecessor(false);
     }
 }
 
@@ -263,6 +268,9 @@ void CUDAStream::defer_recycle(luisa::vector<CUDACallbackContext *> &&contexts) 
     // complete.  A stream event is a semaphore write, ~free next to the host
     // callback it replaces.
     LUISA_CHECK_CUDA(cuEventRecord(event, _stream));
+    // An event record is an ordering operation, not a kernel: the next launch
+    // must not be relaxed against it.
+    note_pdl_predecessor(false);
     _pending_staging.emplace_back(StagingBatch{.event = event,
                                                 .contexts = std::move(contexts)});
 }
@@ -295,10 +303,15 @@ void CUDAStream::_reclaim_staging(bool all) noexcept {
 
 void CUDAStream::signal(CUDAEvent *event, uint64_t value) noexcept {
     event->signal(_stream, value);
+    // A semaphore write is not a kernel launch.
+    note_pdl_predecessor(false);
 }
 
 void CUDAStream::wait(CUDAEvent *event, uint64_t value) noexcept {
     event->wait(_stream, value);
+    // A semaphore wait is not a kernel launch, and the launch attribute is only
+    // documented against the previous kernel of the stream.
+    note_pdl_predecessor(false);
 }
 
 void CUDAStream::set_name(luisa::string &&name) noexcept {
@@ -322,7 +335,13 @@ void CUDAStream::dispatch(CommandList &&command_list) noexcept {
     auto callbacks = command_list.steal_callbacks();
     {
         std::scoped_lock lock{_dispatch_mutex};
-        for (auto &cmd : commands) { cmd->accept(encoder); }
+        // The launch policy of the first grid of this submission sees the state
+        // the stream is in right now; every command then advances it.
+        encoder.seed_pdl_predecessor(pdl_predecessor_is_kernel());
+        for (auto &cmd : commands) { encoder.visit_command(cmd.get()); }
+        // Stored *before* commit(): commit() may record a staging event or a host
+        // callback, and both make the stream's last operation a non-kernel one.
+        note_pdl_predecessor(encoder.pdl_predecessor_is_kernel());
         encoder.commit(std::move(callbacks));
     }
 }

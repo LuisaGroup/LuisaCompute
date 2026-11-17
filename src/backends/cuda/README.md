@@ -40,6 +40,59 @@ When upgrading the submodule, review these declarations and LLVM codegen
 alongside the official ABI; updating the version assertion alone is not enough.
 
 The upstream SDK has its own licensing terms. See
-[`LICENSE.txt`](../../ext/optix/LICENSE.txt) and
-[`license_info.txt`](../../ext/optix/license_info.txt) in the pinned submodule;
+LICENSE.txt (../../ext/optix/LICENSE.txt) and
+license_info.txt (../../ext/optix/license_info.txt) in the pinned submodule;
 LuisaCompute's license does not replace those terms.
+
+Programmatic dependent launch (stream form)
+
+A CUDA stream serializes its grids: a kernel does not start before its
+predecessor retired, which leaves a launch/flush bubble at every kernel->kernel
+boundary. CUDA 12.0 exposes `CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION`
+for exactly that bubble: a grid launched with the attribute may start while the
+previous kernel of the stream is still running, provided it waits for its
+programmatic dependency (`griddepcontrol.wait`) before reading what that kernel
+wrote. This is *not* a dependency system and it does not batch commands — it is a
+single pairwise relaxation, and the backend never uses it unless a wait is in
+place.
+
+The feature has two halves, decided at different times:
+
+* **Codegen (per device, at shader compile time).**
+  `CUDADeviceConfigExt::enable_programmatic_stream_serialization()` (default
+  `false`) makes the backend compile `lc_cuda_grid_dependency_synchronize();` as
+  the first statement of `kernel_main`, so every DSL compute kernel of that
+  device waits at its entry and *any* kernel->kernel pair becomes safe without
+  dependency analysis. The flag ends up in the shader metadata
+  (`requires_grid_dependency_synchronize`, which already existed for kernels that
+  call `grid_dependency_synchronize()` themselves), it changes the generated
+  source and therefore the shader cache key, and it is not emitted for the OptiX
+  raygen entry or for the LLVM codegen route.
+* **Launch policy (per launch, at submit time).** `cuda_pdl_launch.h` decides
+  between `cuLaunchKernelEx` (attribute set) and the unchanged `cuLaunchKernel`.
+  A launch is relaxed only when the shader waits **and** the immediately previous
+  operation on the stream was a kernel launch (`CUDAStream` tracks that; a copy,
+  a build, an event record/wait, a host callback or a fresh stream is a hard
+  boundary) **and** the policy is on **and** the device is compute capability 9.0+
+  with driver 12.0+.
+
+Runtime control and observability are in
+`include/luisa/backends/ext/cuda/cuda_pdl_ext.h`:
+`Device::extension<CUDAPdlStreamExt>()` exposes `pdl_supported()`,
+`auto_prologue_enabled()`, the `pdl_stream_enabled()`/`set_pdl_stream_enabled()`
+policy switch, and per-device launch counters (relaxed / strict / driver
+fallbacks) for A/B runs. The policy is **on** by default — relaxing a kernel that
+already waits is what this backend did before the prologue existed — while the
+prologue is the opt-in part, because it changes the generated code of every
+kernel. `LUISA_DISABLE_PDL_STREAM=1` forces both halves off for the whole process
+and reproduces the pre-change generated source byte for byte.
+
+Below compute capability 9.0 the feature is inert by construction:
+`cuda_builtin/cuda_device_graph.h` compiles `griddepcontrol.*` away (an unguarded
+`asm` is accepted by NVRTC for an older `-arch` and then rejected by the driver at
+module load with `CUDA_ERROR_INVALID_PTX`), the wait becomes a no-op, and the
+launch attribute is never requested. Coverage: `src/tests/unit/core/test_cuda_pdl_launch_predicate.cpp`
+(the decision matrix, host only) and `src/tests/integration/runtime/test_cuda_stream_pdl.cpp`
+(host -> device: a chained producer/consumer workload, the launch counters, the
+non-kernel boundary and an A/B against a device without the prologue). Whether a
+relaxed grid really overlaps can only be measured on sm_90+ hardware.

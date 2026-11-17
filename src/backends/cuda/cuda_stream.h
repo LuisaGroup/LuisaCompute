@@ -12,6 +12,7 @@
 #include <luisa/runtime/command_list.h>
 #include "cuda_callback_context.h"
 #include "cuda_host_buffer_pool.h"
+#include "cuda_pdl_launch.h"
 
 namespace luisa::compute::cuda {
 
@@ -51,6 +52,13 @@ private:
     CUstream _stream{};
     spin_mutex _dispatch_mutex;
 
+    // Programmatic-dependent-launch state of this stream (see
+    // cuda_pdl_launch.h). Read when a submission starts and written after every
+    // command of a submission; also written by the host-side stream operations
+    // below, which other threads may call, hence the atomic.
+    std::atomic<cuda_pdl_detail::PdlPredecessor> _pdl_predecessor{
+        cuda_pdl_detail::PdlPredecessor::unknown};
+
     // Staging blocks (upload/download pool views) go back to their pool through a
     // CUevent recorded at the end of the submission that used them, not through a
     // cuLaunchHostFunc + callback-thread round trip: the fence is queried by the
@@ -76,6 +84,22 @@ public:
     [[nodiscard]] auto upload_pool() noexcept { return &_upload_pool; }
     [[nodiscard]] auto download_pool() noexcept { return &_download_pool; }
     [[nodiscard]] auto &log_callback() const noexcept { return _log_callback; }
+    // Whether the stream slot the next launch enters is a kernel launch.
+    [[nodiscard]] bool pdl_predecessor_is_kernel() const noexcept {
+        return _pdl_predecessor.load(std::memory_order_acquire) ==
+               cuda_pdl_detail::PdlPredecessor::kernel_launch;
+    }
+    void note_pdl_predecessor(bool is_kernel) noexcept {
+        _pdl_predecessor.store(
+            is_kernel ? cuda_pdl_detail::PdlPredecessor::kernel_launch
+                      : cuda_pdl_detail::PdlPredecessor::non_kernel,
+            std::memory_order_release);
+    }
+    // The stream no longer holds a known predecessor (a drain happened).
+    void clear_pdl_predecessor() noexcept {
+        _pdl_predecessor.store(cuda_pdl_detail::PdlPredecessor::unknown,
+                               std::memory_order_release);
+    }
     void dispatch(CommandList &&command_list) noexcept;
     void synchronize() noexcept;
     void signal(CUDAEvent *event, uint64_t value) noexcept;

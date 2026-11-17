@@ -837,6 +837,7 @@ end
       test_proj("test_cuda_graph_nodes", "integration/runtime/test_cuda_graph_nodes.cpp")
       test_proj("test_cuda_graph_conditional", "integration/runtime/test_cuda_graph_conditional.cpp")
       test_proj("test_cuda_graph_pdl", "integration/runtime/test_cuda_graph_pdl.cpp")
+      test_proj("test_cuda_stream_pdl", "integration/runtime/test_cuda_stream_pdl.cpp")
       test_proj("test_cuda_feature_adoption", "integration/runtime/test_cuda_feature_adoption.cpp")
           test_proj("test_cuda_graph_device", "integration/runtime/test_cuda_graph_device.cpp")
       test_proj("test_cuda_graph_memory", "integration/runtime/test_cuda_graph_memory.cpp")

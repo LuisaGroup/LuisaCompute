@@ -1817,6 +1817,7 @@ endif ()
       luisa_compute_add_test(test_cuda_graph_nodes integration/runtime/test_cuda_graph_nodes.cpp)
       luisa_compute_add_test(test_cuda_graph_conditional integration/runtime/test_cuda_graph_conditional.cpp)
     luisa_compute_add_test(test_cuda_graph_pdl integration/runtime/test_cuda_graph_pdl.cpp)
+    luisa_compute_add_test(test_cuda_stream_pdl integration/runtime/test_cuda_stream_pdl.cpp)
     luisa_compute_add_test(test_cuda_feature_adoption integration/runtime/test_cuda_feature_adoption.cpp)
     # The test skips itself on any other backend, so hand CTest the backend argument:
     # `ctest -R cuda_feature_adoption` then actually runs it.

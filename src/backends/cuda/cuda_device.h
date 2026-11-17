@@ -22,6 +22,7 @@ class CUDADenoiserExt;
 class CUDADStorageExt;
 class CUDAPinnedMemoryExt;
 class CudaGraphExtImpl;
+class CUDAPdlStreamExtImpl;
 class CUDANativeShaderExt;
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
@@ -167,6 +168,7 @@ private:
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
     luisa::unique_ptr<CUDAPinnedMemoryExt> _pinned_memory_ext;
     luisa::unique_ptr<CudaGraphExtImpl> _cuda_graph_ext;
+    luisa::unique_ptr<CUDAPdlStreamExtImpl> _pdl_stream_ext;
     luisa::unique_ptr<CUDAExternalExt> _external_ext;
     luisa::unique_ptr<CUDANativeShaderExt> _native_shader_ext;
 #if LUISA_BACKEND_ENABLE_OIDN
@@ -234,6 +236,40 @@ public:
     }
     [[nodiscard]] auto io() const noexcept { return _io; }
     [[nodiscard]] CUDAEventManager *event_manager() const noexcept;
+
+public:
+    // Stream-form PDL (see cuda_pdl_launch.h). `pdl_supported()` is the hardware
+    // requirement, `pdl_stream_enabled()` the launch policy (on by default: a kernel
+    // that waits for its programmatic dependency has always been relaxed when its
+    // predecessor is a kernel), `pdl_auto_prologue()` the compile-time half that
+    // makes *every* kernel wait (opt-in, fixed at creation).
+    [[nodiscard]] bool pdl_supported() const noexcept {
+        auto &h = handle();
+        return h.compute_capability() >= 90u && h.driver_version() >= 12000u;
+    }
+    [[nodiscard]] bool pdl_stream_enabled() const noexcept;
+    void set_pdl_stream_enabled(bool enabled) noexcept { _pdl_stream_enabled.store(enabled, std::memory_order_relaxed); }
+    // Whether every DSL compute kernel of this device is compiled with the
+    // automatic PDL wait-at-entry prologue. Fixed at creation time: the wait is
+    // part of the generated source and therefore of the shader cache key, so it
+    // cannot be retracted at runtime (only the launch policy can, through
+    // `set_pdl_stream_enabled()`).
+    [[nodiscard]] bool pdl_auto_prologue() const noexcept { return _pdl_auto_prologue; }
+    struct PdlLaunchStats {
+        uint64_t relaxed_launches{0u};
+        uint64_t strict_launches{0u};
+        uint64_t driver_fallbacks{0u};
+    };
+    [[nodiscard]] PdlLaunchStats pdl_launch_stats() const noexcept;
+    void reset_pdl_launch_stats() noexcept;
+    void note_pdl_launch(bool relaxed) noexcept;
+    void note_pdl_driver_fallback() noexcept;
+private:
+    std::atomic_bool _pdl_stream_enabled{true};
+    bool _pdl_auto_prologue{false};
+    std::atomic_uint64_t _pdl_relaxed_launches{0u};
+    std::atomic_uint64_t _pdl_strict_launches{0u};
+    std::atomic_uint64_t _pdl_driver_fallbacks{0u};
 
 public:
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;

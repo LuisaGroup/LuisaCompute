@@ -272,6 +272,10 @@ void CUDACommandEncoder::visit(AccelBuildCommand *command) noexcept {
             command->handle(), command->instance_count(),
             command->modifications(), command->update_instance_buffer_only());
         for (auto &&cmd : list.steal_commands()) { cmd->accept(*this); }
+        // The nested dispatches were accepted directly, so they never reached
+        // visit_command(); the enclosing build command is not a kernel launch
+        // even when the last spliced command launched a grid.
+        note_pdl_non_kernel_command();
         return;
     }
     auto accel = reinterpret_cast<CUDAAccel *>(command->handle());
@@ -292,6 +296,9 @@ void CUDACommandEncoder::visit(MeshBuildCommand *command) noexcept {
             .triangle_buffer_size = command->triangle_buffer_size()};
         auto list = _stream->device()->fallback_rtx()->build_blas(command->handle(), geometry);
         for (auto &&cmd : list.steal_commands()) { cmd->accept(*this); }
+        // Same as the accel fallback above: this command spliced grids into the
+        // stream but is not itself a kernel launch.
+        note_pdl_non_kernel_command();
         return;
     }
     auto mesh = reinterpret_cast<CUDAMesh *>(command->handle());

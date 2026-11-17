@@ -24,24 +24,48 @@ using lc_ulong = unsigned long long;
 
 // === Inline-PTX primitives (no cudadevrt involvement) ===
 
+// PDL (griddepcontrol.*) and device-side graph launch are sm_90+ features, and
+// the `asm` below must be guarded accordingly:
+//  * NVRTC does NOT validate inline PTX against the requested architecture, so
+//    the unguarded form compiles cleanly for `-arch=compute_89` and the failure
+//    only shows up later, at module load: the driver rejects the image with
+//    CUDA_ERROR_INVALID_PTX (218), i.e. *every* kernel that calls
+//    grid_dependency_synchronize() fails to load on a pre-Hopper device.
+//  * The driver never relaxes such a launch below cc 9.0 anyway
+//    (cuda_pdl_launch.h requires compute_capability >= 90), so the grid is fully
+//    serialized against its predecessor and "nothing to wait for" is the
+//    correct lowering: a no-op. Likewise there is no device-side graph launch
+//    before sm_90, so the graph-exec handle is 0 by definition.
+// Kept as three independent `#if`s instead of one macro so that each primitive
+// documents its own fallback and no macro leaks into the concatenated device
+// library (which is prepended to user shaders).
+
 // griddepcontrol.wait: blocks the calling thread until all direct grid
 // dependencies have completed (programmatic / launch-event dependencies).
 __device__ inline void lc_cuda_grid_dependency_synchronize() noexcept {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
     asm volatile("griddepcontrol.wait;" ::: "memory");
+#endif
 }
 
 // griddepcontrol.launch_dependents: allows dependent grids to be scheduled.
 // This is a scheduling hint only and carries no memory visibility guarantee.
 __device__ inline void lc_cuda_trigger_programmatic_launch_completion() noexcept {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
     asm volatile("griddepcontrol.launch_dependents;" ::: "memory");
+#endif
 }
 
 // %current_graph_exec: the cudaGraphExec_t handle of the graph execution that
 // launched the current grid; zero when not running inside a device graph.
 [[nodiscard]] __device__ inline lc_ulong lc_cuda_get_current_graph_exec() noexcept {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 900
     lc_ulong current_graph_exec;
     asm("mov.u64 %0, %%current_graph_exec;" : "=l"(current_graph_exec));
     return current_graph_exec;
+#else
+    return 0ull;// never inside a device graph: device-side launch needs sm_90+
+#endif
 }
 
 // === cudadevrt entry points ===
