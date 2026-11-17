@@ -12,9 +12,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "metal_device.h"
 #include "metal_event.h"
 #include "metal_texture.h"
 #include "metal_swapchain.h"
+#include "metal_shader.h"
 #include "metal_command_encoder.h"
 #include "metal_stream.h"
 
@@ -117,7 +119,14 @@ public:
 
 [[nodiscard]] bool metal_command_buffer_profiling_enabled() noexcept {
     static const auto enabled =
-        std::getenv("LUISA_METAL_COMMAND_BUFFER_PROFILE") != nullptr;
+        std::getenv("LUISA_METAL_COMMAND_BUFFER_PROFILE") != nullptr ||
+        std::getenv("LUISA_METAL4_DISPATCH_PROFILE") != nullptr;
+    return enabled;
+}
+
+[[nodiscard]] bool metal4_dispatch_profiling_enabled() noexcept {
+    static const auto enabled =
+        std::getenv("LUISA_METAL4_DISPATCH_PROFILE") != nullptr;
     return enabled;
 }
 
@@ -175,8 +184,9 @@ inline constexpr auto shader_log_bool_suffix =
 }// namespace
 
 MetalStream::MetalStream(MTL::Device *device,
-                         size_t max_commands) noexcept
-    : _max_commands{max_commands} {
+                         size_t max_commands,
+                         MetalDevice *owner_device) noexcept
+    : _owner_device{owner_device}, _max_commands{max_commands} {
     auto log_descriptor = NS::TransferPtr(
         MTL::LogStateDescriptor::alloc()->init());
     log_descriptor->setBufferSize(1_M);
@@ -212,6 +222,24 @@ MetalStream::MetalStream(MTL::Device *device,
     }
     LUISA_ASSERT(_queue != nullptr,
                  "Failed to create Metal4 command queue.");
+    _completion_event = device->newSharedEvent();
+    LUISA_ASSERT(_completion_event != nullptr,
+                 "Failed to create Metal4 stream completion shared event.");
+    {
+        auto residency_desc = NS::TransferPtr(
+            MTL::ResidencySetDescriptor::alloc()->init());
+        residency_desc->setInitialCapacity(4u);
+        residency_desc->setLabel(MTLSTR("LuisaCompute Metal 4 Stream ResidencySet"));
+        NS::Error *residency_error = nullptr;
+        _stream_residency_set = device->newResidencySet(
+            residency_desc.get(), &residency_error);
+        if (_stream_residency_set != nullptr) {
+            _queue->addResidencySet(_stream_residency_set);
+        }
+    }
+    if (_owner_device != nullptr && _owner_device->residency_set() != nullptr) {
+        _queue->addResidencySet(_owner_device->residency_set());
+    }
     if (!device->supportsFamily(MTL::GPUFamilyApple9)) {
         _acceleration_structure_compatibility_queue =
             device->newCommandQueue();
@@ -225,17 +253,81 @@ MetalStream::MetalStream(MTL::Device *device,
             "on '{}'. Shader compilation and dispatch remain Metal4 AIR.",
             device->name()->utf8String());
     }
+    if (metal4_dispatch_profiling_enabled()) {
+        MetalTimingExt timing_ext{device};
+        static_cast<void>(timing_ext.begin_sample(
+            reinterpret_cast<uint64_t>(this), 1u, 2048u, true));
+    }
 }
 
 MetalStream::~MetalStream() noexcept {
+    if (metal4_dispatch_profiling_enabled() && timing_enabled()) {
+        auto sample = end_timing();
+        struct KernelStat {
+            uint64_t count{0};
+            double total_ms{0.0};
+            double max_ms{0.0};
+            uint64_t total_threads{0};
+            uint3 block{};
+        };
+        std::unordered_map<uint64_t, KernelStat> stats;
+        double total_dispatch_gpu_ms = 0.0;
+        for (const auto &d : sample.dispatches) {
+            if (!d.valid) { continue; }
+            auto ms = d.elapsed_nanoseconds * 1.0e-6;
+            total_dispatch_gpu_ms += ms;
+            auto &s = stats[d.shader_checksum];
+            s.count++;
+            s.total_ms += ms;
+            s.max_ms = std::max(s.max_ms, ms);
+            s.total_threads += uint64_t{d.dispatch_size.x} * d.dispatch_size.y * d.dispatch_size.z;
+            s.block = d.block_size;
+        }
+        std::vector<std::pair<uint64_t, KernelStat>> sorted(stats.begin(), stats.end());
+        std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
+            return a.second.total_ms > b.second.total_ms;
+        });
+        if (!sorted.empty()) {
+            std::fprintf(stderr, "=== LUISA_METAL4_DISPATCH_PROFILE (dispatches=%zu, total_kernel_gpu_ms=%.3f, cbs=%zu, err='%s') ===\n",
+                         sample.dispatches.size(), total_dispatch_gpu_ms,
+                         sample.command_buffers.size(), sample.error.c_str());
+            for (const auto &[cksum, s] : sorted) {
+                auto name = MetalShader::lookup_debug_name(cksum);
+                auto pct = total_dispatch_gpu_ms > 0.0 ? (100.0 * s.total_ms / total_dispatch_gpu_ms) : 0.0;
+                std::fprintf(stderr,
+                             "  KERNEL %-42s calls=%5llu gpu_ms=%9.3f (%5.1f%%) avg_us=%8.2f max_ms=%7.3f block=%ux%ux%u avg_threads=%.0f\n",
+                             name.c_str(),
+                             static_cast<unsigned long long>(s.count),
+                             s.total_ms, pct,
+                             (s.total_ms * 1000.0) / static_cast<double>(s.count),
+                             s.max_ms,
+                             s.block.x, s.block.y, s.block.z,
+                             static_cast<double>(s.total_threads) / static_cast<double>(s.count));
+            }
+        }
+    }
     synchronize();
-    for (auto command_allocator : _command_allocator_pool) {
-        command_allocator->release();
+    while (_active_feedback_handlers.load(std::memory_order_acquire) != 0u) {
+        std::this_thread::yield();
+    }
+    for (auto bundle : _command_allocator_pool) {
+        if (bundle.argument_table != nullptr) { bundle.argument_table->release(); }
+        if (bundle.allocator != nullptr) { bundle.allocator->release(); }
+    }
+    if (_owner_device != nullptr && _owner_device->residency_set() != nullptr) {
+        _queue->removeResidencySet(_owner_device->residency_set());
+    }
+    if (_stream_residency_set != nullptr) {
+        _queue->removeResidencySet(_stream_residency_set);
+        _stream_residency_set->endResidency();
+        _stream_residency_set->release();
+        _stream_residency_set = nullptr;
     }
     _command_buffer_options->release();
     if (_acceleration_structure_compatibility_queue != nullptr) {
         _acceleration_structure_compatibility_queue->release();
     }
+    if (_completion_event != nullptr) { _completion_event->release(); }
     _queue->release();
     _log_state->release();
     if (_name != nullptr) { _name->release(); }
@@ -247,35 +339,62 @@ size_t MetalStream::_command_allocator_pool_capacity() const noexcept {
     return std::max(_max_commands, static_cast<size_t>(16u));
 }
 
-MTL4::CommandAllocator *MetalStream::_acquire_command_allocator() noexcept {
+MetalStream::CommandAllocatorBundle MetalStream::_acquire_command_allocator() noexcept {
     {
         std::scoped_lock lock{_command_allocator_pool_mutex};
         if (!_command_allocator_pool.empty()) {
-            auto command_allocator = _command_allocator_pool.back();
+            auto bundle = _command_allocator_pool.back();
             _command_allocator_pool.pop_back();
-            return command_allocator;
+            return bundle;
         }
     }
     auto command_allocator = device()->newCommandAllocator();
     LUISA_ASSERT(command_allocator != nullptr,
                  "Failed to create Metal4 command allocator.");
-    return command_allocator;
+    auto descriptor = NS::TransferPtr(
+        MTL4::ArgumentTableDescriptor::alloc()->init());
+    descriptor->setInitializeBindings(true);
+    descriptor->setMaxBufferBindCount(pooled_argument_table_buffer_slots);
+    descriptor->setMaxTextureBindCount(pooled_argument_table_texture_slots);
+    descriptor->setMaxSamplerStateBindCount(0u);
+    NS::Error *error = nullptr;
+    auto argument_table = device()->newArgumentTable(descriptor.get(), &error);
+    if (error != nullptr) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to create pooled Metal4 argument table: {}.",
+            error->localizedDescription()->utf8String());
+    }
+    LUISA_ASSERT(argument_table != nullptr,
+                 "Failed to create pooled Metal4 argument table.");
+    return CommandAllocatorBundle{
+        .allocator = command_allocator,
+        .argument_table = argument_table};
 }
 
 void MetalStream::_recycle_command_allocator(
-    MTL4::CommandAllocator *command_allocator) noexcept {
-    LUISA_ASSERT(command_allocator != nullptr,
+    CommandAllocatorBundle bundle) noexcept {
+    LUISA_ASSERT(bundle.allocator != nullptr,
                  "Cannot recycle a null Metal4 command allocator.");
-    command_allocator->reset();
+    bundle.allocator->reset();
     {
         std::scoped_lock lock{_command_allocator_pool_mutex};
         if (_command_allocator_pool.size() <
             _command_allocator_pool_capacity()) {
-            _command_allocator_pool.emplace_back(command_allocator);
+            _command_allocator_pool.emplace_back(bundle);
             return;
         }
     }
-    command_allocator->release();
+    if (bundle.argument_table != nullptr) { bundle.argument_table->release(); }
+    bundle.allocator->release();
+}
+
+void MetalStream::_register_stream_allocation(
+    const MTL::Allocation *allocation) noexcept {
+    if (allocation == nullptr || _stream_residency_set == nullptr) { return; }
+    std::scoped_lock lock{_stream_residency_mutex};
+    _stream_residency_set->addAllocation(allocation);
+    _stream_residency_set->commit();
+    _stream_residency_set->requestResidency();
 }
 
 void MetalStream::_emit_shader_log(
@@ -311,6 +430,7 @@ MetalStageBufferPool *MetalStream::upload_pool() noexcept {
         if (_upload_pool == nullptr) {
             _upload_pool = luisa::make_unique<MetalStageBufferPool>(
                 _queue->device(), 64_M, true);
+            _register_stream_allocation(_upload_pool->backing_buffer());
         }
     }
     return _upload_pool.get();
@@ -322,16 +442,109 @@ MetalStageBufferPool *MetalStream::download_pool() noexcept {
         if (_download_pool == nullptr) {
             _download_pool = luisa::make_unique<MetalStageBufferPool>(
                 _queue->device(), 32_M, false);
+            _register_stream_allocation(_download_pool->backing_buffer());
         }
     }
     return _download_pool.get();
 }
 
+void MetalStream::_wait_for_completion_ticket(uint64_t target) noexcept {
+    if (target == 0u ||
+        _retired_ticket.load(std::memory_order_acquire) >= target ||
+        _completion_event->signaledValue() >= target) {
+        return;
+    }
+    auto spin_start = std::chrono::steady_clock::now();
+    for (;;) {
+        for (auto i = 0u; i < 64u; ++i) {
+            if (_completion_event->signaledValue() >= target) { return; }
+#if defined(__aarch64__) || defined(_M_ARM64)
+            asm volatile("yield" ::: "memory");
+#else
+            std::this_thread::yield();
+#endif
+        }
+        auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                              std::chrono::steady_clock::now() - spin_start)
+                              .count();
+        if (elapsed_us >= 3000) { break; }
+    }
+    while (_completion_event->signaledValue() < target) {
+        static_cast<void>(_completion_event->waitUntilSignaledValue(target, 10u));
+    }
+}
+
+void MetalStream::_retire_submissions_up_to(
+    uint64_t target, bool blocking) noexcept {
+    auto self_id = std::this_thread::get_id();
+    if (_retiring_thread.load(std::memory_order_relaxed) == self_id) {
+        return;
+    }
+    std::unique_lock<std::mutex> retire_lock{_retire_mutex, std::defer_lock};
+    if (blocking) {
+        retire_lock.lock();
+    } else if (!retire_lock.try_lock()) {
+        return;
+    }
+    _retiring_thread.store(self_id, std::memory_order_relaxed);
+    struct ClearRetiringThread {
+        std::atomic<std::thread::id> &slot;
+        ~ClearRetiringThread() noexcept {
+            slot.store(std::thread::id{}, std::memory_order_relaxed);
+        }
+    } clear_guard{_retiring_thread};
+
+    if (target != 0u &&
+        _retired_ticket.load(std::memory_order_acquire) >= target) {
+        return;
+    }
+    auto signaled = _completion_event->signaledValue();
+    auto limit = target == 0u ? signaled : std::min(target, signaled);
+    if (_retired_ticket.load(std::memory_order_relaxed) >= limit) {
+        return;
+    }
+    for (;;) {
+        PendingSubmission item;
+        {
+            std::scoped_lock sub_lock{_submission_mutex};
+            if (_pending_submissions.empty() ||
+                _pending_submissions.front().ticket > limit) {
+                break;
+            }
+            item = std::move(_pending_submissions.front());
+            _pending_submissions.pop();
+        }
+        for (auto callback : item.callbacks) { callback->recycle(); }
+        _recycle_command_allocator(item.allocator_bundle);
+        item.command_buffer->release();
+        _retired_ticket.store(item.ticket, std::memory_order_release);
+        if (item.submission) {
+            item.submission->completed.store(true, std::memory_order_release);
+            item.submission->completed.notify_all();
+        }
+    }
+}
+
+void MetalStream::wait_submission(const SubmissionHandle &submission) noexcept {
+    if (!submission) { return; }
+    if (submission->ticket != 0u) {
+        _wait_for_completion_ticket(submission->ticket);
+        _retire_submissions_up_to(submission->ticket, true);
+    } else {
+        submission->completed.wait(false, std::memory_order_acquire);
+    }
+}
+
 void MetalStream::signal(MetalEvent *event, uint64_t value) noexcept {
-    _queue->signalEvent(event->handle(), value);
+    {
+        std::scoped_lock sub_lock{_submission_mutex};
+        _has_unsubmitted_queue_ops.store(true, std::memory_order_release);
+        _queue->signalEvent(event->handle(), value);
+    }
     MetalCommandEncoder encoder{this};
     encoder.compute_encoder()->endEncoding();
     encoder.add_callback(event->host_signal_callback(value));
+    encoder.require_async_host_completion();
     static_cast<void>(encoder.submit({}));
 }
 
@@ -340,6 +553,8 @@ void MetalStream::wait(MetalEvent *event, uint64_t value) noexcept {
         LUISA_WARNING_WITH_LOCATION(
             "MetalEvent::wait() is called before any signal event.");
     } else {
+        std::scoped_lock sub_lock{_submission_mutex};
+        _has_unsubmitted_queue_ops.store(true, std::memory_order_release);
         _queue->wait(event->handle(), value);
     }
 }
@@ -349,9 +564,23 @@ void MetalStream::synchronize() noexcept {
     auto synchronize_begin = profile ?
                                  std::chrono::steady_clock::now() :
                                  std::chrono::steady_clock::time_point{};
-    MetalCommandEncoder encoder{this};
-    encoder.compute_encoder()->endEncoding();
-    encoder.submit_and_wait();
+    if (timing_enabled() || _has_unsubmitted_queue_ops.load(std::memory_order_acquire)) {
+        MetalCommandEncoder encoder{this};
+        encoder.compute_encoder()->endEncoding();
+        encoder.submit_and_wait();
+    } else {
+        auto target = _submitted_ticket.load(std::memory_order_acquire);
+        if (_retired_ticket.load(std::memory_order_acquire) < target) {
+            _wait_for_completion_ticket(target);
+            _retire_submissions_up_to(target, true);
+        }
+        std::unique_lock lock{_inflight_mutex};
+        if (_inflight_commands != 0u) {
+            _inflight_cv.wait(lock, [this]() noexcept {
+                return _inflight_commands == 0u;
+            });
+        }
+    }
     auto command_buffer_done = profile ?
                                    std::chrono::steady_clock::now() :
                                    std::chrono::steady_clock::time_point{};
@@ -405,17 +634,35 @@ void MetalStream::_do_dispatch(MetalCommandEncoder &encoder,
     } else {
         auto commands = list.steal_commands();
         auto callbacks = list.steal_callbacks();
+        auto first_tail_download = commands.size();
+        while (first_tail_download > 0u &&
+               commands[first_tail_download - 1u]->tag() ==
+                   Command::Tag::EBufferDownloadCommand) {
+            --first_tail_download;
+        }
         {
             std::scoped_lock lock{_dispatch_mutex};
-            for (auto &command : commands) { _encode(encoder, command.get()); }
+            for (size_t i = 0u; i < commands.size(); ++i) {
+                encoder.set_in_tail_downloads(i >= first_tail_download);
+                _encode(encoder, commands[i].get());
+            }
+            encoder.set_in_tail_downloads(false);
             static_cast<void>(encoder.submit(std::move(callbacks)));
         }
     }
 }
 
 void MetalStream::dispatch(CommandList &&list) noexcept {
+    auto profile = metal_command_buffer_profiling_enabled();
+    auto begin = profile ? std::chrono::steady_clock::now() :
+                           std::chrono::steady_clock::time_point{};
     MetalCommandEncoder encoder{this};
     _do_dispatch(encoder, std::move(list));
+    if (profile) {
+        metal_command_buffer_profiler().record_host(
+            "dispatch_encode_and_submit",
+            elapsed_milliseconds(begin, std::chrono::steady_clock::now()));
+    }
 }
 
 void MetalStream::present(MetalSwapchain *swapchain, MetalTexture *image) noexcept {
@@ -424,11 +671,79 @@ void MetalStream::present(MetalSwapchain *swapchain, MetalTexture *image) noexce
 
 MetalStream::SubmissionHandle MetalStream::submit(
     MTL4::CommandBuffer *command_buffer,
-    MTL4::CommandAllocator *command_allocator,
+    CommandAllocatorBundle allocator_bundle,
     MetalStream::CallbackContainer &&callbacks,
-    MetalTimingSubmission timing) noexcept {
-    LUISA_ASSERT(command_buffer != nullptr && command_allocator != nullptr,
+    MetalTimingSubmission timing,
+    bool async_host_completion) noexcept {
+    LUISA_ASSERT(command_buffer != nullptr && allocator_bundle.allocator != nullptr,
                  "Invalid Metal4 command-buffer submission.");
+    if (_owner_device != nullptr) {
+        _owner_device->commit_residency_if_needed();
+    }
+    auto profile_cb = metal_command_buffer_profiling_enabled();
+    if (!timing.session && !profile_cb) {
+        _retire_submissions_up_to(0u, false);
+        if (_max_commands != 0u) {
+            for (;;) {
+                uint64_t wait_ticket = 0u;
+                {
+                    std::scoped_lock sub_lock{_submission_mutex};
+                    if (_pending_submissions.size() < _max_commands) { break; }
+                    wait_ticket = _pending_submissions.front().ticket;
+                }
+                _wait_for_completion_ticket(wait_ticket);
+                _retire_submissions_up_to(wait_ticket, true);
+            }
+        }
+        auto submission = luisa::make_shared<Submission>();
+        {
+            std::scoped_lock sub_lock{_submission_mutex};
+            auto ticket = _submitted_ticket.load(std::memory_order_relaxed) + 1u;
+            submission->ticket = ticket;
+            const MTL4::CommandBuffer *command_buffers[]{command_buffer};
+            if (async_host_completion) {
+                _active_feedback_handlers.fetch_add(1u, std::memory_order_release);
+                auto options = NS::TransferPtr(
+                    MTL4::CommitOptions::alloc()->init());
+                options->addFeedbackHandler(MTL4::CommitFeedbackHandlerFunction{
+                    [this, ticket](MTL4::CommitFeedback *feedback) noexcept {
+                        auto error = feedback->error();
+                        auto error_message =
+                            error == nullptr ?
+                                luisa::string{} :
+                                luisa::string{error->localizedDescription()->utf8String()};
+                        if (!error_message.empty()) {
+                            LUISA_ERROR_WITH_LOCATION(
+                                "Metal4 command-buffer execution failed: {}.",
+                                error_message);
+                        }
+                        _retire_submissions_up_to(ticket, true);
+                        _active_feedback_handlers.fetch_sub(
+                            1u, std::memory_order_release);
+                    }});
+                _queue->commit(command_buffers, 1u, options.get());
+            } else {
+                _queue->commit(command_buffers, 1u);
+            }
+            _queue->signalEvent(_completion_event, ticket);
+            _submitted_ticket.store(ticket, std::memory_order_release);
+            _has_unsubmitted_queue_ops.store(false, std::memory_order_relaxed);
+            _pending_submissions.emplace(PendingSubmission{
+                .ticket = ticket,
+                .command_buffer = command_buffer,
+                .allocator_bundle = allocator_bundle,
+                .callbacks = std::move(callbacks),
+                .submission = submission});
+        }
+        return submission;
+    }
+
+    auto fast_target = _submitted_ticket.load(std::memory_order_acquire);
+    if (_retired_ticket.load(std::memory_order_acquire) < fast_target) {
+        _wait_for_completion_ticket(fast_target);
+        _retire_submissions_up_to(fast_target, true);
+    }
+
     auto submission = luisa::make_shared<Submission>();
     auto has_callbacks = !callbacks.empty();
     if (!callbacks.empty()) {
@@ -439,21 +754,26 @@ MetalStream::SubmissionHandle MetalStream::submit(
                 1u, std::memory_order_release);
         }
     }
-    auto label = command_buffer->label() == nullptr ?
-                     luisa::string{"<unlabeled>"} :
-                     luisa::string{command_buffer->label()->utf8String()};
-    if (_max_commands != 0u) {
+    auto label = profile_cb ?
+                     (command_buffer->label() == nullptr ?
+                          luisa::string{"<unlabeled>"} :
+                          luisa::string{command_buffer->label()->utf8String()}) :
+                     luisa::string{};
+    {
         std::unique_lock lock{_inflight_mutex};
-        _inflight_cv.wait(lock, [this]() noexcept {
-            return _inflight_commands < _max_commands;
-        });
+        if (_max_commands != 0u) {
+            _inflight_cv.wait(lock, [this]() noexcept {
+                return _inflight_commands < _max_commands;
+            });
+        }
         _inflight_commands++;
+        _has_unsubmitted_queue_ops.store(false, std::memory_order_relaxed);
     }
     auto options = NS::TransferPtr(
         MTL4::CommitOptions::alloc()->init());
     options->addFeedbackHandler(MTL4::CommitFeedbackHandlerFunction{
-        [this, command_buffer, command_allocator, submission,
-         has_callbacks, timing, label = std::move(label)](
+        [this, command_buffer, allocator_bundle, submission,
+         has_callbacks, timing, profile_cb, label = std::move(label)](
             MTL4::CommitFeedback *feedback) noexcept {
             // Record receipt before user callbacks or allocator recycling.
             if (timing.session) { timing.session->feedback(timing.ordinal, feedback); }
@@ -476,7 +796,7 @@ MetalStream::SubmissionHandle MetalStream::submit(
                     1u, std::memory_order_release);
             }
             if (timing.session) { timing.session->callbacks_finished(timing.ordinal); }
-            if (metal_command_buffer_profiling_enabled()) {
+            if (profile_cb) {
                 auto begin = feedback->GPUStartTime();
                 auto end = feedback->GPUEndTime();
                 if (end > begin) {
@@ -494,17 +814,8 @@ MetalStream::SubmissionHandle MetalStream::submit(
             auto error_message = error == nullptr ?
                                      luisa::string{} :
                                      luisa::string{error->localizedDescription()->utf8String()};
-            _recycle_command_allocator(command_allocator);
+            _recycle_command_allocator(allocator_bundle);
             command_buffer->release();
-            if (_max_commands != 0u) {
-                {
-                    std::scoped_lock lock{_inflight_mutex};
-                    LUISA_ASSERT(_inflight_commands != 0u,
-                                 "Invalid Metal4 in-flight command count.");
-                    _inflight_commands--;
-                }
-                _inflight_cv.notify_one();
-            }
             if (!error_message.empty()) {
                 LUISA_ERROR_WITH_LOCATION(
                     "Metal4 command-buffer execution failed: {}.",
@@ -516,6 +827,14 @@ MetalStream::SubmissionHandle MetalStream::submit(
             // afterwards.
             if (timing.session) { timing.session->completing(timing.ordinal); }
             submission->completed.store(true, std::memory_order_release);
+            submission->completed.notify_all();
+            {
+                std::scoped_lock lock{_inflight_mutex};
+                LUISA_ASSERT(_inflight_commands != 0u,
+                             "Invalid Metal4 in-flight command count.");
+                _inflight_commands--;
+                _inflight_cv.notify_all();
+            }
         }});
     const MTL4::CommandBuffer *command_buffers[]{command_buffer};
     if (timing.session) { timing.session->will_commit(timing.ordinal, timing.dispatch_count, timing.contains_non_dispatch_work); }

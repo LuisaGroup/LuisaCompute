@@ -212,9 +212,9 @@ private:
     Shader1D<uint, Buffer<uint>, uint, Buffer<uint>, uint, uint>
         _publish_resumed_count_shader;
     Shader1D<uint, Buffer<uint>, Buffer<uint>, uint> _gather_shader;
-    Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint>
+    Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint, uint>
         _gather_selected_shader;
-    Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint, uint> _compact_shader;
+    Shader1D<uint, Buffer<uint>, Buffer<uint>, uint, uint, uint, uint> _compact_shader;
     Buffer<uint> _resume_index;
     Buffer<uint> _resume_count;
     Buffer<uint> _resume_offset;
@@ -230,6 +230,7 @@ private:
     luisa::vector<uint> _host_offset;
     luisa::vector<bool> _have_hint;
     luisa::vector<bool> _refill_at;
+    luisa::vector<bool> _is_terminal_continuation;
     CoroFrameStorageLayout _frame_layout;
     CoroFrameIOPlan _frame_io_plan;
     // Handlers and delayed finalization outlive the source Coroutine. Own
@@ -256,6 +257,7 @@ private:
     uint _used_frame_count{0u};
     uint _active_frame_capacity{0u};
     bool _has_hint_sort{false};
+    bool _gather_selected_4x{false};
     bool _has_dispatched{false};
     bool _extension_handlers_finalized{false};
 
@@ -348,9 +350,6 @@ private:
             _continuation_block_sizes[node->index] =
                 override.execution_block_size;
         }
-        _frame_layout = _config.global_memory_soa ?
-                            CoroFrameStorageLayout::make_runtime_soa(coro.frame(), _config.thread_count) :
-                            CoroFrameStorageLayout::make_aos(coro.frame(), _config.thread_count);
         // This scheduler gathers and validates continuations through the
         // target-token field in global frame storage, so the token belongs to
         // its physical transfer plan.
@@ -467,6 +466,10 @@ private:
         _host_offset.resize(_queue_count);
         _have_hint.resize(_queue_count, false);
         _refill_at.resize(_queue_count, false);
+        _is_terminal_continuation.assign(nc, false);
+        for (size_t i = 1u; i < nc; ++i) {
+            _is_terminal_continuation[i] = coro.graph().node(i).targets.empty();
+        }
 
         for (auto &name : _config.refill_continuations) {
             auto node = coro.graph().node_by_name(name);
@@ -552,6 +555,123 @@ private:
             !_config.incremental_continuation_counts;
         auto use_sort = use_token_sort || _has_hint_sort;
 
+        auto queue_relocation_fields = _frame_io_plan.relocation_fields;
+        queue_relocation_fields.reserve(_queue_count);
+        for (auto &&registered : _extension_stages) {
+            auto fields = registered.stage.dataflow->live_in.slots;
+            auto target = registered.stage.boundary->to_index;
+            for (auto field : _frame_io_plan.relocation_fields[target]) {
+                if (field < CoroFrameDesc::reserved_field_count - 1u) {
+                    coro_frame_append_unique(fields, field);
+                }
+            }
+            coro_frame_append_unique(fields, 6u);
+            luisa::sort(fields.begin(), fields.end());
+            queue_relocation_fields.emplace_back(std::move(fields));
+        }
+        LUISA_ASSERT(
+            queue_relocation_fields.size() == _queue_count,
+            "Wavefront Extension queue relocation plan size mismatch.");
+
+        if (!_config.global_memory_soa) {
+            _frame_layout = CoroFrameStorageLayout::make_aos(
+                coro.frame(), _config.thread_count);
+        } else {
+            const auto *disable_packed_env =
+                std::getenv("LUISA_CORO_DISABLE_PACKED_SOA");
+            const auto disable_packed =
+                disable_packed_env != nullptr &&
+                luisa::string_view{disable_packed_env} == "1";
+            if (disable_packed) {
+                _frame_layout = CoroFrameStorageLayout::make_runtime_soa(
+                    coro.frame(), _config.thread_count);
+            } else {
+                luisa::vector<size_t> standalone_fields{6u};
+                if (_has_hint_sort &&
+                    _hint_field_index != static_cast<size_t>(-1)) {
+                    coro_frame_append_unique(
+                        standalone_fields, _hint_field_index);
+                }
+                luisa::vector<luisa::vector<size_t>> active_field_sets;
+                for (size_t i = 1u; i < nc; ++i) {
+                    if (!_frame_io_plan.input_fields[i].empty()) {
+                        active_field_sets.emplace_back(
+                            _frame_io_plan.input_fields[i]);
+                    }
+                }
+                for (size_t s = 0u; s < nc; ++s) {
+                    for (size_t t = 0u;
+                         t < _frame_io_plan.transition_output_fields[s].size();
+                         ++t) {
+                        const auto &out =
+                            _frame_io_plan.transition_output_fields[s][t];
+                        if (!out.empty()) {
+                            active_field_sets.emplace_back(out);
+                        }
+                    }
+                    for (const auto &route : _extension_routes[s]) {
+                        if (!route.source_store_fields.empty()) {
+                            active_field_sets.emplace_back(
+                                route.source_store_fields);
+                        }
+                    }
+                }
+                if (_config.frame_buffer_compaction) {
+                    for (size_t q = 1u; q < queue_relocation_fields.size(); ++q) {
+                        if (!queue_relocation_fields[q].empty()) {
+                            active_field_sets.emplace_back(
+                                queue_relocation_fields[q]);
+                        }
+                    }
+                }
+                for (const auto &boundary : _extension_boundaries) {
+                    if (boundary.stages.empty()) { continue; }
+                    for (const auto &stage : boundary.stages) {
+                        if (!stage.reconstruct_slots.empty()) {
+                            active_field_sets.emplace_back(
+                                stage.reconstruct_slots);
+                        }
+                        if (!stage.def.slots.empty()) {
+                            active_field_sets.emplace_back(stage.def.slots);
+                        }
+                        if (!stage.required_def.slots.empty()) {
+                            active_field_sets.emplace_back(
+                                stage.required_def.slots);
+                        }
+                    }
+                    for (const auto &binding : boundary.bindings) {
+                        auto slots = binding.reconstruct_slots();
+                        if (slots.size() == 1u) {
+                            coro_frame_append_unique(
+                                standalone_fields, slots.front());
+                        } else if (!slots.empty()) {
+                            active_field_sets.emplace_back(
+                                slots.begin(), slots.end());
+                        }
+                    }
+                }
+                _frame_layout = CoroFrameStorageLayout::make_packed_runtime_soa(
+                    coro.frame(), _config.thread_count,
+                    luisa::span<const luisa::vector<size_t>>{active_field_sets},
+                    luisa::span<const size_t>{standalone_fields});
+                if (_config.report_stats ||
+                    std::getenv("LUISA_CORO_WAVEFRONT_STATS") != nullptr ||
+                    std::getenv("LUISA_CORO_SHADER_MAP") != nullptr) {
+                    size_t chunks4 = 0u;
+                    size_t chunks2 = 0u;
+                    for (const auto &chunk : _frame_layout.packed_chunks) {
+                        if (chunk.width == 4u) { ++chunks4; }
+                        else if (chunk.width == 2u) { ++chunks2; }
+                    }
+                    LUISA_INFO(
+                        "Wavefront packed SoA layout: fields={} uint4_chunks={} "
+                        "uint2_chunks={} packed_fields={} frame_stride={}B.",
+                        coro.frame().frame_field_count(), chunks4, chunks2,
+                        chunks4 * 4u + chunks2 * 2u, _frame_layout.frame_stride);
+                }
+            }
+        }
+
         _frame_buffer = device.create_byte_buffer(_frame_layout.size_bytes);
         // The scheduler owns this complete allocation for the lifetime of all
         // generated shaders. Capturing it makes the zero-offset binding part
@@ -574,7 +694,7 @@ private:
         // publication kernels. The explicitly fused policy instead binds it
         // in producers so their transition atomics need no second pass.
         _resume_offset = device.create_buffer<uint>(_queue_count);
-        _global_buffer = device.create_buffer<uint>(1u);
+        _global_buffer = device.create_buffer<uint>(2u);
         if (!_extension_stages.empty()) {
             _extension_route_buffer = device.create_buffer<uint>(
                 coro.graph().boundary_count());
@@ -661,15 +781,60 @@ private:
             }
         }
 
+        const auto warp_aggregate_counts = device.compute_warp_size() == 32u;
+        auto make_candidate_queues = [&](size_t node_index) noexcept {
+            luisa::vector<uint> candidates;
+            for (auto target : coro.graph().node(node_index).targets) {
+                if (target != 0u && target < _queue_count) {
+                    auto t = static_cast<uint>(target);
+                    if (std::find(candidates.begin(), candidates.end(), t) ==
+                        candidates.end()) {
+                        candidates.emplace_back(t);
+                    }
+                }
+            }
+            if (!_extension_routes[node_index].empty()) {
+                for (uint q = static_cast<uint>(nc); q < _queue_count; ++q) {
+                    candidates.emplace_back(q);
+                }
+            }
+            return candidates;
+        };
+        auto emit_fused_resume_counts =
+            [resume_count_buffer, queue_count = _queue_count,
+             warp_aggregate_counts](UInt next,
+                                    const luisa::vector<uint> &candidates) noexcept {
+                if (candidates.empty()) { return; }
+                auto resume_count = Expr<Buffer<uint>>{*resume_count_buffer};
+                if (warp_aggregate_counts) {
+                    $if (warp_active_all_equal(next)) {
+                        auto total = warp_active_count_bits(true);
+                        $if ((next != 0u) & (next < queue_count) &
+                             (warp_prefix_count_bits(true) == 0u)) {
+                            resume_count.atomic(next).fetch_add(total);
+                        };
+                    } $else {
+                        $if ((next != 0u) & (next < queue_count)) {
+                            resume_count.atomic(next).fetch_add(1u);
+                        };
+                    };
+                } else {
+                    $if ((next != 0u) & (next < queue_count)) {
+                        resume_count.atomic(next).fetch_add(1u);
+                    };
+                }
+            };
+
         if (auto entry_sub = coro[0u]) {
+            auto entry_candidates = make_candidate_queues(0u);
             Kernel1D k_gen = [&coro, frame_buffer, extension_route_buffer,
-                              resume_count_buffer,
                               routes = _extension_routes[0u],
                               layout = _frame_layout, output_fields = _frame_io_plan.transition_output_fields[0u],
                               soa = _config.global_memory_soa, compact = _config.frame_buffer_compaction,
                               execution_block_size = _continuation_block_sizes[0u],
                               token_to_index, fuse_continuation_counts,
-                              queue_count = _queue_count](
+                              entry_candidates = std::move(entry_candidates),
+                              emit_fused_resume_counts](
                                  UInt frame_capacity,
                                  BufferUInt resume_index,
                                  UInt index_offset, UInt frame_offset, UInt global_start,
@@ -719,11 +884,7 @@ private:
                     };
                 }
                 if (fuse_continuation_counts) {
-                    auto resume_count =
-                        Expr<Buffer<uint>>{*resume_count_buffer};
-                    $if ((next != 0u) & (next < queue_count)) {
-                        resume_count.atomic(next).fetch_add(1u);
-                    };
+                    emit_fused_resume_counts(next, entry_candidates);
                 }
             };
             _gen_kernel = _compile_shader(
@@ -738,6 +899,7 @@ private:
         for (size_t i = 1u; i < nc; ++i) {
             auto cont_sub = coro[i];
             if (!cont_sub) continue;
+            auto cont_candidates = make_candidate_queues(i);
             Kernel1D k_cont = [&coro, frame_buffer, extension_route_buffer,
                                resume_count_buffer,
                                routes = _extension_routes[i],
@@ -747,7 +909,9 @@ private:
                                read_scheduler_token, token_to_index,
                                fuse_continuation_counts,
                                has_extensions = !_extension_stages.empty(),
-                               queue_count = _queue_count](
+                               queue_count = _queue_count,
+                               cont_candidates = std::move(cont_candidates),
+                               emit_fused_resume_counts](
                                   UInt frame_capacity,
                                   BufferUInt resume_index,
                                   UInt resume_offset, UInt count, UInt source_queue,
@@ -815,11 +979,7 @@ private:
                     };
                 }
                 if (fuse_continuation_counts) {
-                    auto resume_count_buffer_expr =
-                        Expr<Buffer<uint>>{*resume_count_buffer};
-                    $if ((next != 0u) & (next < queue_count)) {
-                        resume_count_buffer_expr.atomic(next).fetch_add(1u);
-                    };
+                    emit_fused_resume_counts(next, cont_candidates);
                 }
             };
             auto option = detail::coro_scheduler_shader_option(
@@ -1057,113 +1217,212 @@ private:
             "wavefront_gather");
 
         if (_config.incremental_continuation_counts) {
-            Kernel1D gather_selected_kernel =
-                [frame_buffer, layout = _frame_layout,
-                 soa = _config.global_memory_soa,
-                 read_scheduler_token](
-                    UInt frame_capacity, BufferUInt index,
-                    BufferUInt write_count, UInt selected, UInt n) noexcept {
-                    auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
-                    auto x = dispatch_x();
-                    $if(x >= n) { $return(); };
-                    auto tok = read_scheduler_token(
-                        x, frame_buf, frame_capacity);
-                    $if(tok == selected) {
-                        auto slot = write_count.atomic(0u).fetch_add(1u);
-                        index.write(slot, x);
+            if (device.compute_warp_size() == 32u) {
+                _gather_selected_4x = true;
+                Kernel1D gather_selected_kernel =
+                    [frame_buffer, layout = _frame_layout,
+                     soa = _config.global_memory_soa,
+                     read_scheduler_token](
+                        UInt frame_capacity, BufferUInt index,
+                        BufferUInt write_count, UInt count_slot, UInt selected, UInt n) noexcept {
+                        set_block_size(256u);
+                        set_warp_size(32u);
+                        Shared<uint> warp_totals{32u};
+                        Shared<uint> block_base{1u};
+                        auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
+                        $if(dispatch_x() == 0u) { write_count.write(count_slot ^ 1u, 0u); };
+                        auto tid = thread_x();
+                        auto warp_id = tid >> 5u;
+                        auto lane_id = tid & 31u;
+                        auto block_start = block_x() * 1024u + tid;
+                        auto idx0 = block_start;
+                        auto idx1 = block_start + 256u;
+                        auto idx2 = block_start + 512u;
+                        auto idx3 = block_start + 768u;
+                        auto active0 = def(false);
+                        auto active1 = def(false);
+                        auto active2 = def(false);
+                        auto active3 = def(false);
+                        $if(idx0 < n) { active0 = read_scheduler_token(idx0, frame_buf, frame_capacity) == selected; };
+                        $if(idx1 < n) { active1 = read_scheduler_token(idx1, frame_buf, frame_capacity) == selected; };
+                        $if(idx2 < n) { active2 = read_scheduler_token(idx2, frame_buf, frame_capacity) == selected; };
+                        $if(idx3 < n) { active3 = read_scheduler_token(idx3, frame_buf, frame_capacity) == selected; };
+                        auto p0 = warp_prefix_count_bits(active0);
+                        auto c0 = warp_active_count_bits(active0);
+                        auto p1 = warp_prefix_count_bits(active1);
+                        auto c1 = warp_active_count_bits(active1);
+                        auto p2 = warp_prefix_count_bits(active2);
+                        auto c2 = warp_active_count_bits(active2);
+                        auto p3 = warp_prefix_count_bits(active3);
+                        auto c3 = warp_active_count_bits(active3);
+                        $if(lane_id == 0u) {
+                            warp_totals[warp_id] = c0;
+                            warp_totals[8u + warp_id] = c1;
+                            warp_totals[16u + warp_id] = c2;
+                            warp_totals[24u + warp_id] = c3;
+                        };
+                        sync_block();
+                        $if(tid < 32u) {
+                            auto wc = warp_totals[tid];
+                            auto wp = warp_prefix_sum(wc);
+                            auto total = warp_active_sum(wc);
+                            warp_totals[tid] = wp;
+                            $if((tid == 0u) & (total != 0u)) {
+                                block_base[0u] = write_count.atomic(count_slot).fetch_add(total);
+                            };
+                        };
+                        sync_block();
+                        auto base_out = block_base[0u];
+                        $if(active0) { index.write(base_out + warp_totals[warp_id] + p0, idx0); };
+                        $if(active1) { index.write(base_out + warp_totals[8u + warp_id] + p1, idx1); };
+                        $if(active2) { index.write(base_out + warp_totals[16u + warp_id] + p2, idx2); };
+                        $if(active3) { index.write(base_out + warp_totals[24u + warp_id] + p3, idx3); };
                     };
-                };
-            _gather_selected_shader = _compile_shader(
-                device, gather_selected_kernel,
-                detail::coro_scheduler_shader_option(
-                    _config.shader_option, "wavefront_gather_selected"),
-                "wavefront_gather_selected");
+                _gather_selected_shader = _compile_shader(
+                    device, gather_selected_kernel,
+                    detail::coro_scheduler_shader_option(
+                        _config.shader_option, "wavefront_gather_selected"),
+                    "wavefront_gather_selected");
+            } else {
+                Kernel1D gather_selected_kernel =
+                    [frame_buffer, layout = _frame_layout,
+                     soa = _config.global_memory_soa,
+                     read_scheduler_token](
+                        UInt frame_capacity, BufferUInt index,
+                        BufferUInt write_count, UInt count_slot, UInt selected, UInt n) noexcept {
+                        auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
+                        auto x = dispatch_x();
+                        $if(x == 0u) { write_count.write(count_slot ^ 1u, 0u); };
+                        $if(x >= n) { $return(); };
+                        auto tok = read_scheduler_token(
+                            x, frame_buf, frame_capacity);
+                        $if(tok == selected) {
+                            auto slot = write_count.atomic(count_slot).fetch_add(1u);
+                            index.write(slot, x);
+                        };
+                    };
+                _gather_selected_shader = _compile_shader(
+                    device, gather_selected_kernel,
+                    detail::coro_scheduler_shader_option(
+                        _config.shader_option, "wavefront_gather_selected"),
+                    "wavefront_gather_selected");
+            }
         }
 
-        auto queue_relocation_fields = _frame_io_plan.relocation_fields;
-        queue_relocation_fields.reserve(_queue_count);
-        for (auto &&registered : _extension_stages) {
-            auto fields = registered.stage.dataflow->live_in.slots;
-            auto target = registered.stage.boundary->to_index;
-            for (auto field : _frame_io_plan.relocation_fields[target]) {
-                if (field < CoroFrameDesc::reserved_field_count - 1u) {
-                    coro_frame_append_unique(fields, field);
-                }
-            }
-            coro_frame_append_unique(fields, 6u);
-            luisa::sort(fields.begin(), fields.end());
-            queue_relocation_fields.emplace_back(std::move(fields));
-        }
-        LUISA_ASSERT(
-            queue_relocation_fields.size() == _queue_count,
-            "Wavefront Extension queue relocation plan size mismatch.");
         auto relocation_partition =
             coro_frame_partition_relocation_fields(
-                std::move(queue_relocation_fields));
+                std::move(queue_relocation_fields),
+                _config.global_memory_soa ? &_frame_layout : nullptr);
         Kernel1D compact_kernel =
             [frame_buffer, layout = _frame_layout, soa = _config.global_memory_soa,
              read_scheduler_token, desc = &coro.frame(),
              queue_count = _queue_count,
+             incremental = _config.incremental_continuation_counts,
+             warp_aggregate_counts,
              common_relocation_fields =
                  std::move(relocation_partition.common_fields),
              residual_relocation_fields =
                  std::move(relocation_partition.residual_fields)](
                 UInt frame_capacity,
-                BufferUInt index, BufferUInt global,
+                BufferUInt index, BufferUInt global, UInt count_slot,
                 UInt active_count, UInt empty_count, UInt scan_count) noexcept {
+                if (incremental && warp_aggregate_counts) {
+                    set_block_size(256u);
+                    set_warp_size(32u);
+                }
                 auto frame_buf = Expr<ByteBuffer>{*frame_buffer};
                 auto x = dispatch_x();
+                $if (x == 0u) { global.write(count_slot ^ 1u, 0u); };
                 auto src = active_count + x;
-                $if (src >= scan_count) { $return(); };
-                auto tok = read_scheduler_token(src, frame_buf, frame_capacity);
-                $if ((tok != 0u) & (tok < queue_count)) {
-                    auto dst = def(0u);
-                    auto found_dst = def(false);
-                    $while (!found_dst) {
-                        auto res = global.atomic(0u).fetch_add(1u);
-                        $if (res >= empty_count) { $break; };
-                        dst = index.read(res);
-                        found_dst = dst < active_count;
-                    };
-                    $if (found_dst) {
-                        // A queued frame is the tagged union Sigma_t R[t].
-                        // Copying every physical slot would read outside the
-                        // domain R[t], where values are intentionally
-                        // undefined after interference coloring. The common
-                        // intersection plus the token residual is exactly
-                        // R[t], as certified by CoroGraph's fixed-point
-                        // live-begin projection.
-                        if (!common_relocation_fields.empty()) {
-                            coro_frame_copy_fields(
-                                frame_buf, src, dst, frame_capacity, desc,
-                                layout, soa,
-                                luisa::span<const size_t>{
-                                    common_relocation_fields});
-                        }
-                        auto copy_residual = switch_(tok);
-                        for (size_t token = 1u;
-                             token < residual_relocation_fields.size();
-                             ++token) {
-                            copy_residual = std::move(copy_residual).case_(
-                                static_cast<uint>(token), [&, token] {
-                                    auto &fields =
-                                        residual_relocation_fields[token];
-                                    if (!fields.empty()) {
-                                        coro_frame_copy_fields(
-                                            frame_buf, src, dst,
-                                            frame_capacity, desc, layout,
-                                            soa,
-                                            luisa::span<const size_t>{
-                                                fields});
-                                    }
-                                });
-                        }
-                        std::move(copy_residual).default_([] {});
-                        coro_frame_write_field(
-                            frame_buf, src, frame_capacity,
-                            layout, soa, 6u, 0u);
-                    };
+                auto relocate_frame = [&](UInt tok, UInt dst) noexcept {
+                    // A queued frame is the tagged union Sigma_t R[t].
+                    // Copying every physical slot would read outside the
+                    // domain R[t], where values are intentionally
+                    // undefined after interference coloring. The common
+                    // intersection plus the token residual is exactly
+                    // R[t], as certified by CoroGraph's fixed-point
+                    // live-begin projection.
+                    if (!common_relocation_fields.empty()) {
+                        coro_frame_copy_fields(
+                            frame_buf, src, dst, frame_capacity, desc,
+                            layout, soa,
+                            luisa::span<const size_t>{
+                                common_relocation_fields});
+                    }
+                    auto copy_residual = switch_(tok);
+                    for (size_t token = 1u;
+                         token < residual_relocation_fields.size();
+                         ++token) {
+                        copy_residual = std::move(copy_residual).case_(
+                            static_cast<uint>(token), [&, token] {
+                                auto &fields =
+                                    residual_relocation_fields[token];
+                                if (!fields.empty()) {
+                                    coro_frame_copy_fields(
+                                        frame_buf, src, dst,
+                                        frame_capacity, desc, layout,
+                                        soa,
+                                        luisa::span<const size_t>{
+                                            fields});
+                                }
+                            });
+                    }
+                    std::move(copy_residual).default_([] {});
+                    coro_frame_write_field(
+                        frame_buf, src, frame_capacity,
+                        layout, soa, 6u, 0u);
                 };
+                if (incremental) {
+                    auto tok = def(0u);
+                    $if (src < scan_count) {
+                        tok = read_scheduler_token(src, frame_buf, frame_capacity);
+                    };
+                    auto is_active_src = (tok != 0u) & (tok < queue_count);
+                    if (warp_aggregate_counts) {
+                        auto lane_prefix = warp_prefix_count_bits(is_active_src);
+                        auto warp_total = warp_active_count_bits(is_active_src);
+                        auto warp_base = def(0u);
+                        $if (((thread_x() & 31u) == 0u) & (warp_total != 0u)) {
+                            warp_base = global.atomic(count_slot).fetch_add(warp_total);
+                        };
+                        warp_base = warp_read_lane(warp_base, 0u);
+                        $if (is_active_src) {
+                            auto res = warp_base + lane_prefix;
+                            $if (res < empty_count) {
+                                auto dst = index.read(res);
+                                $if (dst < active_count) {
+                                    relocate_frame(tok, dst);
+                                };
+                            };
+                        };
+                    } else {
+                        $if (is_active_src) {
+                            auto res = global.atomic(count_slot).fetch_add(1u);
+                            $if (res < empty_count) {
+                                auto dst = index.read(res);
+                                $if (dst < active_count) {
+                                    relocate_frame(tok, dst);
+                                };
+                            };
+                        };
+                    }
+                } else {
+                    $if (src >= scan_count) { $return(); };
+                    auto tok = read_scheduler_token(src, frame_buf, frame_capacity);
+                    $if ((tok != 0u) & (tok < queue_count)) {
+                        auto dst = def(0u);
+                        auto found_dst = def(false);
+                        $while (!found_dst) {
+                            auto res = global.atomic(count_slot).fetch_add(1u);
+                            $if (res >= empty_count) { $break; };
+                            dst = index.read(res);
+                            found_dst = dst < active_count;
+                        };
+                        $if (found_dst) {
+                            relocate_frame(tok, dst);
+                        };
+                    };
+                }
             };
         _compact_shader = _compile_shader(
             device, compact_kernel,
@@ -1351,45 +1610,58 @@ private:
         _extension_handlers_finalized = true;
     }
 
-    void _sort_token_buckets(Stream &stream, uint count) noexcept {
+    void _encode_sort_token_buckets(CommandList &commands, Stream &stream, uint count) noexcept {
         if (count == 0u) {
+            if (!commands.empty()) { stream << commands.commit(); }
+            stream.synchronize();
             std::fill(_host_count.begin(), _host_count.end(), 0u);
             std::fill(_host_offset.begin(), _host_offset.end(), 0u);
             return;
         }
-        _sort_token.sort(stream, _sort_key[0].view(), _resume_index.view(),
-                         _sort_key[1].view(), _resume_index.view(),
-                         count, _frame_buffer, _config.thread_count);
-        stream << _sort_temp_storage.hist_buffer.view()
-                      .subview(0u, _host_offset.size())
-                      .copy_to(luisa::span{_host_offset.data(), _host_offset.size()})
-               << synchronize();
+        _sort_token.encode_sort(commands, _sort_key[0].view(), _resume_index.view(),
+                                _sort_key[1].view(), _resume_index.view(),
+                                count, _frame_buffer, _config.thread_count);
+        commands << _sort_temp_storage.hist_buffer.view()
+                        .subview(0u, _host_offset.size())
+                        .copy_to(luisa::span{_host_offset.data(), _host_offset.size()});
+        stream << commands.commit();
+        stream.synchronize();
         for (auto i = 0u; i < _host_count.size(); i++) {
             auto next = i + 1u == _host_count.size() ? count : _host_offset[i + 1u];
             _host_count[i] = next - _host_offset[i];
         }
     }
 
-    [[nodiscard]] auto _sort_hint_range(Stream &stream, uint offset, uint count) noexcept {
+    [[nodiscard]] auto _encode_sort_hint_range(CommandList &commands, uint offset, uint count) noexcept {
         BufferView<uint> indices[2] = {
             _resume_index.view().subview(offset, count),
             _sort_index.view().subview(offset, count)};
         BufferView<uint> keys[2] = {
             _sort_key[0].view().subview(offset, count),
             _sort_key[1].view().subview(offset, count)};
-        return _sort_hint.sort_switch(stream, keys, indices, count,
-                                      _resume_index.view().subview(offset, count),
-                                      _frame_buffer, _config.thread_count,
-                                      _config.hint_range,
-                                      _config.hint_partition_size);
+        return _sort_hint.encode_sort_switch(commands, keys, indices, count,
+                                             _resume_index.view().subview(offset, count),
+                                             _frame_buffer, _config.thread_count,
+                                             _config.hint_range,
+                                             _config.hint_partition_size);
     }
 
     void _dispatch(
         Stream &stream, uint3 dispatch_size,
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept override {
         _finalize_extension_handlers();
+        auto pending_commands = CommandList::create(16u);
+        auto flush_pending = [&]() noexcept {
+            if (!pending_commands.empty()) {
+                stream << pending_commands.commit();
+            }
+        };
+        auto sync_pending = [&]() noexcept {
+            flush_pending();
+            stream.synchronize();
+        };
         if (!_extension_route_table.empty()) {
-            stream << _extension_route_buffer.copy_from(
+            pending_commands << _extension_route_buffer.copy_from(
                 luisa::span{_extension_route_table});
         }
         uint N = dispatch_size.x * dispatch_size.y * dispatch_size.z;
@@ -1425,12 +1697,15 @@ private:
         // intentionally much larger than many tiled or diagnostic dispatches;
         // only logical instances that can exist in this dispatch are active.
         _active_frame_capacity = std::min(_config.thread_count, N);
-        if (_active_frame_capacity == 0u) { return; }
-        stream << _initialize_shader(
-                      _config.thread_count,
-                      _active_frame_capacity,
-                      _resume_index)
-                      .dispatch(_active_frame_capacity);
+        if (_active_frame_capacity == 0u) {
+            flush_pending();
+            return;
+        }
+        pending_commands << _initialize_shader(
+                                _config.thread_count,
+                                _active_frame_capacity,
+                                _resume_index)
+                                .dispatch(_active_frame_capacity);
         _used_frame_count = 0u;
 
         auto nc = _resume_kernels.size();
@@ -1442,17 +1717,43 @@ private:
                     (i == 0u ? _active_frame_capacity : 0u);
             _host_offset[i] = i == 0u ? 0u : _active_frame_capacity;
         }
-        stream << _resume_count.copy_from(luisa::span{_host_count.data(), _host_count.size()});
+        if (_config.incremental_continuation_counts) {
+            pending_commands << _clear_count_shader(
+                                    _resume_count, static_cast<uint>(nq))
+                                    .dispatch(static_cast<uint>(nq));
+        } else {
+            pending_commands << _resume_count.copy_from(
+                luisa::span{_host_count.data(), _host_count.size()});
+        }
+        pending_commands << _clear_count_shader(_global_buffer, 2u).dispatch(2u);
         for (auto &&registered : _auxiliary_work) {
-            registered.work->reset(stream);
+            registered.work->encode_reset(stream, pending_commands);
         }
         _has_dispatched = true;
 
         auto dispatch_counter = 0u;
+        auto global_count_slot = 0u;
         auto trace_iterations =
             std::getenv("LUISA_CORO_WAVEFRONT_TRACE_ITERATIONS") != nullptr;
         auto verify_queues =
             std::getenv("LUISA_CORO_WAVEFRONT_VERIFY_QUEUES") != nullptr;
+        auto counts_known_on_host =
+            _config.incremental_continuation_counts && !verify_queues;
+        luisa::vector<bool> deterministic_sink_continuation(nc, false);
+        if (_config.incremental_continuation_counts &&
+            _config.fused_continuation_counts && !verify_queues) {
+            for (size_t c = 1u; c < nc; ++c) {
+                if (!_is_terminal_continuation[c]) { continue; }
+                bool emits_aux = false;
+                for (auto &&registered : _auxiliary_work) {
+                    if (registered.max_emitted_per_continuation[c] != 0u) {
+                        emits_aux = true;
+                        break;
+                    }
+                }
+                deterministic_sink_continuation[c] = !emits_aux;
+            }
+        }
         auto iteration_count = uint64_t{0u};
         auto gather_scan_count = uint64_t{0u};
         auto compact_scan_count = uint64_t{0u};
@@ -1470,15 +1771,15 @@ private:
         };
         auto resume = [&](size_t continuation, uint source_queue,
                           BufferView<uint> indices, uint count) noexcept {
-            stream << _resume_kernels[continuation](
-                          _config.thread_count, indices, 0u, count, source_queue, args...)
-                          .dispatch(count);
+            pending_commands << _resume_kernels[continuation](
+                                    _config.thread_count, indices, 0u, count, source_queue, args...)
+                                    .dispatch(count);
             if (_config.incremental_continuation_counts &&
                 !_config.fused_continuation_counts) {
-                stream << _publish_resumed_count_shader(
-                              _config.thread_count, indices, 0u, _resume_count,
-                              source_queue, count)
-                              .dispatch(count);
+                pending_commands << _publish_resumed_count_shader(
+                                        _config.thread_count, indices, 0u, _resume_count,
+                                        source_queue, count)
+                                        .dispatch(count);
             }
             resumed_count += count;
             if (report_stats) {
@@ -1516,25 +1817,33 @@ private:
             // consumers from the previous iteration. The scheduler's normal
             // main-queue synchronization below also completes these copies,
             // so observing side queues adds no host synchronization point.
-            for (auto &&registered : _auxiliary_work) {
-                registered.work->enqueue_count_readback(stream);
+            auto skip_readback =
+                _config.incremental_continuation_counts &&
+                counts_known_on_host && !verify_queues;
+            if (!skip_readback) {
+                for (auto &&registered : _auxiliary_work) {
+                    registered.work->encode_count_readback(stream, pending_commands);
+                }
             }
             if (_config.incremental_continuation_counts) {
-                stream << _resume_count.copy_to(
-                              luisa::span{_host_count.data(),
-                                          _host_count.size()})
-                       << synchronize();
+                if (!skip_readback) {
+                    pending_commands << _resume_count.copy_to(
+                        luisa::span{_host_count.data(),
+                                    _host_count.size()});
+                    sync_pending();
+                }
+                counts_known_on_host = false;
                 if (verify_queues && scan_count != 0u) {
-                    stream << _clear_count_shader(
-                                  _resume_offset, static_cast<uint>(nq))
-                                  .dispatch(static_cast<uint>(nq));
-                    stream << _count_shader(
-                                  _config.thread_count,
-                                  _resume_offset, scan_count)
-                                  .dispatch(scan_count);
+                    pending_commands << _clear_count_shader(
+                                            _resume_offset, static_cast<uint>(nq))
+                                            .dispatch(static_cast<uint>(nq));
+                    pending_commands << _count_shader(
+                                            _config.thread_count,
+                                            _resume_offset, scan_count)
+                                            .dispatch(scan_count);
                     luisa::vector<uint> actual(nq);
-                    stream << _resume_offset.copy_to(luisa::span{actual})
-                           << synchronize();
+                    pending_commands << _resume_offset.copy_to(luisa::span{actual});
+                    sync_pending();
                     for (size_t i = 1u; i < nq; ++i) {
                         LUISA_ASSERT(
                             actual[i] == _host_count[i],
@@ -1545,12 +1854,12 @@ private:
                     }
                 }
             } else if (_config.gather_by_sorting) {
-                _sort_token_buckets(stream, scan_count);
+                _encode_sort_token_buckets(pending_commands, stream, scan_count);
                 if (verify_queues && scan_count != 0u) {
                     luisa::vector<uint> indices(scan_count);
-                    stream << _resume_index.view().subview(0u, scan_count)
-                                  .copy_to(luisa::span{indices})
-                           << synchronize();
+                    pending_commands << _resume_index.view().subview(0u, scan_count)
+                                            .copy_to(luisa::span{indices});
+                    sync_pending();
                     luisa::vector<uint> seen(scan_count, 0u);
                     for (auto slot = 0u; slot < scan_count; slot++) {
                         auto index = indices[slot];
@@ -1568,17 +1877,17 @@ private:
                     }
                 }
             } else {
-                stream << _clear_count_shader(
-                              _resume_count, static_cast<uint>(nq))
-                              .dispatch(static_cast<uint>(nq));
+                pending_commands << _clear_count_shader(
+                                        _resume_count, static_cast<uint>(nq))
+                                        .dispatch(static_cast<uint>(nq));
                 if (scan_count != 0u) {
-                    stream << _count_shader(
-                                  _config.thread_count,
-                                  _resume_count, scan_count)
-                                  .dispatch(scan_count);
+                    pending_commands << _count_shader(
+                                            _config.thread_count,
+                                            _resume_count, scan_count)
+                                            .dispatch(scan_count);
                 }
-                stream << _resume_count.copy_to(luisa::span{_host_count.data(), _host_count.size()})
-                       << synchronize();
+                pending_commands << _resume_count.copy_to(luisa::span{_host_count.data(), _host_count.size()});
+                sync_pending();
             }
 
             auto active_count = 0u;
@@ -1672,6 +1981,11 @@ private:
             }
             if (dispatch_counter == N && active_count == 0u &&
                 auxiliary_active_count == 0u) {
+                if (report_stats) {
+                    sync_pending();
+                } else {
+                    flush_pending();
+                }
                 break;
             }
 
@@ -1710,7 +2024,7 @@ private:
                     if (bound == 0u) { continue; }
                     auto queued = registered.work->host_count();
                     auto capacity = registered.work->capacity();
-                    registered.work->prepare_for_admission(stream);
+                    registered.work->encode_prepare_for_admission(stream, pending_commands);
                     auto available = registered.work->host_available_slots();
                     LUISA_ASSERT(registered.work->host_count() == queued &&
                                      registered.work->capacity() == capacity &&
@@ -1764,13 +2078,13 @@ private:
             if (dispatch_auxiliary == _auxiliary_work.size() &&
                 !_config.incremental_continuation_counts &&
                 !_config.gather_by_sorting && scan_count != 0u) {
-                stream << _resume_offset.copy_from(
-                              luisa::span{_host_offset.data(),
-                                          _host_offset.size()});
-                stream << _gather_shader(
-                              _config.thread_count,
-                              _resume_index, _resume_offset, scan_count)
-                              .dispatch(scan_count);
+                pending_commands << _resume_offset.copy_from(
+                    luisa::span{_host_offset.data(),
+                                _host_offset.size()});
+                pending_commands << _gather_shader(
+                                        _config.thread_count,
+                                        _resume_index, _resume_offset, scan_count)
+                                        .dispatch(scan_count);
             }
 
             auto refill_threshold = _config.refill_threshold == 0u ?
@@ -1798,58 +2112,96 @@ private:
                       dispatch_counter != 0u) ||
                      (_config.frame_buffer_compaction && active_count != 0u &&
                       compact_empty_count != 0u));
+                uint verified_hole_count = 0u;
                 if (gather_incremental_free_slots) {
                     // A fixed-slot scheduler never relocates frames. Refill
                     // instead enumerates token-zero slots once and passes the
                     // resulting index queue to both generation and count
-                    // publication. In compact mode the same queue identifies
-                    // holes in the used prefix for the relocation kernel.
-                    stream << _clear_count_shader(_global_buffer, 1u)
-                                  .dispatch(1u);
-                    stream << _gather_selected_shader(
-                                  _config.thread_count, _resume_index,
-                                  _global_buffer, 0u, scan_count)
-                                  .dispatch(scan_count);
-                    gather_scan_count += scan_count;
+                    // publication. In compact mode only [0, frame_offset) can
+                    // supply relocation destinations, and its hole count equals
+                    // the active-source count in [frame_offset, scan_count).
+                    auto count_slot = global_count_slot;
+                    global_count_slot ^= 1u;
+                    auto gather_bound = _config.frame_buffer_compaction ?
+                                            frame_offset :
+                                            scan_count;
+                    auto gather_threads = _gather_selected_4x ?
+                                              ((gather_bound + 1023u) / 1024u) * 256u :
+                                              gather_bound;
+                    pending_commands << _gather_selected_shader(
+                                            _config.thread_count, _resume_index,
+                                            _global_buffer, count_slot, 0u, gather_bound)
+                                            .dispatch(gather_threads);
+                    gather_scan_count += gather_bound;
                     _host_offset[0u] = 0u;
                     if (verify_queues) {
                         uint gathered_empty_count = 0u;
-                        stream << _global_buffer.copy_to(
-                                      luisa::span{&gathered_empty_count, 1u})
-                               << synchronize();
-                        auto expected_empty_count =
-                            _config.frame_buffer_compaction ?
-                                compact_empty_count :
-                                empty_count;
-                        LUISA_ASSERT(
-                            gathered_empty_count == expected_empty_count,
-                            "Incremental wavefront empty-queue gather "
-                            "violation at iteration {}: gathered {} frames, "
-                            "expected {}.",
-                            iteration_count, gathered_empty_count,
-                            expected_empty_count);
+                        pending_commands << _global_buffer.view()
+                                                .subview(count_slot, 1u)
+                                                .copy_to(luisa::span{
+                                                    &gathered_empty_count, 1u});
+                        sync_pending();
+                        verified_hole_count = gathered_empty_count;
+                        if (_config.frame_buffer_compaction) {
+                            auto max_holes = std::min(frame_offset, compact_empty_count);
+                            LUISA_ASSERT(
+                                gathered_empty_count <= max_holes,
+                                "Incremental wavefront prefix hole gather "
+                                "violation at iteration {}: gathered {} holes, "
+                                "exceeding max {}.",
+                                iteration_count, gathered_empty_count,
+                                max_holes);
+                        } else {
+                            LUISA_ASSERT(
+                                gathered_empty_count == empty_count,
+                                "Incremental wavefront empty-queue gather "
+                                "violation at iteration {}: gathered {} frames, "
+                                "expected {}.",
+                                iteration_count, gathered_empty_count,
+                                empty_count);
+                        }
                     }
                 }
                 if (_config.frame_buffer_compaction && active_count != 0u && compact_empty_count != 0u) {
-                    stream << _clear_count_shader(_global_buffer, 1u).dispatch(1u);
-                    stream << _compact_shader(_config.thread_count,
-                                              _resume_index, _global_buffer,
-                                              frame_offset, compact_empty_count, scan_count)
-                                  .dispatch(scan_count - frame_offset);
+                    auto count_slot = global_count_slot;
+                    global_count_slot ^= 1u;
+                    auto max_holes = _config.incremental_continuation_counts ?
+                                         std::min(frame_offset, compact_empty_count) :
+                                         compact_empty_count;
+                    pending_commands << _compact_shader(_config.thread_count,
+                                                        _resume_index, _global_buffer,
+                                                        count_slot, frame_offset,
+                                                        max_holes, scan_count)
+                                            .dispatch(scan_count - frame_offset);
                     compact_scan_count += scan_count - frame_offset;
+                    if (verify_queues && _config.incremental_continuation_counts) {
+                        uint relocated_count = 0u;
+                        pending_commands << _global_buffer.view()
+                                                .subview(count_slot, 1u)
+                                                .copy_to(luisa::span{
+                                                    &relocated_count, 1u});
+                        sync_pending();
+                        LUISA_ASSERT(
+                            relocated_count == verified_hole_count,
+                            "Incremental wavefront compaction conservation "
+                            "violation at iteration {}: relocated {} active "
+                            "sources into {} prefix holes.",
+                            iteration_count, relocated_count,
+                            verified_hole_count);
+                    }
                 }
-                stream << _gen_kernel(_config.thread_count,
-                                      _resume_index,
-                                      _host_offset[0u], frame_offset,
-                                      dispatch_counter, gen_count, dispatch_size, args...)
-                              .dispatch(gen_count);
+                pending_commands << _gen_kernel(_config.thread_count,
+                                                _resume_index,
+                                                _host_offset[0u], frame_offset,
+                                                dispatch_counter, gen_count, dispatch_size, args...)
+                                        .dispatch(gen_count);
                 if (_config.incremental_continuation_counts &&
                     !_config.fused_continuation_counts) {
-                    stream << _publish_generated_count_shader(
-                                  _config.thread_count, _resume_index,
-                                  _host_offset[0u], _resume_count,
-                                  frame_offset, gen_count)
-                                  .dispatch(gen_count);
+                    pending_commands << _publish_generated_count_shader(
+                                            _config.thread_count, _resume_index,
+                                            _host_offset[0u], _resume_count,
+                                            frame_offset, gen_count)
+                                            .dispatch(gen_count);
                 }
                 if (report_stats) {
                     auto &entry =
@@ -1871,12 +2223,17 @@ private:
                                  "Selected an empty wavefront auxiliary "
                                  "queue '{}'.",
                                  registered.work->name());
-                    registered.work->dispatch_stage(dispatch_auxiliary_stage, stream, args...);
+                    registered.work->encode_dispatch_stage(dispatch_auxiliary_stage, stream, pending_commands, args...);
                     if (report_stats) {
                         auto &work = _last_dispatch_stats
                                          .auxiliary_work[registered.stats_offset + dispatch_auxiliary_stage];
                         work.dispatch_count++;
                         work.executed_count += count;
+                    }
+                    if (_config.incremental_continuation_counts && !verify_queues) {
+                        counts_known_on_host =
+                            registered.work->try_predict_stage_transition(
+                                dispatch_auxiliary_stage);
                     }
                     continue;
                 }
@@ -1887,11 +2244,12 @@ private:
                             // Admission has proved this product fits capacity
                             // (and therefore uint). Storage-only preparation
                             // is ordered before the producer, not before refill.
-                            registered.work->prepare_for_producer(
-                                stream, static_cast<uint>(uint64_t{selected_count} * bound));
+                            registered.work->encode_prepare_for_producer(
+                                stream, pending_commands, static_cast<uint>(uint64_t{selected_count} * bound));
                         }
                     }
                 }
+                bool fused_extension_gather = false;
                 if (_config.incremental_continuation_counts &&
                     selected < nq && selected_count != 0u &&
                     scan_count != 0u) {
@@ -1900,15 +2258,15 @@ private:
                         // A member may requeue paths into another entry of the
                         // same continuation; those new paths must not leak
                         // into this decision's still-unconsumed snapshot.
-                        stream << _resume_offset.copy_from(luisa::span{_host_offset});
-                        stream << _gather_shader(
-                                      _config.thread_count, _resume_index,
-                                      _resume_offset, scan_count)
-                                      .dispatch(scan_count);
+                        pending_commands << _resume_offset.copy_from(luisa::span{_host_offset});
+                        pending_commands << _gather_shader(
+                                                _config.thread_count, _resume_index,
+                                                _resume_offset, scan_count)
+                                                .dispatch(scan_count);
                         if (verify_queues) {
                             luisa::vector<uint> ends(nq);
-                            stream << _resume_offset.copy_to(luisa::span{ends})
-                                   << synchronize();
+                            pending_commands << _resume_offset.copy_to(luisa::span{ends});
+                            sync_pending();
                             for (size_t i = 0u; i < nq; ++i) {
                                 LUISA_ASSERT(
                                     ends[i] >= _host_offset[i] &&
@@ -1918,30 +2276,65 @@ private:
                                     iteration_count, i, _host_count[i]);
                             }
                         }
+                        gather_scan_count += scan_count;
                     } else {
-                        stream << _clear_count_shader(_global_buffer, 1u)
-                                      .dispatch(1u);
-                        stream << _gather_selected_shader(
-                                      _config.thread_count, _resume_index,
-                                      _global_buffer,
-                                      static_cast<uint>(selected), scan_count)
-                                      .dispatch(scan_count);
-                        if (verify_queues) {
-                            uint gathered_count = 0u;
-                            stream << _global_buffer.copy_to(
-                                          luisa::span{&gathered_count, 1u})
-                                   << synchronize();
-                            LUISA_ASSERT(
-                                gathered_count == selected_count,
-                                "Incremental wavefront selected-queue gather "
-                                "violation at iteration {}, continuation {}: "
-                                "gathered {} frames, expected {}.",
-                                iteration_count, selected, gathered_count,
-                                selected_count);
+                        if (selected >= nc) {
+                            const auto &ext_stage = _extension_stages[selected - nc];
+                            if (!ext_stage.before_resume_chain.empty()) {
+                                auto continuation = _queue_continuation[selected];
+                                bool has_hint = _has_hint_sort &&
+                                                continuation < _have_hint.size() &&
+                                                _have_hint[continuation];
+                                if (!has_hint) {
+                                    const auto &first_handler =
+                                        *_extension_stages[ext_stage.before_resume_chain.front()].handler;
+                                    fused_extension_gather =
+                                        first_handler.gathers_selected_frames();
+                                }
+                            }
+                        }
+                        if (!fused_extension_gather) {
+                            auto count_slot = global_count_slot;
+                            global_count_slot ^= 1u;
+                            auto gather_threads = _gather_selected_4x ?
+                                                      ((scan_count + 1023u) / 1024u) * 256u :
+                                                      scan_count;
+                            pending_commands << _gather_selected_shader(
+                                                    _config.thread_count, _resume_index,
+                                                    _global_buffer, count_slot,
+                                                    static_cast<uint>(selected), scan_count)
+                                                    .dispatch(gather_threads);
+                            if (verify_queues) {
+                                uint gathered_count = 0u;
+                                pending_commands << _global_buffer.view()
+                                                        .subview(count_slot, 1u)
+                                                        .copy_to(luisa::span{
+                                                            &gathered_count, 1u});
+                                luisa::vector<uint> gathered_indices(selected_count);
+                                pending_commands << _resume_index.view()
+                                                        .subview(0u, selected_count)
+                                                        .copy_to(luisa::span{gathered_indices});
+                                sync_pending();
+                                LUISA_ASSERT(
+                                    gathered_count == selected_count,
+                                    "Incremental wavefront selected-queue gather "
+                                    "violation at iteration {}, continuation {}: "
+                                    "gathered {} frames, expected {}.",
+                                    iteration_count, selected, gathered_count,
+                                    selected_count);
+                                luisa::vector<uint8_t> seen(_config.thread_count, 0u);
+                                for (auto slot = 0u; slot < selected_count; ++slot) {
+                                    auto idx = gathered_indices[slot];
+                                    LUISA_ASSERT(idx < _config.thread_count && seen[idx] == 0u,
+                                                 "Gather duplicate/invalid frame index {} at slot {} (iter {}).",
+                                                 idx, slot, iteration_count);
+                                    seen[idx] = 1u;
+                                }
+                            }
+                            gather_scan_count += scan_count;
                         }
                         _host_offset[selected] = 0u;
                     }
-                    gather_scan_count += scan_count;
                 }
                 for (size_t i = nc; i < nq; ++i) {
                     if (_config.largest_continuation_first &&
@@ -1960,8 +2353,17 @@ private:
                         i);
                     auto indices = _resume_index.view().subview(
                         _host_offset[i], count);
+                    bool ungathered_head = fused_extension_gather && (i == selected);
                     auto dispatch_handler = [&](size_t index) noexcept {
                         auto &stage = _extension_stages[index];
+                        CommandList *handler_commands = nullptr;
+                        if (stage.handler->supports_command_list()) {
+                            handler_commands = &pending_commands;
+                        } else {
+                            flush_pending();
+                        }
+                        const bool is_ungathered = ungathered_head;
+                        ungathered_head = false;
                         indices = stage.handler->dispatch_queue(WavefrontCoroExtensionDispatchContext{
                             .stream = stream,
                             .frame_buffer = _frame_buffer.view(),
@@ -1969,10 +2371,32 @@ private:
                             .frame_count = count,
                             .frame_capacity = _config.thread_count,
                             .logical_dispatch_size = dispatch_size,
-                            .stage = stage.stage});
+                            .stage = stage.stage,
+                            .command_list = handler_commands,
+                            .source_queue_token = static_cast<uint>(i),
+                            .scan_count = scan_count,
+                            .ungathered_scan = is_ungathered});
                         LUISA_ASSERT(indices.size() == count,
                                      "Extension '{}' changed selected queue cardinality.",
                                      stage.handler->name());
+                        if (verify_queues && count != 0u) {
+                            luisa::vector<uint> ext_indices(count);
+                            pending_commands << indices.copy_to(luisa::span{ext_indices});
+                            sync_pending();
+                            luisa::vector<uint8_t> seen(_config.thread_count, 0u);
+                            uint dup_count = 0u;
+                            for (auto slot = 0u; slot < count; ++slot) {
+                                auto idx = ext_indices[slot];
+                                LUISA_ASSERT(idx < _config.thread_count,
+                                             "Extension '{}' produced out-of-range frame index {} at slot {} (iter {}).",
+                                             stage.handler->name(), idx, slot, iteration_count);
+                                if (seen[idx] != 0u) { ++dup_count; }
+                                seen[idx] = 1u;
+                            }
+                            LUISA_ASSERT(dup_count == 0u,
+                                         "Extension '{}' produced {} duplicate frame indices out of {} at iteration {}!",
+                                         stage.handler->name(), dup_count, count, iteration_count);
+                        }
                         if (report_stats) {
                             auto &stat = _last_dispatch_stats.extensions[index];
                             stat.dispatch_count++;
@@ -1984,28 +2408,46 @@ private:
                     if (!registered.before_resume_chain.empty()) {
                         auto continuation = _queue_continuation[i];
                         if (_has_hint_sort && _have_hint[continuation]) {
-                            auto sorted = _sort_hint_range(stream, _host_offset[i], count);
+                            auto sorted = _encode_sort_hint_range(pending_commands, _host_offset[i], count);
                             if (sorted != 0u) {
                                 indices = _sort_index.view().subview(_host_offset[i], count);
                             }
                         }
                         for (auto index : registered.before_resume_chain) { dispatch_handler(index); }
                         resume(continuation, static_cast<uint>(i), indices, count);
+                        if (_config.largest_continuation_first &&
+                            logical_members[selected_priority] == 1u &&
+                            continuation < deterministic_sink_continuation.size() &&
+                            deterministic_sink_continuation[continuation]) {
+                            _host_count[i] = 0u;
+                            counts_known_on_host = true;
+                        }
                         continue;
                     }
                     dispatch_handler(stage_index);
-                    stream << _advance_extension_stage_shader(
-                                  _config.thread_count, indices,
-                                  0u, count, static_cast<uint>(i),
-                                  registered.next_queue)
-                                  .dispatch(count);
+                    pending_commands << _advance_extension_stage_shader(
+                                            _config.thread_count, indices,
+                                            0u, count, static_cast<uint>(i),
+                                            registered.next_queue)
+                                            .dispatch(count);
                     if (_config.incremental_continuation_counts &&
                         !_config.fused_continuation_counts) {
-                        stream << _publish_resumed_count_shader(
-                                      _config.thread_count, indices, 0u,
-                                      _resume_count,
-                                      static_cast<uint>(i), count)
-                                      .dispatch(count);
+                        pending_commands << _publish_resumed_count_shader(
+                                                _config.thread_count, indices, 0u,
+                                                _resume_count,
+                                                static_cast<uint>(i), count)
+                                                .dispatch(count);
+                    }
+                    if (_config.largest_continuation_first &&
+                        _config.incremental_continuation_counts &&
+                        _config.fused_continuation_counts && !verify_queues &&
+                        logical_members[selected_priority] == 1u) {
+                        _host_count[i] = 0u;
+                        if (registered.next_queue != 0u &&
+                            registered.next_queue < nq) {
+                            _host_count[registered.next_queue] += count;
+                        }
+                        counts_known_on_host = true;
                     }
                 }
                 for (size_t i = 1u; i < nc; ++i) {
@@ -2015,7 +2457,7 @@ private:
                     auto count = _host_count[i];
                     if (count == 0u) { continue; }
                     if (_has_hint_sort && _have_hint[i]) {
-                        auto sorted_index = _sort_hint_range(stream, _host_offset[i], count);
+                        auto sorted_index = _encode_sort_hint_range(pending_commands, _host_offset[i], count);
                         BufferView<uint> indices[2] = {
                             _resume_index.view().subview(_host_offset[i], count),
                             _sort_index.view().subview(_host_offset[i], count)};
@@ -2023,6 +2465,12 @@ private:
                     } else {
                         resume(i, static_cast<uint>(i),
                                _resume_index.view().subview(_host_offset[i], count), count);
+                    }
+                    if (_config.largest_continuation_first &&
+                        logical_members[selected_priority] == 1u &&
+                        deterministic_sink_continuation[i]) {
+                        _host_count[i] = 0u;
+                        counts_known_on_host = true;
                     }
                 }
             }

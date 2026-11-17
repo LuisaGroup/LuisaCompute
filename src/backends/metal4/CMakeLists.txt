@@ -18,45 +18,71 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     endif ()
 
     # Texture compression is a fixed support library rather than user shader
-    # codegen. Compile it to target-specific metallibs at build time so the
-    # runtime backend never contains or invokes an MSL compiler path.
-    file(GLOB LUISA_COMPUTE_METAL4_TEX_COMPRESS_SOURCES
-            CONFIGURE_DEPENDS metal-tex-compress/*.patched.metal)
-    set(LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR
-            "${CMAKE_CURRENT_BINARY_DIR}/metal_tex_compress_air")
+    # codegen. Compile it to target-specific metallibs at build time when the
+    # offline Metal CLI toolchain is available so the runtime backend never
+    # contains or invokes an MSL compiler path.
+    execute_process(
+            COMMAND xcrun --sdk ${LUISA_METAL4_AIR_SDK} --find metal
+            OUTPUT_VARIABLE _LUISA_METAL4_METAL_CLI
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _LUISA_METAL4_METAL_CLI_RESULT)
+    execute_process(
+            COMMAND xcrun --sdk ${LUISA_METAL4_AIR_SDK} --find metallib
+            OUTPUT_VARIABLE _LUISA_METAL4_METALLIB_CLI
+            ERROR_QUIET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _LUISA_METAL4_METALLIB_CLI_RESULT)
+    if (_LUISA_METAL4_METAL_CLI_RESULT EQUAL 0 AND
+            _LUISA_METAL4_METALLIB_CLI_RESULT EQUAL 0)
+        set(LUISA_METAL4_ENABLE_TEX_COMPRESS ON)
+    else ()
+        set(LUISA_METAL4_ENABLE_TEX_COMPRESS OFF)
+        message(STATUS
+                "Offline Metal CLI toolchain ('xcrun metal' / 'xcrun metallib') "
+                "not found; building Metal 4 AIR backend without precompiled "
+                "TexCompress extension kernels")
+    endif ()
+
     set(LUISA_COMPUTE_METAL4_TEX_COMPRESS_EMBEDDED_SOURCES)
-    foreach (source IN LISTS LUISA_COMPUTE_METAL4_TEX_COMPRESS_SOURCES)
-        get_filename_component(source_stem "${source}" NAME_WE)
-        string(REPLACE ".patched" "" kernel_id "${source_stem}")
-        set(air "${LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR}/${kernel_id}.air")
-        set(metallib "${LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR}/${kernel_id}.metallib")
-        set(embedded "${LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR}/${kernel_id}.inc")
-        set(symbol "luisa_compute_metal_texture_compress_${kernel_id}_metallib")
-        add_custom_command(
-                OUTPUT "${embedded}"
-                BYPRODUCTS "${air}" "${metallib}"
-                COMMAND ${CMAKE_COMMAND} -E make_directory
-                "${LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR}"
-                COMMAND xcrun --sdk ${LUISA_METAL4_AIR_SDK} metal
-                -std=metal4.0 -ffast-math
-                ${LUISA_METAL4_TEX_COMPRESS_DEPLOYMENT_FLAG}
-                -c "${source}" -o "${air}"
-                COMMAND xcrun --sdk ${LUISA_METAL4_AIR_SDK} metallib
-                "${air}" -o "${metallib}"
-                COMMAND /usr/bin/xxd -i -n "${symbol}"
-                "${metallib}" "${embedded}"
-                DEPENDS "${source}"
-                COMMENT "Building Metal 4 AIR texture kernel ${kernel_id}"
-                VERBATIM)
-        list(APPEND LUISA_COMPUTE_METAL4_TEX_COMPRESS_EMBEDDED_SOURCES
-                "${embedded}")
-    endforeach ()
-    set_source_files_properties(
-            ${LUISA_COMPUTE_METAL4_TEX_COMPRESS_EMBEDDED_SOURCES}
-            PROPERTIES GENERATED TRUE HEADER_FILE_ONLY TRUE)
-    add_custom_target(luisa-compute-backend-metal4-embed
-            DEPENDS ${LUISA_COMPUTE_METAL4_TEX_COMPRESS_EMBEDDED_SOURCES}
-            SOURCES ${LUISA_COMPUTE_METAL4_TEX_COMPRESS_SOURCES})
+    if (LUISA_METAL4_ENABLE_TEX_COMPRESS)
+        file(GLOB LUISA_COMPUTE_METAL4_TEX_COMPRESS_SOURCES
+                CONFIGURE_DEPENDS metal-tex-compress/*.patched.metal)
+        set(LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR
+                "${CMAKE_CURRENT_BINARY_DIR}/metal_tex_compress_air")
+        foreach (source IN LISTS LUISA_COMPUTE_METAL4_TEX_COMPRESS_SOURCES)
+            get_filename_component(source_stem "${source}" NAME_WE)
+            string(REPLACE ".patched" "" kernel_id "${source_stem}")
+            set(air "${LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR}/${kernel_id}.air")
+            set(metallib "${LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR}/${kernel_id}.metallib")
+            set(embedded "${LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR}/${kernel_id}.inc")
+            set(symbol "luisa_compute_metal_texture_compress_${kernel_id}_metallib")
+            add_custom_command(
+                    OUTPUT "${embedded}"
+                    BYPRODUCTS "${air}" "${metallib}"
+                    COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "${LUISA_COMPUTE_METAL4_TEX_COMPRESS_OUTPUT_DIR}"
+                    COMMAND xcrun --sdk ${LUISA_METAL4_AIR_SDK} metal
+                    -std=metal4.0 -ffast-math
+                    ${LUISA_METAL4_TEX_COMPRESS_DEPLOYMENT_FLAG}
+                    -c "${source}" -o "${air}"
+                    COMMAND xcrun --sdk ${LUISA_METAL4_AIR_SDK} metallib
+                    "${air}" -o "${metallib}"
+                    COMMAND /usr/bin/xxd -i -n "${symbol}"
+                    "${metallib}" "${embedded}"
+                    DEPENDS "${source}"
+                    COMMENT "Building Metal 4 AIR texture kernel ${kernel_id}"
+                    VERBATIM)
+            list(APPEND LUISA_COMPUTE_METAL4_TEX_COMPRESS_EMBEDDED_SOURCES
+                    "${embedded}")
+        endforeach ()
+        set_source_files_properties(
+                ${LUISA_COMPUTE_METAL4_TEX_COMPRESS_EMBEDDED_SOURCES}
+                PROPERTIES GENERATED TRUE HEADER_FILE_ONLY TRUE)
+        add_custom_target(luisa-compute-backend-metal4-embed
+                DEPENDS ${LUISA_COMPUTE_METAL4_TEX_COMPRESS_EMBEDDED_SOURCES}
+                SOURCES ${LUISA_COMPUTE_METAL4_TEX_COMPRESS_SOURCES})
+    endif ()
 
     set(METAL4_AIR_CODEGEN_SOURCES
             metal_metallib.cpp metal_metallib.h
@@ -124,13 +150,20 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_denoiser.cpp metal_denoiser.h
             metal_dstorage.cpp metal_dstorage.h
             metal_debug_capture.cpp metal_debug_capture.h
-            metal_pinned_memory.cpp metal_pinned_memory.h
-            metal_tex_compress.cpp metal_tex_compress.h)
+            metal_pinned_memory.cpp metal_pinned_memory.h)
+    if (LUISA_METAL4_ENABLE_TEX_COMPRESS)
+        list(APPEND METAL4_SOURCES
+                metal_tex_compress.cpp metal_tex_compress.h)
+    endif ()
 
     if (LUISA_COMPUTE_METAL4_BUILD_RUNTIME)
         luisa_compute_add_backend(metal4 SOURCES ${METAL4_SOURCES})
-        add_dependencies(luisa-compute-backend-metal4
-                luisa-compute-backend-metal4-embed)
+        if (LUISA_METAL4_ENABLE_TEX_COMPRESS)
+            add_dependencies(luisa-compute-backend-metal4
+                    luisa-compute-backend-metal4-embed)
+            target_compile_definitions(luisa-compute-backend-metal4 PRIVATE
+                    LUISA_METAL4_ENABLE_TEX_COMPRESS=1)
+        endif ()
         target_include_directories(luisa-compute-backend-metal4 PRIVATE
                 "${CMAKE_CURRENT_BINARY_DIR}")
     endif ()

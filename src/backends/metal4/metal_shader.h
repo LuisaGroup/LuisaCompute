@@ -24,6 +24,7 @@ public:
     using Argument = ShaderDispatchCommand::Argument;
 
 private:
+    MetalDevice *_device{nullptr};
     MetalShaderHandle _handle;
     luisa::vector<Usage> _argument_usages{};
     luisa::vector<uint8_t> _argument_sampled{};
@@ -56,6 +57,8 @@ public:
     [[nodiscard]] Usage argument_usage(uint index) const noexcept;
     [[nodiscard]] auto pso() const noexcept { return _handle.entry.get(); }
     void set_name(luisa::string_view name) noexcept;
+    static void register_debug_name(uint64_t checksum, luisa::string_view name) noexcept;
+    [[nodiscard]] static luisa::string lookup_debug_name(uint64_t checksum) noexcept;
 };
 
 }// namespace luisa::compute::metal

@@ -143,6 +143,9 @@ void verify_xir_or_error(
     LUISA_ASSERT(value != nullptr && value->type() != nullptr,
                  "Invalid Metal ray-query payload capture.");
     auto type = value->type();
+    if (!metal_ray_payload_type_supported(type)) {
+        return std::numeric_limits<size_t>::max();
+    }
     switch (type->tag()) {
         // AIR stores a buffer capture as {device pointer, uint64 size} and a
         // bindless capture as its argument-buffer device pointer.

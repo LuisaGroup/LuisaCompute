@@ -1,5 +1,6 @@
 #include <luisa/core/pool.h>
 #include <luisa/core/logging.h>
+#include <algorithm>
 #include <thread>
 #include <luisa/runtime/rhi/pixel.h>
 #include "metal_buffer.h"
@@ -51,19 +52,20 @@ MetalCommandEncoder::MetalCommandEncoder(MetalStream *stream) noexcept
     : _stream{stream} {}
 
 MetalCommandEncoder::~MetalCommandEncoder() noexcept {
-    LUISA_ASSERT(_command_buffer == nullptr && _command_allocator == nullptr,
+    LUISA_ASSERT(_command_buffer == nullptr && _allocator_bundle.allocator == nullptr &&
+                     _open_compute_encoder == nullptr,
                  "Metal4 command encoder was destroyed before submission.");
 }
 
 void MetalCommandEncoder::_prepare_command_buffer() noexcept {
     if (_command_buffer == nullptr) {
-        _command_allocator = _stream->_acquire_command_allocator();
+        _allocator_bundle = _stream->_acquire_command_allocator();
         _command_buffer = device()->newCommandBuffer();
         LUISA_ASSERT(_command_buffer != nullptr,
                      "Failed to create Metal4 command buffer.");
         _command_buffer->setLabel(_stream->name());
         _command_buffer->beginCommandBuffer(
-            _command_allocator,
+            _allocator_bundle.allocator,
             _stream->command_buffer_options());
         if (auto session = _stream->timing_session()) {
             _timing.ordinal = session->begin_command_buffer();
@@ -81,7 +83,224 @@ MTL4::CommandBuffer *MetalCommandEncoder::command_buffer() noexcept {
     return _command_buffer;
 }
 
+void MetalCommandEncoder::close_compute_encoder() noexcept {
+    if (_open_compute_encoder != nullptr) {
+        _open_compute_encoder->endEncoding();
+        _open_compute_encoder = nullptr;
+    }
+    _last_compute_stages = 0;
+    _last_blit_was_download = false;
+    _epoch_force_barrier = false;
+    _epoch_read_allocations.clear();
+    _epoch_written_allocations.clear();
+    _epoch_read_bindless_arrays.clear();
+}
+
+MTL4::ComputeCommandEncoder *MetalCommandEncoder::coalesced_compute_encoder(
+    MTL::Stages next_stages) noexcept {
+    _prepare_command_buffer();
+    if (_open_compute_encoder == nullptr) {
+        _open_compute_encoder = _command_buffer->computeCommandEncoder();
+        LUISA_ASSERT(_open_compute_encoder != nullptr,
+                     "Failed to create Metal4 compute command encoder.");
+        _open_compute_encoder->barrierAfterQueueStages(
+            MTL::StageAll,
+            MTL::StageDispatch | MTL::StageBlit | MTL::StageAccelerationStructure,
+            MTL4::VisibilityOptionDevice);
+        _last_compute_stages = 0;
+        _last_blit_was_download = false;
+        _epoch_force_barrier = false;
+        _epoch_read_allocations.clear();
+        _epoch_written_allocations.clear();
+        _epoch_read_bindless_arrays.clear();
+    }
+    if (_last_compute_stages != 0) {
+        _open_compute_encoder->barrierAfterEncoderStages(
+            _last_compute_stages, next_stages,
+            MTL4::VisibilityOptionDevice);
+    }
+    _last_compute_stages = next_stages;
+    _last_blit_was_download = false;
+    _epoch_force_barrier = true;
+    _epoch_read_allocations.clear();
+    _epoch_written_allocations.clear();
+    _epoch_read_bindless_arrays.clear();
+    return _open_compute_encoder;
+}
+
+MTL4::ComputeCommandEncoder *MetalCommandEncoder::coalesced_dispatch_encoder(
+    luisa::span<const MTL::Allocation *const> read_allocations,
+    luisa::span<const MTL::Allocation *const> write_allocations,
+    luisa::span<MetalBindlessArray *const> read_bindless_arrays,
+    bool force_barrier) noexcept {
+    static const auto disable_hazard_tracking = []() noexcept {
+        if (auto env = std::getenv("LUISA_METAL4_DISABLE_HAZARD_TRACKING")) {
+            return luisa::string_view{env} != "0";
+        }
+        return false;
+    }();
+    if (disable_hazard_tracking) { force_barrier = true; }
+
+    _prepare_command_buffer();
+    if (_open_compute_encoder == nullptr) {
+        _open_compute_encoder = _command_buffer->computeCommandEncoder();
+        LUISA_ASSERT(_open_compute_encoder != nullptr,
+                     "Failed to create Metal4 compute command encoder.");
+        _open_compute_encoder->barrierAfterQueueStages(
+            MTL::StageAll,
+            MTL::StageDispatch | MTL::StageBlit | MTL::StageAccelerationStructure,
+            MTL4::VisibilityOptionDevice);
+        _last_compute_stages = 0;
+        _last_blit_was_download = false;
+        _epoch_force_barrier = false;
+        _epoch_read_allocations.clear();
+        _epoch_written_allocations.clear();
+        _epoch_read_bindless_arrays.clear();
+    }
+
+    auto contains_alloc = [](const auto &vec, const MTL::Allocation *a) noexcept {
+        return std::find(vec.begin(), vec.end(), a) != vec.end();
+    };
+    auto append_unique_alloc = [&](auto &vec, const MTL::Allocation *a) noexcept {
+        if (a == nullptr || contains_alloc(vec, a)) { return; }
+        if (vec.size() < vec.capacity()) {
+            vec.emplace_back(a);
+        } else {
+            _epoch_force_barrier = true;
+        }
+    };
+    auto append_unique_bindless = [&](MetalBindlessArray *arr) noexcept {
+        if (arr == nullptr) { return; }
+        if (std::find(_epoch_read_bindless_arrays.begin(),
+                      _epoch_read_bindless_arrays.end(),
+                      arr) != _epoch_read_bindless_arrays.end()) {
+            return;
+        }
+        if (_epoch_read_bindless_arrays.size() < _epoch_read_bindless_arrays.capacity()) {
+            _epoch_read_bindless_arrays.emplace_back(arr);
+        } else {
+            _epoch_force_barrier = true;
+        }
+    };
+
+    if (_last_compute_stages != 0) {
+        bool need_device_flush =
+            force_barrier || _epoch_force_barrier ||
+            _last_compute_stages != MTL::StageDispatch;
+        bool need_exec_barrier = false;
+
+        if (!need_device_flush) {
+            for (auto *r : read_allocations) {
+                if (contains_alloc(_epoch_written_allocations, r)) {
+                    need_device_flush = true;
+                    break;
+                }
+            }
+        }
+        if (!need_device_flush && !read_bindless_arrays.empty() &&
+            !_epoch_written_allocations.empty()) {
+            for (auto *arr : read_bindless_arrays) {
+                for (auto *w : _epoch_written_allocations) {
+                    if (arr->contains_allocation(w)) {
+                        need_device_flush = true;
+                        break;
+                    }
+                }
+                if (need_device_flush) { break; }
+            }
+        }
+        if (!need_device_flush) {
+            for (auto *w : write_allocations) {
+                if (contains_alloc(_epoch_written_allocations, w)) {
+                    need_device_flush = true;
+                    break;
+                }
+                if (!need_exec_barrier) {
+                    if (contains_alloc(_epoch_read_allocations, w)) {
+                        need_exec_barrier = true;
+                    } else {
+                        for (auto *arr : _epoch_read_bindless_arrays) {
+                            if (arr->contains_allocation(w)) {
+                                need_exec_barrier = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (need_device_flush) {
+            _open_compute_encoder->barrierAfterEncoderStages(
+                _last_compute_stages, MTL::StageDispatch,
+                MTL4::VisibilityOptionDevice);
+            _epoch_force_barrier = false;
+            _epoch_read_allocations.clear();
+            _epoch_written_allocations.clear();
+            _epoch_read_bindless_arrays.clear();
+        } else if (need_exec_barrier) {
+            _open_compute_encoder->barrierAfterEncoderStages(
+                _last_compute_stages, MTL::StageDispatch,
+                MTL4::VisibilityOptionNone);
+            _epoch_read_allocations.clear();
+            _epoch_read_bindless_arrays.clear();
+        }
+    }
+
+    _last_compute_stages = MTL::StageDispatch;
+    _last_blit_was_download = false;
+    if (force_barrier) {
+        _epoch_force_barrier = true;
+    } else {
+        for (auto *r : read_allocations) {
+            append_unique_alloc(_epoch_read_allocations, r);
+        }
+        for (auto *w : write_allocations) {
+            append_unique_alloc(_epoch_written_allocations, w);
+        }
+        for (auto *arr : read_bindless_arrays) {
+            append_unique_bindless(arr);
+        }
+    }
+    return _open_compute_encoder;
+}
+
+MTL4::ComputeCommandEncoder *
+MetalCommandEncoder::coalesced_download_blit_encoder() noexcept {
+    _prepare_command_buffer();
+    if (_open_compute_encoder == nullptr) {
+        _open_compute_encoder = _command_buffer->computeCommandEncoder();
+        LUISA_ASSERT(_open_compute_encoder != nullptr,
+                     "Failed to create Metal4 compute command encoder.");
+        _open_compute_encoder->barrierAfterQueueStages(
+            MTL::StageAll,
+            MTL::StageDispatch | MTL::StageBlit | MTL::StageAccelerationStructure,
+            MTL4::VisibilityOptionDevice);
+        _last_compute_stages = 0;
+        _last_blit_was_download = false;
+        _epoch_force_barrier = false;
+        _epoch_read_allocations.clear();
+        _epoch_written_allocations.clear();
+        _epoch_read_bindless_arrays.clear();
+    }
+    if (_last_compute_stages != 0 &&
+        !(_last_compute_stages == MTL::StageBlit && _last_blit_was_download)) {
+        _open_compute_encoder->barrierAfterEncoderStages(
+            _last_compute_stages, MTL::StageBlit,
+            MTL4::VisibilityOptionDevice);
+        _epoch_force_barrier = false;
+        _epoch_read_allocations.clear();
+        _epoch_written_allocations.clear();
+        _epoch_read_bindless_arrays.clear();
+    }
+    _last_compute_stages = MTL::StageBlit;
+    _last_blit_was_download = true;
+    _epoch_force_barrier = true;
+    return _open_compute_encoder;
+}
+
 MTL4::ComputeCommandEncoder *MetalCommandEncoder::compute_encoder() noexcept {
+    close_compute_encoder();
     _prepare_command_buffer();
     auto encoder = _command_buffer->computeCommandEncoder();
     LUISA_ASSERT(encoder != nullptr,
@@ -94,6 +313,7 @@ MTL4::ComputeCommandEncoder *MetalCommandEncoder::compute_encoder() noexcept {
 
 MTL4::RenderCommandEncoder *MetalCommandEncoder::render_encoder(
     MTL4::RenderPassDescriptor *descriptor) noexcept {
+    close_compute_encoder();
     _prepare_command_buffer();
     // Presentation can create a render encoder without visiting a Runtime
     // command. Its GPU interval is not an empty synchronization submission.
@@ -110,6 +330,13 @@ MTL4::RenderCommandEncoder *MetalCommandEncoder::render_encoder(
 MTL4::ArgumentTable *MetalCommandEncoder::argument_table(
     size_t buffer_count, size_t texture_count,
     size_t sampler_count) noexcept {
+    _prepare_command_buffer();
+    if (buffer_count <= MetalStream::pooled_argument_table_buffer_slots &&
+        texture_count <= MetalStream::pooled_argument_table_texture_slots &&
+        sampler_count == 0u &&
+        _allocator_bundle.argument_table != nullptr) {
+        return _allocator_bundle.argument_table;
+    }
     auto descriptor = NS::TransferPtr(
         MTL4::ArgumentTableDescriptor::alloc()->init());
     descriptor->setInitializeBindings(true);
@@ -136,7 +363,7 @@ MTL::GPUAddress MetalCommandEncoder::upload(
     auto address = MTL::GPUAddress{0u};
     with_upload_buffer(size, [&](auto allocation) noexcept {
         std::memcpy(allocation->data(), data, size);
-        use_resource(allocation->buffer());
+        use_stage_allocation(allocation);
         address = allocation->buffer()->gpuAddress() + allocation->offset();
     });
     return address;
@@ -145,6 +372,41 @@ MTL::GPUAddress MetalCommandEncoder::upload(
 void MetalCommandEncoder::use_resource(
     const MTL::Allocation *allocation) noexcept {
     if (allocation != nullptr) { _allocations.emplace(allocation); }
+}
+
+void MetalCommandEncoder::use_device_resource(
+    const MTL::Allocation *allocation) noexcept {
+    if (allocation != nullptr && !_stream->has_device_residency()) {
+        _allocations.emplace(allocation);
+    }
+}
+
+void MetalCommandEncoder::use_stage_allocation(
+    const MetalStageBufferPool::Allocation *allocation) noexcept {
+    if (allocation != nullptr &&
+        (!allocation->is_pooled() || !_stream->has_stream_residency())) {
+        use_resource(allocation->buffer());
+    }
+}
+
+void MetalCommandEncoder::use_residency_set(
+    MTL::ResidencySet *residency_set) noexcept {
+    if (residency_set == nullptr) { return; }
+    if (std::find(_residency_sets.begin(), _residency_sets.end(),
+                  residency_set) == _residency_sets.end()) {
+        residency_set->retain();
+        _residency_sets.emplace_back(residency_set);
+    }
+}
+
+void MetalCommandEncoder::use_accel_residency(
+    luisa::shared_ptr<MetalAccel::ResidencySnapshot> snapshot) noexcept {
+    if (snapshot == nullptr) { return; }
+    if (std::find(_accel_snapshots.begin(), _accel_snapshots.end(),
+                  snapshot) == _accel_snapshots.end()) {
+        use_residency_set(snapshot->residency_set);
+        _accel_snapshots.emplace_back(std::move(snapshot));
+    }
 }
 
 void MetalCommandEncoder::note_timing_non_dispatch_work() noexcept {
@@ -176,14 +438,23 @@ void MetalCommandEncoder::end_dispatch_timing(MTL4::ComputeCommandEncoder *encod
 
 MetalStream::SubmissionHandle MetalCommandEncoder::submit(
     CommandList::CallbackContainer &&user_callbacks) noexcept {
+    close_compute_encoder();
+    auto async_host_completion =
+        !user_callbacks.empty() || std::exchange(_async_host_completion, false);
     if (!user_callbacks.empty()) {
         add_callback(UserCallbackContext::create(
             std::move(user_callbacks)));
     }
     auto callbacks = std::exchange(_callbacks, {});
-    if (!callbacks.empty()) { _prepare_command_buffer(); }
+    if (!callbacks.empty() || !_residency_sets.empty() || !_accel_snapshots.empty()) {
+        _prepare_command_buffer();
+    }
     auto command_buffer = _command_buffer;
     if (command_buffer != nullptr) {
+        if (!_residency_sets.empty()) {
+            command_buffer->useResidencySets(
+                _residency_sets.data(), _residency_sets.size());
+        }
         if (!_allocations.empty()) {
             auto descriptor = NS::TransferPtr(
                 MTL::ResidencySetDescriptor::alloc()->init());
@@ -207,17 +478,29 @@ MetalStream::SubmissionHandle MetalCommandEncoder::submit(
                 allocations.data(), allocations.size());
             residency->commit();
             command_buffer->useResidencySet(residency);
+            _residency_sets.emplace_back(residency);
+        }
+        if (!_residency_sets.empty() || !_accel_snapshots.empty()) {
             callbacks.emplace_back(FunctionCallbackContext::create(
-                [residency]() noexcept { residency->release(); }));
+                [residency_sets = std::move(_residency_sets),
+                 accel_snapshots = std::move(_accel_snapshots)]() mutable noexcept {
+                    for (auto *set : residency_sets) {
+                        const_cast<MTL::ResidencySet *>(set)->release();
+                    }
+                    accel_snapshots.clear();
+                }));
+            _residency_sets.clear();
+            _accel_snapshots.clear();
         }
         command_buffer->endCommandBuffer();
-        auto command_allocator = _command_allocator;
+        auto allocator_bundle = _allocator_bundle;
         _command_buffer = nullptr;
-        _command_allocator = nullptr;
+        _allocator_bundle = {};
         _allocations.clear();
         return _stream->submit(
-            command_buffer, command_allocator,
-            std::move(callbacks), std::exchange(_timing, {}));
+            command_buffer, allocator_bundle,
+            std::move(callbacks), std::exchange(_timing, {}),
+            async_host_completion);
     }
     auto submission = luisa::make_shared<MetalStream::Submission>();
     submission->completed.store(true, std::memory_order_relaxed);
@@ -227,9 +510,7 @@ MetalStream::SubmissionHandle MetalCommandEncoder::submit(
 void MetalCommandEncoder::submit_and_wait(
     CommandList::CallbackContainer &&user_callbacks) noexcept {
     auto submission = submit(std::move(user_callbacks));
-    while (!submission->completed.load(std::memory_order_acquire)) {
-        std::this_thread::yield();
-    }
+    _stream->wait_submission(submission);
 }
 
 void MetalCommandEncoder::visit(BufferUploadCommand *command) noexcept {
@@ -242,13 +523,12 @@ void MetalCommandEncoder::visit(BufferUploadCommand *command) noexcept {
         auto p = static_cast<std::byte *>(upload_buffer->buffer()->contents()) +
                  upload_buffer->offset();
         std::memcpy(p, data, size);
-        auto encoder = compute_encoder();
-        use_resource(upload_buffer->buffer());
-        use_resource(buffer);
+        auto encoder = coalesced_compute_encoder(MTL::StageBlit);
+        use_stage_allocation(upload_buffer);
+        use_device_resource(buffer);
         encoder->copyFromBuffer(upload_buffer->buffer(),
                                 upload_buffer->offset(),
                                 buffer, offset, size);
-        encoder->endEncoding();
     });
 }
 
@@ -258,16 +538,24 @@ void MetalCommandEncoder::visit(BufferDownloadCommand *command) noexcept {
     auto offset = command->offset();
     auto size = command->size();
     auto data = command->data();
+    if (_in_tail_downloads && _open_compute_encoder != nullptr &&
+        buffer->storageMode() == MTL::StorageModeShared &&
+        buffer->contents() != nullptr) {
+        use_device_resource(buffer);
+        auto src = static_cast<const std::byte *>(buffer->contents()) + offset;
+        add_callback(FunctionCallbackContext::create([src, data, size] {
+            std::memcpy(data, src, size);
+        }));
+        return;
+    }
     with_download_buffer(size, [&](MetalStageBufferPool::Allocation *download_buffer) noexcept {
-        auto encoder = compute_encoder();
-        use_resource(buffer);
-        use_resource(download_buffer->buffer());
+        auto encoder = coalesced_download_blit_encoder();
+        use_device_resource(buffer);
+        use_stage_allocation(download_buffer);
         encoder->copyFromBuffer(buffer, offset,
                                 download_buffer->buffer(),
                                 download_buffer->offset(), size);
-        encoder->endEncoding();
         // copy from download buffer to user buffer
-        // TODO: use a better way to pass data back to CPU
         add_callback(FunctionCallbackContext::create([download_buffer, data, size] {
             std::memcpy(data, download_buffer->data(), size);
         }));
@@ -281,11 +569,10 @@ void MetalCommandEncoder::visit(BufferCopyCommand *command) noexcept {
     auto src_offset = command->src_offset();
     auto dst_offset = command->dst_offset();
     auto size = command->size();
-    auto encoder = compute_encoder();
-    use_resource(src_buffer);
-    use_resource(dst_buffer);
+    auto encoder = coalesced_compute_encoder(MTL::StageBlit);
+    use_device_resource(src_buffer);
+    use_device_resource(dst_buffer);
     encoder->copyFromBuffer(src_buffer, src_offset, dst_buffer, dst_offset, size);
-    encoder->endEncoding();
 }
 
 void MetalCommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
@@ -297,14 +584,13 @@ void MetalCommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
     auto size = command->size();
     auto pitch_size = pixel_storage_size(command->storage(), make_uint3(size.x, 1u, 1u));
     auto image_size = pixel_storage_size(command->storage(), make_uint3(size.xy(), 1u));
-    auto encoder = compute_encoder();
-    use_resource(buffer);
-    use_resource(texture);
+    auto encoder = coalesced_compute_encoder(MTL::StageBlit);
+    use_device_resource(buffer);
+    use_device_resource(texture);
     encoder->copyFromBuffer(buffer, buffer_offset, pitch_size, image_size,
                             MTL::Size{size.x, size.y, size.z},
                             texture, 0u, texture_level,
                             MTL::Origin{0u, 0u, 0u});
-    encoder->endEncoding();
 }
 
 void MetalCommandEncoder::visit(ShaderDispatchCommand *command) noexcept {
@@ -319,7 +605,6 @@ void MetalCommandEncoder::visit(TextureUploadCommand *command) noexcept {
     auto level = command->level();
     auto size = command->size();
     auto data = command->data();
-    auto storage = command->storage();
     auto pitch_size = pixel_storage_size(command->storage(), make_uint3(size.x, 1u, 1u));
     auto image_size = pixel_storage_size(command->storage(), make_uint3(size.xy(), 1u));
     auto total_size = image_size * size.z;
@@ -327,13 +612,12 @@ void MetalCommandEncoder::visit(TextureUploadCommand *command) noexcept {
         auto p = static_cast<std::byte *>(upload_buffer->buffer()->contents()) +
                  upload_buffer->offset();
         std::memcpy(p, data, total_size);
-        auto encoder = compute_encoder();
-        use_resource(upload_buffer->buffer());
-        use_resource(texture);
+        auto encoder = coalesced_compute_encoder(MTL::StageBlit);
+        use_stage_allocation(upload_buffer);
+        use_device_resource(texture);
         encoder->copyFromBuffer(upload_buffer->buffer(), upload_buffer->offset(),
                                 pitch_size, image_size, MTL::Size{size.x, size.y, size.z},
                                 texture, 0u, level, MTL::Origin{0u, 0u, 0u});
-        encoder->endEncoding();
     });
 }
 
@@ -343,23 +627,20 @@ void MetalCommandEncoder::visit(TextureDownloadCommand *command) noexcept {
     auto level = command->level();
     auto size = command->size();
     auto data = command->data();
-    auto storage = command->storage();
     auto pitch_size = pixel_storage_size(command->storage(), make_uint3(size.x, 1u, 1u));
     auto image_size = pixel_storage_size(command->storage(), make_uint3(size.xy(), 1u));
     auto total_size = image_size * size.z;
     with_download_buffer(total_size, [&](MetalStageBufferPool::Allocation *download_buffer) noexcept {
-        auto encoder = compute_encoder();
-        use_resource(texture);
-        use_resource(download_buffer->buffer());
+        auto encoder = coalesced_compute_encoder(MTL::StageBlit);
+        use_device_resource(texture);
+        use_stage_allocation(download_buffer);
         encoder->copyFromTexture(texture, 0u, level,
                                  MTL::Origin{0u, 0u, 0u},
                                  MTL::Size{size.x, size.y, size.z},
                                  download_buffer->buffer(),
                                  download_buffer->offset(),
                                  pitch_size, image_size);
-        encoder->endEncoding();
         // copy from download buffer to user buffer
-        // TODO: use a better way to pass data back to CPU
         add_callback(FunctionCallbackContext::create([download_buffer, data, total_size] {
             std::memcpy(data, download_buffer->data(), total_size);
         }));
@@ -372,17 +653,15 @@ void MetalCommandEncoder::visit(TextureCopyCommand *command) noexcept {
     auto dst_texture = reinterpret_cast<const MetalTextureBase *>(command->dst_handle())->handle();
     auto src_level = command->src_level();
     auto dst_level = command->dst_level();
-    auto storage = command->storage();
     auto size = command->size();
-    auto encoder = compute_encoder();
-    use_resource(src_texture);
-    use_resource(dst_texture);
+    auto encoder = coalesced_compute_encoder(MTL::StageBlit);
+    use_device_resource(src_texture);
+    use_device_resource(dst_texture);
     encoder->copyFromTexture(src_texture, 0u, src_level,
                              MTL::Origin{0u, 0u, 0u},
                              MTL::Size{size.x, size.y, size.z},
                              dst_texture, 0u, dst_level,
                              MTL::Origin{0u, 0u, 0u});
-    encoder->endEncoding();
 }
 
 void MetalCommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
@@ -394,15 +673,14 @@ void MetalCommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
     auto size = command->size();
     auto pitch_size = pixel_storage_size(command->storage(), make_uint3(size.x, 1u, 1u));
     auto image_size = pixel_storage_size(command->storage(), make_uint3(size.xy(), 1u));
-    auto encoder = compute_encoder();
-    use_resource(texture);
-    use_resource(buffer);
+    auto encoder = coalesced_compute_encoder(MTL::StageBlit);
+    use_device_resource(texture);
+    use_device_resource(buffer);
     encoder->copyFromTexture(texture, 0u, texture_level,
                              MTL::Origin{0u, 0u, 0u},
                              MTL::Size{size.x, size.y, size.z},
                              buffer, buffer_offset,
                              pitch_size, image_size);
-    encoder->endEncoding();
 }
 
 void MetalCommandEncoder::visit(AccelBuildCommand *command) noexcept {

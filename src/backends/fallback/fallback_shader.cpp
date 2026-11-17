@@ -857,7 +857,13 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     PTO.LoopVectorization = true;
     PTO.SLPVectorization = !use_minimal_optimization;
     PTO.LoopUnrolling = true;
+#if LLVM_VERSION_MAJOR >= 23
+    // LLVM 23 MergeFunctionsPass copies Function-only denormal_fpenv onto its
+    // generated thunk CallInst, which fails LLVM module verification.
+    PTO.MergeFunctions = false;
+#else
     PTO.MergeFunctions = true;
+#endif
     auto PB = luisa::compute::detail::make_llvm_pass_builder(
         llvm_module->getContext(), _target_machine.get(), PTO);
     PB.registerModuleAnalyses(MAM);

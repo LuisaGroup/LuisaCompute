@@ -16,6 +16,7 @@
 
 namespace luisa::compute::metal {
 
+class MetalDevice;
 class MetalEvent;
 class MetalTexture;
 class MetalSwapchain;
@@ -27,23 +28,52 @@ public:
     using CallbackContainer = luisa::vector<MetalCallbackContext *>;
     using LogCallback = DeviceInterface::StreamLogCallback;
 
+    static constexpr size_t pooled_argument_table_buffer_slots = 16u;
+    static constexpr size_t pooled_argument_table_texture_slots = 4u;
+
+    struct CommandAllocatorBundle {
+        MTL4::CommandAllocator *allocator{nullptr};
+        MTL4::ArgumentTable *argument_table{nullptr};
+    };
+
     struct Submission {
+        uint64_t ticket{0u};
         std::atomic_bool completed{false};
     };
     using SubmissionHandle = luisa::shared_ptr<Submission>;
 
+    struct PendingSubmission {
+        uint64_t ticket{0u};
+        MTL4::CommandBuffer *command_buffer{nullptr};
+        CommandAllocatorBundle allocator_bundle{};
+        CallbackContainer callbacks{};
+        SubmissionHandle submission{};
+    };
+
 private:
+    MetalDevice *_owner_device{nullptr};
     MTL4::CommandQueue *_queue{nullptr};
+    MTL::SharedEvent *_completion_event{nullptr};
+    MTL::ResidencySet *_stream_residency_set{nullptr};
     MTL::CommandQueue *_acceleration_structure_compatibility_queue{nullptr};
     MTL::LogState *_log_state{nullptr};
     MTL4::CommandBufferOptions *_command_buffer_options{nullptr};
     NS::String *_name{nullptr};
     size_t _max_commands{0u};
     size_t _inflight_commands{0u};
+    std::atomic_bool _has_unsubmitted_queue_ops{false};
+    std::mutex _retire_mutex;
+    std::mutex _submission_mutex;
+    std::atomic<std::thread::id> _retiring_thread{};
+    std::atomic_uint64_t _submitted_ticket{0u};
+    std::atomic_uint64_t _retired_ticket{0u};
+    std::atomic_uint64_t _active_feedback_handlers{0u};
+    luisa::queue<PendingSubmission> _pending_submissions{};
     std::mutex _inflight_mutex;
     std::condition_variable _inflight_cv;
     spin_mutex _upload_pool_creation_mutex;
     spin_mutex _download_pool_creation_mutex;
+    spin_mutex _stream_residency_mutex;
     spin_mutex _callback_mutex;
     spin_mutex _dispatch_mutex;
     spin_mutex _command_allocator_pool_mutex;
@@ -54,7 +84,7 @@ private:
     luisa::unique_ptr<MetalStageBufferPool> _upload_pool{nullptr};
     luisa::unique_ptr<MetalStageBufferPool> _download_pool{nullptr};
     luisa::queue<CallbackContainer> _callback_lists{};
-    luisa::vector<MTL4::CommandAllocator *> _command_allocator_pool;
+    luisa::vector<CommandAllocatorBundle> _command_allocator_pool;
     LogCallback _log_callback;
     // Only the opt-in diagnostic path takes this mutex. The disabled path
     // does not allocate counters or alter command encoding/submission.
@@ -72,12 +102,18 @@ protected:
 private:
     friend class MetalCommandEncoder;
     [[nodiscard]] size_t _command_allocator_pool_capacity() const noexcept;
-    [[nodiscard]] MTL4::CommandAllocator *_acquire_command_allocator() noexcept;
-    void _recycle_command_allocator(MTL4::CommandAllocator *command_allocator) noexcept;
+    [[nodiscard]] CommandAllocatorBundle _acquire_command_allocator() noexcept;
+    void _recycle_command_allocator(CommandAllocatorBundle bundle) noexcept;
+    void _register_stream_allocation(const MTL::Allocation *allocation) noexcept;
+    void _wait_for_completion_ticket(uint64_t target) noexcept;
+    void _retire_submissions_up_to(uint64_t target, bool blocking) noexcept;
 
 public:
-    MetalStream(MTL::Device *device, size_t max_commands) noexcept;
+    MetalStream(MTL::Device *device, size_t max_commands,
+                MetalDevice *owner_device = nullptr) noexcept;
     virtual ~MetalStream() noexcept;
+    [[nodiscard]] auto has_device_residency() const noexcept { return _owner_device != nullptr; }
+    [[nodiscard]] auto has_stream_residency() const noexcept { return _stream_residency_set != nullptr; }
     virtual void signal(MetalEvent *event, uint64_t value) noexcept;
     virtual void wait(MetalEvent *event, uint64_t value) noexcept;
     virtual void synchronize() noexcept;
@@ -101,11 +137,13 @@ public:
     [[nodiscard]] Metal4TimingSample end_timing() noexcept;
     [[nodiscard]] MetalStageBufferPool *upload_pool() noexcept;
     [[nodiscard]] MetalStageBufferPool *download_pool() noexcept;
+    void wait_submission(const SubmissionHandle &submission) noexcept;
     [[nodiscard]] virtual SubmissionHandle submit(
         MTL4::CommandBuffer *command_buffer,
-        MTL4::CommandAllocator *command_allocator,
+        CommandAllocatorBundle allocator_bundle,
         CallbackContainer &&callbacks,
-        MetalTimingSubmission timing = {}) noexcept;
+        MetalTimingSubmission timing = {},
+        bool async_host_completion = false) noexcept;
 };
 
 }// namespace luisa::compute::metal

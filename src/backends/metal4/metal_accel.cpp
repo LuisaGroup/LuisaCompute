@@ -12,14 +12,27 @@ namespace {
 constexpr auto metal_accel_default_instance_limit = 1u << 24u;
 }// namespace
 
+MetalAccel::ResidencySnapshot::~ResidencySnapshot() noexcept {
+    if (owner_device != nullptr && !device_allocations.empty()) {
+        owner_device->unregister_residency(device_allocations);
+    }
+    if (residency_set != nullptr) {
+        residency_set->endResidency();
+        residency_set->release();
+    }
+    for (auto *obj : retained_objects) { obj->release(); }
+}
+
 MetalAccel::MetalAccel(MetalDevice *device,
                        const AccelOption &option) noexcept
-    : _update{device->builtin_update_accel_instances()},
+    : _device{device},
+      _update{device->builtin_update_accel_instances()},
       _option{option} {
     _resources.reserve(reserved_primitive_count);
 }
 
 MetalAccel::~MetalAccel() noexcept {
+    _residency_snapshot.reset();
     if (_handle) { _handle->release(); }
     if (_instance_buffer) { _instance_buffer->release(); }
     if (_motion_instance_buffer) { _motion_instance_buffer->release(); }
@@ -45,8 +58,10 @@ void MetalAccel::build(MetalCommandEncoder &encoder,
 
     auto required_instance_buffer_size =
         static_cast<size_t>(instance_count) * sizeof(Instance);
+    auto instance_buffer_changed = false;
     if (_instance_buffer == nullptr ||
         _instance_buffer->length() < required_instance_buffer_size) {
+        instance_buffer_changed = true;
         auto old_instance_buffer = _instance_buffer;
         _instance_buffer = device->newBuffer(
             required_instance_buffer_size,
@@ -177,7 +192,13 @@ void MetalAccel::build(MetalCommandEncoder &encoder,
     _requires_extended_limits = requires_extended_limits;
 
     encoder.use_resource(_instance_buffer);
-    if (command->update_instance_buffer_only()) { return; }
+    if (command->update_instance_buffer_only()) {
+        if ((instance_buffer_changed || _residency_snapshot == nullptr) &&
+            _handle != nullptr) {
+            _rebuild_residency_snapshot(device);
+        }
+        return;
+    }
 
     for (auto i = 0u; i < instance_count; i++) {
         LUISA_ASSERT(_primitives[i] != nullptr &&
@@ -186,6 +207,8 @@ void MetalAccel::build(MetalCommandEncoder &encoder,
                      "valid primitive.",
                      i);
     }
+    auto old_motion_instance = _motion_instance_buffer;
+    auto old_motion_transform = _motion_transform_buffer;
     _prepare_motion_data(encoder);
 
     if (_requires_rebuild) {
@@ -282,6 +305,7 @@ void MetalAccel::build(MetalCommandEncoder &encoder,
         _compatibility_descriptor->setUsage(descriptor_usage);
     }
 
+    auto rebuilt = _requires_rebuild;
     encoder.use_resource(descriptor_instance_buffer);
     encoder.use_resource(_motion_transform_buffer);
     if (address_driven) {
@@ -295,6 +319,12 @@ void MetalAccel::build(MetalCommandEncoder &encoder,
         }
     }
     _requires_rebuild = false;
+    if (rebuilt || instance_buffer_changed ||
+        _motion_instance_buffer != old_motion_instance ||
+        _motion_transform_buffer != old_motion_transform ||
+        _residency_snapshot == nullptr) {
+        _rebuild_residency_snapshot(device);
+    }
 }
 
 void MetalAccel::_do_update(MetalCommandEncoder &encoder) noexcept {
@@ -495,9 +525,7 @@ void MetalAccel::set_name(luisa::string_view name) noexcept {
     if (_handle) { _handle->setLabel(_name); }
 }
 
-void MetalAccel::mark_resource_usages(
-    MetalCommandEncoder &encoder) noexcept {
-    std::scoped_lock lock{_mutex};
+void MetalAccel::_rebuild_residency_snapshot(MTL::Device *device) noexcept {
     auto descriptor = static_cast<MTL::AccelerationStructureDescriptor *>(
         _descriptor != nullptr ?
             static_cast<MTL::AccelerationStructureDescriptor *>(_descriptor) :
@@ -505,22 +533,64 @@ void MetalAccel::mark_resource_usages(
     LUISA_ASSERT(descriptor != nullptr && _handle != nullptr &&
                      _instance_buffer != nullptr,
                  "Metal acceleration structure has not been built.");
-
+    auto snapshot = luisa::make_shared<ResidencySnapshot>();
+    luisa::vector<const MTL::Allocation *> allocations;
+    allocations.reserve(_resources.size() + 4u);
+    snapshot->retained_objects.reserve(_resources.size() + 5u);
+    auto track_allocation = [&](MTL::Allocation *alloc) noexcept {
+        if (alloc != nullptr) {
+            alloc->retain();
+            snapshot->retained_objects.emplace_back(alloc);
+            allocations.emplace_back(alloc);
+        }
+    };
     descriptor->retain();
-    _handle->retain();
-    _instance_buffer->retain();
-    encoder.add_callback(FunctionCallbackContext::create(
-        [descriptor, handle = _handle,
-         instance_buffer = _instance_buffer]() noexcept {
-            descriptor->release();
-            handle->release();
-            instance_buffer->release();
-        }));
-    encoder.use_resource(_handle);
-    encoder.use_resource(_instance_buffer);
-    encoder.use_resource(_motion_instance_buffer);
-    encoder.use_resource(_motion_transform_buffer);
-    for (auto resource : _resources) { encoder.use_resource(resource); }
+    snapshot->retained_objects.emplace_back(descriptor);
+    track_allocation(_handle);
+    track_allocation(_instance_buffer);
+    track_allocation(_motion_instance_buffer);
+    track_allocation(_motion_transform_buffer);
+    for (auto *resource : _resources) { track_allocation(resource); }
+
+    if (_device != nullptr && _device->residency_set() != nullptr) {
+        snapshot->owner_device = _device;
+        snapshot->device_allocations = std::move(allocations);
+        _device->register_residency(snapshot->device_allocations);
+    } else {
+        auto residency_desc = NS::TransferPtr(
+            MTL::ResidencySetDescriptor::alloc()->init());
+        residency_desc->setInitialCapacity(allocations.size());
+        residency_desc->setLabel(MTLSTR("LuisaCompute MetalAccel ResidencySet"));
+        NS::Error *error = nullptr;
+        snapshot->residency_set = device->newResidencySet(residency_desc.get(), &error);
+        if (error != nullptr) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to create Metal4 acceleration-structure residency set: {}.",
+                error->localizedDescription()->utf8String());
+        }
+        LUISA_ASSERT(snapshot->residency_set != nullptr,
+                     "Failed to create Metal4 acceleration-structure residency set.");
+        if (!allocations.empty()) {
+            snapshot->residency_set->addAllocations(
+                allocations.data(), allocations.size());
+        }
+        snapshot->residency_set->commit();
+        snapshot->residency_set->requestResidency();
+    }
+    _residency_snapshot = std::move(snapshot);
+}
+
+void MetalAccel::mark_resource_usages(
+    MetalCommandEncoder &encoder) noexcept {
+    luisa::shared_ptr<ResidencySnapshot> snapshot;
+    {
+        std::scoped_lock lock{_mutex};
+        snapshot = _residency_snapshot;
+    }
+    LUISA_ASSERT(snapshot != nullptr &&
+                     (snapshot->owner_device != nullptr || snapshot->residency_set != nullptr),
+                 "Metal acceleration structure has not been built.");
+    encoder.use_accel_residency(std::move(snapshot));
 }
 
 }// namespace luisa::compute::metal

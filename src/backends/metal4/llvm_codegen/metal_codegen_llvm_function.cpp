@@ -1,5 +1,8 @@
 #include "metal_codegen_llvm_impl.h"
 
+#include <cstdlib>
+#include <luisa/xir/metadata/no_inline.h>
+
 namespace luisa::compute::metal::detail {
 
 llvm::Function *MetalCodegenLLVMImpl::_function(const xir::Function *function) noexcept {
@@ -109,6 +112,14 @@ llvm::Function *MetalCodegenLLVMImpl::_declare_callable(const xir::CallableFunct
     }
     auto i32 = llvm::Type::getInt32Ty(_context);
     if (_config.program == MetalAIRProgram::COMPUTE) {
+        if (!is_ray_query_pipeline_handler) {
+            auto ift_pointer = llvm::PointerType::get(
+                _context, air_address_space_device);
+            arguments.append(_ray_query_pipelines.size(), ift_pointer);
+        } else {
+            arguments.emplace_back(
+                llvm::PointerType::get(_context, air_address_space_generic));
+        }
         auto i32x3 = llvm::FixedVectorType::get(i32, 3u);
         arguments.append({i32x3, i32, i32x3, i32x3, i32x3, i32x3, i32, i32});
     } else {
@@ -120,7 +131,18 @@ llvm::Function *MetalCodegenLLVMImpl::_declare_callable(const xir::CallableFunct
     auto function_type = llvm::FunctionType::get(return_type, arguments, false);
     auto llvm_function = llvm::Function::Create(function_type, llvm::GlobalValue::PrivateLinkage,
                                                 function->name().value_or("callable"), _module);
-    llvm_function->addFnAttr(llvm::Attribute::AlwaysInline);
+    const auto respect_noinline = []() noexcept {
+        if (auto env = std::getenv("LUISA_METAL4_RESPECT_NOINLINE")) {
+            return luisa::string_view{env} != "0";
+        }
+        return false;
+    }();
+    if (!is_ray_query_pipeline_handler && respect_noinline &&
+        function->find_metadata<xir::NoInlineMD>() != nullptr) {
+        llvm_function->addFnAttr(llvm::Attribute::NoInline);
+    } else {
+        llvm_function->addFnAttr(llvm::Attribute::AlwaysInline);
+    }
     llvm_function->addFnAttr(llvm::Attribute::Convergent);
     _set_float_control_attributes(llvm_function);
     return llvm_function;
@@ -290,6 +312,16 @@ llvm::Function *MetalCodegenLLVMImpl::_translate_callable(const xir::CallableFun
         context.pipeline_handler = &iter->second;
         auto query_argument = function->arguments().front();
         context.pipeline_payload = context.value(query_argument);
+        auto candidate_arg = &*iterator++;
+        candidate_arg->setName("ray.query.candidate");
+        context.pipeline_candidate_state = candidate_arg;
+    } else if (_config.program == MetalAIRProgram::COMPUTE) {
+        context.intersection_tables.reserve(_ray_query_pipelines.size());
+        for (auto i = 0u; i < _ray_query_pipelines.size(); i++) {
+            auto table = &*iterator++;
+            table->setName(luisa::format("ray.query.ift.{}", i));
+            context.intersection_tables.emplace_back(table);
+        }
     }
     _bind_state_parameters(context, iterator);
     auto body = _translate_function(context, function);
@@ -1062,7 +1094,24 @@ void MetalCodegenLLVMImpl::_translate_instruction(IB &builder, FunctionContext &
                         instruction->argument(i)));
                 }
             }
-            if (!external) { _append_state_arguments(function, arguments); }
+            if (!external) {
+                if (_config.program == MetalAIRProgram::COMPUTE &&
+                    callee->derived_function_tag() ==
+                        xir::DerivedFunctionTag::CALLABLE &&
+                    !_ray_query_pipeline_handlers.contains(
+                        static_cast<const xir::CallableFunction *>(callee))) {
+                    if (!function.intersection_tables.empty()) {
+                        arguments.append(function.intersection_tables.begin(),
+                                         function.intersection_tables.end());
+                    } else if (!_ray_query_pipelines.empty()) {
+                        auto ift_pointer = llvm::PointerType::get(
+                            _context, air_address_space_device);
+                        arguments.append(_ray_query_pipelines.size(),
+                                         llvm::PoisonValue::get(ift_pointer));
+                    }
+                }
+                _append_state_arguments(function, arguments);
+            }
             auto llvm_callee = _function(callee);
             auto call = builder.CreateCall(llvm_callee, arguments);
             call->setCallingConv(llvm_callee->getCallingConv());

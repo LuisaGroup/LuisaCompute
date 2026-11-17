@@ -4,6 +4,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/runtime/command_list.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
 
@@ -92,6 +93,14 @@ public:
 
     virtual void reset(Stream &stream) noexcept = 0;
     virtual void enqueue_count_readback(Stream &stream) noexcept = 0;
+    virtual void encode_reset(Stream &stream, CommandList &commands) noexcept {
+        if (!commands.empty()) { stream << commands.commit(); }
+        reset(stream);
+    }
+    virtual void encode_count_readback(Stream &stream, CommandList &commands) noexcept {
+        if (!commands.empty()) { stream << commands.commit(); }
+        enqueue_count_readback(stream);
+    }
     [[nodiscard]] virtual uint host_count() const noexcept = 0;
     [[nodiscard]] virtual uint stage_count() const noexcept { return 1u; }
     [[nodiscard]] virtual luisa::string_view stage_name(uint stage) const noexcept {
@@ -109,15 +118,32 @@ public:
         return stage_count();
     }
     virtual void prepare_for_admission(Stream &) noexcept {}
+    virtual void encode_prepare_for_admission(Stream &stream, CommandList &commands) noexcept {
+        if (!commands.empty()) { stream << commands.commit(); }
+        prepare_for_admission(stream);
+    }
     [[nodiscard]] virtual uint host_available_slots() const noexcept {
         return capacity() - host_count();
     }
+    [[nodiscard]] virtual bool try_predict_stage_transition(uint) noexcept {
+        return false;
+    }
     virtual void prepare_for_producer(Stream &, uint) noexcept {}
+    virtual void encode_prepare_for_producer(Stream &stream, CommandList &commands, uint required) noexcept {
+        if (!commands.empty()) { stream << commands.commit(); }
+        prepare_for_producer(stream, required);
+    }
     virtual void dispatch_stage(
         uint stage, Stream &stream,
         luisa::compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
         LUISA_ASSERT(stage == 0u, "Invalid single-stage auxiliary index {}.", stage);
         dispatch(stream, args...);
+    }
+    virtual void encode_dispatch_stage(
+        uint stage, Stream &stream, CommandList &commands,
+        luisa::compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
+        if (!commands.empty()) { stream << commands.commit(); }
+        dispatch_stage(stage, stream, args...);
     }
     virtual void dispatch(
         Stream &stream,

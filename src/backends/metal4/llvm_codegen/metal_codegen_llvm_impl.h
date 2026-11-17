@@ -53,6 +53,9 @@ static constexpr auto air_texture_access_read = 1u;
 static constexpr auto air_texture_access_write = 2u;
 static constexpr auto air_texture_access_read_write = 3u;
 static constexpr auto air_texture_access_sample = 4u;
+static constexpr auto air_forced_opacity_none = 0u;
+static constexpr auto air_forced_opacity_opaque = 1u;
+static constexpr auto air_forced_opacity_non_opaque = 2u;
 static constexpr auto kernel_argument_alignment = 16u;
 static constexpr auto indirect_dispatch_buffer_type_name =
     luisa::string_view{"LC_IndirectDispatchBuffer"};
@@ -276,6 +279,16 @@ enum class AIRRasterDepthMode : uint8_t {
 class MetalCodegenLLVMImpl {
 
 private:
+    enum RayQueryCandidateField : unsigned {
+        ray_query_candidate_accept = 0u,
+        ray_query_candidate_continue,
+        ray_query_candidate_instance,
+        ray_query_candidate_primitive,
+        ray_query_candidate_barycentrics,
+        ray_query_candidate_distance,
+        ray_query_candidate_field_count
+    };
+
     enum RayQueryPayloadField : unsigned {
         ray_query_payload_accept = 0u,
         ray_query_payload_continue,
@@ -315,6 +328,7 @@ private:
         AIRRayTracingConfig config;
         llvm::StructType *payload_type;
         uint32_t payload_field_mask;
+        bool has_dummy_payload_field{false};
         luisa::vector<RayQueryPayloadCapture> captures;
         luisa::string function_name;
 
@@ -394,6 +408,7 @@ private:
         luisa::vector<const xir::PhiInst *> pending_phi_nodes;
         const RayQueryPipelineHandler *pipeline_handler{nullptr};
         llvm::Value *pipeline_payload{nullptr};
+        llvm::Value *pipeline_candidate_state{nullptr};
 
         explicit FunctionContext(llvm::Function *f) noexcept
             : function{f},
@@ -462,6 +477,7 @@ private:
     llvm::StructType *_air_intersection_result_type{nullptr};
     llvm::StructType *_air_curve_intersection_result_type{nullptr};
     llvm::StructType *_air_intersection_query_type{nullptr};
+    llvm::StructType *_ray_query_candidate_state_type{nullptr};
     llvm::Function *_shader_log_helper{nullptr};
     const xir::KernelFunction *_kernel{nullptr};
     const xir::RasterStageFunction *_raster_stage{nullptr};
@@ -473,6 +489,7 @@ private:
     llvm::DenseMap<const xir::RayQueryPipelineInst *, size_t> _ray_query_pipeline_indices;
     llvm::DenseMap<const xir::CallableFunction *, RayQueryPipelineHandler> _ray_query_pipeline_handlers;
     llvm::DenseSet<const xir::Value *> _pipeline_query_objects;
+    llvm::DenseSet<const xir::Value *> _readonly_buffers;
 
 public:
     explicit MetalCodegenLLVMImpl(MetalCodegenLLVMConfig config) noexcept
@@ -510,6 +527,7 @@ private:
     [[nodiscard]] llvm::StructType *_air_intersection_result(
         bool curves = false) noexcept;
     [[nodiscard]] llvm::StructType *_air_intersection_query() noexcept;
+    [[nodiscard]] llvm::StructType *_ray_query_candidate_state() noexcept;
     [[nodiscard]] llvm::Constant *_constant_string(
         luisa::string_view value, luisa::string_view name) noexcept;
     [[nodiscard]] llvm::Function *_shader_log() noexcept;
@@ -537,7 +555,7 @@ private:
 
     [[nodiscard]] llvm::Value *_reg_to_mem(IB &builder, llvm::Value *value, const Type *type) noexcept;
     [[nodiscard]] llvm::Value *_mem_to_reg(IB &builder, llvm::Value *value, const Type *type) noexcept;
-    [[nodiscard]] llvm::Value *_load(IB &builder, llvm::Value *pointer, const Type *type, bool is_volatile = false) noexcept;
+    [[nodiscard]] llvm::Value *_load(IB &builder, llvm::Value *pointer, const Type *type, bool is_volatile = false, bool is_invariant = false) noexcept;
     void _store(IB &builder, llvm::Value *pointer, llvm::Value *value, const Type *type, bool is_volatile = false) noexcept;
     [[nodiscard]] llvm::Value *_temporary(const FunctionContext &function, llvm::Type *type, size_t alignment) noexcept;
 
@@ -595,7 +613,7 @@ private:
         llvm::Value *intersection_table = nullptr,
         llvm::Value *payload = nullptr,
         uint64_t payload_size = 0u,
-        bool force_opaque = true,
+        uint32_t forced_opacity = air_forced_opacity_opaque,
         bool has_procedural = false) noexcept;
     [[nodiscard]] llvm::CallInst *_air_ray_query_call(
         IB &builder, luisa::string_view operation,
@@ -634,6 +652,7 @@ private:
     void _add_raster_fragment_metadata(llvm::Function *function, llvm::ArrayRef<llvm::Type *> outputs) noexcept;
     void _add_module_metadata() noexcept;
     void _collect_print_formats(const xir::Module &module) noexcept;
+    void _collect_readonly_buffers(const xir::Module &module) noexcept;
     void _link_native_include() noexcept;
 
     void _collect_ray_query_pipelines(const xir::Module &module) noexcept;
@@ -652,6 +671,9 @@ private:
     [[nodiscard]] llvm::Value *_pipeline_payload_pointer(
         IB &builder, const FunctionContext &function,
         RayQueryPayloadField field) const noexcept;
+    [[nodiscard]] llvm::Value *_pipeline_candidate_pointer(
+        IB &builder, FunctionContext &function,
+        RayQueryCandidateField field) noexcept;
     void _add_ray_query_intersection_metadata(
         llvm::Function *function, const RayQueryPipeline &pipeline) noexcept;
 };

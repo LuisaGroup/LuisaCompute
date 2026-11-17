@@ -159,8 +159,149 @@ void MetalCodegenLLVMImpl::_link_native_include() noexcept {
     }
 }
 
+void MetalCodegenLLVMImpl::_collect_readonly_buffers(
+    const xir::Module &xir_module) noexcept {
+    _readonly_buffers.clear();
+    if (_config.program != MetalAIRProgram::COMPUTE) { return; }
+
+    auto disable_analysis = false;
+    size_t total_instructions = 0u;
+    llvm::DenseSet<const xir::Value *> all_buffer_args;
+    llvm::DenseSet<const xir::Value *> mutated_buffers;
+
+    struct ArgLink {
+        const xir::Value *caller_value;
+        const xir::Value *callee_param;
+    };
+    luisa::vector<ArgLink> links;
+
+    for (auto function : xir_module.function_list()) {
+        if (function->isa<xir::ExternalFunction>()) {
+            disable_analysis = true;
+            break;
+        }
+        auto definition = function->definition();
+        if (definition == nullptr) { continue; }
+        for (auto arg : definition->arguments()) {
+            if (arg->type() != nullptr && arg->type()->is_buffer()) {
+                all_buffer_args.insert(arg);
+            }
+        }
+        definition->traverse_instructions(
+            [&](const xir::Instruction *inst) noexcept {
+                if (++total_instructions > 8500u) {
+                    disable_analysis = true;
+                    return;
+                }
+                if (inst->isa<xir::ThreadGroupInst>()) {
+                    auto tg = static_cast<const xir::ThreadGroupInst *>(inst);
+                    if (tg->op() == xir::ThreadGroupOp::SYNCHRONIZE_BLOCK) {
+                        disable_analysis = true;
+                        return;
+                    }
+                }
+                if (inst->isa<xir::ResourceWriteInst>()) {
+                    auto write = static_cast<const xir::ResourceWriteInst *>(inst);
+                    if (write->op() == xir::ResourceWriteOp::DEVICE_ADDRESS_WRITE) {
+                        disable_analysis = true;
+                        return;
+                    }
+                    if (write->operand_count() > 0u) {
+                        auto dst = write->operand(0u);
+                        if (dst != nullptr && dst->type() != nullptr &&
+                            dst->type()->is_buffer()) {
+                            mutated_buffers.insert(dst);
+                        }
+                    }
+                } else if (inst->isa<xir::AtomicInst>()) {
+                    auto atomic = static_cast<const xir::AtomicInst *>(inst);
+                    auto base = atomic->base();
+                    if (base != nullptr && base->type() != nullptr &&
+                        base->type()->is_buffer()) {
+                        mutated_buffers.insert(base);
+                    }
+                } else if (inst->isa<xir::ResourceReadInst>()) {
+                    auto read = static_cast<const xir::ResourceReadInst *>(inst);
+                    if (read->op() == xir::ResourceReadOp::BUFFER_VOLATILE_READ ||
+                        read->op() == xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ) {
+                        mutated_buffers.insert(read->operand(0u));
+                    }
+                } else if (inst->isa<xir::CallInst>()) {
+                    auto call = static_cast<const xir::CallInst *>(inst);
+                    auto callee = call->callee();
+                    if (callee == nullptr || callee->definition() == nullptr) {
+                        disable_analysis = true;
+                        return;
+                    }
+                    auto param_it = callee->definition()->arguments().begin();
+                    for (size_t i = 0u; i < call->argument_count(); ++i, ++param_it) {
+                        if (param_it == callee->definition()->arguments().end()) {
+                            break;
+                        }
+                        const xir::Value *param = *param_it;
+                        auto arg_val = call->argument(i);
+                        if (param->type() != nullptr && param->type()->is_buffer()) {
+                            links.push_back(ArgLink{arg_val, param});
+                        }
+                    }
+                } else if (inst->isa<xir::RayQueryPipelineInst>()) {
+                    auto pipe = static_cast<const xir::RayQueryPipelineInst *>(inst);
+                    auto link_handler = [&](const xir::Function *handler) noexcept {
+                        if (handler == nullptr || handler->definition() == nullptr) {
+                            return;
+                        }
+                        const auto &args = handler->definition()->arguments();
+                        auto param_it = args.begin();
+                        if (param_it != args.end()) {
+                            ++param_it; // skip candidate parameter
+                        }
+                        for (size_t i = 0u;
+                             i < pipe->captured_argument_count() &&
+                             param_it != args.end();
+                             ++i, ++param_it) {
+                            const xir::Value *param = *param_it;
+                            auto arg_val = pipe->captured_argument(i);
+                            if (param->type() != nullptr && param->type()->is_buffer()) {
+                                links.push_back(ArgLink{arg_val, param});
+                            }
+                        }
+                    };
+                    link_handler(pipe->on_surface_function());
+                    link_handler(pipe->on_procedural_function());
+                }
+            });
+        if (disable_analysis) { break; }
+    }
+    if (disable_analysis) { return; }
+
+    auto changed = true;
+    while (changed) {
+        changed = false;
+        for (const auto &link : links) {
+            if (mutated_buffers.contains(link.callee_param)) {
+                if (mutated_buffers.insert(link.caller_value).second) {
+                    changed = true;
+                }
+            }
+            if (!all_buffer_args.contains(link.caller_value) ||
+                mutated_buffers.contains(link.caller_value)) {
+                if (mutated_buffers.insert(link.callee_param).second) {
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    for (auto buf_arg : all_buffer_args) {
+        if (!mutated_buffers.contains(buf_arg)) {
+            _readonly_buffers.insert(buf_arg);
+        }
+    }
+}
+
 MetalCodegenLLVMResult MetalCodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
     _collect_ray_query_pipelines(xir_module);
+    _collect_readonly_buffers(xir_module);
     luisa::string reason;
     LUISA_ASSERT(luisa_compute_metal_codegen_llvm_supported(xir_module, _config, &reason),
                  "XIR module is unsupported by Metal AIR LLVM codegen: {}", reason);

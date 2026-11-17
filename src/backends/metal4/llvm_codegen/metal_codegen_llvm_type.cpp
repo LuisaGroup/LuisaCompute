@@ -410,6 +410,19 @@ llvm::StructType *MetalCodegenLLVMImpl::_air_intersection_query() noexcept {
     return _air_intersection_query_type;
 }
 
+llvm::StructType *MetalCodegenLLVMImpl::_ray_query_candidate_state() noexcept {
+    if (_ray_query_candidate_state_type == nullptr) {
+        auto i8 = llvm::Type::getInt8Ty(_context);
+        auto i32 = llvm::Type::getInt32Ty(_context);
+        auto f32 = llvm::Type::getFloatTy(_context);
+        auto f32x2 = llvm::FixedVectorType::get(f32, 2u);
+        _ray_query_candidate_state_type = llvm::StructType::create(
+            _context, {i8, i8, i32, i32, f32x2, f32},
+            "luisa.ray.query.candidate.state");
+    }
+    return _ray_query_candidate_state_type;
+}
+
 llvm::Constant *MetalCodegenLLVMImpl::_constant_string(
     luisa::string_view value, luisa::string_view name) noexcept {
     auto data = llvm::ConstantDataArray::getString(
@@ -979,10 +992,13 @@ llvm::Value *MetalCodegenLLVMImpl::_mem_to_reg(IB &builder, llvm::Value *value, 
     return result;
 }
 
-llvm::Value *MetalCodegenLLVMImpl::_load(IB &builder, llvm::Value *pointer, const Type *type, bool is_volatile) noexcept {
+llvm::Value *MetalCodegenLLVMImpl::_load(IB &builder, llvm::Value *pointer, const Type *type, bool is_volatile, bool is_invariant) noexcept {
     auto type_info = _type(type);
     auto load = builder.CreateAlignedLoad(type_info->mem_type, pointer, llvm::Align{_type_alignment(type)});
     load->setVolatile(is_volatile);
+    if (is_invariant && !is_volatile) {
+        load->setMetadata(llvm::LLVMContext::MD_invariant_load, llvm::MDNode::get(_context, {}));
+    }
     return _mem_to_reg(builder, load, type);
 }
 
@@ -994,6 +1010,10 @@ void MetalCodegenLLVMImpl::_store(IB &builder, llvm::Value *pointer, llvm::Value
 llvm::Value *MetalCodegenLLVMImpl::_temporary(const FunctionContext &function, llvm::Type *type, size_t alignment) noexcept {
     IB builder{function.alloca_block->getTerminator()};
     auto allocation = builder.CreateAlloca(type);
+    auto alloc_size = _module.getDataLayout().getTypeAllocSize(type);
+    if (alloc_size >= 16u && alignment < 16u) {
+        alignment = 16u;
+    }
     allocation->setAlignment(llvm::Align{alignment});
     return allocation;
 }

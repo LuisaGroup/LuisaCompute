@@ -79,7 +79,12 @@ private:
     Shader1D<Buffer<uint>, Buffer<uint>, Buffer<uint>, Buffer<uint>,
              Buffer<uint>, Buffer<uint>, Buffer<uint>, uint, uint, Args...>
         _onesweep_shader;
+    Shader1D<Buffer<uint>, Buffer<uint>, Buffer<uint>, Buffer<uint>,
+             Buffer<uint>, Buffer<uint>, Buffer<uint>, uint, uint, Args...>
+        _onesweep_last_shader;
     Shader1D<Buffer<uint>> _clear_shader;
+    Shader1D<Buffer<uint>, uint, Buffer<uint>, Buffer<uint>, uint> _clear_all_shader;
+    Shader1D<Buffer<uint>, Buffer<uint>, uint> _clear_pass_shader;
 
 public:
     instance() noexcept = default;
@@ -90,7 +95,8 @@ public:
              Callable<uint(uint, Args...)> *get_key_from_set = nullptr,
              uint mode = 0u, uint digit_count = 128u,
              uint low_bit = 0u, uint high_bit = 31u,
-             luisa::string_view profile_label = {}) noexcept
+             luisa::string_view profile_label = {},
+             bool emit_final_keys = true) noexcept
         : _digit{std::max(digit_count, 1u)},
           _low_bit{low_bit},
           _high_bit{high_bit},
@@ -104,17 +110,18 @@ public:
 
         _bit = 0u;
         while ((1u << _bit) < _digit) { _bit++; }
-        LUISA_ASSERT(mode == 1u || ((1u << _bit) == _digit),
-                     "radix_sort digit must be a power of two in radix mode.");
 
         _bit_split.clear();
         if (mode == 0u) {
-            for (auto i = _low_bit; i <= _high_bit; i += _bit) {
+            for (auto i = _low_bit; i <= _high_bit; i += std::max(_bit, 1u)) {
                 _bit_split.emplace_back(i);
             }
+            if (_bit_split.empty()) { _bit_split.emplace_back(0u); }
         } else {
             _bit_split.emplace_back(0u);
         }
+        LUISA_ASSERT(mode == 1u || _bit_split.size() <= 1u || ((1u << _bit) == _digit),
+                     "Multi-pass radix_sort digit must be a power of two.");
         _hist_group = static_cast<uint>(_bit_split.size());
         auto digit = _digit;
         auto bit = _bit;
@@ -189,7 +196,7 @@ public:
             value_out.write(rank, (*get_value)(id, args...));
         };
 
-        auto make_onesweep_kernel = [&](bool first_pass) noexcept {
+        auto make_onesweep_kernel = [&](bool first_pass, bool write_key) noexcept {
             return Kernel1D{[=](
                                 BufferUInt key_in, BufferUInt key_out,
                                 BufferUInt value_in, BufferUInt value_out,
@@ -307,7 +314,9 @@ public:
                         key = min(key, digit - 1u);
                         rank += warp_prefix[warp_id * digit + key];
                         rank += block_bin[key];
-                        key_out.write(rank, key_value);
+                        if (write_key) {
+                            key_out.write(rank, key_value);
+                        }
                         auto value = def(0u);
                         if (first_pass) {
                             value = (*get_value)(read_pos, args...);
@@ -323,20 +332,41 @@ public:
         Kernel1D clear_kernel = [](BufferUInt buffer) noexcept {
             buffer.write(dispatch_x(), 0u);
         };
+        Kernel1D clear_all_kernel = [](BufferUInt hist_buf, UInt hist_n,
+                                       BufferUInt launch_buf, BufferUInt bin_buf,
+                                       UInt bin_n) noexcept {
+            auto x = dispatch_x();
+            $if (x == 0u) { launch_buf.write(0u, 0u); };
+            $if (x < hist_n) { hist_buf.write(x, 0u); };
+            $if (x < bin_n) { bin_buf.write(x, 0u); };
+        };
+        Kernel1D clear_pass_kernel = [](BufferUInt launch_buf, BufferUInt bin_buf,
+                                        UInt bin_n) noexcept {
+            auto x = dispatch_x();
+            $if (x == 0u) { launch_buf.write(0u, 0u); };
+            $if (x < bin_n) { bin_buf.write(x, 0u); };
+        };
 
         _hist_shader = device.compile(hist_kernel);
         _accum_shader = device.compile(accum_kernel);
-        _copy_shader = device.compile(copy_kernel);
-        _bucket_scatter_shader = device.compile(bucket_scatter_kernel);
-        // Bucket mode returns before the one-sweep path in sort(). Compiling
-        // the unreachable kernels is not merely wasted work: one-sweep has a
-        // real 32-lane subgroup precondition, while bucket scatter is defined
-        // entirely in terms of block atomics and is valid on subgroup-size-1
-        // devices. Keep construction specialized by the algorithm mode so a
-        // dead implementation cannot impose capabilities on the live one.
-        if (!_bucket_mode) {
-            _onesweep_first_shader = device.compile(make_onesweep_kernel(true));
-            _onesweep_shader = device.compile(make_onesweep_kernel(false));
+        if (_bucket_mode) {
+            _copy_shader = device.compile(copy_kernel);
+            _bucket_scatter_shader = device.compile(bucket_scatter_kernel);
+        } else {
+            _onesweep_first_shader = device.compile(
+                make_onesweep_kernel(true, _hist_group > 1u || emit_final_keys));
+            if (_hist_group > 1u) {
+                if (emit_final_keys || _hist_group > 2u) {
+                    _onesweep_shader = device.compile(
+                        make_onesweep_kernel(false, true));
+                }
+                if (!emit_final_keys) {
+                    _onesweep_last_shader = device.compile(
+                        make_onesweep_kernel(false, false));
+                }
+                _clear_pass_shader = device.compile(clear_pass_kernel);
+            }
+            _clear_all_shader = device.compile(clear_all_kernel);
         }
         _clear_shader = device.compile(clear_kernel);
 
@@ -346,12 +376,24 @@ public:
                 luisa::format("{}_histogram", profile_label));
             _accum_shader.set_name(
                 luisa::format("{}_histogram_accumulate", profile_label));
-            _copy_shader.set_name(
-                luisa::format("{}_copy", profile_label));
-            _bucket_scatter_shader.set_name(profile_label);
-            if (!_bucket_mode) {
+            if (_bucket_mode) {
+                _copy_shader.set_name(
+                    luisa::format("{}_copy", profile_label));
+                _bucket_scatter_shader.set_name(profile_label);
+            } else {
                 _onesweep_first_shader.set_name(profile_label);
-                _onesweep_shader.set_name(profile_label);
+                if (_onesweep_shader) {
+                    _onesweep_shader.set_name(profile_label);
+                }
+                if (_onesweep_last_shader) {
+                    _onesweep_last_shader.set_name(profile_label);
+                }
+                _clear_all_shader.set_name(
+                    luisa::format("{}_clear", profile_label));
+                if (_clear_pass_shader) {
+                    _clear_pass_shader.set_name(
+                        luisa::format("{}_clear", profile_label));
+                }
             }
             _clear_shader.set_name(
                 luisa::format("{}_clear", profile_label));
@@ -360,10 +402,19 @@ public:
         LUISA_ASSERT(max_count < (1u << 30u), "radix_sort array is too large.");
     }
 
-    void _encode_build_histogram(CommandList &commands, uint n,
+    void _encode_build_histogram(CommandList &commands, uint n, uint clear_bin_elems,
                                  compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
         auto thread_count = hist_block_size * sm_count;
-        commands << _clear_shader(_temp.hist_buffer).dispatch(_hist_group * _digit);
+        auto hist_elems = _hist_group * _digit;
+        if (!_bucket_mode && clear_bin_elems != 0u) {
+            auto max_clear = std::max({hist_elems, clear_bin_elems, 1u});
+            commands << _clear_all_shader(_temp.hist_buffer, hist_elems,
+                                          _temp.launch_count, _temp.bin_buffer,
+                                          clear_bin_elems)
+                            .dispatch(max_clear);
+        } else {
+            commands << _clear_shader(_temp.hist_buffer).dispatch(hist_elems);
+        }
         if (thread_count >= n) {
             commands << _hist_shader(_temp.hist_buffer, 1u, n, args...)
                             .dispatch(ceil_div(n, hist_block_size) * hist_block_size);
@@ -379,18 +430,18 @@ public:
     void build_histogram(Stream &stream, uint n,
                          compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
         auto commands = CommandList::create(3u);
-        _encode_build_histogram(commands, n, args...);
+        _encode_build_histogram(commands, n, 0u, args...);
         stream << commands.commit();
     }
 
-    void sort(Stream &stream,
-              BufferView<uint> temp_key, BufferView<uint> temp_value,
-              BufferView<uint> key_out, BufferView<uint> value_out,
-              uint n,
-              compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
+    void encode_sort(CommandList &commands,
+                     BufferView<uint> temp_key, BufferView<uint> temp_value,
+                     BufferView<uint> key_out, BufferView<uint> value_out,
+                     uint n,
+                     compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
         LUISA_ASSERT(n <= _max_count, "radix_sort size {} exceeds capacity {}.", n, _max_count);
-        auto commands = CommandList::create(3u + (_bucket_mode ? 2u : 3u * _hist_group));
-        _encode_build_histogram(commands, n, args...);
+        auto bin_elems = _bucket_mode ? 0u : ceil_div(n, onesweep_block_size * onesweep_item_count) * _digit;
+        _encode_build_histogram(commands, n, bin_elems, args...);
         if (_bucket_mode) {
             commands << _copy_shader(_temp.hist_buffer.subview(0u, _digit),
                                      _temp.bin_buffer.subview(0u, _digit), _digit)
@@ -399,16 +450,16 @@ public:
                                                _temp.bin_buffer.subview(0u, _digit),
                                                n, args...)
                             .dispatch(n);
-            stream << commands.commit();
             return;
         }
         BufferView<uint> keys[2] = {temp_key, key_out};
         BufferView<uint> values[2] = {temp_value, value_out};
         auto out = _hist_group & 1u;
         for (auto i = 0u; i < _hist_group; i++) {
-            commands << _clear_shader(_temp.launch_count).dispatch(1u);
-            commands << _clear_shader(_temp.bin_buffer)
-                            .dispatch(ceil_div(n, onesweep_block_size * onesweep_item_count) * _digit);
+            if (i != 0u) {
+                commands << _clear_pass_shader(_temp.launch_count, _temp.bin_buffer, bin_elems)
+                                .dispatch(std::max(bin_elems, 1u));
+            }
             if (i == 0u) {
                 commands << _onesweep_first_shader(
                                 keys[out ^ 1u], keys[out], values[out ^ 1u], values[out],
@@ -417,7 +468,10 @@ public:
                                 .dispatch(ceil_div(n, onesweep_block_size * onesweep_item_count) *
                                           onesweep_block_size);
             } else {
-                commands << _onesweep_shader(
+                auto &pass_shader = (i + 1u == _hist_group && _onesweep_last_shader) ?
+                                        _onesweep_last_shader :
+                                        _onesweep_shader;
+                commands << pass_shader(
                                 keys[out ^ 1u], keys[out], values[out ^ 1u], values[out],
                                 _temp.launch_count, _temp.hist_buffer.subview(i * _digit, _digit),
                                 _temp.bin_buffer, _bit_split[i], n, args...)
@@ -427,16 +481,25 @@ public:
             out ^= 1u;
         }
         LUISA_ASSERT(out == 0u, "radix_sort output buffer mismatch.");
+    }
+
+    void sort(Stream &stream,
+              BufferView<uint> temp_key, BufferView<uint> temp_value,
+              BufferView<uint> key_out, BufferView<uint> value_out,
+              uint n,
+              compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
+        auto commands = CommandList::create(3u + (_bucket_mode ? 2u : 2u * _hist_group));
+        encode_sort(commands, temp_key, temp_value, key_out, value_out, n, args...);
         stream << commands.commit();
     }
 
-    [[nodiscard]] auto sort_switch(
-        Stream &stream, BufferView<uint> temp_key[2],
+    [[nodiscard]] auto encode_sort_switch(
+        CommandList &commands, BufferView<uint> temp_key[2],
         BufferView<uint> temp_value[2], uint n,
         compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
         LUISA_ASSERT(n <= _max_count, "radix_sort size {} exceeds capacity {}.", n, _max_count);
-        auto commands = CommandList::create(3u + (_bucket_mode ? 2u : 3u * _hist_group));
-        _encode_build_histogram(commands, n, args...);
+        auto bin_elems = _bucket_mode ? 0u : ceil_div(n, onesweep_block_size * onesweep_item_count) * _digit;
+        _encode_build_histogram(commands, n, bin_elems, args...);
         if (_bucket_mode) {
             commands << _copy_shader(_temp.hist_buffer.subview(0u, _digit),
                                      _temp.bin_buffer.subview(0u, _digit), _digit)
@@ -445,14 +508,14 @@ public:
                                                _temp.bin_buffer.subview(0u, _digit),
                                                n, args...)
                             .dispatch(n);
-            stream << commands.commit();
             return 1u;
         }
         auto out = 1u;
         for (auto i = 0u; i < _hist_group; i++) {
-            commands << _clear_shader(_temp.launch_count).dispatch(1u);
-            commands << _clear_shader(_temp.bin_buffer)
-                            .dispatch(ceil_div(n, onesweep_block_size * onesweep_item_count) * _digit);
+            if (i != 0u) {
+                commands << _clear_pass_shader(_temp.launch_count, _temp.bin_buffer, bin_elems)
+                                .dispatch(std::max(bin_elems, 1u));
+            }
             if (i == 0u) {
                 commands << _onesweep_first_shader(
                                 temp_key[out ^ 1u], temp_key[out],
@@ -462,7 +525,10 @@ public:
                                 .dispatch(ceil_div(n, onesweep_block_size * onesweep_item_count) *
                                           onesweep_block_size);
             } else {
-                commands << _onesweep_shader(
+                auto &pass_shader = (i + 1u == _hist_group && _onesweep_last_shader) ?
+                                        _onesweep_last_shader :
+                                        _onesweep_shader;
+                commands << pass_shader(
                                 temp_key[out ^ 1u], temp_key[out],
                                 temp_value[out ^ 1u], temp_value[out],
                                 _temp.launch_count, _temp.hist_buffer.subview(i * _digit, _digit),
@@ -472,8 +538,17 @@ public:
             }
             out ^= 1u;
         }
-        stream << commands.commit();
         return out ^ 1u;
+    }
+
+    [[nodiscard]] auto sort_switch(
+        Stream &stream, BufferView<uint> temp_key[2],
+        BufferView<uint> temp_value[2], uint n,
+        compute::detail::prototype_to_shader_invocation_t<Args>... args) noexcept {
+        auto commands = CommandList::create(3u + (_bucket_mode ? 2u : 3u * _hist_group));
+        auto result = encode_sort_switch(commands, temp_key, temp_value, n, args...);
+        stream << commands.commit();
+        return result;
     }
 };
 
