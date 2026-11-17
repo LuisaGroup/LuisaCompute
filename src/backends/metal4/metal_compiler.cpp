@@ -572,6 +572,33 @@ MetalCompiler::_load_kernels_from_library(
                                    error->localizedDescription()->utf8String());
             return {};
         }
+        if (!is_indirect && std::getenv("LUISA_METAL_SHADER_INFO") != nullptr) {
+            auto probe_desc = NS::TransferPtr(
+                MTL4::ComputePipelineDescriptor::alloc()->init());
+            probe_desc->setComputeFunctionDescriptor(function_desc.get());
+            if (static_linking_descriptor) {
+                probe_desc->setStaticLinkingDescriptor(static_linking_descriptor.get());
+                probe_desc->setSupportBinaryLinking(true);
+            }
+            probe_desc->setThreadGroupSizeIsMultipleOfThreadExecutionWidth(true);
+            probe_desc->setSupportIndirectCommandBuffers(
+                MTL4::IndirectCommandBufferSupportStateDisabled);
+            NS::Error *probe_err = nullptr;
+            auto probe_compiler = compiler != nullptr ? compiler : _device->metal4_compiler();
+            auto probe_pso = NS::TransferPtr(
+                probe_compiler->newComputePipelineState(probe_desc.get(), nullptr, &probe_err));
+            if (probe_pso && probe_err == nullptr) {
+                LUISA_INFO(
+                    "Metal4 unconstrained occupancy probe: label='{}' configured_block={} "
+                    "capped_max_threads={} hw_register_max_threads={} thread_width={} static_tg_bytes={}.",
+                    label ? label->utf8String() : "<unnamed>",
+                    block_size.x * block_size.y * block_size.z,
+                    pipeline->maxTotalThreadsPerThreadgroup(),
+                    probe_pso->maxTotalThreadsPerThreadgroup(),
+                    probe_pso->threadExecutionWidth(),
+                    probe_pso->staticThreadgroupMemoryLength());
+            }
+        }
 
         luisa::vector<NS::SharedPtr<MTL::IntersectionFunctionTable>>
             intersection_tables;

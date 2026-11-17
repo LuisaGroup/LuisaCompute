@@ -8,6 +8,7 @@
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/byte_buffer.h>
+#include <luisa/runtime/command_list.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 
@@ -76,6 +77,10 @@ struct WavefrontCoroExtensionDispatchContext {
     uint frame_capacity{0u};
     uint3 logical_dispatch_size{};
     const WavefrontCoroExtensionStage &stage;
+    CommandList *command_list{nullptr};
+    uint source_queue_token{0u};
+    uint scan_count{0u};
+    bool ungathered_scan{false};
 };
 
 enum class WavefrontCoroExtensionExecution : uint8_t {
@@ -136,6 +141,12 @@ public:
     /// An independent semantic stage is never eligible for this batching.
     [[nodiscard]] virtual luisa::string_view batching_identity() const noexcept {
         return {};
+    }
+    [[nodiscard]] virtual bool supports_command_list() const noexcept {
+        return false;
+    }
+    [[nodiscard]] virtual bool gathers_selected_frames() const noexcept {
+        return false;
     }
     virtual void dispatch(
         const WavefrontCoroExtensionDispatchContext &) noexcept {

@@ -127,7 +127,9 @@ llvm::Value *MetalCodegenLLVMImpl::_bindless_slot_field(
     auto type = _bindless_item()->getElementType(field);
     auto pointer = builder.CreateStructGEP(_bindless_item(), slot, field);
     auto alignment = field == 0u || field == 2u ? 16u : 8u;
-    return builder.CreateAlignedLoad(type, pointer, llvm::Align{alignment});
+    auto load = builder.CreateAlignedLoad(type, pointer, llvm::Align{alignment});
+    load->setMetadata(llvm::LLVMContext::MD_invariant_load, llvm::MDNode::get(_context, {}));
+    return load;
 }
 
 llvm::Value *MetalCodegenLLVMImpl::_bindless_buffer_size(
@@ -229,7 +231,7 @@ llvm::Value *MetalCodegenLLVMImpl::_air_trace(
     llvm::Value *intersection_table,
     llvm::Value *payload,
     uint64_t payload_size,
-    bool force_opaque,
+    uint32_t forced_opacity,
     bool has_procedural) noexcept {
     LUISA_ASSERT(accel->getType() == _accel() && ray->getType()->isStructTy(),
                  "Invalid Metal AIR trace operands.");
@@ -303,7 +305,7 @@ llvm::Value *MetalCodegenLLVMImpl::_air_trace(
         builder.getInt32(0u),// triangle culling
         builder.getInt32(0u),// geometry culling
         builder.getInt32(0u),// opacity culling
-        builder.getInt32(force_opaque ? 1u : 0u),
+        builder.getInt32(forced_opacity),
         builder.getInt32(config.geometry_type(has_procedural)),
         builder.getInt32(
             !config.curves && has_intersection_function_table ?

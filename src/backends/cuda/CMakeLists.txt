@@ -110,7 +110,8 @@ if (CUDAToolkit_FOUND)
             extensions/cuda_pinned_memory.cpp extensions/cuda_pinned_memory.h
             extensions/cuda_dstorage.cpp extensions/cuda_dstorage.h
             extensions/cuda_denoiser.cpp extensions/cuda_denoiser.h
-            extensions/cuda_graph_ext.cpp extensions/cuda_graph_ext.h)
+            extensions/cuda_graph_ext.cpp extensions/cuda_graph_ext.h
+            extensions/cuda_pdl_stream.cpp extensions/cuda_pdl_stream.h)
 
     if (LUISA_COMPUTE_USE_SYSTEM_REPROC)
         find_package(reproc REQUIRED)

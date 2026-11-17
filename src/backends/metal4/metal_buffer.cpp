@@ -4,8 +4,12 @@
 namespace luisa::compute::metal {
 
 MetalBuffer::MetalBuffer(MTL::Device *device, size_t size) noexcept
-    : _handle{device->newBuffer(size, MTL::ResourceStorageModePrivate |
-                                          MTL::ResourceHazardTrackingModeTracked)} {
+    : _handle{device->newBuffer(
+          size,
+          (device->hasUnifiedMemory() && size <= 65536u ?
+               MTL::ResourceStorageModeShared :
+               MTL::ResourceStorageModePrivate) |
+              MTL::ResourceHazardTrackingModeTracked)} {
     LUISA_ASSERT(_handle->length() > 0, "Buffer allocation failed.");
 }
 

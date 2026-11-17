@@ -1819,6 +1819,18 @@ void CUDACodegenAST::_emit_function(Function f) noexcept {
             _scratch << "const Params params";
         }
         _scratch << ") {";
+        // Programmatic dependent launch (see cuda_pdl_launch.h): a wait at the very
+        // top of the entry is what makes an early launch correct for *any*
+        // predecessor, so the host can relax every kernel->kernel launch without
+        // analysing dependencies. It comes before the argument bindings so that no
+        // load of the predecessor's data can be hoisted above it -
+        // `lc_cuda_grid_dependency_synchronize` is `asm volatile ... ::: "memory"`
+        // (cuda_builtin/cuda_device_graph.h). Never for the OptiX raygen entry:
+        // that module is not launched through CUDAShaderNative and its metadata
+        // must keep reporting the truth.
+        if (_pdl_prologue && !_requires_optix) {
+            _scratch << "\n  lc_cuda_grid_dependency_synchronize();";
+        }
         for (auto arg : f.arguments()) {
             _scratch << "\n  ";
             if (auto usage = f.variable_usage(arg.uid());
@@ -2553,11 +2565,12 @@ void CUDACodegenAST::visit(const GpuCustomOpExpr *expr) {
 }
 
 CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect,
-                               bool fallback_rtx) noexcept
+                               bool fallback_rtx, bool pdl_prologue) noexcept
     : _scratch{scratch},
       _ray_query_lowering{luisa::make_unique<RayQueryLowering>(this)},
       _allow_indirect_dispatch{allow_indirect},
       _fallback_rtx{fallback_rtx},
+      _pdl_prologue{pdl_prologue},
 
       _ray_type{Type::of<Ray>()},
       _triangle_hit_type{Type::of<TriangleHit>()},

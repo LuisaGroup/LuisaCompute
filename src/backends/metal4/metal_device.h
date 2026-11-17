@@ -1,5 +1,9 @@
 #pragma once
 
+#include <atomic>
+#include <luisa/core/spin_mutex.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
 #include "metal_api.h"
@@ -33,6 +37,11 @@ private:
     luisa::unique_ptr<DefaultBinaryIO> _default_io{nullptr};
     const BinaryIO *_io{nullptr};
     luisa::unique_ptr<MetalCompiler> _compiler{nullptr};
+    MTL::ResidencySet *_residency_set{nullptr};
+    spin_mutex _residency_mutex;
+    std::atomic_bool _residency_dirty{false};
+    luisa::unordered_map<const MTL::Allocation *, size_t> _residency_refcounts;
+    luisa::vector<const MTL::Allocation *> _pending_residency_releases;
     bool _inqueue_buffer_limit;
 
 private:
@@ -40,7 +49,9 @@ private:
     luisa::unique_ptr<MetalDStorageExt> _dstorage_ext{nullptr};
     luisa::unique_ptr<MetalPinnedMemoryExt> _pinned_memory_ext{nullptr};
     luisa::unique_ptr<MetalDebugCaptureExt> _debug_capture_ext{nullptr};
+#if LUISA_METAL4_ENABLE_TEX_COMPRESS
     luisa::unique_ptr<MetalTexCompressExt> _tex_compress_ext{nullptr};
+#endif
     luisa::unique_ptr<MetalRasterExt> _raster_ext{nullptr};
     luisa::unique_ptr<MetalTimingExt> _timing_ext{nullptr};
 
@@ -57,12 +68,19 @@ public:
     [[nodiscard]] auto builtin_prepare_indirect_dispatches() const noexcept { return _builtin_prepare_indirect_dispatches; }
     [[nodiscard]] auto builtin_swapchain_present_ldr() const noexcept { return _builtin_swapchain_present_ldr; }
     [[nodiscard]] auto builtin_swapchain_present_hdr() const noexcept { return _builtin_swapchain_present_hdr; }
+    [[nodiscard]] auto residency_set() const noexcept { return _residency_set; }
+    void register_residency(const MTL::Allocation *allocation) noexcept;
+    void register_residency(luisa::span<const MTL::Allocation *const> allocations) noexcept;
+    void unregister_residency(const MTL::Allocation *allocation) noexcept;
+    void unregister_residency(luisa::span<const MTL::Allocation *const> allocations) noexcept;
+    void commit_residency_if_needed() noexcept;
 
 public:
     MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept;
     ~MetalDevice() noexcept override;
     void *native_handle() const noexcept override;
     uint compute_warp_size() const noexcept override;
+    size_t compute_max_shared_memory_size() const noexcept override;
     uint64_t memory_granularity() const noexcept override;
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;

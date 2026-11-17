@@ -1,7 +1,7 @@
 // Internal, dependency-free seam for the stream-form programmatic dependent
 // launch (PDL) decision of the CUDA backend.
 //
-// The predicate is a pure function of shader state and device/driver versions,
+// The predicate is a pure function of shader, stream and device/driver state,
 // so it lives in a header instead of `cuda_shader_native.cpp` to make the
 // decision matrix host-testable (src/tests/unit/core/
 // test_cuda_pdl_launch_predicate.cpp). It must stay free of CUDA API
@@ -16,32 +16,53 @@
 
 namespace luisa::compute::cuda::cuda_pdl_detail {
 
-// Stream-form programmatic dependent launch. `cuLaunchKernel` keeps the grids of
-// one stream strictly serialized; a kernel that waits for its programmatic
-// dependency (`grid_dependency_synchronize()`) can instead be launched through
-// `cuLaunchKernelEx` with `CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION`,
-// which allows the driver to start this grid before its predecessor completed.
-// Everything else takes the very same `cuLaunchKernel` call as before.
+// What the stream slot the next launch enters currently holds. A relaxed launch
+// is defined by CUDA as one that may start before "the previous kernel in the
+// stream" completed, so the state that matters is exactly "is the immediate
+// predecessor of this launch a kernel launch?".
+enum class PdlPredecessor : uint32_t {
+    // Nothing recorded yet: a fresh stream, a synchronize(), or the state was
+    // invalidated after an error. Conservative: never relax.
+    unknown = 0u,
+    // The immediately preceding stream operation is a kernel launch. This is the
+    // only state in which the launch attribute can pay for itself.
+    kernel_launch = 1u,
+    // The immediately preceding stream operation is anything else: a copy, a
+    // build, a bindless-array update, a custom command, an event record/wait or a
+    // host callback. There is no preceding kernel to overlap with (so the
+    // attribute gains nothing) and for the ordering operations the effect of the
+    // attribute is not documented (so it stays off).
+    non_kernel = 2u,
+};
+
+// Every term of the stream-form PDL decision, named so a call site reads as a
+// sentence and a unit test can build the full cube.
+struct PdlLaunchConditions {
+    // The shader itself waits for its programmatic dependency
+    // (`grid_dependency_synchronize()`, recorded in CUDAShaderMetadata). Without
+    // that wait an early launch would read stale data.
+    bool shader_waits_for_dependency{false};
+    // PdlPredecessor::kernel_launch (see above).
+    bool predecessor_is_kernel{false};
+    // Backend policy: CUDADeviceConfigExt + CUDAPdlStreamExt, minus the
+    // LUISA_DISABLE_PDL_STREAM kill switch.
+    bool stream_policy_enabled{false};
+    // The per-shader latch: false once the driver refused the attribute.
+    bool driver_accepts_attribute{false};
+    // PDL is an sm_90+ device feature...
+    uint32_t compute_capability{0u};
+    // ...and the launch attribute belongs to the driver running this binary.
+    uint32_t driver_version{0u};
+};
+
 [[nodiscard]] inline bool should_relax_stream_serialization(
-    bool uses_grid_dependency_synchronize,
-    const std::atomic_bool &latch, uint32_t compute_capability,
-    uint32_t driver_version) noexcept {
-    // The shader opts in by waiting for its programmatic dependency: the wait is
-    // what makes an early launch correct, so a kernel that carries no such call
-    // falls back to the classic serialized `cuLaunchKernel` launch of
-    // cuda_shader_native_detail::launch_kernel. Note that the whole
-    // predicate is about this shader, not about the grid's index inside a
-    // multi-dispatch command: the canonical producer -> consumer chain is two
-    // commands on one stream, i.e. two *first* grids, so gating on the kernel id
-    // would make the feature inert for exactly the case it exists for. When the
-    // predecessor is not a kernel the attribute yields no overlap, but it also
-    // changes nothing, because the wait is still correct.
-    // PDL is a sm_90+ device feature, and the launch attribute belongs to the
-    // driver that is running this binary.
-    return uses_grid_dependency_synchronize &&
-           latch.load(std::memory_order_relaxed) &&
-           compute_capability >= 90u &&
-           driver_version >= 12000u;
+    const PdlLaunchConditions &conditions) noexcept {
+    return conditions.shader_waits_for_dependency &&
+           conditions.predecessor_is_kernel &&
+           conditions.stream_policy_enabled &&
+           conditions.driver_accepts_attribute &&
+           conditions.compute_capability >= 90u &&
+           conditions.driver_version >= 12000u;
 }
 
 }// namespace luisa::compute::cuda::cuda_pdl_detail

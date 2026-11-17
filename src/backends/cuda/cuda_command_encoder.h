@@ -24,6 +24,10 @@ private:
     luisa::vector<CUDACallbackContext *> _callbacks;
     // Staging views, reclaimed by a stream event instead of a host callback.
     luisa::vector<CUDACallbackContext *> _deferred;
+    // Seeded from the stream at the start of a submission and advanced after
+    // every command, so the launch policy always sees the true predecessor of
+    // the grid it is about to launch.
+    bool _pdl_predecessor_is_kernel{false};
 
 private:
     void visit(DStorageReadCommand *command) noexcept;
@@ -34,6 +38,21 @@ public:
 
     [[nodiscard]] auto stream() const noexcept { return _stream; }
     void add_callback(CUDACallbackContext *cb) noexcept { _callbacks.emplace_back(cb); }
+
+    // The one entry point every command goes through.
+    void visit_command(Command *command) noexcept {
+        // A command that launches no grid (a zero-sized dispatch, a copy, a
+        // build, ...) is not a kernel predecessor.
+        _pdl_predecessor_is_kernel = false;
+        command->accept(*this);
+    }
+    void seed_pdl_predecessor(bool is_kernel) noexcept { _pdl_predecessor_is_kernel = is_kernel; }
+    [[nodiscard]] bool pdl_predecessor_is_kernel() const noexcept { return _pdl_predecessor_is_kernel; }
+    // Called by the shader launch path when it actually enqueued a grid.
+    void note_pdl_grid_launched() noexcept { _pdl_predecessor_is_kernel = true; }
+    // A command that splices nested commands into the stream but is itself not a
+    // kernel launch (the software-ray-tracing build paths).
+    void note_pdl_non_kernel_command() noexcept { _pdl_predecessor_is_kernel = false; }
 
     void visit(BufferUploadCommand *command) noexcept override;
     void visit(BufferDownloadCommand *command) noexcept override;

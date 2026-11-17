@@ -36,6 +36,19 @@ public:
     // VK_NV_cuda_kernel_launch: those drivers expect self-contained plain PTX,
     // and the imported kernels cannot use either cudadevrt feature anyway.
     [[nodiscard]] virtual bool use_cudadevrt() const noexcept { return true; }
+
+    // Compile the automatic PDL wait-at-entry prologue into every DSL compute
+    // kernel of this device, so a launch can be relaxed without the user writing
+    // `grid_dependency_synchronize()`. Off by default: it changes the generated
+    // code (and the shader cache key) of every kernel. Inert below compute
+    // capability 9.0, where the wait compiles to nothing.
+    //
+    // This is only the *codegen* half. The launch policy that uses it is on by
+    // default, because relaxing a grid that already waits is what this backend did
+    // before the prologue existed; use
+    // `CUDAPdlStreamExt::set_pdl_stream_enabled()` (runtime) or
+    // `LUISA_DISABLE_PDL_STREAM=1` (whole process, both halves) to switch it off.
+    [[nodiscard]] virtual bool enable_programmatic_stream_serialization() const noexcept { return false; }
 };
 
 }// namespace luisa::compute

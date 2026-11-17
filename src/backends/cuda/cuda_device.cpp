@@ -44,6 +44,7 @@
 
 #include "optix_error.h"
 #include "native_shader_ext.h"
+#include "../common/env_flag.h"
 
 namespace luisa::compute::cuda {
 namespace {
@@ -310,6 +311,7 @@ void verify_xir_or_error(const xir::Module *module, luisa::string_view stage,
 #include "extensions/cuda_denoiser.h"
 #include "extensions/cuda_pinned_memory.h"
 #include "extensions/cuda_graph_ext.h"
+#include "extensions/cuda_pdl_stream.h"
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
 #include "extensions/cuda_texture_compression.h"
@@ -438,6 +440,20 @@ namespace cuda_device_detail_2 {
 }
 
 }  // namespace cuda_device_detail_2
+
+namespace cuda_device_detail_pdl {
+
+// The process-wide kill switch for the stream-form PDL path (see
+// include/luisa/backends/ext/cuda/cuda_pdl_ext.h). Resolved once: it exists so a
+// build can be profiled or CI-run without the feature.
+[[nodiscard]] bool pdl_kill_switch() noexcept {
+    static const auto disabled =
+        luisa::compute::detail::env_flag("LUISA_DISABLE_PDL_STREAM");
+    return disabled;
+}
+
+}// namespace cuda_device_detail_pdl
+
 CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
                        const BinaryIO *io, bool use_lmdb,
                        luisa::unique_ptr<DeviceConfigExt> device_config_ext,
@@ -445,6 +461,20 @@ CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
     : DeviceInterface{std::move(ctx)},
       _handle{device_id}, _io{io},
       _device_config_ext{std::move(device_config_ext)} {
+    if (_device_config_ext != nullptr) {
+        // The config knob is the *codegen* half only: it makes every kernel of this
+        // device carry the automatic wait-at-entry prologue. The launch policy keeps
+        // its default (on), because relaxing a grid that waits for its programmatic
+        // dependency is what this backend already did before the prologue existed;
+        // turning that off would silently disable a working optimization for every
+        // kernel that calls `grid_dependency_synchronize()` itself. Use
+        // `CUDAPdlStreamExt::set_pdl_stream_enabled()` or
+        // `LUISA_DISABLE_PDL_STREAM=1` to switch the policy off.
+        _pdl_auto_prologue =
+            static_cast<CUDADeviceConfigExt *>(_device_config_ext.get())
+                ->enable_programmatic_stream_serialization() &&
+            !cuda_device_detail_pdl::pdl_kill_switch();
+    }
     // decide once whether ray tracing is answered by the software fallback:
     // the user may force it through the DeviceConfigExt, and a machine whose
     // OptiX runtime cannot be loaded has no hardware path at all.
@@ -608,6 +638,38 @@ CUDAEventManager *CUDADevice::event_manager() const noexcept {
 #else
     return nullptr;
 #endif
+}
+
+bool CUDADevice::pdl_stream_enabled() const noexcept {
+    // See cuda_device_detail_pdl::pdl_kill_switch(): the switch is resolved once
+    // and gates the runtime policy as well as the creation-time prologue.
+    return !cuda_device_detail_pdl::pdl_kill_switch() &&
+           _pdl_stream_enabled.load(std::memory_order_relaxed);
+}
+
+CUDADevice::PdlLaunchStats CUDADevice::pdl_launch_stats() const noexcept {
+    return PdlLaunchStats{
+        .relaxed_launches = _pdl_relaxed_launches.load(std::memory_order_relaxed),
+        .strict_launches = _pdl_strict_launches.load(std::memory_order_relaxed),
+        .driver_fallbacks = _pdl_driver_fallbacks.load(std::memory_order_relaxed)};
+}
+
+void CUDADevice::reset_pdl_launch_stats() noexcept {
+    _pdl_relaxed_launches.store(0u, std::memory_order_relaxed);
+    _pdl_strict_launches.store(0u, std::memory_order_relaxed);
+    _pdl_driver_fallbacks.store(0u, std::memory_order_relaxed);
+}
+
+void CUDADevice::note_pdl_launch(bool relaxed) noexcept {
+    if (relaxed) {
+        _pdl_relaxed_launches.fetch_add(1u, std::memory_order_relaxed);
+    } else {
+        _pdl_strict_launches.fetch_add(1u, std::memory_order_relaxed);
+    }
+}
+
+void CUDADevice::note_pdl_driver_fallback() noexcept {
+    _pdl_driver_fallbacks.fetch_add(1u, std::memory_order_relaxed);
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const Type *element,
@@ -1090,6 +1152,12 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             "LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN=ON (CMake) "
             "or a non-empty lc_llvm_path (xmake).");
     }
+    // The prologue is emitted by the AST/NVRTC code generator only, for the
+    // compute entry only. An OptiX raygen module has no `kernel_main` and is not
+    // launched through CUDAShaderNative; the LLVM route does not go through
+    // CUDACodegenAST. Both must therefore report "no wait" to the launch policy.
+    auto pdl_prologue = _pdl_auto_prologue && !generate_ptx &&
+                        !(kernel.requires_raytracing() && !_use_fallback_rtx);
     auto print_formats = [&]() -> luisa::vector<std::pair<luisa::string, const Type *>> {
         if (generate_ptx) { return {}; }
         // Software traversal is part of the AST/NVRTC device library only.
@@ -1101,7 +1169,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             device_lib = fallback_device_lib;
         }
         Clock clk;
-        CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx};
+        CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty(), _use_fallback_rtx, pdl_prologue};
         codegen.emit(kernel, device_lib, option.native_include);
         LUISA_VERBOSE("Generated CUDA source in {} ms.", clk.toc());
         // Cluster launch control, shared-memory mbarriers, proxy fences and
@@ -1243,7 +1311,10 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
         // Read from the AST here because the launch path cannot: a shader-cache
         // hit returns before any codegen, so the only reliable moment to record
         // whether the kernel waits for its programmatic dependency is now.
-        .requires_grid_dependency_synchronize = kernel.propagated_builtin_callables().test(CallOp::GRID_DEPENDENCY_SYNCHRONIZE),
+        // ... or because the backend compiled the automatic PDL prologue into this
+        // kernel (Phase 2). The launch policy cannot tell the two apart and does
+        // not need to: both mean "this entry waits at the top".
+        .requires_grid_dependency_synchronize = kernel.propagated_builtin_callables().test(CallOp::GRID_DEPENDENCY_SYNCHRONIZE) || pdl_prologue,
         .requires_motion_blur = kernel.requires_motion_blur(),
         .max_register_count = std::clamp(option.max_registers, 0u, 255u),
         .block_size = kernel.block_size(),
@@ -1564,6 +1635,11 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
         std::scoped_lock lock{_ext_mutex};
         if (_external_ext == nullptr) { _external_ext = luisa::make_unique<CUDAExternalExtImpl>(this); }
         return _external_ext.get();
+    }
+    if (name == CUDAPdlStreamExt::name) {
+        std::scoped_lock lock{_ext_mutex};
+        if (_pdl_stream_ext == nullptr) { _pdl_stream_ext = luisa::make_unique<CUDAPdlStreamExtImpl>(this); }
+        return _pdl_stream_ext.get();
     }
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(NativeShader, _native_shader_ext)
 #ifdef LUISA_COMPUTE_ENABLE_NVTT

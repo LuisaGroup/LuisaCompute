@@ -11,6 +11,7 @@
 #include <luisa/dsl/stmt.h>
 #include <luisa/runtime/byte_buffer.h>
 
+#include <array>
 #include <limits>
 
 namespace luisa::compute::coro {
@@ -19,19 +20,34 @@ inline constexpr luisa::string_view coro_frame_raw_access_comment =
     "luisa.coro.frame.raw";
 
 struct CoroFrameStorageLayout {
+    struct PackedChunk {
+        size_t capacity_stride{0u};
+        uint8_t width{0u};
+        std::array<uint32_t, 4u> fields{0u, 0u, 0u, 0u};
+    };
+
     luisa::vector<size_t> field_offsets;
     luisa::vector<size_t> field_strides;
     // For a runtime-capacity SoA layout, field i starts at
-    //   field_offsets[i] + capacity * field_capacity_strides[i].
+    //   field_offsets[i] + capacity * field_capacity_strides[i] + frame_index * field_strides[i].
     // Static SoA and AoS layouts leave this vector empty. Keeping the pool
     // capacity out of the constant term makes shader structure (and therefore
     // its cache identity) independent of the allocation size.
     luisa::vector<size_t> field_capacity_strides;
+    luisa::vector<PackedChunk> packed_chunks;
     size_t frame_stride{0u};
     size_t size_bytes{0u};
 
     [[nodiscard]] auto has_runtime_capacity() const noexcept {
         return !field_capacity_strides.empty();
+    }
+
+    [[nodiscard]] static auto is_packable_dword_field_type(const Type *type) noexcept {
+        return type != nullptr &&
+               type->size() == 4u &&
+               type->alignment() <= 4u &&
+               (type->is_scalar() || type->is_vector()) &&
+               !type->is_bool_or_bool_vector();
     }
 
     [[nodiscard]] static auto make_aos(const CoroFrameDesc &desc, size_t capacity) noexcept {
@@ -118,6 +134,169 @@ struct CoroFrameStorageLayout {
             layout.field_capacity_strides[field_index] = prefix_stride;
             layout.field_strides[field_index] = stride;
             prefix_stride += stride;
+        }
+        LUISA_ASSERT(
+            prefix_stride == 0u ||
+                capacity <= std::numeric_limits<size_t>::max() / prefix_stride,
+            "Coroutine SoA allocation size overflows size_t (capacity={}, stride={}).",
+            capacity, prefix_stride);
+        layout.frame_stride = prefix_stride;
+        layout.size_bytes = prefix_stride * capacity;
+        LUISA_ASSERT(
+            layout.size_bytes <= std::numeric_limits<uint>::max(),
+            "Coroutine SoA byte offsets exceed the current 32-bit byte-buffer ABI "
+            "(capacity={}, stride={}, bytes={}).",
+            capacity, prefix_stride, layout.size_bytes);
+        return layout;
+    }
+
+    /// Build a runtime-capacity SoA layout that packs 4-byte scalar/vector
+    /// fields belonging to the exact same co-access equivalence class into
+    /// wide 16-byte (`uint4`) and 8-byte (`uint2`) chunks while keeping
+    /// single-field-queried slots (`target_token`, hints, extension keys) and
+    /// reserved slots in dense standalone arrays.
+    [[nodiscard]] static auto make_packed_runtime_soa(
+        const CoroFrameDesc &desc, size_t capacity,
+        luisa::span<const luisa::vector<size_t>> active_field_sets,
+        luisa::span<const size_t> standalone_fields = {}) noexcept {
+        LUISA_ASSERT(capacity != 0u,
+                     "A runtime-capacity coroutine SoA must contain at least one frame.");
+        if (active_field_sets.empty()) {
+            return make_runtime_soa(desc, capacity);
+        }
+        auto field_count = desc.frame_field_count();
+        luisa::vector<uint8_t> standalone(field_count, 0u);
+        for (size_t f = 0u;
+             f < std::min<size_t>(field_count, CoroFrameDesc::reserved_field_count);
+             ++f) {
+            standalone[f] = 1u;
+        }
+        for (auto f : standalone_fields) {
+            if (f < field_count) { standalone[f] = 1u; }
+        }
+        for (size_t f = 0u; f < field_count; ++f) {
+            if (!is_packable_dword_field_type(desc.frame_field_type(f))) {
+                standalone[f] = 1u;
+            }
+        }
+
+        auto word_count = (active_field_sets.size() + 63u) / 64u;
+        luisa::vector<luisa::vector<uint64_t>> signatures(
+            field_count, luisa::vector<uint64_t>(word_count, 0ull));
+        for (size_t s = 0u; s < active_field_sets.size(); ++s) {
+            auto word = s >> 6u;
+            auto bit = uint64_t{1ull} << (s & 63u);
+            for (auto f : active_field_sets[s]) {
+                if (f < field_count && standalone[f] == 0u) {
+                    signatures[f][word] |= bit;
+                }
+            }
+        }
+
+        struct StorageGroup {
+            size_t alignment{4u};
+            size_t stride{4u};
+            uint8_t width{1u};
+            std::array<uint32_t, 4u> fields{0u, 0u, 0u, 0u};
+        };
+        luisa::vector<StorageGroup> groups;
+        groups.reserve(field_count);
+
+        luisa::vector<uint8_t> placed(field_count, 0u);
+        for (size_t f = 0u; f < field_count; ++f) {
+            if (placed[f] != 0u) { continue; }
+            auto non_zero = std::any_of(
+                signatures[f].begin(), signatures[f].end(),
+                [](uint64_t w) noexcept { return w != 0ull; });
+            if (standalone[f] != 0u || !non_zero) {
+                placed[f] = 1u;
+                auto *type = desc.frame_field_type(f);
+                auto alignment = std::max<size_t>(type->alignment(), 4u);
+                LUISA_ASSERT((alignment & (alignment - 1u)) == 0u,
+                             "Coroutine frame field alignment {} is not a power of two.",
+                             alignment);
+                auto stride = (type->size() + alignment - 1u) / alignment * alignment;
+                groups.emplace_back(StorageGroup{
+                    .alignment = alignment,
+                    .stride = stride,
+                    .width = 1u,
+                    .fields = {static_cast<uint32_t>(f), 0u, 0u, 0u}});
+                continue;
+            }
+            luisa::vector<uint32_t> equiv;
+            equiv.emplace_back(static_cast<uint32_t>(f));
+            placed[f] = 1u;
+            for (size_t g = f + 1u; g < field_count; ++g) {
+                if (placed[g] == 0u && standalone[g] == 0u &&
+                    signatures[g] == signatures[f]) {
+                    equiv.emplace_back(static_cast<uint32_t>(g));
+                    placed[g] = 1u;
+                }
+            }
+            size_t cursor = 0u;
+            while (cursor + 4u <= equiv.size()) {
+                groups.emplace_back(StorageGroup{
+                    .alignment = 16u,
+                    .stride = 16u,
+                    .width = 4u,
+                    .fields = {equiv[cursor], equiv[cursor + 1u],
+                               equiv[cursor + 2u], equiv[cursor + 3u]}});
+                cursor += 4u;
+            }
+            if (cursor + 2u <= equiv.size()) {
+                groups.emplace_back(StorageGroup{
+                    .alignment = 8u,
+                    .stride = 8u,
+                    .width = 2u,
+                    .fields = {equiv[cursor], equiv[cursor + 1u], 0u, 0u}});
+                cursor += 2u;
+            }
+            while (cursor < equiv.size()) {
+                groups.emplace_back(StorageGroup{
+                    .alignment = 4u,
+                    .stride = 4u,
+                    .width = 1u,
+                    .fields = {equiv[cursor], 0u, 0u, 0u}});
+                ++cursor;
+            }
+        }
+
+        luisa::sort(groups.begin(), groups.end(),
+                    [](const StorageGroup &lhs, const StorageGroup &rhs) noexcept {
+                        return lhs.alignment != rhs.alignment ?
+                                   lhs.alignment > rhs.alignment :
+                                   lhs.fields[0] < rhs.fields[0];
+                    });
+
+        CoroFrameStorageLayout layout;
+        layout.field_offsets.resize(field_count, 0u);
+        layout.field_strides.resize(field_count, 0u);
+        layout.field_capacity_strides.resize(field_count, 0u);
+        size_t prefix_stride = 0u;
+        for (const auto &group : groups) {
+            LUISA_ASSERT(prefix_stride % group.alignment == 0u,
+                         "Packed runtime coroutine SoA ordering failed to preserve alignment.");
+            LUISA_ASSERT(
+                prefix_stride <= std::numeric_limits<size_t>::max() - group.stride,
+                "Coroutine SoA per-frame stride overflows size_t.");
+            if (group.width == 4u || group.width == 2u) {
+                layout.packed_chunks.emplace_back(PackedChunk{
+                    .capacity_stride = prefix_stride,
+                    .width = group.width,
+                    .fields = group.fields});
+                for (uint8_t lane = 0u; lane < group.width; ++lane) {
+                    auto field_index = group.fields[lane];
+                    layout.field_capacity_strides[field_index] = prefix_stride;
+                    layout.field_strides[field_index] = group.stride;
+                    layout.field_offsets[field_index] = static_cast<size_t>(lane) * 4u;
+                }
+            } else {
+                auto field_index = group.fields[0];
+                layout.field_capacity_strides[field_index] = prefix_stride;
+                layout.field_strides[field_index] = group.stride;
+                layout.field_offsets[field_index] = 0u;
+            }
+            prefix_stride += group.stride;
         }
         LUISA_ASSERT(
             prefix_stride == 0u ||
@@ -315,7 +494,8 @@ struct CoroFrameRelocationFieldPartition {
 };
 
 [[nodiscard]] inline auto coro_frame_partition_relocation_fields(
-    luisa::vector<luisa::vector<size_t>> exact_fields) noexcept {
+    luisa::vector<luisa::vector<size_t>> exact_fields,
+    const CoroFrameStorageLayout *layout = nullptr) noexcept {
     CoroFrameRelocationFieldPartition partition;
     partition.residual_fields = exact_fields;
     if (exact_fields.size() > 1u) {
@@ -332,6 +512,47 @@ struct CoroFrameRelocationFieldPartition {
                                fields.end();
                     }),
                 partition.common_fields.end());
+        }
+        if (layout != nullptr && !layout->packed_chunks.empty()) {
+            auto contains_field = [](const auto &vec, size_t f) noexcept {
+                return std::find(vec.begin(), vec.end(), f) != vec.end();
+            };
+            for (const auto &chunk : layout->packed_chunks) {
+                bool all_in_common = true;
+                bool any_in_common = false;
+                for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                    const bool in_c =
+                        contains_field(partition.common_fields, chunk.fields[lane]);
+                    all_in_common = all_in_common && in_c;
+                    any_in_common = any_in_common || in_c;
+                }
+                if (any_in_common && !all_in_common) {
+                    bool full_in_some_token = false;
+                    for (auto token = 1u; token < exact_fields.size(); ++token) {
+                        bool full = true;
+                        for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                            if (!contains_field(exact_fields[token],
+                                                chunk.fields[lane])) {
+                                full = false;
+                                break;
+                            }
+                        }
+                        if (full) {
+                            full_in_some_token = true;
+                            break;
+                        }
+                    }
+                    if (full_in_some_token) {
+                        for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                            partition.common_fields.erase(
+                                std::remove(partition.common_fields.begin(),
+                                            partition.common_fields.end(),
+                                            chunk.fields[lane]),
+                                partition.common_fields.end());
+                        }
+                    }
+                }
+            }
         }
     }
     for (auto token = 1u;
@@ -635,11 +856,57 @@ inline void coro_frame_copy_fields(
     bool is_volatile = false) noexcept {
     LUISA_ASSERT(desc != nullptr, "Coroutine frame descriptor is null.");
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
+    luisa::vector<uint8_t> field_remaining;
+    if (soa && layout.has_runtime_capacity() && !layout.packed_chunks.empty()) {
+        field_remaining.assign(desc->frame_field_count(), 0u);
+        for (auto field_index : fields) {
+            LUISA_ASSERT(
+                field_index < desc->frame_field_count(),
+                "Coroutine relocation field {} is outside frame field count {}.",
+                field_index, desc->frame_field_count());
+            field_remaining[field_index] = 1u;
+        }
+        for (const auto &chunk : layout.packed_chunks) {
+            auto all_active = true;
+            for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                if (field_remaining[chunk.fields[lane]] == 0u) {
+                    all_active = false;
+                    break;
+                }
+            }
+            if (!all_active) { continue; }
+            auto *vec_type = chunk.width == 4u ? Type::of<uint4>() : Type::of<uint2>();
+            auto chunk_stride = static_cast<uint>(chunk.width) * 4u;
+            auto base_offset = soa_capacity * static_cast<uint>(chunk.capacity_stride);
+            auto source_byte_offset = def(base_offset + source_index * chunk_stride);
+            auto destination_byte_offset = def(base_offset + destination_index * chunk_stride);
+            coro_frame_mark_raw_access(layout);
+            auto *value = fb->call(
+                vec_type,
+                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
+                              CallOp::BYTE_BUFFER_READ,
+                {buffer.expression(),
+                 luisa::compute::detail::extract_expression(source_byte_offset)});
+            coro_frame_mark_raw_access(layout);
+            fb->call(
+                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE :
+                              CallOp::BYTE_BUFFER_WRITE,
+                {buffer.expression(),
+                 luisa::compute::detail::extract_expression(destination_byte_offset),
+                 value});
+            for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                field_remaining[chunk.fields[lane]] = 0u;
+            }
+        }
+    }
     for (auto field_index : fields) {
         LUISA_ASSERT(
             field_index < desc->frame_field_count(),
             "Coroutine relocation field {} is outside frame field count {}.",
             field_index, desc->frame_field_count());
+        if (!field_remaining.empty() && field_remaining[field_index] == 0u) {
+            continue;
+        }
         auto *type = desc->frame_field_type(field_index);
         auto copy_at_offsets = [&](auto source_offset,
                                    auto destination_offset) noexcept {
@@ -687,11 +954,54 @@ inline void coro_frame_store_runtime_soa(
     bool is_volatile = false,
     bool include_reserved_fields = true) noexcept {
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
-    for (auto field_index = 0u;
-         field_index < frame.desc()->frame_field_count(); field_index++) {
-        if (!coro_frame_is_active_field(
-                field_index, active_fields,
-                include_reserved_fields)) { continue; }
+    auto field_count = frame.desc()->frame_field_count();
+    luisa::vector<uint8_t> field_active(field_count, 0u);
+    for (auto field_index = 0u; field_index < field_count; ++field_index) {
+        if (coro_frame_is_active_field(
+                field_index, active_fields, include_reserved_fields)) {
+            field_active[field_index] = 1u;
+        }
+    }
+    if (!layout.packed_chunks.empty()) {
+        auto *uint_type = Type::of<uint>();
+        for (const auto &chunk : layout.packed_chunks) {
+            auto all_active = true;
+            for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                if (field_active[chunk.fields[lane]] == 0u) {
+                    all_active = false;
+                    break;
+                }
+            }
+            if (!all_active) { continue; }
+            std::array<const Expression *, 4u> words{};
+            for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                auto field_index = chunk.fields[lane];
+                auto *type = frame.desc()->frame_field_type(field_index);
+                const Expression *member =
+                    fb->member(type, frame.expression(), field_index);
+                words[lane] =
+                    type == uint_type ?
+                        member :
+                        static_cast<const Expression *>(
+                            fb->cast(uint_type, CastOp::BITWISE, member));
+                field_active[field_index] = 0u;
+            }
+            auto *vec_type = chunk.width == 4u ? Type::of<uint4>() : Type::of<uint2>();
+            auto *vec = fb->call(
+                vec_type,
+                chunk.width == 4u ? CallOp::MAKE_UINT4 : CallOp::MAKE_UINT2,
+                luisa::span<const Expression *const>{words.data(), chunk.width});
+            auto offset = def(capacity * static_cast<uint>(chunk.capacity_stride) +
+                              frame_index * (static_cast<uint>(chunk.width) * 4u));
+            coro_frame_mark_raw_access(layout);
+            fb->call(is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_WRITE :
+                                   CallOp::BYTE_BUFFER_WRITE,
+                     {buffer.expression(),
+                      luisa::compute::detail::extract_expression(offset), vec});
+        }
+    }
+    for (auto field_index = 0u; field_index < field_count; field_index++) {
+        if (field_active[field_index] == 0u) { continue; }
         auto offset = def(coro_frame_runtime_soa_offset(
             frame_index, capacity, layout, field_index));
         auto *type = frame.desc()->frame_field_type(field_index);
@@ -712,11 +1022,55 @@ inline void coro_frame_load_runtime_soa_into(
     bool is_volatile = false,
     bool include_reserved_fields = true) noexcept {
     auto *fb = luisa::compute::detail::FunctionBuilder::current();
-    for (auto field_index = 0u;
-         field_index < frame.desc()->frame_field_count(); field_index++) {
-        if (!coro_frame_is_active_field(
-                field_index, active_fields,
-                include_reserved_fields)) { continue; }
+    auto field_count = frame.desc()->frame_field_count();
+    luisa::vector<uint8_t> field_active(field_count, 0u);
+    for (auto field_index = 0u; field_index < field_count; ++field_index) {
+        if (coro_frame_is_active_field(
+                field_index, active_fields, include_reserved_fields)) {
+            field_active[field_index] = 1u;
+        }
+    }
+    if (!layout.packed_chunks.empty()) {
+        auto *uint_type = Type::of<uint>();
+        for (const auto &chunk : layout.packed_chunks) {
+            auto all_active = true;
+            for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                if (field_active[chunk.fields[lane]] == 0u) {
+                    all_active = false;
+                    break;
+                }
+            }
+            if (!all_active) { continue; }
+            auto *vec_type = chunk.width == 4u ? Type::of<uint4>() : Type::of<uint2>();
+            auto offset = def(capacity * static_cast<uint>(chunk.capacity_stride) +
+                              frame_index * (static_cast<uint>(chunk.width) * 4u));
+            coro_frame_mark_raw_access(layout);
+            auto *vec_call = fb->call(
+                vec_type,
+                is_volatile ? CallOp::BYTE_BUFFER_VOLATILE_READ :
+                              CallOp::BYTE_BUFFER_READ,
+                {buffer.expression(),
+                 luisa::compute::detail::extract_expression(offset)});
+            auto *vec_local = fb->local(vec_type);
+            fb->assign(vec_local, vec_call);
+            for (uint8_t lane = 0u; lane < chunk.width; ++lane) {
+                auto field_index = chunk.fields[lane];
+                auto *type = frame.desc()->frame_field_type(field_index);
+                const Expression *lane_expr =
+                    fb->swizzle(uint_type, vec_local, 1u, lane);
+                const Expression *value =
+                    type == uint_type ?
+                        lane_expr :
+                        static_cast<const Expression *>(
+                            fb->cast(type, CastOp::BITWISE, lane_expr));
+                auto *member = fb->member(type, frame.expression(), field_index);
+                fb->assign(member, value);
+                field_active[field_index] = 0u;
+            }
+        }
+    }
+    for (auto field_index = 0u; field_index < field_count; field_index++) {
+        if (field_active[field_index] == 0u) { continue; }
         auto offset = def(coro_frame_runtime_soa_offset(
             frame_index, capacity, layout, field_index));
         auto *type = frame.desc()->frame_field_type(field_index);

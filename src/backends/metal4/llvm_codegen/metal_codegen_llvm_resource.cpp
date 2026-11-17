@@ -872,20 +872,22 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_resource_read(IB &builder, Functio
         case xir::ResourceReadOp::BUFFER_READ: [[fallthrough]];
         case xir::ResourceReadOp::BUFFER_VOLATILE_READ: {
             auto is_volatile = inst->op() == xir::ResourceReadOp::BUFFER_VOLATILE_READ;
+            auto is_invariant = !is_volatile && _readonly_buffers.contains(inst->operand(0u));
             auto buffer = _value(builder, function, inst->operand(0u));
             auto index = _value(builder, function, inst->operand(1u));
             auto pointer = _buffer_pointer(builder, buffer, index, inst->type()->size());
             if (is_volatile) { _air_atomic_fence(builder, 1u); }
-            return _load(builder, pointer, inst->type(), is_volatile);
+            return _load(builder, pointer, inst->type(), is_volatile, is_invariant);
         }
         case xir::ResourceReadOp::BYTE_BUFFER_READ: [[fallthrough]];
         case xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ: {
             auto is_volatile = inst->op() == xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ;
+            auto is_invariant = !is_volatile && _readonly_buffers.contains(inst->operand(0u));
             auto buffer = _value(builder, function, inst->operand(0u));
             auto index = _value(builder, function, inst->operand(1u));
             auto pointer = _buffer_pointer(builder, buffer, index, 1u);
             if (is_volatile) { _air_atomic_fence(builder, 1u); }
-            return _load(builder, pointer, inst->type(), is_volatile);
+            return _load(builder, pointer, inst->type(), is_volatile, is_invariant);
         }
         case xir::ResourceReadOp::BINDLESS_BUFFER_READ: [[fallthrough]];
         case xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ: {
@@ -898,7 +900,7 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_resource_read(IB &builder, Functio
                               inst->type()->size() :
                               1u;
             auto pointer = _device_pointer_offset(builder, buffer, element_index, stride);
-            return _load(builder, pointer, inst->type());
+            return _load(builder, pointer, inst->type(), false, true);
         }
         case xir::ResourceReadOp::DEVICE_ADDRESS_READ: {
             auto address = builder.CreateZExtOrTrunc(_value(builder, function, inst->operand(0u)), builder.getInt64Ty());

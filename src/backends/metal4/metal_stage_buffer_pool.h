@@ -46,6 +46,7 @@ private:
 public:
     MetalStageBufferPool(MTL::Device *device, size_t size, bool write_combined) noexcept;
     ~MetalStageBufferPool() noexcept;
+    [[nodiscard]] auto backing_buffer() const noexcept { return _buffer; }
     [[nodiscard]] Allocation *allocate(size_t size) noexcept;
 };
 

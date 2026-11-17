@@ -1448,8 +1448,6 @@ select_ray_query_loops(
         // bound; lowering performs the complete proof once before ABI changes.
         auto input_capture_count = capture_list.in_values.size();
         auto output_capture_count = capture_list.out_values.size();
-        auto capture_cost = detail::ray_query_capture_cost(luisa::span{capture_list.in_values},
-                                                           luisa::span{capture_list.out_values}, options);
         auto capture_filter_eligible = true;
         if (options.captured_argument_filter != nullptr) {
             for (auto *value : capture_list.in_values) {
@@ -1459,6 +1457,10 @@ select_ray_query_loops(
                 capture_filter_eligible &= options.captured_argument_filter(value, true);
             }
         }
+        auto capture_cost = capture_filter_eligible ?
+                                detail::ray_query_capture_cost(luisa::span{capture_list.in_values},
+                                                               luisa::span{capture_list.out_values}, options) :
+                                detail::RayQueryCaptureCost{};
         auto capture_eligible =
             capture_filter_eligible &&
             capture_cost.total() <= options.max_captured_argument_cost &&

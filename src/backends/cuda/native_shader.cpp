@@ -6,6 +6,7 @@
 #include "cuda_buffer.h"
 #include "cuda_stream.h"
 #include "cuda_command_encoder.h"
+#include "cuda_ptx_version.h"
 #include "native_shader.h"
 
 namespace luisa::compute::cuda {
@@ -59,9 +60,21 @@ CUDANativeShader *CUDANativeShader::create(
         return nullptr;
     }
     CUmodule module = nullptr;
-    if (auto ret = cuModuleLoadData(&module, ptx.data()); ret != CUDA_SUCCESS) {
+    auto load_result = cuModuleLoadData(&module, ptx.data());
+    if (load_result == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
+        // A native shader arrives here as PTX text produced by NVRTC, DXC or a
+        // user toolchain. When that toolchain is newer than the installed
+        // driver, the module is rejected for its `.version` directive only; the
+        // rest of the ISA within the same major is forward compatible. Retry
+        // once with the same patch the built-in kernel path applies (see
+        // cuda_ptx_version.h) instead of failing the whole shader.
+        luisa::vector<std::byte> patched{ptx.begin(), ptx.end()};
+        patch_cuda_ptx_version_bytes(patched);
+        load_result = cuModuleLoadData(&module, patched.data());
+    }
+    if (load_result != CUDA_SUCCESS) {
         error = luisa::format("cuModuleLoadData failed for kernel '{}': {}.",
-                              entry, cuda_error_description(ret));
+                              entry, cuda_error_description(load_result));
         return nullptr;
     }
     auto name = luisa::string{entry};

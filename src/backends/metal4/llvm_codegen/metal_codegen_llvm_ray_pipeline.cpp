@@ -102,9 +102,7 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                     auto i32x3 = llvm::FixedVectorType::get(i32, 3u);
                     auto f32x2 = llvm::FixedVectorType::get(f32, 2u);
                     auto f32x3 = llvm::FixedVectorType::get(f32, 3u);
-                    auto payload_field_mask =
-                        (1u << ray_query_payload_accept) |
-                        (1u << ray_query_payload_continue);
+                    auto payload_field_mask = 0u;
                     auto use_payload_field =
                         [&payload_field_mask](RayQueryPayloadField field) noexcept {
                             payload_field_mask |=
@@ -121,14 +119,6 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                                     switch (read->op()) {
                                         case xir::RayQueryObjectReadOp::
                                             RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT:
-                                            use_payload_field(
-                                                ray_query_payload_instance);
-                                            use_payload_field(
-                                                ray_query_payload_primitive);
-                                            use_payload_field(
-                                                ray_query_payload_barycentrics);
-                                            use_payload_field(
-                                                ray_query_payload_distance);
                                             break;
                                         case xir::RayQueryObjectReadOp::
                                             RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
@@ -142,17 +132,6 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                                                 ray_query_payload_max_distance);
                                             break;
                                         default: break;
-                                    }
-                                } else if (handler_instruction->isa<
-                                               xir::RayQueryObjectWriteInst>()) {
-                                    auto write = static_cast<
-                                        const xir::RayQueryObjectWriteInst *>(
-                                        handler_instruction);
-                                    if (write->op() == xir::RayQueryObjectWriteOp::
-                                                           RAY_QUERY_OBJECT_COMMIT_TRIANGLE) {
-                                        // Stateful ray queries expose the committed
-                                        // candidate distance as the current ray t_max.
-                                        use_payload_field(ray_query_payload_distance);
                                     }
                                 }
                                 for (auto i = 0u;
@@ -244,6 +223,11 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                             .payload_index = payload_index,
                             .reference = value->is_lvalue()});
                     }
+                    bool has_dummy_payload_field = false;
+                    if (payload_field_mask == 0u && captures.empty()) {
+                        has_dummy_payload_field = true;
+                        payload_fields.emplace_back(i8);
+                    }
                     payload_type->setBody(payload_fields, false);
                     auto motion =
                         constructor->op() == xir::ResourceQueryOp::
@@ -267,6 +251,7 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                         .config = config,
                         .payload_type = payload_type,
                         .payload_field_mask = payload_field_mask,
+                        .has_dummy_payload_field = has_dummy_payload_field,
                         .captures = std::move(captures),
                         .function_name = function_name});
                     auto &info = _ray_query_pipelines.back();
@@ -320,6 +305,18 @@ llvm::Value *MetalCodegenLLVMImpl::_pipeline_payload_pointer(
         function.pipeline_payload, static_cast<unsigned>(field));
 }
 
+llvm::Value *MetalCodegenLLVMImpl::_pipeline_candidate_pointer(
+    IB &builder, FunctionContext &function,
+    RayQueryCandidateField field) noexcept {
+    LUISA_ASSERT(
+        function.pipeline_handler != nullptr &&
+            function.pipeline_candidate_state != nullptr,
+        "Metal AIR pipeline candidate state requested outside an intersection handler.");
+    return builder.CreateStructGEP(
+        _ray_query_candidate_state(),
+        function.pipeline_candidate_state, static_cast<unsigned>(field));
+}
+
 void MetalCodegenLLVMImpl::_emit_ray_query_intersection_functions() noexcept {
     for (auto &&pipeline : _ray_query_pipelines) {
         auto i1 = llvm::Type::getInt1Ty(_context);
@@ -358,6 +355,17 @@ void MetalCodegenLLVMImpl::_emit_ray_query_intersection_functions() noexcept {
             _context, payload_alignment));
         payload->addAttr(llvm::Attribute::getWithDereferenceableBytes(
             _context, payload_size));
+        bool payload_readonly =
+            !pipeline.uses_payload_field(ray_query_payload_max_distance);
+        for (auto &&capture : pipeline.captures) {
+            if (capture.reference) {
+                payload_readonly = false;
+                break;
+            }
+        }
+        if (payload_readonly) {
+            payload->addAttr(llvm::Attribute::ReadOnly);
+        }
         for (auto i = 1u; i < function->arg_size(); i++) {
             function->getArg(i)->addAttr(llvm::Attribute::NoUndef);
         }
@@ -370,21 +378,29 @@ void MetalCodegenLLVMImpl::_emit_ray_query_intersection_functions() noexcept {
                 pipeline.payload_type, payload,
                 static_cast<unsigned>(index));
         };
-        auto store = [&](llvm::Value *value,
-                         RayQueryPayloadField index) noexcept {
-            if (!pipeline.uses_payload_field(index)) { return; }
-            auto pointer = field(index);
+        auto candidate_state_type = _ray_query_candidate_state();
+        auto candidate_state = builder.CreateAlloca(
+            candidate_state_type, nullptr, "candidate.state");
+        candidate_state->setAlignment(
+            _data_layout.getABITypeAlign(candidate_state_type));
+        auto candidate_field = [&](RayQueryCandidateField index) noexcept {
+            return builder.CreateStructGEP(
+                candidate_state_type, candidate_state,
+                static_cast<unsigned>(index));
+        };
+        auto store_candidate = [&](llvm::Value *value,
+                                   RayQueryCandidateField index) noexcept {
+            auto pointer = candidate_field(index);
             auto instruction = builder.CreateStore(value, pointer);
             instruction->setAlignment(
                 _data_layout.getABITypeAlign(value->getType()));
         };
-        store(builder.getInt8(0u), ray_query_payload_accept);
-        store(builder.getInt8(1u), ray_query_payload_continue);
-        store(builder.getInt32(1u), ray_query_payload_candidate_kind);
-        store(function->getArg(3u), ray_query_payload_instance);
-        store(function->getArg(1u), ray_query_payload_primitive);
-        store(function->getArg(4u), ray_query_payload_barycentrics);
-        store(function->getArg(5u), ray_query_payload_distance);
+        store_candidate(builder.getInt8(0u), ray_query_candidate_accept);
+        store_candidate(builder.getInt8(1u), ray_query_candidate_continue);
+        store_candidate(function->getArg(3u), ray_query_candidate_instance);
+        store_candidate(function->getArg(1u), ray_query_candidate_primitive);
+        store_candidate(function->getArg(4u), ray_query_candidate_barycentrics);
+        store_candidate(function->getArg(5u), ray_query_candidate_distance);
 
         auto handler = _function(pipeline.surface_handler);
         llvm::SmallVector<llvm::Value *> arguments;
@@ -400,6 +416,7 @@ void MetalCodegenLLVMImpl::_emit_ray_query_intersection_functions() noexcept {
                     _load(builder, pointer, capture.type));
             }
         }
+        arguments.emplace_back(candidate_state);
         for (auto index : {
                  ray_query_payload_dispatch_size,
                  ray_query_payload_kernel_id,
@@ -427,18 +444,18 @@ void MetalCodegenLLVMImpl::_emit_ray_query_intersection_functions() noexcept {
         call->setCallingConv(handler->getCallingConv());
         call->setConvergent();
 
-        auto load_flag = [&](RayQueryPayloadField index) noexcept {
+        auto load_flag = [&](RayQueryCandidateField index) noexcept {
             auto load = builder.CreateLoad(
-                builder.getInt8Ty(), field(index));
+                builder.getInt8Ty(), candidate_field(index));
             load->setAlignment(llvm::Align{1u});
             return builder.CreateICmpNE(load, builder.getInt8(0u));
         };
         auto decision = static_cast<llvm::Value *>(
             llvm::PoisonValue::get(decision_type));
         decision = builder.CreateInsertValue(
-            decision, load_flag(ray_query_payload_accept), 0u);
+            decision, load_flag(ray_query_candidate_accept), 0u);
         decision = builder.CreateInsertValue(
-            decision, load_flag(ray_query_payload_continue), 1u);
+            decision, load_flag(ray_query_candidate_continue), 1u);
         builder.CreateRet(decision);
         _add_ray_query_intersection_metadata(function, pipeline);
     }
@@ -468,8 +485,14 @@ void MetalCodegenLLVMImpl::_translate_ray_query_pipeline(
         instruction->setAlignment(
             _data_layout.getABITypeAlign(value->getType()));
     };
-    store(builder.getInt8(0u), ray_query_payload_accept);
-    store(builder.getInt8(1u), ray_query_payload_continue);
+    if (pipeline.has_dummy_payload_field) {
+        auto dummy_index = static_cast<unsigned>(
+            pipeline.payload_type->getNumElements() - 1u);
+        auto pointer = builder.CreateStructGEP(
+            pipeline.payload_type, payload, dummy_index);
+        auto st = builder.CreateStore(builder.getInt8(0u), pointer);
+        st->setAlignment(llvm::Align{1u});
+    }
 
     auto constructor = pipeline.constructor;
     auto accel = _value(builder, function, constructor->operand(0u));
@@ -518,13 +541,12 @@ void MetalCodegenLLVMImpl::_translate_ray_query_pipeline(
         accept_any, function.intersection_tables[pipeline.index],
         payload,
         _data_layout.getTypeAllocSize(pipeline.payload_type),
-        false,
-        // Apple's triangle-data intersector oracle enables both the
-        // triangle and bounding-box geometry bits (3), even when the
-        // intersection function itself is triangle-only. With the opaque
-        // triangle value (1), hardware traversal succeeds but the IFT entry
-        // is never invoked.
-        true);
+        // Primitive meshes build with geom_desc->setOpaque(true) so direct
+        // trace calls hit hardware opaque speed. Outlined triangle-only IFT
+        // pipelines explicitly pass forced_opacity::non_opaque (2) so the IFT
+        // entry runs while retaining triangle-only geometry_type (1).
+        air_forced_opacity_non_opaque,
+        false);
     for (auto &&capture : pipeline.captures) {
         if (!capture.reference) { continue; }
         auto pointer = builder.CreateStructGEP(
@@ -554,10 +576,19 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_pipeline_ray_query_read(
         load->setAlignment(_data_layout.getABITypeAlign(type));
         return static_cast<llvm::Value *>(load);
     };
+    auto load_candidate = [&](RayQueryCandidateField index) noexcept {
+        auto pointer = _pipeline_candidate_pointer(
+            builder, function, index);
+        auto type = _ray_query_candidate_state()
+                        ->getElementType(static_cast<unsigned>(index));
+        auto load = builder.CreateLoad(type, pointer);
+        load->setAlignment(_data_layout.getABITypeAlign(type));
+        return static_cast<llvm::Value *>(load);
+    };
     if (function.pipeline_handler != nullptr) {
         switch (instruction->op()) {
             case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED: {
-                auto flag = load_payload(ray_query_payload_continue);
+                auto flag = load_candidate(ray_query_candidate_continue);
                 return builder.CreateICmpEQ(flag, builder.getInt8(0u));
             }
             case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE:
@@ -599,13 +630,13 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_pipeline_ray_query_read(
                     llvm::PoisonValue::get(
                         _type(instruction->type())->reg_type));
                 result = builder.CreateInsertValue(
-                    result, load_payload(ray_query_payload_instance), 0u);
+                    result, load_candidate(ray_query_candidate_instance), 0u);
                 result = builder.CreateInsertValue(
-                    result, load_payload(ray_query_payload_primitive), 1u);
+                    result, load_candidate(ray_query_candidate_primitive), 1u);
                 result = builder.CreateInsertValue(
-                    result, load_payload(ray_query_payload_barycentrics), 2u);
+                    result, load_candidate(ray_query_candidate_barycentrics), 2u);
                 result = builder.CreateInsertValue(
-                    result, load_payload(ray_query_payload_distance), 3u);
+                    result, load_candidate(ray_query_candidate_distance), 3u);
                 return result;
             }
             default:
@@ -656,9 +687,9 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_pipeline_ray_query_read(
 void MetalCodegenLLVMImpl::_translate_pipeline_ray_query_write(
     IB &builder, FunctionContext &function,
     const xir::RayQueryObjectWriteInst *instruction) noexcept {
-    auto store_flag = [&](RayQueryPayloadField field,
+    auto store_flag = [&](RayQueryCandidateField field,
                           bool value) noexcept {
-        auto pointer = _pipeline_payload_pointer(
+        auto pointer = _pipeline_candidate_pointer(
             builder, function, field);
         auto store = builder.CreateStore(
             builder.getInt8(value ? 1u : 0u), pointer);
@@ -669,11 +700,11 @@ void MetalCodegenLLVMImpl::_translate_pipeline_ray_query_write(
             LUISA_ASSERT(
                 function.pipeline_handler->surface,
                 "Triangle commit occurred in a procedural AIR handler.");
-            store_flag(ray_query_payload_accept, true);
+            store_flag(ray_query_candidate_accept, true);
             if (function.pipeline_handler->pipeline->uses_payload_field(
                     ray_query_payload_max_distance)) {
-                auto candidate_pointer = _pipeline_payload_pointer(
-                    builder, function, ray_query_payload_distance);
+                auto candidate_pointer = _pipeline_candidate_pointer(
+                    builder, function, ray_query_candidate_distance);
                 auto candidate_distance = builder.CreateLoad(
                     builder.getFloatTy(), candidate_pointer);
                 candidate_distance->setAlignment(
@@ -687,7 +718,7 @@ void MetalCodegenLLVMImpl::_translate_pipeline_ray_query_write(
             }
             return;
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE:
-            store_flag(ray_query_payload_continue, false);
+            store_flag(ray_query_candidate_continue, false);
             return;
         default:
             LUISA_ERROR_WITH_LOCATION(
@@ -793,6 +824,17 @@ void MetalCodegenLLVMImpl::_add_ray_query_intersection_metadata(
         };
     for (auto i = 0u; i < pipeline.captures.size(); i++) {
         append_capture_field(pipeline.captures[i], i);
+    }
+    if (pipeline.has_dummy_payload_field) {
+        auto dummy_index = static_cast<unsigned>(
+            pipeline.payload_type->getNumElements() - 1u);
+        auto offset = static_cast<uint32_t>(
+            layout->getElementOffset(dummy_index));
+        payload_fields.append({md_i32(_context, offset),
+                               md_i32(_context, 1u),
+                               md_i32(_context, 0u),
+                               md_string(_context, "uchar"),
+                               md_string(_context, "_unused")});
     }
     auto payload_info = node({md_i32(_context, 0u), md_string(_context, "air.payload"),
                               md_string(_context, "air.struct_type_info"), node(payload_fields),

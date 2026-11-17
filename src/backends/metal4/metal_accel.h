@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/spin_mutex.h>
+#include <luisa/core/stl/memory.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/command.h>
 #include "../common/resource_tracker.h"
@@ -17,6 +18,14 @@ class MetalAccel {
 
 public:
     static constexpr auto reserved_primitive_count = 1024u;
+
+    struct ResidencySnapshot {
+        MetalDevice *owner_device{nullptr};
+        MTL::ResidencySet *residency_set{nullptr};
+        luisa::vector<const MTL::Allocation *> device_allocations;
+        luisa::vector<NS::Object *> retained_objects;
+        ~ResidencySnapshot() noexcept;
+    };
 
 private:
     enum class MotionMode : uint8_t {
@@ -68,6 +77,7 @@ private:
     static_assert(sizeof(MTL::PackedFloat4x3) == 48u);
     static_assert(sizeof(MTL::ComponentTransform) == 64u);
 
+    MetalDevice *_device{nullptr};
     MTL::AccelerationStructure *_handle{nullptr};
     MTL::Buffer *_instance_buffer{nullptr};
     MTL::Buffer *_motion_instance_buffer{nullptr};
@@ -79,6 +89,7 @@ private:
     luisa::vector<Instance> _instances{};
     luisa::vector<MetalPrimitiveBase *> _primitives{};
     luisa::vector<MTL::Resource *> _resources{};
+    luisa::shared_ptr<ResidencySnapshot> _residency_snapshot{};
     NS::String *_name{nullptr};
     AccelOption _option;
     MotionMode _motion_mode{MotionMode::NONE};
@@ -99,6 +110,7 @@ private:
     void _do_build_compatibility(MetalCommandEncoder &encoder) noexcept;
     void _do_update_compatibility(MetalCommandEncoder &encoder) noexcept;
     void _prepare_motion_data(MetalCommandEncoder &encoder) noexcept;
+    void _rebuild_residency_snapshot(MTL::Device *device) noexcept;
 
 public:
     MetalAccel(MetalDevice *device, const AccelOption &option) noexcept;

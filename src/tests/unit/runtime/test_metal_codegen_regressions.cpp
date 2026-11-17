@@ -255,6 +255,33 @@ void test_metal_codegen_regressions(
     expect(bindless_result == std::array<uint, 4u>{34u, 58u, 35u, 59u})
         << "Metal uniform and typed-uniform bindless buffers must compile and execute";
 
+    // LLVM 23 SLPVectorizer + InstCombine folds two-lane scalar float3
+    // equality/inequality chains into <2 x i1> -> i2 bitcasts, which AGX
+    // GlobalISel cannot legalize unless lowered after LLVM O2.
+    Kernel1D slp_bool_bitcast = [&](BufferFloat3 inputs, BufferUInt outputs) noexcept {
+        auto id = dispatch_x();
+        Float3 v = inputs.read(id);
+        Bool all_zero = (v.x == 0.0f) & (v.y == 0.0f) & (v.z == 0.0f);
+        Bool any_nonzero = (v.x != 0.0f) | (v.y != 0.0f) | (v.z != 0.0f);
+        outputs.write(id, ite(all_zero, 1u, 0u) | ite(any_nonzero, 2u, 0u));
+    };
+    auto slp_shader = device.compile(
+        slp_bool_bitcast, ShaderOption{.enable_cache = false});
+    auto slp_in = device.create_buffer<float3>(4u);
+    auto slp_out = device.create_buffer<uint>(4u);
+    std::array<float3, 4u> slp_host_in{
+        make_float3(0.0f, 0.0f, 0.0f),
+        make_float3(1.0f, 0.0f, 0.0f),
+        make_float3(0.0f, -2.0f, 0.0f),
+        make_float3(0.0f, 0.0f, 3.0f)};
+    std::array<uint, 4u> slp_host_out{};
+    stream << slp_in.copy_from(luisa::span{slp_host_in})
+           << slp_shader(slp_in, slp_out).dispatch(4u)
+           << slp_out.copy_to(luisa::span{slp_host_out})
+           << synchronize();
+    expect(slp_host_out == std::array<uint, 4u>{1u, 2u, 2u, 2u})
+        << "Post-O2 scalarized/AIR boolean reductions must legalize and execute";
+
     if (device.backend_name() == "metal") {
         auto add_one = Callable<float(float)>{[](Float value) noexcept {
             return value + 1.0f;

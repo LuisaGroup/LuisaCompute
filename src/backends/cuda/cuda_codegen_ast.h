@@ -42,6 +42,11 @@ private:
     // opaque CUDA_ERROR_INVALID_PTX when the module is loaded; the device
     // compares this against its own capability and reports the requirement.
     luisa::string_view _cluster_feature;
+    // Emit the automatic PDL wait-at-entry prologue (see cuda_pdl_launch.h): the
+    // wait becomes the first statement of `kernel_main`, so a launch may be
+    // relaxed without the kernel calling `grid_dependency_synchronize()`. The
+    // device decides this once, at creation time.
+    bool _pdl_prologue{false};
 
 private:
     const Type *_ray_type;
@@ -119,7 +124,7 @@ private:
 
 public:
     CUDACodegenAST(StringScratch &scratch, bool allow_indirect,
-                   bool fallback_rtx = false) noexcept;
+                   bool fallback_rtx, bool pdl_prologue) noexcept;
     ~CUDACodegenAST() noexcept override;
     void emit(Function f, luisa::string_view device_lib, luisa::string_view native_include);
 

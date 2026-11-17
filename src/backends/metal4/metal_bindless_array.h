@@ -28,7 +28,9 @@ public:
 
 private:
     std::mutex _mutex;
+    MetalDevice *_device{nullptr};
     MTL::Buffer *_array;
+    MTL::ResidencySet *_residency_set{nullptr};
     MTL::ComputePipelineState *_update;
     luisa::vector<MTL::Buffer *> _buffer_slots{};
     luisa::vector<MTL::Texture *> _tex2d_slots{};
@@ -42,6 +44,7 @@ public:
     void set_name(luisa::string_view name) noexcept;
     void update(MetalCommandEncoder &encoder, BindlessArrayUpdateCommand *cmd) noexcept;
     void mark_resource_usages(MetalCommandEncoder &encoder) noexcept;
+    [[nodiscard]] bool contains_allocation(const MTL::Allocation *allocation) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _array; }
     [[nodiscard]] auto binding() const noexcept { return Binding{_array->gpuAddress()}; }
 };

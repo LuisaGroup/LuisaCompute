@@ -12,8 +12,11 @@
 #include <llvm/Passes/OptimizationLevel.h>
 #include "../common/llvm_pass_builder.h"
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Transforms/InstCombine/InstCombine.h>
+#include <llvm/Transforms/Scalar/SimplifyCFG.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/LoopUtils.h>
+#include <llvm/Transforms/Vectorize/LoadStoreVectorizer.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/resource.h>
@@ -169,37 +172,455 @@ static_assert(!current_device_sdk_compatible(
     LUISA_ERROR_WITH_LOCATION("Invalid Metal AIR target platform.");
 }
 
-void lower_llvm_float_reductions(llvm::Module &module) noexcept {
-    // LLVM O2 can form generic floating-point vector reductions that AGX
-    // cannot legalize. Expand them after optimization, preserving their
-    // accumulator and fast-math flags, including non-power-of-two vectors.
+[[nodiscard]] llvm::Value *emit_air_bool_reduction(
+    llvm::IRBuilder<> &builder, llvm::Module &module,
+    llvm::Value *vec, bool is_all) noexcept {
+    auto *vec_ty = llvm::cast<llvm::FixedVectorType>(vec->getType());
+    auto n = static_cast<unsigned>(vec_ty->getNumElements());
+    LUISA_ASSERT(vec_ty->getElementType()->isIntegerTy(1u) && n > 0u,
+                 "Invalid boolean vector type for AIR reduction.");
+    if (n == 1u) {
+        return builder.CreateExtractElement(vec, uint64_t{0u});
+    }
+    if (n >= 2u && n <= 4u) {
+        auto name = luisa::format("air.{}.v{}i1", is_all ? "all" : "any", n);
+        auto *fn_ty = llvm::FunctionType::get(
+            builder.getInt1Ty(), {vec_ty}, false);
+        auto *air_fn = llvm::cast<llvm::Function>(
+            module.getOrInsertFunction(
+                llvm::StringRef{name.data(), name.size()}, fn_ty)
+                .getCallee());
+        air_fn->setDoesNotAccessMemory();
+        air_fn->setDoesNotFreeMemory();
+        air_fn->setDoesNotThrow();
+        air_fn->setNoSync();
+        air_fn->setWillReturn();
+        return builder.CreateCall(air_fn, {vec});
+    }
+    llvm::Value *acc = builder.CreateExtractElement(vec, uint64_t{0u});
+    for (auto i = 1u; i < n; i++) {
+        auto *lane = builder.CreateExtractElement(
+            vec, static_cast<uint64_t>(i));
+        acc = is_all ? builder.CreateAnd(acc, lane) :
+                       builder.CreateOr(acc, lane);
+    }
+    return acc;
+}
+
+[[nodiscard]] llvm::Value *pack_bool_vector_to_legal_int(
+    llvm::IRBuilder<> &builder, llvm::Value *vec,
+    unsigned target_bits, bool sign_extend) noexcept {
+    auto *vec_ty = llvm::cast<llvm::FixedVectorType>(vec->getType());
+    auto n = static_cast<unsigned>(vec_ty->getNumElements());
+    LUISA_ASSERT(vec_ty->getElementType()->isIntegerTy(1u) &&
+                     n > 0u && n <= target_bits,
+                 "Invalid boolean vector width for integer packing.");
+    auto *int_ty = llvm::Type::getIntNTy(builder.getContext(), target_bits);
+    auto *zero = llvm::ConstantInt::get(int_ty, 0u);
+    llvm::Value *acc = zero;
+    for (auto i = 0u; i < n; i++) {
+        auto *lane = builder.CreateExtractElement(
+            vec, static_cast<uint64_t>(i));
+        auto mask = (sign_extend && i + 1u == n && target_bits > n) ?
+                        llvm::APInt::getHighBitsSet(target_bits, target_bits - i) :
+                        llvm::APInt::getOneBitSet(target_bits, i);
+        auto *bit = builder.CreateSelect(
+            lane, llvm::ConstantInt::get(int_ty, mask), zero);
+        acc = builder.CreateOr(acc, bit);
+    }
+    return acc;
+}
+
+void lower_llvm_post_opt_for_air(llvm::Module &module) noexcept {
+    // LLVM O2 (SLPVectorizer / InstCombine / VectorCombine) can form generic
+    // vector reductions and <N x i1> <-> iN bitcasts (such as i2/i3/i4) that
+    // AGX GlobalISel cannot legalize. Lower them to AIR-legal scalar/intrinsic
+    // operations after optimization.
     llvm::SmallVector<llvm::IntrinsicInst *, 16u> reductions;
     for (auto &function : module) {
         for (auto &block : function) {
             for (auto &instruction : block) {
-                if (auto intrinsic = llvm::dyn_cast<llvm::IntrinsicInst>(&instruction)) {
-                    auto id = intrinsic->getIntrinsicID();
-                    if (id == llvm::Intrinsic::vector_reduce_fadd ||
-                        id == llvm::Intrinsic::vector_reduce_fmul) {
-                        reductions.emplace_back(intrinsic);
+                if (auto *intrinsic = llvm::dyn_cast<llvm::IntrinsicInst>(&instruction)) {
+                    switch (intrinsic->getIntrinsicID()) {
+                        case llvm::Intrinsic::vector_reduce_fadd:
+                        case llvm::Intrinsic::vector_reduce_fmul:
+                        case llvm::Intrinsic::vector_reduce_add:
+                        case llvm::Intrinsic::vector_reduce_mul:
+                        case llvm::Intrinsic::vector_reduce_and:
+                        case llvm::Intrinsic::vector_reduce_or:
+                        case llvm::Intrinsic::vector_reduce_xor:
+                        case llvm::Intrinsic::vector_reduce_smin:
+                        case llvm::Intrinsic::vector_reduce_smax:
+                        case llvm::Intrinsic::vector_reduce_umin:
+                        case llvm::Intrinsic::vector_reduce_umax:
+                        case llvm::Intrinsic::vector_reduce_fmin:
+                        case llvm::Intrinsic::vector_reduce_fmax:
+                            reductions.emplace_back(intrinsic);
+                            break;
+                        default: break;
                     }
                 }
             }
         }
     }
-    for (auto reduction : reductions) {
-        LUISA_ASSERT(llvm::isa<llvm::FixedVectorType>(reduction->getArgOperand(1u)->getType()),
-                     "Metal AIR does not support scalable floating-point reductions.");
+    for (auto *reduction : reductions) {
+        auto id = reduction->getIntrinsicID();
         llvm::IRBuilder<> builder{reduction};
-        builder.setFastMathFlags(reduction->getFastMathFlags());
-        auto opcode = reduction->getIntrinsicID() == llvm::Intrinsic::vector_reduce_fadd ?
-                          llvm::Instruction::FAdd : llvm::Instruction::FMul;
-        auto result = llvm::getOrderedReduction(
-            builder, reduction->getArgOperand(0u), reduction->getArgOperand(1u), opcode);
+        if (llvm::isa<llvm::FPMathOperator>(reduction)) {
+            builder.setFastMathFlags(reduction->getFastMathFlags());
+        }
+        llvm::Value *result = nullptr;
+        if (id == llvm::Intrinsic::vector_reduce_fadd ||
+            id == llvm::Intrinsic::vector_reduce_fmul) {
+            LUISA_ASSERT(
+                llvm::isa<llvm::FixedVectorType>(
+                    reduction->getArgOperand(1u)->getType()),
+                "Metal AIR does not support scalable floating-point reductions.");
+            auto opcode = id == llvm::Intrinsic::vector_reduce_fadd ?
+                              llvm::Instruction::FAdd :
+                              llvm::Instruction::FMul;
+            result = llvm::getOrderedReduction(
+                builder, reduction->getArgOperand(0u),
+                reduction->getArgOperand(1u), opcode);
+        } else {
+            auto *vec = reduction->getArgOperand(0u);
+            auto *vec_ty = llvm::cast<llvm::FixedVectorType>(vec->getType());
+            auto n = static_cast<unsigned>(vec_ty->getNumElements());
+            if ((id == llvm::Intrinsic::vector_reduce_and ||
+                 id == llvm::Intrinsic::vector_reduce_or) &&
+                vec_ty->getElementType()->isIntegerTy(1u)) {
+                result = emit_air_bool_reduction(
+                    builder, module, vec,
+                    id == llvm::Intrinsic::vector_reduce_and);
+            } else {
+                result = builder.CreateExtractElement(vec, uint64_t{0u});
+                for (auto i = 1u; i < n; i++) {
+                    auto *lane = builder.CreateExtractElement(
+                        vec, static_cast<uint64_t>(i));
+                    switch (id) {
+                        case llvm::Intrinsic::vector_reduce_add:
+                            result = builder.CreateAdd(result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_mul:
+                            result = builder.CreateMul(result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_and:
+                            result = builder.CreateAnd(result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_or:
+                            result = builder.CreateOr(result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_xor:
+                            result = builder.CreateXor(result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_smin:
+                            result = builder.CreateBinaryIntrinsic(
+                                llvm::Intrinsic::smin, result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_smax:
+                            result = builder.CreateBinaryIntrinsic(
+                                llvm::Intrinsic::smax, result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_umin:
+                            result = builder.CreateBinaryIntrinsic(
+                                llvm::Intrinsic::umin, result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_umax:
+                            result = builder.CreateBinaryIntrinsic(
+                                llvm::Intrinsic::umax, result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_fmin:
+                            result = builder.CreateBinaryIntrinsic(
+                                llvm::Intrinsic::minnum, result, lane);
+                            break;
+                        case llvm::Intrinsic::vector_reduce_fmax:
+                            result = builder.CreateBinaryIntrinsic(
+                                llvm::Intrinsic::maxnum, result, lane);
+                            break;
+                        default:
+                            LUISA_ERROR_WITH_LOCATION(
+                                "Unhandled vector reduction intrinsic.");
+                    }
+                }
+            }
+        }
         reduction->replaceAllUsesWith(result);
         reduction->eraseFromParent();
     }
+
+    llvm::SmallVector<llvm::Function *, 8u> dead_decls;
+    for (auto &function : module) {
+        if (function.isDeclaration() && function.use_empty() &&
+            function.getName().starts_with("llvm.vector.reduce.")) {
+            dead_decls.emplace_back(&function);
+        }
+    }
+    for (auto *decl : dead_decls) { decl->eraseFromParent(); }
+
+    llvm::SmallVector<llvm::BitCastInst *, 16u> bool_to_int_casts;
+    llvm::SmallVector<llvm::BitCastInst *, 16u> int_to_bool_casts;
+    for (auto &function : module) {
+        for (auto &block : function) {
+            for (auto &instruction : block) {
+                auto *bc = llvm::dyn_cast<llvm::BitCastInst>(&instruction);
+                if (bc == nullptr) { continue; }
+                if (auto *src_vec = llvm::dyn_cast<llvm::FixedVectorType>(bc->getSrcTy());
+                    src_vec != nullptr &&
+                    src_vec->getElementType()->isIntegerTy(1u) &&
+                    bc->getDestTy()->isIntegerTy()) {
+                    bool_to_int_casts.emplace_back(bc);
+                } else if (auto *dst_vec = llvm::dyn_cast<llvm::FixedVectorType>(bc->getDestTy());
+                           dst_vec != nullptr &&
+                           dst_vec->getElementType()->isIntegerTy(1u) &&
+                           bc->getSrcTy()->isIntegerTy()) {
+                    int_to_bool_casts.emplace_back(bc);
+                }
+            }
+        }
+    }
+
+    for (auto *bc : bool_to_int_casts) {
+        auto *vec = bc->getOperand(0u);
+        auto *vec_ty = llvm::cast<llvm::FixedVectorType>(vec->getType());
+        auto n = static_cast<unsigned>(vec_ty->getNumElements());
+        auto legal_bits = n <= 8u  ? 8u :
+                          n <= 16u ? 16u :
+                          n <= 32u ? 32u :
+                                     64u;
+        llvm::SmallVector<llvm::User *, 8u> users(bc->users());
+        for (auto *user : users) {
+            if (auto *icmp = llvm::dyn_cast<llvm::ICmpInst>(user)) {
+                auto *lhs = icmp->getOperand(0u);
+                auto *rhs = icmp->getOperand(1u);
+                auto pred = icmp->getPredicate();
+                if (lhs != bc && rhs == bc) {
+                    std::swap(lhs, rhs);
+                    pred = icmp->getSwappedPredicate();
+                }
+                if (lhs != bc) { continue; }
+                llvm::IRBuilder<> builder{icmp};
+                llvm::Value *replacement = nullptr;
+                if (auto *const_rhs = llvm::dyn_cast<llvm::ConstantInt>(rhs)) {
+                    if (pred == llvm::CmpInst::ICMP_EQ && const_rhs->isAllOnesValue()) {
+                        replacement = emit_air_bool_reduction(builder, module, vec, true);
+                    } else if (pred == llvm::CmpInst::ICMP_NE && const_rhs->isAllOnesValue()) {
+                        replacement = builder.CreateNot(
+                            emit_air_bool_reduction(builder, module, vec, true));
+                    } else if (pred == llvm::CmpInst::ICMP_NE && const_rhs->isZero()) {
+                        replacement = emit_air_bool_reduction(builder, module, vec, false);
+                    } else if (pred == llvm::CmpInst::ICMP_EQ && const_rhs->isZero()) {
+                        replacement = builder.CreateNot(
+                            emit_air_bool_reduction(builder, module, vec, false));
+                    } else {
+                        auto is_signed = icmp->isSigned();
+                        auto *packed = pack_bool_vector_to_legal_int(
+                            builder, vec, legal_bits, is_signed);
+                        auto ext_val = is_signed ?
+                                           const_rhs->getValue().sextOrTrunc(legal_bits) :
+                                           const_rhs->getValue().zextOrTrunc(legal_bits);
+                        replacement = builder.CreateICmp(
+                            pred, packed,
+                            llvm::ConstantInt::get(builder.getContext(), ext_val));
+                    }
+                } else if (auto *other_bc = llvm::dyn_cast<llvm::BitCastInst>(rhs);
+                           other_bc != nullptr && other_bc->getSrcTy() == vec_ty) {
+                    if (pred == llvm::CmpInst::ICMP_EQ ||
+                        pred == llvm::CmpInst::ICMP_NE) {
+                        auto *lane_eq = builder.CreateICmpEQ(
+                            vec, other_bc->getOperand(0u));
+                        auto *all_eq = emit_air_bool_reduction(
+                            builder, module, lane_eq, true);
+                        replacement = pred == llvm::CmpInst::ICMP_EQ ?
+                                          all_eq :
+                                          builder.CreateNot(all_eq);
+                    } else {
+                        auto is_signed = icmp->isSigned();
+                        auto *p0 = pack_bool_vector_to_legal_int(
+                            builder, vec, legal_bits, is_signed);
+                        auto *p1 = pack_bool_vector_to_legal_int(
+                            builder, other_bc->getOperand(0u), legal_bits, is_signed);
+                        replacement = builder.CreateICmp(pred, p0, p1);
+                    }
+                }
+                if (replacement != nullptr) {
+                    icmp->replaceAllUsesWith(replacement);
+                    icmp->eraseFromParent();
+                }
+            } else if (auto *zext = llvm::dyn_cast<llvm::ZExtInst>(user)) {
+                auto dst_bits = zext->getDestTy()->getIntegerBitWidth();
+                if (dst_bits == 8u || dst_bits == 16u ||
+                    dst_bits == 32u || dst_bits == 64u) {
+                    llvm::IRBuilder<> builder{zext};
+                    zext->replaceAllUsesWith(
+                        pack_bool_vector_to_legal_int(builder, vec, dst_bits, false));
+                    zext->eraseFromParent();
+                }
+            } else if (auto *sext = llvm::dyn_cast<llvm::SExtInst>(user)) {
+                auto dst_bits = sext->getDestTy()->getIntegerBitWidth();
+                if (dst_bits == 8u || dst_bits == 16u ||
+                    dst_bits == 32u || dst_bits == 64u) {
+                    llvm::IRBuilder<> builder{sext};
+                    sext->replaceAllUsesWith(
+                        pack_bool_vector_to_legal_int(builder, vec, dst_bits, true));
+                    sext->eraseFromParent();
+                }
+            }
+        }
+        if (!bc->use_empty() &&
+            (n == 8u || n == 16u || n == 32u || n == 64u)) {
+            llvm::IRBuilder<> builder{bc};
+            bc->replaceAllUsesWith(
+                pack_bool_vector_to_legal_int(builder, vec, n, false));
+        }
+        LUISA_ASSERT(
+            bc->use_empty(),
+            "Unhandled Metal AIR <{} x i1> to i{} bitcast consumer.",
+            n, bc->getDestTy()->getIntegerBitWidth());
+        bc->eraseFromParent();
+    }
+
+    for (auto *bc : int_to_bool_casts) {
+        auto *dst_vec = llvm::cast<llvm::FixedVectorType>(bc->getDestTy());
+        auto n = static_cast<unsigned>(dst_vec->getNumElements());
+        llvm::IRBuilder<> builder{bc};
+        auto *bits = bc->getOperand(0u);
+        if (auto *trunc = llvm::dyn_cast<llvm::TruncInst>(bits)) {
+            auto src_bits = trunc->getSrcTy()->getIntegerBitWidth();
+            if (src_bits == 8u || src_bits == 16u ||
+                src_bits == 32u || src_bits == 64u) {
+                bits = trunc->getOperand(0u);
+            }
+        }
+        auto bits_width = bits->getType()->getIntegerBitWidth();
+        if (bits_width != 8u && bits_width != 16u &&
+            bits_width != 32u && bits_width != 64u) {
+            auto legal_bits = bits_width <= 32u ? 32u : 64u;
+            bits = builder.CreateZExt(
+                bits, llvm::Type::getIntNTy(builder.getContext(), legal_bits));
+            bits_width = legal_bits;
+        }
+        auto *int_ty = llvm::Type::getIntNTy(builder.getContext(), bits_width);
+        auto *zero = llvm::ConstantInt::get(int_ty, 0u);
+        llvm::Value *vec = llvm::PoisonValue::get(dst_vec);
+        for (auto i = 0u; i < n; i++) {
+            auto mask = llvm::APInt::getOneBitSet(bits_width, i);
+            auto *masked = builder.CreateAnd(
+                bits, llvm::ConstantInt::get(int_ty, mask));
+            auto *lane = builder.CreateICmpNE(masked, zero);
+            vec = builder.CreateInsertElement(
+                vec, lane, static_cast<uint64_t>(i));
+        }
+        bc->replaceAllUsesWith(vec);
+        bc->eraseFromParent();
+    }
 }
+
+struct AIRWideVectorLoadStoreLegalizePass : llvm::PassInfoMixin<AIRWideVectorLoadStoreLegalizePass> {
+    llvm::PreservedAnalyses run(llvm::Function &function, llvm::FunctionAnalysisManager &) {
+        const auto &dl = function.getDataLayout();
+        llvm::SmallVector<llvm::LoadInst *, 8u> wide_loads;
+        llvm::SmallVector<llvm::StoreInst *, 8u> wide_stores;
+        for (auto &block : function) {
+            for (auto &inst : block) {
+                if (auto *ld = llvm::dyn_cast<llvm::LoadInst>(&inst)) {
+                    if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(ld->getType());
+                        vt != nullptr && vt->getNumElements() > 4u) {
+                        wide_loads.emplace_back(ld);
+                    }
+                } else if (auto *st = llvm::dyn_cast<llvm::StoreInst>(&inst)) {
+                    if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(st->getValueOperand()->getType());
+                        vt != nullptr && vt->getNumElements() > 4u) {
+                        wide_stores.emplace_back(st);
+                    }
+                }
+            }
+        }
+        if (wide_loads.empty() && wide_stores.empty()) {
+            return llvm::PreservedAnalyses::all();
+        }
+        for (auto *st : wide_stores) {
+            auto *val = st->getValueOperand();
+            auto *vt = llvm::cast<llvm::FixedVectorType>(val->getType());
+            auto *elem_ty = vt->getElementType();
+            auto n = static_cast<unsigned>(vt->getNumElements());
+            auto elem_bytes = static_cast<uint64_t>(dl.getTypeStoreSize(elem_ty));
+            auto base_align = st->getAlign();
+            auto addr_space = st->getPointerAddressSpace();
+            llvm::IRBuilder<> builder{st};
+            for (unsigned offset = 0u; offset < n;) {
+                unsigned width = (n - offset >= 4u) ? 4u : ((n - offset >= 2u) ? 2u : 1u);
+                auto byte_offset = static_cast<uint64_t>(offset) * elem_bytes;
+                auto *ptr = offset == 0u ?
+                                st->getPointerOperand() :
+                                builder.CreateInBoundsGEP(
+                                    builder.getInt8Ty(), st->getPointerOperand(),
+                                    builder.getInt64(byte_offset));
+                auto chunk_align = llvm::commonAlignment(base_align, byte_offset);
+                if (width == 1u) {
+                    auto *lane = builder.CreateExtractElement(val, static_cast<uint64_t>(offset));
+                    auto *ns = builder.CreateAlignedStore(lane, ptr, chunk_align, st->isVolatile());
+                    (void)ns;
+                } else {
+                    auto *chunk_ty = llvm::FixedVectorType::get(elem_ty, width);
+                    llvm::Value *chunk = llvm::PoisonValue::get(chunk_ty);
+                    for (unsigned k = 0u; k < width; ++k) {
+                        auto *lane = builder.CreateExtractElement(val, static_cast<uint64_t>(offset + k));
+                        chunk = builder.CreateInsertElement(chunk, lane, static_cast<uint64_t>(k));
+                    }
+                    auto *ns = builder.CreateAlignedStore(chunk, ptr, chunk_align, st->isVolatile());
+                    (void)ns;
+                }
+                offset += width;
+                (void)addr_space;
+            }
+            st->eraseFromParent();
+        }
+        for (auto *ld : wide_loads) {
+            auto *vt = llvm::cast<llvm::FixedVectorType>(ld->getType());
+            auto *elem_ty = vt->getElementType();
+            auto n = static_cast<unsigned>(vt->getNumElements());
+            auto elem_bytes = static_cast<uint64_t>(dl.getTypeStoreSize(elem_ty));
+            auto base_align = ld->getAlign();
+            auto *inv_md = ld->getMetadata(llvm::LLVMContext::MD_invariant_load);
+            llvm::IRBuilder<> builder{ld};
+            llvm::SmallVector<llvm::Value *, 16u> lanes(n, nullptr);
+            for (unsigned offset = 0u; offset < n;) {
+                unsigned width = (n - offset >= 4u) ? 4u : ((n - offset >= 2u) ? 2u : 1u);
+                auto byte_offset = static_cast<uint64_t>(offset) * elem_bytes;
+                auto *ptr = offset == 0u ?
+                                ld->getPointerOperand() :
+                                builder.CreateInBoundsGEP(
+                                    builder.getInt8Ty(), ld->getPointerOperand(),
+                                    builder.getInt64(byte_offset));
+                auto chunk_align = llvm::commonAlignment(base_align, byte_offset);
+                if (width == 1u) {
+                    auto *nl = builder.CreateAlignedLoad(elem_ty, ptr, chunk_align, ld->isVolatile());
+                    if (inv_md && !ld->isVolatile()) {
+                        nl->setMetadata(llvm::LLVMContext::MD_invariant_load, inv_md);
+                    }
+                    lanes[offset] = nl;
+                } else {
+                    auto *chunk_ty = llvm::FixedVectorType::get(elem_ty, width);
+                    auto *nl = builder.CreateAlignedLoad(chunk_ty, ptr, chunk_align, ld->isVolatile());
+                    if (inv_md && !ld->isVolatile()) {
+                        nl->setMetadata(llvm::LLVMContext::MD_invariant_load, inv_md);
+                    }
+                    for (unsigned k = 0u; k < width; ++k) {
+                        lanes[offset + k] = builder.CreateExtractElement(nl, static_cast<uint64_t>(k));
+                    }
+                }
+                offset += width;
+            }
+            llvm::Value *rebuilt = llvm::PoisonValue::get(vt);
+            for (unsigned i = 0u; i < n; ++i) {
+                rebuilt = builder.CreateInsertElement(rebuilt, lanes[i], static_cast<uint64_t>(i));
+            }
+            ld->replaceAllUsesWith(rebuilt);
+            ld->eraseFromParent();
+        }
+        return llvm::PreservedAnalyses::none();
+    }
+};
 
 void optimize_llvm_module(llvm::Module &module) noexcept {
     // LLVM creates globals for transformations such as switch-to-lookup using
@@ -222,6 +643,20 @@ void optimize_llvm_module(llvm::Module &module) noexcept {
     tuning.LoopUnrolling = false;
     auto pass_builder = luisa::compute::detail::make_llvm_pass_builder(
         module.getContext(), nullptr, tuning);
+    const bool enable_lsv = []() noexcept {
+        if (const auto *env = std::getenv("LUISA_METAL4_ENABLE_LSV")) {
+            return luisa::string_view{env} != "0";
+        }
+        return false;
+    }();
+    if (enable_lsv) {
+        pass_builder.registerVectorizerStartEPCallback(
+            [](llvm::FunctionPassManager &fpm, llvm::OptimizationLevel) {
+                fpm.addPass(llvm::LoadStoreVectorizerPass());
+                fpm.addPass(AIRWideVectorLoadStoreLegalizePass{});
+                fpm.addPass(llvm::InstCombinePass());
+            });
+    }
     pass_builder.registerModuleAnalyses(module_analysis);
     pass_builder.registerCGSCCAnalyses(cgscc_analysis);
     pass_builder.registerFunctionAnalyses(function_analysis);
@@ -231,7 +666,7 @@ void optimize_llvm_module(llvm::Module &module) noexcept {
     auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
         llvm::OptimizationLevel::O2);
     pipeline.run(module, module_analysis);
-    lower_llvm_float_reductions(module);
+    lower_llvm_post_opt_for_air(module);
     module.setDataLayout(original_data_layout);
 }
 
@@ -273,12 +708,267 @@ struct AIRCodegenEntry {
 [[nodiscard]] AIRCodegenEntry codegen_entry(
     const xir::Module &module, const MetalCodegenLLVMConfig &base_config,
     MetalAIRKernelEntry entry, luisa::string_view dump_suffix) noexcept {
+    auto optimize_ray_query_dynamic_force_opaque =
+        [](llvm::Module &mod,
+           luisa::span<const luisa::string> intersection_functions) noexcept {
+            if (intersection_functions.empty()) { return; }
+            if (const auto *env = std::getenv("LUISA_METAL4_DISABLE_DYN_FORCE_OPAQUE");
+                env != nullptr && luisa::string_view{env} != "0") {
+                return;
+            }
+            const auto &dl = mod.getDataLayout();
+            auto is_constant_opaque_commit =
+                [](const llvm::Function &fn, bool accept_any) noexcept {
+                    if (fn.size() != 1u) { return false; }
+                    for (const auto &inst : fn.front()) {
+                        if (inst.mayWriteToMemory() ||
+                            llvm::isa<llvm::CallBase>(&inst)) {
+                            return false;
+                        }
+                    }
+                    const auto *ret = llvm::dyn_cast<llvm::ReturnInst>(
+                        fn.front().getTerminator());
+                    if (ret == nullptr) { return false; }
+                    const auto *rv = llvm::dyn_cast_or_null<llvm::Constant>(
+                        ret->getReturnValue());
+                    if (rv == nullptr) { return false; }
+                    const auto *acc = llvm::dyn_cast_or_null<llvm::ConstantInt>(
+                        rv->getAggregateElement(0u));
+                    const auto *cont = llvm::dyn_cast_or_null<llvm::ConstantInt>(
+                        rv->getAggregateElement(1u));
+                    return acc != nullptr && acc->isOne() &&
+                           cont != nullptr && (accept_any || cont->isOne());
+                };
+
+            for (size_t idx = 0u; idx < intersection_functions.size(); ++idx) {
+                auto *surf_fn = mod.getFunction(
+                    llvm::StringRef{intersection_functions[idx].data(),
+                                    intersection_functions[idx].size()});
+                if (surf_fn == nullptr || surf_fn->isDeclaration()) { continue; }
+                bool has_writes = false;
+                for (const auto &bb : *surf_fn) {
+                    for (const auto &inst : bb) {
+                        if (inst.mayWriteToMemory()) {
+                            has_writes = true;
+                            break;
+                        }
+                    }
+                    if (has_writes) { break; }
+                }
+                if (has_writes) { continue; }
+
+                auto prefix = luisa::format("ray.query.payload.{}", idx);
+                llvm::CallInst *matched_call = nullptr;
+                llvm::AllocaInst *matched_alloca = nullptr;
+                bool ambiguous = false;
+                for (auto &fn : mod) {
+                    if (fn.isDeclaration() || &fn == surf_fn) { continue; }
+                    for (auto &bb : fn) {
+                        for (auto &inst : bb) {
+                            auto *ci = llvm::dyn_cast<llvm::CallInst>(&inst);
+                            if (ci == nullptr || ci->arg_size() < 20u) { continue; }
+                            auto *callee = ci->getCalledFunction();
+                            if (callee == nullptr ||
+                                !callee->getName().starts_with("air.intersect.")) {
+                                continue;
+                            }
+                            auto payload_arg_idx = static_cast<unsigned>(
+                                ci->arg_size() - 13u);
+                            auto *base = ci->getArgOperand(payload_arg_idx)
+                                             ->stripPointerCasts();
+                            auto *ai = llvm::dyn_cast<llvm::AllocaInst>(base);
+                            if (ai == nullptr) { continue; }
+                            auto name = ai->getName();
+                            llvm::StringRef prefix_ref{prefix.data(), prefix.size()};
+                            if (name == prefix_ref ||
+                                (name.starts_with(prefix_ref) &&
+                                 name[prefix_ref.size()] == '.')) {
+                                if (matched_call != nullptr) {
+                                    ambiguous = true;
+                                } else {
+                                    matched_call = ci;
+                                    matched_alloca = ai;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (ambiguous || matched_call == nullptr || matched_alloca == nullptr) {
+                    continue;
+                }
+                auto payload_arg_idx = static_cast<unsigned>(
+                    matched_call->arg_size() - 13u);
+                auto force_opaque_idx = payload_arg_idx + 6u;
+                auto accept_any_idx = static_cast<unsigned>(
+                    matched_call->arg_size() - 1u);
+                auto *fo_const = llvm::dyn_cast<llvm::ConstantInt>(
+                    matched_call->getArgOperand(force_opaque_idx));
+                auto *aa_const = llvm::dyn_cast<llvm::ConstantInt>(
+                    matched_call->getArgOperand(accept_any_idx));
+                if (fo_const == nullptr || aa_const == nullptr) {
+                    continue;
+                }
+                const auto orig_fo = fo_const->getZExtValue();
+                if (orig_fo != 0u && orig_fo != 2u) {
+                    continue;
+                }
+                const bool accept_any = aa_const->isOne();
+                if (is_constant_opaque_commit(*surf_fn, accept_any)) {
+                    llvm::IRBuilder<> b{matched_call};
+                    matched_call->setArgOperand(force_opaque_idx, b.getInt32(1u));
+                    continue;
+                }
+
+                // Collect candidate i8 stores into matched_alloca preceding matched_call.
+                llvm::SmallVector<std::pair<int64_t, llvm::Value *>, 4u> bool_stores;
+                llvm::SmallVector<int64_t, 4u> seen_offsets;
+                for (auto it = llvm::BasicBlock::reverse_iterator(matched_call->getIterator());
+                     it != matched_call->getParent()->rend(); ++it) {
+                    auto &prev = *it;
+                    if (auto *st = llvm::dyn_cast<llvm::StoreInst>(&prev)) {
+                        if (st->isVolatile()) { break; }
+                        llvm::APInt off(
+                            dl.getIndexTypeSizeInBits(st->getPointerOperandType()), 0u);
+                        auto *base = st->getPointerOperand()
+                                         ->stripAndAccumulateConstantOffsets(dl, off, true);
+                        if (base == matched_alloca) {
+                            auto byte_off = off.getSExtValue();
+                            if (std::find(seen_offsets.begin(), seen_offsets.end(),
+                                          byte_off) == seen_offsets.end()) {
+                                seen_offsets.push_back(byte_off);
+                                auto *val = st->getValueOperand();
+                                if ((val->getType()->isIntegerTy(1u) ||
+                                     val->getType()->isIntegerTy(8u)) &&
+                                    !llvm::isa<llvm::Constant>(val)) {
+                                    bool_stores.emplace_back(byte_off, val);
+                                }
+                            }
+                        }
+                    } else if (prev.mayWriteToMemory()) {
+                        break;
+                    }
+                }
+                if (bool_stores.empty()) { continue; }
+
+                bool applied = false;
+                for (auto [byte_off, val_i8] : bool_stores) {
+                    for (uint8_t c : {uint8_t{1u}, uint8_t{0u}}) {
+                        llvm::ValueToValueMapTy vmap;
+                        auto *cloned = llvm::CloneFunction(surf_fn, vmap);
+                        cloned->setLinkage(llvm::GlobalValue::InternalLinkage);
+                        auto *cloned_payload = cloned->getArg(0u);
+                        llvm::SmallVector<llvm::LoadInst *, 4u> matching_loads;
+                        for (auto &bb : *cloned) {
+                            for (auto &inst : bb) {
+                                auto *ld = llvm::dyn_cast<llvm::LoadInst>(&inst);
+                                if (ld == nullptr || ld->isVolatile() ||
+                                    (!ld->getType()->isIntegerTy(1u) &&
+                                     !ld->getType()->isIntegerTy(8u))) {
+                                    continue;
+                                }
+                                llvm::APInt off(
+                                    dl.getIndexTypeSizeInBits(ld->getPointerOperandType()),
+                                    0u);
+                                auto *base =
+                                    ld->getPointerOperand()
+                                        ->stripAndAccumulateConstantOffsets(dl, off, true);
+                                if (base == cloned_payload &&
+                                    off.getSExtValue() == byte_off) {
+                                    matching_loads.push_back(ld);
+                                }
+                            }
+                        }
+                        if (matching_loads.empty()) {
+                            cloned->eraseFromParent();
+                            continue;
+                        }
+                        for (auto *ld : matching_loads) {
+                            ld->replaceAllUsesWith(
+                                llvm::ConstantInt::get(ld->getType(), c));
+                            ld->eraseFromParent();
+                        }
+                        {
+                            llvm::LoopAnalysisManager lam;
+                            llvm::FunctionAnalysisManager fam;
+                            llvm::CGSCCAnalysisManager cgam;
+                            llvm::ModuleAnalysisManager mam;
+                            auto pb = luisa::compute::detail::make_llvm_pass_builder(
+                                mod.getContext(), nullptr);
+                            pb.registerModuleAnalyses(mam);
+                            pb.registerCGSCCAnalyses(cgam);
+                            pb.registerFunctionAnalyses(fam);
+                            pb.registerLoopAnalyses(lam);
+                            pb.crossRegisterProxies(lam, fam, cgam, mam);
+                            llvm::FunctionPassManager fpm;
+                            fpm.addPass(llvm::InstCombinePass());
+                            fpm.addPass(llvm::SimplifyCFGPass());
+                            fpm.addPass(llvm::InstCombinePass());
+                            fpm.addPass(llvm::SimplifyCFGPass());
+                            fpm.run(*cloned, fam);
+                        }
+                        const bool ok = is_constant_opaque_commit(*cloned, accept_any);
+                        cloned->eraseFromParent();
+                        if (!ok) { continue; }
+
+                        llvm::IRBuilder<> b{matched_call};
+                        llvm::Value *cond = nullptr;
+                        if (val_i8->getType()->isIntegerTy(1u)) {
+                            cond = c == 1u ? val_i8 :
+                                             b.CreateXor(val_i8, b.getTrue());
+                        } else {
+                            cond = c == 1u ?
+                                       b.CreateICmpNE(val_i8, b.getInt8(0u)) :
+                                       b.CreateICmpEQ(val_i8, b.getInt8(0u));
+                        }
+                        auto *dyn_fo = b.CreateSelect(
+                            cond, b.getInt32(1u),
+                            b.getInt32(static_cast<uint32_t>(orig_fo)));
+                        matched_call->setArgOperand(force_opaque_idx, dyn_fo);
+
+                        // In surf_fn (invoked only when !cond), fold load to (1 - c).
+                        auto *surf_payload = surf_fn->getArg(0u);
+                        llvm::SmallVector<llvm::LoadInst *, 4u> real_loads;
+                        for (auto &bb : *surf_fn) {
+                            for (auto &inst : bb) {
+                                auto *ld = llvm::dyn_cast<llvm::LoadInst>(&inst);
+                                if (ld == nullptr || ld->isVolatile() ||
+                                    (!ld->getType()->isIntegerTy(1u) &&
+                                     !ld->getType()->isIntegerTy(8u))) {
+                                    continue;
+                                }
+                                llvm::APInt off(
+                                    dl.getIndexTypeSizeInBits(ld->getPointerOperandType()),
+                                    0u);
+                                auto *base =
+                                    ld->getPointerOperand()
+                                        ->stripAndAccumulateConstantOffsets(dl, off, true);
+                                if (base == surf_payload &&
+                                    off.getSExtValue() == byte_off) {
+                                    real_loads.push_back(ld);
+                                }
+                            }
+                        }
+                        for (auto *ld : real_loads) {
+                            ld->replaceAllUsesWith(
+                                llvm::ConstantInt::get(ld->getType(), 1u - c));
+                            ld->eraseFromParent();
+                        }
+                        applied = true;
+                        break;
+                    }
+                    if (applied) { break; }
+                }
+            }
+        };
+
     auto config = base_config;
     config.entry = entry;
     auto result = luisa_compute_metal_codegen_llvm(module, config);
     LUISA_ASSERT(result.module, "Metal XIR to LLVM code generation failed.");
     verify_llvm_module(*result.module, "XIR translation");
     optimize_llvm_module(*result.module);
+    optimize_ray_query_dynamic_force_opaque(
+        *result.module, result.intersection_functions);
     verify_llvm_module(*result.module, "LLVM optimization");
     if (dump_llvm_enabled()) {
         auto path = luisa::format("{}.{}.ll", base_config.source_file, dump_suffix);

@@ -263,6 +263,8 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
     }
     // launch
     auto cuda_stream = encoder.stream()->handle();
+    auto *device = encoder.stream()->device();
+    auto &device_handle = device->handle();
     if (command->is_indirect()) {
         LUISA_ASSERT(_indirect_function != nullptr,
                      "Indirect dispatch is not supported by this shader.");
@@ -272,11 +274,20 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
         void *arguments[] = {argument_buffer.data(), &indirect_binding};
         static constexpr auto block_size = 64u;
         auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
+        // This launch stays a plain `cuLaunchKernel` and is never relaxed: the
+        // grid is a cudadevrt launcher that does not wait for a programmatic
+        // dependency, and the indirect buffer it reads is normally written by the
+        // predecessor, so starting it early would read an unlaunched dispatch
+        // descriptor. It is counted as a strict launch for the same reason, and
+        // it does not become a usable predecessor either: a child grid launched
+        // from the device may still be running when the launcher retires, so
+        // `note_pdl_grid_launched()` is deliberately not called here.
         LUISA_CHECK_CUDA(cuLaunchKernel(
             _indirect_function,
             block_count, 1u, 1u,
             block_size, 1u, 1u,
             0u, cuda_stream, arguments, nullptr));
+        device->note_pdl_launch(false);
     } else {
         // the last argument is the launch size
         auto ptr = allocate_argument(sizeof(uint4));
@@ -306,17 +317,24 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             // instead would make the driver read every parameter after the
             // first out of unrelated stack memory.
             void *arguments[] = {argument_buffer.data()};
-            auto &device_handle = encoder.stream()->device()->handle();
             auto relax_stream_serialization =
-                cuda_pdl_detail::should_relax_stream_serialization(
-                    uses_grid_dependency_synchronize(),
-                    _pdl_launch_enabled, device_handle.compute_capability(),
-                    device_handle.driver_version());
+                cuda_pdl_detail::should_relax_stream_serialization({
+                    .shader_waits_for_dependency = uses_grid_dependency_synchronize(),
+                    .predecessor_is_kernel = encoder.pdl_predecessor_is_kernel(),
+                    .stream_policy_enabled = device->pdl_stream_enabled(),
+                    .driver_accepts_attribute = _pdl_launch_enabled.load(std::memory_order_relaxed),
+                    .compute_capability = device_handle.compute_capability(),
+                    .driver_version = device_handle.driver_version(),
+                });
             auto launch = [&](bool relax) noexcept {
                 return cuda_shader_native_detail::launch_kernel(
                     _function, blocks, block_size, 0u, cuda_stream, arguments, relax);
             };
             auto error = launch(relax_stream_serialization);
+            // The launch the driver actually accepted. A refused attribute is
+            // re-issued through the classic entry point, so it must be counted (and
+            // reported) as a strict launch even though the predicate said relax.
+            auto relaxed = relax_stream_serialization;
             if (error != CUDA_SUCCESS && relax_stream_serialization &&
                 (error == CUDA_ERROR_INVALID_VALUE || error == CUDA_ERROR_NOT_SUPPORTED)) {
                 // The driver refused the attribute, so nothing was enqueued and the
@@ -326,12 +344,19 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
                 // CUDA_ERROR_LAUNCH_FAILED) goes through LUISA_CHECK_CUDA below,
                 // because the grid may already have run.
                 _pdl_launch_enabled.store(false, std::memory_order_relaxed);
+                device->note_pdl_driver_fallback();
                 LUISA_WARNING_WITH_LOCATION(
                     "Driver rejected CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION; "
                     "falling back to cuLaunchKernel for this shader.");
+                relaxed = false;
                 error = launch(false);
             }
             LUISA_CHECK_CUDA(error);
+            // The grid was enqueued: a later launch of this submission may be
+            // relaxed against it. The counter distinguishes the two entry points
+            // for the A/B comparison.
+            encoder.note_pdl_grid_launched();
+            device->note_pdl_launch(relaxed);
             ++kernel_id;
         }
     }
