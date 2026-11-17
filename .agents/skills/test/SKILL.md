@@ -81,30 +81,24 @@ test_proj("test_tile_values_cpp23", "unit/tile/test_tile_values.cpp", false, fun
 end, nil, "cxx23")
 ```
 
-## Example ↔ Test Mirror Targets
+## Offline Integration Regression Fixtures
 
-Auto-checkable examples in `examples/` (rendering w/ reference image, deterministic sims, headless compute) are built as **two executables sharing one source file**: `example_<name>` and `test_<name>`. Mirroring is **CMake-only** (`examples/xmake.lua` defines `example_proj` targets and no `test_` mirrors). Opt in with the `MIRROR_AS_TEST` flag on `luisa_compute_add_example` in `examples/CMakeLists.txt`:
+Examples now live in LuisaComputeGallery. Regression fixtures remain independently in
+`src/tests/integration/{rendering,simulation,compute,ml,coro}` and retain their historical
+`test_*` executable names. Register them in `integration/CMakeLists.txt` and
+`src/tests/xmake.lua`; do not make tests depend on the Gallery checkout.
 
-```cmake
-luisa_compute_add_example(example_path_tracing
-        rendering/path_tracing.cpp
-        rendering/path_tracing_test.h
-        MIRROR_AS_TEST)
-# Produces both bin/example_path_tracing and bin/test_path_tracing (same sources).
-# The mirror name is derived by replacing the leading "example_" with "test_".
-```
+The suite includes path-tracing variants, photon mapping, SDF rendering, deterministic
+simulations, image processing, LBVH, and attention reference comparisons. GUI-dependent
+fixtures still require GUI at build time, even when run with `--offline`. XIR round-trip
+fixtures additionally require XIR. Spectrum data is embedded during the build.
 
-When extra `target_link_libraries` are needed, use `luisa_example_pair_link` so both targets get the libs (it links `name`, and also its `test_` mirror when one exists):
-```cmake
-luisa_compute_add_example(example_cuda_lcub extension/cuda_lcub.cpp)
-luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver)
-```
-
-**Do NOT mirror**: GUI toolkit demos (`swapchain*`, `imgui`, `mnist`, Qt, wxWidgets, `win_hdr`) and extension/interop demos. Correctness can't be auto-checked for interactive windows.
-
-**Mirrored set** (rendering + simulation + headless compute; `examples/CMakeLists.txt`): all `example_path_tracing*` (`_camera`, `_cutout`, `_hdr`, `_nested_callable`, `_ray_masks`, `_spectrum`, plus `example_path_tracing_xir2ast` when the XIR target exists — all inside `if (LUISA_COMPUTE_ENABLE_GUI)`), `example_sdf_renderer` and `example_sdf_renderer_xir2ast` (the latter gated by XIR), `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`, `example_gdeflate`, `example_cluster_launch_control`, `example_async_copy_prefetch`, `example_software_lbvh`, `example_software_lbvh_test`, `example_multi_head_attention`.
-
-GUI toolkit demos (`imgui`, `swapchain*`, `win_hdr`, Qt, wxWidgets), extension/interop demos, and `example_bindless_mip` are **not** mirrored because they are interactive or lack deterministic offline validation.
+On a compatible configured backend, CTest registers finite Metal4 rendering smoke tests
+(`integration_metal4;rendering`) and SIMD reference-image comparisons (`graphics_simd`).
+Coroutine external-stage and on-demand-texture checks retain their Metal/Metal4 CTest
+registrations. Other GPU executables require a backend argument and are build-only by default.
+Host option-validation, foreground-moment, and render-pass planning tests have `unit_core`
+labels and need no GPU. Interactive GUI/interop demos are not regression fixtures.
 
 ## C++ Test Templates & Style
 

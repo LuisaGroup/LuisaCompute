@@ -2087,3 +2087,16 @@ endforeach ()
 
 luisa_compute_add_test(test_xir_pass_restructure_cfg_semantics unit/xir/test_xir_pass_restructure_cfg_semantics.cpp LABELS "unit;unit_xir;unit_coro")
 set_tests_properties(test_xir_pass_restructure_cfg_semantics PROPERTIES TIMEOUT 120)
+
+# Offline rendering, simulation, and compute regression fixtures.
+add_subdirectory(integration)
+luisa_compute_add_test(test_foreground_moments unit/core/test_foreground_moments.cpp LABELS "unit;unit_core")
+target_include_directories(test_foreground_moments PRIVATE integration/common)
+luisa_compute_add_test(test_example_options unit/core/test_example_options.cpp LABELS "unit;unit_core")
+target_include_directories(test_example_options PRIVATE integration/common)
+luisa_compute_add_test(test_path_tracing_sample_plan unit/core/test_path_tracing_sample_plan.cpp LABELS "unit;unit_core")
+target_include_directories(test_path_tracing_sample_plan PRIVATE integration/common)
+luisa_compute_add_test(test_nbody_render_plan unit/core/test_nbody_render_plan.cpp LABELS "unit;unit_core")
+target_include_directories(test_nbody_render_plan PRIVATE integration/common)
+luisa_compute_add_test(test_photon_mapping_plan unit/core/test_photon_mapping_plan.cpp LABELS "unit;unit_core")
+target_include_directories(test_photon_mapping_plan PRIVATE integration/common)
