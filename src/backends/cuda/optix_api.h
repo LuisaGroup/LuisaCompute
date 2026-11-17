@@ -6,9 +6,9 @@
 #include <optix.h>
 #include <optix_function_table.h>
 
-// Keep the host ABI in sync with cuda_builtin's lightweight declarations.
-static_assert(OPTIX_VERSION == 90100 && OPTIX_ABI_VERSION == 118,
-              "Review the embedded device ABI before upgrading OptiX.");
+// The selected official headers supply their own function table ABI. Keep the
+// shared host/device layouts checked below instead of pinning one SDK release.
+static_assert(OPTIX_VERSION >= 90000, "OptiX 9.0 or newer headers are required.");
 
 // These layouts are also consumed by the lightweight device declarations and
 // LLVM code generation. An SDK update must review both sides of this boundary.

@@ -177,8 +177,10 @@ namespace luisa::compute::optix {
     OptixFunctionTable t{};
     if (!query_function_table(handle, t)) {
         LUISA_ERROR_WITH_LOCATION(
-            "Failed to load OptiX function table. "
-            "OptiX 9.1 requires an NVIDIA R590 or newer driver.");
+            "Failed to load OptiX function table for SDK {}.{}.{} (ABI {}). "
+            "Install an NVIDIA driver compatible with the selected OptiX SDK.",
+            OPTIX_VERSION / 10000, (OPTIX_VERSION % 10000) / 100,
+            OPTIX_VERSION % 100, OPTIX_ABI_VERSION);
     }
     return t;
 }

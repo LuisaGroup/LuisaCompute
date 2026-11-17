@@ -76,13 +76,33 @@ if (CUDAToolkit_FOUND)
 
     luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 
-    # Official host API, pinned to OptiX 9.1 (ABI 118). No OptiX runtime is linked:
-    # the NVIDIA driver library is still discovered at runtime by optix_api.cpp.
-    set(_luisa_optix_include "${PROJECT_SOURCE_DIR}/src/ext/optix/include")
-    if (NOT EXISTS "${_luisa_optix_include}/optix_function_table.h")
-        message(FATAL_ERROR "OptiX headers are missing. Run git submodule update --init src/ext/optix")
+    # Host headers only. The matching driver ABI is loaded at runtime; no
+    # OptiX runtime library is linked. A parent project can select its own SDK.
+    if (LUISA_COMPUTE_OPTIX_INCLUDE_DIR)
+        get_filename_component(_luisa_optix_include "${LUISA_COMPUTE_OPTIX_INCLUDE_DIR}"
+                ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+    else ()
+        set(_luisa_optix_include "${CMAKE_CURRENT_LIST_DIR}/../../ext/optix/include")
     endif ()
-    target_include_directories(luisa-compute-backend-cuda SYSTEM PRIVATE "${_luisa_optix_include}")
+    foreach (_luisa_optix_header IN ITEMS optix.h optix_host.h optix_types.h optix_function_table.h)
+        if (NOT EXISTS "${_luisa_optix_include}/${_luisa_optix_header}")
+            message(FATAL_ERROR
+                    "OptiX header ${_luisa_optix_header} is missing from ${_luisa_optix_include}. "
+                    "Set LUISA_COMPUTE_OPTIX_INCLUDE_DIR to a complete OptiX 9.0+ include directory, "
+                    "or leave it empty and run git submodule update --init src/ext/optix.")
+        endif ()
+    endforeach ()
+    file(STRINGS "${_luisa_optix_include}/optix.h" _luisa_optix_version_define
+            REGEX "^#[ \t]*define[ \t]+OPTIX_VERSION[ \t]+[0-9]+")
+    if (NOT _luisa_optix_version_define MATCHES "OPTIX_VERSION[ \t]+([0-9]+)")
+        message(FATAL_ERROR "Cannot read OPTIX_VERSION from ${_luisa_optix_include}/optix.h")
+    endif ()
+    set(_luisa_optix_version "${CMAKE_MATCH_1}")
+    if (_luisa_optix_version LESS 90000)
+        message(FATAL_ERROR "OptiX 9.0 or newer headers are required; found ${_luisa_optix_version} in ${_luisa_optix_include}")
+    endif ()
+    message(STATUS "OptiX headers: ${_luisa_optix_include} (OPTIX_VERSION=${_luisa_optix_version})")
+    target_include_directories(luisa-compute-backend-cuda SYSTEM BEFORE PRIVATE "${_luisa_optix_include}")
 
     # extensions
     target_sources(luisa-compute-backend-cuda PRIVATE

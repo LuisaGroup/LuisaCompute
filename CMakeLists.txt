@@ -80,6 +80,8 @@ option(LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_LLVM_CODEGEN
         "Enable experimental LLVM-based CUDA codegen" OFF)
 option(LUISA_COMPUTE_ENABLE_EXPERIMENTAL_CUDA_OPTIX_IR
         "Enable experimental LLVM-to-OptiX IR support for CUDA" OFF)
+set(LUISA_COMPUTE_OPTIX_INCLUDE_DIR "" CACHE PATH
+        "OptiX 9.0+ headers directory containing optix.h (empty uses the bundled headers)")
 
 # The SIMD CPU backend is staged behind an explicit option until the Phase 2
 # runtime shell reaches parity with the selected fallback core suite.
