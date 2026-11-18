@@ -1,6 +1,6 @@
 ---
 name: lc_optimize
-description: Optimize LuisaCompute DSL kernels using warp/wave primitives, shared-memory aggregation, block-level collectives, thread-group (block) size / occupancy tuning, async copy / software pipelining, roofline and profiler-stall diagnosis, and C++ branch-prediction hints (`[[likely]]`/`[[unlikely]]`). Includes cross-platform hardware experience for NVIDIA (Ampere/Hopper/Blackwell, incl. TMA, wgmma, tcgen05/TMEM, clusters, PDL), AMD (GCN/RDNA/CDNA wave32/wave64, VGPR/LDS budgets, MFMA), Apple Metal, Intel Xe, and Vulkan/DX subgroup portability. Use when kernels bottleneck on atomics, reductions, inter-thread communication, memory bandwidth/coalescing, launch overhead, or poor occupancy, or when porting/tuning kernels across GPU vendors.
+description: Optimize LuisaCompute inference and DSL kernels using roofline/profiler diagnosis, warp/shared-memory collectives, occupancy and dispatch tuning, operator fusion, packed-weight decode, runtime/readback/graph optimization, and rigorous A/B measurement. Covers actual platform APIs and gates for Vulkan split barriers and cooperative vectors, CUDA dot2add, cp.async, PDL, CUDA graphs, mbarriers and cluster launch control, plus NVIDIA/AMD/Metal/Intel hardware guidance. Use for kernel or end-to-end inference bottlenecks, atomics, reductions, memory traffic, launch overhead, Tensor/Tile lowering, and cross-backend tuning.
 ---
 
 # LuisaCompute DSL Kernel Optimization Guide
@@ -535,7 +535,7 @@ sync_block();                                 // publish to the whole block
 // ... now reuse s_src[...] / read neighbors' values without touching global memory ...
 ```
 
-`test_async_copy.cpp` fills a shared staging buffer with `async_copy(scope, dst_lvalue, src_addr, elem_bytes, num, stride, event)` — **every** thread issues its own copy (thread 0 alone would leave the rest unfilled), then `pipeline_commit()`, `pipeline_wait_prior(0u)` and `sync_block()` before consumers read (`src/tests/unit/dsl/test_async_copy.cpp:53-57`; the builtin and its `OpGroupAsyncCopy`/`cp.async` semantics are documented at `include/luisa/dsl/builtin.h:2053-2063`). `test_mipmap.cpp` writes 2×2 block averages into `Shared<float3>` and reduces level-by-level with a `sync_block()` between levels (`src/tests/unit/runtime/test_mipmap.cpp:106`).
+`test_async_copy.cpp` fills a shared staging buffer with `async_copy(scope, dst_lvalue, src_addr, elem_bytes, num, stride, event)` — **every** thread issues its own copy (thread 0 alone would leave the rest unfilled), then `pipeline_commit()`, `pipeline_wait_prior(0u)` and `sync_block()` before consumers read (`src/tests/unit/dsl/test_async_copy.cpp:53-59`; see §27.5 for the actual CUDA/Vulkan lowering and limits). `test_mipmap.cpp` writes 2×2 block averages into `Shared<float3>` and reduces level-by-level with a `sync_block()` between levels (`src/tests/unit/runtime/test_mipmap.cpp:106`).
 
 ### 4.7 Correctness & Performance Rules
 
@@ -763,9 +763,10 @@ CommandList batching is orthogonal to kernel-level optimizations. Apply both: op
 
 1. **One CommandList, one commit, one sync.** Create a single `CommandList` for a group of dependent commands, commit it once, and synchronize once rather than submitting each command separately.
 2. **Record order is the dependency order.** No explicit barriers between kernel dispatches and buffer copies inside one CommandList; hazards are what the reorder pass uses to insert layer boundaries. When commands touch disjoint resources they may overlap — that is the point of the pass, not a bug.
-3. **Don't reuse a committed CommandList.** `commit()` moves the list into the returned `Commit` (`src/runtime/command_list.cpp:92`), leaving the source empty; build a fresh one for the next batch. Destructing a non-empty, uncommitted list asserts (`src/runtime/command_list.cpp:9`).
+3. **Don't reuse a committed CommandList.** `commit()` moves the list into the returned `Commit` (`src/runtime/command_list.cpp:92`), leaving the source empty; build a fresh one for the next batch. Destructing a non-empty, uncommitted list asserts (`src/runtime/command_list.cpp:9`). Intentional error-path cancellation must call `clear()`; the destructor never submits for you, and clearing the pending list cannot cancel earlier committed batches.
 4. **Prefer CommandList over chaining on `stream <<`.** Batched submission is more efficient than long chains of `stream << a << b << c << synchronize()` because it reduces internal queue flushes.
 5. **Combine with kernel optimization.** Host-side batching and kernel-level warp/shared-memory optimization are complementary — use both.
+6. **Separate commit from completion.** If recording memory or submission size needs bounding, split work into commit-only chunks rather than inserting a GPU drain after every layer. Add `synchronize()` only where host readback, callback ordering, or a verified host-staging lifetime requires it. An error path must account for already committed chunks even when it discards the remaining uncommitted list.
 
 ### 8.8 Async Callbacks — Replacing `synchronize()` with Non-Blocking Completion
 
@@ -792,10 +793,10 @@ Both take `luisa::move_only_function<void()> &&` (`include/luisa/runtime/command
 
 | Callback | When it fires | GPU status | Typical use |
 |---|---|---|---|
-| `add_dtor_callback` | From `~CommandList` (`src/runtime/command_list.cpp:8-15`) — after `commit()` has moved the list into the `Commit` and the backend has consumed it | Commands already recorded/submitted; **completion not implied** | Release temporary host buffers, close files, or free staging memory that was only needed to construct the commands (see `fill_buffer`'s use in `include/luisa/runtime/builtin_kernel.h:59`). |
+| `add_dtor_callback` | From `~CommandList` (`src/runtime/command_list.cpp:8-15`) — after `commit()` has moved the list into the `Commit` and the backend has consumed it | Commands already recorded/submitted; **completion not implied** | Release temporary host resources after the backend has consumed them during encoding, close files, or free construction-only memory (see `fill_buffer`'s use in `include/luisa/runtime/builtin_kernel.h:59`). |
 | `add_callback` | After all GPU commands in the list have completed (backend completion/worker thread — e.g. `Stream::_thd` on Vulkan, `CommandQueue::_execute_thread` on DX) | **Done** | Read back downloaded buffers, write output files, signal host work queues, or launch dependent host tasks. |
 
-**Critical difference:** `add_dtor_callback` is a destruction hook, not a completion callback — it gives no ordering guarantee against GPU execution. Only `add_callback` guarantees GPU work is finished. Note also that dtor callbacks travel with a *move-constructed* `CommandList` (`src/runtime/command_list.cpp:103`) but are **not** transferred by `add_range()` / `operator<<(CommandList&&)` — that path moves only commands, callbacks and presents and then `clear()`s the source, dropping its dtor callbacks (`src/runtime/command_list.cpp:44-58,27`).
+**Critical difference:** `add_dtor_callback` is a destruction hook, not a completion callback — it gives no ordering guarantee against GPU execution. Only `add_callback` guarantees GPU work is finished. For upload staging, use the destruction hook only after verifying that this backend/path copies the source during encoding; otherwise retain it through `add_callback`. Download destinations always need completion ordering. See `lc_api`'s host upload/download lifetime section. Note also that dtor callbacks travel with a *move-constructed* `CommandList` (`src/runtime/command_list.cpp:103`) but are **not** transferred by `add_range()` / `operator<<(CommandList&&)` — that path moves only commands, callbacks and presents and then `clear()`s the source, dropping its dtor callbacks (`src/runtime/command_list.cpp:44-58,27`).
 
 #### 8.8.2 Avoiding `synchronize()` Stalls
 
@@ -828,7 +829,7 @@ This is most impactful when:
 The classic pattern for hiding latency: overlap GPU execution of iteration N+1 with host processing of iteration N's results.
 
 ```cpp
-// Host-side buffers must outlive the GPU work.
+// Download destinations (and staging on unverified paths) must outlive GPU work.
 // Use double-buffering or shared ownership (e.g., shared_ptr).
 for (int i = 0; i < num_iterations; i++) {
     auto host_buf = std::make_shared<luisa::vector<float>>(size);
@@ -883,7 +884,7 @@ cmdlist.add_callback([raw]() noexcept { /* DANGER: raw may be dangling */ });
 | Situation | Use |
 |---|---|
 | Read back GPU results and save/process them | `add_callback` |
-| Free host staging buffers after upload | `add_dtor_callback` |
+| Free upload staging after verified encode-time consumption | `add_dtor_callback`; otherwise `add_callback` |
 | Close files or decrement refcounts after submission | `add_dtor_callback` |
 | Signal a host work queue that GPU output is ready | `add_callback` |
 | Launch the next iteration's host prep work | Just place after `commit()` on the host (no callback needed) |
@@ -1171,7 +1172,7 @@ A sequential `load → sync → compute → sync` K-loop leaves the memory syste
 | `cp.async` / `cuda::memcpy_async` (`__pipeline_memcpy_async`) | Ampere (sm_80) | global→SMEM **without** staging through registers | zero for the copy | L1 bypass optional; 16 B/thread copies can bypass L1 ([CUDA Best Practices](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/index.html)) |
 | TMA (`cp.async.bulk.tensor`) | Hopper (sm_90) | descriptor-driven multi-dim tile copy by **one thread**; completion via mbarrier | ~none (hardware does addressing) | also multicasts one tile into up to 16 SMs' SMEM within a cluster ([The Index](https://theindex26.com/tensor-memory-accelerator-tma-nvidia-hopper/)) |
 
-The measured decision rule on GA104: compute/load ratio < 5:1 → prefer `cp.async` (+35% on IGEMM); 5–20:1 → implement both and benchmark; > 20:1 → warp interleaving suffices ([pipeline-gpu-kernel skill](https://www.skillsdirectory.com/skills/pjt222-pipeline-gpu-kernel-agent-almanac)). LuisaCompute exposes `async_copy` + `pipeline_commit` + `pipeline_wait_prior` (§4.6); remember **every thread must issue its own copy** and you still need `sync_block()` before consumers read.
+The measured decision rule on GA104: compute/load ratio < 5:1 → prefer `cp.async` (+35% on IGEMM); 5–20:1 → implement both and benchmark; > 20:1 → warp interleaving suffices ([pipeline-gpu-kernel skill](https://www.skillsdirectory.com/skills/pjt222-pipeline-gpu-kernel-agent-almanac)). LuisaCompute exposes `async_copy` + `pipeline_commit` + `pipeline_wait_prior` (§4.6); remember **every thread must issue its own copy** and you still need `sync_block()` before consumers read. This is not a portable hardware-async guarantee: CUDA emits `cp.async`, Vulkan currently uses a synchronous compatibility implementation, and AST→XIR rejects the operation (§27.5).
 
 Structure the loop as **prologue / main loop / epilogue**: prefetch stage 0 before entering the loop; in iteration `k` acquire the pipeline, issue the copy into buffer `(k+1) % S`, commit, then wait ≤ S−1 outstanding groups and compute on buffer `k % S`; drain after the loop ([jared-hpc.com](https://jared-hpc.com/ai-hardware-engineer-roadmap/Phase%205%20-%20Advanced%20Topics%20and%20Specialization/1.%20GPU%20Infrastructure/Nvidia%20GPU/HPC%20Setup/CUDA-Advanced-Optimization/05-Warp-Specialization/), [mlc.ai](https://mlc.ai/modern-gpu-programming-for-mlsys/chapter_gemm_async/index.html)).
 
@@ -1201,7 +1202,7 @@ Hopper clusters let up to 8 CTAs (16 non-portably on B200, opting in via `cudaFu
 
 ### 16.5 Programmatic Dependent Launch (PDL)
 
-PDL lets a dependent kernel start its prologue (e.g. weight prefetch via `griddepcontrol.launch_dependent_grids`) while the producer kernel is still finishing, hiding launch latency on Hopper and Blackwell. CUTLASS example 63 exposes `overlap_ratio` (when to trigger, default 0.5) and `prefetch_ratio` (how many K-tiles to prefetch); TensorRT-LLM's expanded PDL use contributed to up to 2.8× throughput gains on Blackwell MoE inference ([CSDN CUTLASS PDL guide](https://blog.csdn.net/gitblog_01183/article/details/165467821), [NVIDIA Developer Blog](https://developer.nvidia.com/blog/delivering-massive-performance-leaps-for-mixture-of-experts-inference-on-nvidia-blackwell/)).
+PDL lets a dependent kernel start its prologue (e.g. independent weight prefetch) while the producer kernel is still finishing, hiding launch latency on Hopper and Blackwell; the actual LuisaCompute trigger/wait and launch gates are specified in §27.6. CUTLASS example 63 exposes `overlap_ratio` (when to trigger, default 0.5) and `prefetch_ratio` (how many K-tiles to prefetch); TensorRT-LLM's expanded PDL use contributed to up to 2.8× throughput gains on Blackwell MoE inference ([CSDN CUTLASS PDL guide](https://blog.csdn.net/gitblog_01183/article/details/165467821), [NVIDIA Developer Blog](https://developer.nvidia.com/blog/delivering-massive-performance-leaps-for-mixture-of-experts-inference-on-nvidia-blackwell/)).
 
 ## 17. Blackwell (sm_100 / sm_120) Experience
 
@@ -1413,6 +1414,10 @@ This section distills lessons from optimizing small autoregressive executors and
 5. **Record the whole execution context.** Compiler/options, backend, source/tree state, cache state, shape, warmup, affinity, power/clock state, and raw commands are part of the measurement. If stages are timed at existing synchronization boundaries, label them host wall intervals; do not call them per-kernel GPU time or invent Nsight attribution when no profiler is available.
 6. **Compare original versus final directly.** Do not add percentages from sequential experiments and present the sum as a combined result. Re-run the final combined path against the original under one protocol.
 
+For instrumented runs, require the normal and profile paths to emit the same ordered command IDs. Construct and own profiling labels only when instrumentation is enabled; avoid string formatting/allocation in the normal hot path. Warmups may be excluded from statistics only after passing the same correctness/determinism checks as measured runs. Make command categorization total: every emitted name must match a category or an explicit known-other bucket, with unknown names reported instead of silently dropped. Category intervals measured at host synchronization boundaries remain host-wall data—their sum is not GPU kernel time and overlapping/inclusive categories can inflate shares.
+
+Check executable freshness and coverage before citing results: the binary must postdate and actually link the changed sources. Device-free self-tests are useful release evidence but do not replace the explicit-backend device integration run.
+
 If two comparisons contradict each other, first run the **same binary in both arms**. Check CPU placement, clocks, cache/JIT state, and whether generated PTX is actually different before bisecting source. Identical binaries can occupy different host-performance classes; an apparent code regression is not valid until that is controlled.
 
 ### 25.2 Remove provably redundant launches and uploads before adding complexity
@@ -1444,3 +1449,266 @@ Do not route every row width to the cooperative kernel: barrier/launch overhead 
 ### 25.5 Promotion and evidence discipline
 
 A useful starting policy is >=5% for an operator and >=3% for a full request, reproduced in at least three paired process runs and outside measured noise; calibrate thresholds to the workload rather than treating them as laws. Smaller changes need another clear benefit, such as fewer redundant commands or simpler lifetime invariants. Record rejected experiments and their evidence so they are not retried blindly, and never silently drop a regressed shape from the report.
+
+Keep **feasibility**, **implementation**, and **measurement** as separate states. A weight/config probe may establish eligibility without establishing speedup. Missing weights required by a speculative/draft path mean "not benchmarked", not "benchmark passed"; an unimplemented or default-off path must not set measured-pass, acceleration, or default-enabled flags. Conversely, a tensor that is optional may be absent, but a present malformed tensor must fail validation rather than being treated as absent.
+
+## 26. Inference Optimization Field Guide (Gallery Code Audit)
+
+This section records lessons from `LuisaComputeGallery/src/compute/tokenize/`, `src/ocr/`, and `src/tensor/`. References prefixed `Gallery/` name that sibling checkout explicitly. Within §26, a short filename or `ocr/...` suffix continues the Gallery path in the same bullet; LuisaCompute references begin with `include/` or `src/`. The OCR executors are exercised with **synthetic parity fixtures**, not qualified official checkpoints. Treat every unmeasured recommendation below as an experiment, not an existing fast path or a real-model performance claim. Follow §25 for promotion evidence.
+
+### 26.1 Optimize the recorded request, not just the kernel
+
+Draw the actual timeline first: host preparation → upload → recorded kernels → graph update/replay if any → download → sampling/postprocess → next token. A kernel win can disappear behind an inherent readback, and a graph cannot remove a host decision that controls the next step.
+
+Use the OCR benchmark's three noninterchangeable intervals (`Gallery/src/ocr/bench/benchmark_common.h:138-275`):
+
+- `record_ms`: host command-list construction only.
+- `submit_sync_ms`: queue-idle commit through completed `Stream::synchronize()`.
+- `request_ms`: the complete operation, including its inherent readbacks and synchronization.
+
+Do not derive "GPU kernel time" by subtracting host minima. Use a device profiler for per-kernel attribution. Keep correctness gates and golden downloads outside timed samples, and invalidate a row on an unexpected fallback or changed stopping behavior.
+
+Code-backed first targets:
+
+| Path | Current structural cost | First experiment |
+|---|---|---|
+| Dense autoregressive decode | Full-vocab logits are downloaded and sampled on the host after every step; each graph step still synchronizes (`Gallery/src/ocr/ocr/runtime/dense_vlm_executor.cpp:1490-1573`) | Remove redundant launches/uploads first; for configurations whose exact sampling semantics permit it, test device greedy selection plus a tiny token readback. Treat graphs as an intra-step launch optimization only |
+| TinyCNN Tile inference | The forward pass downloads activations, rebuilds im2col on the host, and uploads between layers (`Gallery/src/tensor/cnn_inference.cpp:338-400`) | Implement device-side im2col/direct convolution, then record the whole forward pass with one final synchronization. Do not mistake the separate 4000-dispatch microbenchmark (`:425-445`) for end-to-end request latency |
+| MoE | Every MoE block drains the list and downloads routing counts/offsets before launching active-expert GEMMs (`Gallery/src/ocr/ocr/runtime/moe_vlm_executor.cpp:1108-1140`) | Preserve exact stable routing, but test device-side expert scheduling/grouped GEMM; ordinary graph capture does not erase this per-layer host dependency |
+| Hybrid GDN | Recurrent state is repeatedly read/modified/written in global memory by one thread per head (`Gallery/src/ocr/ocr/ops/ops_gdn.cpp:92-130`) | Tile a head across a block and stage only a resource-safe state slice; do not assume a whole `d×d` state fits the portable 32 KiB shared budget |
+| OCR host pipeline | BPE/Unigram tokenization, incremental detokenization, DB geometry, and table/result composition can dominate even when GPU kernels improve (`Gallery/src/ocr/ocr/tokenizer.cpp:1309-1532`, `ocr/detokenizer.cpp:24-77`, `ocr/output/db_postprocess.cpp:187-301`) | Profile L0 host work independently; fix asymptotic scans and duplicate parsing before moving cheap host work to the GPU |
+
+Remove provably redundant operations before adding machinery. The dense decoder already writes token embeddings directly into the residual stream instead of embedding→zero-count scatter (`dense_vlm_executor.cpp:1278-1287`), and immutable RoPE axis maps are uploaded at creation rather than per record (`:189-192`). Conversely, audit accidental drains: the CNN line path contains adjacent synchronize/download boundaries that deserve an A/B cleanup (`Gallery/src/ocr/ocr/runtime/cnn_executor.cpp:842-872`).
+
+### 26.2 Decode GEMV and packed-weight inference
+
+The OCR baseline deliberately favors correctness: FP32 activations/accumulation, one thread per output for GEMM, one thread per output column for GEMV/small-M, and in-operator weight dequantization (`Gallery/src/ocr/ocr/ops/ops_gemm.cpp:97-161`). Use the following order:
+
+1. **Amortize each weight load across all small-M rows.** The current GEMV loops over M outside K and rereads B for each row. For M≤4, keep M accumulators in registers and decode/load each B element once per K step. Re-measure the existing `kGemvSmallM = 4` crossover per backend; it is a routing heuristic, not a law (`ops_gemm.h:104-107`).
+2. **Decode a packed word once, not once per logical scalar.** Current FP16/BF16 reads share one word per two elements, INT8 one per four, and INT4 one per eight; grouped INT4/INT8 also perform group division and scale/zero-point loads per element (`Gallery/src/ocr/ocr/ops/ops_common.h:69-119`). Restructure into word- and group-oriented loops, decode all lanes from the word, and hoist scale/zero-point/group math. Preserve low-half/low-nibble-first order, symmetric INT4 zero point 8, groups 64/128, ragged final groups, and FP32 accumulation.
+3. **Then parallelize K.** Test warp/block-per-column, split-K, or stream-K when one-thread-per-column cannot hide decode/load latency. Use a two-level reduction and retain deterministic output/tie behavior where required.
+4. **For prefill GEMM, tile before adding exotic instructions.** Replace full A/B rereads per output with shared/register tiles and compile-time epilogues; preserve the checked `MK/KN/MN` uint32 envelope and ragged tails (`ops_gemm.cpp:292-336`). Fuse gated activation into gate/up projection only after proving its indexing and alias contract.
+
+Keep storage precision separate from compute precision. W4A32 means packed INT4 weights with FP32 activation/accumulation, not a license to compare against an unquantized FP32 model as though quantization were lossless. Compare against the dequantized-weight oracle. W4A16 is a distinct, currently unsupported factory (`ops_gemm.cpp:219-228`); never silently route it to W4A32. The packed route is restricted by model/tensor prefix and tied-head rules, so eligibility is part of the variant key.
+
+For packed GEMV/GEMM, test both sides of every fast-path gate: aligned and deliberately misaligned K/group sizes, scale indexing across multiple groups and packed words, M=1 and the small-M crossover, ragged tails, and the scalar/GEMM reference path. Use an independent high-precision decode/matmul oracle, guard canaries, and verify read-only inputs. A test that merely documents `expected_packed_eligibility` does not prove the device took that branch; expose a route ID/counter or inspect generated code when branch coverage matters.
+
+When split-K is used to keep each dispatch within a backend-reliable bound, validate **every** segment, especially the last: nonzero, within `max_k`, correctly aligned, exact full-K coverage, and global-K scale indexing. Floor-balancing can produce an oversized tail—for example K=12224, `max_k=4096`, alignment=64 gives 4032/4032/4160. If K, `max_k`, and every segment must be alignment-multiples, use a ceil-balanced partition instead:
+
+```cpp
+nseg = ceil_div(K, max_k);
+seg = ceil_div(ceil_div(K, nseg), alignment) * alignment;
+for (auto ko = 0u; ko < K; ko += seg) {
+    auto ks = std::min(seg, K - ko);
+    assert(ks <= max_k && ks % alignment == 0u);
+    // capture segment [ko, ko + ks)
+}
+```
+
+Reject unsupported alignment fail-closed or handle a separate tail; do not silently select an unreliable dispatch. Add host partition property tests over aligned shapes and device oracle tests just across the split threshold and at worst-case tails. Keep accumulation order deterministic, and audit scratch-buffer lifetimes and in-place residual/output aliasing across all producers and consumers.
+
+### 26.3 Norms, residual fusion, attention, and vocabulary ops
+
+**Cooperative norm:** §25.3 records the measured RTX 4080 SUPER crossover and the reason not to route tiny rows to a block. Additionally, preserve the exact launch invariant in the current OCR implementation: cooperative LayerNorm/RMSNorm use 256 threads per row and have no `row < rows` guard; `plan_norm_cooperative_dispatch(rows)` must launch exactly `rows*256` total threads (`Gallery/src/ocr/ocr/ops/ops_norm.cpp:46-157,232-238`). Changing block size without changing this plan can produce out-of-bounds rows. A next variant can reduce per-warp first, stage x when it fits, or use vector loads, but must re-run ragged/NaN/weighted cases and per-backend crossover sweeps.
+
+**Account fusion honestly:** the reference attention output projection already applies residual in its GEMM epilogue. The optional residual+RMSNorm path instead writes a plain projection and runs one fused kernel: it removes an intermediate global-memory pass, **not a kernel launch**—both arms have two kernels (`Gallery/src/ocr/ocr/runtime/dense_vlm_executor.cpp:820-838`). The fused norm currently uses the non-cooperative row plan and recomputes projection+residual in its second pass. Preserve `residual_out`/`residual` in-place allowance and the disjoint projection/norm-output contract (`ops_norm.h:44-46`).
+
+For a normalization plus residual-snapshot fusion, one way to avoid rereading the input is to store the original x into the snapshot output during the reduction pass and normalize from that saved value. Prove the snapshot bit-equals x, compare normalized output against the plain path under the intended bitwise/tolerance contract, and cover ragged rows/dimensions, tail canaries, and an independent oracle. The structural saving is a candidate experiment, not an automatic speedup.
+
+**Attention:** the portable reference prefill recomputes QK in the max pass, sum pass, and once per output dimension during PV (`Gallery/src/ocr/ocr/ops/ops_attention.cpp:208-263`). The online variant computes a score once per key but stores its running output accumulator in global memory (`:265-305`). "Online softmax" alone is therefore not evidence of a faster flash kernel. First remove repeated score/mask work with a score-once variant or compile-time head-dimension specialization; then test block-tiled Q/K/V with register accumulators. The online kernel is benchmark-only; executors select the reference prefill and decode kernels. Test actual head dimensions, GQA sharing, long-KV decode, fully masked rows, all mask kinds, softcap/bias, and ragged causal tails before wiring a new default.
+
+**Vocabulary and sampling:** OCR argmax and temperature softmax currently use one thread per row (`Gallery/src/ocr/ocr/ops/ops_decode.cpp:54-99`). A cooperative argmax must preserve lowest-index ties; softmax should hoist reciprocal temperature and preserve the independent numerical oracle. Non-greedy sampling performs deterministic host sorting and penalties, so replacing it with partial selection or device sampling requires exact tie, RNG-advance, EOS, and stop-string tests—not merely close logits.
+
+**CNN/GDN/MoE:** fold Conv+BN and RepLK offline in double precision where the package contract requires it, but note that the current packer does not perform those folds automatically (`Gallery/src/ocr/ocr/models/pp_ocrv6.cpp:515-606`, `tools/pack_model.py:244-285`). Fuse CNN activation into convolution where valid; route 1×1 convolution through GEMM after layout checks. For GDN chunking, hoist K·K and Q·K dot products out of the V-dimension loop before attempting a parallel scan (`ops_gdn.cpp:152-226`). For MoE, preserve stable expert permutation and validated count/offset prefixes before replacing the O(E×slots) scans or per-active-expert launches with atomics/grouped execution.
+
+### 26.4 Runtime ownership and setup are optimization surfaces
+
+- **Match staging lifetime to the actual submission path.** Transfer commands borrow host pointers. For deferred recording, keep upload sources alive and unchanged until dispatch; two records in one unsubmitted list must not rewrite one mutable source block. Completion-retained staging, as in OCR `RecordUploadStaging` (`Gallery/src/ocr/ocr/runtime/dense_vlm_executor.cpp:41-50,1056-1070`), remains the conservative portable policy. As a verified implementation-specific optimization, current normal DX/Vulkan/CUDA buffer uploads memcpy into backend staging during dispatch, so a direct `stream << upload;` statement's source can be reused after the semicolon without a GPU sync. Do not extend that shortcut to uncommitted lists, downloads, or uninspected backend/custom/graph routes; see `lc_api`'s host upload/download lifetime rules.
+- **Compile once per real variant.** Key shader caches by every semantic option (dtype/layout/epilogue/head dimension/cooperative path), check compile success, warm all variants before timing, and expose compile counts. Retain shaders with stable ownership; OCR uses `unique_ptr` values because dense-map rehash can move the shader object (`ocr/runtime/shader_cache.h:36-90`).
+- **Plan and allocate before the hot request.** Grow-only aligned arenas, exact workspace/KV budgets, and retire-after-sync avoid allocation churn without invalidating in-flight views (`ocr/runtime/workspace.h:20-91`). Do not grow or reset an arena while old commands may still read it.
+- **Keep decode metadata device-visible.** Device-resident KV length/position/step state avoids per-step scalar uploads; update host mirrors only at defined synchronization boundaries. Host slot release and device `record_finished` are separate operations (`ocr/runtime/decode_cache.h:13-17,136-141`). Recurrent/convolution caches additionally need explicit state reset on reuse; a metadata-only finish is not enough.
+- **Reset all freshness domains together.** Reusing a session must clear KV caches, recurrent/GDN state, convolution rings/padding, positions, session flags, and per-run profiling reports as applicable. Clearing an uncommitted list does not roll back earlier committed chunks. After a partially committed failure, reject continuation until reset/prefill, and establish the synchronization required before reusing host/download staging; device-state zeroing itself remains stream-ordered.
+- **Preserve dispatch adapters.** OCR flattened plans carry a 2D total-thread envelope. Sending one through the scalar 1D dispatch overload drops Y rows; the adapter's span/multi-dispatch route is load-bearing (`ocr/runtime/dispatch_adapter.h:4-59`). Never "simplify" it to `dispatch(total_x)`.
+- **Separate cold setup from warm inference.** Package validation/upload, shader compilation, arena growth, graph capture/instantiation, and first use are distinct cold costs. A same-process second create is warm, not cold.
+
+### 26.5 Keep SIMT DSL and Tile DSL optimization advice separate
+
+For classic `Kernel1D/2D/3D`, directly control `set_block_size`, `Shared`, barriers, warp collectives, and total-thread dispatch. For Tile, optimize logical axes, tile extents, execution nests, layout, and `pipeline` policy; dispatch geometry and staging are planner-owned. Do not tell a Tile author to insert `sync_block()` or a warp shuffle when the targeted TileIR route has no such operation (`Gallery/src/tensor/main.cpp:70-90`).
+
+`tile::mma` expresses contraction semantics; it is not proof that CUDA tensor cores were emitted. CUDA Tile currently rejects `cooperative_matrix` and documents the reference multiply/add realization (`src/backends/cuda/tile/cuda_tile.cpp:349-353`). The Gallery mixed-precision example is useful for f16 inputs/f32 accumulation and pipeline syntax (`Gallery/src/tensor/kernel_pipelined_matmul.cpp:21-45`), but its `.window = 1` disables pipeline overlap under Tile semantics. Do not cite it as a measured two-stage pipeline or hardware-MMA result; increase the window only as a separately verified experiment. Inspect `shader.metadata().realization` and dispatch geometry after NATIVE/TIRX compilation (`tensor_kernels.cpp:51-89`).
+
+For small whole-tile examples, the largest wins are often structural: remove per-layer/per-timestep `synchronize()`, upload a training/inference batch once rather than restaging each step, replace bias-as-rank-1-GEMM with broadcast add where exact semantics allow, and split a whole-matrix `parallel(shape(1))` kernel into real tiles when it outgrows one group. Stream ordering already serializes dependent RNN steps; per-step host synchronization is not inherently required (`Gallery/src/tensor/rnn.cpp:483-489`).
+
+### 26.6 Speculative n-gram retrieval: choose the algorithm before tuning atomics
+
+The tokenization example has a naive block scan and a hash-index path. The parallel scan stages the suffix, applies a first-token filter, and reduces the earliest position with one shared atomic (`Gallery/src/compute/tokenize/ngram_kernels.cpp:80-167`). The hash path performs longest-length-first probes with content verification (`:169-254`). Prefer the indexed algorithm when its host-build/upload cost is amortized; do not spend the first effort micro-tuning a full corpus scan.
+
+If the scan remains useful, reduce per-warp before the single shared atomic, sweep block sizes, and consider corpus tiling only after measuring divergent verification reads. For training counts, privatize hot histogram/count atomics only when contention justifies drain cost (§21). Preserve byte-identical FNV-1a hashing, host/device open-addressing layout, longest-n/earliest-position selection, and portable uint32 atomics; do not introduce a CUDA-only 64-bit atomic as the sole path.
+
+For multiple independent requests, compare sequential, overlapped copy/compute, per-request-stream host concurrency, and one multi-dispatch command using `kernel_id()` plus request offsets (`Gallery/src/compute/tokenize/benchmark_tokenize.cpp:238-317`, `ngram_retriever.cpp:276-324`). Use a separate stream per concurrent host recorder where required by stream thread-safety. Correctness-check every timing arm; no committed throughput number is implied by these harnesses.
+
+## 27. Platform-Specific DSL and Runtime Features: What Actually Exists
+
+Hardware background in §15–§20 is not an API support claim. Start from the current public header and a focused runtime test. Many CUDA expert operations lower only through the CUDA AST/NVRTC route; they are not generic XIR operations. Vulkan normally uses native XIR→SPIR-V, with explicit HLSL compatibility reasons in `src/backends/vk/user_compute_codegen_route.h:10-25`.
+
+| Feature | Production route and gate | Important non-support boundary |
+|---|---|---|
+| `split_barrier_arrive/wait` | Vulkan compute, `VK_EXT_shader_split_barrier`; native SPIR-V and compatibility HLSL routes | DX/CUDA/HIP/Metal/CPU reject; never degrades to `sync_block()` |
+| Cooperative vectors | DX SM 6.9 experimental; Vulkan `VK_NV_cooperative_vector` plus required memory-model/composite features | CUDA compute is not the general path; HIP/Metal/CPU lack lowering |
+| `dot2add` | CUDA, DX, Vulkan with exact `(half2,half2,float)` signature | HIP/Metal do not provide a general lowering; rounding differs by route |
+| `async_copy` pipeline | CUDA AST emits `cp.async` for 4/8/16-byte copies | Vulkan currently emulates synchronously; DXIL and AST→XIR reject; no public TMA/tensormap API |
+| PDL wait/trigger | CUDA AST, sm_90+, stream driver ≥12.0; graph edges require CUDA 12.4+ | No XIR/HLSL/SPIR-V lowering; graph edge is not automatic |
+| mbarrier/cluster barriers/CLC | CUDA AST/PTX; broad backend gate sm_90+, CLC instructions are Blackwell-family | No XIR/HLSL/SPIR-V route; check exact instruction architecture, not only the broad gate |
+| `CudaGraphExt` | CUDA host runtime; feature-dependent toolkit/driver/device capabilities | Other backends return no extension; unsupported commands fail rather than disappear |
+
+### 27.1 Trace AST/DSL capability before selecting an optimization
+
+A DSL call normally enters `FunctionBuilder::call(CallOp, ...)`, is validated in `src/ast/op.cpp`, and then follows either CUDA AST source generation, shared HLSL generation, or AST→XIR→target lowering. `ast2xir.cpp:1130-1228` carries split barriers, warp collectives, cooperative calls, and `dot2add`; `:1229-1261` explicitly rejects async copy and CUDA-only cluster/graph/PDL controls. XIR enum entries that exist only for exhaustive interchange are not proof of backend support.
+
+When a feature matters, verify all four boundaries: AST flag propagation through callables, target-lowering support, device/extension/toolkit capability, and execution numerics. A shader that compiles through one Vulkan route may fail under `LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1`; use that guard when claiming native XIR→SPIR-V coverage.
+
+### 27.2 Vulkan split workgroup barriers
+
+Use split barriers to overlap independent work with the publish/wait latency of a shared-memory handoff:
+
+```cpp
+// Every invocation executes both calls in uniform control flow.
+$for (i, thread_x(), tile_size, block_size().x) {
+    tile[i] = produce(i);              // shared writes to publish
+};
+split_barrier_arrive();               // Workgroup Release
+auto independent = local_work();       // must not consume unpublished tile data
+split_barrier_wait();                 // Workgroup Acquire
+consume(tile, independent);
+```
+
+Rules (`include/luisa/dsl/builtin.h:2149-2174`):
+
+1. Arrive and wait use Workgroup execution/memory scope. Arrive does not wait; only independent work belongs between them.
+2. Every invocation executes each exactly once, in uniform control flow, with wait dominated by arrive. Pairing is not validated.
+3. Use compute shaders only. Devices without `shaderSplitBarrier`, DXIL, and other backends reject the operation (`spirv_codegen/instruction.cpp:5134-5163`, `hlsl/codegen_utils/function_codegen.cpp:1967-1990`).
+4. Keep a `sync_block()` reference variant and A/B both. If the intervening work depends on the shared writes, the transformation is invalid; if there is no independent work, splitting only adds complexity.
+
+`VulkanDeviceConfigExt::enable_shader_split_barrier()` defaults true, but actual device support is still required. Test native and compatibility routes separately when both are supported.
+
+### 27.3 Cooperative vectors for inference matvec
+
+The public types are `CoopVector<T>`, `CoopVectorRef`, and `CoopMatrixRef` (`include/luisa/dsl/coop_vector.h`). Matrix/vector references describe static element interpretation and dimensions plus a runtime **byte offset**. The matrix is K×N, input is K, output is N. Core calls live at `include/luisa/dsl/resource.h:974-1260`: `cooperative_vector_load/store`, `cooperative_mat_mul`, `cooperative_mat_mul_add`, bindless/typed-bindless forms, workgroup load/store, splat/cast, and training accumulation operations.
+
+```cpp
+CoopMatrixRef w{CoopRefVecType::FLOAT16, K, N};
+CoopVectorRef xoff{CoopRefVecType::FLOAT16, K};
+CoopVectorRef yoff{CoopRefVecType::FLOAT32, N};
+w.set_byte_offset(weight_byte_offset);
+xoff.set_byte_offset(x_byte_offset);
+yoff.set_byte_offset(y_byte_offset);
+auto x = cooperative_vector_load<half>(x_bytes, xoff);
+auto y = cooperative_mat_mul<float, half>(weight_bytes, w,
+                                         Expr<CoopVector<half>>{x});
+cooperative_vector_store(y_bytes, yoff, Expr<CoopVector<float>>{y});
+```
+
+Do not infer the physical weight layout from the logical K×N dimensions. Prove it with nonuniform matrices, mixed-sign/magnitude inputs, nonzero bias, and an FP64 oracle. The probe at `Gallery/tests/integration/embedding/test_embed_coop_probe.cpp:238-377` deliberately uses K∈{16,32,64,128}, N∈{8,16,32,64}, rather than identity matrices that hide layout mistakes. Typed buffers can be aliased as `ByteBufferView`; preserve backend alignment and component-packing requirements.
+
+Backend gates:
+
+- **DX:** requires experimental features and compiles cooperative kernels as SM 6.9. Enable through `DirectXDeviceConfigExt::UseExperimental()` and check `ExperimentalFeaturesEnabled()` before constructing/dispatching the fast path.
+- **Vulkan:** requires `VK_NV_cooperative_vector`, compute support, Vulkan memory-model DeviceScope, and `VK_EXT_shader_replicated_composites`; FP32 configurations are probed separately. Both native SPIR-V and HLSL compatibility routes emit real cooperative-vector instructions. There is no universal public capability-query key in the probe, so use a real compile/execute/numeric probe.
+- **CUDA:** only a partial OptiX-ABI subset exists in CUDA AST (not ordinary compute): mul-add/bindless mul-add and training accumulation use inference-optimal OptiX layout. General load/store/splat/cast and plain `cooperative_mat_mul` are not a compute inference route; CUDA LLVM rejects cooperative operations. Do not present the DX/VK path as CUDA-ready.
+
+The reserved native `COOPERATIVE_VECTOR_DOT/ABS/.../ADD/...` AST operations remain rejected. The separately named helper templates at `resource.h:1262-1407` intentionally perform scalar per-element DSL math; they are not hardware cooperative elementwise instructions. There is also no general user-facing cooperative-matrix matmul API: `CoopMatrixRef` here describes cooperative-vector weights, not a WMMA/wgmma/tcgen05 interface.
+
+Some JIT rejection paths are fatal rather than catchable. Follow the probe's non-aborting `device.compile_to(...)` gate before JIT where that route is required, and retain the scalar GEMV implementation as a correctness/reference arm (`Gallery/tests/integration/embedding/test_embed_coop_probe.cpp:389-448`). Capability absence is a no-go result; wrong numbers are a correctness failure.
+
+### 27.4 `dot2add`: useful, but define the rounding contract
+
+`dot2add(half2 a, half2 b, float acc) -> float` is the only supported shape (`include/luisa/dsl/builtin.h:1359-1374`). It can reduce two-product FP16 dot/accumulate instruction count, but is not a generic FP16 GEMM API.
+
+- Vulkan with `VK_VALVE_shader_mixed_float_dot_product` emits fused `OpFDot2MixAcc32VALVE`, which rounds once.
+- The unfused Vulkan/DXC semantics round both products to half, widen, then perform ordered FP32 additions `(x+y)+acc`.
+- CUDA explicitly matches the unfused form with `__hmul` and ordered `__fadd_rn` (`cuda_device_math.h:5240-5247`).
+
+Do not demand bitwise cross-backend equality between fused and unfused paths. Test signed zero, subnormals, cancellation, NaN/Inf as relevant, and document the numeric gate. Use `src/tests/unit/dsl/test_dot2add.cpp` as the starting conformance test.
+
+### 27.5 Async copy, pipelines, and the TMA boundary
+
+CUDA AST lowers `async_copy` to `cp.async` and `pipeline_commit`/`pipeline_wait_prior` to pipeline groups. The total copy size must be 4, 8, or 16 bytes; every participating thread issues its own copy, and consumers still need `sync_block()` after the appropriate wait (`include/luisa/dsl/builtin.h:2270-2301`, `src/tests/unit/dsl/test_async_copy.cpp:53-59`). Current CUDA helpers clamp `pipeline_wait_prior(N)` above 8 to 8 and have no clean pre-Ampere preflight; do not use deeper stages or assume a helpful capability error without fixing/testing that boundary.
+
+This API is **not portable hardware async**:
+
+- Vulkan selects the HLSL compatibility route and currently performs a synchronous per-thread copy into fixed 16 KiB group-shared scratch; commit is a no-op and wait becomes a full group barrier. The implementation also assumes the first buffer argument as source. Do not benchmark it as `cp.async` or `OpGroupAsyncCopyKHR` hardware execution (`user_compute_codegen_route.h:16-25`, `hlsl/codegen_utils/function_codegen.cpp:2573-2622`).
+- AST→XIR explicitly cannot represent the current async-copy AST contract; pipeline controls have no generic XIR lowering (`src/xir/translators/ast2xir.cpp:1229-1234`). DXIL rejects them.
+- TMA/`cp.async.bulk.tensor`, host tensor maps, wgmma, and tcgen05 are not exposed as general LuisaCompute DSL/runtime APIs. The mbarrier instructions below do not imply TMA support. Keep the hardware discussion in §15–§17 as design background unless a native backend-specific path is explicitly implemented and tested.
+
+Re-check occupancy after adding buffers/stages, and remember §24's measured cases where `cp.async` gave no gain or regressed an already latency-hidden workload.
+
+### 27.6 CUDA Programmatic Dependent Launch (PDL)
+
+PDL overlaps a consumer's independent prologue with the producer's tail. It does not make unprotected producer reads legal.
+
+```cpp
+// Producer: trigger is a scheduling hint, not a memory fence.
+write_results();
+trigger_programmatic_launch_completion();
+
+// Consumer: only predecessor-independent work goes before the wait.
+prefetch_independent_weights();
+grid_dependency_synchronize(); // every thread of every block, before output reads
+consume_results();
+```
+
+For ordinary CUDA streams, the **presence** of `grid_dependency_synchronize()` (including through callables) makes the shader eligible for `CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION`. An actual relaxed launch additionally requires sm_90+, driver ≥12.0, an enabled stream policy, a working per-shader driver latch, and an **immediately preceding kernel launch** on that stream; a copy, event, callback, build, fresh stream, or synchronization is a hard boundary (`src/backends/cuda/cuda_pdl_launch.h:19-66`). A conditional wait is invalid as an ordering strategy: it relaxes the launch while some threads may read without waiting. The backend retries without the attribute only when the driver rejects it as invalid/unsupported and latches that choice per shader (`cuda_shader_native.cpp:320-359`).
+
+`CUDAPdlStreamExt` exposes `pdl_supported()`, the runtime policy switch, and relaxed/strict/driver-fallback counters for A/B runs (`include/luisa/backends/ext/cuda/cuda_pdl_ext.h`). The policy defaults on for shaders that already wait. `CUDADeviceConfigExt::enable_programmatic_stream_serialization()` is a separate, default-off device-creation option that compiles a wait at the entry of every DSL compute kernel; it changes generated source and shader-cache identity. That conservative prologue makes kernel→kernel relaxation safe without manual waits, but leaves no independent consumer work before the wait; use the manual placement above when prologue overlap is the goal. `LUISA_DISABLE_PDL_STREAM=1` disables both halves. Validate with `src/tests/integration/runtime/test_cuda_stream_pdl.cpp` and the host decision-matrix test.
+
+For graphs, explicitly retype an existing kernel→kernel edge before instantiation:
+
+```cpp
+auto caps = graph_ext->capabilities();
+if (caps.programmatic_edges) {
+    graph_ext->set_dependency_type(graph.handle().handle, producer, consumer,
+        CudaGraphExt::DependencyType::PROGRAMMATIC);
+}
+```
+
+This requires CUDA 12.4+ and sm_90+; check the boolean result. The downstream kernel still needs the wait, and the upstream may trigger (`include/luisa/backends/ext/cuda/cuda_graph_ext.h:274-291`). Missing/self/non-kernel edges fail loudly. Use `src/tests/integration/runtime/test_cuda_graph_pdl.cpp` for bit-exact producer/consumer and refusal coverage.
+
+Measure PDL on a chain with a meaningful independent prologue (for example weight prefetch). It cannot hide a consumer whose first operation already reads the producer's output, and it does not remove host sampler/readback serialization in autoregressive decode.
+
+### 27.7 CUDA graphs: static replay, dynamic decode, and device control
+
+Basic host flow (`include/luisa/backends/ext/cuda/cuda_graph_ext.h`):
+
+```cpp
+auto *ext = device.extension<CudaGraphExt>();
+if (ext == nullptr) { /* explicit ordinary-stream path */ }
+auto graph = ext->create_graph(std::move(list.commit()).command_list());
+auto exec = ext->instantiate(graph.handle().handle);
+ext->launch(exec.handle().handle, stream.handle()); // or stream << CudaGraphExt::launch(...)
+```
+
+Cache the executable graph for static shapes/pointers. Node indices are creation-order indices and remain stable for the template lifetime. Whole-graph `update()` requires a structurally identical replacement list and returns typed `GraphUpdateError` diagnostics; Tile nodes require whole-graph update rather than raw `update_kernel_node()`. Synchronize before destroying executable resources. Unsupported content must fail loudly, never silently drop a command.
+
+Use `capabilities()` before advanced features. It combines toolkit/driver availability and device gates: PDL edges and device-updatable nodes require 12.4+sm_90, device launch 12.0+sm_90, conditional nodes 12.3+, graph memory 11.4+, and priority/SWITCH 12.8+ (`cuda_graph_ext.cpp:1351-1376`). Conditional topology is frozen; whole-graph update is invalid for conditional or device-updatable graphs. Device launch must not race host update or concurrent host/device launch of the same exec. Add graph-memory free nodes before first instantiation.
+
+**Decode lesson:** the Gallery graph arm captures the first decode step, then re-records and updates the executable on every later step, launches, and synchronizes for host sampling (`Gallery/src/ocr/ocr/runtime/dense_vlm_executor.cpp:1531-1573`). This is not static multi-token replay. It can only amortize launches within one step; update/instantiate cost can exceed the benefit on short dynamic decode. Keep prefill ungraphed unless separately proven, count steps/updates/fallbacks, invalidate benchmark rows with unexpected fallback, and do not transfer the switch to GDN/MoE/Surya paths that have no graph implementation. Capture consumes the list: capture/update failure must be reported, not followed by execution of a partially consumed ordinary list.
+
+Device-side DSL calls include `current_graph_exec`, `graph_device_launch`, `set_graph_conditional`, and node parameter/grid/enable updates (`include/luisa/dsl/builtin.h:2176-2268`). They are CUDA-only AST operations with toolkit gates, not XIR operations. Device node mutation may require `cudadevrt`; DSL parameter patching must respect the packed 16-byte argument-slot ABI. Use the focused graph tests rather than inferring the ABI from native CUDA examples.
+
+### 27.8 CUDA mbarriers, cluster barriers, and work stealing
+
+The DSL exposes mbarrier init/arrive/expect-tx/test-or-try-wait, proxy fences, cluster barriers, and Cluster Launch Control (CLC) queries (`include/luisa/dsl/builtin.h:2303-2443`). These are CUDA AST/PTX expert operations; AST→XIR and other backends reject them. The broad shader gate is sm_90+, but CLC try-cancel is a Blackwell-family instruction—test the exact target and PTX toolchain rather than treating every sm_90 device as CLC-capable.
+
+An mbarrier phase completes only when both its arrival count and expected transaction bytes are satisfied. Expecting 16 response bytes without the matching arrival can hang. Initialize from thread 0, synchronize before use, pair async response bytes with arrival, and preserve acquire/release fences. `cluster_launch_control_work_stealing_1d(body)` contains the canonical init→cancel request→compute→parity wait→next-block sequence (`include/luisa/dsl/cluster_launch_control.h`).
+
+There is no general DSL cluster-dimension launch API; sm_90+ kernels have an implicit 1×1×1 cluster, which is sufficient for testing basic cluster barriers but not a multi-CTA multicast contract. Use `test_mbarrier_fence` and `test_cluster_launch_control` for correctness. Apply CLC to imbalanced inference tiles only after proving that work-stealing overhead beats a static scheduler and that cancellation/failure paths cannot strand a phase.
+
+### 27.9 Platform-feature validation checklist
+
+1. Keep a portable/reference factory and an explicit kill switch; never silently substitute a different precision, mask, layout, or synchronization contract.
+2. Inspect AST flags/call propagation and confirm the intended backend route. For Vulkan native claims, use the strict native-XIR guard and dump/validate SPIR-V.
+3. Query extension/config/toolkit/driver/architecture capabilities before JIT where failures are fatal. Distinguish unavailable, compile failure, dispatch failure, fallback, and numeric failure in the result.
+4. Test nonuniform data and adversarial layouts; identity/all-ones matrices cannot validate cooperative weight order. Include ragged shapes and tails.
+5. Check numerical semantics per backend: reduction order, packed decode, `dot2add` rounding, fast math, and fully masked/nonfinite inputs.
+6. Verify synchronization with stress/repeat runs: split-barrier pairing, PDL all-thread waits, mbarrier arrival+transaction counts, graph lifetime/update rules.
+7. Benchmark operator and complete request separately using §25/§26.1. Record route and fallback counters. A successful compile or synthetic parity run is not a performance result.

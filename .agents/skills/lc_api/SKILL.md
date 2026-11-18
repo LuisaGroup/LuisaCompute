@@ -1376,6 +1376,12 @@ Stream graphics = device.create_stream(StreamTag::GRAPHICS);
 stream.set_name("my stream");
 ```
 
+#### Submission boundaries
+
+`copy_from()`, `copy_to()`, and shader `.dispatch()` create commands; they do not submit work by themselves. `Stream::operator<<` returns a `Stream::Delegate` that accumulates ordinary chained commands. Its destructor commits the list at the end of the full expression—normally the semicolon. Stream events and `synchronize()` flush pending commands before their own action; `commit()` flushes without synchronizing. Empty lists are not dispatched (`src/runtime/stream.cpp:14-34,58-113`).
+
+Consequently, `stream << a << b;` is one submission, while separate statements are separate submissions. Keeping a `Delegate` alive also keeps the commands uncommitted, so any borrowed host arguments must remain valid for that longer recording interval.
+
 ### Events
 
 ```cpp
@@ -1405,6 +1411,17 @@ auto view = buf.view(offset, count);
 auto elem_view = buf.view().as<float>();  // for atomic operations
 buf.set_name("vertex data");
 ```
+
+#### Host upload/download lifetime
+
+`BufferUploadCommand` and `BufferDownloadCommand` store raw host pointers; constructing a command does **not** copy or own the referenced host memory (`include/luisa/runtime/rhi/command.h:178-232`). Distinguish recording, dispatch/encoding, and GPU completion:
+
+- **Deferred recording:** an upload source in an unsubmitted `CommandList` must remain alive and unchanged until the list is actually dispatched. A download destination must remain alive and unaccessed until completion. Completion-retained staging is the conservative portable policy when the exact backend path is unknown.
+- **Current normal buffer-upload paths on DX, Vulkan, and CUDA:** backend dispatch synchronously copies the source into backend-owned upload staging before returning (`src/backends/dx/DXApi/LCCmdBuffer.cpp:882-898`, `src/backends/vk/stream.cpp:4100-4116`, `src/backends/cuda/cuda_command_encoder.cpp:71-82`). After a direct statement such as `stream << dst.view().copy_from(luisa::span{staging});` returns, those implementations allow `staging` to be rewritten or destroyed without waiting for GPU completion. Chunked upload loops therefore do not need a synchronize per chunk **on these verified paths**.
+- **Do not overgeneralize that implementation detail.** It does not make an uncommitted list safe, and it is not a blanket contract for other backends, textures, custom commands, or graph/serialization routes. Inspect the consumer before shortening the lifetime.
+- **Downloads are different:** the final copy into the caller's destination may occur asynchronously or in a backend completion callback. Do not read, rewrite, or destroy that destination until stream synchronization or a correctly ordered completion callback confirms completion.
+
+Stream ordering protects device-side producer/consumer reuse; it does not by itself extend a borrowed host pointer's lifetime.
 
 #### Buffer-to-Buffer Copy
 
@@ -1644,6 +1661,8 @@ stream << cmdlist.commit() << synchronize();
 ```
 
 > Prefer merging dispatch + transfers into one `CommandList` + single commit/synchronize over separate stream submissions.
+
+A non-empty, uncommitted list asserts in its destructor; the destructor never auto-commits. A wrapper that intentionally cancels recording on an error path must call `clear()` explicitly. `clear()` drops commands and callbacks (destructor callbacks are destroyed, not invoked) and resets the committed flag, so document this as discard semantics rather than silently losing work accidentally (`src/runtime/command_list.cpp:8-29`). It cannot cancel batches that were already committed; those may still be executing and must be included in the subsequent reset/synchronization plan.
 
 ### Native Shader Injection (`NativeShaderExt`)
 
