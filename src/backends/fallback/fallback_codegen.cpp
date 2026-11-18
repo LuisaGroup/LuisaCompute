@@ -3656,8 +3656,13 @@ private:
                 auto llvm_inst = b.CreateSwitch(llvm_condition, llvm_default_block, switch_inst->case_count());
                 for (auto i = 0u; i < switch_inst->case_count(); i++) {
                     auto case_value = switch_inst->case_value(i);
+#if LLVM_VERSION_MAJOR >= 22
                     auto llvm_case_value =
                         llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(llvm_condition->getType()), static_cast<uint64_t>(case_value), false, true);
+#else
+                    auto llvm_case_value =
+                        llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(llvm_condition->getType()), static_cast<uint64_t>(case_value), false);
+#endif
                     auto llvm_case_block = _find_or_create_basic_block(current, switch_inst->case_block(i));
                     llvm_inst->addCase(llvm_case_value, llvm_case_block);
                 }
