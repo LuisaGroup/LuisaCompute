@@ -332,6 +332,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             std::scoped_lock lock{_name_mutex};
             if (_name) { compute_encoder->setLabel(_name); }
         }
+        compute_encoder->setComputePipelineState(_handle.indirect_entry.get());
         compute_encoder->executeCommandsInBuffer(indirect_buffer->command_buffer(),
                                                  NS::Range::Make(indirect_binding.offset,
                                                                  indirect_binding.capacity - indirect_binding.offset));

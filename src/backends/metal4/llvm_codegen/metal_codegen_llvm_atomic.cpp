@@ -8,12 +8,13 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_atomic(
     auto base = inst->base();
     auto base_type = base->type();
     auto pointer = _value(builder, function, base);
+    bool has_constant_buffer_index = false;
     if (base_type->is_buffer()) {
         LUISA_ASSERT(!indices.empty(), "Metal AIR buffer atomic requires an element index.");
         auto element_type = base_type->element();
-        pointer = _buffer_pointer(
-            builder, pointer, _value(builder, function, indices.front()->value()),
-            element_type->size());
+        auto *idx_llvm = _value(builder, function, indices.front()->value());
+        has_constant_buffer_index = llvm::isa<llvm::ConstantInt>(idx_llvm);
+        pointer = _buffer_pointer(builder, pointer, idx_llvm, element_type->size());
         base_type = element_type;
         indices = indices.subspan(1u);
     }
@@ -26,11 +27,15 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_atomic(
                      address_space == air_address_space_threadgroup,
                  "Metal AIR atomics require device or threadgroup memory.");
     auto is_threadgroup = address_space == air_address_space_threadgroup;
-    if (is_threadgroup) {
-        // Keep each lane's address after divergent loop exits. Apple's AIR
-        // compiler can otherwise update a uniform bucket despite correct
-        // per-lane values in ordinary stores. Match the MSL atomic helper's
-        // private volatile pointer materialization, without changing barriers.
+    auto is_dynamic_integer_device =
+        !is_threadgroup && (!has_constant_buffer_index || !indices.empty()) &&
+        (element_type->is_int() || element_type->is_uint());
+    if (is_threadgroup || is_dynamic_integer_device) {
+        // Keep each lane's address after divergent control-flow/loop exits for
+        // threadgroup and dynamic integer device bucket atomics. Apple's AIR
+        // compiler can otherwise mis-classify a multi-phi GEP on a uniform base
+        // buffer as a uniform atomic pointer and update lane 0's bucket for all
+        // active lanes despite correct per-lane values in ordinary stores.
         auto alignment = _module.getDataLayout().getPointerABIAlignment(address_space);
         auto slot = _temporary(function, element_pointer->getType(), alignment.value());
         builder.CreateAlignedStore(element_pointer, slot, alignment, true);

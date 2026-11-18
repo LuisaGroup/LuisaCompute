@@ -226,6 +226,7 @@ luisa::ref::PathTracingTestResult luisa::ref::run_path_tracing_test(
     // Adjust samples per dispatch based on backend capabilities
     auto default_max_spp_per_dispatch =
         device.backend_name() == "metal" ||
+                device.backend_name() == "metal4" ||
                 device.backend_name() == "fallback" ?
             1u :
             64u;

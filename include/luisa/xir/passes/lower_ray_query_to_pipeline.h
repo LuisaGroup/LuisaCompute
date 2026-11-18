@@ -78,6 +78,10 @@ struct LowerRayQueryToPipelineOptions {
     // for a different lowering.
     size_t max_captured_argument_count{
         std::numeric_limits<size_t>::max()};
+    // Optional per-loop backend eligibility predicate. Returning false retains
+    // that loop for stateful lowering without rejecting other loops in the same
+    // function or module.
+    bool (*loop_filter)(const RayQueryLoopInst *) noexcept{nullptr};
     // Optional backend ABI filter. It is evaluated on the original input and
     // output capture values before outlining; returning false retains the
     // complete loop for another lowering. The second argument identifies an

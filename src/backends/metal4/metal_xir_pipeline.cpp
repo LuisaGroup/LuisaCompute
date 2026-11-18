@@ -159,74 +159,173 @@ void verify_xir_or_error(
     }
 }
 
-[[nodiscard]] bool outline_ray_query_pipelines(
-    xir::Module *module, xir::PassReport &report,
-    MetalRayQueryPipelinePolicy policy) noexcept {
-    auto requires_stateful_lowering = false;
+[[nodiscard]] bool metal_ray_query_loop_supported(
+    const xir::RayQueryLoopInst *loop) noexcept {
+    if (loop == nullptr || loop->dispatch_block() == nullptr ||
+        !loop->dispatch_block()->is_terminated()) {
+        return false;
+    }
+    auto terminator = loop->dispatch_block()->terminator();
+    if (!terminator->isa<xir::RayQueryDispatchInst>()) { return false; }
+    auto dispatch = static_cast<const xir::RayQueryDispatchInst *>(terminator);
+    auto query_object = dispatch->query_object();
+    if (query_object == nullptr || !query_object->isa<xir::AllocaInst>() ||
+        !static_cast<const xir::AllocaInst *>(query_object)->is_local()) {
+        return false;
+    }
+    const xir::ResourceQueryInst *constructor = nullptr;
+    for (auto use : query_object->use_list()) {
+        auto user = use->user();
+        if (user == nullptr || !user->isa<xir::StoreInst>()) { continue; }
+        auto store = static_cast<const xir::StoreInst *>(user);
+        if (store->variable() != query_object) { continue; }
+        if (constructor != nullptr ||
+            !store->value()->isa<xir::ResourceQueryInst>()) {
+            return false;
+        }
+        constructor = static_cast<const xir::ResourceQueryInst *>(
+            store->value());
+    }
+    if (constructor == nullptr) { return false; }
+    auto is_ray_query =
+        constructor->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL ||
+        constructor->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ||
+        constructor->op() ==
+            xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
+        constructor->op() ==
+            xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR;
+    if (!is_ray_query) { return false; }
+    // Curve traversal requires Metal's curve_data intersector/query path; keep
+    // curve ray queries on the stateful intersection_query loop per query while
+    // allowing triangle and procedural ray queries in the same module to outline.
+    auto basis = constructor->find_metadata<xir::CurveBasisMD>();
+    if (basis != nullptr && basis->curve_basis_set().any()) {
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] xir::CallableFunction *clone_ray_query_handler_callable(
+    xir::Module *module, const xir::CallableFunction *source) noexcept {
+    struct MapCloneResolver final : xir::InstructionCloneValueResolver {
+        luisa::unordered_map<const xir::Value *, xir::Value *> map;
+        [[nodiscard]] xir::Value *resolve(const xir::Value *value) noexcept override {
+            if (auto iter = map.find(value); iter != map.end()) {
+                return iter->second;
+            }
+            return const_cast<xir::Value *>(value);
+        }
+    };
+    auto cloned = module->create_callable(source->type());
+    if (auto name = source->name()) {
+        cloned->set_name(luisa::format("{}_clone", *name));
+    }
+    for (auto *metadata : source->metadata_list()) {
+        cloned->metadata_list().push_front(metadata->clone());
+    }
+    MapCloneResolver resolver;
+    for (auto arg : source->arguments()) {
+        xir::Argument *new_arg = nullptr;
+        if (arg->is_reference()) {
+            new_arg = cloned->create_reference_argument(arg->type());
+        } else if (arg->is_resource()) {
+            new_arg = cloned->create_resource_argument(arg->type());
+        } else {
+            new_arg = cloned->create_value_argument(arg->type());
+        }
+        if (auto name = arg->name()) { new_arg->set_name(*name); }
+        for (auto *metadata : arg->metadata_list()) {
+            new_arg->metadata_list().push_front(metadata->clone());
+        }
+        resolver.map.try_emplace(arg, new_arg);
+    }
+    for (auto bb : source->basic_blocks()) {
+        auto new_bb = cloned->create_basic_block();
+        if (auto name = bb->name()) { new_bb->set_name(*name); }
+        for (auto *metadata : bb->metadata_list()) {
+            new_bb->metadata_list().push_front(metadata->clone());
+        }
+        resolver.map.try_emplace(bb, new_bb);
+    }
+    cloned->set_body_block(static_cast<xir::BasicBlock *>(
+        resolver.resolve(source->body_block())));
+    xir::XIRBuilder builder;
+    for (auto bb : source->basic_blocks()) {
+        auto new_bb = static_cast<xir::BasicBlock *>(resolver.resolve(bb));
+        builder.set_insertion_point(new_bb);
+        for (auto inst : bb->instructions()) {
+            auto new_inst = inst->clone_with_metadata(builder, resolver);
+            if (auto name = inst->name()) { new_inst->set_name(*name); }
+            resolver.map.try_emplace(inst, new_inst);
+        }
+    }
+    return cloned;
+}
+
+[[nodiscard]] bool deduplicate_ray_query_pipeline_handlers(
+    xir::Module *module, xir::PassReport &report) noexcept {
+    luisa::unordered_set<const xir::Function *> claimed_handlers;
+    luisa::vector<xir::RayQueryPipelineInst *> pipelines;
     for (auto function : module->function_list()) {
         if (auto definition = function->definition()) {
             definition->traverse_instructions(
-                [&requires_stateful_lowering](
-                    const xir::Instruction *instruction) noexcept {
-                    if (requires_stateful_lowering) { return; }
-                    if (instruction->isa<xir::ResourceQueryInst>()) {
-                        auto query = static_cast<
-                            const xir::ResourceQueryInst *>(instruction);
-                        auto is_ray_query =
-                            query->op() == xir::ResourceQueryOp::
-                                               RAY_TRACING_QUERY_ALL ||
-                            query->op() == xir::ResourceQueryOp::
-                                               RAY_TRACING_QUERY_ANY ||
-                            query->op() == xir::ResourceQueryOp::
-                                               RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
-                            query->op() == xir::ResourceQueryOp::
-                                               RAY_TRACING_QUERY_ANY_MOTION_BLUR;
-                        if (is_ray_query) {
-                            auto basis = query->find_metadata<
-                                xir::CurveBasisMD>();
-                            requires_stateful_lowering =
-                                basis != nullptr &&
-                                basis->curve_basis_set().any();
-                        }
-                    } else if (instruction->isa<
-                                   xir::RayQueryObjectReadInst>()) {
-                        auto read = static_cast<
-                            const xir::RayQueryObjectReadInst *>(instruction);
-                        requires_stateful_lowering =
-                            read->op() == xir::RayQueryObjectReadOp::
-                                              RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY ||
-                            read->op() == xir::RayQueryObjectReadOp::
-                                              RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT ||
-                            read->op() == xir::RayQueryObjectReadOp::
-                                              RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE;
-                    } else if (instruction->isa<
-                                   xir::RayQueryObjectWriteInst>()) {
-                        auto write = static_cast<
-                            const xir::RayQueryObjectWriteInst *>(instruction);
-                        requires_stateful_lowering =
-                            write->op() == xir::RayQueryObjectWriteOp::
-                                               RAY_QUERY_OBJECT_COMMIT_PROCEDURAL;
+                [&pipelines](xir::Instruction *instruction) noexcept {
+                    if (instruction->isa<xir::RayQueryPipelineInst>()) {
+                        pipelines.emplace_back(
+                            static_cast<xir::RayQueryPipelineInst *>(instruction));
                     }
                 });
         }
     }
-    if (requires_stateful_lowering) {
-        report.set("retained_non_triangle_ray_query_module", 1u);
-        return false;
+    size_t cloned_count = 0u;
+    for (auto *pipeline : pipelines) {
+        if (auto *surface = pipeline->on_surface_function();
+            surface != nullptr && surface->isa<xir::CallableFunction>() &&
+            !claimed_handlers.emplace(surface).second) {
+            auto *cloned = clone_ray_query_handler_callable(
+                module, static_cast<const xir::CallableFunction *>(surface));
+            claimed_handlers.emplace(cloned);
+            pipeline->set_on_surface_function(cloned);
+            ++cloned_count;
+        }
+        if (auto *procedural = pipeline->on_procedural_function();
+            procedural != nullptr && procedural->isa<xir::CallableFunction>() &&
+            !claimed_handlers.emplace(procedural).second) {
+            auto *cloned = clone_ray_query_handler_callable(
+                module, static_cast<const xir::CallableFunction *>(procedural));
+            claimed_handlers.emplace(cloned);
+            pipeline->set_on_procedural_function(cloned);
+            ++cloned_count;
+        }
     }
+    if (cloned_count > 0u) {
+        report.set("cloned_shared_ray_query_handler", cloned_count);
+    }
+    return cloned_count > 0u;
+}
+
+[[nodiscard]] bool outline_ray_query_pipelines(
+    xir::Module *module, xir::PassReport &report,
+    MetalRayQueryPipelinePolicy policy) noexcept {
+    size_t skipped_loop_count = 0u;
     xir::LowerRayQueryToPipelineOptions options;
+    options.loop_filter = metal_ray_query_loop_supported;
     options.captured_argument_filter =
         metal_ray_payload_capture_supported;
     options.captured_argument_cost =
         metal_ray_payload_capture_cost;
     options.max_captured_argument_cost =
         policy.max_captured_payload_bytes;
+    options.skipped_loop_count = &skipped_loop_count;
     auto result = xir::lower_ray_query_to_pipeline_pass_run_on_module(
         module, &report, options);
     if (!result.succeeded()) {
         LUISA_ERROR_WITH_LOCATION(
             "Metal XIR rejected {} ray-query pipeline candidate(s).",
             result.error_count);
+    }
+    if (skipped_loop_count > 0u) {
+        report.set("retained_ray_query_loop", skipped_loop_count);
     }
     return result.lowered_loop_count > 0u;
 }
@@ -312,6 +411,8 @@ void optimize_xir_for_air(
                 m, report,
                 {.allow_autodiff_scope_in_caller = true});
         });
+        pre_autodiff.add("deduplicate-ray-query-handlers",
+                         deduplicate_ray_query_pipeline_handlers);
         pre_autodiff.add_fixed_point(
             "post-inline-cleanup",
             xir::create_post_inline_cleanup_pipeline(optimization_options), 1u);
@@ -373,6 +474,8 @@ void optimize_xir_for_air(
     lowering.add("inline-all", [](xir::Module *m, xir::PassReport &report) {
         return inline_all(m, report);
     });
+    lowering.add("deduplicate-ray-query-handlers",
+                 deduplicate_ray_query_pipeline_handlers);
     // Multi-block callable inlining clones its function-local allocations into
     // the cloned region. AIR stateful intersection-query storage has function
     // lifetime and must be allocated/deallocated on every function exit, so

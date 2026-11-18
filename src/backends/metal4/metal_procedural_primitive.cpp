@@ -85,7 +85,7 @@ void MetalProceduralPrimitive::build(
                 geom_desc->setOpaque(false);
                 geom_desc->setAllowDuplicateIntersectionFunctionInvocation(
                     true);
-                geom_desc->setIntersectionFunctionTableOffset(0u);
+                geom_desc->setIntersectionFunctionTableOffset(1u);
                 auto object = static_cast<NS::Object *>(geom_desc.get());
                 _descriptor->setGeometryDescriptors(
                     NS::Array::array(&object, 1u));
@@ -100,7 +100,7 @@ void MetalProceduralPrimitive::build(
                 geom_desc->setOpaque(false);
                 geom_desc->setAllowDuplicateIntersectionFunctionInvocation(
                     true);
-                geom_desc->setIntersectionFunctionTableOffset(0u);
+                geom_desc->setIntersectionFunctionTableOffset(1u);
                 auto object = static_cast<NS::Object *>(geom_desc.get());
                 _descriptor->setGeometryDescriptors(
                     NS::Array::array(&object, 1u));
@@ -133,7 +133,7 @@ void MetalProceduralPrimitive::build(
                 geom_desc->setOpaque(false);
                 geom_desc->setAllowDuplicateIntersectionFunctionInvocation(
                     true);
-                geom_desc->setIntersectionFunctionTableOffset(0u);
+                geom_desc->setIntersectionFunctionTableOffset(1u);
                 auto object = static_cast<NS::Object *>(geom_desc.get());
                 _compatibility_descriptor->setGeometryDescriptors(
                     NS::Array::array(&object, 1u));
@@ -147,7 +147,7 @@ void MetalProceduralPrimitive::build(
                 geom_desc->setOpaque(false);
                 geom_desc->setAllowDuplicateIntersectionFunctionInvocation(
                     true);
-                geom_desc->setIntersectionFunctionTableOffset(0u);
+                geom_desc->setIntersectionFunctionTableOffset(1u);
                 auto object = static_cast<NS::Object *>(geom_desc.get());
                 _compatibility_descriptor->setGeometryDescriptors(
                     NS::Array::array(&object, 1u));

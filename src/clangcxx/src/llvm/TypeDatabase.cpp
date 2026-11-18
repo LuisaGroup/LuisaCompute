@@ -252,7 +252,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsPrimitiveType(const clang::Qua
             default:
             {
                 clangcxx_log_error("unsupported field primitive type: [{}], kind [{}]",
-                    Ty.getAsString(), luisa::to_string(builtin->getKind()));
+                    Ty.getAsString(), builtin->getNameAsCString(clang::PrintingPolicy{clang::LangOptions{}}));
             }
             break;
         }
@@ -308,7 +308,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         case 3: { _type = Type::of<type##3>(); } break;                                            \
         case 4: { _type = Type::of<type##4>(); } break;                                            \
         default: {                                                                                             \
-            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), luisa::to_string(EType->getKind()), N);    \
+            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getNameAsCString(clang::PrintingPolicy{clang::LangOptions{}}), N);    \
         } break;                                                                                               \
     }
                             case (BuiltinType::Kind::Half): { CASE_VEC_TYPE(half) } break;
@@ -320,7 +320,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                             case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint) } break;
                             case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double) } break;
                             default: {
-                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), luisa::to_string(EType->getKind()));
+                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getNameAsCString(clang::PrintingPolicy{clang::LangOptions{}}));
                             } break;
                         }
                     // clang-format on

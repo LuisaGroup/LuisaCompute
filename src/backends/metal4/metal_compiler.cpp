@@ -600,35 +600,46 @@ MetalCompiler::_load_kernels_from_library(
             }
         }
 
+        LUISA_ASSERT(
+            intersection_functions.size() % 2u == 0u,
+            "Metal 4 intersection function list must contain surface/procedural "
+            "pairs (got {}).",
+            intersection_functions.size());
+        auto table_count = intersection_functions.size() / 2u;
         luisa::vector<NS::SharedPtr<MTL::IntersectionFunctionTable>>
             intersection_tables;
-        intersection_tables.reserve(intersection_functions.size());
-        for (auto &&function_name : intersection_functions) {
+        intersection_tables.reserve(table_count);
+        for (auto i = static_cast<size_t>(0u); i < table_count; i++) {
             auto table_descriptor = NS::TransferPtr(
                 MTL::IntersectionFunctionTableDescriptor::alloc()->init());
-            table_descriptor->setFunctionCount(1u);
+            table_descriptor->setFunctionCount(2u);
             auto table = NS::TransferPtr(
                 pipeline->newIntersectionFunctionTable(
                     table_descriptor.get()));
-            auto ns_function_name = NS::String::string(
-                function_name.c_str(), NS::UTF8StringEncoding);
-            auto function_handle = pipeline->functionHandle(
-                ns_function_name);
             if (!table) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Failed to create Metal 4 intersection function table "
-                    "storage for '{}'.",
-                    function_name);
+                    "storage for pipeline {} ('{}' / '{}').",
+                    i, intersection_functions[2u * i],
+                    intersection_functions[2u * i + 1u]);
                 return {};
             }
-            if (function_handle == nullptr) {
-                LUISA_WARNING_WITH_LOCATION(
-                    "Metal 4 compute pipeline did not expose an intersection "
-                    "function handle for '{}'.",
-                    function_name);
-                return {};
+            for (auto slot = 0u; slot < 2u; slot++) {
+                auto &&function_name =
+                    intersection_functions[2u * i + slot];
+                auto ns_function_name = NS::String::string(
+                    function_name.c_str(), NS::UTF8StringEncoding);
+                auto function_handle = pipeline->functionHandle(
+                    ns_function_name);
+                if (function_handle == nullptr) {
+                    LUISA_WARNING_WITH_LOCATION(
+                        "Metal 4 compute pipeline did not expose an intersection "
+                        "function handle for '{}'.",
+                        function_name);
+                    return {};
+                }
+                table->setFunction(function_handle, slot);
             }
-            table->setFunction(function_handle, 0u);
             intersection_tables.emplace_back(std::move(table));
         }
 

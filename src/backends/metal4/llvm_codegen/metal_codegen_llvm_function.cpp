@@ -185,8 +185,6 @@ void MetalCodegenLLVMImpl::_set_float_control_attributes(
     function->addFnAttr("no-trapping-math", "true");
     if (_config.enable_fast_math) {
         function->addFnAttr("approx-func-fp-math", "true");
-        function->addFnAttr("no-infs-fp-math", "true");
-        function->addFnAttr("no-nans-fp-math", "true");
         function->addFnAttr("no-signed-zeros-fp-math", "true");
         function->addFnAttr("unsafe-fp-math", "true");
     }
@@ -355,7 +353,13 @@ llvm::BasicBlock *MetalCodegenLLVMImpl::_translate_function(FunctionContext &con
         auto llvm_block = context.value<llvm::BasicBlock>(block);
         IB builder{llvm_block};
         if (_config.enable_fast_math) {
-            builder.setFastMathFlags(llvm::FastMathFlags::getFast());
+            llvm::FastMathFlags fmf;
+            fmf.setAllowReassoc();
+            fmf.setNoSignedZeros();
+            fmf.setAllowReciprocal();
+            fmf.setAllowContract();
+            fmf.setApproxFunc();
+            builder.setFastMathFlags(fmf);
         }
         for (auto instruction : block->instructions()) { _translate_instruction(builder, context, instruction); }
         context.block_exits.insert_or_assign(block, builder.GetInsertBlock());
@@ -904,8 +908,9 @@ void MetalCodegenLLVMImpl::_translate_instruction(IB &builder, FunctionContext &
                                                     function.value<llvm::BasicBlock>(instruction->default_block()),
                                                     instruction->case_count());
             for (auto i = 0u; i < instruction->case_count(); i++) {
-                llvm_switch->addCase(llvm::ConstantInt::get(selector_type, instruction->case_value(i)),
-                                     function.value<llvm::BasicBlock>(instruction->case_block(i)));
+                llvm_switch->addCase(
+                    llvm::ConstantInt::get(selector_type, static_cast<uint64_t>(instruction->case_value(i)), false, true),
+                    function.value<llvm::BasicBlock>(instruction->case_block(i)));
             }
             break;
         }
@@ -919,7 +924,7 @@ void MetalCodegenLLVMImpl::_translate_instruction(IB &builder, FunctionContext &
                 instruction->case_count());
             for (auto i = 0u; i < instruction->case_count(); i++) {
                 llvm_switch->addCase(
-                    llvm::ConstantInt::get(selector_type, instruction->case_value(i)),
+                    llvm::ConstantInt::get(selector_type, static_cast<uint64_t>(instruction->case_value(i)), false, true),
                     function.value<llvm::BasicBlock>(instruction->case_block(i)));
             }
             break;

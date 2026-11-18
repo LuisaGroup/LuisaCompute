@@ -416,8 +416,10 @@ llvm::StructType *MetalCodegenLLVMImpl::_ray_query_candidate_state() noexcept {
         auto i32 = llvm::Type::getInt32Ty(_context);
         auto f32 = llvm::Type::getFloatTy(_context);
         auto f32x2 = llvm::FixedVectorType::get(f32, 2u);
+        auto f32x3 = llvm::FixedVectorType::get(f32, 3u);
         _ray_query_candidate_state_type = llvm::StructType::create(
-            _context, {i8, i8, i32, i32, f32x2, f32},
+            _context,
+            {i8, i8, i32, i32, f32x2, f32, f32x3, f32x3, f32, f32},
             "luisa.ray.query.candidate.state");
     }
     return _ray_query_candidate_state_type;

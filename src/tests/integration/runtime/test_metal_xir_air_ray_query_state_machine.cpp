@@ -442,9 +442,311 @@ void test_retained_procedural_state_machine(Device &device) {
                    make_float4(0.0f, 0.0f, 1.0f, 0.0f)) < epsilon))
         << "unexpected first procedural world ray";
     expect(all(abs(
-                   runs[0].host_ray_data[1] -
-                   make_float4(0.0f, 0.0f, -1.0f, 10.0f)) < epsilon))
+                   runs[0].host_ray_data[1].xyz() -
+                   make_float3(0.0f, 0.0f, -1.0f)) < epsilon) &&
+           (std::abs(runs[0].host_ray_data[1].w - 10.0f) < epsilon ||
+            std::abs(runs[0].host_ray_data[1].w - 1.95f) < epsilon))
         << "unexpected first procedural object ray";
+    expect(all(abs(
+                   runs[0].host_ray_data[3] -
+                   make_float4(0.0f, 0.0f, -1.0f, 10.0f)) < epsilon))
+        << "unexpected committed procedural object ray";
+}
+
+struct MixedPipelineRun {
+    Buffer<uint> result;
+    Buffer<float4> rays;
+    std::array<uint, 8u> host_result{};
+    std::array<float4, 4u> host_rays{};
+};
+
+[[nodiscard]] MixedPipelineRun make_mixed_pipeline_run(Device &device) {
+    return {
+        device.create_buffer<uint>(8u),
+        device.create_buffer<float4>(4u)};
+}
+
+void test_outlineable_mixed_procedural_and_surface_pipeline(Device &device) {
+    // Instance 0: opaque triangle at z = -3.0 (t = 4.0) -> auto-commits in hardware without surface callback.
+    // Instance 1: non-opaque triangle scaled by 2 and translated to z = -1.5 (t = 2.5) -> enters surface callback.
+    // Instance 2: procedural primitive translated by (1, -2, 0) * scaling(2.0) with two overlapping AABBs around world origin x=0, y=0:
+    //   object space x in [-0.5, -0.5].. wait: world (0, 0, z) -> object ((0 - 1)/2, (0 - (-2))/2, z/2) = (-0.5, 1.0, z/2).
+    constexpr std::array vertices{
+        float3{-2.0f, -2.0f, 0.0f},
+        float3{2.0f, -2.0f, 0.0f},
+        float3{0.0f, 2.0f, 0.0f}};
+    constexpr std::array triangles{Triangle{0u, 1u, 2u}};
+    std::array<AABB, 2u> bounds{};
+    // Both object-space AABBs enclose (-0.5, 1.0, z_obj):
+    bounds[0].packed_min = {-1.0f, 0.5f, -0.4f};
+    bounds[0].packed_max = {0.0f, 1.5f, -0.1f};
+    bounds[1].packed_min = {-1.0f, 0.5f, -1.2f};
+    bounds[1].packed_max = {0.0f, 1.5f, -0.9f};
+
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto aabb_buffer = device.create_buffer<AABB>(bounds.size());
+    auto opaque_mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto cutout_mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto proc_prim = device.create_procedural_primitive(aabb_buffer.view());
+
+    auto accel = device.create_accel();
+    accel.emplace_back(
+        opaque_mesh, translation(make_float3(0.0f, 0.0f, -3.0f)), 0x01u, true);
+    accel.emplace_back(
+        cutout_mesh,
+        translation(make_float3(0.0f, 0.0f, -1.5f)) * scaling(2.0f),
+        0x02u, false);
+    accel.emplace_back(
+        proc_prim,
+        translation(make_float3(1.0f, -2.0f, 0.0f)) * scaling(2.0f),
+        0x04u, false);
+
+    // Value-only Callable exercising deduplicate-ray-query-handlers when called twice!
+    Callable trace_shadow_any = [](AccelVar scene, Var<Ray> shadow_ray) noexcept {
+        UInt count = 0u;
+        auto hit = scene.traverse_any(shadow_ray, {.visibility_mask = 0x04u})
+                       .on_procedural_candidate([&](ProceduralCandidate &c) noexcept {
+                           count += 1u;
+                           c.commit(c.ray()->t_min() + 0.25f);
+                           c.terminate();
+                       })
+                       .trace();
+        return ite(hit->miss(), 0u, 10u + count);
+    };
+
+    Kernel1D mixed_kernel = [&trace_shadow_any](
+                                AccelVar scene,
+                                BufferUInt out_u,
+                                BufferFloat4 out_f,
+                                Float nan_input) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f),
+            0.1f, 10.0f);
+        UInt surf_calls = 0u;
+        UInt proc_calls = 0u;
+        Float4 captured_surf_obj_ray = make_float4(-99.0f);
+        Float4 captured_proc_obj_orig = make_float4(-99.0f);
+        Float4 captured_proc_obj_dir = make_float4(-99.0f);
+        Float4 captured_proc_world_after_commit = make_float4(-99.0f);
+
+        // First query: reject cutout_mesh (inst 1) and reject both procedural AABBs -> must hit opaque_mesh (inst 0) at t=4.0 with surf_calls == 1 (opaque inst 0 never enters callback!).
+        UInt opaque_surf_calls = 0u;
+        auto opaque_only_hit =
+            scene.traverse(ray, {})
+                .on_surface_candidate([&](SurfaceCandidate &c) noexcept {
+                    opaque_surf_calls += 1u;
+                    auto obj_r = c.object_ray();
+                    captured_surf_obj_ray = make_float4(
+                        obj_r->origin(), obj_r->t_max());
+                    // Reject inst 1 so traversal must reach opaque inst 0.
+                })
+                .on_procedural_candidate([&](ProceduralCandidate &c) noexcept {
+                    // Test out-of-bounds and NaN commit rejection:
+                    c.commit(nan_input);
+                    c.commit(-1.0f);
+                    c.commit(99.0f);
+                })
+                .trace();
+
+        // Second query: mixed procedural + surface where procedural prim 0 commits twice (1.8 then 1.4) and observes contracted t_max!
+        auto mixed_hit =
+            scene.traverse(ray, {})
+                .on_surface_candidate([&](SurfaceCandidate &c) noexcept {
+                    surf_calls += 1u;
+                    c.commit();
+                })
+                .on_procedural_candidate([&](ProceduralCandidate &c) noexcept {
+                    proc_calls += 1u;
+                    auto h = c.hit();
+                    $if (h.prim == 0u) {
+                        auto obj_r = c.object_ray();
+                        captured_proc_obj_orig = make_float4(
+                            obj_r->origin(), obj_r->t_min());
+                        captured_proc_obj_dir = make_float4(
+                            obj_r->direction(), obj_r->t_max());
+                        c.commit(1.8f);
+                        c.commit(nan_input);// must be ignored, preserving 1.8f
+                        c.commit(2.2f);     // > contracted 1.8f -> must be ignored!
+                        c.commit(1.4f);     // <= 1.8f -> tightens commit to 1.4f!
+                        auto wr = c.ray();
+                        captured_proc_world_after_commit = make_float4(
+                            wr->origin(), wr->t_max());
+                    }
+                    $else {
+                        c.commit(3.1f);
+                    };
+                })
+                .trace();
+
+        // Two calls to the same value-capturing Callable containing an outlineable procedural query:
+        auto s0 = trace_shadow_any(scene, ray);
+        auto s1 = trace_shadow_any(
+            scene,
+            make_ray(make_float3(50.0f, 50.0f, 1.0f),
+                     make_float3(0.0f, 0.0f, -1.0f), 0.1f, 10.0f));
+
+        out_u.write(0u, opaque_surf_calls);
+        out_u.write(1u, opaque_only_hit.hit_type);
+        out_u.write(2u, opaque_only_hit.inst);
+        out_u.write(3u, mixed_hit.hit_type);
+        out_u.write(4u, mixed_hit.inst);
+        out_u.write(5u, mixed_hit.prim);
+        out_u.write(6u, s0);
+        out_u.write(
+            7u,
+            s1 + ite(surf_calls > 99u, 100u, 0u) +
+                ite(proc_calls == 0u, 100u, 0u));
+
+        out_f.write(0u, captured_surf_obj_ray);
+        out_f.write(1u, captured_proc_obj_orig);
+        out_f.write(2u, captured_proc_obj_dir);
+        out_f.write(3u, make_float4(
+                            captured_proc_world_after_commit.w,
+                            opaque_only_hit->distance(),
+                            mixed_hit->distance(),
+                            0.0f));
+    };
+
+    auto pipeline_shader = device.compile(
+        mixed_kernel,
+        ShaderOption{
+            .enable_cache = false,
+            .enable_ray_query_pipeline = true,
+            .force_ray_query_pipeline = true});
+    auto stateful_shader = device.compile(
+        mixed_kernel,
+        ShaderOption{
+            .enable_cache = false,
+            .enable_ray_query_pipeline = false});
+
+    auto indirect_dispatch = device.create_indirect_dispatch_buffer(1u);
+    Kernel1D prepare_indirect = [](Var<IndirectDispatchBuffer> commands) noexcept {
+        commands.set_dispatch_count(1u);
+        commands.set_kernel(0u, make_uint3(1u), make_uint3(1u), 0u);
+    };
+    auto prepare_indirect_shader = device.compile(prepare_indirect);
+
+    std::array runs{
+        make_mixed_pipeline_run(device),
+        make_mixed_pipeline_run(device),
+        make_mixed_pipeline_run(device),
+        make_mixed_pipeline_run(device)};
+    const float quiet_nan = std::numeric_limits<float>::quiet_NaN();
+
+    auto stream = device.create_stream();
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << aabb_buffer.copy_from(luisa::span{bounds})
+           << opaque_mesh.build()
+           << cutout_mesh.build()
+           << proc_prim.build()
+           << accel.build()
+           << prepare_indirect_shader(indirect_dispatch).dispatch(1u)
+           << pipeline_shader(accel, runs[0].result, runs[0].rays, quiet_nan).dispatch(1u)
+           << pipeline_shader(accel, runs[1].result, runs[1].rays, quiet_nan).dispatch(indirect_dispatch)
+           << stateful_shader(accel, runs[2].result, runs[2].rays, quiet_nan).dispatch(1u)
+           << stateful_shader(accel, runs[3].result, runs[3].rays, quiet_nan).dispatch(indirect_dispatch);
+    for (auto &run : runs) {
+        stream << run.result.copy_to(luisa::span{run.host_result})
+               << run.rays.copy_to(luisa::span{run.host_rays});
+    }
+    stream << synchronize();
+
+    constexpr std::array<uint, 8u> expected_u{
+        1u, surface_hit, 0u, procedural_hit, 2u, 0u, 11u, 0u};
+    constexpr auto eps = 1.0e-4f;
+    for (auto i = 0u; i < runs.size(); i++) {
+        expect(runs[i].host_result == expected_u)
+            << luisa::format("mixed pipeline uint mismatch in mode {}", i);
+        // Cutout mesh transform: translate(0,0,-1.5) * scale(2) -> inverse maps (0,0,1) to (0, 0, 1.25)
+        expect(std::abs(runs[i].host_rays[0].x) < eps &&
+               std::abs(runs[i].host_rays[0].y) < eps &&
+               std::abs(runs[i].host_rays[0].z - 1.25f) < eps)
+            << luisa::format("surface object_ray origin mismatch in mode {}", i);
+        // Procedural transform: translate(1,-2,0) * scale(2) -> inverse maps origin (0,0,1) to (-0.5, 1.0, 0.5) and dir (0,0,-1) to (0,0,-0.5)
+        expect(all(abs(runs[i].host_rays[1] - make_float4(-0.5f, 1.0f, 0.5f, 0.1f)) < eps))
+            << luisa::format("procedural object_ray origin/t_min mismatch in mode {}", i);
+        expect(std::abs(runs[i].host_rays[2].x) < eps &&
+               std::abs(runs[i].host_rays[2].y) < eps &&
+               std::abs(runs[i].host_rays[2].z + 0.5f) < eps)
+            << luisa::format("procedural object_ray direction mismatch in mode {}", i);
+        expect(all(abs(runs[i].host_rays[3] - make_float4(1.4f, 4.0f, 1.4f, 0.0f)) < eps))
+            << luisa::format("intra-callback contracted t_max or committed distance mismatch in mode {}", i);
+    }
+}
+
+void test_per_query_curve_and_procedural_coexistence(Device &device) {
+    constexpr auto basis = CurveBasis::PIECEWISE_LINEAR;
+    constexpr std::array control_points{
+        float4{-1.0f, 0.0f, 0.0f, 0.2f},
+        float4{1.0f, 0.0f, 0.0f, 0.2f}};
+    constexpr std::array segments{0u};
+    std::array<AABB, 1u> bounds{};
+    bounds[0].packed_min = {-0.5f, -0.5f, -2.1f};
+    bounds[0].packed_max = {0.5f, 0.5f, -1.9f};
+
+    auto cp_buf = device.create_buffer<float4>(control_points.size());
+    auto seg_buf = device.create_buffer<uint>(segments.size());
+    auto aabb_buf = device.create_buffer<AABB>(bounds.size());
+    auto curve = device.create_curve(basis, cp_buf, seg_buf);
+    auto proc = device.create_procedural_primitive(aabb_buf.view());
+    auto curve_accel = device.create_accel();
+    curve_accel.emplace_back(curve, make_float4x4(1.0f), 0xffu, false);
+    auto proc_accel = device.create_accel();
+    proc_accel.emplace_back(proc);
+
+    Kernel1D coexist_kernel = [](AccelVar c_accel, AccelVar p_accel,
+                                 BufferUInt out_u, BufferFloat2 out_f) noexcept {
+        auto ray = make_ray(
+            make_float3(0.0f, 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f), 0.0f, 10.0f);
+        // Query 0 uses curves -> retained on stateful intersection_query by loop_filter.
+        auto c_hit = c_accel.traverse(ray, {.curve_bases = {basis}})
+                         .on_surface_candidate([](SurfaceCandidate &c) noexcept {
+                             c.commit();
+                         })
+                         .trace();
+        // Query 1 is procedural -> outlined to 2-slot IFT in the same shader!
+        auto p_hit = p_accel.traverse(ray, {})
+                         .on_procedural_candidate([](ProceduralCandidate &c) noexcept {
+                             c.commit(2.75f);
+                         })
+                         .trace();
+        out_u.write(0u, c_hit.hit_type);
+        out_u.write(1u, p_hit.hit_type);
+        out_f.write(0u, make_float2(c_hit->distance(), p_hit->distance()));
+    };
+
+    auto shader = device.compile(
+        coexist_kernel,
+        ShaderOption{
+            .enable_cache = false,
+            .enable_ray_query_pipeline = true,
+            .force_ray_query_pipeline = true});
+    auto out_u = device.create_buffer<uint>(2u);
+    auto out_f = device.create_buffer<float2>(1u);
+    std::array<uint, 2u> host_u{};
+    std::array<float2, 1u> host_f{};
+    auto stream = device.create_stream();
+    stream << cp_buf.copy_from(luisa::span{control_points})
+           << seg_buf.copy_from(luisa::span{segments})
+           << aabb_buf.copy_from(luisa::span{bounds})
+           << curve.build()
+           << proc.build()
+           << curve_accel.build()
+           << proc_accel.build()
+           << shader(curve_accel, proc_accel, out_u, out_f).dispatch(1u)
+           << out_u.copy_to(luisa::span{host_u})
+           << out_f.copy_to(luisa::span{host_f})
+           << synchronize();
+
+    expect(host_u[0] == surface_hit && host_u[1] == procedural_hit)
+        << "coexisting curve + procedural ray queries must both commit expected hit types";
+    expect(std::abs(host_f[0].x - 0.8f) < 1.0e-4f &&
+           std::abs(host_f[0].y - 2.75f) < 1.0e-4f)
+        << "coexisting curve + procedural ray queries returned unexpected distances";
 }
 
 }// namespace
@@ -456,4 +758,6 @@ int main(int argc, char *argv[]) {
         argc, const_cast<const char **>(argv));
     test_outlineable_triangle_state_machine(dc->device);
     test_retained_procedural_state_machine(dc->device);
+    test_outlineable_mixed_procedural_and_surface_pipeline(dc->device);
+    test_per_query_curve_and_procedural_coexistence(dc->device);
 }

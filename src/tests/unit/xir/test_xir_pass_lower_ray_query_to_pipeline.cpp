@@ -2058,6 +2058,75 @@ void register_tests() {
         expect(f.surface->terminator() == surface_exit);
         expect(external->terminator() == external_edge);
     };
+
+    "loop_filter_retains_rejected_loop_without_blocking_sibling_loop"_test = [] {
+        Module m;
+        auto *kernel = m.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+
+        b.set_insertion_point(body);
+        auto *query0 = b.alloca_local(Type::of<RayQueryAll>());
+        query0->set_name("retained_query");
+        auto *loop0 = b.ray_query_loop();
+        auto *dispatch0 = loop0->create_dispatch_block();
+        auto *merge0 = loop0->create_merge_block();
+        b.set_insertion_point(dispatch0);
+        auto *dispatch_inst0 = b.ray_query_dispatch(query0);
+        dispatch_inst0->set_exit_block(merge0);
+        auto *surface0 = dispatch_inst0->create_on_surface_candidate_block();
+        auto *procedural0 = dispatch_inst0->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface0);
+        b.br(dispatch0);
+        b.set_insertion_point(procedural0);
+        b.br(dispatch0);
+
+        b.set_insertion_point(merge0);
+        auto *query1 = b.alloca_local(Type::of<RayQueryAll>());
+        query1->set_name("outlined_query");
+        auto *loop1 = b.ray_query_loop();
+        auto *dispatch1 = loop1->create_dispatch_block();
+        auto *merge1 = loop1->create_merge_block();
+        b.set_insertion_point(dispatch1);
+        auto *dispatch_inst1 = b.ray_query_dispatch(query1);
+        dispatch_inst1->set_exit_block(merge1);
+        auto *surface1 = dispatch_inst1->create_on_surface_candidate_block();
+        auto *procedural1 = dispatch_inst1->create_on_procedural_candidate_block();
+        b.set_insertion_point(surface1);
+        b.br(dispatch1);
+        b.set_insertion_point(procedural1);
+        b.br(dispatch1);
+        b.set_insertion_point(merge1);
+        b.return_void();
+
+        size_t skipped_count = 99u;
+        LowerRayQueryToPipelineOptions options;
+        options.skipped_loop_count = &skipped_count;
+        options.loop_filter = [](const RayQueryLoopInst *candidate) noexcept -> bool {
+            auto *term = candidate->dispatch_block()->terminator();
+            auto *disp = static_cast<const RayQueryDispatchInst *>(term);
+            auto name = disp->query_object()->name();
+            return name.has_value() &&
+                   std::string_view{*name} == "outlined_query";
+        };
+        auto info = lower_ray_query_to_pipeline_pass_run_on_function(kernel, options);
+        expect(info.succeeded());
+        expect(info.error_count == 0u);
+        expect(info.lowered_loop_count == 1u);
+        expect(skipped_count == 1u);
+        expect(body->terminator() == loop0);
+
+        size_t pipeline_count = 0u;
+        merge0->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<RayQueryPipelineInst>()) {
+                auto *p = static_cast<RayQueryPipelineInst *>(inst);
+                expect(p->query_object() == query1);
+                ++pipeline_count;
+            }
+        });
+        expect(pipeline_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
 }
 
 int main(int argc, char *argv[]) {

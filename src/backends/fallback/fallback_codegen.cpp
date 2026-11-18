@@ -439,13 +439,13 @@ private:
         auto llvm_type = _translate_type(t, register_use);
         switch (t->tag()) {
             case Type::Tag::BOOL: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint8_t *>(data));
-            case Type::Tag::INT8: return llvm::ConstantInt::get(llvm_type, *static_cast<const int8_t *>(data));
+            case Type::Tag::INT8: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint8_t *>(data));
             case Type::Tag::UINT8: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint8_t *>(data));
-            case Type::Tag::INT16: return llvm::ConstantInt::get(llvm_type, *static_cast<const int16_t *>(data));
+            case Type::Tag::INT16: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint16_t *>(data));
             case Type::Tag::UINT16: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint16_t *>(data));
-            case Type::Tag::INT32: return llvm::ConstantInt::get(llvm_type, *static_cast<const int32_t *>(data));
+            case Type::Tag::INT32: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint32_t *>(data));
             case Type::Tag::UINT32: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint32_t *>(data));
-            case Type::Tag::INT64: return llvm::ConstantInt::get(llvm_type, *static_cast<const int64_t *>(data));
+            case Type::Tag::INT64: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint64_t *>(data));
             case Type::Tag::UINT64: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint64_t *>(data));
             case Type::Tag::FLOAT16: return llvm::ConstantFP::get(llvm_type, *static_cast<const half *>(data));
             case Type::Tag::FLOAT32: return llvm::ConstantFP::get(llvm_type, *static_cast<const float *>(data));
@@ -3656,8 +3656,8 @@ private:
                 auto llvm_inst = b.CreateSwitch(llvm_condition, llvm_default_block, switch_inst->case_count());
                 for (auto i = 0u; i < switch_inst->case_count(); i++) {
                     auto case_value = switch_inst->case_value(i);
-                    auto llvm_case_value = b.getIntN(
-                        llvm_condition->getType()->getIntegerBitWidth(), case_value);
+                    auto llvm_case_value =
+                        llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(llvm_condition->getType()), static_cast<uint64_t>(case_value), false, true);
                     auto llvm_case_block = _find_or_create_basic_block(current, switch_inst->case_block(i));
                     llvm_inst->addCase(llvm_case_value, llvm_case_block);
                 }

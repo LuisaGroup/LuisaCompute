@@ -383,7 +383,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 } else// TODO: support assignment by constexpr var
                 {
                     db->DumpWithLocation(where);
-                    clangcxx_log_error("unsupportted gloal const eval type: {}", luisa::to_string(Decompressed->getKind()));
+                    clangcxx_log_error("unsupportted gloal const eval type: {}", Decompressed->getDeclKindName());
                 }
             }
         }
@@ -719,7 +719,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         case 3: { auto lcType = Type::of<stype##3>(); fb->assign(constructed, fb->call(lcType, CallOp::MAKE_##type##3, { lcArgs.begin() + 1, lcArgs.end() })); } break; \
                         case 4: { auto lcType = Type::of<stype##4>(); fb->assign(constructed, fb->call(lcType, CallOp::MAKE_##type##4, { lcArgs.begin() + 1, lcArgs.end() })); } break; \
                         default: {                                                                                             \
-                            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), luisa::to_string(EType->getKind()), N);    \
+                            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getNameAsCString(clang::PrintingPolicy{clang::LangOptions{}}), N);    \
                         } break;                                                                                               \
                     }
                                             case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool, BOOL) } break;
@@ -732,7 +732,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                             case (BuiltinType::Kind::UShort): { CASE_VEC_TYPE(ushort, USHORT) } break;
                                             case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double, DOUBLE) } break;
                                             default: {
-                                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), luisa::to_string(EType->getKind()));
+                                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getNameAsCString(clang::PrintingPolicy{clang::LangOptions{}}));
                                             } break;
                                         }
                                         // clang-format on

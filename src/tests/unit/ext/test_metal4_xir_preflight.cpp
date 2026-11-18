@@ -2,11 +2,19 @@
 // Ordinary external declarations remain supported; native_include cannot
 // replace a required typed intrinsic with an arbitrary same-name definition.
 
+#include <array>
+
 #include "ut/ut.hpp"
 
 #include <luisa/ast/type_registry.h>
+#include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/hit.h>
+#include <luisa/runtime/rtx/ray.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/metadata/contiguous_copy.h>
 #include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/module.h>
@@ -106,6 +114,130 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
+    };
+    "metal4_preflight_accepts_procedural_and_mixed_ray_query_pipelines"_test = [] {
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(make_uint3(32u, 1u, 1u));
+        auto *accel_arg = kernel->create_resource_argument(Type::of<Accel>());
+        auto *ray_arg = kernel->create_value_argument(Type::of<Ray>());
+        auto *mask_arg = kernel->create_value_argument(Type::of<uint>());
+
+        auto *surface_fn = module.create_callable(nullptr);
+        auto *surf_q = surface_fn->create_reference_argument(Type::of<RayQueryAll>());
+        auto *surf_capture = surface_fn->create_reference_argument(Type::of<float>());
+        xir::XIRBuilder sb;
+        sb.set_insertion_point(surface_fn->create_body_block());
+        auto *tri_hit = sb.call(
+            Type::of<TriangleHit>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT,
+            std::array<xir::Value *, 1u>{surf_q});
+        auto *surf_obj_ray = sb.call(
+            Type::of<Ray>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY,
+            std::array<xir::Value *, 1u>{surf_q});
+        (void)tri_hit;
+        (void)surf_obj_ray;
+        sb.store(surf_capture, module.create_constant_one(Type::of<float>()));
+        sb.call(
+            xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE,
+            std::array<xir::Value *, 1u>{surf_q});
+        sb.return_void();
+
+        auto *procedural_fn = module.create_callable(nullptr);
+        auto *proc_q = procedural_fn->create_reference_argument(Type::of<RayQueryAll>());
+        auto *proc_capture = procedural_fn->create_reference_argument(Type::of<float>());
+        xir::XIRBuilder pb;
+        pb.set_insertion_point(procedural_fn->create_body_block());
+        (void)pb.call(
+            Type::of<ProceduralHit>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT,
+            std::array<xir::Value *, 1u>{proc_q});
+        (void)pb.call(
+            Type::of<Ray>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY,
+            std::array<xir::Value *, 1u>{proc_q});
+        (void)pb.call(
+            Type::of<Ray>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY,
+            std::array<xir::Value *, 1u>{proc_q});
+        auto *dist = pb.load(Type::of<float>(), proc_capture);
+        pb.call(
+            xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL,
+            std::array<xir::Value *, 2u>{proc_q, dist});
+        pb.return_void();
+
+        xir::XIRBuilder kb;
+        kb.set_insertion_point(kernel->create_body_block());
+        auto *query_obj = kb.alloca_local(Type::of<RayQueryAll>());
+        auto *capture_var = kb.alloca_local(Type::of<float>());
+        kb.store(capture_var, module.create_constant_one(Type::of<float>()));
+        auto *query_init = kb.call(
+            Type::of<RayQueryAll>(),
+            xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL,
+            std::array<xir::Value *, 3u>{accel_arg, ray_arg, mask_arg});
+        kb.store(query_obj, query_init);
+        kb.ray_query_pipeline(
+            query_obj, surface_fn, procedural_fn,
+            std::array<xir::Value *, 1u>{capture_var});
+        (void)kb.call(
+            Type::of<CommittedHit>(),
+            xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT,
+            std::array<xir::Value *, 1u>{query_obj});
+        kb.return_void();
+
+        expect(xir::xir_verify_module(&module).succeeded());
+        luisa::string reason;
+        metal::MetalCodegenLLVMConfig config;
+        expect(metal::luisa_compute_metal_codegen_llvm_supported(module, config, &reason))
+            << reason;
+        auto codegen = metal::luisa_compute_metal_codegen_llvm(module, config);
+        expect(codegen.module != nullptr);
+        expect(codegen.intersection_functions.size() == 2u);
+        if (codegen.intersection_functions.size() == 2u) {
+            expect(codegen.intersection_functions[0] == "luisa_ray_query_surface_0");
+            expect(codegen.intersection_functions[1] == "luisa_ray_query_procedural_0");
+        }
+    };
+    "metal4_preflight_rejects_cross_role_handler_commits"_test = [] {
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(make_uint3(32u, 1u, 1u));
+        auto *accel_arg = kernel->create_resource_argument(Type::of<Accel>());
+        auto *ray_arg = kernel->create_value_argument(Type::of<Ray>());
+        auto *mask_arg = kernel->create_value_argument(Type::of<uint>());
+
+        auto *surface_fn = module.create_callable(nullptr);
+        (void)surface_fn->create_reference_argument(Type::of<RayQueryAll>());
+        xir::XIRBuilder sb;
+        sb.set_insertion_point(surface_fn->create_body_block());
+        sb.return_void();
+
+        auto *procedural_fn = module.create_callable(nullptr);
+        auto *proc_q = procedural_fn->create_reference_argument(Type::of<RayQueryAll>());
+        xir::XIRBuilder pb;
+        pb.set_insertion_point(procedural_fn->create_body_block());
+        // Invalid: triangle commit inside procedural handler.
+        pb.call(
+            xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE,
+            std::array<xir::Value *, 1u>{proc_q});
+        pb.return_void();
+
+        xir::XIRBuilder kb;
+        kb.set_insertion_point(kernel->create_body_block());
+        auto *query_obj = kb.alloca_local(Type::of<RayQueryAll>());
+        auto *query_init = kb.call(
+            Type::of<RayQueryAll>(),
+            xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL,
+            std::array<xir::Value *, 3u>{accel_arg, ray_arg, mask_arg});
+        kb.store(query_obj, query_init);
+        kb.ray_query_pipeline(query_obj, surface_fn, procedural_fn, {});
+        kb.return_void();
+
+        luisa::string reason;
+        expect(!metal::luisa_compute_metal_codegen_llvm_supported(module, &reason));
+        expect(reason.find("procedural intersection handler") != luisa::string::npos)
+            << reason;
     };
     return 0;
 }

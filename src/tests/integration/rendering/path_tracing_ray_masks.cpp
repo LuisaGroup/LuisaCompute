@@ -188,7 +188,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "fallback" ? 1u : 64u;
+    auto max_spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "metal4" || device.backend_name() == "fallback" ? 1u : 64u;
     bool infinite_render = !opts.offline;
     auto sample_plan = luisa::ref::PathTracingSamplePassPlan{
         .total_spp = opts.offline ? (opts.spp == 0u ? luisa::ref::DEFAULT_PATH_TRACING_SPP : opts.spp) : 0u,

@@ -286,6 +286,10 @@ private:
         ray_query_candidate_primitive,
         ray_query_candidate_barycentrics,
         ray_query_candidate_distance,
+        ray_query_candidate_object_origin,
+        ray_query_candidate_object_direction,
+        ray_query_candidate_min_distance,
+        ray_query_candidate_max_distance,
         ray_query_candidate_field_count
     };
 
@@ -324,13 +328,21 @@ private:
         const xir::AllocaInst *query_object;
         const xir::ResourceQueryInst *constructor;
         const xir::CallableFunction *surface_handler;
+        const xir::CallableFunction *procedural_handler;
         size_t index;
         AIRRayTracingConfig config;
         llvm::StructType *payload_type;
         uint32_t payload_field_mask;
         bool has_dummy_payload_field{false};
+        bool has_surface_handler{false};
+        bool has_procedural_handler{false};
+        bool surface_uses_object_ray{false};
+        bool surface_uses_ray_bounds{false};
+        bool procedural_uses_object_ray{false};
+        bool procedural_uses_ray_bounds{false};
         luisa::vector<RayQueryPayloadCapture> captures;
-        luisa::string function_name;
+        luisa::string surface_function_name;
+        luisa::string procedural_function_name;
 
         [[nodiscard]] bool uses_payload_field(
             RayQueryPayloadField field) const noexcept {
@@ -675,7 +687,9 @@ private:
         IB &builder, FunctionContext &function,
         RayQueryCandidateField field) noexcept;
     void _add_ray_query_intersection_metadata(
-        llvm::Function *function, const RayQueryPipeline &pipeline) noexcept;
+        llvm::Function *function, const RayQueryPipeline &pipeline,
+        bool surface, bool empty_stub, bool uses_object_ray,
+        bool uses_ray_bounds) noexcept;
 };
 
 }// namespace luisa::compute::metal::detail

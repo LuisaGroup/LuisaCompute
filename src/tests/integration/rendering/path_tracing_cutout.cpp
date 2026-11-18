@@ -659,6 +659,7 @@ int main(int argc, char *argv[]) {
 
     auto default_max_spp_per_dispatch =
         device.backend_name() == "metal" ||
+                device.backend_name() == "metal4" ||
                 device.backend_name() == "fallback" ?
             1u :
             64u;

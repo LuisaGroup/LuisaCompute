@@ -357,6 +357,111 @@ void lower_llvm_post_opt_for_air(llvm::Module &module) noexcept {
     }
     for (auto *decl : dead_decls) { decl->eraseFromParent(); }
 
+    llvm::SmallVector<llvm::LoadInst *, 8u> bool_vec_loads;
+    llvm::SmallVector<llvm::StoreInst *, 8u> bool_vec_stores;
+    for (auto &function : module) {
+        for (auto &block : function) {
+            for (auto &instruction : block) {
+                if (auto *ld = llvm::dyn_cast<llvm::LoadInst>(&instruction)) {
+                    if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(ld->getType());
+                        vt != nullptr && vt->getElementType()->isIntegerTy(1u)) {
+                        auto n = static_cast<unsigned>(vt->getNumElements());
+                        if (n == 8u || n == 16u || n == 32u || n == 64u ||
+                            (n > 64u && n % 32u == 0u)) {
+                            bool_vec_loads.emplace_back(ld);
+                        }
+                    }
+                } else if (auto *st = llvm::dyn_cast<llvm::StoreInst>(&instruction)) {
+                    if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(
+                            st->getValueOperand()->getType());
+                        vt != nullptr && vt->getElementType()->isIntegerTy(1u)) {
+                        auto n = static_cast<unsigned>(vt->getNumElements());
+                        if (n == 8u || n == 16u || n == 32u || n == 64u ||
+                            (n > 64u && n % 32u == 0u)) {
+                            bool_vec_stores.emplace_back(st);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    auto packed_carrier_type_for_bool_bits =
+        [&](llvm::LLVMContext &ctx, unsigned n) -> llvm::Type * {
+        if (n == 8u || n == 16u || n == 32u) {
+            return llvm::Type::getIntNTy(ctx, n);
+        }
+        return llvm::FixedVectorType::get(llvm::Type::getInt32Ty(ctx), n / 32u);
+    };
+    for (auto *ld : bool_vec_loads) {
+        auto *vt = llvm::cast<llvm::FixedVectorType>(ld->getType());
+        auto n = static_cast<unsigned>(vt->getNumElements());
+        llvm::IRBuilder<> builder{ld};
+        auto *carrier_ty = packed_carrier_type_for_bool_bits(builder.getContext(), n);
+        llvm::Value *loaded = nullptr;
+        if (auto *carrier_vt = llvm::dyn_cast<llvm::FixedVectorType>(carrier_ty);
+            carrier_vt != nullptr && carrier_vt->getNumElements() > 4u) {
+            auto num_words = static_cast<unsigned>(carrier_vt->getNumElements());
+            auto *i32_ty = builder.getInt32Ty();
+            auto *v4i32_ty = llvm::FixedVectorType::get(i32_ty, 4u);
+            auto base_align = ld->getAlign();
+            auto *inv_md = ld->getMetadata(llvm::LLVMContext::MD_invariant_load);
+            llvm::Value *acc = llvm::PoisonValue::get(carrier_vt);
+            for (unsigned offset = 0u; offset < num_words;) {
+                unsigned width = (num_words - offset >= 4u) ? 4u : 1u;
+                auto byte_offset = static_cast<uint64_t>(offset) * 4ull;
+                auto *ptr = offset == 0u ?
+                                ld->getPointerOperand() :
+                                builder.CreateInBoundsGEP(
+                                    builder.getInt8Ty(), ld->getPointerOperand(),
+                                    builder.getInt64(byte_offset));
+                auto chunk_align = llvm::commonAlignment(base_align, byte_offset);
+                if (width == 1u) {
+                    auto *nl = builder.CreateAlignedLoad(
+                        i32_ty, ptr, chunk_align, ld->isVolatile());
+                    if (inv_md && !ld->isVolatile()) {
+                        nl->setMetadata(llvm::LLVMContext::MD_invariant_load, inv_md);
+                    }
+                    acc = builder.CreateInsertElement(acc, nl, static_cast<uint64_t>(offset));
+                } else {
+                    auto *nl = builder.CreateAlignedLoad(
+                        v4i32_ty, ptr, chunk_align, ld->isVolatile());
+                    if (inv_md && !ld->isVolatile()) {
+                        nl->setMetadata(llvm::LLVMContext::MD_invariant_load, inv_md);
+                    }
+                    for (unsigned k = 0u; k < 4u; ++k) {
+                        auto *lane = builder.CreateExtractElement(nl, static_cast<uint64_t>(k));
+                        acc = builder.CreateInsertElement(
+                            acc, lane, static_cast<uint64_t>(offset + k));
+                    }
+                }
+                offset += width;
+            }
+            loaded = acc;
+        } else {
+            auto *nl = builder.CreateAlignedLoad(
+                carrier_ty, ld->getPointerOperand(), ld->getAlign(), ld->isVolatile());
+            if (auto *inv_md = ld->getMetadata(llvm::LLVMContext::MD_invariant_load);
+                inv_md && !ld->isVolatile()) {
+                nl->setMetadata(llvm::LLVMContext::MD_invariant_load, inv_md);
+            }
+            loaded = nl;
+        }
+        auto *bc = builder.CreateBitCast(loaded, vt);
+        ld->replaceAllUsesWith(bc);
+        ld->eraseFromParent();
+    }
+    for (auto *st : bool_vec_stores) {
+        auto *val = st->getValueOperand();
+        auto *vt = llvm::cast<llvm::FixedVectorType>(val->getType());
+        auto n = static_cast<unsigned>(vt->getNumElements());
+        llvm::IRBuilder<> builder{st};
+        auto *carrier_ty = packed_carrier_type_for_bool_bits(builder.getContext(), n);
+        auto *bc = builder.CreateBitCast(val, carrier_ty);
+        builder.CreateAlignedStore(
+            bc, st->getPointerOperand(), st->getAlign(), st->isVolatile());
+        st->eraseFromParent();
+    }
+
     llvm::SmallVector<llvm::BitCastInst *, 16u> bool_to_int_casts;
     llvm::SmallVector<llvm::BitCastInst *, 16u> int_to_bool_casts;
     for (auto &function : module) {
@@ -364,15 +469,15 @@ void lower_llvm_post_opt_for_air(llvm::Module &module) noexcept {
             for (auto &instruction : block) {
                 auto *bc = llvm::dyn_cast<llvm::BitCastInst>(&instruction);
                 if (bc == nullptr) { continue; }
-                if (auto *src_vec = llvm::dyn_cast<llvm::FixedVectorType>(bc->getSrcTy());
-                    src_vec != nullptr &&
-                    src_vec->getElementType()->isIntegerTy(1u) &&
-                    bc->getDestTy()->isIntegerTy()) {
+                auto *src_vec = llvm::dyn_cast<llvm::FixedVectorType>(bc->getSrcTy());
+                auto *dst_vec = llvm::dyn_cast<llvm::FixedVectorType>(bc->getDestTy());
+                const bool src_is_bool_vec =
+                    src_vec != nullptr && src_vec->getElementType()->isIntegerTy(1u);
+                const bool dst_is_bool_vec =
+                    dst_vec != nullptr && dst_vec->getElementType()->isIntegerTy(1u);
+                if (src_is_bool_vec && !dst_is_bool_vec) {
                     bool_to_int_casts.emplace_back(bc);
-                } else if (auto *dst_vec = llvm::dyn_cast<llvm::FixedVectorType>(bc->getDestTy());
-                           dst_vec != nullptr &&
-                           dst_vec->getElementType()->isIntegerTy(1u) &&
-                           bc->getSrcTy()->isIntegerTy()) {
+                } else if (dst_is_bool_vec && !src_is_bool_vec) {
                     int_to_bool_casts.emplace_back(bc);
                 }
             }
@@ -383,6 +488,36 @@ void lower_llvm_post_opt_for_air(llvm::Module &module) noexcept {
         auto *vec = bc->getOperand(0u);
         auto *vec_ty = llvm::cast<llvm::FixedVectorType>(vec->getType());
         auto n = static_cast<unsigned>(vec_ty->getNumElements());
+        if (!bc->getDestTy()->isIntegerTy()) {
+            llvm::IRBuilder<> builder{bc};
+            llvm::Value *packed_carrier = nullptr;
+            if (n <= 64u && (n == 8u || n == 16u || n == 32u || n == 64u)) {
+                packed_carrier = pack_bool_vector_to_legal_int(builder, vec, n, false);
+            } else if (n > 64u && n % 32u == 0u) {
+                auto num_words = n / 32u;
+                auto *i32_ty = builder.getInt32Ty();
+                auto *zero32 = builder.getInt32(0u);
+                llvm::Value *words = llvm::PoisonValue::get(
+                    llvm::FixedVectorType::get(i32_ty, num_words));
+                for (unsigned w = 0u; w < num_words; ++w) {
+                    llvm::Value *acc = zero32;
+                    for (unsigned b = 0u; b < 32u; ++b) {
+                        auto *lane = builder.CreateExtractElement(
+                            vec, static_cast<uint64_t>(w * 32u + b));
+                        auto *bit = builder.CreateSelect(
+                            lane, builder.getInt32(1u << b), zero32);
+                        acc = builder.CreateOr(acc, bit);
+                    }
+                    words = builder.CreateInsertElement(words, acc, static_cast<uint64_t>(w));
+                }
+                packed_carrier = words;
+            }
+            LUISA_ASSERT(packed_carrier != nullptr,
+                         "Unhandled Metal AIR <{} x i1> non-integer bitcast.", n);
+            bc->replaceAllUsesWith(builder.CreateBitCast(packed_carrier, bc->getDestTy()));
+            bc->eraseFromParent();
+            continue;
+        }
         auto legal_bits = n <= 8u  ? 8u :
                           n <= 16u ? 16u :
                           n <= 32u ? 32u :
@@ -483,35 +618,114 @@ void lower_llvm_post_opt_for_air(llvm::Module &module) noexcept {
         auto *dst_vec = llvm::cast<llvm::FixedVectorType>(bc->getDestTy());
         auto n = static_cast<unsigned>(dst_vec->getNumElements());
         llvm::IRBuilder<> builder{bc};
-        auto *bits = bc->getOperand(0u);
-        if (auto *trunc = llvm::dyn_cast<llvm::TruncInst>(bits)) {
-            auto src_bits = trunc->getSrcTy()->getIntegerBitWidth();
-            if (src_bits == 8u || src_bits == 16u ||
-                src_bits == 32u || src_bits == 64u) {
-                bits = trunc->getOperand(0u);
+        auto *src = bc->getOperand(0u);
+        llvm::Value *words_vec = nullptr;
+        llvm::Value *scalar_bits = nullptr;
+        unsigned scalar_bits_width = 0u;
+
+        if (n >= 64u && n % 32u == 0u) {
+            auto num_words = n / 32u;
+            words_vec = builder.CreateBitCast(
+                src, llvm::FixedVectorType::get(builder.getInt32Ty(), num_words));
+        } else {
+            auto *bits = src;
+            if (!bits->getType()->isIntegerTy()) {
+                bits = builder.CreateBitCast(
+                    bits, llvm::Type::getIntNTy(builder.getContext(), n));
+            }
+            if (auto *trunc = llvm::dyn_cast<llvm::TruncInst>(bits)) {
+                auto src_bits = trunc->getSrcTy()->getIntegerBitWidth();
+                if (src_bits == 8u || src_bits == 16u ||
+                    src_bits == 32u || src_bits == 64u) {
+                    bits = trunc->getOperand(0u);
+                }
+            }
+            auto bits_width = bits->getType()->getIntegerBitWidth();
+            if (bits_width != 8u && bits_width != 16u &&
+                bits_width != 32u && bits_width != 64u) {
+                auto legal_bits = bits_width <= 32u ? 32u : 64u;
+                bits = builder.CreateZExt(
+                    bits, llvm::Type::getIntNTy(builder.getContext(), legal_bits));
+                bits_width = legal_bits;
+            }
+            scalar_bits = bits;
+            scalar_bits_width = bits_width;
+        }
+
+        auto extract_bit_at = [&](llvm::IRBuilder<> &b, llvm::Value *idx_val) -> llvm::Value * {
+            if (words_vec != nullptr) {
+                auto *idx32 = b.CreateZExtOrTrunc(idx_val, b.getInt32Ty());
+                auto *word_idx = b.CreateLShr(idx32, b.getInt32(5u));
+                auto *bit_idx = b.CreateAnd(idx32, b.getInt32(31u));
+                auto *word = b.CreateExtractElement(words_vec, word_idx);
+                auto *mask = b.CreateShl(b.getInt32(1u), bit_idx);
+                return b.CreateICmpNE(b.CreateAnd(word, mask), b.getInt32(0u));
+            }
+            auto *int_ty = llvm::Type::getIntNTy(b.getContext(), scalar_bits_width);
+            auto *idx_w = b.CreateZExtOrTrunc(idx_val, int_ty);
+            auto *mask = b.CreateShl(llvm::ConstantInt::get(int_ty, 1u), idx_w);
+            return b.CreateICmpNE(
+                b.CreateAnd(scalar_bits, mask), llvm::ConstantInt::get(int_ty, 0u));
+        };
+
+        llvm::SmallVector<llvm::User *, 8u> users(bc->users());
+        for (auto *user : users) {
+            if (auto *ee = llvm::dyn_cast<llvm::ExtractElementInst>(user)) {
+                if (ee->getVectorOperand() == bc) {
+                    llvm::IRBuilder<> ee_builder{ee};
+                    ee->replaceAllUsesWith(extract_bit_at(ee_builder, ee->getIndexOperand()));
+                    ee->eraseFromParent();
+                }
+            } else if (auto *sv = llvm::dyn_cast<llvm::ShuffleVectorInst>(user)) {
+                auto *sv_ty = llvm::dyn_cast<llvm::FixedVectorType>(sv->getType());
+                if (sv_ty != nullptr && sv_ty->getNumElements() <= 4u &&
+                    sv->getOperand(0u) == bc &&
+                    llvm::isa<llvm::UndefValue>(sv->getOperand(1u))) {
+                    llvm::IRBuilder<> sv_builder{sv};
+                    llvm::Value *narrow = llvm::PoisonValue::get(sv_ty);
+                    auto mask = sv->getShuffleMask();
+                    for (unsigned i = 0u; i < mask.size(); ++i) {
+                        if (mask[i] >= 0) {
+                            auto *lane = extract_bit_at(
+                                sv_builder, sv_builder.getInt32(static_cast<uint32_t>(mask[i])));
+                            narrow = sv_builder.CreateInsertElement(
+                                narrow, lane, static_cast<uint64_t>(i));
+                        }
+                    }
+                    sv->replaceAllUsesWith(narrow);
+                    sv->eraseFromParent();
+                }
             }
         }
-        auto bits_width = bits->getType()->getIntegerBitWidth();
-        if (bits_width != 8u && bits_width != 16u &&
-            bits_width != 32u && bits_width != 64u) {
-            auto legal_bits = bits_width <= 32u ? 32u : 64u;
-            bits = builder.CreateZExt(
-                bits, llvm::Type::getIntNTy(builder.getContext(), legal_bits));
-            bits_width = legal_bits;
+
+        if (!bc->use_empty()) {
+            LUISA_ASSERT(
+                n <= 4u,
+                "Unhandled wide Metal AIR <{} x i1> bitcast consumer.", n);
+            llvm::Value *vec = llvm::PoisonValue::get(dst_vec);
+            for (auto i = 0u; i < n; i++) {
+                auto *lane = extract_bit_at(builder, builder.getInt32(i));
+                vec = builder.CreateInsertElement(
+                    vec, lane, static_cast<uint64_t>(i));
+            }
+            bc->replaceAllUsesWith(vec);
         }
-        auto *int_ty = llvm::Type::getIntNTy(builder.getContext(), bits_width);
-        auto *zero = llvm::ConstantInt::get(int_ty, 0u);
-        llvm::Value *vec = llvm::PoisonValue::get(dst_vec);
-        for (auto i = 0u; i < n; i++) {
-            auto mask = llvm::APInt::getOneBitSet(bits_width, i);
-            auto *masked = builder.CreateAnd(
-                bits, llvm::ConstantInt::get(int_ty, mask));
-            auto *lane = builder.CreateICmpNE(masked, zero);
-            vec = builder.CreateInsertElement(
-                vec, lane, static_cast<uint64_t>(i));
-        }
-        bc->replaceAllUsesWith(vec);
         bc->eraseFromParent();
+    }
+
+    for (auto &function : module) {
+        if (!function.isDeclaration() &&
+            function.getFnAttribute("unsafe-fp-math").getValueAsString() == "true") {
+            function.addFnAttr("no-infs-fp-math", "true");
+            function.addFnAttr("no-nans-fp-math", "true");
+            for (auto &block : function) {
+                for (auto &inst : block) {
+                    if (llvm::isa<llvm::FPMathOperator>(&inst)) {
+                        inst.setFast(true);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -740,11 +954,20 @@ struct AIRCodegenEntry {
                            cont != nullptr && (accept_any || cont->isOne());
                 };
 
-            for (size_t idx = 0u; idx < intersection_functions.size(); ++idx) {
+            if (intersection_functions.size() % 2u != 0u) { return; }
+            for (size_t idx = 0u; idx * 2u + 1u < intersection_functions.size(); ++idx) {
                 auto *surf_fn = mod.getFunction(
-                    llvm::StringRef{intersection_functions[idx].data(),
-                                    intersection_functions[idx].size()});
-                if (surf_fn == nullptr || surf_fn->isDeclaration()) { continue; }
+                    llvm::StringRef{intersection_functions[idx * 2u].data(),
+                                    intersection_functions[idx * 2u].size()});
+                auto *proc_fn = mod.getFunction(
+                    llvm::StringRef{intersection_functions[idx * 2u + 1u].data(),
+                                    intersection_functions[idx * 2u + 1u].size()});
+                if (surf_fn == nullptr || surf_fn->isDeclaration() ||
+                    surf_fn->arg_size() == 0u ||
+                    proc_fn == nullptr || proc_fn->isDeclaration() ||
+                    proc_fn->arg_size() != 0u) {
+                    continue;
+                }
                 bool has_writes = false;
                 for (const auto &bb : *surf_fn) {
                     for (const auto &inst : bb) {
@@ -762,7 +985,9 @@ struct AIRCodegenEntry {
                 llvm::AllocaInst *matched_alloca = nullptr;
                 bool ambiguous = false;
                 for (auto &fn : mod) {
-                    if (fn.isDeclaration() || &fn == surf_fn) { continue; }
+                    if (fn.isDeclaration() || &fn == surf_fn || &fn == proc_fn) {
+                        continue;
+                    }
                     for (auto &bb : fn) {
                         for (auto &inst : bb) {
                             auto *ci = llvm::dyn_cast<llvm::CallInst>(&inst);

@@ -73,8 +73,9 @@ struct MetalCodegenLLVMResult {
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
     luisa::vector<std::pair<luisa::string, luisa::string>> format_types;
-    // Ordered one-to-one with the intersection-function-table resource-ID
-    // wrappers appended to the compute root argument buffer.
+    // Ordered as [surface_0, procedural_0, ...] pairs corresponding two-to-one
+    // with the intersection-function-table resource-ID wrappers appended to the
+    // compute root argument buffer.
     luisa::vector<luisa::string> intersection_functions;
     size_t root_argument_size{0u};
     uint32_t fragment_output_count{0u};

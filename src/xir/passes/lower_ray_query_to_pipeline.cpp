@@ -1419,6 +1419,7 @@ select_ray_query_loops(
         size_t input_capture_count;
         size_t output_capture_count;
         size_t capture_cost;
+        bool loop_filter_eligible;
         bool capture_filter_eligible;
         bool capture_eligible;
     };
@@ -1432,6 +1433,8 @@ select_ray_query_loops(
     candidates.reserve(loops.size());
     auto capture_eligible_loop_count = size_t{0u};
     for (auto *loop : loops) {
+        auto loop_filter_eligible =
+            options.loop_filter == nullptr || options.loop_filter(loop);
         auto subgraph = collect_ray_query_loop_subgraph(loop);
         auto capture_list = collect_ray_query_loop_capture_list(subgraph);
         auto handler_block_count = subgraph.reverse_post_order.size() - 1u;
@@ -1448,8 +1451,8 @@ select_ray_query_loops(
         // bound; lowering performs the complete proof once before ABI changes.
         auto input_capture_count = capture_list.in_values.size();
         auto output_capture_count = capture_list.out_values.size();
-        auto capture_filter_eligible = true;
-        if (options.captured_argument_filter != nullptr) {
+        auto capture_filter_eligible = loop_filter_eligible;
+        if (capture_filter_eligible && options.captured_argument_filter != nullptr) {
             for (auto *value : capture_list.in_values) {
                 capture_filter_eligible &= options.captured_argument_filter(value, false);
             }
@@ -1462,13 +1465,14 @@ select_ray_query_loops(
                                                                luisa::span{capture_list.out_values}, options) :
                                 detail::RayQueryCaptureCost{};
         auto capture_eligible =
+            loop_filter_eligible &&
             capture_filter_eligible &&
             capture_cost.total() <= options.max_captured_argument_cost &&
             capture_count_within_limit(input_capture_count, output_capture_count,
                                        options.max_captured_argument_count);
         // Output captures cannot be localized. If they alone exceed the
         // budget, no input-localization result can make the loop eligible.
-        if (!capture_eligible && capture_filter_eligible &&
+        if (!capture_eligible && loop_filter_eligible && capture_filter_eligible &&
             capture_cost.total() <= options.max_captured_argument_cost &&
             output_capture_count <= options.max_captured_argument_count) {
             ++info.selection_localization_analysis_count;
@@ -1479,6 +1483,7 @@ select_ray_query_loops(
                                "Localized ray-query handler captures exceed input captures.");
             input_capture_count -= localized_input_capture_count;
             capture_eligible =
+                loop_filter_eligible &&
                 capture_filter_eligible &&
                 capture_cost.total() <= options.max_captured_argument_cost &&
                 capture_count_within_limit(input_capture_count, output_capture_count,
@@ -1492,6 +1497,7 @@ select_ray_query_loops(
             .input_capture_count = input_capture_count,
             .output_capture_count = output_capture_count,
             .capture_cost = capture_cost.total(),
+            .loop_filter_eligible = loop_filter_eligible,
             .capture_filter_eligible = capture_filter_eligible,
             .capture_eligible = capture_eligible});
     }

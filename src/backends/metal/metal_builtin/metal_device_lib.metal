@@ -1738,7 +1738,7 @@ template<typename T>
     auto u = static_cast<uint>(x.x) |
              (static_cast<uint>(x.y) << 1u) |
              (static_cast<uint>(x.z) << 2u) |
-             (static_cast<uint>(x.w) << 4u);
+             (static_cast<uint>(x.w) << 3u);
     auto uu = simd_shuffle(u, static_cast<ushort>(index));
     return bool4(uu & 1u, (uu >> 1u) & 1u, (uu >> 2u) & 1u, (uu >> 3u) & 1u);
 }
@@ -1867,9 +1867,9 @@ template<typename T>
     return simd_xor(x);
 }
 
-[[nodiscard]] inline auto lc_warp_active_count_bits(bool bit = true) {
+[[nodiscard]] inline uint lc_warp_active_count_bits(bool bit = true) {
     auto mask = static_cast<simd_vote::vote_t>(simd_ballot(bit));
-    return popcount(mask);
+    return static_cast<uint>(popcount(mask));
 }
 
 [[nodiscard]] inline auto lc_warp_active_bit_mask(bool bit = true) {
@@ -1907,8 +1907,8 @@ template<typename T>
     return simd_sum(x);
 }
 
-[[nodiscard]] inline auto lc_warp_prefix_count_bits(bool bit = true) {
-    return simd_prefix_exclusive_sum(static_cast<ushort>(1u));// TODO: optimize this
+[[nodiscard]] inline uint lc_warp_prefix_count_bits(bool bit = true) {
+    return static_cast<uint>(simd_prefix_exclusive_sum(static_cast<ushort>(bit ? 1u : 0u)));
 }
 
 template<typename T>

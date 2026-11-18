@@ -460,9 +460,18 @@ namespace detail {
     return reject("unknown operation");
 }
 
+enum class AIRPipelineHandlerRole : uint8_t {
+    NONE,
+    SURFACE,
+    PROCEDURAL,
+};
+
 [[nodiscard]] bool supported_instruction(
     const xir::Instruction *instruction,
     const MetalCodegenLLVMConfig &config,
+    AIRPipelineHandlerRole handler_role,
+    const llvm::DenseSet<const xir::Value *> &pipeline_query_objects,
+    const llvm::DenseSet<const xir::Function *> &ray_pipeline_handlers,
     luisa::string &reason) noexcept {
     auto program = config.program;
     auto has_ray_query_operand = false;
@@ -624,8 +633,23 @@ namespace detail {
             reason = "unsupported arithmetic operation '" + luisa::string{xir::to_string(arithmetic->op())} + "'";
             return false;
         }
-        case xir::DerivedInstructionTag::CALL: break;
+        case xir::DerivedInstructionTag::CALL: {
+            auto call = static_cast<const xir::CallInst *>(instruction);
+            if (call->callee() != nullptr &&
+                ray_pipeline_handlers.contains(call->callee())) {
+                reason =
+                    "Metal AIR ray-query pipeline handler cannot be called directly";
+                return false;
+            }
+            break;
+        }
         case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE: {
+            if (program != MetalAIRProgram::COMPUTE ||
+                handler_role != AIRPipelineHandlerRole::NONE) {
+                reason =
+                    "Metal AIR ray-query pipeline is only valid in compute functions outside intersection handlers";
+                return false;
+            }
             auto pipeline = static_cast<const xir::RayQueryPipelineInst *>(
                 instruction);
             if (pipeline->query_object() == nullptr ||
@@ -644,6 +668,7 @@ namespace detail {
             auto valid_handler = [&](const xir::Function *handler) noexcept {
                 if (handler == nullptr ||
                     !handler->isa<xir::CallableFunction>() ||
+                    handler->definition() == nullptr ||
                     handler->type() != nullptr ||
                     handler->arguments().count_size() !=
                         pipeline->captured_argument_count() + 1u) {
@@ -671,19 +696,9 @@ namespace detail {
                 reason = "Metal AIR ray-query pipeline has an invalid handler ABI";
                 return false;
             }
-            auto procedural = pipeline->on_procedural_function();
-            auto procedural_empty = true;
-            procedural->definition()->traverse_instructions(
-                [&procedural_empty](const xir::Instruction *candidate) noexcept {
-                    procedural_empty &= candidate->isa<xir::ReturnInst>();
-                });
-            if (!procedural_empty) {
-                reason =
-                    "Metal AIR loop-to-IFT currently requires an empty procedural handler";
-                return false;
-            }
             auto config_for_pipeline = AIRRayTracingConfig{};
             auto query_object = pipeline->query_object();
+            auto constructor_count = 0u;
             for (auto use : query_object->use_list()) {
                 auto user = use->user();
                 if (user == nullptr || !user->isa<xir::StoreInst>()) {
@@ -694,15 +709,21 @@ namespace detail {
                     !store->value()->isa<xir::ResourceQueryInst>()) {
                     continue;
                 }
+                constructor_count++;
                 auto constructor =
                     static_cast<const xir::ResourceQueryInst *>(store->value());
                 auto basis = constructor->find_metadata<xir::CurveBasisMD>();
-                config_for_pipeline.curves =
+                config_for_pipeline.curves |=
                     basis != nullptr && basis->curve_basis_set().any();
+            }
+            if (constructor_count != 1u) {
+                reason =
+                    "Metal AIR ray-query pipeline requires a single query initialization store";
+                return false;
             }
             if (config_for_pipeline.curves) {
                 reason =
-                    "Metal AIR loop-to-IFT currently requires triangle-only acceleration structures";
+                    "Metal AIR loop-to-IFT currently requires non-curve acceleration structures";
                 return false;
             }
             break;
@@ -809,6 +830,45 @@ namespace detail {
                 reason = "invalid ray-query read result type";
                 return false;
             }
+            if (handler_role != AIRPipelineHandlerRole::NONE) {
+                auto owner = instruction->parent_function();
+                if (owner == nullptr || owner->arguments().empty() ||
+                    query_operand != owner->arguments().front()) {
+                    reason =
+                        "Metal AIR intersection handler ray-query read must target its handler query argument";
+                    return false;
+                }
+                if (read->op() ==
+                    xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT) {
+                    reason =
+                        "Metal AIR intersection handler cannot read committed hit before traversal completes";
+                    return false;
+                }
+                if (handler_role == AIRPipelineHandlerRole::SURFACE &&
+                    read->op() ==
+                        xir::RayQueryObjectReadOp::
+                            RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT) {
+                    reason =
+                        "Metal AIR surface intersection handler cannot read procedural candidate hit";
+                    return false;
+                }
+                if (handler_role == AIRPipelineHandlerRole::PROCEDURAL &&
+                    read->op() ==
+                        xir::RayQueryObjectReadOp::
+                            RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT) {
+                    reason =
+                        "Metal AIR procedural intersection handler cannot read triangle candidate hit";
+                    return false;
+                }
+                break;
+            }
+            if (pipeline_query_objects.contains(query_operand) &&
+                read->op() !=
+                    xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT) {
+                reason =
+                    "outlined Metal AIR ray-query pipeline object only supports committed-hit reads after traversal";
+                return false;
+            }
             if (read->op() == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED) {
                 auto previous = read->prev();
                 if (previous == nullptr || previous->is_sentinel() ||
@@ -850,6 +910,43 @@ namespace detail {
                 reason = "invalid ray-query write operands";
                 return false;
             }
+            if (handler_role != AIRPipelineHandlerRole::NONE) {
+                auto owner = instruction->parent_function();
+                if (owner == nullptr || owner->arguments().empty() ||
+                    query_operand != owner->arguments().front()) {
+                    reason =
+                        "Metal AIR intersection handler ray-query write must target its handler query argument";
+                    return false;
+                }
+                if (write->op() ==
+                    xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED) {
+                    reason =
+                        "Metal AIR intersection handler cannot invoke proceed";
+                    return false;
+                }
+                if (handler_role == AIRPipelineHandlerRole::SURFACE &&
+                    write->op() ==
+                        xir::RayQueryObjectWriteOp::
+                            RAY_QUERY_OBJECT_COMMIT_PROCEDURAL) {
+                    reason =
+                        "Metal AIR surface intersection handler cannot commit procedural distance";
+                    return false;
+                }
+                if (handler_role == AIRPipelineHandlerRole::PROCEDURAL &&
+                    write->op() ==
+                        xir::RayQueryObjectWriteOp::
+                            RAY_QUERY_OBJECT_COMMIT_TRIANGLE) {
+                    reason =
+                        "Metal AIR procedural intersection handler cannot commit triangle hit";
+                    return false;
+                }
+                break;
+            }
+            if (pipeline_query_objects.contains(query_operand)) {
+                reason =
+                    "outlined Metal AIR ray-query pipeline object cannot be mutated outside its handlers";
+                return false;
+            }
             break;
         }
         case xir::DerivedInstructionTag::RESOURCE_QUERY: {
@@ -863,6 +960,12 @@ namespace detail {
                 query->op() == xir::ResourceQueryOp::
                                    RAY_TRACING_QUERY_ANY_MOTION_BLUR;
             if (is_static_ray_query || is_motion_ray_query) {
+                if (program != MetalAIRProgram::COMPUTE ||
+                    handler_role != AIRPipelineHandlerRole::NONE) {
+                    reason =
+                        "Metal AIR ray-query construction is not permitted inside raster stages or intersection handlers";
+                    return false;
+                }
                 auto is_any =
                     query->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ||
                     query->op() == xir::ResourceQueryOp::
@@ -1167,21 +1270,41 @@ bool luisa_compute_metal_codegen_llvm_supported(
     const xir::RasterStageFunction *raster_stage = nullptr;
     auto raster_depth_mode = detail::AIRRasterDepthMode::NONE;
     llvm::DenseSet<const xir::Function *> ray_pipeline_handlers;
+    llvm::DenseMap<const xir::Function *, detail::AIRPipelineHandlerRole>
+        ray_pipeline_handler_roles;
+    llvm::DenseSet<const xir::Value *> pipeline_query_objects;
+    auto shared_ray_pipeline_handler = false;
     for (auto function : xir_module.function_list()) {
         if (auto definition = function->definition()) {
             definition->traverse_instructions(
-            [&ray_pipeline_handlers](const xir::Instruction *instruction) noexcept {
+            [&](const xir::Instruction *instruction) noexcept {
                 if (!instruction->isa<xir::RayQueryPipelineInst>()) { return; }
                 auto pipeline = static_cast<const xir::RayQueryPipelineInst *>(
                     instruction);
+                if (auto query_object = pipeline->query_object()) {
+                    if (!pipeline_query_objects.insert(query_object).second) {
+                        shared_ray_pipeline_handler = true;
+                    }
+                }
                 if (auto handler = pipeline->on_surface_function()) {
-                    ray_pipeline_handlers.insert(handler);
+                    if (!ray_pipeline_handlers.insert(handler).second) {
+                        shared_ray_pipeline_handler = true;
+                    }
+                    ray_pipeline_handler_roles.try_emplace(
+                        handler, detail::AIRPipelineHandlerRole::SURFACE);
                 }
                 if (auto handler = pipeline->on_procedural_function()) {
-                    ray_pipeline_handlers.insert(handler);
+                    if (!ray_pipeline_handlers.insert(handler).second) {
+                        shared_ray_pipeline_handler = true;
+                    }
+                    ray_pipeline_handler_roles.try_emplace(
+                        handler, detail::AIRPipelineHandlerRole::PROCEDURAL);
                 }
             });
         }
+    }
+    if (shared_ray_pipeline_handler) {
+        return fail("Metal AIR ray-query pipeline handlers or query objects must not be shared across pipelines");
     }
     for (auto function : xir_module.function_list()) {
         // These descriptors define required call semantics. Until this target
@@ -1229,6 +1352,11 @@ bool luisa_compute_metal_codegen_llvm_supported(
             }
             argument_index++;
         }
+        auto handler_role = detail::AIRPipelineHandlerRole::NONE;
+        if (auto role_iter = ray_pipeline_handler_roles.find(function);
+            role_iter != ray_pipeline_handler_roles.end()) {
+            handler_role = role_iter->second;
+        }
         if (auto definition = function->definition()) {
             auto supported = true;
             definition->traverse_instructions([&](const xir::Instruction *instruction) noexcept {
@@ -1261,7 +1389,9 @@ bool luisa_compute_metal_codegen_llvm_supported(
                     local_reason = "raster AIR does not support debug-break state";
                     supported = false;
                 } else if (!detail::supported_instruction(
-                               instruction, config, local_reason)) {
+                               instruction, config, handler_role,
+                               pipeline_query_objects,
+                               ray_pipeline_handlers, local_reason)) {
                     supported = false;
                 }
             });

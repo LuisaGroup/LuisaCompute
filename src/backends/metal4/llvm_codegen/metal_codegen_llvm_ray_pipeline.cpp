@@ -39,6 +39,17 @@ namespace {
     return storage;
 }
 
+[[nodiscard]] bool callable_is_empty(
+    const xir::CallableFunction *callable) noexcept {
+    auto empty = true;
+    static_cast<const xir::FunctionDefinition *>(callable)
+        ->traverse_instructions(
+            [&empty](const xir::Instruction *instruction) noexcept {
+                empty &= instruction->isa<xir::ReturnInst>();
+            });
+    return empty;
+}
+
 }// namespace
 
 void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
@@ -53,6 +64,7 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
         }
     }
     _ray_query_pipelines.reserve(pipeline_count);
+    _result.intersection_functions.reserve(pipeline_count * 2u);
     for (auto function : module.function_list()) {
         if (auto definition = function->definition()) {
             definition->traverse_instructions(
@@ -95,6 +107,10 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                         static_cast<const xir::CallableFunction *>(surface);
                     auto procedural_callable =
                         static_cast<const xir::CallableFunction *>(procedural);
+                    auto has_surface_handler =
+                        !callable_is_empty(surface_callable);
+                    auto has_procedural_handler =
+                        !callable_is_empty(procedural_callable);
                     auto index = _ray_query_pipelines.size();
                     auto i8 = llvm::Type::getInt8Ty(_context);
                     auto i32 = llvm::Type::getInt32Ty(_context);
@@ -108,90 +124,121 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                             payload_field_mask |=
                                 1u << static_cast<unsigned>(field);
                         };
-                    static_cast<const xir::FunctionDefinition *>(surface_callable)
-                        ->traverse_instructions(
-                            [&](const xir::Instruction *handler_instruction) noexcept {
-                                if (handler_instruction->isa<
-                                        xir::RayQueryObjectReadInst>()) {
-                                    auto read = static_cast<
-                                        const xir::RayQueryObjectReadInst *>(
-                                        handler_instruction);
-                                    switch (read->op()) {
-                                        case xir::RayQueryObjectReadOp::
-                                            RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT:
-                                            break;
-                                        case xir::RayQueryObjectReadOp::
-                                            RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
-                                            use_payload_field(
-                                                ray_query_payload_world_origin);
-                                            use_payload_field(
-                                                ray_query_payload_world_direction);
-                                            use_payload_field(
-                                                ray_query_payload_min_distance);
-                                            use_payload_field(
-                                                ray_query_payload_max_distance);
-                                            break;
-                                        default: break;
-                                    }
-                                }
-                                for (auto i = 0u;
-                                     i < handler_instruction->operand_count(); i++) {
-                                    auto operand = handler_instruction->operand(i);
-                                    if (operand == nullptr ||
-                                        !operand->isa<xir::SpecialRegister>()) {
-                                        continue;
-                                    }
-                                    auto tag = static_cast<
-                                                   const xir::SpecialRegister *>(operand)
-                                                   ->derived_special_register_tag();
-                                    switch (tag) {
-                                        case xir::DerivedSpecialRegisterTag::THREAD_ID:
-                                            use_payload_field(
-                                                ray_query_payload_thread_id);
-                                            break;
-                                        case xir::DerivedSpecialRegisterTag::BLOCK_ID:
-                                            use_payload_field(
-                                                ray_query_payload_block_id);
-                                            break;
-                                        case xir::DerivedSpecialRegisterTag::WARP_LANE_ID:
-                                            use_payload_field(
-                                                ray_query_payload_warp_lane);
-                                            break;
-                                        case xir::DerivedSpecialRegisterTag::DISPATCH_ID:
-                                            use_payload_field(
-                                                ray_query_payload_dispatch_id);
-                                            break;
-                                        case xir::DerivedSpecialRegisterTag::KERNEL_ID:
-                                            use_payload_field(
-                                                ray_query_payload_kernel_id);
-                                            break;
-                                        case xir::DerivedSpecialRegisterTag::BLOCK_SIZE:
-                                            use_payload_field(
-                                                ray_query_payload_block_size);
-                                            break;
-                                        case xir::DerivedSpecialRegisterTag::WARP_SIZE:
-                                            use_payload_field(
-                                                ray_query_payload_warp_size);
-                                            break;
-                                        case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE:
-                                            use_payload_field(
-                                                ray_query_payload_dispatch_size);
-                                            break;
-                                        case xir::DerivedSpecialRegisterTag::
-                                            RASTER_OBJECT_ID:
-                                        case xir::DerivedSpecialRegisterTag::
-                                            RASTER_BARYCENTRICS:
-                                        case xir::DerivedSpecialRegisterTag::
-                                            RASTER_FRONT_FACING:
-                                        case xir::DerivedSpecialRegisterTag::
-                                            RASTER_BASE_INSTANCE:
-                                            LUISA_ERROR_WITH_LOCATION(
-                                                "Raster special register '{}' reached a "
-                                                "Metal AIR compute intersection handler.",
-                                                xir::to_string(tag));
-                                    }
-                                }
-                            });
+                    auto surface_uses_object_ray = false;
+                    auto surface_uses_ray_bounds = false;
+                    auto procedural_uses_object_ray = false;
+                    auto procedural_uses_ray_bounds = false;
+                    auto scan_handler =
+                        [&](const xir::CallableFunction *handler_callable,
+                            bool &uses_object_ray,
+                            bool &uses_ray_bounds) noexcept {
+                            static_cast<const xir::FunctionDefinition *>(
+                                handler_callable)
+                                ->traverse_instructions(
+                                    [&](const xir::Instruction *handler_instruction) noexcept {
+                                        if (handler_instruction->isa<
+                                                xir::RayQueryObjectReadInst>()) {
+                                            auto read = static_cast<
+                                                const xir::RayQueryObjectReadInst *>(
+                                                handler_instruction);
+                                            switch (read->op()) {
+                                                case xir::RayQueryObjectReadOp::
+                                                    RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
+                                                    use_payload_field(
+                                                        ray_query_payload_world_origin);
+                                                    use_payload_field(
+                                                        ray_query_payload_world_direction);
+                                                    uses_ray_bounds = true;
+                                                    break;
+                                                case xir::RayQueryObjectReadOp::
+                                                    RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY:
+                                                    uses_object_ray = true;
+                                                    uses_ray_bounds = true;
+                                                    break;
+                                                default: break;
+                                            }
+                                        } else if (handler_instruction->isa<
+                                                       xir::RayQueryObjectWriteInst>()) {
+                                            auto write = static_cast<
+                                                const xir::RayQueryObjectWriteInst *>(
+                                                handler_instruction);
+                                            if (write->op() ==
+                                                xir::RayQueryObjectWriteOp::
+                                                    RAY_QUERY_OBJECT_COMMIT_PROCEDURAL) {
+                                                uses_ray_bounds = true;
+                                            }
+                                        }
+                                        for (auto i = 0u;
+                                             i < handler_instruction->operand_count(); i++) {
+                                            auto operand = handler_instruction->operand(i);
+                                            if (operand == nullptr ||
+                                                !operand->isa<xir::SpecialRegister>()) {
+                                                continue;
+                                            }
+                                            auto tag = static_cast<
+                                                           const xir::SpecialRegister *>(operand)
+                                                           ->derived_special_register_tag();
+                                            switch (tag) {
+                                                case xir::DerivedSpecialRegisterTag::THREAD_ID:
+                                                    use_payload_field(
+                                                        ray_query_payload_thread_id);
+                                                    break;
+                                                case xir::DerivedSpecialRegisterTag::BLOCK_ID:
+                                                    use_payload_field(
+                                                        ray_query_payload_block_id);
+                                                    break;
+                                                case xir::DerivedSpecialRegisterTag::WARP_LANE_ID:
+                                                    use_payload_field(
+                                                        ray_query_payload_warp_lane);
+                                                    break;
+                                                case xir::DerivedSpecialRegisterTag::DISPATCH_ID:
+                                                    use_payload_field(
+                                                        ray_query_payload_dispatch_id);
+                                                    break;
+                                                case xir::DerivedSpecialRegisterTag::KERNEL_ID:
+                                                    use_payload_field(
+                                                        ray_query_payload_kernel_id);
+                                                    break;
+                                                case xir::DerivedSpecialRegisterTag::BLOCK_SIZE:
+                                                    use_payload_field(
+                                                        ray_query_payload_block_size);
+                                                    break;
+                                                case xir::DerivedSpecialRegisterTag::WARP_SIZE:
+                                                    use_payload_field(
+                                                        ray_query_payload_warp_size);
+                                                    break;
+                                                case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE:
+                                                    use_payload_field(
+                                                        ray_query_payload_dispatch_size);
+                                                    break;
+                                                case xir::DerivedSpecialRegisterTag::
+                                                    RASTER_OBJECT_ID:
+                                                case xir::DerivedSpecialRegisterTag::
+                                                    RASTER_BARYCENTRICS:
+                                                case xir::DerivedSpecialRegisterTag::
+                                                    RASTER_FRONT_FACING:
+                                                case xir::DerivedSpecialRegisterTag::
+                                                    RASTER_BASE_INSTANCE:
+                                                    LUISA_ERROR_WITH_LOCATION(
+                                                        "Raster special register '{}' reached a "
+                                                        "Metal AIR compute intersection handler.",
+                                                        xir::to_string(tag));
+                                            }
+                                        }
+                                    });
+                        };
+                    if (has_surface_handler) {
+                        scan_handler(
+                            surface_callable,
+                            surface_uses_object_ray,
+                            surface_uses_ray_bounds);
+                    }
+                    if (has_procedural_handler) {
+                        scan_handler(
+                            procedural_callable,
+                            procedural_uses_object_ray,
+                            procedural_uses_ray_bounds);
+                    }
                     auto payload_type = llvm::StructType::create(
                         _context, luisa::format("LuisaRayQueryPayload{}", index));
                     llvm::SmallVector<llvm::Type *, 32u> payload_fields{
@@ -206,22 +253,24 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                         }
                     }
                     luisa::vector<RayQueryPayloadCapture> captures;
-                    captures.reserve(pipeline->captured_argument_count());
-                    for (auto i = 0u;
-                         i < pipeline->captured_argument_count(); i++) {
-                        auto value = pipeline->captured_argument(i);
-                        LUISA_ASSERT(
-                            value != nullptr && value->type() != nullptr,
-                            "Metal AIR ray-query pipeline has a null capture.");
-                        auto payload_index = static_cast<unsigned>(
-                            payload_fields.size());
-                        payload_fields.emplace_back(
-                            _type(value->type())->mem_type);
-                        captures.emplace_back(RayQueryPayloadCapture{
-                            .value = value,
-                            .type = value->type(),
-                            .payload_index = payload_index,
-                            .reference = value->is_lvalue()});
+                    if (has_surface_handler || has_procedural_handler) {
+                        captures.reserve(pipeline->captured_argument_count());
+                        for (auto i = 0u;
+                             i < pipeline->captured_argument_count(); i++) {
+                            auto value = pipeline->captured_argument(i);
+                            LUISA_ASSERT(
+                                value != nullptr && value->type() != nullptr,
+                                "Metal AIR ray-query pipeline has a null capture.");
+                            auto payload_index = static_cast<unsigned>(
+                                payload_fields.size());
+                            payload_fields.emplace_back(
+                                _type(value->type())->mem_type);
+                            captures.emplace_back(RayQueryPayloadCapture{
+                                .value = value,
+                                .type = value->type(),
+                                .payload_index = payload_index,
+                                .reference = value->is_lvalue()});
+                        }
                     }
                     bool has_dummy_payload_field = false;
                     if (payload_field_mask == 0u && captures.empty()) {
@@ -237,23 +286,33 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                     auto config = _air_ray_tracing_config(query_object, motion);
                     LUISA_ASSERT(
                         !config.curves,
-                        "Metal AIR loop-to-IFT currently requires triangle-only "
+                        "Metal AIR loop-to-IFT currently requires non-curve "
                         "acceleration structures.");
-                    auto function_name = luisa::format(
+                    auto surface_function_name = luisa::format(
                         "luisa_ray_query_surface_{}", index);
+                    auto procedural_function_name = luisa::format(
+                        "luisa_ray_query_procedural_{}", index);
                     _ray_query_pipelines.emplace_back(RayQueryPipeline{
                         .instruction = pipeline,
                         .query_object =
                             static_cast<const xir::AllocaInst *>(query_object),
                         .constructor = constructor,
                         .surface_handler = surface_callable,
+                        .procedural_handler = procedural_callable,
                         .index = index,
                         .config = config,
                         .payload_type = payload_type,
                         .payload_field_mask = payload_field_mask,
                         .has_dummy_payload_field = has_dummy_payload_field,
+                        .has_surface_handler = has_surface_handler,
+                        .has_procedural_handler = has_procedural_handler,
+                        .surface_uses_object_ray = surface_uses_object_ray,
+                        .surface_uses_ray_bounds = surface_uses_ray_bounds,
+                        .procedural_uses_object_ray = procedural_uses_object_ray,
+                        .procedural_uses_ray_bounds = procedural_uses_ray_bounds,
                         .captures = std::move(captures),
-                        .function_name = function_name});
+                        .surface_function_name = surface_function_name,
+                        .procedural_function_name = procedural_function_name});
                     auto &info = _ray_query_pipelines.back();
                     _ray_query_pipeline_indices.try_emplace(pipeline, index);
                     _pipeline_query_objects.insert(query_object);
@@ -274,7 +333,9 @@ void MetalCodegenLLVMImpl::_collect_ray_query_pipelines(
                         "Metal AIR ray-query procedural handler is shared by pipelines.");
                     static_cast<void>(procedural_iter);
                     _result.intersection_functions.emplace_back(
-                        std::move(function_name));
+                        std::move(surface_function_name));
+                    _result.intersection_functions.emplace_back(
+                        std::move(procedural_function_name));
                 });
         }
     }
@@ -318,146 +379,235 @@ llvm::Value *MetalCodegenLLVMImpl::_pipeline_candidate_pointer(
 }
 
 void MetalCodegenLLVMImpl::_emit_ray_query_intersection_functions() noexcept {
+    auto i1 = llvm::Type::getInt1Ty(_context);
+    auto i32 = llvm::Type::getInt32Ty(_context);
+    auto f32 = llvm::Type::getFloatTy(_context);
+    auto f32x2 = llvm::FixedVectorType::get(f32, 2u);
+    auto f32x3 = llvm::FixedVectorType::get(f32, 3u);
+    auto payload_pointer = llvm::PointerType::get(
+        _context, air_address_space_ray_data);
     for (auto &&pipeline : _ray_query_pipelines) {
-        auto i1 = llvm::Type::getInt1Ty(_context);
-        auto i32 = llvm::Type::getInt32Ty(_context);
-        auto f32 = llvm::Type::getFloatTy(_context);
-        auto f32x2 = llvm::FixedVectorType::get(f32, 2u);
-        auto payload_pointer = llvm::PointerType::get(
-            _context, 5u /* AIR ray-data address space */);
-        auto decision_type = llvm::StructType::get(
-            _context, {i1, i1}, true);
-        auto function_type = llvm::FunctionType::get(
-            decision_type,
-            {payload_pointer, i32, i32, i32, f32x2, f32}, false);
-        auto function = llvm::Function::Create(
-            function_type, llvm::GlobalValue::ExternalLinkage,
-            pipeline.function_name, _module);
-        function->setMustProgress();
-        function->setDoesNotFreeMemory();
-        function->setDoesNotThrow();
-        function->setWillReturn();
-        function->addFnAttr("no-builtins");
-        function->addFnAttr("frame-pointer", "all");
-        _set_float_control_attributes(function);
-        _set_air_pointer_element_types(
-            function,
-            {std::pair<unsigned, llvm::Type *>{
-                0u, pipeline.payload_type}});
-        auto payload = function->getArg(0u);
-        payload->setName("payload");
-        payload->addAttr(llvm::Attribute::NoUndef);
-        auto payload_size = _data_layout.getTypeAllocSize(
-            pipeline.payload_type);
-        auto payload_alignment = _data_layout.getABITypeAlign(
-            pipeline.payload_type);
-        payload->addAttr(llvm::Attribute::getWithAlignment(
-            _context, payload_alignment));
-        payload->addAttr(llvm::Attribute::getWithDereferenceableBytes(
-            _context, payload_size));
-        bool payload_readonly =
-            !pipeline.uses_payload_field(ray_query_payload_max_distance);
+        bool payload_readonly = true;
         for (auto &&capture : pipeline.captures) {
             if (capture.reference) {
                 payload_readonly = false;
                 break;
             }
         }
-        if (payload_readonly) {
-            payload->addAttr(llvm::Attribute::ReadOnly);
-        }
-        for (auto i = 1u; i < function->arg_size(); i++) {
-            function->getArg(i)->addAttr(llvm::Attribute::NoUndef);
-        }
-
-        auto entry = llvm::BasicBlock::Create(
-            _context, "entry", function);
-        IB builder{entry};
-        auto field = [&](RayQueryPayloadField index) noexcept {
-            return builder.CreateStructGEP(
-                pipeline.payload_type, payload,
-                static_cast<unsigned>(index));
-        };
-        auto candidate_state_type = _ray_query_candidate_state();
-        auto candidate_state = builder.CreateAlloca(
-            candidate_state_type, nullptr, "candidate.state");
-        candidate_state->setAlignment(
-            _data_layout.getABITypeAlign(candidate_state_type));
-        auto candidate_field = [&](RayQueryCandidateField index) noexcept {
-            return builder.CreateStructGEP(
-                candidate_state_type, candidate_state,
-                static_cast<unsigned>(index));
-        };
-        auto store_candidate = [&](llvm::Value *value,
-                                   RayQueryCandidateField index) noexcept {
-            auto pointer = candidate_field(index);
-            auto instruction = builder.CreateStore(value, pointer);
-            instruction->setAlignment(
-                _data_layout.getABITypeAlign(value->getType()));
-        };
-        store_candidate(builder.getInt8(0u), ray_query_candidate_accept);
-        store_candidate(builder.getInt8(1u), ray_query_candidate_continue);
-        store_candidate(function->getArg(3u), ray_query_candidate_instance);
-        store_candidate(function->getArg(1u), ray_query_candidate_primitive);
-        store_candidate(function->getArg(4u), ray_query_candidate_barycentrics);
-        store_candidate(function->getArg(5u), ray_query_candidate_distance);
-
-        auto handler = _function(pipeline.surface_handler);
-        llvm::SmallVector<llvm::Value *> arguments;
-        arguments.emplace_back(payload);
-        for (auto &&capture : pipeline.captures) {
-            auto pointer = builder.CreateStructGEP(
-                pipeline.payload_type, payload,
-                capture.payload_index);
-            if (capture.reference) {
-                arguments.emplace_back(pointer);
-            } else {
-                arguments.emplace_back(
-                    _load(builder, pointer, capture.type));
+        auto emit_slot = [&](bool surface) noexcept {
+            auto active = surface ?
+                              pipeline.has_surface_handler :
+                              pipeline.has_procedural_handler;
+            auto uses_object_ray = surface ?
+                                       pipeline.surface_uses_object_ray :
+                                       pipeline.procedural_uses_object_ray;
+            auto uses_ray_bounds = surface ?
+                                       pipeline.surface_uses_ray_bounds :
+                                       pipeline.procedural_uses_ray_bounds;
+            auto &&fn_name = surface ?
+                                 pipeline.surface_function_name :
+                                 pipeline.procedural_function_name;
+            auto decision_type = surface ?
+                                     llvm::StructType::get(_context, {i1, i1}, true) :
+                                     llvm::StructType::get(_context, {i1, i1, f32}, true);
+            if (!active) {
+                auto function_type = llvm::FunctionType::get(
+                    decision_type, {}, false);
+                auto function = llvm::Function::Create(
+                    function_type, llvm::GlobalValue::ExternalLinkage,
+                    fn_name, _module);
+                function->setMustProgress();
+                function->setDoesNotFreeMemory();
+                function->setDoesNotThrow();
+                function->setWillReturn();
+                function->setDoesNotAccessMemory();
+                function->addFnAttr("no-builtins");
+                function->addFnAttr("frame-pointer", "all");
+                _set_float_control_attributes(function);
+                auto entry = llvm::BasicBlock::Create(
+                    _context, "entry", function);
+                IB builder{entry};
+                llvm::SmallVector<llvm::Constant *, 3u> reject_fields{
+                    llvm::ConstantInt::getFalse(_context),
+                    llvm::ConstantInt::getTrue(_context)};
+                if (!surface) {
+                    reject_fields.emplace_back(
+                        llvm::ConstantFP::get(f32, 0.0));
+                }
+                builder.CreateRet(
+                    llvm::ConstantStruct::get(decision_type, reject_fields));
+                _add_ray_query_intersection_metadata(
+                    function, pipeline, surface, true, false, false);
+                return;
             }
-        }
-        arguments.emplace_back(candidate_state);
-        for (auto index : {
-                 ray_query_payload_dispatch_size,
-                 ray_query_payload_kernel_id,
-                 ray_query_payload_thread_id,
-                 ray_query_payload_block_id,
-                 ray_query_payload_dispatch_id,
-                 ray_query_payload_block_size,
-                 ray_query_payload_warp_size,
-                 ray_query_payload_warp_lane}) {
-            if (pipeline.uses_payload_field(index)) {
-                auto pointer = field(index);
-                auto element_type = pipeline.payload_type->getElementType(
+
+            llvm::SmallVector<llvm::Type *, 10u> param_types{
+                payload_pointer, i32, i32, i32};
+            if (surface) {
+                param_types.append({f32x2, f32});
+            }
+            unsigned origin_arg_idx = 0u;
+            unsigned direction_arg_idx = 0u;
+            if (uses_object_ray) {
+                origin_arg_idx = static_cast<unsigned>(param_types.size());
+                param_types.emplace_back(f32x3);
+                direction_arg_idx = static_cast<unsigned>(param_types.size());
+                param_types.emplace_back(f32x3);
+            }
+            unsigned min_dist_arg_idx = 0u;
+            unsigned max_dist_arg_idx = 0u;
+            if (uses_ray_bounds) {
+                min_dist_arg_idx = static_cast<unsigned>(param_types.size());
+                param_types.emplace_back(f32);
+                max_dist_arg_idx = static_cast<unsigned>(param_types.size());
+                param_types.emplace_back(f32);
+            }
+            auto function_type = llvm::FunctionType::get(
+                decision_type, param_types, false);
+            auto function = llvm::Function::Create(
+                function_type, llvm::GlobalValue::ExternalLinkage,
+                fn_name, _module);
+            function->setMustProgress();
+            function->setDoesNotFreeMemory();
+            function->setDoesNotThrow();
+            function->setWillReturn();
+            function->addFnAttr("no-builtins");
+            function->addFnAttr("frame-pointer", "all");
+            _set_float_control_attributes(function);
+            _set_air_pointer_element_types(
+                function,
+                {std::pair<unsigned, llvm::Type *>{
+                    0u, pipeline.payload_type}});
+            auto payload = function->getArg(0u);
+            payload->setName("payload");
+            payload->addAttr(llvm::Attribute::NoUndef);
+            auto payload_size = _data_layout.getTypeAllocSize(
+                pipeline.payload_type);
+            auto payload_alignment = _data_layout.getABITypeAlign(
+                pipeline.payload_type);
+            payload->addAttr(llvm::Attribute::getWithAlignment(
+                _context, payload_alignment));
+            payload->addAttr(llvm::Attribute::getWithDereferenceableBytes(
+                _context, payload_size));
+            if (payload_readonly) {
+                payload->addAttr(llvm::Attribute::ReadOnly);
+            }
+            for (auto i = 1u; i < function->arg_size(); i++) {
+                function->getArg(i)->addAttr(llvm::Attribute::NoUndef);
+            }
+
+            auto entry = llvm::BasicBlock::Create(
+                _context, "entry", function);
+            IB builder{entry};
+            auto field = [&](RayQueryPayloadField index) noexcept {
+                return builder.CreateStructGEP(
+                    pipeline.payload_type, payload,
                     static_cast<unsigned>(index));
-                auto load = builder.CreateLoad(element_type, pointer);
-                load->setAlignment(
-                    _data_layout.getABITypeAlign(element_type));
-                arguments.emplace_back(load);
+            };
+            auto candidate_state_type = _ray_query_candidate_state();
+            auto candidate_state = builder.CreateAlloca(
+                candidate_state_type, nullptr, "candidate.state");
+            candidate_state->setAlignment(
+                _data_layout.getABITypeAlign(candidate_state_type));
+            auto candidate_field = [&](RayQueryCandidateField index) noexcept {
+                return builder.CreateStructGEP(
+                    candidate_state_type, candidate_state,
+                    static_cast<unsigned>(index));
+            };
+            auto store_candidate = [&](llvm::Value *value,
+                                       RayQueryCandidateField index) noexcept {
+                auto pointer = candidate_field(index);
+                auto instruction = builder.CreateStore(value, pointer);
+                instruction->setAlignment(
+                    _data_layout.getABITypeAlign(value->getType()));
+            };
+            store_candidate(builder.getInt8(0u), ray_query_candidate_accept);
+            store_candidate(builder.getInt8(1u), ray_query_candidate_continue);
+            store_candidate(function->getArg(3u), ray_query_candidate_instance);
+            store_candidate(function->getArg(1u), ray_query_candidate_primitive);
+            if (surface) {
+                store_candidate(function->getArg(4u), ray_query_candidate_barycentrics);
+                store_candidate(function->getArg(5u), ray_query_candidate_distance);
             } else {
-                arguments.emplace_back(llvm::PoisonValue::get(
-                    handler->getFunctionType()->getParamType(
-                        arguments.size())));
+                store_candidate(llvm::ConstantFP::get(f32, 0.0), ray_query_candidate_distance);
             }
-        }
-        auto call = builder.CreateCall(handler, arguments);
-        call->setCallingConv(handler->getCallingConv());
-        call->setConvergent();
+            if (uses_object_ray) {
+                store_candidate(function->getArg(origin_arg_idx), ray_query_candidate_object_origin);
+                store_candidate(function->getArg(direction_arg_idx), ray_query_candidate_object_direction);
+            }
+            if (uses_ray_bounds) {
+                store_candidate(function->getArg(min_dist_arg_idx), ray_query_candidate_min_distance);
+                store_candidate(function->getArg(max_dist_arg_idx), ray_query_candidate_max_distance);
+            }
 
-        auto load_flag = [&](RayQueryCandidateField index) noexcept {
-            auto load = builder.CreateLoad(
-                builder.getInt8Ty(), candidate_field(index));
-            load->setAlignment(llvm::Align{1u});
-            return builder.CreateICmpNE(load, builder.getInt8(0u));
+            auto handler = _function(
+                surface ? pipeline.surface_handler : pipeline.procedural_handler);
+            llvm::SmallVector<llvm::Value *> arguments;
+            arguments.emplace_back(payload);
+            for (auto &&capture : pipeline.captures) {
+                auto pointer = builder.CreateStructGEP(
+                    pipeline.payload_type, payload,
+                    capture.payload_index);
+                if (capture.reference) {
+                    arguments.emplace_back(pointer);
+                } else {
+                    arguments.emplace_back(
+                        _load(builder, pointer, capture.type));
+                }
+            }
+            arguments.emplace_back(candidate_state);
+            for (auto index : {
+                     ray_query_payload_dispatch_size,
+                     ray_query_payload_kernel_id,
+                     ray_query_payload_thread_id,
+                     ray_query_payload_block_id,
+                     ray_query_payload_dispatch_id,
+                     ray_query_payload_block_size,
+                     ray_query_payload_warp_size,
+                     ray_query_payload_warp_lane}) {
+                if (pipeline.uses_payload_field(index)) {
+                    auto pointer = field(index);
+                    auto element_type = pipeline.payload_type->getElementType(
+                        static_cast<unsigned>(index));
+                    auto load = builder.CreateLoad(element_type, pointer);
+                    load->setAlignment(
+                        _data_layout.getABITypeAlign(element_type));
+                    arguments.emplace_back(load);
+                } else {
+                    arguments.emplace_back(llvm::PoisonValue::get(
+                        handler->getFunctionType()->getParamType(
+                            arguments.size())));
+                }
+            }
+            auto call = builder.CreateCall(handler, arguments);
+            call->setCallingConv(handler->getCallingConv());
+            call->setConvergent();
+
+            auto load_flag = [&](RayQueryCandidateField index) noexcept {
+                auto load = builder.CreateLoad(
+                    builder.getInt8Ty(), candidate_field(index));
+                load->setAlignment(llvm::Align{1u});
+                return builder.CreateICmpNE(load, builder.getInt8(0u));
+            };
+            auto decision = static_cast<llvm::Value *>(
+                llvm::PoisonValue::get(decision_type));
+            decision = builder.CreateInsertValue(
+                decision, load_flag(ray_query_candidate_accept), 0u);
+            decision = builder.CreateInsertValue(
+                decision, load_flag(ray_query_candidate_continue), 1u);
+            if (!surface) {
+                auto dist_load = builder.CreateLoad(
+                    f32, candidate_field(ray_query_candidate_distance));
+                dist_load->setAlignment(_data_layout.getABITypeAlign(f32));
+                decision = builder.CreateInsertValue(decision, dist_load, 2u);
+            }
+            builder.CreateRet(decision);
+            _add_ray_query_intersection_metadata(
+                function, pipeline, surface, false,
+                uses_object_ray, uses_ray_bounds);
         };
-        auto decision = static_cast<llvm::Value *>(
-            llvm::PoisonValue::get(decision_type));
-        decision = builder.CreateInsertValue(
-            decision, load_flag(ray_query_candidate_accept), 0u);
-        decision = builder.CreateInsertValue(
-            decision, load_flag(ray_query_candidate_continue), 1u);
-        builder.CreateRet(decision);
-        _add_ray_query_intersection_metadata(function, pipeline);
+        emit_slot(true);
+        emit_slot(false);
     }
 }
 
@@ -541,12 +691,11 @@ void MetalCodegenLLVMImpl::_translate_ray_query_pipeline(
         accept_any, function.intersection_tables[pipeline.index],
         payload,
         _data_layout.getTypeAllocSize(pipeline.payload_type),
-        // Primitive meshes build with geom_desc->setOpaque(true) so direct
-        // trace calls hit hardware opaque speed. Outlined triangle-only IFT
-        // pipelines explicitly pass forced_opacity::non_opaque (2) so the IFT
-        // entry runs while retaining triangle-only geometry_type (1).
-        air_forced_opacity_non_opaque,
-        false);
+        // Respect per-instance Opaque/NonOpaque flags so opaque instances
+        // auto-commit in hardware while non-opaque triangles (slot 0) and
+        // procedural bounding boxes (slot 1) dispatch through the 2-slot IFT.
+        air_forced_opacity_none,
+        pipeline.has_procedural_handler);
     for (auto &&capture : pipeline.captures) {
         if (!capture.reference) { continue; }
         auto pointer = builder.CreateStructGEP(
@@ -613,7 +762,7 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_pipeline_ray_query_read(
                     0u);
                 result = builder.CreateInsertValue(
                     result,
-                    load_payload(ray_query_payload_min_distance), 1u);
+                    load_candidate(ray_query_candidate_min_distance), 1u);
                 result = builder.CreateInsertValue(
                     result,
                     float3_to_storage(
@@ -622,10 +771,55 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_pipeline_ray_query_read(
                     2u);
                 result = builder.CreateInsertValue(
                     result,
-                    load_payload(ray_query_payload_max_distance), 3u);
+                    load_candidate(ray_query_candidate_max_distance), 3u);
+                return result;
+            }
+            case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_CANDIDATE_OBJECT_SPACE_RAY: {
+                auto result_type = llvm::cast<llvm::StructType>(
+                    _type(instruction->type())->reg_type);
+                auto result = static_cast<llvm::Value *>(
+                    llvm::PoisonValue::get(result_type));
+                auto origin = load_candidate(
+                    ray_query_candidate_object_origin);
+                auto direction = load_candidate(
+                    ray_query_candidate_object_direction);
+                result = builder.CreateInsertValue(
+                    result,
+                    float3_to_storage(
+                        builder, origin,
+                        result_type->getElementType(0u)),
+                    0u);
+                result = builder.CreateInsertValue(
+                    result,
+                    load_candidate(ray_query_candidate_min_distance), 1u);
+                result = builder.CreateInsertValue(
+                    result,
+                    float3_to_storage(
+                        builder, direction,
+                        result_type->getElementType(2u)),
+                    2u);
+                result = builder.CreateInsertValue(
+                    result,
+                    load_candidate(ray_query_candidate_max_distance), 3u);
+                return result;
+            }
+            case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: {
+                LUISA_ASSERT(
+                    !function.pipeline_handler->surface,
+                    "Procedural candidate hit read occurred in a surface AIR handler.");
+                auto result = static_cast<llvm::Value *>(
+                    llvm::PoisonValue::get(
+                        _type(instruction->type())->reg_type));
+                result = builder.CreateInsertValue(
+                    result, load_candidate(ray_query_candidate_instance), 0u);
+                result = builder.CreateInsertValue(
+                    result, load_candidate(ray_query_candidate_primitive), 1u);
                 return result;
             }
             case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: {
+                LUISA_ASSERT(
+                    function.pipeline_handler->surface,
+                    "Triangle candidate hit read occurred in a procedural AIR handler.");
                 auto result = static_cast<llvm::Value *>(
                     llvm::PoisonValue::get(
                         _type(instruction->type())->reg_type));
@@ -701,22 +895,66 @@ void MetalCodegenLLVMImpl::_translate_pipeline_ray_query_write(
                 function.pipeline_handler->surface,
                 "Triangle commit occurred in a procedural AIR handler.");
             store_flag(ray_query_candidate_accept, true);
-            if (function.pipeline_handler->pipeline->uses_payload_field(
-                    ray_query_payload_max_distance)) {
+            if (function.pipeline_handler->pipeline->surface_uses_ray_bounds) {
                 auto candidate_pointer = _pipeline_candidate_pointer(
                     builder, function, ray_query_candidate_distance);
                 auto candidate_distance = builder.CreateLoad(
                     builder.getFloatTy(), candidate_pointer);
                 candidate_distance->setAlignment(
                     _data_layout.getABITypeAlign(builder.getFloatTy()));
-                auto max_distance_pointer = _pipeline_payload_pointer(
-                    builder, function, ray_query_payload_max_distance);
+                auto max_distance_pointer = _pipeline_candidate_pointer(
+                    builder, function, ray_query_candidate_max_distance);
                 auto store = builder.CreateStore(
                     candidate_distance, max_distance_pointer);
                 store->setAlignment(
                     _data_layout.getABITypeAlign(builder.getFloatTy()));
             }
             return;
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL: {
+            LUISA_ASSERT(
+                !function.pipeline_handler->surface,
+                "Procedural commit occurred in a surface AIR handler.");
+            LUISA_ASSERT(
+                instruction->operand_count() == 2u,
+                "Metal AIR procedural commit requires a distance operand.");
+            auto f32 = builder.getFloatTy();
+            auto f32_align = _data_layout.getABITypeAlign(f32);
+            auto distance = _value(builder, function, instruction->operand(1u));
+            auto min_ptr = _pipeline_candidate_pointer(
+                builder, function, ray_query_candidate_min_distance);
+            auto max_ptr = _pipeline_candidate_pointer(
+                builder, function, ray_query_candidate_max_distance);
+            auto t_min = builder.CreateLoad(f32, min_ptr);
+            t_min->setAlignment(f32_align);
+            auto t_max = builder.CreateLoad(f32, max_ptr);
+            t_max->setAlignment(f32_align);
+            llvm::Value *valid = nullptr;
+            {
+                llvm::IRBuilderBase::FastMathFlagGuard guard{builder};
+                builder.clearFastMathFlags();
+                valid = builder.CreateAnd(
+                    builder.CreateFCmpOGE(distance, t_min),
+                    builder.CreateFCmpOLE(distance, t_max));
+            }
+            auto commit_block = llvm::BasicBlock::Create(
+                _context, "ray.query.pipeline.commit.procedural",
+                function.function);
+            auto merge_block = llvm::BasicBlock::Create(
+                _context, "ray.query.pipeline.commit.merge",
+                function.function);
+            builder.CreateCondBr(valid, commit_block, merge_block);
+            builder.SetInsertPoint(commit_block);
+            store_flag(ray_query_candidate_accept, true);
+            auto dist_ptr = _pipeline_candidate_pointer(
+                builder, function, ray_query_candidate_distance);
+            auto store_dist = builder.CreateStore(distance, dist_ptr);
+            store_dist->setAlignment(f32_align);
+            auto store_max = builder.CreateStore(distance, max_ptr);
+            store_max->setAlignment(f32_align);
+            builder.CreateBr(merge_block);
+            builder.SetInsertPoint(merge_block);
+            return;
+        }
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE:
             store_flag(ray_query_candidate_continue, false);
             return;
@@ -729,157 +967,208 @@ void MetalCodegenLLVMImpl::_translate_pipeline_ray_query_write(
 
 void MetalCodegenLLVMImpl::_add_ray_query_intersection_metadata(
     llvm::Function *function,
-    const RayQueryPipeline &pipeline) noexcept {
+    const RayQueryPipeline &pipeline,
+    bool surface,
+    bool empty_stub,
+    bool uses_object_ray,
+    bool uses_ray_bounds) noexcept {
     auto node = [this](llvm::ArrayRef<llvm::Metadata *> operands) noexcept {
         return llvm::MDNode::get(_context, operands);
     };
-    auto layout = _data_layout.getStructLayout(pipeline.payload_type);
-    static constexpr std::array<luisa::string_view,
-                                ray_query_payload_field_count>
-        type_names{
-            "uchar", "uchar", "uint", "uint", "uint", "float2",
-            "float", "float3", "float3", "float", "float",
-            "uint3", "uint", "uint3", "uint3", "uint3", "uint3",
-            "uint", "uint"};
-    static constexpr std::array<luisa::string_view,
-                                ray_query_payload_field_count>
-        field_names{
-            "accept", "continue_search", "candidate_kind", "instance_id",
-            "primitive_id", "barycentrics", "distance", "world_origin",
-            "world_direction", "min_distance", "max_distance",
-            "dispatch_size", "kernel_id", "thread_id", "block_id",
-            "dispatch_id", "block_size", "warp_size", "warp_lane"};
-    llvm::SmallVector<llvm::Metadata *> payload_fields;
-    for (auto i = 0u; i < ray_query_payload_field_count; i++) {
-        if (!pipeline.uses_payload_field(
-                static_cast<RayQueryPayloadField>(i))) {
-            continue;
+    llvm::SmallVector<llvm::Metadata *, 3u> return_fields{
+        node({md_string(_context, "air.accept_intersection"),
+              md_string(_context, "air.arg_type_name"),
+              md_string(_context, "bool"),
+              md_string(_context, "air.arg_name"),
+              md_string(_context, "accept")}),
+        node({md_string(_context, "air.continue_search"),
+              md_string(_context, "air.arg_type_name"),
+              md_string(_context, "bool"),
+              md_string(_context, "air.arg_name"),
+              md_string(_context, "continue_search")})};
+    if (!surface) {
+        return_fields.emplace_back(
+            node({md_string(_context, "air.distance"),
+                  md_string(_context, "air.arg_type_name"),
+                  md_string(_context, "float"),
+                  md_string(_context, "air.arg_name"),
+                  md_string(_context, "distance")}));
+    }
+    auto return_info = node(return_fields);
+
+    llvm::MDNode *argument_info = nullptr;
+    if (empty_stub) {
+        argument_info = node({});
+    } else {
+        auto layout = _data_layout.getStructLayout(pipeline.payload_type);
+        static constexpr std::array<luisa::string_view,
+                                    ray_query_payload_field_count>
+            type_names{
+                "uchar", "uchar", "uint", "uint", "uint", "float2",
+                "float", "float3", "float3", "float", "float",
+                "uint3", "uint", "uint3", "uint3", "uint3", "uint3",
+                "uint", "uint"};
+        static constexpr std::array<luisa::string_view,
+                                    ray_query_payload_field_count>
+            field_names{
+                "accept", "continue_search", "candidate_kind", "instance_id",
+                "primitive_id", "barycentrics", "distance", "world_origin",
+                "world_direction", "min_distance", "max_distance",
+                "dispatch_size", "kernel_id", "thread_id", "block_id",
+                "dispatch_id", "block_size", "warp_size", "warp_lane"};
+        llvm::SmallVector<llvm::Metadata *> payload_fields;
+        for (auto i = 0u; i < ray_query_payload_field_count; i++) {
+            if (!pipeline.uses_payload_field(
+                    static_cast<RayQueryPayloadField>(i))) {
+                continue;
+            }
+            auto type = pipeline.payload_type->getElementType(i);
+            payload_fields.append({md_i32(_context, static_cast<uint32_t>(
+                                                        layout->getElementOffset(i))),
+                                   md_i32(_context, static_cast<uint32_t>(
+                                                        _data_layout.getTypeAllocSize(type))),
+                                   md_i32(_context, 0u), md_string(_context, type_names[i]),
+                                   md_string(_context, field_names[i])});
         }
-        auto type = pipeline.payload_type->getElementType(i);
-        payload_fields.append({md_i32(_context, static_cast<uint32_t>(
-                                                    layout->getElementOffset(i))),
-                               md_i32(_context, static_cast<uint32_t>(
-                                                    _data_layout.getTypeAllocSize(type))),
-                               md_i32(_context, 0u), md_string(_context, type_names[i]),
-                               md_string(_context, field_names[i])});
-    }
-    auto append_capture_field =
-        [&](const RayQueryPayloadCapture &capture,
-            size_t capture_index) noexcept {
-            auto offset = static_cast<uint32_t>(
-                layout->getElementOffset(capture.payload_index));
-            auto size = static_cast<uint32_t>(
-                _data_layout.getTypeAllocSize(
-                    pipeline.payload_type->getElementType(
-                        capture.payload_index)));
-            auto name = luisa::format("capture.{}", capture_index);
-            if (capture.type->is_buffer()) {
-                auto element = capture.type->element();
-                auto element_name = element == nullptr ?
-                                        luisa::string{"uchar"} :
-                                        _air_type_name(element);
-                auto buffer_info = node({md_i32(_context, 0u), md_i32(_context, 8u),
-                                         md_i32(_context, 0u), md_string(_context, element_name),
-                                         md_string(_context, "data"), md_i32(_context, 8u),
-                                         md_i32(_context, 8u), md_i32(_context, 0u),
-                                         md_string(_context, "ulong"),
-                                         md_string(_context, "size")});
-                payload_fields.append({md_string(_context, "air.struct_type_info"), buffer_info,
-                                       md_i32(_context, offset), md_i32(_context, size),
-                                       md_i32(_context, 0u),
-                                       md_string(_context,
-                                                 luisa::format("LCBuffer.{}", element_name)),
-                                       md_string(_context, name)});
-                return;
-            }
-            if (capture.type->is_bindless_array()) {
-                auto bindless_info = node({md_i32(_context, 0u), md_i32(_context, 8u),
+        auto append_capture_field =
+            [&](const RayQueryPayloadCapture &capture,
+                size_t capture_index) noexcept {
+                auto offset = static_cast<uint32_t>(
+                    layout->getElementOffset(capture.payload_index));
+                auto size = static_cast<uint32_t>(
+                    _data_layout.getTypeAllocSize(
+                        pipeline.payload_type->getElementType(
+                            capture.payload_index)));
+                auto name = luisa::format("capture.{}", capture_index);
+                if (capture.type->is_buffer()) {
+                    auto element = capture.type->element();
+                    auto element_name = element == nullptr ?
+                                            luisa::string{"uchar"} :
+                                            _air_type_name(element);
+                    auto buffer_info = node({md_i32(_context, 0u), md_i32(_context, 8u),
+                                             md_i32(_context, 0u), md_string(_context, element_name),
+                                             md_string(_context, "data"), md_i32(_context, 8u),
+                                             md_i32(_context, 8u), md_i32(_context, 0u),
+                                             md_string(_context, "ulong"),
+                                             md_string(_context, "size")});
+                    payload_fields.append({md_string(_context, "air.struct_type_info"), buffer_info,
+                                           md_i32(_context, offset), md_i32(_context, size),
                                            md_i32(_context, 0u),
-                                           md_string(_context, "LCBindlessItem"),
-                                           md_string(_context, "items")});
-                payload_fields.append({md_string(_context, "air.struct_type_info"), bindless_info,
-                                       md_i32(_context, offset), md_i32(_context, size),
-                                       md_i32(_context, 0u),
-                                       md_string(_context, "LCBindlessArray"),
+                                           md_string(_context,
+                                                     luisa::format("LCBuffer.{}", element_name)),
+                                           md_string(_context, name)});
+                    return;
+                }
+                if (capture.type->is_bindless_array()) {
+                    auto bindless_info = node({md_i32(_context, 0u), md_i32(_context, 8u),
+                                               md_i32(_context, 0u),
+                                               md_string(_context, "LCBindlessItem"),
+                                               md_string(_context, "items")});
+                    payload_fields.append({md_string(_context, "air.struct_type_info"), bindless_info,
+                                           md_i32(_context, offset), md_i32(_context, size),
+                                           md_i32(_context, 0u),
+                                           md_string(_context, "LCBindlessArray"),
+                                           md_string(_context, name)});
+                    return;
+                }
+                auto base = capture.type;
+                auto array_count = 0u;
+                while (base->is_array()) {
+                    array_count = array_count == 0u ?
+                                      base->dimension() :
+                                      array_count * base->dimension();
+                    base = base->element();
+                }
+                if (base->is_structure()) {
+                    payload_fields.append({md_string(_context, "air.struct_type_info"),
+                                           _air_struct_type_info(base)});
+                }
+                payload_fields.append({md_i32(_context, offset),
+                                       md_i32(_context, static_cast<uint32_t>(base->size())),
+                                       md_i32(_context, array_count),
+                                       md_string(_context, _air_type_name(base)),
                                        md_string(_context, name)});
-                return;
-            }
-            auto base = capture.type;
-            auto array_count = 0u;
-            while (base->is_array()) {
-                array_count = array_count == 0u ?
-                                  base->dimension() :
-                                  array_count * base->dimension();
-                base = base->element();
-            }
-            if (base->is_structure()) {
-                payload_fields.append({md_string(_context, "air.struct_type_info"),
-                                       _air_struct_type_info(base)});
-            }
+            };
+        for (auto i = 0u; i < pipeline.captures.size(); i++) {
+            append_capture_field(pipeline.captures[i], i);
+        }
+        if (pipeline.has_dummy_payload_field) {
+            auto dummy_index = static_cast<unsigned>(
+                pipeline.payload_type->getNumElements() - 1u);
+            auto offset = static_cast<uint32_t>(
+                layout->getElementOffset(dummy_index));
             payload_fields.append({md_i32(_context, offset),
-                                   md_i32(_context, static_cast<uint32_t>(base->size())),
-                                   md_i32(_context, array_count),
-                                   md_string(_context, _air_type_name(base)),
-                                   md_string(_context, name)});
+                                   md_i32(_context, 1u),
+                                   md_i32(_context, 0u),
+                                   md_string(_context, "uchar"),
+                                   md_string(_context, "_unused")});
+        }
+        auto payload_info = node({md_i32(_context, 0u), md_string(_context, "air.payload"),
+                                  md_string(_context, "air.struct_type_info"), node(payload_fields),
+                                  md_string(_context, "air.arg_type_size"),
+                                  md_i32(_context, static_cast<uint32_t>(
+                                                       _data_layout.getTypeAllocSize(
+                                                           pipeline.payload_type))),
+                                  md_string(_context, "air.arg_type_align_size"),
+                                  md_i32(_context, static_cast<uint32_t>(
+                                                       _data_layout.getABITypeAlign(
+                                                                       pipeline.payload_type)
+                                                           .value())),
+                                  md_string(_context, "air.arg_type_name"),
+                                  md_string(_context, pipeline.payload_type->getName()),
+                                  md_string(_context, "air.arg_name"), md_string(_context, "payload")});
+        auto argument = [&](uint32_t index, luisa::string_view semantic,
+                            luisa::string_view type,
+                            luisa::string_view name) noexcept {
+            return node({md_i32(_context, index), md_string(_context, semantic),
+                         md_string(_context, "air.arg_type_name"),
+                         md_string(_context, type),
+                         md_string(_context, "air.arg_name"),
+                         md_string(_context, name)});
         };
-    for (auto i = 0u; i < pipeline.captures.size(); i++) {
-        append_capture_field(pipeline.captures[i], i);
+        llvm::SmallVector<llvm::Metadata *, 10u> arguments{
+            payload_info,
+            argument(1u, "air.primitive_id", "uint", "primitive_id"),
+            argument(2u, "air.geometry_id", "uint", "geometry_id"),
+            argument(3u, "air.instance_id", "uint", "instance_id")};
+        uint32_t next_arg = 4u;
+        if (surface) {
+            arguments.emplace_back(
+                argument(next_arg++, "air.barycentric_coord", "float2", "barycentrics"));
+            arguments.emplace_back(
+                argument(next_arg++, "air.distance", "float", "distance"));
+        }
+        if (uses_object_ray) {
+            arguments.emplace_back(
+                argument(next_arg++, "air.origin", "float3", "origin"));
+            arguments.emplace_back(
+                argument(next_arg++, "air.direction", "float3", "direction"));
+        }
+        if (uses_ray_bounds) {
+            arguments.emplace_back(
+                argument(next_arg++, "air.min_distance", "float", "min_distance"));
+            arguments.emplace_back(
+                argument(next_arg++, "air.max_distance", "float", "max_distance"));
+        }
+        argument_info = node(arguments);
     }
-    if (pipeline.has_dummy_payload_field) {
-        auto dummy_index = static_cast<unsigned>(
-            pipeline.payload_type->getNumElements() - 1u);
-        auto offset = static_cast<uint32_t>(
-            layout->getElementOffset(dummy_index));
-        payload_fields.append({md_i32(_context, offset),
-                               md_i32(_context, 1u),
-                               md_i32(_context, 0u),
-                               md_string(_context, "uchar"),
-                               md_string(_context, "_unused")});
+
+    llvm::SmallVector<llvm::Metadata *, 9u> info_operands{
+        llvm::ValueAsMetadata::get(function),
+        return_info,
+        argument_info,
+        md_string(_context, surface ? "air.triangle" : "air.bounding_box"),
+        md_string(_context, "air.instancing"),
+        md_string(_context, "air.triangle_data")};
+    if (pipeline.config.motion) {
+        info_operands.emplace_back(md_string(_context, "air.primitive_motion"));
+        info_operands.emplace_back(md_string(_context, "air.instance_motion"));
     }
-    auto payload_info = node({md_i32(_context, 0u), md_string(_context, "air.payload"),
-                              md_string(_context, "air.struct_type_info"), node(payload_fields),
-                              md_string(_context, "air.arg_type_size"),
-                              md_i32(_context, static_cast<uint32_t>(
-                                                   _data_layout.getTypeAllocSize(
-                                                       pipeline.payload_type))),
-                              md_string(_context, "air.arg_type_align_size"),
-                              md_i32(_context, static_cast<uint32_t>(
-                                                   _data_layout.getABITypeAlign(
-                                                                   pipeline.payload_type)
-                                                       .value())),
-                              md_string(_context, "air.arg_type_name"),
-                              md_string(_context, pipeline.payload_type->getName()),
-                              md_string(_context, "air.arg_name"), md_string(_context, "payload")});
-    auto argument = [&](uint32_t index, luisa::string_view semantic,
-                        luisa::string_view type,
-                        luisa::string_view name) noexcept {
-        return node({md_i32(_context, index), md_string(_context, semantic),
-                     md_string(_context, "air.arg_type_name"),
-                     md_string(_context, type),
-                     md_string(_context, "air.arg_name"),
-                     md_string(_context, name)});
-    };
-    auto return_info = node({node({md_string(_context, "air.accept_intersection"),
-                                   md_string(_context, "air.arg_type_name"),
-                                   md_string(_context, "bool"),
-                                   md_string(_context, "air.arg_name"),
-                                   md_string(_context, "accept")}),
-                             node({md_string(_context, "air.continue_search"),
-                                   md_string(_context, "air.arg_type_name"),
-                                   md_string(_context, "bool"),
-                                   md_string(_context, "air.arg_name"),
-                                   md_string(_context, "continue_search")})});
-    auto argument_info = node({payload_info,
-                               argument(1u, "air.primitive_id", "uint", "primitive_id"),
-                               argument(2u, "air.geometry_id", "uint", "geometry_id"),
-                               argument(3u, "air.instance_id", "uint", "instance_id"),
-                               argument(4u, "air.barycentric_coord", "float2", "barycentrics"),
-                               argument(5u, "air.distance", "float", "distance")});
-    auto info = node({llvm::ValueAsMetadata::get(function), return_info,
-                      argument_info, md_string(_context, "air.triangle"),
-                      md_string(_context, "air.instancing"),
-                      md_string(_context, "air.triangle_data")});
-    _module.getOrInsertNamedMetadata("air.intersection")->addOperand(info);
+    if (pipeline.config.extended_limits) {
+        info_operands.emplace_back(md_string(_context, "air.extended_limits"));
+    }
+    _module.getOrInsertNamedMetadata("air.intersection")
+        ->addOperand(node(info_operands));
 }
 
 }// namespace luisa::compute::metal::detail

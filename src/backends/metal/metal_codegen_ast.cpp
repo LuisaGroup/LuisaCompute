@@ -23,24 +23,27 @@ public:
     explicit LiteralPrinter(StringScratch &s) noexcept : _s{s} {}
     void operator()(bool v) const noexcept { _s << v; }
     void operator()(float v) const noexcept {
-        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        if (luisa::isinf(v)) {
+        if (luisa::isnan(v)) [[unlikely]] {
+            _s << luisa::format("as_type<float>(0x{:08x}u)", luisa::bit_cast<uint>(v));
+        } else if (luisa::isinf(v)) {
             _s << (v < 0.0f ? "(-INFINITY)" : "(+INFINITY)");
         } else {
             _s << v << "f";
         }
     }
     void operator()(double v) const noexcept {
-        if (std::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        if (std::isinf(v)) {
+        if (std::isnan(v)) [[unlikely]] {
+            _s << luisa::format("as_type<double>(0x{:016x}ull)", luisa::bit_cast<ulong>(v));
+        } else if (std::isinf(v)) {
             _s << (v < 0.0 ? "-INFINITY" : "+INFINITY");
         } else {
             _s << v;
         }
     }
     void operator()(half v) const noexcept {
-        if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
-        if (luisa::isinf(v)) {
+        if (luisa::isnan(v)) [[unlikely]] {
+            _s << luisa::format("as_type<half>(ushort(0x{:04x}u))", luisa::bit_cast<ushort>(v));
+        } else if (luisa::isinf(v)) {
             _s << (v < 0.0f ? "half(-INFINITY)" : "half(+INFINITY)");
         } else {
             _s << static_cast<float>(v) << "h";
@@ -830,6 +833,9 @@ void MetalCodegenAST::_emit_function() noexcept {
             _scratch.pop_back();
             _scratch.pop_back();
             _scratch << ">\n";
+        }
+        if (_function.requires_noinline()) {
+            _scratch << "__attribute__((noinline)) ";
         }
         _emit_type_name(_function.return_type());
         _scratch << " callable_" << hash_to_string(_function.hash()) << "(";

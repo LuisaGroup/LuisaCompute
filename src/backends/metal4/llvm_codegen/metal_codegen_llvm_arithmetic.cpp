@@ -52,6 +52,149 @@ namespace {
     return result;
 }
 
+[[nodiscard]] llvm::Function *get_or_create_strict_fmod_f32(llvm::Module &module) noexcept {
+    constexpr llvm::StringLiteral fn_name{"__luisa_strict_fmod_f32"};
+    if (auto *existing = module.getFunction(fn_name)) {
+        return existing;
+    }
+    auto &ctx = module.getContext();
+    auto *f32 = llvm::Type::getFloatTy(ctx);
+    auto *i32 = llvm::Type::getInt32Ty(ctx);
+    auto *i1 = llvm::Type::getInt1Ty(ctx);
+    auto *fn_ty = llvm::FunctionType::get(f32, {f32, f32}, false);
+    auto *fn = llvm::Function::Create(
+        fn_ty, llvm::GlobalValue::PrivateLinkage, fn_name, module);
+    fn->addFnAttr(llvm::Attribute::AlwaysInline);
+    fn->addFnAttr("no-trapping-math", "true");
+    fn->setDoesNotAccessMemory();
+    fn->setDoesNotThrow();
+    fn->setNoSync();
+    fn->setWillReturn();
+
+    auto *entry_bb = llvm::BasicBlock::Create(ctx, "entry", fn);
+    auto *check_lt_bb = llvm::BasicBlock::Create(ctx, "check.lt", fn);
+    auto *check_eq_bb = llvm::BasicBlock::Create(ctx, "check.eq", fn);
+    auto *try_native_bb = llvm::BasicBlock::Create(ctx, "try.native", fn);
+    auto *slow_bb = llvm::BasicBlock::Create(ctx, "slow", fn);
+    auto *loop_cond_bb = llvm::BasicBlock::Create(ctx, "loop.cond", fn);
+    auto *loop_body_bb = llvm::BasicBlock::Create(ctx, "loop.body", fn);
+    auto *loop_step_bb = llvm::BasicBlock::Create(ctx, "loop.step", fn);
+    auto *after_loop_bb = llvm::BasicBlock::Create(ctx, "after.loop", fn);
+    auto *renorm_bb = llvm::BasicBlock::Create(ctx, "renorm", fn);
+    auto *ret_zero_bb = llvm::BasicBlock::Create(ctx, "ret.zero", fn);
+
+    auto *x = fn->getArg(0u);
+    auto *y = fn->getArg(1u);
+    auto c32 = [&](uint32_t v) { return llvm::ConstantInt::get(i32, v); };
+
+    llvm::IRBuilder<> b{entry_bb};
+    auto *x_bits = b.CreateBitCast(x, i32);
+    auto *y_bits = b.CreateBitCast(y, i32);
+    auto *x_mag = b.CreateAnd(x_bits, c32(0x7fffffffu));
+    auto *y_mag = b.CreateAnd(y_bits, c32(0x7fffffffu));
+    auto *sign = b.CreateAnd(x_bits, c32(0x80000000u));
+
+    auto *bad_y0 = b.CreateICmpEQ(y_mag, c32(0u));
+    auto *bad_x_inf_nan = b.CreateICmpUGE(x_mag, c32(0x7f800000u));
+    auto *bad_y_nan = b.CreateICmpUGT(y_mag, c32(0x7f800000u));
+    auto *is_nan_out = b.CreateOr(bad_y0, b.CreateOr(bad_x_inf_nan, bad_y_nan));
+    auto *ret_nan_bb = llvm::BasicBlock::Create(ctx, "ret.nan", fn);
+    b.CreateCondBr(is_nan_out, ret_nan_bb, check_lt_bb);
+
+    b.SetInsertPoint(ret_nan_bb);
+    b.CreateRet(b.CreateBitCast(c32(0x7fc00000u), f32));
+
+    b.SetInsertPoint(check_lt_bb);
+    auto *ret_x_bb = llvm::BasicBlock::Create(ctx, "ret.x", fn);
+    b.CreateCondBr(b.CreateICmpULT(x_mag, y_mag), ret_x_bb, check_eq_bb);
+
+    b.SetInsertPoint(ret_x_bb);
+    b.CreateRet(x);
+
+    b.SetInsertPoint(check_eq_bb);
+    b.CreateCondBr(b.CreateICmpEQ(x_mag, y_mag), ret_zero_bb, try_native_bb);
+
+    b.SetInsertPoint(ret_zero_bb);
+    b.CreateRet(b.CreateBitCast(sign, f32));
+
+    b.SetInsertPoint(try_native_bb);
+    auto *native = b.CreateFRem(x, y);
+    auto *native_mag = b.CreateAnd(b.CreateBitCast(native, i32), c32(0x7fffffffu));
+    auto *exp_span_ok = b.CreateICmpULT(
+        b.CreateSub(x_mag, y_mag), c32(23u << 23u));
+    auto *native_ok = b.CreateAnd(
+        exp_span_ok,
+        b.CreateAnd(
+            b.CreateICmpNE(native_mag, c32(0u)),
+            b.CreateICmpULT(native_mag, y_mag)));
+    auto *ret_native_bb = llvm::BasicBlock::Create(ctx, "ret.native", fn);
+    b.CreateCondBr(native_ok, ret_native_bb, slow_bb);
+
+    b.SetInsertPoint(ret_native_bb);
+    b.CreateRet(native);
+
+    b.SetInsertPoint(slow_bb);
+    auto normalize_mag = [&](llvm::Value *mag) -> std::pair<llvm::Value *, llvm::Value *> {
+        auto *exp_raw = b.CreateLShr(mag, c32(23u));
+        auto *is_sub = b.CreateICmpEQ(exp_raw, c32(0u));
+        auto *lz = b.CreateBinaryIntrinsic(
+            llvm::Intrinsic::ctlz, mag, llvm::ConstantInt::get(i1, 1u));
+        auto *sub_shift = b.CreateSub(lz, c32(8u));
+        auto *sub_exp = b.CreateSub(c32(1u), sub_shift);
+        auto *sub_mant = b.CreateShl(mag, sub_shift);
+        auto *norm_mant = b.CreateOr(b.CreateAnd(mag, c32(0x007fffffu)), c32(0x00800000u));
+        return {
+            b.CreateSelect(is_sub, sub_exp, exp_raw),
+            b.CreateSelect(is_sub, sub_mant, norm_mant)};
+    };
+    auto [x_exp0, x_mant0] = normalize_mag(x_mag);
+    auto [y_exp0, y_mant0] = normalize_mag(y_mag);
+    b.CreateBr(loop_cond_bb);
+
+    b.SetInsertPoint(loop_cond_bb);
+    auto *xe_phi = b.CreatePHI(i32, 2u);
+    auto *xm_phi = b.CreatePHI(i32, 2u);
+    xe_phi->addIncoming(x_exp0, slow_bb);
+    xm_phi->addIncoming(x_mant0, slow_bb);
+    b.CreateCondBr(b.CreateICmpSGT(xe_phi, y_exp0), loop_body_bb, after_loop_bb);
+
+    b.SetInsertPoint(loop_body_bb);
+    auto *diff_loop = b.CreateSub(xm_phi, y_mant0);
+    b.CreateCondBr(b.CreateICmpEQ(diff_loop, c32(0u)), ret_zero_bb, loop_step_bb);
+
+    b.SetInsertPoint(loop_step_bb);
+    auto *ge_loop = b.CreateICmpUGE(xm_phi, y_mant0);
+    auto *xm_reduced = b.CreateSelect(ge_loop, diff_loop, xm_phi);
+    auto *xm_next = b.CreateShl(xm_reduced, c32(1u));
+    auto *xe_next = b.CreateSub(xe_phi, c32(1u));
+    xe_phi->addIncoming(xe_next, loop_step_bb);
+    xm_phi->addIncoming(xm_next, loop_step_bb);
+    b.CreateBr(loop_cond_bb);
+
+    b.SetInsertPoint(after_loop_bb);
+    auto *diff_end = b.CreateSub(xm_phi, y_mant0);
+    b.CreateCondBr(b.CreateICmpEQ(diff_end, c32(0u)), ret_zero_bb, renorm_bb);
+
+    b.SetInsertPoint(renorm_bb);
+    auto *ge_end = b.CreateICmpUGE(xm_phi, y_mant0);
+    auto *xm_rem = b.CreateSelect(ge_end, diff_end, xm_phi);
+    auto *lz_rem = b.CreateBinaryIntrinsic(
+        llvm::Intrinsic::ctlz, xm_rem, llvm::ConstantInt::get(i1, 1u));
+    auto *renorm_shift = b.CreateSub(lz_rem, c32(8u));
+    auto *xm_norm = b.CreateShl(xm_rem, renorm_shift);
+    auto *xe_norm = b.CreateSub(xe_phi, renorm_shift);
+    auto *is_norm_out = b.CreateICmpSGT(xe_norm, c32(0u));
+    auto *norm_packed = b.CreateOr(
+        b.CreateSub(xm_norm, c32(0x00800000u)),
+        b.CreateShl(xe_norm, c32(23u)));
+    auto *denorm_shift = b.CreateSub(c32(1u), xe_norm);
+    auto *denorm_packed = b.CreateLShr(xm_norm, denorm_shift);
+    auto *mag_packed = b.CreateSelect(is_norm_out, norm_packed, denorm_packed);
+    b.CreateRet(b.CreateBitCast(b.CreateOr(sign, mag_packed), f32));
+
+    return fn;
+}
+
 }// namespace
 
 llvm::Value *MetalCodegenLLVMImpl::_translate_arithmetic(IB &builder, FunctionContext &function, const xir::ArithmeticInst *inst) noexcept {
@@ -121,10 +264,24 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_arithmetic(IB &builder, FunctionCo
                    inst->type()->is_uint_or_uint_vector() ? builder.CreateUDiv(lhs, rhs) :
                                                             builder.CreateFDiv(lhs, rhs);
         });
-        case xir::ArithmeticOp::BINARY_MOD: return binary([&](auto lhs, auto rhs) noexcept {
-            return inst->type()->is_int_or_int_vector()   ? builder.CreateSRem(lhs, rhs) :
-                   inst->type()->is_uint_or_uint_vector() ? builder.CreateURem(lhs, rhs) :
-                                                            builder.CreateFRem(lhs, rhs);
+        case xir::ArithmeticOp::BINARY_MOD: return binary([&](auto lhs, auto rhs) noexcept -> llvm::Value * {
+            if (inst->type()->is_int_or_int_vector()) { return builder.CreateSRem(lhs, rhs); }
+            if (inst->type()->is_uint_or_uint_vector()) { return builder.CreateURem(lhs, rhs); }
+            if (!_config.enable_fast_math && lhs->getType()->getScalarType()->isFloatTy()) {
+                auto *fmod_fn = get_or_create_strict_fmod_f32(_module);
+                if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(lhs->getType())) {
+                    llvm::Value *res = llvm::PoisonValue::get(vt);
+                    for (unsigned i = 0u; i < vt->getNumElements(); ++i) {
+                        auto *lx = builder.CreateExtractElement(lhs, static_cast<uint64_t>(i));
+                        auto *ry = builder.CreateExtractElement(rhs, static_cast<uint64_t>(i));
+                        res = builder.CreateInsertElement(
+                            res, builder.CreateCall(fmod_fn, {lx, ry}), static_cast<uint64_t>(i));
+                    }
+                    return res;
+                }
+                return builder.CreateCall(fmod_fn, {lhs, rhs});
+            }
+            return builder.CreateFRem(lhs, rhs);
         });
         case xir::ArithmeticOp::BINARY_BIT_AND: return binary([&](auto lhs, auto rhs) noexcept { return builder.CreateAnd(lhs, rhs); });
         case xir::ArithmeticOp::BINARY_BIT_OR: return binary([&](auto lhs, auto rhs) noexcept { return builder.CreateOr(lhs, rhs); });
@@ -416,9 +573,10 @@ llvm::Value *MetalCodegenLLVMImpl::_translate_arithmetic(IB &builder, FunctionCo
             if (lhs->getType()->isVectorTy()) {
                 integer = llvm::FixedVectorType::get(integer, llvm::cast<llvm::FixedVectorType>(lhs->getType())->getNumElements());
             }
-            auto sign_value = scalar_bits == 16u ? 0x8000u : 0x80000000u;
+            auto sign_value = scalar_bits == 16u ? uint64_t{0x8000u} : uint64_t{0x80000000u};
+            auto magnitude_value = scalar_bits == 16u ? uint64_t{0x7fffu} : uint64_t{0x7fffffffu};
             auto sign_mask = llvm::ConstantInt::get(integer, sign_value);
-            auto magnitude_mask = llvm::ConstantInt::get(integer, ~static_cast<uint64_t>(sign_value));
+            auto magnitude_mask = llvm::ConstantInt::get(integer, magnitude_value);
             auto lhs_bits = builder.CreateBitCast(lhs, integer);
             auto rhs_bits = builder.CreateBitCast(rhs, integer);
             auto bits = builder.CreateOr(builder.CreateAnd(lhs_bits, magnitude_mask), builder.CreateAnd(rhs_bits, sign_mask));
