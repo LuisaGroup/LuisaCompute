@@ -118,7 +118,7 @@ public:
     }
 
     // Takes the volume by forwarding reference (like the image overload) so an
-    // lvalue `Volume<T>` can be passed without copying a non-copyable resource.
+    // lvalue `Volume<T>` can be passed without copying the resource handle.
     template<typename VolumeOrView>
         requires is_volume_or_view_v<VolumeOrView>
     [[nodiscard]] auto copy_to(VolumeOrView &&volume,
@@ -234,26 +234,34 @@ public:
         : Resource{ext->device(), Tag::DSTORAGE_PINNED_MEMORY, info},
           _ext{ext}, _size_bytes{info.size_bytes} {}
 
-    DStorageFile(const DStorageFile &) noexcept = delete;
+    DStorageFile(const DStorageFile &rhs) noexcept
+        : Resource{rhs}, _ext{rhs._ext}, _size_bytes{rhs._size_bytes} {}
     DStorageFile(DStorageFile &&rhs) noexcept
         : DStorageFile{std::move(rhs), rhs._ext, rhs._size_bytes} {}
 
-    DStorageFile &operator=(DStorageFile const &) noexcept = delete;
+    DStorageFile &operator=(DStorageFile const &rhs) noexcept {
+        if (this != &rhs) [[likely]] {
+            Resource::operator=(rhs);
+            _ext = rhs._ext;
+            _size_bytes = rhs._size_bytes;
+        }
+        return *this;
+    }
     DStorageFile &operator=(DStorageFile &&rhs) noexcept {
-        _move_from(std::move(rhs));
+        if (this != &rhs) [[likely]] {
+            // the proxy move constructor above keeps the payload of `rhs` readable
+            // until it has been handed over, so read it before the base assignment
+            auto ext = rhs._ext;
+            auto size_bytes = rhs._size_bytes;
+            Resource::operator=(std::move(rhs));
+            _ext = ext;
+            _size_bytes = size_bytes;
+        }
         return *this;
     }
     using Resource::operator bool;
 
-    ~DStorageFile() noexcept override {
-        if (handle() != invalid_resource_handle) {
-            if (tag() == Tag::DSTORAGE_FILE) {
-                _ext->close_file_handle(handle());
-            } else {
-                _ext->unpin_host_memory(handle());
-            }
-        }
-    }
+    ~DStorageFile() noexcept override { _release(); }
 
     [[nodiscard]] size_t size_bytes() const noexcept { return _size_bytes; }
 
@@ -293,6 +301,17 @@ public:
         uint3 start_coord, uint3 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
         return view().copy_to(std::forward<SparseVolume>(volume), start_coord, size, mip_level, compression);
+    }
+
+protected:
+    void destroy() noexcept override {
+        if (handle() != invalid_resource_handle) {
+            if (tag() == Tag::DSTORAGE_FILE) {
+                _ext->close_file_handle(handle());
+            } else {
+                _ext->unpin_host_memory(handle());
+            }
+        }
     }
 };
 

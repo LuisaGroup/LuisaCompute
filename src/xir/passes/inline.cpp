@@ -1397,9 +1397,19 @@ InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, 
     detail::InlineCallerBarrierCache caller_barriers{info};
     for (;;) {
         luisa::vector<Function *> callables;
-        for (auto f : module->function_list())
-            if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
-                callables.push_back(f);
+        for (auto f : module->function_list()) {
+            if (f->derived_function_tag() != DerivedFunctionTag::CALLABLE) {
+                continue;
+            }
+            if (!options.override_noinline &&
+                f->find_metadata<NoInlineMD>() != nullptr) {
+                continue;
+            }
+            if (f->find_metadata<SignatureConstraintMD>() != nullptr) {
+                continue;
+            }
+            callables.push_back(f);
+        }
         if (callables.empty()) break;
         auto call_graph =
             detail::analyze_inline_call_graph(callables, info);
@@ -1454,6 +1464,19 @@ InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, 
                 callee->remove_self();
                 ++info.removed_callable_count;
             }
+        }
+    }
+    for (auto *f : module->function_list()) {
+        if (f->derived_function_tag() != DerivedFunctionTag::CALLABLE) {
+            continue;
+        }
+        if (!options.override_noinline &&
+            f->find_metadata<NoInlineMD>() != nullptr) {
+            info.skipped_noinline_call_count +=
+                detail::collect_call_sites(f).size();
+        } else if (f->find_metadata<SignatureConstraintMD>() != nullptr) {
+            info.skipped_constrained_call_count +=
+                detail::collect_call_sites(f).size();
         }
     }
     set_inline_report(info, report);

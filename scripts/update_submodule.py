@@ -199,13 +199,22 @@ def resolve_branch(sm: Submodule, sm_path: Path, log: list[str]) -> str:
         return cur
 
     # Detached with no configured branch: ask the remote for its default.
-    try:
-        head = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-                   cwd=sm_path, log=log, check=False)
-        if head.returncode == 0 and head.stdout.strip():
-            return head.stdout.strip().removeprefix("origin/")
-    except GitError:
-        pass
+    head = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+               cwd=sm_path, log=log, check=False)
+    if head.returncode == 0 and head.stdout.strip():
+        return head.stdout.strip().removeprefix("origin/")
+
+    # `origin/HEAD` is usually absent in single-branch clones, and
+    # `remote set-head --auto` can fail there too, so ask the remote directly
+    # for the symref target: this works regardless of the fetch refspec.
+    ls = git(["ls-remote", "--symref", "origin", "HEAD"], cwd=sm_path, log=log,
+             check=False)
+    for line in ls.stdout.splitlines():
+        if line.startswith("ref:"):
+            ref = line.split()[1]
+            if ref.startswith("refs/heads/"):
+                return ref.removeprefix("refs/heads/")
+
     git(["remote", "set-head", "origin", "--auto"], cwd=sm_path, log=log, check=False)
     head = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
                cwd=sm_path, log=log, check=False)
@@ -267,7 +276,14 @@ def update_submodule(sm: Submodule, repo_root: Path, max_workers: int,
 
             branch = resolve_branch(sm, sm_path, log)
             log.append(f"{indent}  {blue('[fetch]')} origin/{branch}")
-            git(["fetch", "origin", branch, "--prune"], cwd=sm_path, log=log)
+            # Fetch with an explicit refspec. `git fetch origin <branch>` only
+            # updates `origin/<branch>` when the configured `remote.origin.fetch`
+            # refspec happens to cover that branch. Single-branch clones (the
+            # common case for submodules) map exactly one branch, so fetching a
+            # *different* branch would land in FETCH_HEAD only and the checkout
+            # below would fail with "'origin/<branch>' is not a commit".
+            git(["fetch", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"],
+                cwd=sm_path, log=log)
 
             # Checkout the branch, creating/resetting a local tracking branch if needed.
             cur = git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=sm_path,

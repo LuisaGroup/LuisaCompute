@@ -32,7 +32,7 @@ luisa::unique_ptr<Command> ProceduralPrimitive::build(AccelBuildRequest request)
         handle(), request, _aabb_buffer, _aabb_buffer_offset_bytes, _aabb_buffer_size_bytes);
 }
 
-ProceduralPrimitive::~ProceduralPrimitive() noexcept {
+void ProceduralPrimitive::destroy() noexcept {
     if (*this) { device()->destroy_procedural_primitive(handle()); }
 }
 

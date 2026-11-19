@@ -34,6 +34,8 @@
 namespace luisa::compute::fallback {
 
 class AkrThreadPool;
+class AkrFastThreadPool;
+class TbbSchedulerState;
 
 class FallbackCommandQueue {
 
@@ -54,6 +56,8 @@ private:
     dispatch_queue_t _dispatch_queue{nullptr};
 #elif defined(LUISA_FALLBACK_USE_AKARI_THREAD_POOL)
     luisa::unique_ptr<AkrThreadPool> _worker_pool;
+    luisa::unique_ptr<AkrFastThreadPool> _fast_worker_pool;
+    luisa::unique_ptr<TbbSchedulerState> _tbb_state;
 #endif
 
 private:
@@ -62,10 +66,19 @@ private:
     void _enqueue_task_no_wait(luisa::move_only_function<void()> &&task) noexcept;
 
 public:
+    struct ParallelClaimFn {
+        void *state{nullptr};
+        bool (*claim)(void *state, uint &begin, uint &end) noexcept { nullptr };
+        [[nodiscard]] bool operator()(uint &begin, uint &end) const noexcept {
+            return claim(state, begin, end);
+        }
+    };
+
     explicit FallbackCommandQueue(size_t in_flight_limit, size_t num_threads) noexcept;
     ~FallbackCommandQueue() noexcept;
     void enqueue(luisa::move_only_function<void()> &&task) noexcept;
     void enqueue_parallel(uint n, luisa::move_only_function<void(uint)> &&task) noexcept;
+    void enqueue_parallel_workers(uint n, luisa::move_only_function<void(ParallelClaimFn)> &&worker_fn) noexcept;
     void synchronize() noexcept;
 
     void set_log_callback(DeviceInterface::StreamLogCallback callback) noexcept { _log_callback = std::move(callback); }

@@ -142,7 +142,8 @@ ComputeShader *ComputeShader::compile(
     bool requires_sampler_anisotropy,
     uint32_t push_constant_size,
     detail::ShaderCodegenDialect codegen_dialect,
-    bool enable_driver_optimization) {
+    bool enable_driver_optimization,
+    vstd::string_view dump_name_override) {
 
     auto required_spirv_features =
         device->enabled_spirv_artifact_features();
@@ -200,8 +201,10 @@ ComputeShader *ComputeShader::compile(
                 md5 = vstd::MD5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
             }
         }
+        luisa::string dump_name;
         if (Device::print_code()) {
-            auto dump_name = [&]() -> luisa::string {
+            dump_name = [&]() -> luisa::string {
+                if (!dump_name_override.empty()) return luisa::string{dump_name_override.data(), dump_name_override.size()};
                 if (!file_name.empty()) return luisa::string{file_name.data(), file_name.size()};
                 auto code_md5 = vstd::MD5({reinterpret_cast<uint8_t const *>(str.result.data()), str.result.size()});
                 return luisa::string{code_md5.to_string(false)};
@@ -228,6 +231,14 @@ ComputeShader *ComputeShader::compile(
         return comp_result.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
+                if (!dump_name.empty()) {
+                    auto spv_file_name = luisa::format("spv_output_{}.spv", dump_name);
+                    auto f = fopen(spv_file_name.c_str(), "wb");
+                    if (f) {
+                        fwrite(buffer->GetBufferPointer(), buffer->GetBufferSize(), 1, f);
+                        fclose(f);
+                    }
+                }
                 auto shader = new ComputeShader(
                     device,
                     block_size,

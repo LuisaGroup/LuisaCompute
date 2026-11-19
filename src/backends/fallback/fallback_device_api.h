@@ -240,6 +240,8 @@ void luisa_fallback_ray_query_procedural_occluded_function(const RayQueryOcclude
 
 void luisa_fallback_ray_query_pipeline_all(LC_RayQueryObject *query_object, const void *capture, RayQueryOnSurfaceFunc *on_surface, RayQueryOnProceduralFunc *on_procedural) noexcept;
 void luisa_fallback_ray_query_pipeline_any(LC_RayQueryObject *query_object, const void *capture, RayQueryOnSurfaceFunc *on_surface, RayQueryOnProceduralFunc *on_procedural) noexcept;
+void luisa_fallback_ray_query_pipeline_all_excl(LC_RayQueryObject *query_object, uint excl_inst0, uint excl_prim0, uint excl_inst1, uint excl_prim1, uint flags, const void *capture, RayQueryOnProceduralFunc *on_procedural) noexcept;
+void luisa_fallback_ray_query_pipeline_any_excl(LC_RayQueryObject *query_object, uint excl_inst0, uint excl_prim0, uint excl_inst1, uint excl_prim1, uint flags, const void *capture, RayQueryOnProceduralFunc *on_procedural) noexcept;
 }
 
 #ifndef LUISA_COMPUTE_FALLBACK_DEVICE_LIB

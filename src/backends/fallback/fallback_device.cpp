@@ -52,7 +52,7 @@ FallbackDevice::FallbackDevice(Context &&ctx, const DeviceConfig *config) noexce
     // Creating a device must not change the caller's floating-point state.
 
     // embree
-    _rtc_device = rtcNewDevice("frequency_level=simd128,verbose=1");
+    _rtc_device = rtcNewDevice(nullptr);
     rtcSetDeviceErrorFunction(
         _rtc_device,
         [](void *, RTCError code, const char *message) {
@@ -62,6 +62,15 @@ FallbackDevice::FallbackDevice(Context &&ctx, const DeviceConfig *config) noexce
             }
         },
         nullptr);
+    if (luisa_fallback_bvh_stats_enabled()) {
+        rtcSetDeviceMemoryMonitorFunction(
+            _rtc_device,
+            [](void *, ssize_t bytes, bool) noexcept -> bool {
+                luisa_fallback_bvh_stats().record_alloc(bytes);
+                return true;
+            },
+            nullptr);
+    }
 
     // llvm
     static std::once_flag flag;
@@ -71,7 +80,27 @@ FallbackDevice::FallbackDevice(Context &&ctx, const DeviceConfig *config) noexce
     });
 }
 
+namespace api {
+void luisa_fallback_dump_api_profile_if_enabled() noexcept;
+}
+
 FallbackDevice::~FallbackDevice() noexcept {
+    api::luisa_fallback_dump_api_profile_if_enabled();
+    if (luisa_fallback_bvh_stats_enabled()) {
+        auto &s = luisa_fallback_bvh_stats();
+        std::fprintf(
+            stdout,
+            "[fallback-bvh-stats] peak_bytes=%lld retained_bytes=%lld blas_commits=%llu blas_ms=%.3f tlas_commits=%llu tlas_ms=%.3f direct_meshes=%llu instanced_slots=%llu\n",
+            static_cast<long long>(s.peak_bytes.load()),
+            static_cast<long long>(s.retained_after_accel_bytes.load()),
+            static_cast<unsigned long long>(s.blas_commits.load()),
+            static_cast<double>(s.blas_commit_ns.load()) * 1e-6,
+            static_cast<unsigned long long>(s.tlas_commits.load()),
+            static_cast<double>(s.tlas_commit_ns.load()) * 1e-6,
+            static_cast<unsigned long long>(s.last_direct_meshes.load()),
+            static_cast<unsigned long long>(s.last_instanced_slots.load()));
+        std::fflush(stdout);
+    }
     rtcReleaseDevice(_rtc_device);
 }
 

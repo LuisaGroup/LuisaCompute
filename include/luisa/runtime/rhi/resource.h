@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
@@ -242,6 +244,46 @@ struct ShaderOption {
     luisa::string native_include;
 };
 
+class Resource;
+
+/// \brief Reference-count block shared by all the copies of one `Resource`.
+/// \details A resource that is never copied keeps `Resource::_rc == nullptr`, so the
+/// plain single-owner path allocates nothing and never touches an atomic: the block
+/// is created lazily, only when a copy is actually made, and it holds the number of
+/// live handles plus one word of state the handles must agree on.
+///
+/// The block deliberately carries no teardown hook. A release always runs from inside
+/// the destructor body of the concrete class (see `Resource::destroy()`), which is the
+/// one context where a plain virtual call still reaches the right override, so a hook
+/// would only add an indirection in front of that same virtual call.
+///
+/// Blocks are recycled through a process-wide `ConcurrentPool`, so promoting a
+/// single-owner resource to shared ownership costs one compare-and-swap instead of a
+/// call into the general-purpose allocator.
+struct ResourceRefCount {
+    /// Number of live `Resource` instances sharing the underlying object.
+    std::atomic<int64_t> count{1};
+    /// \brief Word of state that every handle of the resource shares.
+    /// \details A shared object has exactly one device-side identity, so any mutable
+    /// frontend state that names a point *on that object* (rather than a per-handle
+    /// recording of work to submit) has to live here instead of in one instance --
+    /// otherwise two copies would disagree about the same object. `Event` keeps the
+    /// fence it has signaled here; every other resource leaves it at zero.
+    /// \sa Resource::_init_shared_state
+    std::atomic<uint64_t> state{0u};
+};
+
+/// \brief Base class of every frontend handle of a device-side object.
+/// \details A `Resource` owns a *shared* lifetime: copying it produces another handle
+/// to the very same underlying API object, and that object is torn down by the last
+/// live handle only. A handle that is never copied stays the only owner and never
+/// allocates a `ResourceRefCount`, so the plain move-only usage is allocation free.
+///
+/// Copies share the device-side object, but *not* the per-instance frontend
+/// bookkeeping some subclasses keep next to it (for example `Accel`'s pending
+/// modification list or `BindlessArray`'s pending updates), because that state is a
+/// property of the handle rather than of the object. Record a mutation and commit it
+/// through one handle instead of spreading it over several copies.
 class LUISA_RUNTIME_API Resource {
 
     friend class Device;
@@ -280,30 +322,65 @@ private:
     ResourceCreationInfo _info{};
     Tag _tag{};
     uint64_t _uid{};
+    /// Shared-ownership block, or `nullptr` while this instance is the only owner.
+    /// Mutable because making a copy of a single-owner resource promotes the *source*
+    /// to shared ownership as well; atomic because two threads may copy the *same*
+    /// handle concurrently, and the promotion then has to pick a single winner.
+    mutable std::atomic<ResourceRefCount *> _rc{nullptr};
 
 private:
     [[noreturn]] static void _error_invalid() noexcept;
 
 protected:
+    /// \brief Tear down the underlying API object.
+    /// \details Called exactly once, by the last live owner of the resource, from
+    /// within `_release()` -- never directly by a C++ destructor.
+    ///
+    /// The call can only be dispatched correctly from the destructor body of the class
+    /// that introduces the override, because only there is the dynamic type still that
+    /// class; one frame later the override has been superseded by its base's and would
+    /// be skipped silently. Hence the rule: *every class that overrides `destroy()` must
+    /// declare a destructor whose body calls `_release()`*. Implementations must be
+    /// no-ops on an invalid (`!*this`) resource, because a moved-from or `release()`d
+    /// instance still reaches this function.
+    virtual void destroy() noexcept = 0;
+
     static void _check_same_derived_types(const Resource &lhs,
                                           const Resource &rhs) noexcept;
 
-    // helper method for derived classes to implement move assignment
-    template<typename Derived>
-    void _move_from(Derived &&rhs) noexcept {
-        if (this != &rhs) [[likely]] {
-            // check if the two resources are compatible if both are valid
-            _check_same_derived_types(*this, rhs);
-            using Self = std::remove_cvref_t<Derived>;
-            static_assert(std::is_base_of_v<Resource, Self> &&
-                              !std::is_same_v<Resource, Self>,
-                          "Resource::_move_from can only be used in derived classes");
-            auto self = static_cast<Self *>(this);
-            // destroy the old resource
-            std::destroy_at(self);
-            std::construct_at(self, std::move(rhs));
-        }
+    /// \brief Give up this instance's ownership.
+    /// \details Destroys the underlying object when this is the last live owner.
+    /// Every derived destructor calls this (see `~Buffer()` and friends) while the
+    /// dynamic type is still the concrete class, so `destroy()` dispatches to the right
+    /// override whether or not this instance was shared.
+    void _release() noexcept;
+
+    /// \brief Adopt a reference to `other`'s underlying object.
+    /// \details Allocates the reference-count block through
+    /// `luisa::new_with_allocator` when `other` still has a single owner, and makes
+    /// `other` shared as well.
+    void _share(const Resource &other) noexcept;
+
+    /// \brief The block shared by every handle of this object, or `nullptr` while this
+    /// instance is the only owner.
+    /// \details Derived classes use it to reach the word every copy shares
+    /// (`ResourceRefCount::state`) without exposing the block to callers.
+    [[nodiscard]] ResourceRefCount *_shared_block() const noexcept {
+        return _rc.load(std::memory_order_acquire);
     }
+
+    /// \brief Seed `ResourceRefCount::state` for the handles that will share this
+    /// object.
+    /// \details Runs at most once per resource, right before `_share()` publishes the
+    /// block it just created, and only for a resource that was a single owner up to
+    /// that point -- a block that already exists keeps the state its own seed produced.
+    /// It is invoked on the *source* handle of the copy, which is a completely
+    /// constructed object there, so a derived override dispatches correctly; calling it
+    /// on `*this` would not, because that object is still under construction.
+    ///
+    /// The default leaves the word at zero, which is all a resource whose copies need to
+    /// agree on nothing beyond the lifetime requires.
+    virtual void _init_shared_state(ResourceRefCount & /*block*/) const noexcept {}
 
     void _check_is_valid() const noexcept {
 #ifndef NDEBUG
@@ -316,14 +393,27 @@ protected:
     Resource() noexcept { _info.invalidate(); }
     Resource(DeviceInterface *device, Tag tag, const ResourceCreationInfo &info) noexcept;
     Resource(Resource &&) noexcept;
-    // protected destructor for derived classes
-    // give out the ownership of the resource without destroying it
+    Resource(const Resource &) noexcept;
+    /// \brief Take over the ownership of `rhs`, releasing the current object.
+    /// \details Protected, like the copy/move constructors above, because
+    /// `Resource` is the common base of *unrelated* handle types: exposing the
+    /// assignment would let an implicit upcast pair two different object kinds,
+    /// and the only guard available at that level is `Tag`, which several
+    /// concrete types share (`Buffer`/`ByteBuffer`/`IndirectDispatchBuffer`,
+    /// `Image`/`Volume`, `SparseTexture`/`SparseImage`/`SparseVolume`,
+    /// `Event`/`TimelineEvent`). Every concrete subclass exposes its own
+    /// type-exact copy/move assignment instead.
+    Resource &operator=(Resource &&rhs) noexcept;
+    Resource &operator=(const Resource &rhs) noexcept;
+
+    /// \brief Give out the ownership of the resource without destroying it.
+    /// \details The caller becomes responsible for the returned handle, so this is
+    /// only allowed while the resource is *not* shared: releasing one of several
+    /// copies would leave the others owning an object the caller now manages.
     [[nodiscard]] ResourceCreationInfo release() noexcept;
+
 public:
     virtual ~Resource() noexcept;
-    Resource(const Resource &) noexcept = delete;
-    Resource &operator=(Resource &&) noexcept = delete;// use _move_from in derived classes
-    Resource &operator=(const Resource &) noexcept = delete;
     [[nodiscard]] auto device() const noexcept { return _device.get(); }
     [[nodiscard]] auto handle() const noexcept { return _info.handle; }
     [[nodiscard]] auto native_handle() const noexcept { return _info.native_handle; }
@@ -331,6 +421,11 @@ public:
     [[nodiscard]] auto uid() const noexcept { return _uid; }
     [[nodiscard]] auto valid() const noexcept { return _info.valid(); }
     [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
+    /// Number of live instances sharing this resource (always >= 1 for a valid one).
+    [[nodiscard]] auto reference_count() const noexcept {
+        auto rc = _rc.load(std::memory_order_acquire);
+        return rc == nullptr ? int64_t{1} : rc->count.load(std::memory_order_relaxed);
+    }
     void set_name(luisa::string_view name) const noexcept;
 };
 

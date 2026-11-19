@@ -3812,6 +3812,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             }
         }
         auto validation_count = code.validation_count;
+        auto dump_name_view = !option.name.empty() ? vstd::string_view{option.name} : vstd::string_view{kernel.name()};
         auto shader = ComputeShader::compile(
             _binary_io,
             this,
@@ -3831,7 +3832,8 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             requires_sampler_anisotropy,
             push_constant_size,
             detail::ShaderCodegenDialect::HLSL_SPIRV,
-            option.enable_driver_optimization);
+            option.enable_driver_optimization,
+            dump_name_view);
         LUISA_VERBOSE(
             "ComputeShader (HLSL) created, pipeline: {}",
             reinterpret_cast<void *>(shader->pipeline()));

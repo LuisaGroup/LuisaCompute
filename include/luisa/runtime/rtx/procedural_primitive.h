@@ -31,14 +31,11 @@ public:
                 _aabb_buffer_total_size_bytes / sizeof(AABB)};
     }
     ProceduralPrimitive() noexcept = default;
-    ~ProceduralPrimitive() noexcept override;
+    ~ProceduralPrimitive() noexcept override { _release(); }
     ProceduralPrimitive(ProceduralPrimitive &&) noexcept = default;
-    ProceduralPrimitive(ProceduralPrimitive const &) noexcept = delete;
-    ProceduralPrimitive &operator=(ProceduralPrimitive &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    ProceduralPrimitive &operator=(ProceduralPrimitive const &) noexcept = delete;
+    ProceduralPrimitive(ProceduralPrimitive const &) noexcept = default;
+    ProceduralPrimitive &operator=(ProceduralPrimitive &&rhs) noexcept = default;
+    ProceduralPrimitive &operator=(ProceduralPrimitive const &rhs) noexcept = default;
 
     using Resource::operator bool;
     using Resource::release;
@@ -61,6 +58,9 @@ public:
         auto n = this->motion_keyframe_count();
         return _aabb_buffer_size_bytes / sizeof(AABB) / n;
     }
+
+protected:
+    void destroy() noexcept override;
 };
 
 template<typename AABBBuffer>

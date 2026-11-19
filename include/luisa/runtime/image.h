@@ -105,18 +105,13 @@ private:
 
 public:
     Image() noexcept = default;
-    ~Image() noexcept override {
-        if (*this) { device()->destroy_texture(handle()); }
-    }
+    ~Image() noexcept override { _release(); }
     using Resource::operator bool;
     using Resource::release;
     Image(Image &&) noexcept = default;
-    Image(Image const &) noexcept = delete;
-    Image &operator=(Image &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    Image &operator=(Image const &) noexcept = delete;
+    Image(Image const &) noexcept = default;
+    Image &operator=(Image &&rhs) noexcept = default;
+    Image &operator=(Image const &rhs) noexcept = default;
     // properties
     [[nodiscard]] auto size() const noexcept {
         _check_is_valid();
@@ -162,6 +157,11 @@ public:
     [[nodiscard]] auto operator->() const noexcept {
         _check_is_valid();
         return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
+    }
+
+protected:
+    void destroy() noexcept override {
+        if (*this) { device()->destroy_texture(handle()); }
     }
 };
 

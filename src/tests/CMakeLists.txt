@@ -293,7 +293,15 @@ luisa_compute_add_test(test_first_fit          unit/core/test_first_fit.cpp     
 luisa_compute_add_test(test_logging            unit/core/test_logging.cpp            LABELS "unit;unit_core")
 luisa_compute_add_test(test_mathematics        unit/core/test_mathematics.cpp        LABELS "unit;unit_core")
 luisa_compute_add_test(test_matrix             unit/core/test_matrix.cpp             LABELS "unit;unit_core")
+luisa_compute_add_test(test_dsl_function_signature unit/dsl/test_dsl_function_signature.cpp LABELS "unit;unit_dsl")
+luisa_compute_add_test(test_move_only_function unit/core/test_move_only_function.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_pool               unit/core/test_pool.cpp               LABELS "unit;unit_core")
+
+# Benchmark: reference-count-block recycle bins (lock-free CAS pool vs spin_mutex
+# pool). Host only -- no device, no backend, no LLVM.
+add_executable(benchmark_refcount_pool benchmark/benchmark_refcount_pool.cpp)
+target_compile_features(benchmark_refcount_pool PRIVATE cxx_std_20)
+target_link_libraries(benchmark_refcount_pool PRIVATE luisa-compute-core)
 luisa_compute_add_test(test_type               unit/core/test_type.cpp               LABELS "unit;unit_core")
 luisa_compute_add_test(test_stl_containers     unit/core/test_stl_containers.cpp     LABELS "unit;unit_core")
 foreach (_map_rejection IN ITEMS mutable const)
@@ -1414,6 +1422,7 @@ endif ()
 luisa_compute_add_test(test_opacity_micromap_header unit/runtime/test_opacity_micromap_header.cpp LABELS "unit;unit_runtime")
 luisa_compute_add_test(test_buffer_io           unit/runtime/test_buffer_io.cpp)
 luisa_compute_add_test(test_buffer              unit/runtime/test_buffer.cpp)
+luisa_compute_add_test(test_resource_ref_count unit/runtime/test_resource_ref_count.cpp)
 luisa_compute_add_test(test_out_of_range        unit/runtime/test_out_of_range.cpp)
 luisa_compute_add_test(test_buffer_view         unit/runtime/test_buffer_view.cpp)
 luisa_compute_add_test(test_device_test         unit/runtime/test_device.cpp)

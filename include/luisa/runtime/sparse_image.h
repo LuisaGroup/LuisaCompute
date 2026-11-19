@@ -63,12 +63,9 @@ public:
     using Resource::operator bool;
     using Resource::release;
     SparseImage(SparseImage &&) noexcept = default;
-    SparseImage(const SparseImage &) noexcept = delete;
-    SparseImage &operator=(SparseImage &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    SparseImage &operator=(const SparseImage &) noexcept = delete;
+    SparseImage(const SparseImage &) noexcept = default;
+    SparseImage &operator=(SparseImage &&rhs) noexcept = default;
+    SparseImage &operator=(const SparseImage &rhs) noexcept = default;
     [[nodiscard]] auto view(uint32_t level) const noexcept {
         _check_is_valid();
         if (level >= _mip_levels) [[unlikely]] {

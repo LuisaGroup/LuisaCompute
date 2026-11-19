@@ -87,6 +87,15 @@ void FunctionBuilder::continue_() noexcept {
 
 void FunctionBuilder::return_(const Expression *expr) noexcept {
     expr = _internalize(expr);
+    if (_inline_outline_region_depth > 0u) {
+        if (expr != nullptr) [[unlikely]] {
+            LUISA_ERROR_WITH_LOCATION(
+                "Cannot return a non-void value from an $outline_when region.");
+        }
+        static thread_local ReturnStmt inline_outline_null_return{nullptr};
+        _append(&inline_outline_null_return);
+        return;
+    }
     LUISA_ASSERT(_tag != Tag::KERNEL || expr == nullptr,
                  "Kernels cannot return non-void values.");
     if (_return_type) {// multiple return statements, check if they match
@@ -1190,6 +1199,246 @@ void FunctionBuilder::mark_noinline() noexcept {
     LUISA_ASSERT(!_hash_computed,
                  "Cannot change the noinline policy after computing the function hash.");
     _requires_noinline = true;
+}
+
+namespace {
+
+struct OutlinedRegionControlFlowInfo {
+    bool has_void_return{false};
+    bool has_nested_void_return{false};
+};
+
+void analyze_outlined_scope_control_flow(
+    const ScopeStmt *scope,
+    size_t loop_depth,
+    size_t switch_depth,
+    OutlinedRegionControlFlowInfo &info) noexcept {
+    if (scope == nullptr) { return; }
+    for (const Statement *stmt : scope->statements()) {
+        if (stmt == nullptr) { continue; }
+        switch (stmt->tag()) {
+            case Statement::Tag::BREAK: {
+                if (loop_depth == 0u && switch_depth == 0u) [[unlikely]] {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Cannot use $break to exit a loop or switch enclosing an outlined region.");
+                }
+                break;
+            }
+            case Statement::Tag::CONTINUE: {
+                if (loop_depth == 0u) [[unlikely]] {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Cannot use $continue to target a loop enclosing an outlined region.");
+                }
+                break;
+            }
+            case Statement::Tag::RETURN: {
+                auto *ret = static_cast<const ReturnStmt *>(stmt);
+                if (ret->expression() != nullptr) [[unlikely]] {
+                    LUISA_ERROR_WITH_LOCATION(
+                        "Cannot return a non-void value from an outlined region.");
+                }
+                info.has_void_return = true;
+                if (loop_depth > 0u || switch_depth > 0u) {
+                    info.has_nested_void_return = true;
+                }
+                break;
+            }
+            case Statement::Tag::IF: {
+                auto *s = static_cast<const IfStmt *>(stmt);
+                analyze_outlined_scope_control_flow(s->true_branch(), loop_depth, switch_depth, info);
+                analyze_outlined_scope_control_flow(s->false_branch(), loop_depth, switch_depth, info);
+                break;
+            }
+            case Statement::Tag::LOOP: {
+                auto *s = static_cast<const LoopStmt *>(stmt);
+                analyze_outlined_scope_control_flow(s->body(), loop_depth + 1u, switch_depth, info);
+                break;
+            }
+            case Statement::Tag::FOR: {
+                auto *s = static_cast<const ForStmt *>(stmt);
+                analyze_outlined_scope_control_flow(s->body(), loop_depth + 1u, switch_depth, info);
+                break;
+            }
+            case Statement::Tag::SWITCH: {
+                auto *s = static_cast<const SwitchStmt *>(stmt);
+                analyze_outlined_scope_control_flow(s->body(), loop_depth, switch_depth + 1u, info);
+                break;
+            }
+            case Statement::Tag::SWITCH_CASE:
+            case Statement::Tag::SWITCH_CASE_GROUP: {
+                auto *s = static_cast<const SwitchCaseStmt *>(stmt);
+                analyze_outlined_scope_control_flow(s->body(), loop_depth, switch_depth, info);
+                break;
+            }
+            case Statement::Tag::SWITCH_DEFAULT: {
+                auto *s = static_cast<const SwitchDefaultStmt *>(stmt);
+                analyze_outlined_scope_control_flow(s->body(), loop_depth, switch_depth, info);
+                break;
+            }
+            case Statement::Tag::AUTO_DIFF: {
+                auto *s = static_cast<const AutoDiffStmt *>(stmt);
+                analyze_outlined_scope_control_flow(s->body(), loop_depth, switch_depth, info);
+                break;
+            }
+            default: break;
+        }
+    }
+}
+
+[[nodiscard]] bool scope_contains_void_return(const ScopeStmt *scope) noexcept {
+    if (scope == nullptr) { return false; }
+    for (const Statement *stmt : scope->statements()) {
+        if (stmt == nullptr) { continue; }
+        switch (stmt->tag()) {
+            case Statement::Tag::RETURN: return true;
+            case Statement::Tag::IF: {
+                auto *s = static_cast<const IfStmt *>(stmt);
+                if (scope_contains_void_return(s->true_branch()) ||
+                    scope_contains_void_return(s->false_branch())) { return true; }
+                break;
+            }
+            case Statement::Tag::LOOP:
+                if (scope_contains_void_return(static_cast<const LoopStmt *>(stmt)->body())) { return true; }
+                break;
+            case Statement::Tag::FOR:
+                if (scope_contains_void_return(static_cast<const ForStmt *>(stmt)->body())) { return true; }
+                break;
+            case Statement::Tag::SWITCH:
+                if (scope_contains_void_return(static_cast<const SwitchStmt *>(stmt)->body())) { return true; }
+                break;
+            case Statement::Tag::SWITCH_CASE:
+            case Statement::Tag::SWITCH_CASE_GROUP:
+                if (scope_contains_void_return(static_cast<const SwitchCaseStmt *>(stmt)->body())) { return true; }
+                break;
+            case Statement::Tag::SWITCH_DEFAULT:
+                if (scope_contains_void_return(static_cast<const SwitchDefaultStmt *>(stmt)->body())) { return true; }
+                break;
+            case Statement::Tag::AUTO_DIFF:
+                if (scope_contains_void_return(static_cast<const AutoDiffStmt *>(stmt)->body())) { return true; }
+                break;
+            default: break;
+        }
+    }
+    return false;
+}
+
+}// namespace
+
+void FunctionBuilder::validate_outlined_callable_control_flow(const ScopeStmt *body) noexcept {
+    OutlinedRegionControlFlowInfo info{};
+    analyze_outlined_scope_control_flow(body, 0u, 0u, info);
+}
+
+void FunctionBuilder::commit_inline_outlined_region(ScopeStmt &&region) noexcept {
+    OutlinedRegionControlFlowInfo info{};
+    analyze_outlined_scope_control_flow(&region, 0u, 0u, info);
+    if (!info.has_void_return) {
+        for (const Statement *stmt : region.statements()) {
+            _append(stmt);
+        }
+        return;
+    }
+    const RefExpr *ret_flag = nullptr;
+    const LiteralExpr *lit_true = nullptr;
+    if (info.has_nested_void_return) {
+        const bool false_val = false;
+        const bool true_val = true;
+        ret_flag = local(Type::of<bool>());
+        assign(ret_flag, literal(Type::of<bool>(), false_val));
+        lit_true = literal(Type::of<bool>(), true_val);
+    }
+    auto rewrite_scope = [&](auto &&self, const ScopeStmt *src, size_t depth) noexcept -> void {
+        for (const Statement *stmt : src->statements()) {
+            if (stmt == nullptr) { continue; }
+            switch (stmt->tag()) {
+                case Statement::Tag::RETURN: {
+                    if (depth > 0u && ret_flag != nullptr) {
+                        assign(ret_flag, lit_true);
+                    }
+                    break_();
+                    break;
+                }
+                case Statement::Tag::IF: {
+                    auto *s = static_cast<const IfStmt *>(stmt);
+                    if (!scope_contains_void_return(s->true_branch()) &&
+                        !scope_contains_void_return(s->false_branch())) {
+                        _append(stmt);
+                    } else {
+                        auto *cloned = if_(s->condition());
+                        with(cloned->true_branch(), [&] { self(self, s->true_branch(), depth); });
+                        with(cloned->false_branch(), [&] { self(self, s->false_branch(), depth); });
+                    }
+                    break;
+                }
+                case Statement::Tag::LOOP: {
+                    auto *s = static_cast<const LoopStmt *>(stmt);
+                    if (!scope_contains_void_return(s->body())) {
+                        _append(stmt);
+                    } else {
+                        auto *cloned = loop_();
+                        with(cloned->body(), [&] { self(self, s->body(), depth + 1u); });
+                        auto *propagate = if_(ret_flag);
+                        with(propagate->true_branch(), [&] { break_(); });
+                    }
+                    break;
+                }
+                case Statement::Tag::FOR: {
+                    auto *s = static_cast<const ForStmt *>(stmt);
+                    if (!scope_contains_void_return(s->body())) {
+                        _append(stmt);
+                    } else {
+                        auto *cloned = for_(s->variable(), s->condition(), s->step());
+                        with(cloned->body(), [&] { self(self, s->body(), depth + 1u); });
+                        auto *propagate = if_(ret_flag);
+                        with(propagate->true_branch(), [&] { break_(); });
+                    }
+                    break;
+                }
+                case Statement::Tag::SWITCH: {
+                    auto *s = static_cast<const SwitchStmt *>(stmt);
+                    if (!scope_contains_void_return(s->body())) {
+                        _append(stmt);
+                    } else {
+                        auto *cloned = switch_(s->expression());
+                        with(cloned->body(), [&] { self(self, s->body(), depth + 1u); });
+                        auto *propagate = if_(ret_flag);
+                        with(propagate->true_branch(), [&] { break_(); });
+                    }
+                    break;
+                }
+                case Statement::Tag::SWITCH_CASE:
+                case Statement::Tag::SWITCH_CASE_GROUP: {
+                    auto *s = static_cast<const SwitchCaseStmt *>(stmt);
+                    if (!scope_contains_void_return(s->body())) {
+                        _append(stmt);
+                    } else {
+                        auto exprs = s->expressions();
+                        auto *cloned = exprs.size() == 1u ? case_(exprs.front()) : case_(exprs);
+                        with(cloned->body(), [&] { self(self, s->body(), depth); });
+                    }
+                    break;
+                }
+                case Statement::Tag::SWITCH_DEFAULT: {
+                    auto *s = static_cast<const SwitchDefaultStmt *>(stmt);
+                    if (!scope_contains_void_return(s->body())) {
+                        _append(stmt);
+                    } else {
+                        auto *cloned = default_();
+                        with(cloned->body(), [&] { self(self, s->body(), depth); });
+                    }
+                    break;
+                }
+                default:
+                    _append(stmt);
+                    break;
+            }
+        }
+    };
+    auto *single_pass = loop_();
+    with(single_pass->body(), [&] {
+        rewrite_scope(rewrite_scope, &region, 0u);
+        break_();
+    });
 }
 
 bool FunctionBuilder::requires_noinline() const noexcept {

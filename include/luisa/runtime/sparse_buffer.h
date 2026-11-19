@@ -53,9 +53,7 @@ private:
 
 public:
     SparseBuffer() noexcept = default;
-    ~SparseBuffer() noexcept override {
-        if (*this) { device()->destroy_sparse_buffer(handle()); }
-    }
+    ~SparseBuffer() noexcept override { _release(); }
     SparseBufferCreationInfo release() noexcept {
         SparseBufferCreationInfo r{Resource::release()};
         r.element_stride = _element_stride;
@@ -63,11 +61,8 @@ public:
         return r;
     }
     SparseBuffer(SparseBuffer &&) noexcept = default;
-    SparseBuffer(SparseBuffer const &) noexcept = delete;
-    SparseBuffer &operator=(SparseBuffer &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
+    SparseBuffer(SparseBuffer const &) noexcept = default;
+    SparseBuffer &operator=(SparseBuffer &&rhs) noexcept = default;
     [[nodiscard]] auto map_tile(uint start_tile, uint tile_count, const SparseBufferHeap &heap) noexcept {
         _check_is_valid();
         detail::check_sparse_buffer_tile_region(
@@ -93,7 +88,7 @@ public:
                 .tile_count = tile_count}};
     }
 
-    SparseBuffer &operator=(SparseBuffer const &) noexcept = delete;
+    SparseBuffer &operator=(SparseBuffer const &rhs) noexcept = default;
     using Resource::operator bool;
     // properties
     [[nodiscard]] auto size() const noexcept {
@@ -144,6 +139,11 @@ public:
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         _check_is_valid();
         return this->view().copy_from(source);
+    }
+
+protected:
+    void destroy() noexcept override {
+        if (*this) { device()->destroy_sparse_buffer(handle()); }
     }
 };
 

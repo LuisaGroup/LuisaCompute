@@ -1,9 +1,11 @@
+#include <bit>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Intrinsics.h>
+#include <llvm/IR/MDBuilder.h>
 #include <llvm/IR/MatrixBuilder.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IRReader/IRReader.h>
@@ -25,6 +27,7 @@
 #include <luisa/xir/special_register.h>
 #include <luisa/xir/metadata/name.h>
 #include <luisa/xir/metadata/location.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/core/stl/memory.h>
 
 #include "fallback_bindless_array.h"
@@ -171,13 +174,17 @@ private:
 
     struct CurrentFunction {
         llvm::Function *func = nullptr;
+        const Type *return_xir_type = nullptr;
+        llvm::Value *sret_ptr = nullptr;
         llvm::BasicBlock *exit_block = nullptr;
         llvm::Value *coro_token = nullptr;
         llvm::Value *coro_handle = nullptr;
         llvm::BasicBlock *coro_suspend_block = nullptr;
         llvm::BasicBlock *coro_cleanup_block = nullptr;
         luisa::unordered_map<const xir::Value *, llvm::Value *> value_map{};
+        luisa::unordered_map<const xir::Value *, llvm::Value *> readonly_indirect_arg_ptrs{};
         luisa::unordered_set<const llvm::BasicBlock *> translated_basic_blocks{};
+        luisa::vector<std::pair<llvm::BasicBlock *, const xir::BasicBlock *>> pending_basic_blocks{};
         luisa::unordered_map<llvm::BasicBlock *, llvm::BasicBlock *> phi_incoming_overrides{};
         luisa::vector<const xir::PhiInst *> phi_nodes{};
 
@@ -200,55 +207,59 @@ private:
         if (auto iter = _special_register_usages.find(f); iter != _special_register_usages.end()) {
             return iter->second;
         }
+        _special_register_usages.emplace(f, 0u);
         auto usage = 0u;
         if (auto def = f->definition()) {
-            def->traverse_instructions([&](const xir::Instruction *inst) noexcept {
-                for (auto op_use : inst->operand_uses()) {
-                    if (auto op = op_use->value()) {
-                        switch (op->derived_value_tag()) {
-                            case xir::DerivedValueTag::FUNCTION: {
-                                auto callee = static_cast<const xir::Function *>(op);
-                                usage |= _analyze_special_register_usage(callee);
-                                break;
-                            }
-                            case xir::DerivedValueTag::SPECIAL_REGISTER: {
-                                auto sreg = static_cast<const xir::SpecialRegister *>(op);
-                                switch (sreg->derived_special_register_tag()) {
-                                    case xir::DerivedSpecialRegisterTag::THREAD_ID: usage |= (1u << CurrentFunction::builtin_variable_index_thread_id); break;
-                                    case xir::DerivedSpecialRegisterTag::BLOCK_ID: usage |= (1u << CurrentFunction::builtin_variable_index_block_id); break;
-                                    case xir::DerivedSpecialRegisterTag::WARP_LANE_ID: break;
-                                    case xir::DerivedSpecialRegisterTag::DISPATCH_ID: usage |= (1u << CurrentFunction::builtin_variable_index_dispatch_id); break;
-                                    case xir::DerivedSpecialRegisterTag::KERNEL_ID:
-                                    case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS:
-                                    case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID:
-                                        LUISA_NOT_IMPLEMENTED();
-                                    case xir::DerivedSpecialRegisterTag::BLOCK_SIZE: usage |= (1u << CurrentFunction::builtin_variable_index_block_size); break;
-                                    case xir::DerivedSpecialRegisterTag::WARP_SIZE: break;
-                                    case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: usage |= (1u << CurrentFunction::builtin_variable_index_dispatch_size); break;
+            for (const xir::BasicBlock *bb : def->basic_blocks()) {
+                for (const xir::Instruction *inst : bb->instructions()) {
+                    for (auto op_use : inst->operand_uses()) {
+                        if (auto op = op_use->value()) {
+                            switch (op->derived_value_tag()) {
+                                case xir::DerivedValueTag::FUNCTION: {
+                                    auto callee = static_cast<const xir::Function *>(op);
+                                    usage |= _analyze_special_register_usage(callee);
+                                    break;
                                 }
-                                break;
+                                case xir::DerivedValueTag::SPECIAL_REGISTER: {
+                                    auto sreg = static_cast<const xir::SpecialRegister *>(op);
+                                    switch (sreg->derived_special_register_tag()) {
+                                        case xir::DerivedSpecialRegisterTag::THREAD_ID: usage |= (1u << CurrentFunction::builtin_variable_index_thread_id); break;
+                                        case xir::DerivedSpecialRegisterTag::BLOCK_ID: usage |= (1u << CurrentFunction::builtin_variable_index_block_id); break;
+                                        case xir::DerivedSpecialRegisterTag::WARP_LANE_ID: break;
+                                        case xir::DerivedSpecialRegisterTag::DISPATCH_ID: usage |= (1u << CurrentFunction::builtin_variable_index_dispatch_id); break;
+                                        case xir::DerivedSpecialRegisterTag::KERNEL_ID:
+                                        case xir::DerivedSpecialRegisterTag::RASTER_BARYCENTRICS:
+                                        case xir::DerivedSpecialRegisterTag::RASTER_OBJECT_ID:
+                                            LUISA_NOT_IMPLEMENTED();
+                                        case xir::DerivedSpecialRegisterTag::BLOCK_SIZE: usage |= (1u << CurrentFunction::builtin_variable_index_block_size); break;
+                                        case xir::DerivedSpecialRegisterTag::WARP_SIZE: break;
+                                        case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: usage |= (1u << CurrentFunction::builtin_variable_index_dispatch_size); break;
+                                    }
+                                    break;
+                                }
+                                default: break;
                             }
-                            default: break;
                         }
                     }
                 }
-            });
+            }
         }
-        _special_register_usages.emplace(f, usage);
+        _special_register_usages[f] = usage;
         return usage;
     }
 
     // check if the kernel requires block synchronization, which would require coroutine
     [[nodiscard]] bool _analyze_requires_sync_block(const xir::KernelFunction *kernel) noexcept {
-        auto requires_sync_block = false;
-        kernel->traverse_instructions([&](const xir::Instruction *inst) noexcept {
-            if (inst->isa<xir::ThreadGroupInst>() &&
-                static_cast<const xir::ThreadGroupInst *>(inst)->op() ==
-                    xir::ThreadGroupOp::SYNCHRONIZE_BLOCK) {
-                requires_sync_block = true;// TODO: we should early break the traversal here
+        for (const xir::BasicBlock *bb : kernel->basic_blocks()) {
+            for (const xir::Instruction *inst : bb->instructions()) {
+                if (inst->isa<xir::ThreadGroupInst>() &&
+                    static_cast<const xir::ThreadGroupInst *>(inst)->op() ==
+                        xir::ThreadGroupOp::SYNCHRONIZE_BLOCK) {
+                    return true;
+                }
             }
-        });
-        return requires_sync_block;
+        }
+        return false;
     }
 
 private:
@@ -268,7 +279,42 @@ private:
         _llvm_struct_types.clear();
         _llvm_constants.clear();
         _llvm_functions.clear();
+        _special_register_usages.clear();
         _tls_offset = 0u;
+    }
+
+    void _add_nocapture_param_attr(llvm::Function *fn, unsigned param_idx) noexcept {
+#if LLVM_VERSION_MAJOR >= 21
+        fn->addParamAttr(param_idx, llvm::Attribute::getWithCaptureInfo(_llvm_context, llvm::CaptureInfo::none()));
+#else
+        fn->addParamAttr(param_idx, llvm::Attribute::NoCapture);
+#endif
+    }
+
+    static void _emit_lifetime_start(IRBuilder &b, llvm::AllocaInst *slot, const Type *source_type = nullptr) noexcept {
+#if LLVM_VERSION_MAJOR >= 22
+        static_cast<void>(source_type);
+        b.CreateLifetimeStart(slot);
+#else
+        if (source_type != nullptr) {
+            b.CreateLifetimeStart(slot, b.getInt64(_get_type_size(source_type)));
+        } else {
+            b.CreateLifetimeStart(slot);
+        }
+#endif
+    }
+
+    static void _emit_lifetime_end(IRBuilder &b, llvm::AllocaInst *slot, const Type *source_type = nullptr) noexcept {
+#if LLVM_VERSION_MAJOR >= 22
+        static_cast<void>(source_type);
+        b.CreateLifetimeEnd(slot);
+#else
+        if (source_type != nullptr) {
+            b.CreateLifetimeEnd(slot, b.getInt64(_get_type_size(source_type)));
+        } else {
+            b.CreateLifetimeEnd(slot);
+        }
+#endif
     }
 
 private:
@@ -335,6 +381,56 @@ private:
 
     static void _move_llvm_inst_to_block_begin(llvm::Instruction *inst, llvm::BasicBlock *block) noexcept {
         inst->moveBefore(*block, block->begin());
+    }
+
+    // Internal fastcc ABI normalization:
+    // 1. All aggregate/resource/custom value parameters and return values cross
+    //    internal function boundaries indirectly via aligned pointers (and sret),
+    //    eliminating LLVM first-class aggregates from FunctionType.
+    // 2. Three-lane vectors (<3 x T>, including built-in <3 x i32> registers and
+    //    internal math helpers) widen to power-of-two <4 x T> across internal
+    //    boundaries, avoiding non-power-of-two vector call/return legalization
+    //    hazards on AArch64 (Darwin/AAPCS/MSVC) as well as x86-64 fastcc.
+    [[nodiscard]] static bool _is_abi_indirect_aggregate_type(const Type *t) noexcept {
+        if (t == nullptr) { return false; }
+        switch (t->tag()) {
+            case Type::Tag::STRUCTURE:
+            case Type::Tag::ARRAY:
+            case Type::Tag::MATRIX:
+            case Type::Tag::BUFFER:
+            case Type::Tag::TEXTURE:
+            case Type::Tag::BINDLESS_ARRAY:
+            case Type::Tag::ACCEL:
+            case Type::Tag::CUSTOM:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    [[nodiscard]] static bool _is_abi_vec3_type(const Type *t) noexcept {
+        return t != nullptr && t->is_vector() && t->dimension() == 3u;
+    }
+
+    [[nodiscard]] llvm::Type *_abi_vec3_type(const Type *t) noexcept {
+        LUISA_DEBUG_ASSERT(_is_abi_vec3_type(t), "Expected 3-lane vector type.");
+        return llvm::FixedVectorType::get(_translate_type(t->element(), false), 4u);
+    }
+
+    [[nodiscard]] static llvm::Value *_widen_vec3_to_abi(IRBuilder &b, llvm::Value *v3) noexcept {
+        auto *vt = llvm::cast<llvm::FixedVectorType>(v3->getType());
+        LUISA_DEBUG_ASSERT(vt->getNumElements() == 3u, "Expected 3-lane vector value.");
+        return b.CreateShuffleVector(
+            v3, llvm::PoisonValue::get(vt),
+            std::array<int, 4>{0, 1, 2, llvm::PoisonMaskElem});
+    }
+
+    [[nodiscard]] static llvm::Value *_narrow_vec3_from_abi(IRBuilder &b, llvm::Value *v4) noexcept {
+        auto *vt = llvm::cast<llvm::FixedVectorType>(v4->getType());
+        LUISA_DEBUG_ASSERT(vt->getNumElements() == 4u, "Expected 4-lane ABI vector value.");
+        return b.CreateShuffleVector(
+            v4, llvm::PoisonValue::get(vt),
+            std::array<int, 3>{0, 1, 2});
     }
 
     [[nodiscard]] LLVMStruct *_translate_struct_type(const Type *t) noexcept {
@@ -438,7 +534,7 @@ private:
     [[nodiscard]] llvm::Constant *_translate_literal(const Type *t, const void *data, bool register_use) noexcept {
         auto llvm_type = _translate_type(t, register_use);
         switch (t->tag()) {
-            case Type::Tag::BOOL: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint8_t *>(data));
+            case Type::Tag::BOOL: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint8_t *>(data) != 0u);
             case Type::Tag::INT8: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint8_t *>(data));
             case Type::Tag::UINT8: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint8_t *>(data));
             case Type::Tag::INT16: return llvm::ConstantInt::get(llvm_type, *static_cast<const uint16_t *>(data));
@@ -893,6 +989,156 @@ private:
         LUISA_ERROR_WITH_LOCATION("Invalid binary add operand type: {}.", elem_type->description());
     }
 
+    enum class NativeMathShape : uint8_t {
+        Vector,
+        Scalar,
+        Vec3Widened,
+    };
+
+    [[nodiscard]] static llvm::Value *_as_f32_native_math_vector(
+        IRBuilder &b, llvm::Value *value, NativeMathShape &shape) noexcept {
+        shape = NativeMathShape::Vector;
+        if (value == nullptr) {
+            return nullptr;
+        }
+        if (value->getType()->isFloatTy()) {
+            shape = NativeMathShape::Scalar;
+            auto *v1_type = llvm::FixedVectorType::get(b.getFloatTy(), 1u);
+            return b.CreateInsertElement(
+                llvm::PoisonValue::get(v1_type), value, uint64_t{0});
+        }
+        if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(value->getType())) {
+            if (vt->getNumElements() == 3u) {
+                shape = NativeMathShape::Vec3Widened;
+                return b.CreateShuffleVector(
+                    value, llvm::PoisonValue::get(vt),
+                    std::array<int, 4>{0, 1, 2, 0});
+            }
+            return value;
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] static llvm::Value *_from_f32_native_math_vector(
+        IRBuilder &b, llvm::Value *value, NativeMathShape shape) noexcept {
+        if (value == nullptr) { return nullptr; }
+        switch (shape) {
+            case NativeMathShape::Scalar:
+                return b.CreateExtractElement(value, uint64_t{0});
+            case NativeMathShape::Vec3Widened: {
+                auto *vt = llvm::cast<llvm::FixedVectorType>(value->getType());
+                return b.CreateShuffleVector(
+                    value, llvm::PoisonValue::get(vt),
+                    std::array<int, 3>{0, 1, 2});
+            }
+            case NativeMathShape::Vector:
+                return value;
+        }
+        return value;
+    }
+
+    [[nodiscard]] llvm::Value *_emit_native_fmod_f32(
+        IRBuilder &b, llvm::Value *lhs, llvm::Value *rhs) noexcept {
+        NativeMathShape was_scalar = NativeMathShape::Vector;
+        auto *vx = _as_f32_native_math_vector(b, lhs, was_scalar);
+        NativeMathShape rhs_scalar = NativeMathShape::Vector;
+        auto *vy = _as_f32_native_math_vector(b, rhs, rhs_scalar);
+        auto *vec_type = llvm::dyn_cast_or_null<llvm::FixedVectorType>(
+            vx == nullptr ? nullptr : vx->getType());
+        if (vec_type == nullptr || vy == nullptr || vy->getType() != vec_type) {
+            return b.CreateFRem(lhs, rhs);
+        }
+        const auto width = vec_type->getNumElements();
+        const auto name = luisa::format("__luisa_cpu_native_fmod_f32_v{}", width);
+        auto *fn = _llvm_module->getFunction(llvm::StringRef{name});
+        if (fn == nullptr) {
+            auto *fn_type = llvm::FunctionType::get(
+                vec_type, {vec_type, vec_type}, false);
+            fn = llvm::Function::Create(
+                fn_type, llvm::GlobalValue::InternalLinkage,
+                llvm::StringRef{name}, *_llvm_module);
+            fn->addFnAttr(llvm::Attribute::AlwaysInline);
+            fn->addFnAttr(llvm::Attribute::NoUnwind);
+            fn->addFnAttr(llvm::Attribute::NoRecurse);
+            fn->addFnAttr(llvm::Attribute::WillReturn);
+            fn->addFnAttr("luisa.cpu.native_math");
+            fn->setDoesNotAccessMemory();
+
+            auto *entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", fn);
+            auto *fast_bb = llvm::BasicBlock::Create(_llvm_context, "fast", fn);
+            auto *slow_bb = llvm::BasicBlock::Create(_llvm_context, "slow", fn);
+            llvm::IRBuilder<> fb{entry_bb};
+
+            auto *arg_x = fn->getArg(0);
+            auto *arg_y = fn->getArg(1);
+            auto *q = fb.CreateFDiv(arg_x, arg_y);
+            auto *abs_q = fb.CreateUnaryIntrinsic(llvm::Intrinsic::fabs, q);
+            auto *abs_y = fb.CreateUnaryIntrinsic(llvm::Intrinsic::fabs, arg_y);
+            auto *f32_ty = fb.getFloatTy();
+            auto *limit = llvm::ConstantVector::getSplat(
+                vec_type->getElementCount(),
+                llvm::ConstantFP::get(f32_ty, 8388608.0));
+            auto *pos_inf = llvm::ConstantVector::getSplat(
+                vec_type->getElementCount(),
+                llvm::ConstantFP::getInfinity(f32_ty, false));
+            auto *zero = llvm::ConstantVector::getSplat(
+                vec_type->getElementCount(),
+                llvm::ConstantFP::get(f32_ty, 0.0));
+            auto *ok_lanes = fb.CreateAnd(
+                fb.CreateFCmpOLT(abs_q, limit),
+                fb.CreateFCmpOLT(abs_y, pos_inf));
+            llvm::Value *all_ok = width == 1u ?
+                                      fb.CreateExtractElement(ok_lanes, uint64_t{0}) :
+                                      fb.CreateAndReduce(ok_lanes);
+            auto *weights = llvm::MDBuilder{_llvm_context}.createBranchWeights(1'000'000u, 1u);
+            fb.CreateCondBr(all_ok, fast_bb, slow_bb, weights);
+
+            fb.SetInsertPoint(fast_bb);
+            auto *trunc_q = fb.CreateUnaryIntrinsic(llvm::Intrinsic::trunc, q);
+            auto *neg_trunc_q = fb.CreateFNeg(trunc_q);
+            auto *rem = fb.CreateIntrinsic(
+                llvm::Intrinsic::fma, {vec_type}, {neg_trunc_q, arg_y, arg_x});
+            auto *x_pos_r_neg = fb.CreateAnd(
+                fb.CreateFCmpOGT(arg_x, zero),
+                fb.CreateFCmpOLT(rem, zero));
+            auto *x_neg_r_pos = fb.CreateAnd(
+                fb.CreateFCmpOLT(arg_x, zero),
+                fb.CreateFCmpOGT(rem, zero));
+            auto *overshot = fb.CreateOr(x_pos_r_neg, x_neg_r_pos);
+            auto *signed_y = fb.CreateBinaryIntrinsic(
+                llvm::Intrinsic::copysign, abs_y, arg_x);
+            auto *repaired = fb.CreateSelect(
+                overshot, fb.CreateFAdd(rem, signed_y), rem);
+            auto *exact_repaired = fb.CreateBinaryIntrinsic(
+                llvm::Intrinsic::copysign,
+                fb.CreateUnaryIntrinsic(llvm::Intrinsic::fabs, repaired),
+                arg_x);
+            fb.CreateRet(exact_repaired);
+
+            const auto slow_name = luisa::format("__luisa_cpu_native_fmod_f32_slow_v{}", width);
+            auto *slow_fn = _llvm_module->getFunction(llvm::StringRef{slow_name});
+            if (slow_fn == nullptr) {
+                slow_fn = llvm::Function::Create(
+                    fn_type, llvm::GlobalValue::InternalLinkage,
+                    llvm::StringRef{slow_name}, *_llvm_module);
+                slow_fn->addFnAttr(llvm::Attribute::NoInline);
+                slow_fn->addFnAttr(llvm::Attribute::Cold);
+                slow_fn->addFnAttr(llvm::Attribute::NoUnwind);
+                slow_fn->addFnAttr(llvm::Attribute::NoRecurse);
+                slow_fn->addFnAttr(llvm::Attribute::WillReturn);
+                slow_fn->addFnAttr("luisa.cpu.native_math");
+                slow_fn->setDoesNotAccessMemory();
+                auto *s_entry = llvm::BasicBlock::Create(_llvm_context, "entry", slow_fn);
+                llvm::IRBuilder<> sb{s_entry};
+                sb.CreateRet(sb.CreateFRem(slow_fn->getArg(0), slow_fn->getArg(1)));
+            }
+            fb.SetInsertPoint(slow_bb);
+            fb.CreateRet(fb.CreateCall(slow_fn, {arg_x, arg_y}));
+        }
+        auto *call = b.CreateCall(fn, {vx, vy});
+        return _from_f32_native_math_vector(b, call, was_scalar);
+    }
+
     [[nodiscard]] llvm::Value *_translate_binary_mod(CurrentFunction &current, IRBuilder &b, const xir::Value *lhs, const xir::Value *rhs) noexcept {
         LUISA_ASSERT(lhs->type() == rhs->type(), "Type mismatch.");
         auto llvm_lhs = _lookup_value(current, b, lhs);
@@ -907,8 +1153,9 @@ private:
             case Type::Tag::UINT16: [[fallthrough]];
             case Type::Tag::UINT32: [[fallthrough]];
             case Type::Tag::UINT64: return b.CreateURem(llvm_lhs, llvm_rhs);// Unsigned integer remainder
+            case Type::Tag::FLOAT32:
+                return _emit_native_fmod_f32(b, llvm_lhs, llvm_rhs);
             case Type::Tag::FLOAT16: [[fallthrough]];
-            case Type::Tag::FLOAT32: [[fallthrough]];
             case Type::Tag::FLOAT64: return b.CreateFRem(llvm_lhs, llvm_rhs);// IEEE floating-point remainder (fmod)
             default: break;
         }
@@ -1215,25 +1462,33 @@ private:
         auto *value = _lookup_value(current, b, operand);
         auto *type = operand->type();
         auto *element = type->is_vector() ? type->element() : type;
-        if (!element->is_float32() || !value->getType()->isVectorTy()) {
+        NativeMathShape was_scalar = NativeMathShape::Vector;
+        auto *vec_value = element->is_float32() ?
+                              _as_f32_native_math_vector(b, value, was_scalar) :
+                              nullptr;
+        if (vec_value == nullptr) {
             return nullptr;
         }
         auto mode = _enable_fast_math ?
                         cpu::LLVMNativeMathMode::fast :
                         cpu::LLVMNativeMathMode::precise;
+        llvm::Value *native = nullptr;
         switch (operation) {
             case xir::ArithmeticOp::ASINH:
-                return cpu::LLVMNativeMath::emit_asinh_f32(
-                    *_llvm_module, b, value, mode);
+                native = cpu::LLVMNativeMath::emit_asinh_f32(
+                    *_llvm_module, b, vec_value, mode);
+                break;
             case xir::ArithmeticOp::ACOSH:
-                return cpu::LLVMNativeMath::emit_acosh_f32(
-                    *_llvm_module, b, value, mode);
+                native = cpu::LLVMNativeMath::emit_acosh_f32(
+                    *_llvm_module, b, vec_value, mode);
+                break;
             case xir::ArithmeticOp::ATANH:
-                return cpu::LLVMNativeMath::emit_atanh_f32(
-                    *_llvm_module, b, value, mode);
+                native = cpu::LLVMNativeMath::emit_atanh_f32(
+                    *_llvm_module, b, vec_value, mode);
+                break;
             default: break;
         }
-        return nullptr;
+        return _from_f32_native_math_vector(b, native, was_scalar);
     }
 
     [[nodiscard]] llvm::Value *_translate_unary_fp_math_operation(CurrentFunction &current, IRBuilder &b, const xir::Value *operand, llvm::Intrinsic::ID intrinsic_id) noexcept {
@@ -1250,80 +1505,85 @@ private:
         switch (elem_type->tag()) {
             case Type::Tag::FLOAT16: [[fallthrough]];
             case Type::Tag::FLOAT32:
-                if (elem_type->is_float32() &&
-                    llvm_operand->getType()->isVectorTy()) {
-                    auto mode = _enable_fast_math ?
-                        cpu::LLVMNativeMathMode::fast :
-                        cpu::LLVMNativeMathMode::precise;
-                    llvm::Value *native = nullptr;
-                    switch (intrinsic_id) {
+                if (elem_type->is_float32()) {
+                    NativeMathShape was_scalar = NativeMathShape::Vector;
+                    if (auto *vec_operand = _as_f32_native_math_vector(
+                            b, llvm_operand, was_scalar)) {
+                        auto mode = _enable_fast_math ?
+                            cpu::LLVMNativeMathMode::fast :
+                            cpu::LLVMNativeMathMode::precise;
+                        llvm::Value *native = nullptr;
+                        switch (intrinsic_id) {
 #if LLVM_VERSION_MAJOR >= 19
-                        case llvm::Intrinsic::acos:
-                            native = cpu::LLVMNativeMath::emit_acos_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::asin:
-                            native = cpu::LLVMNativeMath::emit_asin_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::atan:
-                            native = cpu::LLVMNativeMath::emit_atan_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::cosh:
-                            native = cpu::LLVMNativeMath::emit_cosh_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::sinh:
-                            native = cpu::LLVMNativeMath::emit_sinh_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::tanh:
-                            native = cpu::LLVMNativeMath::emit_tanh_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
+                            case llvm::Intrinsic::acos:
+                                native = cpu::LLVMNativeMath::emit_acos_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::asin:
+                                native = cpu::LLVMNativeMath::emit_asin_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::atan:
+                                native = cpu::LLVMNativeMath::emit_atan_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::cosh:
+                                native = cpu::LLVMNativeMath::emit_cosh_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::sinh:
+                                native = cpu::LLVMNativeMath::emit_sinh_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::tanh:
+                                native = cpu::LLVMNativeMath::emit_tanh_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
 #endif
-                        case llvm::Intrinsic::sin:
-                            native = cpu::LLVMNativeMath::emit_sin_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::cos:
-                            native = cpu::LLVMNativeMath::emit_cos_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
+                            case llvm::Intrinsic::sin:
+                                native = cpu::LLVMNativeMath::emit_sin_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::cos:
+                                native = cpu::LLVMNativeMath::emit_cos_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
 #if LLVM_VERSION_MAJOR >= 19
-                        case llvm::Intrinsic::tan:
-                            native = cpu::LLVMNativeMath::emit_tan_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
+                            case llvm::Intrinsic::tan:
+                                native = cpu::LLVMNativeMath::emit_tan_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
 #endif
-                        case llvm::Intrinsic::exp:
-                            native = cpu::LLVMNativeMath::emit_exp_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::exp2:
-                            native = cpu::LLVMNativeMath::emit_exp2_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::exp10:
-                            native = cpu::LLVMNativeMath::emit_exp10_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::log:
-                            native = cpu::LLVMNativeMath::emit_log_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::log2:
-                            native = cpu::LLVMNativeMath::emit_log2_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        case llvm::Intrinsic::log10:
-                            native = cpu::LLVMNativeMath::emit_log10_f32(
-                                *_llvm_module, b, llvm_operand, mode);
-                            break;
-                        default: break;
+                            case llvm::Intrinsic::exp:
+                                native = cpu::LLVMNativeMath::emit_exp_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::exp2:
+                                native = cpu::LLVMNativeMath::emit_exp2_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::exp10:
+                                native = cpu::LLVMNativeMath::emit_exp10_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::log:
+                                native = cpu::LLVMNativeMath::emit_log_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::log2:
+                                native = cpu::LLVMNativeMath::emit_log2_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            case llvm::Intrinsic::log10:
+                                native = cpu::LLVMNativeMath::emit_log10_f32(
+                                    *_llvm_module, b, vec_operand, mode);
+                                break;
+                            default: break;
+                        }
+                        if (native != nullptr) {
+                            return _from_f32_native_math_vector(b, native, was_scalar);
+                        }
                     }
-                    if (native != nullptr) { return native; }
                 }
                 [[fallthrough]];
             case Type::Tag::FLOAT64:
@@ -1475,16 +1735,22 @@ private:
         auto type = y->type();
         LUISA_ASSERT(type == x->type(), "Type mismatch.");
         auto element = type->is_vector() ? type->element() : type;
-        if (element->is_float32() && llvm_y->getType()->isVectorTy()) {
-            auto mode = _enable_fast_math ?
-                            cpu::LLVMNativeMathMode::fast :
-                            cpu::LLVMNativeMathMode::precise;
-            auto native = cpu::LLVMNativeMath::emit_atan2_f32(
-                *_llvm_module, b, llvm_y, llvm_x, mode);
-            LUISA_ASSERT(
-                native != nullptr,
-                "Native fallback atan2 requires fixed f32 vectors.");
-            return native;
+        if (element->is_float32()) {
+            NativeMathShape was_scalar = NativeMathShape::Vector;
+            NativeMathShape x_scalar = NativeMathShape::Vector;
+            auto *vec_y = _as_f32_native_math_vector(b, llvm_y, was_scalar);
+            auto *vec_x = _as_f32_native_math_vector(b, llvm_x, x_scalar);
+            if (vec_y != nullptr && vec_x != nullptr) {
+                auto mode = _enable_fast_math ?
+                                cpu::LLVMNativeMathMode::fast :
+                                cpu::LLVMNativeMathMode::precise;
+                auto native = cpu::LLVMNativeMath::emit_atan2_f32(
+                    *_llvm_module, b, vec_y, vec_x, mode);
+                LUISA_ASSERT(
+                    native != nullptr,
+                    "Native fallback atan2 requires fixed f32 vectors.");
+                return _from_f32_native_math_vector(b, native, was_scalar);
+            }
         }
 #if LLVM_VERSION_MAJOR >= 20
         return _translate_binary_fp_math_operation(
@@ -1503,16 +1769,22 @@ private:
         auto type = base->type();
         LUISA_ASSERT(type == exponent->type(), "Type mismatch.");
         auto element = type->is_vector() ? type->element() : type;
-        if (element->is_float32() && llvm_base->getType()->isVectorTy()) {
-            auto mode = _enable_fast_math ?
-                            cpu::LLVMNativeMathMode::fast :
-                            cpu::LLVMNativeMathMode::precise;
-            auto native = cpu::LLVMNativeMath::emit_pow_f32(
-                *_llvm_module, b, llvm_base, llvm_exponent, mode);
-            LUISA_ASSERT(
-                native != nullptr,
-                "Native fallback pow requires fixed f32 vectors.");
-            return native;
+        if (element->is_float32()) {
+            NativeMathShape was_scalar = NativeMathShape::Vector;
+            NativeMathShape exp_scalar = NativeMathShape::Vector;
+            auto *vec_base = _as_f32_native_math_vector(b, llvm_base, was_scalar);
+            auto *vec_exp = _as_f32_native_math_vector(b, llvm_exponent, exp_scalar);
+            if (vec_base != nullptr && vec_exp != nullptr) {
+                auto mode = _enable_fast_math ?
+                                cpu::LLVMNativeMathMode::fast :
+                                cpu::LLVMNativeMathMode::precise;
+                auto native = cpu::LLVMNativeMath::emit_pow_f32(
+                    *_llvm_module, b, vec_base, vec_exp, mode);
+                LUISA_ASSERT(
+                    native != nullptr,
+                    "Native fallback pow requires fixed f32 vectors.");
+                return _from_f32_native_math_vector(b, native, was_scalar);
+            }
         }
         return _translate_binary_fp_math_operation(
             current, b, base, exponent, llvm::Intrinsic::pow);
@@ -2327,18 +2599,32 @@ private:
         llvm_args.resize(llvm_func->arg_size());
         auto llvm_wrapper_query_object = llvm_wrapper_func->getArg(0);
         llvm_args[0] = llvm_wrapper_query_object;
-        for (auto i = 0u; i < CurrentFunction::builtin_variable_count; i++) {
-            if ((sreg_usage & (1u << i)) == 0u) {
-                auto arg_index = 1u + capture_count + i;
-                llvm_args[arg_index] = llvm::Constant::getNullValue(llvm_func->getArg(arg_index)->getType());
-            }
-        }
         if (!member_to_arg.empty()) {
-            auto llvm_wrapper_captured_struct = b.CreateLoad(llvm_capture_struct, llvm_wrapper_func->getArg(1));
-            for (auto member_index = 0; member_index < member_to_arg.size(); member_index++) {
+            auto llvm_capture_base = llvm_wrapper_func->getArg(1);
+            for (auto member_index = 0u; member_index < member_to_arg.size(); member_index++) {
                 auto arg_index = member_to_arg[member_index];
-                auto llvm_member = b.CreateExtractValue(llvm_wrapper_captured_struct, member_index);
-                llvm_args[1u + arg_index] = llvm_member;
+                uint param_slot = 1u + arg_index;
+                if (arg_index >= capture_count) {
+                    const uint b_idx = static_cast<uint>(arg_index - capture_count);
+                    if ((sreg_usage & (1u << b_idx)) == 0u) {
+                        continue;
+                    }
+                    param_slot = static_cast<uint>(
+                        1u + capture_count + std::popcount(sreg_usage & ((1u << b_idx) - 1u)));
+                }
+                auto *member_type = llvm_capture_struct->getElementType(member_index);
+                auto *member_ptr = b.CreateStructGEP(llvm_capture_struct, llvm_capture_base, member_index);
+                auto *expected_param_type = llvm_func->getArg(param_slot)->getType();
+                llvm::Value *llvm_member = nullptr;
+                if (expected_param_type->isPointerTy() && !member_type->isPointerTy()) {
+                    llvm_member = member_ptr;
+                } else {
+                    llvm_member = b.CreateLoad(member_type, member_ptr);
+                    if (expected_param_type != llvm_member->getType()) {
+                        llvm_member = _widen_vec3_to_abi(b, llvm_member);
+                    }
+                }
+                llvm_args[param_slot] = llvm_member;
             }
 #ifndef NDEBUG
             for (auto llvm_arg : llvm_args) {
@@ -2353,6 +2639,391 @@ private:
         return llvm_wrapper_func;
     }
 
+    struct SurfaceExclusionFilterMatch {
+        const xir::Value *excl_inst0{nullptr};
+        const xir::Value *excl_prim0{nullptr};
+        const xir::Value *excl_inst1{nullptr};
+        const xir::Value *excl_prim1{nullptr};
+        bool terminate_on_commit{false};
+        llvm::SmallVector<const xir::Instruction *, 16u> rematerialized_insts{};
+    };
+
+    [[nodiscard]] std::optional<SurfaceExclusionFilterMatch>
+    _try_match_surface_exclusion_filter(const xir::RayQueryPipelineInst *inst,
+                                        uint on_surface_sreg_usage) const noexcept {
+        if (on_surface_sreg_usage != 0u) { return std::nullopt; }
+        const xir::Function *on_surface = inst->on_surface_function();
+        if (on_surface == nullptr || on_surface->find_metadata<xir::NoInlineMD>() != nullptr) {
+            return std::nullopt;
+        }
+        const xir::FunctionDefinition *def = on_surface->definition();
+        if (def == nullptr) { return std::nullopt; }
+
+        llvm::SmallVector<const xir::Argument *, 16u> def_args;
+        for (const xir::Argument *arg : def->arguments()) {
+            def_args.emplace_back(arg);
+        }
+        const auto capture_count = inst->captured_argument_count();
+        if (def_args.size() != 1u + capture_count) { return std::nullopt; }
+        const xir::Argument *query_arg = def_args[0];
+
+        luisa::unordered_set<const xir::Value *> candidate_indep;
+        for (size_t i = 0u; i < capture_count; ++i) {
+            if (!def_args[1u + i]->is_reference()) {
+                candidate_indep.emplace(def_args[1u + i]);
+            }
+        }
+
+        const xir::BasicBlock *entry_bb = def->body_block();
+        if (entry_bb == nullptr || !entry_bb->is_terminated()) { return std::nullopt; }
+
+        auto classify_action_block = [&](const xir::BasicBlock *bb,
+                                         const xir::BasicBlock *merge_target) noexcept -> int {
+            if (bb == nullptr || !bb->is_terminated()) { return -1; }
+            if (bb == merge_target) { return 0; }
+            uint commit_cnt = 0u;
+            uint term_cnt = 0u;
+            const xir::Instruction *term = bb->terminator();
+            for (const xir::Instruction *ix : bb->instructions()) {
+                if (ix == term) { break; }
+                if (!ix->isa<xir::RayQueryObjectWriteInst>()) { return -1; }
+                const auto *rqw = static_cast<const xir::RayQueryObjectWriteInst *>(ix);
+                if (rqw->operand_count() != 1u || rqw->operand(0u) != query_arg) { return -1; }
+                if (rqw->op() == xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE && term_cnt == 0u) {
+                    ++commit_cnt;
+                } else if (rqw->op() == xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE) {
+                    ++term_cnt;
+                } else {
+                    return -1;
+                }
+            }
+            if (term->isa<xir::ReturnInst>()) {
+                if (static_cast<const xir::ReturnInst *>(term)->return_value() != nullptr) { return -1; }
+            } else if (term->isa<xir::BranchInst>()) {
+                const auto *target = static_cast<const xir::BranchInst *>(term)->target_block();
+                if (target == nullptr) { return -1; }
+                if (target != merge_target) {
+                    if (!target->is_terminated() ||
+                        target->instructions().front() != target->terminator() ||
+                        !target->terminator()->isa<xir::ReturnInst>() ||
+                        static_cast<const xir::ReturnInst *>(target->terminator())->return_value() != nullptr) {
+                        return -1;
+                    }
+                }
+            } else {
+                return -1;
+            }
+            if (commit_cnt == 0u && term_cnt == 0u) { return 0; }
+            if (commit_cnt == 1u && term_cnt == 0u) { return 1; }
+            if (commit_cnt == 1u && term_cnt == 1u) { return 2; }
+            return -1;
+        };
+
+        // Case 0: Unconditional commit (with optional terminate) in a single block.
+        if (entry_bb->terminator()->isa<xir::ReturnInst>()) {
+            const int kind = classify_action_block(entry_bb, nullptr);
+            if (kind == 1 || kind == 2) {
+                SurfaceExclusionFilterMatch match{};
+                match.terminate_on_commit = (kind == 2);
+                return match;
+            }
+            return std::nullopt;
+        }
+
+        auto get_const_u32 = [](const xir::Value *v) noexcept -> std::optional<uint32_t> {
+            if (v == nullptr || !v->isa<xir::Constant>()) { return std::nullopt; }
+            const auto *c = static_cast<const xir::Constant *>(v);
+            if (c->type() == Type::of<uint32_t>()) {
+                return *static_cast<const uint32_t *>(c->data());
+            }
+            if (c->type() == Type::of<int32_t>()) {
+                const int32_t s = *static_cast<const int32_t *>(c->data());
+                if (s >= 0) { return static_cast<uint32_t>(s); }
+            }
+            return std::nullopt;
+        };
+        auto get_const_bool = [](const xir::Value *v) noexcept -> std::optional<bool> {
+            if (v == nullptr || !v->isa<xir::Constant>() || !v->type()->is_bool()) {
+                return std::nullopt;
+            }
+            return *static_cast<const bool *>(static_cast<const xir::Constant *>(v)->data());
+        };
+        auto is_cand_indep = [&](const xir::Value *v) noexcept -> bool {
+            return v != nullptr && (v->isa<xir::Constant>() || candidate_indep.contains(v));
+        };
+
+        const xir::AllocaInst *hit_alloca = nullptr;
+        bool hit_alloca_stored = false;
+        const xir::Value *hit_ssa = nullptr;
+        luisa::unordered_map<const xir::Value *, uint32_t> gep_hit_field;
+        luisa::unordered_set<const xir::Value *> hit_inst_vals;
+        luisa::unordered_set<const xir::Value *> hit_prim_vals;
+        SurfaceExclusionFilterMatch match{};
+
+        const xir::Instruction *entry_term = entry_bb->terminator();
+        for (const xir::Instruction *ix : entry_bb->instructions()) {
+            if (ix == entry_term) { break; }
+            switch (ix->derived_instruction_tag()) {
+                case xir::DerivedInstructionTag::ALLOCA: {
+                    const auto *al = static_cast<const xir::AllocaInst *>(ix);
+                    if (hit_alloca == nullptr && al->op() == xir::AllocaOp::LOCAL &&
+                        al->type() == Type::of<SurfaceHit>()) {
+                        hit_alloca = al;
+                        break;
+                    }
+                    return std::nullopt;
+                }
+                case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
+                    const auto *rqr = static_cast<const xir::RayQueryObjectReadInst *>(ix);
+                    if (hit_ssa == nullptr &&
+                        rqr->op() == xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT &&
+                        rqr->operand_count() == 1u && rqr->operand(0u) == query_arg) {
+                        hit_ssa = rqr;
+                        break;
+                    }
+                    return std::nullopt;
+                }
+                case xir::DerivedInstructionTag::STORE: {
+                    const auto *st = static_cast<const xir::StoreInst *>(ix);
+                    if (hit_alloca != nullptr && !hit_alloca_stored &&
+                        st->variable() == hit_alloca && st->value() == hit_ssa) {
+                        hit_alloca_stored = true;
+                        break;
+                    }
+                    return std::nullopt;
+                }
+                case xir::DerivedInstructionTag::GEP: {
+                    const auto *gep = static_cast<const xir::GEPInst *>(ix);
+                    if (hit_alloca != nullptr && gep->base() == hit_alloca &&
+                        gep->index_uses().size() == 1u) {
+                        if (auto idx = get_const_u32(gep->index_uses()[0]->value());
+                            idx && (*idx == 0u || *idx == 1u)) {
+                            gep_hit_field.emplace(gep, *idx);
+                            break;
+                        }
+                    }
+                    return std::nullopt;
+                }
+                case xir::DerivedInstructionTag::LOAD: {
+                    const auto *ld = static_cast<const xir::LoadInst *>(ix);
+                    if (auto it = gep_hit_field.find(ld->variable());
+                        it != gep_hit_field.end() && hit_alloca_stored) {
+                        if (it->second == 0u) { hit_inst_vals.emplace(ld); }
+                        else { hit_prim_vals.emplace(ld); }
+                        break;
+                    }
+                    return std::nullopt;
+                }
+                case xir::DerivedInstructionTag::ARITHMETIC: {
+                    const auto *ar = static_cast<const xir::ArithmeticInst *>(ix);
+                    if (ar->op() == xir::ArithmeticOp::EXTRACT &&
+                        ar->operand_count() == 2u && ar->operand(0u) == hit_ssa) {
+                        if (auto idx = get_const_u32(ar->operand(1u));
+                            idx && (*idx == 0u || *idx == 1u)) {
+                            if (*idx == 0u) { hit_inst_vals.emplace(ar); }
+                            else { hit_prim_vals.emplace(ar); }
+                            break;
+                        }
+                        return std::nullopt;
+                    }
+                    if (ar->op() != xir::ArithmeticOp::BINARY_DIV &&
+                        ar->op() != xir::ArithmeticOp::BINARY_MOD) {
+                        bool all_indep = true;
+                        for (auto op_use : ar->operand_uses()) {
+                            if (!is_cand_indep(op_use->value())) {
+                                all_indep = false;
+                                break;
+                            }
+                        }
+                        if (all_indep) {
+                            candidate_indep.emplace(ar);
+                            match.rematerialized_insts.emplace_back(ar);
+                            break;
+                        }
+                    }
+                    switch (ar->op()) {
+                        case xir::ArithmeticOp::BINARY_EQUAL:
+                        case xir::ArithmeticOp::BINARY_NOT_EQUAL:
+                        case xir::ArithmeticOp::BINARY_BIT_AND:
+                        case xir::ArithmeticOp::BINARY_BIT_OR:
+                        case xir::ArithmeticOp::BINARY_BIT_XOR:
+                        case xir::ArithmeticOp::UNARY_BIT_NOT:
+                        case xir::ArithmeticOp::SELECT:
+                            break;
+                        default:
+                            return std::nullopt;
+                    }
+                    break;
+                }
+                case xir::DerivedInstructionTag::CAST: {
+                    const auto *ci = static_cast<const xir::CastInst *>(ix);
+                    if (is_cand_indep(ci->value())) {
+                        candidate_indep.emplace(ci);
+                        match.rematerialized_insts.emplace_back(ci);
+                        break;
+                    }
+                    if (ci->op() == xir::CastOp::STATIC_CAST && ci->type()->is_bool()) {
+                        break;
+                    }
+                    return std::nullopt;
+                }
+                default:
+                    return std::nullopt;
+            }
+        }
+
+        const xir::Value *cond = nullptr;
+        const xir::BasicBlock *true_bb = nullptr;
+        const xir::BasicBlock *false_bb = nullptr;
+        const xir::BasicBlock *merge_bb = nullptr;
+        if (entry_term->isa<xir::IfInst>()) {
+            const auto *if_inst = static_cast<const xir::IfInst *>(entry_term);
+            cond = if_inst->condition();
+            true_bb = if_inst->true_block();
+            false_bb = if_inst->false_block();
+            merge_bb = if_inst->merge_block();
+        } else if (entry_term->isa<xir::ConditionalBranchInst>()) {
+            const auto *cbr = static_cast<const xir::ConditionalBranchInst *>(entry_term);
+            cond = cbr->condition();
+            true_bb = cbr->true_block();
+            false_bb = cbr->false_block();
+        } else {
+            return std::nullopt;
+        }
+
+        if (merge_bb != nullptr) {
+            if (!merge_bb->is_terminated() ||
+                merge_bb->instructions().front() != merge_bb->terminator() ||
+                !merge_bb->terminator()->isa<xir::ReturnInst>() ||
+                static_cast<const xir::ReturnInst *>(merge_bb->terminator())->return_value() != nullptr) {
+                return std::nullopt;
+            }
+        }
+
+        const int true_kind = classify_action_block(true_bb, merge_bb);
+        const int false_kind = classify_action_block(false_bb, merge_bb);
+        bool accept_when_cond_true = false;
+        if ((true_kind == 1 || true_kind == 2) && false_kind == 0) {
+            accept_when_cond_true = true;
+            match.terminate_on_commit = (true_kind == 2);
+        } else if (true_kind == 0 && (false_kind == 1 || false_kind == 2)) {
+            accept_when_cond_true = false;
+            match.terminate_on_commit = (false_kind == 2);
+        } else {
+            return std::nullopt;
+        }
+
+        auto strip_negation = [&](const xir::Value *v) noexcept -> const xir::Value * {
+            if (v == nullptr || !v->type()->is_bool() || !v->isa<xir::ArithmeticInst>()) {
+                return nullptr;
+            }
+            const auto *ar = static_cast<const xir::ArithmeticInst *>(v);
+            switch (ar->op()) {
+                case xir::ArithmeticOp::UNARY_BIT_NOT:
+                    return ar->operand(0u);
+                case xir::ArithmeticOp::BINARY_BIT_XOR:
+                case xir::ArithmeticOp::BINARY_NOT_EQUAL: {
+                    if (auto b0 = get_const_bool(ar->operand(0u)); b0 && *b0) { return ar->operand(1u); }
+                    if (auto b1 = get_const_bool(ar->operand(1u)); b1 && *b1) { return ar->operand(0u); }
+                    return nullptr;
+                }
+                case xir::ArithmeticOp::BINARY_EQUAL: {
+                    if (auto b0 = get_const_bool(ar->operand(0u)); b0 && !*b0) { return ar->operand(1u); }
+                    if (auto b1 = get_const_bool(ar->operand(1u)); b1 && !*b1) { return ar->operand(0u); }
+                    return nullptr;
+                }
+                case xir::ArithmeticOp::SELECT: {
+                    auto f_val = get_const_bool(ar->operand(0u));
+                    auto t_val = get_const_bool(ar->operand(1u));
+                    if (f_val && *f_val && t_val && !*t_val) { return ar->operand(2u); }
+                    return nullptr;
+                }
+                default:
+                    return nullptr;
+            }
+        };
+
+        auto match_hit_cmp = [&](auto &&self, const xir::Value *v, bool want_ne,
+                                 bool &is_inst_out, const xir::Value *&excl_out) noexcept -> bool {
+            if (const auto *inner = strip_negation(v)) {
+                return self(self, inner, !want_ne, is_inst_out, excl_out);
+            }
+            if (v == nullptr || !v->isa<xir::ArithmeticInst>()) { return false; }
+            const auto *ar = static_cast<const xir::ArithmeticInst *>(v);
+            const auto expected_op = want_ne ? xir::ArithmeticOp::BINARY_NOT_EQUAL
+                                             : xir::ArithmeticOp::BINARY_EQUAL;
+            if (ar->op() != expected_op || ar->operand_count() != 2u) { return false; }
+            const xir::Value *ops[2] = {ar->operand(0u), ar->operand(1u)};
+            for (int k = 0; k < 2; ++k) {
+                const xir::Value *lhs = ops[k];
+                const xir::Value *rhs = ops[1 - k];
+                const bool lhs_is_inst = hit_inst_vals.contains(lhs);
+                const bool lhs_is_prim = hit_prim_vals.contains(lhs);
+                if ((lhs_is_inst || lhs_is_prim) && is_cand_indep(rhs) &&
+                    rhs->type() == Type::of<uint32_t>()) {
+                    is_inst_out = lhs_is_inst;
+                    excl_out = rhs;
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        auto match_pair = [&](auto &&self, const xir::Value *v, bool negated,
+                              const xir::Value *&inst_out, const xir::Value *&prim_out) noexcept -> bool {
+            if (const auto *inner = strip_negation(v)) {
+                return self(self, inner, !negated, inst_out, prim_out);
+            }
+            if (v == nullptr || !v->type()->is_bool() || !v->isa<xir::ArithmeticInst>()) {
+                return false;
+            }
+            const auto *ar = static_cast<const xir::ArithmeticInst *>(v);
+            const auto expected_op = negated ? xir::ArithmeticOp::BINARY_BIT_OR
+                                             : xir::ArithmeticOp::BINARY_BIT_AND;
+            if (ar->op() != expected_op || ar->operand_count() != 2u) { return false; }
+            bool i0 = false;
+            bool i1 = false;
+            const xir::Value *v0 = nullptr;
+            const xir::Value *v1 = nullptr;
+            if (!match_hit_cmp(match_hit_cmp, ar->operand(0u), negated, i0, v0) ||
+                !match_hit_cmp(match_hit_cmp, ar->operand(1u), negated, i1, v1) ||
+                (i0 == i1)) {
+                return false;
+            }
+            inst_out = i0 ? v0 : v1;
+            prim_out = i0 ? v1 : v0;
+            return true;
+        };
+
+        auto match_excl_root = [&](auto &&self, const xir::Value *v, bool want_accepted,
+                                   SurfaceExclusionFilterMatch &out) noexcept -> bool {
+            if (const auto *inner = strip_negation(v)) {
+                return self(self, inner, !want_accepted, out);
+            }
+            if (match_pair(match_pair, v, want_accepted, out.excl_inst0, out.excl_prim0)) {
+                out.excl_inst1 = nullptr;
+                out.excl_prim1 = nullptr;
+                return true;
+            }
+            if (v != nullptr && v->type()->is_bool() && v->isa<xir::ArithmeticInst>()) {
+                const auto *ar = static_cast<const xir::ArithmeticInst *>(v);
+                const auto expected_op = want_accepted ? xir::ArithmeticOp::BINARY_BIT_AND
+                                                       : xir::ArithmeticOp::BINARY_BIT_OR;
+                if (ar->op() == expected_op && ar->operand_count() == 2u &&
+                    match_pair(match_pair, ar->operand(0u), want_accepted, out.excl_inst0, out.excl_prim0) &&
+                    match_pair(match_pair, ar->operand(1u), want_accepted, out.excl_inst1, out.excl_prim1)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (!match_excl_root(match_excl_root, cond, accept_when_cond_true, match)) {
+            return std::nullopt;
+        }
+        return match;
+    }
+
     [[nodiscard]] llvm::Value *_translate_ray_query_pipeline_inst(CurrentFunction &current, IRBuilder &b, const xir::RayQueryPipelineInst *inst) noexcept {
         // find the built-in function
         auto query_object = inst->query_object();
@@ -2362,11 +3033,15 @@ private:
                            "Invalid ray query object type.");
         auto llvm_query_object = _lookup_value(current, b, query_object);
         using namespace std::string_view_literals;
-        auto llvm_func_name = query_object->type() == Type::of<RayQueryAll>() ?
+        const bool is_all = query_object->type() == Type::of<RayQueryAll>();
+        auto llvm_func_name = is_all ?
                                   "luisa.ray.query.pipeline.all"sv :
                                   "luisa.ray.query.pipeline.any"sv;
         auto llvm_func = _llvm_module->getFunction(llvm_func_name);
         LUISA_ASSERT(llvm_func != nullptr, "Function not found.");
+        auto llvm_excl_func = _llvm_module->getFunction(
+            is_all ? "luisa.ray.query.pipeline.all.excl"sv
+                   : "luisa.ray.query.pipeline.any.excl"sv);
         // on_surface and on_procedural callbacks
         auto non_empty_or_null_with_sreg_usage = [&](const xir::Function *f) noexcept -> std::pair<llvm::Function *, uint> {
             if (!f) { return std::make_pair(nullptr, 0u); }
@@ -2383,11 +3058,122 @@ private:
             auto usage = _analyze_special_register_usage(f);
             return std::make_pair(llvm::cast<llvm::Function>(llvm_f), usage);
         };
-        auto [llvm_on_surface_func, on_surface_func_sreg_usage] = non_empty_or_null_with_sreg_usage(inst->on_surface_function());
+        const uint raw_surface_sreg = inst->on_surface_function() ?
+                                          _analyze_special_register_usage(inst->on_surface_function()) :
+                                          0u;
+        std::optional<SurfaceExclusionFilterMatch> excl_match;
+        if (llvm_excl_func != nullptr) {
+            excl_match = _try_match_surface_exclusion_filter(inst, raw_surface_sreg);
+        }
+        auto [llvm_on_surface_func, on_surface_func_sreg_usage] =
+            excl_match.has_value() ?
+                std::make_pair(static_cast<llvm::Function *>(nullptr), 0u) :
+                non_empty_or_null_with_sreg_usage(inst->on_surface_function());
         auto [llvm_on_procedural_func, on_procedural_func_sreg_usage] = non_empty_or_null_with_sreg_usage(inst->on_procedural_function());
         auto sreg_usage = on_surface_func_sreg_usage | on_procedural_func_sreg_usage;
-        // create capture argument struct
         auto captured_arg_uses = inst->captured_argument_uses();
+
+        if (excl_match.has_value()) {
+            const auto *def = inst->on_surface_function()->definition();
+            llvm::SmallVector<const xir::Value *, 24u> temp_keys;
+            size_t cap_idx = 0u;
+            bool first_arg = true;
+            for (const xir::Argument *def_arg : def->arguments()) {
+                if (first_arg) {
+                    first_arg = false;
+                    continue;
+                }
+                if (!def_arg->is_reference()) {
+                    auto *caller_val = _lookup_value(current, b, captured_arg_uses[cap_idx]->value());
+                    if (current.value_map.emplace(def_arg, caller_val).second) {
+                        temp_keys.emplace_back(def_arg);
+                    }
+                }
+                ++cap_idx;
+            }
+            for (const xir::Instruction *remat_ix : excl_match->rematerialized_insts) {
+                auto *remat_val = _translate_instruction(current, b, remat_ix);
+                if (current.value_map.emplace(remat_ix, remat_val).second) {
+                    temp_keys.emplace_back(remat_ix);
+                }
+            }
+            auto emit_excl_u32 = [&](const xir::Value *v) noexcept -> llvm::Value * {
+                if (v == nullptr) { return b.getInt32(~0u); }
+                return b.CreateZExtOrTrunc(_lookup_value(current, b, v), b.getInt32Ty());
+            };
+            auto *llvm_inst0 = emit_excl_u32(excl_match->excl_inst0);
+            auto *llvm_prim0 = emit_excl_u32(excl_match->excl_prim0);
+            auto *llvm_inst1 = emit_excl_u32(excl_match->excl_inst1);
+            auto *llvm_prim1 = emit_excl_u32(excl_match->excl_prim1);
+            auto *llvm_flags = b.getInt32(excl_match->terminate_on_commit ? 1u : 0u);
+            for (const xir::Value *k : temp_keys) {
+                current.value_map.erase(k);
+            }
+            if (llvm_on_procedural_func == nullptr) {
+                auto *null_ptr = llvm::Constant::getNullValue(llvm::PointerType::get(_llvm_context, 0));
+                return b.CreateCall(llvm_excl_func,
+                                    {llvm_query_object, llvm_inst0, llvm_prim0, llvm_inst1, llvm_prim1,
+                                     llvm_flags, null_ptr, null_ptr});
+            }
+            llvm::SmallVector<uint> proc_member_to_arg;
+            proc_member_to_arg.reserve(captured_arg_uses.size() + CurrentFunction::builtin_variable_count);
+            auto llvm_proc_capture = [&]() noexcept -> std::pair<llvm::StructType *, llvm::Value *> {
+                auto llvm_ptr_type = llvm::PointerType::get(_llvm_context, 0);
+                if (captured_arg_uses.empty() && sreg_usage == 0u) {
+                    return std::make_pair(nullptr, llvm::Constant::getNullValue(llvm_ptr_type));
+                }
+                llvm::SmallVector<size_t> captured_arg_ranks;
+                captured_arg_ranks.reserve(captured_arg_uses.size() + CurrentFunction::builtin_variable_count);
+                for (auto arg_use : captured_arg_uses) {
+                    auto arg = arg_use->value();
+                    auto size = arg->is_lvalue() ? 8u : _get_type_size(arg->type());
+                    auto alignment = arg->is_lvalue() ? 8u : _get_type_alignment(arg->type());
+                    auto arg_rank = (alignment << 32u) | size;
+                    proc_member_to_arg.emplace_back(captured_arg_ranks.size());
+                    captured_arg_ranks.emplace_back(arg_rank);
+                }
+                for (auto i = 0u; i < CurrentFunction::builtin_variable_count; i++) {
+                    if (sreg_usage & (1u << i)) {
+                        proc_member_to_arg.emplace_back(captured_arg_uses.size() + i);
+                        captured_arg_ranks.emplace_back(~0u);
+                    }
+                }
+                std::stable_sort(proc_member_to_arg.begin(), proc_member_to_arg.end(), [&](auto lhs, auto rhs) noexcept {
+                    return captured_arg_ranks[lhs] > captured_arg_ranks[rhs];
+                });
+                llvm::SmallVector<llvm::Type *> llvm_member_types;
+                llvm_member_types.reserve(proc_member_to_arg.size());
+                for (auto arg_index : proc_member_to_arg) {
+                    if (arg_index < captured_arg_uses.size()) {
+                        auto arg = captured_arg_uses[arg_index]->value();
+                        llvm_member_types.emplace_back(arg->is_lvalue() ? llvm_ptr_type : _translate_type(arg->type(), true));
+                    } else {
+                        llvm_member_types.emplace_back(llvm::FixedVectorType::get(llvm::Type::getInt32Ty(_llvm_context), 4u));
+                    }
+                }
+                auto llvm_struct_type = llvm::StructType::get(_llvm_context, llvm_member_types);
+                auto llvm_struct_alloca = b.CreateAlloca(llvm_struct_type);
+                llvm_struct_alloca->setAlignment(llvm::Align{16});
+                for (auto member_index = 0u; member_index < proc_member_to_arg.size(); member_index++) {
+                    auto arg_index = proc_member_to_arg[member_index];
+                    auto llvm_arg = arg_index < captured_arg_uses.size() ?
+                                        _lookup_value(current, b, captured_arg_uses[arg_index]->value()) :
+                                        _widen_vec3_to_abi(b, current.builtin_variables[arg_index - captured_arg_uses.size()]);
+                    auto llvm_member = b.CreateStructGEP(llvm_struct_type, llvm_struct_alloca, member_index);
+                    b.CreateStore(llvm_arg, llvm_member);
+                }
+                return std::make_pair(llvm_struct_type, llvm_struct_alloca);
+            }();
+            auto llvm_on_procedural_func_wrapper = _generate_ray_query_pipeline_function_wrapper(
+                "ray.query.pipeline.on.procedural.wrapper", captured_arg_uses.size(),
+                llvm_on_procedural_func, on_procedural_func_sreg_usage,
+                llvm_proc_capture.first, proc_member_to_arg);
+            return b.CreateCall(llvm_excl_func,
+                                {llvm_query_object, llvm_inst0, llvm_prim0, llvm_inst1, llvm_prim1,
+                                 llvm_flags, llvm_proc_capture.second, llvm_on_procedural_func_wrapper});
+        }
+
+        // create capture argument struct
         llvm::SmallVector<uint> member_to_captured_arg;
         member_to_captured_arg.reserve(captured_arg_uses.size() + CurrentFunction::builtin_variable_count);
         auto llvm_capture = [&]() noexcept -> std::pair<llvm::StructType *, llvm::Value *> {
@@ -2431,8 +3217,7 @@ private:
                     auto arg = captured_arg_uses[arg_index]->value();
                     llvm_member_types.emplace_back(arg->is_lvalue() ? llvm_ptr_type : _translate_type(arg->type(), true));
                 } else {
-                    auto builtin_index = arg_index - captured_arg_uses.size();
-                    llvm_member_types.emplace_back(current.builtin_variables[builtin_index]->getType());
+                    llvm_member_types.emplace_back(llvm::FixedVectorType::get(llvm::Type::getInt32Ty(_llvm_context), 4u));
                 }
             }
             // create the struct type
@@ -2445,7 +3230,7 @@ private:
                 auto arg_index = member_to_captured_arg[member_index];
                 auto llvm_arg = arg_index < captured_arg_uses.size() ?
                                     _lookup_value(current, b, captured_arg_uses[arg_index]->value()) :
-                                    current.builtin_variables[arg_index - captured_arg_uses.size()];
+                                    _widen_vec3_to_abi(b, current.builtin_variables[arg_index - captured_arg_uses.size()]);
                 auto llvm_member = b.CreateStructGEP(llvm_struct_type, llvm_struct_alloca, member_index);
                 b.CreateStore(llvm_arg, llvm_member);
             }
@@ -3643,9 +4428,9 @@ private:
                 auto llvm_false_block = _find_or_create_basic_block(current, if_inst->false_block());
                 auto llvm_merge_block = _find_or_create_basic_block(current, if_inst->merge_block());
                 auto llvm_inst = b.CreateCondBr(llvm_condition, llvm_true_block, llvm_false_block);
-                _translate_instructions_in_basic_block(current, llvm_true_block, if_inst->true_block());
-                _translate_instructions_in_basic_block(current, llvm_false_block, if_inst->false_block());
-                _translate_instructions_in_basic_block(current, llvm_merge_block, if_inst->merge_block());
+                _enqueue_basic_block(current, llvm_merge_block, if_inst->merge_block());
+                _enqueue_basic_block(current, llvm_false_block, if_inst->false_block());
+                _enqueue_basic_block(current, llvm_true_block, if_inst->true_block());
                 return llvm_inst;
             }
             case xir::DerivedInstructionTag::SWITCH: {
@@ -3666,13 +4451,14 @@ private:
                     auto llvm_case_block = _find_or_create_basic_block(current, switch_inst->case_block(i));
                     llvm_inst->addCase(llvm_case_value, llvm_case_block);
                 }
-                _translate_instructions_in_basic_block(current, llvm_default_block, switch_inst->default_block());
-                for (auto &case_block_use : switch_inst->case_block_uses()) {
-                    auto case_block = static_cast<const xir::BasicBlock *>(case_block_use->value());
+                _enqueue_basic_block(current, llvm_merge_block, switch_inst->merge_block());
+                auto case_block_uses = switch_inst->case_block_uses();
+                for (auto i = case_block_uses.size(); i > 0u; i--) {
+                    auto case_block = static_cast<const xir::BasicBlock *>(case_block_uses[i - 1u]->value());
                     auto llvm_case_block = _find_or_create_basic_block(current, case_block);
-                    _translate_instructions_in_basic_block(current, llvm_case_block, case_block);
+                    _enqueue_basic_block(current, llvm_case_block, case_block);
                 }
-                _translate_instructions_in_basic_block(current, llvm_merge_block, switch_inst->merge_block());
+                _enqueue_basic_block(current, llvm_default_block, switch_inst->default_block());
                 return llvm_inst;
             }
             case xir::DerivedInstructionTag::INDEXED_BRANCH:
@@ -3686,10 +4472,10 @@ private:
                 auto llvm_body_block = _find_or_create_basic_block(current, loop_inst->body_block());
                 auto llvm_update_block = _find_or_create_basic_block(current, loop_inst->update_block());
                 auto llvm_inst = b.CreateBr(llvm_prepare_block);
-                _translate_instructions_in_basic_block(current, llvm_prepare_block, loop_inst->prepare_block());
-                _translate_instructions_in_basic_block(current, llvm_body_block, loop_inst->body_block());
-                _translate_instructions_in_basic_block(current, llvm_update_block, loop_inst->update_block());
-                _translate_instructions_in_basic_block(current, llvm_merge_block, loop_inst->merge_block());
+                _enqueue_basic_block(current, llvm_merge_block, loop_inst->merge_block());
+                _enqueue_basic_block(current, llvm_update_block, loop_inst->update_block());
+                _enqueue_basic_block(current, llvm_body_block, loop_inst->body_block());
+                _enqueue_basic_block(current, llvm_prepare_block, loop_inst->prepare_block());
                 return llvm_inst;
             }
             case xir::DerivedInstructionTag::SIMPLE_LOOP: {
@@ -3697,8 +4483,8 @@ private:
                 auto llvm_merge_block = _find_or_create_basic_block(current, loop_inst->merge_block());
                 auto llvm_body_block = _find_or_create_basic_block(current, loop_inst->body_block());
                 auto llvm_inst = b.CreateBr(llvm_body_block);
-                _translate_instructions_in_basic_block(current, llvm_body_block, loop_inst->body_block());
-                _translate_instructions_in_basic_block(current, llvm_merge_block, loop_inst->merge_block());
+                _enqueue_basic_block(current, llvm_merge_block, loop_inst->merge_block());
+                _enqueue_basic_block(current, llvm_body_block, loop_inst->body_block());
                 return llvm_inst;
             }
             case xir::DerivedInstructionTag::CONDITIONAL_BRANCH: {
@@ -3709,8 +4495,8 @@ private:
                 auto llvm_true_block = _find_or_create_basic_block(current, cond_br_inst->true_block());
                 auto llvm_false_block = _find_or_create_basic_block(current, cond_br_inst->false_block());
                 auto llvm_inst = b.CreateCondBr(llvm_condition, llvm_true_block, llvm_false_block);
-                _translate_instructions_in_basic_block(current, llvm_true_block, cond_br_inst->true_block());
-                _translate_instructions_in_basic_block(current, llvm_false_block, cond_br_inst->false_block());
+                _enqueue_basic_block(current, llvm_false_block, cond_br_inst->false_block());
+                _enqueue_basic_block(current, llvm_true_block, cond_br_inst->true_block());
                 return llvm_inst;
             }
             case xir::DerivedInstructionTag::UNREACHABLE: {
@@ -3723,7 +4509,7 @@ private:
                 auto br_inst = static_cast<const xir::BranchTerminatorInstruction *>(inst);
                 auto llvm_target_block = _find_or_create_basic_block(current, br_inst->target_block());
                 auto llvm_inst = b.CreateBr(llvm_target_block);
-                _translate_instructions_in_basic_block(current, llvm_target_block, br_inst->target_block());
+                _enqueue_basic_block(current, llvm_target_block, br_inst->target_block());
                 return llvm_inst;
             }
             case xir::DerivedInstructionTag::RETURN: {
@@ -3742,6 +4528,14 @@ private:
                 // other functions just return in place
                 if (auto ret_val = return_inst->return_value()) {
                     auto llvm_ret_val = _lookup_value(current, b, ret_val);
+                    if (current.sret_ptr != nullptr) {
+                        auto align = _get_type_alignment(current.return_xir_type);
+                        b.CreateAlignedStore(llvm_ret_val, current.sret_ptr, llvm::MaybeAlign{align});
+                        return b.CreateRetVoid();
+                    }
+                    if (_is_abi_vec3_type(current.return_xir_type)) {
+                        llvm_ret_val = _widen_vec3_to_abi(b, llvm_ret_val);
+                    }
                     return b.CreateRet(llvm_ret_val);
                 }
                 return b.CreateRetVoid();
@@ -3817,19 +4611,64 @@ private:
             }
             case xir::DerivedInstructionTag::CALL: {
                 auto call_inst = static_cast<const xir::CallInst *>(inst);
-                auto llvm_func = llvm::cast<llvm::Function>(_lookup_value(current, b, call_inst->callee()));
+                auto *callee_xir = call_inst->callee();
+                auto llvm_func = llvm::cast<llvm::Function>(_lookup_value(current, b, callee_xir));
+                const auto *ret_type = call_inst->type();
+                const bool has_sret = _is_abi_indirect_aggregate_type(ret_type);
+                llvm::AllocaInst *sret_slot = nullptr;
+                llvm::SmallVector<std::pair<llvm::AllocaInst *, const Type *>, 8u> temp_slots;
                 llvm::SmallVector<llvm::Value *> llvm_args;
-                llvm_args.reserve(call_inst->argument_count());
-                for (auto i = 0u; i < call_inst->argument_count(); i++) {
-                    auto llvm_arg = _lookup_value(current, b, call_inst->argument(i));
+                llvm_args.reserve((has_sret ? 1u : 0u) + call_inst->argument_count() + CurrentFunction::builtin_variable_count);
+                if (has_sret) {
+                    sret_slot = _create_abi_temporary(b, _translate_type(ret_type, false), ret_type);
+                    _emit_lifetime_start(b, sret_slot, ret_type);
+                    llvm_args.emplace_back(sret_slot);
+                }
+                auto param_iter = callee_xir->arguments().begin();
+                for (auto i = 0u; i < call_inst->argument_count(); i++, ++param_iter) {
+                    auto *arg_val = call_inst->argument(i);
+                    const bool is_ref_param = (param_iter != callee_xir->arguments().end()) ? param_iter->is_reference() : arg_val->is_lvalue();
+                    if (!is_ref_param && _is_abi_indirect_aggregate_type(arg_val->type())) {
+                        if (auto ptr_it = current.readonly_indirect_arg_ptrs.find(arg_val);
+                            ptr_it != current.readonly_indirect_arg_ptrs.end()) {
+                            llvm_args.emplace_back(ptr_it->second);
+                            continue;
+                        }
+                        auto llvm_arg = _lookup_value(current, b, arg_val);
+                        auto *slot = _create_abi_temporary(b, _translate_type(arg_val->type(), false), arg_val->type());
+                        _emit_lifetime_start(b, slot, arg_val->type());
+                        b.CreateAlignedStore(llvm_arg, slot, llvm::MaybeAlign{_get_type_alignment(arg_val->type())});
+                        temp_slots.emplace_back(slot, arg_val->type());
+                        llvm_args.emplace_back(slot);
+                        continue;
+                    }
+                    auto llvm_arg = _lookup_value(current, b, arg_val);
+                    if (!is_ref_param && _is_abi_vec3_type(arg_val->type())) {
+                        llvm_arg = _widen_vec3_to_abi(b, llvm_arg);
+                    }
                     llvm_args.emplace_back(llvm_arg);
                 }
-                // built-in variables
-                for (auto &builtin_variable : current.builtin_variables) {
-                    llvm_args.emplace_back(builtin_variable);
+                const uint callee_sreg_usage = _analyze_special_register_usage(callee_xir);
+                for (auto i = 0u; i < CurrentFunction::builtin_variable_count; i++) {
+                    if ((callee_sreg_usage & (1u << i)) != 0u) {
+                        llvm_args.emplace_back(_widen_vec3_to_abi(b, current.builtin_variables[i]));
+                    }
                 }
                 auto llvm_call = b.CreateCall(llvm_func, llvm_args);
                 llvm_call->setCallingConv(llvm::CallingConv::Fast);
+                for (auto [slot, slot_type] : temp_slots) {
+                    _emit_lifetime_end(b, slot, slot_type);
+                }
+                if (has_sret) {
+                    auto *sret_llvm_type = _translate_type(ret_type, false);
+                    llvm_call->addParamAttr(0, llvm::Attribute::getWithStructRetType(_llvm_context, sret_llvm_type));
+                    auto *loaded_ret = b.CreateAlignedLoad(_translate_type(ret_type, true), sret_slot, llvm::MaybeAlign{_get_type_alignment(ret_type)});
+                    _emit_lifetime_end(b, sret_slot, ret_type);
+                    return loaded_ret;
+                }
+                if (_is_abi_vec3_type(ret_type)) {
+                    return _narrow_vec3_from_abi(b, llvm_call);
+                }
                 return llvm_call;
             }
             case xir::DerivedInstructionTag::ARITHMETIC: {
@@ -3869,8 +4708,8 @@ private:
                 auto llvm_target_block = _find_or_create_basic_block(current, outline_inst->target_block());
                 auto llvm_merge_block = _find_or_create_basic_block(current, outline_inst->merge_block());
                 auto llvm_inst = b.CreateBr(llvm_target_block);
-                _translate_instructions_in_basic_block(current, llvm_target_block, outline_inst->target_block());
-                _translate_instructions_in_basic_block(current, llvm_merge_block, outline_inst->merge_block());
+                _enqueue_basic_block(current, llvm_merge_block, outline_inst->merge_block());
+                _enqueue_basic_block(current, llvm_target_block, outline_inst->target_block());
                 return llvm_inst;
             }
             case xir::DerivedInstructionTag::AUTODIFF_SCOPE: LUISA_ERROR_WITH_LOCATION("Unexpected autodiff_scope instruction. Run autodiff pass first.");
@@ -3950,10 +4789,21 @@ private:
         }
     }
 
+    static void _enqueue_basic_block(CurrentFunction &current, llvm::BasicBlock *llvm_bb, const xir::BasicBlock *bb) noexcept {
+        if (bb != nullptr && !current.translated_basic_blocks.contains(llvm_bb)) {
+            current.pending_basic_blocks.emplace_back(llvm_bb, bb);
+        }
+    }
+
     [[nodiscard]] llvm::BasicBlock *_translate_basic_block(CurrentFunction &current, const xir::BasicBlock *bb) noexcept {
-        auto llvm_bb = _find_or_create_basic_block(current, bb);
-        _translate_instructions_in_basic_block(current, llvm_bb, bb);
-        return llvm_bb;
+        auto entry_llvm_bb = _find_or_create_basic_block(current, bb);
+        _enqueue_basic_block(current, entry_llvm_bb, bb);
+        while (!current.pending_basic_blocks.empty()) {
+            auto [llvm_bb, xir_bb] = current.pending_basic_blocks.back();
+            current.pending_basic_blocks.pop_back();
+            _translate_instructions_in_basic_block(current, llvm_bb, xir_bb);
+        }
+        return entry_llvm_bb;
     }
 
     struct KernelWrapper {
@@ -4042,11 +4892,18 @@ private:
                 auto arg_name = luisa::format("arg{}", i);
                 auto llvm_gep = b.CreateStructGEP(llvm_params_struct_type, llvm_param_ptr, padded_index,
                                                   llvm::Twine{arg_name}.concat(".ptr"));
-                auto llvm_arg_type = _translate_type(arg_type, true);
-                auto llvm_arg = b.CreateAlignedLoad(llvm_arg_type, llvm_gep,
-                                                    llvm::MaybeAlign{_get_type_alignment(arg_type)},
-                                                    llvm::Twine{arg_name});
-                llvm_args.emplace_back(llvm_arg);
+                if (_is_abi_indirect_aggregate_type(arg_type)) {
+                    llvm_args.emplace_back(llvm_gep);
+                } else {
+                    auto llvm_arg_type = _translate_type(arg_type, true);
+                    llvm::Value *llvm_arg = b.CreateAlignedLoad(llvm_arg_type, llvm_gep,
+                                                                llvm::MaybeAlign{_get_type_alignment(arg_type)},
+                                                                llvm::Twine{arg_name});
+                    if (_is_abi_vec3_type(arg_type)) {
+                        llvm_arg = _widen_vec3_to_abi(b, llvm_arg);
+                    }
+                    llvm_args.emplace_back(llvm_arg);
+                }
                 i++;
             }
         }
@@ -4141,14 +4998,16 @@ private:
                                                 IRBuilder &b, const KernelInvokeIndex &llvm_invoke_index) noexcept {
         auto call_args = llvm_wrapper.args;
         for (auto i = 0u; i < CurrentFunction::builtin_variable_count; i++) {
+            llvm::Value *builtin_v3 = nullptr;
             switch (i) {
-                case CurrentFunction::builtin_variable_index_thread_id: call_args.emplace_back(llvm_invoke_index.thread_id); break;
-                case CurrentFunction::builtin_variable_index_block_id: call_args.emplace_back(llvm_wrapper.block_id); break;
-                case CurrentFunction::builtin_variable_index_dispatch_id: call_args.emplace_back(llvm_invoke_index.dispatch_id); break;
-                case CurrentFunction::builtin_variable_index_block_size: call_args.emplace_back(llvm_wrapper.block_size); break;
-                case CurrentFunction::builtin_variable_index_dispatch_size: call_args.emplace_back(llvm_wrapper.dispatch_size); break;
+                case CurrentFunction::builtin_variable_index_thread_id: builtin_v3 = llvm_invoke_index.thread_id; break;
+                case CurrentFunction::builtin_variable_index_block_id: builtin_v3 = llvm_wrapper.block_id; break;
+                case CurrentFunction::builtin_variable_index_dispatch_id: builtin_v3 = llvm_invoke_index.dispatch_id; break;
+                case CurrentFunction::builtin_variable_index_block_size: builtin_v3 = llvm_wrapper.block_size; break;
+                case CurrentFunction::builtin_variable_index_dispatch_size: builtin_v3 = llvm_wrapper.dispatch_size; break;
                 default: LUISA_ERROR_WITH_LOCATION("Invalid builtin variable index.");
             }
+            call_args.emplace_back(_widen_vec3_to_abi(b, builtin_v3));
         }
         auto llvm_call = b.CreateCall(llvm_kernel, call_args);
         llvm_call->setCallingConv(llvm::CallingConv::Fast);
@@ -4365,69 +5224,123 @@ private:
                                                                  llvm::Function::LinkageTypes linkage,
                                                                  llvm::StringRef default_name,
                                                                  bool requires_block_sync) noexcept {
-        auto llvm_ret_type = _translate_type(f->type(), true);
         auto llvm_ptr_type = llvm::PointerType::get(_llvm_context, 0);
-        if (requires_block_sync) {// block synchronization requires a coroutine, which always returns a pointer to the coroutine frame
-            LUISA_ASSERT(llvm_ret_type->isVoidTy(), "Block synchronization requires void return type.");
+        const bool has_sret = !requires_block_sync && _is_abi_indirect_aggregate_type(f->type());
+        llvm::Type *llvm_ret_type = nullptr;
+        if (requires_block_sync) {
+            LUISA_ASSERT(f->type() == nullptr, "Block synchronization requires void return type.");
             llvm_ret_type = llvm_ptr_type;
+        } else if (has_sret) {
+            llvm_ret_type = llvm::Type::getVoidTy(_llvm_context);
+        } else if (_is_abi_vec3_type(f->type())) {
+            llvm_ret_type = _abi_vec3_type(f->type());
+        } else {
+            llvm_ret_type = _translate_type(f->type(), true);
         }
         llvm::SmallVector<llvm::Type *, 64u> llvm_arg_types;
+        if (has_sret) {
+            llvm_arg_types.emplace_back(llvm_ptr_type);
+        }
         for (auto arg : f->arguments()) {
-            if (arg->is_reference()) {
-                // reference arguments are passed by pointer
-                llvm_arg_types.emplace_back(llvm::PointerType::get(_llvm_context, 0));
+            if (arg->is_reference() || _is_abi_indirect_aggregate_type(arg->type())) {
+                llvm_arg_types.emplace_back(llvm_ptr_type);
+            } else if (_is_abi_vec3_type(arg->type())) {
+                llvm_arg_types.emplace_back(_abi_vec3_type(arg->type()));
             } else {
-                // value and resource arguments are passed by value
                 llvm_arg_types.emplace_back(_translate_type(arg->type(), true));
             }
         }
-        // built-in variables
+        const bool is_kernel_def = f->isa<xir::KernelFunction>();
+        const uint def_sreg_usage = is_kernel_def
+                                        ? ((1u << CurrentFunction::builtin_variable_count) - 1u)
+                                        : _analyze_special_register_usage(f);
         auto llvm_i32_type = llvm::Type::getInt32Ty(_llvm_context);
-        auto llvm_i32x3_type = llvm::VectorType::get(llvm_i32_type, 3, false);
+        auto llvm_i32x4_type = llvm::FixedVectorType::get(llvm_i32_type, 4u);
         for (auto builtin = 0u; builtin < CurrentFunction::builtin_variable_count; builtin++) {
-            llvm_arg_types.emplace_back(llvm_i32x3_type);
+            if ((def_sreg_usage & (1u << builtin)) != 0u) {
+                llvm_arg_types.emplace_back(llvm_i32x4_type);
+            }
         }
 
-        // create function
         auto llvm_func_type = llvm::FunctionType::get(llvm_ret_type, llvm_arg_types, false);
         auto func_name = _get_name_from_metadata(f, default_name);
         auto llvm_func = llvm::Function::Create(llvm_func_type, linkage, llvm::Twine{func_name}, _llvm_module);
         _llvm_functions.emplace(f, llvm_func);
 
-        // use fastcc
         llvm_func->setCallingConv(llvm::CallingConv::Fast);
+        llvm_func->setDoesNotThrow();
 
-        // inline functions that have too many arguments
-        // static constexpr auto max_argument_count = 16u;
-        // if (f->derived_function_tag() != xir::DerivedFunctionTag::KERNEL &&
-        //     llvm_func->arg_size() > max_argument_count) {
-        //     llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
-        // }
-        // create current translation context
-        CurrentFunction current{.func = llvm_func};
-        // map arguments
+        if (has_sret) {
+            auto *sret_llvm_type = _translate_type(f->type(), false);
+            llvm_func->addParamAttr(0, llvm::Attribute::getWithStructRetType(_llvm_context, sret_llvm_type));
+            llvm_func->addParamAttr(0, llvm::Attribute::NoAlias);
+            llvm_func->addParamAttr(0, llvm::Attribute::NoUndef);
+            llvm_func->addParamAttr(0, llvm::Attribute::NonNull);
+            _add_nocapture_param_attr(llvm_func, 0);
+            llvm_func->addParamAttr(0, llvm::Attribute::getWithAlignment(_llvm_context, llvm::Align{_get_type_alignment(f->type())}));
+        }
         {
-            auto i = 0u;
-            // non-built-in arguments
+            unsigned param_idx = has_sret ? 1u : 0u;
             for (auto arg : f->arguments()) {
-                current.value_map.emplace(arg, llvm_func->getArg(i));
-                i++;
-            }
-            // built-in variables
-            for (auto builtin = 0u; builtin < CurrentFunction::builtin_variable_count; builtin++) {
-                auto llvm_arg = llvm_func->getArg(i);
-                switch (builtin) {
-                    case CurrentFunction::builtin_variable_index_thread_id: llvm_arg->setName("thread_id"); break;
-                    case CurrentFunction::builtin_variable_index_block_id: llvm_arg->setName("block_id"); break;
-                    case CurrentFunction::builtin_variable_index_dispatch_id: llvm_arg->setName("dispatch_id"); break;
-                    case CurrentFunction::builtin_variable_index_block_size: llvm_arg->setName("block_size"); break;
-                    case CurrentFunction::builtin_variable_index_dispatch_size: llvm_arg->setName("dispatch_size"); break;
-                    default: LUISA_ERROR_WITH_LOCATION("Invalid builtin variable index.");
+                if (arg->is_reference()) {
+                    llvm_func->addParamAttr(param_idx, llvm::Attribute::NoUndef);
+                    llvm_func->addParamAttr(param_idx, llvm::Attribute::NonNull);
+                    _add_nocapture_param_attr(llvm_func, param_idx);
+                } else if (_is_abi_indirect_aggregate_type(arg->type())) {
+                    llvm_func->addParamAttr(param_idx, llvm::Attribute::ReadOnly);
+                    llvm_func->addParamAttr(param_idx, llvm::Attribute::NoUndef);
+                    llvm_func->addParamAttr(param_idx, llvm::Attribute::NonNull);
+                    _add_nocapture_param_attr(llvm_func, param_idx);
+                    llvm_func->addParamAttr(param_idx, llvm::Attribute::getWithAlignment(_llvm_context, llvm::Align{_get_type_alignment(arg->type())}));
                 }
-                current.builtin_variables[builtin] = llvm_arg;
-                i++;
+                ++param_idx;
             }
         }
+
+        CurrentFunction current{.func = llvm_func, .return_xir_type = f->type()};
+        if (has_sret) {
+            current.sret_ptr = llvm_func->getArg(0);
+            current.sret_ptr->setName("agg.result");
+        }
+        auto unpack_abi_arguments = [&](llvm::BasicBlock *target_entry_bb) noexcept {
+            IRBuilder unpack_b{target_entry_bb};
+            auto i = static_cast<unsigned>(has_sret ? 1u : 0u);
+            for (auto arg : f->arguments()) {
+                llvm::Value *raw_arg = llvm_func->getArg(i++);
+                if (arg->is_reference()) {
+                    current.value_map.emplace(arg, raw_arg);
+                } else if (_is_abi_indirect_aggregate_type(arg->type())) {
+                    current.readonly_indirect_arg_ptrs.emplace(arg, raw_arg);
+                    auto unpacked = unpack_b.CreateAlignedLoad(
+                        _translate_type(arg->type(), true), raw_arg,
+                        llvm::MaybeAlign{_get_type_alignment(arg->type())});
+                    current.value_map.emplace(arg, unpacked);
+                } else if (_is_abi_vec3_type(arg->type())) {
+                    current.value_map.emplace(arg, _narrow_vec3_from_abi(unpack_b, raw_arg));
+                } else {
+                    current.value_map.emplace(arg, raw_arg);
+                }
+            }
+            for (auto builtin = 0u; builtin < CurrentFunction::builtin_variable_count; builtin++) {
+                if ((def_sreg_usage & (1u << builtin)) == 0u) {
+                    continue;
+                }
+                auto llvm_arg = llvm_func->getArg(i++);
+                const char *bname = nullptr;
+                switch (builtin) {
+                    case CurrentFunction::builtin_variable_index_thread_id: bname = "thread_id"; break;
+                    case CurrentFunction::builtin_variable_index_block_id: bname = "block_id"; break;
+                    case CurrentFunction::builtin_variable_index_dispatch_id: bname = "dispatch_id"; break;
+                    case CurrentFunction::builtin_variable_index_block_size: bname = "block_size"; break;
+                    case CurrentFunction::builtin_variable_index_dispatch_size: bname = "dispatch_size"; break;
+                    default: LUISA_ERROR_WITH_LOCATION("Invalid builtin variable index.");
+                }
+                llvm_arg->setName(llvm::Twine{bname}.concat(".abi"));
+                auto narrowed = _narrow_vec3_from_abi(unpack_b, llvm_arg);
+                narrowed->setName(bname);
+                current.builtin_variables[builtin] = narrowed;
+            }
+        };
         // if block synchronization is required, we need to create a coroutine
         if (requires_block_sync) {
 
@@ -4549,12 +5462,16 @@ private:
             // ret ptr %hdl
             coro_builder.CreateRet(current.coro_handle);
 
-            // finally we can create the function body and br to it
-            auto llvm_func_body_block = _translate_basic_block(current, f->body_block());
+            // finally we can create the function body, unpack ABI args, and br to it
+            auto llvm_func_body_block = _find_or_create_basic_block(current, f->body_block());
+            unpack_abi_arguments(llvm_func_body_block);
+            static_cast<void>(_translate_basic_block(current, f->body_block()));
             coro_builder.SetInsertPoint(llvm_coro_begin_block);
             coro_builder.CreateBr(llvm_func_body_block);
 
-        } else {// otherwise, we may translate the body directly
+        } else {// otherwise, unpack ABI args in the entry block and translate the body
+            auto llvm_func_body_block = _find_or_create_basic_block(current, f->body_block());
+            unpack_abi_arguments(llvm_func_body_block);
             static_cast<void>(_translate_basic_block(current, f->body_block()));
         }
 
@@ -4604,12 +5521,10 @@ private:
     [[nodiscard]] llvm::Function *_translate_callable_function(const xir::CallableFunction *f) noexcept {
         auto llvm_func = _translate_function_definition(
             f, llvm::Function::PrivateLinkage, "callable", false);
-        // Device callables frequently carry large aggregate values by value.
-        // Keeping such a private callable as a machine-level function can
-        // exceed target ABI legalization limits (notably for three-lane
-        // vectors on AArch64). XIR callables are non-recursive, so eliminate
-        // that internal ABI boundary before machine lowering.
-        llvm_func->addFnAttr(llvm::Attribute::AlwaysInline);
+        llvm_func->addFnAttr("luisa.fallback.generated_callable");
+        if (f->find_metadata<xir::NoInlineMD>() != nullptr) {
+            llvm_func->addFnAttr(llvm::Attribute::NoInline);
+        }
         return llvm_func;
     }
 
@@ -4653,6 +5568,25 @@ public:
         }
         _llvm_module = llvm_module;
         _translate_module(module);
+        // Consistently enforce fastcc on all module-internal (local-linkage)
+        // non-address-taken non-coroutine device functions and their call sites,
+        // keeping kernel.main, external runtime symbols, and C callback wrappers
+        // on their external C ABI.
+        for (auto &function : *_llvm_module) {
+            if (!function.isDeclaration() &&
+                function.hasLocalLinkage() &&
+                !function.hasAddressTaken() &&
+                !function.isPresplitCoroutine()) {
+                function.setCallingConv(llvm::CallingConv::Fast);
+                for (auto *user : function.users()) {
+                    if (auto *call = llvm::dyn_cast<llvm::CallBase>(user)) {
+                        if (call->getCalledOperand() == &function) {
+                            call->setCallingConv(llvm::CallingConv::Fast);
+                        }
+                    }
+                }
+            }
+        }
         _reset();
         return {
             .print_inst_map = std::exchange(_print_inst_map, {}),

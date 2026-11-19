@@ -25,13 +25,13 @@ LUISA_RUNTIME_API void check_sparse_heap_provenance(
 SparseBufferHeap::SparseBufferHeap(DeviceInterface *device, size_t byte_size) noexcept
     : Resource{device, Tag::SPARSE_BUFFER_HEAP, device->allocate_sparse_buffer_heap(byte_size)} {
 }
-SparseBufferHeap::~SparseBufferHeap() noexcept {
+void SparseBufferHeap::destroy() noexcept {
     if (*this) { device()->deallocate_sparse_buffer_heap(handle()); }
 }
 SparseTextureHeap::SparseTextureHeap(DeviceInterface *device, size_t byte_size) noexcept
     : Resource{device, Tag::SPARSE_TEXTURE_HEAP, device->allocate_sparse_texture_heap(byte_size)} {
 }
-SparseTextureHeap::~SparseTextureHeap() noexcept {
+void SparseTextureHeap::destroy() noexcept {
     if (*this) { device()->deallocate_sparse_texture_heap(handle()); }
 }
 SparseBufferHeap Device::allocate_sparse_buffer_heap(size_t byte_size) noexcept {

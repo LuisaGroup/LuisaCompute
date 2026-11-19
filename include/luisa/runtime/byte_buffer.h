@@ -26,14 +26,11 @@ private:
 public:
     [[nodiscard]] auto size_bytes() const noexcept { return _size_bytes; }
     ByteBuffer() noexcept = default;
-    ~ByteBuffer() noexcept override;
+    ~ByteBuffer() noexcept override { _release(); }
     ByteBuffer(ByteBuffer &&) noexcept = default;
-    ByteBuffer(ByteBuffer const &) noexcept = delete;
-    ByteBuffer &operator=(ByteBuffer &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    ByteBuffer &operator=(ByteBuffer const &) noexcept = delete;
+    ByteBuffer(ByteBuffer const &) noexcept = default;
+    ByteBuffer &operator=(ByteBuffer &&rhs) noexcept = default;
+    ByteBuffer &operator=(ByteBuffer const &rhs) noexcept = default;
     using Resource::operator bool;
     BufferCreationInfo release() noexcept {
         return BufferCreationInfo{
@@ -66,6 +63,9 @@ public:
         _check_is_valid();
         return reinterpret_cast<const detail::ByteBufferExprProxy *>(this);
     }
+
+protected:
+    void destroy() noexcept override;
 };
 
 class LUISA_RUNTIME_API ByteBufferView {

@@ -94,16 +94,13 @@ private:
 
 public:
     BindlessArray() noexcept = default;
-    ~BindlessArray() noexcept override;
+    ~BindlessArray() noexcept override { _release(); }
     using Resource::operator bool;
     using Resource::release;
     BindlessArray(BindlessArray &&) noexcept;
-    BindlessArray(BindlessArray const &) noexcept = delete;
-    BindlessArray &operator=(BindlessArray &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    BindlessArray &operator=(BindlessArray const &) noexcept = delete;
+    BindlessArray(BindlessArray const &) noexcept;
+    BindlessArray &operator=(BindlessArray &&rhs) noexcept;
+    BindlessArray &operator=(BindlessArray const &rhs) noexcept;
     // properties
     [[nodiscard]] auto size() const noexcept {
         _check_is_valid();
@@ -172,6 +169,9 @@ public:
         _check_is_valid();
         return reinterpret_cast<const detail::BindlessArrayExprProxy *>(this);
     }
+
+protected:
+    void destroy() noexcept override;
 };
 
 }// namespace luisa::compute

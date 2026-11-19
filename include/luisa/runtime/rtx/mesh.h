@@ -112,11 +112,10 @@ static_assert(alignof(ClusterBuildInfo) == 8u, "ClusterBuildInfo must match VkCl
 
 // What a mesh remembers about its hardware opacity micromap ("cut-out mask").
 //
-// Holds handles only: an OpacityMicromap is a move-only Resource owned by the
-// caller, so a Mesh never copies or owns it (Resource's copy constructor is
-// deleted) and must not be able to destroy it. The micromap has to outlive every
-// acceleration structure built from this mesh that is still traced, unless the
-// driver reports the micromap build sizes as discardable.
+// Holds handles only: an OpacityMicromap is a separately owned Resource, so a Mesh
+// never owns it and must not be able to destroy it. The micromap has to outlive
+// every acceleration structure built from this mesh that is still traced, unless
+// the driver reports the micromap build sizes as discardable.
 //
 // The two payload buffer handles are part of the struct because they are the
 // command-graph inputs of the build: declaring them is what lets the command
@@ -333,14 +332,11 @@ private:
 
 public:
     Mesh() noexcept = default;
-    ~Mesh() noexcept override;
+    ~Mesh() noexcept override { _release(); }
     Mesh(Mesh &&) noexcept = default;
-    Mesh(Mesh const &) noexcept = delete;
-    Mesh &operator=(Mesh &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    Mesh &operator=(Mesh const &) noexcept = delete;
+    Mesh(Mesh const &) noexcept = default;
+    Mesh &operator=(Mesh &&rhs) noexcept = default;
+    Mesh &operator=(Mesh const &rhs) noexcept = default;
     using Resource::operator bool;
     using Resource::release;
     // build the bottom-level acceleration structure: a triangle BLAS for triangle
@@ -405,6 +401,9 @@ public:
         auto n = this->motion_keyframe_count();
         return _v_buffer_size_bytes / _v_stride / n;
     }
+
+protected:
+    void destroy() noexcept override;
 };
 
 template<typename VBuffer, typename TBuffer>

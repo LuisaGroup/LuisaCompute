@@ -44,6 +44,8 @@ test_proj("test_first_fit", "unit/core/test_first_fit.cpp")
 test_proj("test_logging", "unit/core/test_logging.cpp")
 test_proj("test_mathematics", "unit/core/test_mathematics.cpp")
 test_proj("test_matrix", "unit/core/test_matrix.cpp")
+test_proj("test_dsl_function_signature", "unit/dsl/test_dsl_function_signature.cpp")
+test_proj("test_move_only_function", "unit/core/test_move_only_function.cpp")
 test_proj("test_pool", "unit/core/test_pool.cpp")
 test_proj("test_type", "unit/core/test_type.cpp")
 test_proj("test_stl_containers", "unit/core/test_stl_containers.cpp")
@@ -353,6 +355,10 @@ test_proj("benchmark_command_reorder", "benchmark/benchmark_command_reorder.cpp"
 -- Host-side counterpart measuring pure submission cost (GPU-idle kernels);
 -- run with `xmake run benchmark_command_reorder_host vk` (or dx).
 test_proj("benchmark_command_reorder_host", "benchmark/benchmark_command_reorder_host.cpp")
+
+-- Reference-count block recycle bins (lock-free CAS pool vs spin_mutex pool);
+-- host only. Run with `xmake run benchmark_refcount_pool [threads...]`.
+test_proj("benchmark_refcount_pool", "benchmark/benchmark_refcount_pool.cpp")
     -- Verification benchmark for the lc_optimize SKILL.md Part II claims
     -- (roofline, vectorization, cp.async pipelining, launch overhead); run with
     -- `xmake run benchmark_part2_verify <backend> [--csv out.csv]`.
@@ -502,6 +508,7 @@ test_proj("test_ray_query_world_ray", "unit/runtime/test_ray_query_world_ray.cpp
 test_proj("test_opacity_micromap_header", "unit/runtime/test_opacity_micromap_header.cpp")
 test_proj("test_buffer_io", "unit/runtime/test_buffer_io.cpp")
 test_proj("test_buffer", "unit/runtime/test_buffer.cpp")
+test_proj("test_resource_ref_count", "unit/runtime/test_resource_ref_count.cpp")
 if has_config("lc_fallback_backend") then
     test_proj("test_fallback_shader_cache", "unit/runtime/test_fallback_shader_cache.cpp")
 end

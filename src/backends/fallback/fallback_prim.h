@@ -15,7 +15,7 @@ class FallbackPrim : public FallbackPrimBase {
 private:
     RTCScene _handle{};
     RTCGeometry _geometry{};
-    AccelMotionOption _motion;
+    AccelOption _option;
 
 protected:
     [[nodiscard]] bool _is_geometry_created() const noexcept { return _geometry != nullptr; }
@@ -27,10 +27,14 @@ public:
     FallbackPrim(RTCDevice device, const AccelOption &option) noexcept;
     [[nodiscard]] bool is_motion_instance() const noexcept final { return false; }
     [[nodiscard]] virtual bool is_curve() const noexcept { return false; }
+    [[nodiscard]] virtual bool is_mesh() const noexcept { return false; }
+    [[nodiscard]] virtual uint64_t build_revision() const noexcept { return 1u; }
+    [[nodiscard]] virtual RTCScene committed_handle() const noexcept { return _handle; }
     ~FallbackPrim() noexcept override;
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto geometry() const noexcept { return _geometry; }
-    [[nodiscard]] auto motion() const noexcept { return _motion; }
+    [[nodiscard]] const AccelOption &option() const noexcept { return _option; }
+    [[nodiscard]] auto motion() const noexcept { return _option.motion; }
 };
 
 }// namespace luisa::compute::fallback

@@ -41,11 +41,11 @@ private:
 
 public:
     Accel() noexcept = default;
-    ~Accel() noexcept override;
+    ~Accel() noexcept override { _release(); }
     Accel(Accel &&) noexcept;
-    Accel(Accel const &) noexcept = delete;
+    Accel(Accel const &) noexcept;
     Accel &operator=(Accel &&rhs) noexcept;
-    Accel &operator=(Accel const &) noexcept = delete;
+    Accel &operator=(Accel const &rhs) noexcept;
     using Resource::operator bool;
     using Resource::release;
 
@@ -134,6 +134,9 @@ public:
 
     // DSL interface
     [[nodiscard]] const detail::AccelExprProxy *operator->() const noexcept;
+
+protected:
+    void destroy() noexcept override;
 };
 
 }// namespace luisa::compute

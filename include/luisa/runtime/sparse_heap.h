@@ -18,16 +18,16 @@ private:
 
 public:
     SparseBufferHeap() noexcept = default;
-    ~SparseBufferHeap() noexcept override;
+    ~SparseBufferHeap() noexcept override { _release(); }
     using Resource::operator bool;
     using Resource::release;
     SparseBufferHeap(SparseBufferHeap &&) noexcept = default;
-    SparseBufferHeap(SparseBufferHeap const &) noexcept = delete;
-    SparseBufferHeap &operator=(SparseBufferHeap &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    SparseBufferHeap &operator=(SparseBufferHeap const &) noexcept = delete;
+    SparseBufferHeap(SparseBufferHeap const &) noexcept = default;
+    SparseBufferHeap &operator=(SparseBufferHeap &&rhs) noexcept = default;
+    SparseBufferHeap &operator=(SparseBufferHeap const &rhs) noexcept = default;
+
+protected:
+    void destroy() noexcept override;
 };
 
 class LUISA_RUNTIME_API SparseTextureHeap : public Resource {
@@ -38,16 +38,16 @@ private:
 
 public:
     SparseTextureHeap() noexcept = default;
-    ~SparseTextureHeap() noexcept override;
+    ~SparseTextureHeap() noexcept override { _release(); }
     using Resource::operator bool;
     using Resource::release;
     SparseTextureHeap(SparseTextureHeap &&) noexcept = default;
-    SparseTextureHeap(SparseTextureHeap const &) noexcept = delete;
-    SparseTextureHeap &operator=(SparseTextureHeap &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    SparseTextureHeap &operator=(SparseTextureHeap const &) noexcept = delete;
+    SparseTextureHeap(SparseTextureHeap const &) noexcept = default;
+    SparseTextureHeap &operator=(SparseTextureHeap &&rhs) noexcept = default;
+    SparseTextureHeap &operator=(SparseTextureHeap const &rhs) noexcept = default;
+
+protected:
+    void destroy() noexcept override;
 };
 
 }// namespace luisa::compute

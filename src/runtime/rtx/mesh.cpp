@@ -86,7 +86,7 @@ MeshCutoutMask::MeshCutoutMask(const OpacityMicromap &cutout) noexcept {
     assumes_non_opaque_traversal = true;
 }
 
-Mesh::~Mesh() noexcept {
+void Mesh::destroy() noexcept {
     if (*this) {
         if (is_cluster_mode()) {
             device()->destroy_mega_geometry(handle());

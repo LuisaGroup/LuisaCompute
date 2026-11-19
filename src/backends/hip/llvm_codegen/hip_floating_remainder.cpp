@@ -1,6 +1,8 @@
 #include "hip_floating_remainder.h"
 
 #include <luisa/core/logging.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Module.h>
 
 namespace luisa::compute::hip {
@@ -21,6 +23,21 @@ llvm::Value *emit_hip_floating_remainder(
     LUISA_ASSERT(function != nullptr && function->getFunctionType() == signature,
                  "HIP native remainder '{}' is absent or has an incompatible ABI.", name);
 
+    // Guard non-finite dividends/divisors explicitly via v_cmp_class so Inf/NaN
+    // never enter __ocml_fmod_*'s frexp exponent-stepping loop when constant
+    // divisors (such as 100000.0f in procedural noise) are specialized inline.
+    constexpr unsigned non_finite_mask = llvm::fcNan | llvm::fcInf;
+    auto quiet_nan = llvm::ConstantFP::getQNaN(scalar_type);
+    auto emit_lane = [&](llvm::Value *x, llvm::Value *y) noexcept -> llvm::Value * {
+        auto x_non_finite = builder.CreateIntrinsic(
+            llvm::Intrinsic::is_fpclass, {scalar_type},
+            {x, builder.getInt32(non_finite_mask)});
+        auto safe_x = builder.CreateSelect(
+            x_non_finite, llvm::ConstantFP::getZero(scalar_type), x);
+        auto remainder = builder.CreateCall(function, {safe_x, y});
+        return builder.CreateSelect(x_non_finite, quiet_nan, remainder);
+    };
+
     // Native OCML retains exponent-stepped range reduction and residual
     // correction even with fast math. Expose that body before IPO instead of
     // leaving FRem for late generic expansion, which misses the native RCP
@@ -30,12 +47,12 @@ llvm::Value *emit_hip_floating_remainder(
         for (auto lane = 0u; lane < vector_type->getNumElements(); lane++) {
             auto x = builder.CreateExtractElement(dividend, lane);
             auto y = builder.CreateExtractElement(divisor, lane);
-            auto remainder = builder.CreateCall(function, {x, y});
+            auto remainder = emit_lane(x, y);
             result = builder.CreateInsertElement(result, remainder, lane);
         }
         return result;
     }
-    return builder.CreateCall(function, {dividend, divisor});
+    return emit_lane(dividend, divisor);
 }
 
 }// namespace luisa::compute::hip

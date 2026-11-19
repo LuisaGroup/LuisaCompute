@@ -81,6 +81,7 @@ public:
         uint32_t push_constant_size = 32u,
         detail::ShaderCodegenDialect codegen_dialect =
             detail::ShaderCodegenDialect::HLSL_SPIRV,
-        bool enable_driver_optimization = true);
+        bool enable_driver_optimization = true,
+        vstd::string_view dump_name_override = {});
 };
 }// namespace lc::vk

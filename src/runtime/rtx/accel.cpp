@@ -46,8 +46,27 @@ Accel::Accel(Accel &&rhs) noexcept
     rhs._instance_count = 0;
 }
 
+Accel::Accel(Accel const &rhs) noexcept
+    : Resource{rhs},
+      _modifications{rhs._modifications},
+      _instance_count{rhs._instance_count} {}
+
 Accel &Accel::operator=(Accel &&rhs) noexcept {
-    _move_from(std::move(rhs));
+    if (this != &rhs) [[likely]] {
+        Resource::operator=(std::move(rhs));
+        _modifications = std::move(rhs._modifications);
+        _instance_count = rhs._instance_count;
+        rhs._instance_count = 0;
+    }
+    return *this;
+}
+
+Accel &Accel::operator=(Accel const &rhs) noexcept {
+    if (this != &rhs) [[likely]] {
+        Resource::operator=(rhs);
+        _modifications = rhs._modifications;
+        _instance_count = rhs._instance_count;
+    }
     return *this;
 }
 
@@ -63,14 +82,16 @@ bool Accel::dirty() const noexcept {
     return !_modifications.empty();
 }
 
-Accel::~Accel() noexcept {
-    if (!_modifications.empty()) {
-        LUISA_WARNING_WITH_LOCATION(
-            "Accel #{} destroyed with {} uncommitted modifications. "
-            "Did you forget to call build()?",
-            this->handle(), _modifications.size());
+void Accel::destroy() noexcept {
+    if (*this) {
+        if (!_modifications.empty()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "Accel #{} destroyed with {} uncommitted modifications. "
+                "Did you forget to call build()?",
+                this->handle(), _modifications.size());
+        }
+        device()->destroy_accel(handle());
     }
-    if (*this) { device()->destroy_accel(handle()); }
 }
 
 luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,

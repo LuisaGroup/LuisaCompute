@@ -136,6 +136,7 @@ private:
     bool _requires_printing{false};
     bool _use_cooperative_operations{false};
     bool _requires_noinline{false};
+    uint32_t _inline_outline_region_depth{0u};
     uint32_t _next_coro_suspend_token{1u};
     // Codegen Comment
     mutable luisa::string _name;
@@ -322,6 +323,21 @@ public:
     void set_name(luisa::string_view name) const noexcept;
     /// Require backends to retain calls to this function.
     void mark_noinline() noexcept;
+    /// Validate control-flow self-containment of an outlined callable body.
+    static void validate_outlined_callable_control_flow(const ScopeStmt *body) noexcept;
+    /// Commit an un-outlined ($outline_when(false)) region with identical control-flow semantics.
+    void commit_inline_outlined_region(ScopeStmt &&region) noexcept;
+    template<typename Body>
+    void record_inline_outlined_region(Body &&body) {
+        ScopeStmt region;
+        ++_inline_outline_region_depth;
+        {
+            ScopeGuard guard{this, &region};
+            std::forward<Body>(body)();
+        }
+        --_inline_outline_region_depth;
+        commit_inline_outlined_region(std::move(region));
+    }
     void set_variable_name(uint32_t id, luisa::string_view name) const noexcept;
     luisa::string_view get_variable_name(uint32_t uid) const noexcept;
 

@@ -30,7 +30,7 @@ ByteBuffer::ByteBuffer(DeviceInterface *device, size_t size_bytes) noexcept
               return info;
           }()} {}
 
-ByteBuffer::~ByteBuffer() noexcept {
+void ByteBuffer::destroy() noexcept {
     if (*this) { device()->destroy_buffer(handle()); }
 }
 

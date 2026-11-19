@@ -1376,6 +1376,12 @@ Stream graphics = device.create_stream(StreamTag::GRAPHICS);
 stream.set_name("my stream");
 ```
 
+#### Submission boundaries
+
+`copy_from()`, `copy_to()`, and shader `.dispatch()` create commands; they do not submit work by themselves. `Stream::operator<<` returns a `Stream::Delegate` that accumulates ordinary chained commands. Its destructor commits the list at the end of the full expression—normally the semicolon. Stream events and `synchronize()` flush pending commands before their own action; `commit()` flushes without synchronizing. Empty lists are not dispatched (`src/runtime/stream.cpp:14-34,58-113`).
+
+Consequently, `stream << a << b;` is one submission, while separate statements are separate submissions. Keeping a `Delegate` alive also keeps the commands uncommitted, so any borrowed host arguments must remain valid for that longer recording interval.
+
 ### Events
 
 ```cpp
@@ -1405,6 +1411,17 @@ auto view = buf.view(offset, count);
 auto elem_view = buf.view().as<float>();  // for atomic operations
 buf.set_name("vertex data");
 ```
+
+#### Host upload/download lifetime
+
+`BufferUploadCommand` and `BufferDownloadCommand` store raw host pointers; constructing a command does **not** copy or own the referenced host memory (`include/luisa/runtime/rhi/command.h:178-232`). Distinguish recording, dispatch/encoding, and GPU completion:
+
+- **Deferred recording:** an upload source in an unsubmitted `CommandList` must remain alive and unchanged until the list is actually dispatched. A download destination must remain alive and unaccessed until completion. Completion-retained staging is the conservative portable policy when the exact backend path is unknown.
+- **Current normal buffer-upload paths on DX, Vulkan, and CUDA:** backend dispatch synchronously copies the source into backend-owned upload staging before returning (`src/backends/dx/DXApi/LCCmdBuffer.cpp:882-898`, `src/backends/vk/stream.cpp:4100-4116`, `src/backends/cuda/cuda_command_encoder.cpp:71-82`). After a direct statement such as `stream << dst.view().copy_from(luisa::span{staging});` returns, those implementations allow `staging` to be rewritten or destroyed without waiting for GPU completion. Chunked upload loops therefore do not need a synchronize per chunk **on these verified paths**.
+- **Do not overgeneralize that implementation detail.** It does not make an uncommitted list safe, and it is not a blanket contract for other backends, textures, custom commands, or graph/serialization routes. Inspect the consumer before shortening the lifetime.
+- **Downloads are different:** the final copy into the caller's destination may occur asynchronously or in a backend completion callback. Do not read, rewrite, or destroy that destination until stream synchronization or a correctly ordered completion callback confirms completion.
+
+Stream ordering protects device-side producer/consumer reuse; it does not by itself extend a borrowed host pointer's lifetime.
 
 #### Buffer-to-Buffer Copy
 
@@ -1644,6 +1661,50 @@ stream << cmdlist.commit() << synchronize();
 ```
 
 > Prefer merging dispatch + transfers into one `CommandList` + single commit/synchronize over separate stream submissions.
+
+A non-empty, uncommitted list asserts in its destructor; the destructor never auto-commits. A wrapper that intentionally cancels recording on an error path must call `clear()` explicitly. `clear()` drops commands and callbacks (destructor callbacks are destroyed, not invoked) and resets the committed flag, so document this as discard semantics rather than silently losing work accidentally (`src/runtime/command_list.cpp:8-29`). It cannot cancel batches that were already committed; those may still be executing and must be included in the subsequent reset/synchronization plan.
+
+#### Deferred destruction via completion callbacks
+
+A `Resource` handle is reference-counted in the frontend, but the backend holds **no**
+reference of its own: dropping the last handle calls `device()->destroy_*` immediately, even
+while the GPU is still reading that object. `stream << kernel.dispatch(...); buffer = {};` is
+a use-after-free on the device.
+
+`Stream::operator<<` also accepts a `luisa::move_only_function<void()>`, and
+`CommandList::add_callback` queues the same thing for a list. Both run **after the batch has
+completed on the device** (`src/backends/cuda/cuda_stream.cpp:230` host function plus callback
+thread, `src/backends/vk/stream.cpp:2255` queued behind the command buffer,
+`src/backends/dx/DXApi/LCDevice.cpp:379`). A handle captured *by move* into that lambda dies
+exactly when the GPU is done with it — no `synchronize()`, no host stall:
+
+```cpp
+// give the buffer away: released on the backend's callback thread, GPU-idle
+stream << kernel.dispatch(n) << [out = std::move(out)] {};
+
+// same thing on an explicit list -- the canonical shape
+CommandList list = CommandList::create(1u, 1u);                     // (command, callback) reserve
+list << tlas.heap().update();
+list.add_callback([old = std::move(old)]() mutable { old = {}; });  // explicit release point
+stream << list.commit();
+```
+
+* **Not your thread.** The callback runs on the backend's worker/driver thread, never the
+  submitting one: no thread-locals, no UI, and never submit to or `synchronize()` the same
+  stream from inside it (self-deadlock).
+* **It ends the batch.** `Delegate::operator<<(cmd)` commits a pending callback first
+  (`src/runtime/stream.cpp:75`), so commands recorded after it form a new submission. Put the
+  callback where you want the boundary, normally last.
+* **Capture only what you retire, and move it in.** A copy also works — the object then dies
+  when that copy dies, i.e. at completion, while your local handle keeps it alive meanwhile.
+  Capturing a *moved* handle another owner still expects to use is a use-after-free;
+  `src/tests/integration/compute/lbvh/software_lbvh.cpp:154-172` shows why the callback owns
+  the moved buffers and why the new buffer is adopted *before* the commit.
+* **`add_dtor_callback` is not this.** It runs when the `CommandList` is destroyed — at commit,
+  long before the GPU is idle — so it is only for host temporaries whose bytes the recorded
+  commands already consumed (`include/luisa/runtime/builtin_kernel.h:59`).
+* **It queues.** Retiring thousands of buffers per frame without ever draining the stream keeps
+  every one of them alive; bound the pipeline with events or a per-frame sync.
 
 ### Native Shader Injection (`NativeShaderExt`)
 

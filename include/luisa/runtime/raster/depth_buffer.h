@@ -20,14 +20,11 @@ private:
 public:
     DepthBuffer() noexcept = default;
     DepthBuffer(DeviceInterface *device, RasterExt *raster_ext, DepthFormat format, uint2 size) noexcept;
-    ~DepthBuffer() noexcept;
+    ~DepthBuffer() noexcept override { _release(); }
     DepthBuffer(DepthBuffer &&) noexcept = default;
-    DepthBuffer(DepthBuffer const &) noexcept = delete;
-    DepthBuffer &operator=(DepthBuffer &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    DepthBuffer &operator=(DepthBuffer const &) noexcept = delete;
+    DepthBuffer(DepthBuffer const &) noexcept = default;
+    DepthBuffer &operator=(DepthBuffer &&rhs) noexcept = default;
+    DepthBuffer &operator=(DepthBuffer const &rhs) noexcept = default;
     using Resource::operator bool;
     using Resource::release;
     [[nodiscard]] auto size() const noexcept { return _size; }
@@ -35,6 +32,9 @@ public:
     [[nodiscard]] luisa::unique_ptr<Command> clear(float value) const noexcept;
     // to regular image type, try to write to this image in compute-kernel is illegal.
     [[nodiscard]] ImageView<float> to_img() noexcept;
+
+protected:
+    void destroy() noexcept override;
 };
 
 }// namespace luisa::compute

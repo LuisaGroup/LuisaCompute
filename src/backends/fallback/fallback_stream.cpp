@@ -125,6 +125,15 @@ void FallbackStream::_enqueue(luisa::unique_ptr<CustomCommand> cmd) noexcept {
 }
 
 void FallbackStream::dispatch(CommandList &&cmd_list) noexcept {
+    static const bool orig_stream_mode = []() noexcept {
+        if (const auto *s = std::getenv("LUISA_FALLBACK_BACKEND_SCHEDULER")) {
+            if (std::string_view{s} == "akari_orig") { return true; }
+        }
+        if (const auto *q = std::getenv("LUISA_FALLBACK_QUEUE_MODE")) {
+            if (std::string_view{q} == "orig") { return true; }
+        }
+        return false;
+    }();
     auto cmds = cmd_list.steal_commands();
     for (auto &&cmd : cmds) {
 #define LUISA_FALLBACK_STREAM_CAST_AND_ENQUEUE_COMMAND_CASE(COMMAND_TYPE) \
@@ -139,9 +148,12 @@ void FallbackStream::dispatch(CommandList &&cmd_list) noexcept {
         }
 #undef LUISA_FALLBACK_STREAM_CAST_AND_ENQUEUE_COMMAND_CASE
     }
-    dispatch([callbacks = cmd_list.steal_callbacks()] {
-        for (auto &&cb : callbacks) { cb(); }
-    });
+    auto callbacks = cmd_list.steal_callbacks();
+    if (orig_stream_mode || !callbacks.empty()) {
+        dispatch([callbacks = std::move(callbacks)] {
+            for (auto &&cb : callbacks) { cb(); }
+        });
+    }
 }
 
 void FallbackStream::dispatch(luisa::move_only_function<void()> &&f) noexcept {

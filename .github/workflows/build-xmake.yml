@@ -77,7 +77,8 @@ jobs:
       - name: "Setup LLVM"
         uses: ZhongRuoyu/setup-llvm@v0
         with:
-          llvm-version: 20
+          # VS 2026 / MSVC 14.52 headers require Clang 22 or newer.
+          llvm-version: 22
       - name: "Setup XMake"
         uses: xmake-io/github-action-setup-xmake@v1
       - name: "Configure and Build"

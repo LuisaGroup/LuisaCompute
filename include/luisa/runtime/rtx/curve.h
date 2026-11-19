@@ -77,14 +77,11 @@ private:
 
 public:
     Curve() noexcept = default;
-    ~Curve() noexcept override;
+    ~Curve() noexcept override { _release(); }
     Curve(Curve &&) noexcept = default;
-    Curve(const Curve &) noexcept = delete;
-    Curve &operator=(Curve &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    Curve &operator=(const Curve &) noexcept = delete;
+    Curve(const Curve &) noexcept = default;
+    Curve &operator=(Curve &&rhs) noexcept = default;
+    Curve &operator=(const Curve &rhs) noexcept = default;
     using Resource::operator bool;
     using Resource::release;
 
@@ -99,6 +96,9 @@ public:
 
 public:
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
+
+protected:
+    void destroy() noexcept override;
 };
 
 template<typename CPBuffer, typename SegmentBuffer>

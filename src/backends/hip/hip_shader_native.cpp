@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include "hip_device.h"
 #include "hip_buffer.h"
 #include "hip_texture.h"
@@ -116,6 +117,8 @@ public:
 
 luisa::vector<std::byte> hip_link_llvm_bitcode(
     luisa::string_view bitcode, const char *entry) noexcept {
+    static std::mutex linker_mutex;
+    std::scoped_lock lock{linker_mutex};
     Clock clock;
     HIPRTCLinkState linker;
     linker.add_llvm_bitcode(bitcode, entry);

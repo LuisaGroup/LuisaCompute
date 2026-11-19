@@ -147,17 +147,33 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         expr->rhs()->accept(*this);
         str << ')';
     } else if (op == BinaryOp::AND) {
-        str << "and(";
-        expr->lhs()->accept(*this);
-        str << ",";
-        expr->rhs()->accept(*this);
-        str << ")";
+        if (expr->type()->is_scalar() && !expression_has_call(expr->rhs())) {
+            str << "(";
+            expr->lhs()->accept(*this);
+            str << "&&";
+            expr->rhs()->accept(*this);
+            str << ")";
+        } else {
+            str << "and(";
+            expr->lhs()->accept(*this);
+            str << ",";
+            expr->rhs()->accept(*this);
+            str << ")";
+        }
     } else if (op == BinaryOp::OR) {
-        str << "or(";
-        expr->lhs()->accept(*this);
-        str << ",";
-        expr->rhs()->accept(*this);
-        str << ")";
+        if (expr->type()->is_scalar() && !expression_has_call(expr->rhs())) {
+            str << "(";
+            expr->lhs()->accept(*this);
+            str << "||";
+            expr->rhs()->accept(*this);
+            str << ")";
+        } else {
+            str << "or(";
+            expr->lhs()->accept(*this);
+            str << ",";
+            expr->rhs()->accept(*this);
+            str << ")";
+        }
     } else {
         str << "(";
         expr->lhs()->accept(*this);
@@ -178,10 +194,18 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
                 str << '%';
                 break;
             case BinaryOp::BIT_AND:
-                str << '&';
+                if (expr->type()->is_bool() && !expression_has_call(expr->rhs())) {
+                    str << "&&"sv;
+                } else {
+                    str << '&';
+                }
                 break;
             case BinaryOp::BIT_OR:
-                str << '|';
+                if (expr->type()->is_bool() && !expression_has_call(expr->rhs())) {
+                    str << "||"sv;
+                } else {
+                    str << '|';
+                }
                 break;
             case BinaryOp::BIT_XOR:
                 str << '^';

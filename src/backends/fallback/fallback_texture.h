@@ -276,6 +276,23 @@ inline void float4_to_r11g11b10(std::byte *p, float4 v) noexcept {
     return x <= 0.04045f ? x / 12.92f : std::pow((x + 0.055f) / 1.055f, 2.4f);
 }
 
+[[nodiscard]] inline const std::array<float, 256u> &srgb_byte_to_linear_lut() noexcept {
+    static const std::array<float, 256u> lut = []() noexcept {
+        std::array<float, 256u> t{};
+        for (uint32_t i = 0u; i < 256u; ++i) {
+            t[i] = srgb_to_linear(static_cast<float>(i) / 255.f);
+        }
+        return t;
+    }();
+    return lut;
+}
+
+[[nodiscard]] inline float4 pixel_srgb8_to_float4(const std::byte *pixel) noexcept {
+    const auto *v = reinterpret_cast<const uint8_t *>(pixel);
+    const auto &lut = srgb_byte_to_linear_lut();
+    return make_float4(lut[v[0]], lut[v[1]], lut[v[2]], static_cast<float>(v[3]) * (1.f / 255.f));
+}
+
 [[nodiscard]] inline float linear_to_srgb(float x) noexcept {
     return x <= 0.0031308f ? 12.92f * x : 1.055f * std::pow(x, 1.f / 2.4f) - 0.055f;
 }
@@ -315,8 +332,7 @@ template<typename T>
         case PixelStorage::BYTE4: return detail::read_pixel<T, uint8_t, 4u>(p);
         case PixelStorage::BYTE4_SRGB: {
             if constexpr (std::is_same_v<T, float>) {
-                auto v = detail::pixel_to_float4<uint8_t, 4u>(p);
-                return {srgb_to_linear(v.x), srgb_to_linear(v.y), srgb_to_linear(v.z), v.w};
+                return detail::pixel_srgb8_to_float4(p);
             } else {
                 return detail::read_pixel<T, uint8_t, 4u>(p);
             }

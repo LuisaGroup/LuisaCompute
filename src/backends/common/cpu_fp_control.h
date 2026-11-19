@@ -4,7 +4,23 @@
 
 #include <luisa/core/intrin.h>
 
+#if defined(_MSC_VER) && defined(LUISA_ARCH_ARM64) && !defined(__clang__)
+#include <intrin.h>
+#endif
+
 namespace luisa::compute::cpu {
+
+inline void cpu_pause() noexcept {
+#if defined(LUISA_ARCH_X86_64) || defined(_M_X64) || defined(__x86_64__)
+    _mm_pause();
+#elif defined(LUISA_ARCH_ARM64) || defined(_M_ARM64) || defined(__aarch64__)
+#if defined(_MSC_VER) && !defined(__clang__)
+    __yield();
+#else
+    asm volatile("yield" ::: "memory");
+#endif
+#endif
+}
 
 // Save status as well as control bits so a fast shader does not leak floating-
 // point state into its caller, another dispatch, or a user log callback.
@@ -17,18 +33,40 @@ struct CPUFloatingPointState {
         return {.control = _mm_getcsr()};
 #elif defined(LUISA_ARCH_ARM64)
         CPUFloatingPointState state;
+#if defined(_MSC_VER) && !defined(__clang__)
+        state.control = static_cast<uint64_t>(_ReadStatusReg(ARM64_FPCR));
+        state.status = static_cast<uint64_t>(_ReadStatusReg(ARM64_FPSR));
+#else
         asm volatile("mrs %0, FPCR" : "=r"(state.control) :: "memory");
         asm volatile("mrs %0, FPSR" : "=r"(state.status) :: "memory");
+#endif
         return state;
+#else
+        return {};
 #endif
     }
 
     void apply() const noexcept {
 #if defined(LUISA_ARCH_X86_64)
-        _mm_setcsr(static_cast<uint32_t>(control));
+        const auto target = static_cast<uint32_t>(control);
+        if (_mm_getcsr() != target) {
+            _mm_setcsr(target);
+        }
 #elif defined(LUISA_ARCH_ARM64)
-        asm volatile("msr FPCR, %0\n\tisb" :: "r"(control) : "memory");
+#if defined(_MSC_VER) && !defined(__clang__)
+        if (static_cast<uint64_t>(_ReadStatusReg(ARM64_FPCR)) != control) {
+            _WriteStatusReg(ARM64_FPCR, static_cast<__int64>(control));
+            __isb(_ARM64_BARRIER_SY);
+        }
+        _WriteStatusReg(ARM64_FPSR, static_cast<__int64>(status));
+#else
+        uint64_t current_fpcr = 0u;
+        asm volatile("mrs %0, FPCR" : "=r"(current_fpcr) :: "memory");
+        if (current_fpcr != control) {
+            asm volatile("msr FPCR, %0\n\tisb" :: "r"(control) : "memory");
+        }
         asm volatile("msr FPSR, %0" :: "r"(status) : "memory");
+#endif
 #endif
     }
 
