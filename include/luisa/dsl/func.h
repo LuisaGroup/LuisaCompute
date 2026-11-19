@@ -626,16 +626,45 @@ namespace detail {
 
 struct CallableOutliner {
     luisa::string _name;
+    bool _enabled{true};
     bool _requires_noinline{false};
     template<typename F>
     void operator%(F &&body) && noexcept;
 };
 
+template<typename Cond>
+[[nodiscard]] constexpr bool evaluate_outline_when_condition(Cond &&cond) noexcept {
+    using RawCond = std::remove_cvref_t<Cond>;
+    static_assert(
+        !is_dsl_v<RawCond>,
+        "$outline_when condition must be a host bool evaluated at AST recording time, "
+        "not a device DSL expression (use $if for runtime device branching).");
+    static_assert(
+        std::is_constructible_v<bool, Cond>,
+        "$outline_when condition must be explicitly convertible to host bool.");
+    return static_cast<bool>(std::forward<Cond>(cond));
+}
+
 }// namespace detail
 
 template<typename F>
 void outline(F &&f) noexcept {
-    return Callable{std::forward<F>(f)}();
+    detail::CallableOutliner{} % std::forward<F>(f);
+}
+
+template<typename F>
+void outline_noinline(F &&f) noexcept {
+    detail::CallableOutliner out{};
+    out._requires_noinline = true;
+    std::move(out) % std::forward<F>(f);
+}
+
+template<typename Cond, typename F>
+void outline_when(Cond &&cond, F &&f) noexcept {
+    detail::CallableOutliner out{};
+    out._enabled = detail::evaluate_outline_when_condition(std::forward<Cond>(cond));
+    out._requires_noinline = true;
+    std::move(out) % std::forward<F>(f);
 }
 
 namespace detail {
@@ -663,6 +692,25 @@ template<typename S>
     comment(std::forward<S>(s));
     CallableOutliner out{};
     out._name = name;
+    out._requires_noinline = true;
+    return out;
+}
+template<typename Cond, typename S>
+[[nodiscard]] inline auto outliner_when_with_comment(Cond &&cond, S &&s) noexcept {
+    const bool enabled = evaluate_outline_when_condition(std::forward<Cond>(cond));
+    if (enabled) { comment(std::forward<S>(s)); }
+    CallableOutliner out{};
+    out._enabled = enabled;
+    out._requires_noinline = true;
+    return out;
+}
+template<typename Cond, typename S>
+[[nodiscard]] inline auto outliner_when_with_comment(Cond &&cond, luisa::string_view name, S &&s) noexcept {
+    const bool enabled = evaluate_outline_when_condition(std::forward<Cond>(cond));
+    if (enabled) { comment(std::forward<S>(s)); }
+    CallableOutliner out{};
+    out._name = name;
+    out._enabled = enabled;
     out._requires_noinline = true;
     return out;
 }
@@ -722,12 +770,17 @@ Lambda(S &&, F &&) -> Lambda<detail::canonical_signature_t<std::remove_cvref_t<F
 namespace detail {
 template<typename F>
 inline void CallableOutliner::operator%(F &&body) && noexcept {
+    if (!_enabled) {
+        FunctionBuilder::current()->record_inline_outlined_region(std::forward<F>(body));
+        return;
+    }
     Callable c{[&body, requires_noinline = _requires_noinline]() noexcept {
         if (requires_noinline) {
             FunctionBuilder::current()->mark_noinline();
         }
         body();
     }};
+    FunctionBuilder::validate_outlined_callable_control_flow(c.function_builder()->body());
     if (!_name.empty()) { c.set_name(_name); }
     c();
 }

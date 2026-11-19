@@ -524,6 +524,20 @@ inline void suspend_impl(uint32_t token, const char *name,
         function_name,                                                              \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
         [&]() noexcept -> void
+#define $outline_when(condition)                                                    \
+    ::luisa::compute::detail::outliner_when_with_comment(                           \
+        (condition),                                                                \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
+        [&]() noexcept -> void
+#define $outline_when_with_name(condition, function_name)                           \
+    ::luisa::compute::detail::outliner_when_with_comment(                           \
+        (condition),                                                                \
+        function_name,                                                              \
+        ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
+        [&]() noexcept -> void
+#define $outline_noinline_when(condition) $outline_when(condition)
+#define $outline_noinline_when_with_name(condition, function_name)                  \
+    $outline_when_with_name(condition, function_name)
 
 #define $lambda(...)                                                              \
     (::luisa::compute::Lambda{                                                    \
