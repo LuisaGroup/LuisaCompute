@@ -136,6 +136,44 @@ int main() {
         auto *loaded_v3 = b_caller.load(vec3_ty, ref_slot);
         b_caller.return_(loaded_v3);
     }
+    // Cached post-Coro XIR preserves struct/array ArithmeticOp::AGGREGATE
+    // instructions (e.g., Ray = struct<16, array<float,3>, float, array<float,3>, float>).
+    // Verify fallback codegen lowers array and padded/vector-bearing struct
+    // aggregates cleanly on both host and AArch64 targets.
+    {
+        auto *f32_ty = Type::of<float>();
+        auto *u8_ty = Type::of<uint8_t>();
+        auto *f2_ty = Type::of<luisa::float2>();
+        auto *f3_ty = Type::of<luisa::float3>();
+        auto *arr_f3_ty = Type::array(f32_ty, 3u);
+        auto *arr_vec3_ty = Type::array(f3_ty, 2u);
+        auto *ray_ty = Type::structure(16u, {arr_f3_ty, f32_ty, arr_f3_ty, f32_ty});
+        auto *padded_ty = Type::structure(16u, {u8_ty, f3_ty, f2_ty, arr_vec3_ty});
+
+        auto *fn = input.create_callable(f32_ty);
+        fn->set_name("aggregate_struct_array_probe");
+        auto *a = fn->create_value_argument(f32_ty);
+        auto *b_val = fn->create_value_argument(f32_ty);
+        auto *tag = fn->create_value_argument(u8_ty);
+        auto *v2 = fn->create_value_argument(f2_ty);
+        auto *v3 = fn->create_value_argument(f3_ty);
+        xir::XIRBuilder b_agg;
+        b_agg.set_insertion_point(fn->create_body_block());
+        auto *origin_arr = b_agg.call(arr_f3_ty, xir::ArithmeticOp::AGGREGATE, {a, b_val, a});
+        auto *dir_arr = b_agg.call(arr_f3_ty, xir::ArithmeticOp::AGGREGATE, {b_val, a, b_val});
+        auto *ray = b_agg.call(ray_ty, xir::ArithmeticOp::AGGREGATE, {origin_arr, a, dir_arr, b_val});
+        auto *vec_arr = b_agg.call(arr_vec3_ty, xir::ArithmeticOp::AGGREGATE, {v3, v3});
+        auto *padded = b_agg.call(padded_ty, xir::ArithmeticOp::AGGREGATE, {tag, v3, v2, vec_arr});
+        auto k0 = 0u, k1 = 1u, k3 = 3u;
+        auto *c0 = input.create_constant(Type::of<uint32_t>(), &k0);
+        auto *c1 = input.create_constant(Type::of<uint32_t>(), &k1);
+        auto *c3 = input.create_constant(Type::of<uint32_t>(), &k3);
+        auto *r_tmax = b_agg.call(f32_ty, xir::ArithmeticOp::EXTRACT, {ray, c3});
+        auto *p_v3 = b_agg.call(f3_ty, xir::ArithmeticOp::EXTRACT, {padded, c1});
+        auto *p_x = b_agg.call(f32_ty, xir::ArithmeticOp::EXTRACT, {p_v3, c0});
+        auto *sum = b_agg.call(f32_ty, xir::ArithmeticOp::BINARY_ADD, {r_tmax, p_x});
+        b_agg.return_(sum);
+    }
     static_cast<void>(fallback::luisa_fallback_backend_codegen(context, &output, &input, false));
     if (llvm::verifyModule(output, &llvm::errs())) { return 1; }
     auto passed = true;

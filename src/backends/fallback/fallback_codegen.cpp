@@ -2004,18 +2004,35 @@ private:
         return b.CreateAlignedStore(llvm_value, llvm_ptr, llvm::MaybeAlign{alignment});
     }
 
+    [[nodiscard]] llvm::Value *_convert_register_to_memory_value(IRBuilder &b, const Type *t,
+                                                                 llvm::Value *value) noexcept {
+        if (t->is_vector()) {
+            auto llvm_mem_type = _translate_type(t, false);
+            auto llvm_array = llvm::cast<llvm::Value>(llvm::ConstantAggregateZero::get(llvm_mem_type));
+            for (auto j = 0u; j < t->dimension(); j++) {
+                auto llvm_elem = b.CreateExtractElement(value, j);
+                llvm_array = b.CreateInsertValue(llvm_array, llvm_elem, {j});
+            }
+            return llvm_array;
+        }
+        LUISA_DEBUG_ASSERT(value->getType() == _translate_type(t, false),
+                           "Register and memory LLVM types must match for non-vector type.");
+        return value;
+    }
+
     [[nodiscard]] llvm::Value *_translate_aggregate(CurrentFunction &current, IRBuilder &b,
                                                     const xir::ArithmeticInst *inst) noexcept {
         auto type = inst->type();
-        auto elem_type = type->element();
-        auto dim = type->dimension();
         if (type->is_vector()) {
+            auto elem_type = type->element();
+            auto dim = type->dimension();
+            LUISA_ASSERT(inst->operand_count() == dim, "vector aggregate operand count doesn't match");
             auto llvm_elem_type = _translate_type(elem_type, true);
 
             auto llvm_return_type = llvm::VectorType::get(llvm_elem_type, dim, false);
 
             auto vector = llvm::cast<llvm::Value>(llvm::PoisonValue::get(llvm_return_type));
-            for (int i = 0; i < dim; i++) {
+            for (auto i = 0u; i < dim; i++) {
                 auto operand = inst->operand(i);
                 LUISA_ASSERT(operand->type() == elem_type, "element type doesn't match");
                 auto llvm_operand = _lookup_value(current, b, operand);
@@ -2027,6 +2044,9 @@ private:
         }
 
         if (type->is_matrix()) {
+            auto elem_type = type->element();
+            auto dim = type->dimension();
+            LUISA_ASSERT(inst->operand_count() == dim, "matrix aggregate operand count doesn't match");
             auto llvm_matrix_type = _translate_type(type, true);
             auto llvm_matrix = llvm::cast<llvm::Value>(llvm::PoisonValue::get(llvm_matrix_type));
             for (auto i = 0u; i < dim; i++) {
@@ -2042,6 +2062,41 @@ private:
                 }
             }
             return llvm_matrix;
+        }
+
+        if (type->is_array()) {
+            auto elem_type = type->element();
+            auto dim = type->dimension();
+            LUISA_ASSERT(inst->operand_count() == dim, "array aggregate operand count doesn't match");
+            auto llvm_array_type = _translate_type(type, true);
+            auto llvm_array = llvm::cast<llvm::Value>(llvm::PoisonValue::get(llvm_array_type));
+            for (auto i = 0u; i < dim; i++) {
+                auto operand = inst->operand(i);
+                LUISA_ASSERT(operand->type() == elem_type, "array element type doesn't match");
+                auto llvm_operand = _convert_register_to_memory_value(
+                    b, elem_type, _lookup_value(current, b, operand));
+                llvm_array = b.CreateInsertValue(llvm_array, llvm_operand, {i});
+            }
+            return llvm_array;
+        }
+
+        if (type->is_structure()) {
+            auto llvm_struct_info = _translate_struct_type(type);
+            auto members = type->members();
+            LUISA_ASSERT(inst->operand_count() == members.size(),
+                         "structure aggregate operand count doesn't match");
+            auto llvm_struct = llvm::cast<llvm::Value>(
+                llvm::ConstantAggregateZero::get(llvm_struct_info->type));
+            for (auto i = 0u; i < members.size(); i++) {
+                auto member_type = members[i];
+                auto operand = inst->operand(i);
+                LUISA_ASSERT(operand->type() == member_type, "structure member type doesn't match");
+                auto llvm_operand = _convert_register_to_memory_value(
+                    b, member_type, _lookup_value(current, b, operand));
+                llvm_struct = b.CreateInsertValue(
+                    llvm_struct, llvm_operand, {llvm_struct_info->padded_field_indices[i]});
+            }
+            return llvm_struct;
         }
 
         LUISA_NOT_IMPLEMENTED();
