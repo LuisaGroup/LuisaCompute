@@ -1210,7 +1210,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
                  environment_flag_enabled(
                      "LUISA_XIR2AST_VERIFY_VALUE_MAP_CHECKPOINTS"),
              .verification_transaction =
-                 &verification_transaction});
+                 &verification_transaction,
+             .cache_transformed_functions = true});
     LUISA_ASSERT(
         verification_transaction.output_boundary_checked(),
         "Coroutine XIR-to-AST translation did not close the enclosing pass "

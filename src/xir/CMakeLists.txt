@@ -58,6 +58,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         metadata/no_inline.cpp
 
         # translators
+        translators/ast_xir_cache_clone.cpp
         translators/ast2xir.cpp
         translators/ast2xir_inline_ray_query.cpp
         translators/json2xir.cpp

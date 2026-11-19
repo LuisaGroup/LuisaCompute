@@ -12,12 +12,21 @@ namespace luisa::compute::xir {
 
 class AST2XIRContext;
 
+struct AST2XIRTranslationStatistics {
+    size_t ast_function_translations{0u};
+    size_t cached_function_imports{0u};
+    size_t function_reuses{0u};
+};
+
 struct AST2XIRConfig {
     // Preserve a canonical DSL `$while (query.proceed())` candidate dispatch
     // directly as RayQueryLoopInst. Disabling this is a diagnostic oracle for
     // the legacy generic-loop plus reconstruction route.
     bool preserve_inline_ray_query_loops{true};
     luisa::optional<RasterStage> raster_stage;
+    // Diagnostic oracle and opt-out for clients requiring literal AST lowering.
+    bool use_transformed_function_cache{true};
+    AST2XIRTranslationStatistics *statistics{nullptr};
 };
 
 using ASTFunction = compute::Function;

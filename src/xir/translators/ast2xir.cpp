@@ -12,7 +12,10 @@
 #include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/translators/ast2xir.h>
 
+#include <luisa/ast/function_builder.h>
 #include "ast2xir_inline_ray_query.h"
+#include "ast_xir_cache.h"
+#include "ast_xir_cache_clone.h"
 
 namespace luisa::compute::xir {
 
@@ -132,6 +135,9 @@ private:
     [[maybe_unused]] AST2XIRConfig _config;
     luisa::unique_ptr<Module> _module;
     luisa::unordered_map<const compute::detail::FunctionBuilder *, Function *> _generated_functions;
+    luisa::unique_ptr<AstXirCacheCloner> _cache_importer;
+    // Importer memoization keys refer to immutable source values.
+    luisa::vector<luisa::shared_ptr<const ASTFunctionCache>> _cache_owners;
     luisa::unordered_map<uint64_t, Function *> _generated_callable_definitions;
     luisa::unordered_map<uint64_t, ExternalFunction *> _generated_external_functions;
     luisa::unordered_map<ConstantData, Constant *> _generated_constants;
@@ -1981,6 +1987,7 @@ private:
     }
 
     void _translate_current_function() noexcept {
+        if (_config.statistics) { _config.statistics->ast_function_translations++; }
         _prepare_inline_ray_query_loops();
         // create the body block
         XIRBuilder b;
@@ -2048,13 +2055,31 @@ public:
         // hash; kernels and coroutines remain distinct entry points.
         if (auto iter = _generated_functions.find(f.builder());
             iter != _generated_functions.end()) {
+            if (_config.statistics) { _config.statistics->function_reuses++; }
             return iter->second;
         }
         if (f.tag() == ASTFunction::Tag::CALLABLE) {
             if (auto iter = _generated_callable_definitions.find(f.hash());
                 iter != _generated_callable_definitions.end()) {
                 _generated_functions.emplace(f.builder(), iter->second);
+                if (_config.statistics) { _config.statistics->function_reuses++; }
                 return iter->second;
+            }
+        }
+        // Only the canonical translator policy is compatible with preserved
+        // XIR. Diagnostic legacy ray-query and raster paths keep AST lowering.
+        if (_config.use_transformed_function_cache &&
+            _config.preserve_inline_ray_query_loops && !_config.raster_stage.has_value()) {
+            if (auto cache = f.builder()->_xir_cache) {
+                if (!_cache_importer) { _cache_importer = luisa::make_unique<AstXirCacheCloner>(*_module); }
+                _cache_owners.emplace_back(cache);
+                auto *imported = _cache_importer->import(cache->root);
+                _generated_functions.emplace(f.builder(), imported);
+                if (f.tag() == ASTFunction::Tag::CALLABLE) {
+                    _generated_callable_definitions.try_emplace(f.hash(), imported);
+                }
+                if (_config.statistics) { _config.statistics->cached_function_imports++; }
+                return imported;
             }
         }
         auto [iter, just_inserted] =

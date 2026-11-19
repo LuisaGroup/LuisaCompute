@@ -1471,6 +1471,23 @@ luisa_compute_add_test(test_dsl_slp_vectorization unit/runtime/test_dsl_slp_vect
 luisa_compute_add_test(test_dsl_xir_optimize_vk unit/runtime/test_dsl_xir_optimize_vk.cpp)
 
 # --- unit/xir: standalone tests (no backend needed, auto-run via CTest) ---
+luisa_compute_add_test(test_ast_xir_cache unit/xir/test_ast_xir_cache.cpp LABELS "unit;unit_xir")
+target_include_directories(test_ast_xir_cache PRIVATE ../backends/common)
+luisa_compute_add_test(test_xir_cache_clone unit/xir/test_xir_cache_clone.cpp LABELS "unit;unit_xir")
+target_include_directories(test_xir_cache_clone PRIVATE ../xir/translators)
+target_sources(test_xir_cache_clone PRIVATE ../xir/translators/ast_xir_cache_clone.cpp)
+luisa_compute_add_test(test_coro_xir_cache unit/coro/test_coro_xir_cache.cpp LABELS "unit;unit_coro;unit_xir")
+if (TARGET luisa-compute-backend-fallback)
+    add_dependencies(test_ast_xir_cache luisa-compute-backend-fallback)
+    add_test(NAME test_ast_xir_cache_fallback COMMAND test_ast_xir_cache fallback)
+    set_tests_properties(test_ast_xir_cache_fallback PROPERTIES
+            LABELS "integration;integration_fallback;integration_xir" TIMEOUT 180)
+    add_dependencies(test_coro_xir_cache luisa-compute-backend-fallback)
+    add_test(NAME test_coro_xir_cache_fallback COMMAND test_coro_xir_cache fallback)
+    set_tests_properties(test_coro_xir_cache_fallback PROPERTIES
+            LABELS "integration;integration_fallback;integration_coro" TIMEOUT 180)
+endif ()
+
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_ast_pack_usage unit/xir/test_ast_pack_usage.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_ast_external_lowering unit/xir/test_ast_external_lowering.cpp LABELS "unit;unit_xir")
