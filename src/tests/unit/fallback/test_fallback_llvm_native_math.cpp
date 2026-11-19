@@ -268,10 +268,18 @@ void add_entry_wrapper(
     ::llvm::IRBuilder<> builder{entry};
     auto *vector_type = ::llvm::FixedVectorType::get(
         builder.getFloatTy(), width);
-    auto *input = builder.CreateAlignedLoad(
+    ::llvm::Value *input = builder.CreateAlignedLoad(
         vector_type, wrapper->getArg(0u), ::llvm::Align{4u});
-    auto *secondary = builder.CreateAlignedLoad(
+    ::llvm::Value *secondary = builder.CreateAlignedLoad(
         vector_type, wrapper->getArg(1u), ::llvm::Align{4u});
+    // Internal float3 callables use the padded float4 ABI. Keep the host
+    // wrapper's loads/stores at three lanes so its buffers remain in bounds.
+    if (width == 3u) {
+        input = builder.CreateShuffleVector(input, ::llvm::PoisonValue::get(vector_type),
+                                             std::array<int, 4u>{0, 1, 2, 0});
+        secondary = builder.CreateShuffleVector(secondary, ::llvm::PoisonValue::get(vector_type),
+                                                 std::array<int, 4u>{0, 1, 2, 0});
+    }
     ::llvm::SmallVector<::llvm::Value *, 8u> arguments;
     arguments.emplace_back(input);
     if (is_binary(operation)) {
@@ -282,9 +290,14 @@ void add_entry_wrapper(
             native->getFunctionType()->getParamType(i)));
     }
     auto *result = builder.CreateCall(native, arguments);
-    result->setCallingConv(::llvm::CallingConv::Fast);
+    result->setCallingConv(native->getCallingConv());
+    ::llvm::Value *stored = result;
+    if (width == 3u) {
+        stored = builder.CreateShuffleVector(result, ::llvm::PoisonValue::get(result->getType()),
+                                              std::array<int, 3u>{0, 1, 2});
+    }
     builder.CreateAlignedStore(
-        result, wrapper->getArg(2u), ::llvm::Align{4u});
+        stored, wrapper->getArg(2u), ::llvm::Align{4u});
     builder.CreateRetVoid();
 }
 
@@ -353,7 +366,8 @@ template<size_t Width, Operation Op>
     CHECK(entry != nullptr);
     alignas(16) std::array<float, Width> input{};
     alignas(16) std::array<float, Width> secondary{};
-    alignas(16) std::array<float, Width> output{};
+    alignas(16) std::array<float, Width + 1u> output{};
+    output[Width] = 12345.0f;
     constexpr std::array general_values{
         -0.0f, 0.5f, 39001.25f, -1.0e10f};
     constexpr std::array unit_values{
@@ -394,6 +408,7 @@ template<size_t Width, Operation Op>
         }
     }
     entry(input.data(), secondary.data(), output.data());
+    CHECK(output[Width] == 12345.0f);
     for (auto lane = size_t{0u}; lane < Width; lane++) {
         auto expected = reference<Op>(input[lane], secondary[lane]);
         auto matches = fast_math ?
@@ -657,10 +672,33 @@ template<typename Options>
                                       "u35" :
                                       "u10";
             for (auto width : {2u, 3u, 4u}) {
-                CHECK(ir.find("__luisa_cpu_native_" +
-                              std::string{provider} + "_f32_v" +
-                              std::to_string(width) + "_" + suffix) !=
-                      std::string::npos);
+                const auto provider_width = width == 3u ? 4u : width;
+                const auto provider_name = "__luisa_cpu_native_" +
+                                           std::string{provider} + "_f32_v" +
+                                           std::to_string(provider_width) + "_" + suffix;
+                auto *function = shape.module->getFunction(function_name(operation, width));
+                CHECK(function != nullptr);
+                auto found_provider = false;
+                auto found_widen = false;
+                auto found_narrow = false;
+                for (auto &block : *function) {
+                    for (auto &inst : block) {
+                        if (auto *call = ::llvm::dyn_cast<::llvm::CallBase>(&inst)) {
+                            auto *callee = call->getCalledFunction();
+                            found_provider |= callee != nullptr && callee->getName() == provider_name;
+                        }
+                        if (auto *shuffle = ::llvm::dyn_cast<::llvm::ShuffleVectorInst>(&inst)) {
+                            auto mask = shuffle->getShuffleMask();
+                            found_widen |= mask == ::llvm::ArrayRef<int>{0, 1, 2, 0};
+                            found_narrow |= mask == ::llvm::ArrayRef<int>{0, 1, 2};
+                        }
+                    }
+                }
+                CHECK(found_provider);
+                if (width == 3u) {
+                    CHECK(found_widen && found_narrow);
+                    CHECK(ir.find("__luisa_cpu_native_" + std::string{provider} + "_f32_v3_") == std::string::npos);
+                }
                 CHECK(ir.find("llvm." +
                               std::string{operation_name(operation)} + ".v" +
                               std::to_string(width) + "f32") ==
@@ -679,7 +717,8 @@ template<typename Options>
         CHECK(shape.canonicalized_radix_pow_count ==
               (fast_math ? 6u : 0u));
         auto ir = module_text(*shape.module);
-        for (auto width : {2u, 3u, 4u}) {
+        // Float3 lowering shares the float4 provider, never a v3 provider.
+        for (auto width : {2u, 4u}) {
             auto width_suffix =
                 "_f32_v" + std::to_string(width) + "_fast";
             if (fast_math) {
@@ -700,6 +739,7 @@ template<typename Options>
     for (auto fast_math : {false, true}) {
         auto assembly_module = make_math_module(fast_math);
         add_entry_wrappers(*assembly_module.module);
+        CHECK(!::llvm::verifyModule(*assembly_module.module, &::llvm::errs()));
         simd::LLVMJIT assembly_target;
         CHECK(assembly_target.succeeded());
         auto assembly = assembly_target.emit_assembly(
@@ -735,6 +775,7 @@ template<typename Options>
     for (auto fast_math : {false, true}) {
         auto executable = make_math_module(fast_math);
         add_entry_wrappers(*executable.module);
+        CHECK(!::llvm::verifyModule(*executable.module, &::llvm::errs()));
         simd::LLVMJIT jit;
         CHECK(jit.succeeded());
         CHECK(jit.add_module(
