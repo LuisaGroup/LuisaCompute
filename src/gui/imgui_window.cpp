@@ -286,6 +286,14 @@ private:
     luisa::unordered_map<GLFWwindow *, luisa::unique_ptr<Swapchain>> _platform_swapchains;
     luisa::unordered_map<GLFWwindow *, luisa::unique_ptr<Image<float>>> _platform_framebuffers;
 
+    enum class RenderMode : uint32_t {
+        HARDWARE_RASTER,
+        COMPUTE_RASTER,
+        RAY_TRACED,
+    };
+
+    static constexpr uint compute_tile_size = 16u;
+
     // for rendering
     Shader2D<Image<float>, float3> _clear_shader;
     Shader2D<Image<float> /* framebuffer */,
@@ -296,33 +304,45 @@ private:
              BindlessArray /* textures */,
              Buffer<float4> /* clip rectangles */>
         _render_shader;
+    // Tiled compute 2D rasterizer: renders ImGui triangles in exact
+    // front-to-back submission order using a per-tile CSR triangle list and a
+    // watertight IEEE-754 top-left edge test. Used on backends without a
+    // JIT-capable RasterExt (e.g. HIP, CUDA, Vulkan, fallback) so ImGui works
+    // without requiring ray-tracing support or per-frame BVH rebuilds.
+    Shader2D<Image<float> /* framebuffer */,
+             uint /* tiles_x */,
+             Buffer<uint> /* tile_offsets */,
+             Buffer<uint> /* tile_tri_indices */,
+             Buffer<Vertex> /* vertices */,
+             BindlessArray /* textures */,
+             Buffer<float4> /* clip rectangles */>
+        _compute_render_shader;
     Accel _accel;
     uint64_t _mesh_handle{~0ull};
     Buffer<Vertex> _vertex_buffer;
     Buffer<Triangle> _triangle_buffer;
     Buffer<float4> _clip_buffer;
+    Buffer<uint> _tile_offset_buffer;
+    Buffer<uint> _tile_tri_index_buffer;
 
     // Hardware rasterization renderer: replaces the per-frame acceleration
     // structure / mesh build and the per-pixel ray-marched depth peeling of the
     // path above with indexed-free triangle draws (no BVH, no ray query). A
-    // `RasterKernel` is compiled once against the fixed GUIMeshVertex layout;
-    // the ray-tracing resources stay so the renderer falls back to the legacy
-    // path on backends without a working JIT raster pipeline (Vulkan's raster
-    // path is AOT-only, see VkRasterExt::create_raster_shader). GUI triangles
-    // are emitted in ImGui's back-to-front submission order and composited with
-    // hardware premultiplied-alpha blending (dst = src + dst * (1 - src.a)),
-    // reproducing the ray path's accumulation without reading the render target
-    // inside the pixel stage. The vertex stage emits clip-space positions with
-    // w == 1 (affine varyings); the scissor rectangle is applied through an
-    // interpolated pixel-coordinate varying because the DSL has no
-    // fragment-coordinate builtin and the SV_Position convention differs per
-    // backend.
+    // `RasterKernel` is compiled once against the fixed GUIMeshVertex layout.
+    // GUI triangles are emitted in ImGui's back-to-front submission order and
+    // composited with hardware premultiplied-alpha blending
+    // (dst = src + dst * (1 - src.a)), reproducing the ray path's accumulation
+    // without reading the render target inside the pixel stage. The vertex
+    // stage emits clip-space positions with w == 1 (affine varyings); the
+    // scissor rectangle is applied through an interpolated pixel-coordinate
+    // varying because the DSL has no fragment-coordinate builtin and the
+    // SV_Position convention differs per backend.
     RasterShader<float2 /* framebuffer size */,
                  float /* Y flip (+1 or -1) */,
                  BindlessArray /* textures */>
         _raster_shader;
     MeshFormat _mesh_format;
-    bool _rasterization_enabled{false};
+    RenderMode _render_mode{RenderMode::COMPUTE_RASTER};
     // +1 or -1: maps ImGui's top-left screen origin to the rasterizer's NDC
     // convention (which framebuffer row a top-left pixel lands on). DX needs
     // +1; Vulkan needs -1 (overridable with LUISA_GUI_RASTER_FLIP).
@@ -331,8 +351,13 @@ private:
     // power-of-two capacity); no index buffer is required.
     Buffer<detail::GUIMeshVertex> _raster_vertex_buffer;
     // persistent host scratch reused across frames to avoid per-frame
-    // allocations of the staging vector.
+    // allocations of the staging vectors.
     luisa::vector<detail::GUIMeshVertex> _raster_vertices;
+    luisa::vector<uint4> _tile_tri_bounds;
+    luisa::vector<uint> _tile_counts;
+    luisa::vector<uint> _tile_offsets;
+    luisa::vector<uint> _tile_cursors;
+    luisa::vector<uint> _tile_tri_indices;
 
 private:
     template<typename F>
@@ -434,7 +459,7 @@ private:
     /// extension at all (CUDA, HIP and the fallback backend expose none), and the
     /// extension must be JIT-capable (Vulkan exposes one, but its
     /// `create_raster_shader` is AOT-only -- VkRasterExt asserts `compile_only`).
-    /// Backends failing this test keep the legacy ray-tracing renderer and never
+    /// Backends failing this test use the tiled compute rasterizer and never
     /// touch a raster resource.
     [[nodiscard]] static bool _rasterization_possible(Device &device) noexcept {
         if (device.extension<RasterExt>() == nullptr) { return false; }
@@ -465,13 +490,15 @@ private:
                 .back_buffer_count = _config.back_buffers};
             sc = _device.create_swapchain(_stream, sc_options);
             // The framebuffer is the color target of the hardware raster renderer
-            // only while raster mode is active, so render-target support is
-            // requested only then: creating it without the flag would make the
+            // only while hardware raster mode is active, so render-target support
+            // is requested only then: creating it without the flag would make the
             // backend unable to bind it as an RTV (on DX the device is removed
             // with DXGI_ERROR_INVALID_CALL when the raster pipeline is created),
-            // while asking for the flag on a backend that renders through the
-            // ray-tracing path is a raster request that backend may not support.
-            fb = _device.create_image<float>(sc.backend_storage(), size, 1u, false, _rasterization_enabled);
+            // while asking for the flag on a backend that renders through compute
+            // or ray tracing is a raster request that backend may not support.
+            fb = _device.create_image<float>(
+                sc.backend_storage(), size, 1u, false,
+                _render_mode == RenderMode::HARDWARE_RASTER);
         }
     }
     void _on_imgui_create_window(ImGuiViewport *vp) noexcept {
@@ -526,23 +553,47 @@ public:
         }
         // Decide the renderer *before* creating any device resource, so that a
         // backend without a usable raster pipeline neither gets a raster render
-        // target (see _rebuild_swapchain_if_changed) nor a raster pipeline.
-        // LUISA_GUI_RASTER=0 forces the legacy ray-tracing path.
+        // target (see _rebuild_swapchain_if_changed) nor touches RasterExt, and
+        // backends without ray-tracing support (e.g. non-RT HIP architectures)
+        // never compile the legacy ray-tracing shader.
+        // LUISA_GUI_RASTER=0 forces the legacy ray-tracing path;
+        // LUISA_GUI_RASTER=compute forces the tiled compute rasterizer.
         auto raster_requested = config.rasterization;
+        auto force_compute_raster = false;
         if (auto env = std::getenv("LUISA_GUI_RASTER"); env != nullptr && *env != '\0') {
-            raster_requested = env[0] != '0';
+            auto env_sv = luisa::string_view{env};
+            if (env_sv == "compute") {
+                raster_requested = true;
+                force_compute_raster = true;
+            } else {
+                raster_requested = env[0] != '0';
+            }
         }
-        _rasterization_enabled = raster_requested && _rasterization_possible(_device);
-        if (_rasterization_enabled) {
-            // rasterizer NDC-Y convention override for the rasterization renderer
-            // (see _raster_y_flip); only meaningful while raster mode is active.
+        if (!raster_requested) {
+            _render_mode = RenderMode::RAY_TRACED;
+        } else if (!force_compute_raster && _rasterization_possible(_device)) {
+            _render_mode = RenderMode::HARDWARE_RASTER;
+        } else {
+            _render_mode = RenderMode::COMPUTE_RASTER;
+        }
+        if (_render_mode == RenderMode::HARDWARE_RASTER) {
+            // rasterizer NDC-Y convention override for the hardware rasterizer
+            // (see _raster_y_flip); only meaningful while hardware raster mode is active.
             if (auto env = std::getenv("LUISA_GUI_RASTER_FLIP"); env != nullptr && *env != '\0') {
                 auto value = std::strtof(env, nullptr);
                 _raster_y_flip = value < 0.0f ? -1.0f : 1.0f;
             }
         }
-        LUISA_INFO("GUI hardware rasterization {} on backend '{}'.",
-                   _rasterization_enabled ? "enabled" : "disabled",
+        auto render_mode_name = [](RenderMode mode) noexcept {
+            switch (mode) {
+                case RenderMode::HARDWARE_RASTER: return "hardware rasterization";
+                case RenderMode::COMPUTE_RASTER: return "compute tiled rasterization";
+                case RenderMode::RAY_TRACED: return "ray tracing";
+            }
+            return "unknown";
+        };
+        LUISA_INFO("GUI renderer: {} on backend '{}'.",
+                   render_mode_name(_render_mode),
                    _device.backend_name());
 
         // initialize GLFW
@@ -625,66 +676,13 @@ public:
             auto tid = dispatch_id().xy();
             fb.write(tid, make_float4(color, 1.f));
         });
-        _render_shader = _device.compile<2>([ssaa = config.ssaa](ImageFloat fb, UInt2 offset, AccelVar accel,
-                                                                 BufferVar<Triangle> triangles, BufferVar<Vertex> vertices,
-                                                                 BindlessVar texture_array, BufferFloat4 clip_rects) noexcept {
-            auto tid = offset + dispatch_id().xy();
-            $if (all(tid < dispatch_size().xy())) {
-                constexpr auto eps = 1e-4f;// slightly offset the center to improve watertightness
-                auto offsets = ssaa ?
-                                   luisa::vector<float2>{
-                                       make_float2(1.f / 3.f + eps, 1.f / 3.f - eps),
-                                       make_float2(2.f / 3.f + eps, 1.f / 3.f + eps),
-                                       make_float2(2.f / 3.f - eps, 2.f / 3.f + eps),
-                                       make_float2(1.f / 3.f - eps, 2.f / 3.f - eps),
-                                   } :
-                                   luisa::vector<float2>{make_float2(.5f + eps, .5f - eps)};
-                auto k = static_cast<float>(1. / static_cast<double>(offsets.size()));
-                auto sum = def(make_float3(0.f));
-                auto old = fb.read(tid).xyz();
-                for (auto offset : offsets) {
-                    auto o = make_float3(make_float2(tid) + offset, -1.f);
-                    auto d = make_float3(0.f, 0.f, 1.f);
-                    auto ray = make_ray(o, d);
-                    auto beta = def(1.f);
-                    auto depth = def(0u);
-                    $while (beta > 1e-3f & depth < 16u) {
-                        depth += 1u;
-                        auto hit = accel.intersect(ray, {});
-                        $if (!hit->is_triangle()) { $break; };
-                        auto triangle = triangles->read(hit.prim);
-                        auto v0 = vertices->read(triangle.i0);
-                        auto v1 = vertices->read(triangle.i1);
-                        auto v2 = vertices->read(triangle.i2);
-                        auto p = hit->triangle_interpolate(v0->p(), v1->p(), v2->p());
-                        auto clip = clip_rects->read(v0.clip_idx);
-                        $if (all(p.xy() >= clip.xy() && p.xy() <= clip.zw())) {
-                            auto uv = hit->triangle_interpolate(v0.uv, v1.uv, v2.uv);
-                            auto c = hit->triangle_interpolate(v0->color(), v1->color(), v2->color());
-                            auto tex_id = v0.tex_id;
-                            $if (tex_id != 0u) {
-                                c *= texture_array->tex2d(v0.tex_id).sample(uv);
-                            };
-                            sum += k * c.xyz() * beta * c.w;
-                            beta *= 1.f - c.w;
-                        };
-                        // step through the layer
-                        auto pp = p + make_float3(0.f, 0.f, depth_peeling_step * .5);
-                        ray = make_ray(pp, d);
-                    };
-                    // accumulate the background
-                    sum += k * beta * old;
-                }
-                fb.write(tid, make_float4(sum, 1.f));
-            };
-        });
 
-        // Compile the rasterization renderer. The backend was already checked to
-        // provide a JIT-capable raster pipeline (see _rasterization_possible), so
-        // no raster extension is touched on backends that lack one; if the
-        // pipeline cannot be created after all, the flag is cleared and the
-        // ray-tracing path above takes over.
-        if (_rasterization_enabled) {
+        // Compile the hardware rasterization renderer when selected. The
+        // backend was already checked to provide a JIT-capable raster pipeline
+        // (see _rasterization_possible), so no raster extension is touched on
+        // backends that lack one; if the pipeline cannot be created after all,
+        // fall back to the tiled compute rasterizer.
+        if (_render_mode == RenderMode::HARDWARE_RASTER) {
             // One RGBA32F attribute per AppData slot the vertex stage reads.
             VertexAttribute raster_attributes[]{
                 {VertexAttributeType::Position, PixelFormat::RGBA32F},
@@ -732,13 +730,156 @@ public:
             };
             RasterKernel<decltype(raster_vert), decltype(raster_pixel)> raster_kernel{raster_vert, raster_pixel};
             _raster_shader = _device.compile(raster_kernel, _mesh_format);
-            _rasterization_enabled = static_cast<bool>(_raster_shader);
-            if (!_rasterization_enabled) [[unlikely]] {
+            if (!_raster_shader) [[unlikely]] {
                 LUISA_WARNING_WITH_LOCATION(
-                    "Failed to create the GUI raster pipeline on backend '{}'; "
-                    "falling back to the ray-tracing path.",
+                    "Failed to create the GUI hardware raster pipeline on backend '{}'; "
+                    "falling back to the tiled compute rasterizer.",
                     _device.backend_name());
+                _render_mode = RenderMode::COMPUTE_RASTER;
             }
+        }
+
+        if (_render_mode == RenderMode::COMPUTE_RASTER) {
+            _compute_render_shader = _device.compile<2>(
+                [ssaa = config.ssaa](ImageFloat fb,
+                                     UInt tiles_x,
+                                     BufferUInt tile_offsets,
+                                     BufferUInt tile_tri_indices,
+                                     BufferVar<Vertex> vertices,
+                                     BindlessVar texture_array,
+                                     BufferFloat4 clip_rects) noexcept {
+                    set_block_size(compute_tile_size, compute_tile_size, 1u);
+                    auto tid = dispatch_id().xy();
+                    auto tile_xy = tid / compute_tile_size;
+                    auto tile_id = tile_xy.y * tiles_x + tile_xy.x;
+                    auto range_begin = tile_offsets.read(tile_id);
+                    auto range_end = tile_offsets.read(tile_id + 1u);
+                    $if (range_begin == range_end) { $return(); };
+
+                    // Exact watertight edge function in IEEE-754 float32:
+                    // canonical endpoint ordering guarantees shared edges of
+                    // adjacent triangles evaluate to exact negatives, and the
+                    // top-left tie-breaker assigns shared-edge samples to
+                    // exactly one triangle (no cracks, no double-blended seams).
+                    auto eval_edge = [](Float2 a, Float2 b, Float2 q, Float &out_e) noexcept {
+                        auto a_less = (a.y < b.y) | ((a.y == b.y) & (a.x < b.x));
+                        auto lo = select(b, a, a_less);
+                        auto hi = select(a, b, a_less);
+                        auto raw = (hi.x - lo.x) * (q.y - lo.y) - (hi.y - lo.y) * (q.x - lo.x);
+                        out_e = select(-raw, raw, a_less);
+                        auto is_top_left = (b.y < a.y) | ((b.y == a.y) & (b.x > a.x));
+                        return select(out_e > 0.f, out_e >= 0.f, is_top_left);
+                    };
+
+                    auto offsets = ssaa ?
+                                       luisa::vector<float2>{
+                                           make_float2(1.f / 3.f, 1.f / 3.f),
+                                           make_float2(2.f / 3.f, 1.f / 3.f),
+                                           make_float2(2.f / 3.f, 2.f / 3.f),
+                                           make_float2(1.f / 3.f, 2.f / 3.f),
+                                       } :
+                                       luisa::vector<float2>{make_float2(.5f, .5f)};
+                    auto k = static_cast<float>(1. / static_cast<double>(offsets.size()));
+                    auto old = fb.read(tid).xyz();
+                    auto sum = def(make_float3(0.f));
+                    auto tid_f = make_float2(tid);
+                    for (auto offset : offsets) {
+                        auto q = tid_f + offset;
+                        auto sample_sum = def(make_float3(0.f));
+                        auto beta = def(1.f);
+                        auto idx = def(range_end);
+                        $while (idx > range_begin & beta > 1e-3f) {
+                            idx -= 1u;
+                            auto tri_idx = tile_tri_indices.read(idx);
+                            auto base = tri_idx * 3u;
+                            auto v0 = vertices.read(base + 0u);
+                            auto clip = clip_rects.read(v0.clip_idx);
+                            $if (all(q >= clip.xy()) & all(q < clip.zw())) {
+                                auto v1 = vertices.read(base + 1u);
+                                auto v2 = vertices.read(base + 2u);
+                                auto p0 = make_float2(v0.px, v0.py);
+                                auto p1 = make_float2(v1.px, v1.py);
+                                auto p2 = make_float2(v2.px, v2.py);
+                                auto e0 = def(0.f);
+                                auto e1 = def(0.f);
+                                auto e2 = def(0.f);
+                                auto inside = eval_edge(p1, p2, q, e0) &
+                                              eval_edge(p2, p0, q, e1) &
+                                              eval_edge(p0, p1, q, e2);
+                                $if (inside) {
+                                    auto inv_sum = 1.f / max(e0 + e1 + e2, 1e-20f);
+                                    auto w0 = e0 * inv_sum;
+                                    auto w1 = e1 * inv_sum;
+                                    auto w2 = e2 * inv_sum;
+                                    auto c = w0 * v0->color() + w1 * v1->color() + w2 * v2->color();
+                                    auto tex_id = v0.tex_id;
+                                    $if (tex_id != 0u) {
+                                        auto uv = w0 * v0.uv + w1 * v1.uv + w2 * v2.uv;
+                                        c *= texture_array->tex2d(tex_id).sample(uv);
+                                    };
+                                    sample_sum += c.xyz() * beta * c.w;
+                                    beta *= 1.f - c.w;
+                                };
+                            };
+                        };
+                        sum += k * (sample_sum + beta * old);
+                    }
+                    fb.write(tid, make_float4(sum, 1.f));
+                });
+        } else if (_render_mode == RenderMode::RAY_TRACED) {
+            _render_shader = _device.compile<2>([ssaa = config.ssaa](ImageFloat fb, UInt2 offset, AccelVar accel,
+                                                                     BufferVar<Triangle> triangles, BufferVar<Vertex> vertices,
+                                                                     BindlessVar texture_array, BufferFloat4 clip_rects) noexcept {
+                auto tid = offset + dispatch_id().xy();
+                $if (all(tid < fb.size())) {
+                    constexpr auto eps = 1e-4f;// slightly offset the center to improve watertightness
+                    auto offsets = ssaa ?
+                                       luisa::vector<float2>{
+                                           make_float2(1.f / 3.f + eps, 1.f / 3.f - eps),
+                                           make_float2(2.f / 3.f + eps, 1.f / 3.f + eps),
+                                           make_float2(2.f / 3.f - eps, 2.f / 3.f + eps),
+                                           make_float2(1.f / 3.f - eps, 2.f / 3.f - eps),
+                                       } :
+                                       luisa::vector<float2>{make_float2(.5f + eps, .5f - eps)};
+                    auto k = static_cast<float>(1. / static_cast<double>(offsets.size()));
+                    auto sum = def(make_float3(0.f));
+                    auto old = fb.read(tid).xyz();
+                    for (auto offset : offsets) {
+                        auto o = make_float3(make_float2(tid) + offset, -1.f);
+                        auto d = make_float3(0.f, 0.f, 1.f);
+                        auto ray = make_ray(o, d);
+                        auto beta = def(1.f);
+                        auto depth = def(0u);
+                        $while (beta > 1e-3f & depth < 16u) {
+                            depth += 1u;
+                            auto hit = accel.intersect(ray, {});
+                            $if (!hit->is_triangle()) { $break; };
+                            auto triangle = triangles->read(hit.prim);
+                            auto v0 = vertices->read(triangle.i0);
+                            auto v1 = vertices->read(triangle.i1);
+                            auto v2 = vertices->read(triangle.i2);
+                            auto p = hit->triangle_interpolate(v0->p(), v1->p(), v2->p());
+                            auto clip = clip_rects->read(v0.clip_idx);
+                            $if (all(p.xy() >= clip.xy() && p.xy() <= clip.zw())) {
+                                auto uv = hit->triangle_interpolate(v0.uv, v1.uv, v2.uv);
+                                auto c = hit->triangle_interpolate(v0->color(), v1->color(), v2->color());
+                                auto tex_id = v0.tex_id;
+                                $if (tex_id != 0u) {
+                                    c *= texture_array->tex2d(v0.tex_id).sample(uv);
+                                };
+                                sum += k * c.xyz() * beta * c.w;
+                                beta *= 1.f - c.w;
+                            };
+                            // step through the layer
+                            auto pp = p + make_float3(0.f, 0.f, depth_peeling_step * .5);
+                            ray = make_ray(pp, d);
+                        };
+                        // accumulate the background
+                        sum += k * beta * old;
+                    }
+                    fb.write(tid, make_float4(sum, 1.f));
+                };
+            });
         }
 
         // TODO: install user GLFW callbacks?
@@ -1070,6 +1211,207 @@ private:
                              _raster_state(), nullptr, fb);
     }
 
+    /// Tiled compute 2D rasterizer: packs non-degenerate triangles with
+    /// canonicalized winding into a per-tile CSR triangle list in exact
+    /// submission order and dispatches `_compute_render_shader`.
+    void _draw_compute(Image<float> &fb, ImDrawData *draw_data) noexcept {
+        auto fb_size = fb.size();
+        if (any(fb_size == 0u)) { return; }
+        auto fb_size_f = make_float2(fb_size);
+        auto clip_offset = make_float2(draw_data->DisplayPos.x, draw_data->DisplayPos.y);
+        auto clip_scale = make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
+        auto clip_size = min(make_float2(draw_data->DisplaySize.x, draw_data->DisplaySize.y) * clip_scale, fb_size_f);
+        if (any(clip_size <= 0.f)) { return; }
+        auto transform = [clip_offset, clip_scale](ImVec2 p) noexcept {
+            return (make_float2(p.x, p.y) - clip_offset) * clip_scale;
+        };
+
+        auto tiles_x = (fb_size.x + compute_tile_size - 1u) / compute_tile_size;
+        auto tiles_y = (fb_size.y + compute_tile_size - 1u) / compute_tile_size;
+        auto num_tiles = static_cast<size_t>(tiles_x) * static_cast<size_t>(tiles_y);
+
+        _vertices.clear();
+        _clip_rects.clear();
+        _tile_tri_bounds.clear();
+        _vertices.reserve(64_k);
+        _clip_rects.reserve(64u);
+        _tile_tri_bounds.reserve(24_k);
+        _tile_counts.assign(num_tiles, 0u);
+
+        auto tile_overlaps_tri = [](float x0, float y0, float x1, float y1,
+                                    float2 p0, float2 p1, float2 p2) noexcept {
+            auto edge_accepts_box = [&](float2 a, float2 b) noexcept {
+                auto dx = b.x - a.x;
+                auto dy = b.y - a.y;
+                auto qx = -dy > 0.f ? x1 : x0;
+                auto qy = dx > 0.f ? y1 : y0;
+                return dx * (qy - a.y) - dy * (qx - a.x) >= -1e-3f;
+            };
+            return edge_accepts_box(p0, p1) &&
+                   edge_accepts_box(p1, p2) &&
+                   edge_accepts_box(p2, p0);
+        };
+
+        for (auto i = 0u; i < draw_data->CmdLists.Size; i++) {
+            auto cmd_list = draw_data->CmdLists[i];
+            for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
+                auto cmd = &cmd_list->CmdBuffer[j];
+                if (auto callback = cmd->UserCallback) {
+                    if (callback != ImDrawCallback_ResetRenderState) {
+                        callback(cmd_list, cmd);
+                    }
+                    continue;
+                }
+                auto clip_min = max((make_float2(cmd->ClipRect.x, cmd->ClipRect.y) - clip_offset) * clip_scale, 0.f);
+                auto clip_max = min((make_float2(cmd->ClipRect.z, cmd->ClipRect.w) - clip_offset) * clip_scale, clip_size);
+                if (any(clip_max <= clip_min) || cmd->ElemCount < 3u) { continue; }
+                auto clip_idx = static_cast<uint>(_clip_rects.size());
+                _clip_rects.emplace_back(make_float4(clip_min, clip_max));
+                auto tex_id = [this, cmd] {
+                    auto t = cmd->GetTexID();
+                    if (t != 0u && !_active_textures.contains(t)) {
+                        LUISA_WARNING_WITH_LOCATION(
+                            "Using an unregistered texture (id = {}). "
+                            "Replaced with a null texture.",
+                            t);
+                        return 0u;
+                    }
+                    return static_cast<uint>(t);
+                }();
+                auto make_vertex = [&](float2 p, ImDrawVert v) noexcept {
+                    return Vertex{.px = p.x,
+                                  .py = p.y,
+                                  .pz = 0.f,
+                                  .clip_idx = clip_idx,
+                                  .uv = make_float2(v.uv.x, v.uv.y),
+                                  .packed_color = v.col,
+                                  .tex_id = tex_id};
+                };
+                for (auto t = 0u; t + 2u < cmd->ElemCount; t += 3u) {
+                    auto i0 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 0u] + cmd->VtxOffset;
+                    auto i1 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 1u] + cmd->VtxOffset;
+                    auto i2 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 2u] + cmd->VtxOffset;
+                    auto v0 = cmd_list->VtxBuffer[i0];
+                    auto v1 = cmd_list->VtxBuffer[i1];
+                    auto v2 = cmd_list->VtxBuffer[i2];
+                    auto p0 = transform(v0.pos);
+                    auto p1 = transform(v1.pos);
+                    auto p2 = transform(v2.pos);
+                    if (!std::isfinite(p0.x) || !std::isfinite(p0.y) ||
+                        !std::isfinite(p1.x) || !std::isfinite(p1.y) ||
+                        !std::isfinite(p2.x) || !std::isfinite(p2.y)) {
+                        continue;
+                    }
+                    auto area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
+                    if (!(std::isfinite(area) && std::abs(area) > 0.f)) { continue; }
+                    if (area < 0.f) {
+                        std::swap(p1, p2);
+                        std::swap(v1, v2);
+                    }
+                    auto tri_min = min(p0, min(p1, p2));
+                    auto tri_max = max(p0, max(p1, p2));
+                    auto bmin = max(tri_min, clip_min);
+                    auto bmax = min(tri_max, clip_max);
+                    if (any(bmin >= bmax)) { continue; }
+                    auto tx0 = static_cast<uint>(std::floor(bmin.x)) / compute_tile_size;
+                    auto ty0 = static_cast<uint>(std::floor(bmin.y)) / compute_tile_size;
+                    auto px1 = static_cast<uint>(std::max(0.f, std::ceil(bmax.x) - 1.f));
+                    auto py1 = static_cast<uint>(std::max(0.f, std::ceil(bmax.y) - 1.f));
+                    auto tx1 = std::min(tiles_x - 1u, px1 / compute_tile_size);
+                    auto ty1 = std::min(tiles_y - 1u, py1 / compute_tile_size);
+                    if (tx0 > tx1 || ty0 > ty1) { continue; }
+
+                    _vertices.emplace_back(make_vertex(p0, v0));
+                    _vertices.emplace_back(make_vertex(p1, v1));
+                    _vertices.emplace_back(make_vertex(p2, v2));
+                    _tile_tri_bounds.emplace_back(make_uint4(tx0, ty0, tx1, ty1));
+
+                    auto use_exact_box = (tx1 - tx0) >= 2u && (ty1 - ty0) >= 2u;
+                    for (auto ty = ty0; ty <= ty1; ty++) {
+                        auto y0 = static_cast<float>(ty * compute_tile_size);
+                        auto y1 = y0 + static_cast<float>(compute_tile_size);
+                        auto row = static_cast<size_t>(ty) * tiles_x;
+                        for (auto tx = tx0; tx <= tx1; tx++) {
+                            if (use_exact_box) {
+                                auto x0 = static_cast<float>(tx * compute_tile_size);
+                                auto x1 = x0 + static_cast<float>(compute_tile_size);
+                                if (!tile_overlaps_tri(x0, y0, x1, y1, p0, p1, p2)) { continue; }
+                            }
+                            _tile_counts[row + tx]++;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (_tile_tri_bounds.empty()) { return; }
+
+        _tile_offsets.resize(num_tiles + 1u);
+        uint total_refs = 0u;
+        for (size_t i = 0u; i < num_tiles; i++) {
+            _tile_offsets[i] = total_refs;
+            total_refs += _tile_counts[i];
+        }
+        _tile_offsets[num_tiles] = total_refs;
+        if (total_refs == 0u) { return; }
+
+        _tile_cursors.assign(_tile_offsets.begin(), _tile_offsets.begin() + static_cast<ptrdiff_t>(num_tiles));
+        _tile_tri_indices.resize(total_refs);
+        auto tri_count = static_cast<uint>(_tile_tri_bounds.size());
+        for (auto tri_idx = 0u; tri_idx < tri_count; tri_idx++) {
+            auto b = _tile_tri_bounds[tri_idx];
+            auto use_exact_box = (b.z - b.x) >= 2u && (b.w - b.y) >= 2u;
+            float2 p0{}, p1{}, p2{};
+            if (use_exact_box) {
+                auto base = static_cast<size_t>(tri_idx) * 3u;
+                p0 = make_float2(_vertices[base + 0u].px, _vertices[base + 0u].py);
+                p1 = make_float2(_vertices[base + 1u].px, _vertices[base + 1u].py);
+                p2 = make_float2(_vertices[base + 2u].px, _vertices[base + 2u].py);
+            }
+            for (auto ty = b.y; ty <= b.w; ty++) {
+                auto y0 = static_cast<float>(ty * compute_tile_size);
+                auto y1 = y0 + static_cast<float>(compute_tile_size);
+                auto row = static_cast<size_t>(ty) * tiles_x;
+                for (auto tx = b.x; tx <= b.z; tx++) {
+                    if (use_exact_box) {
+                        auto x0 = static_cast<float>(tx * compute_tile_size);
+                        auto x1 = x0 + static_cast<float>(compute_tile_size);
+                        if (!tile_overlaps_tri(x0, y0, x1, y1, p0, p1, p2)) { continue; }
+                    }
+                    _tile_tri_indices[_tile_cursors[row + tx]++] = tri_idx;
+                }
+            }
+        }
+
+        auto need_sync =
+            (_vertex_buffer && _vertex_buffer.size() < _vertices.size()) ||
+            (_clip_buffer && _clip_buffer.size() < _clip_rects.size()) ||
+            (_tile_offset_buffer && _tile_offset_buffer.size() < _tile_offsets.size()) ||
+            (_tile_tri_index_buffer && _tile_tri_index_buffer.size() < _tile_tri_indices.size());
+        if (need_sync) { _stream.synchronize(); }
+        if (!_vertex_buffer || _vertex_buffer.size() < _vertices.size()) {
+            _vertex_buffer = _device.create_buffer<Vertex>(std::max(next_pow2(_vertices.size()), 64_k));
+        }
+        if (!_clip_buffer || _clip_buffer.size() < _clip_rects.size()) {
+            _clip_buffer = _device.create_buffer<float4>(std::max(next_pow2(_clip_rects.size()), static_cast<size_t>(64u)));
+        }
+        if (!_tile_offset_buffer || _tile_offset_buffer.size() < _tile_offsets.size()) {
+            _tile_offset_buffer = _device.create_buffer<uint>(std::max(next_pow2(_tile_offsets.size()), static_cast<size_t>(4096u)));
+        }
+        if (!_tile_tri_index_buffer || _tile_tri_index_buffer.size() < _tile_tri_indices.size()) {
+            _tile_tri_index_buffer = _device.create_buffer<uint>(std::max(next_pow2(_tile_tri_indices.size()), 64_k));
+        }
+
+        if (_texture_array.dirty()) { _stream << _texture_array.update(); }
+        _stream << _vertex_buffer.view(0u, _vertices.size()).copy_from(luisa::span{_vertices.data(), _vertices.size()})
+                << _clip_buffer.view(0u, _clip_rects.size()).copy_from(luisa::span{_clip_rects.data(), _clip_rects.size()})
+                << _tile_offset_buffer.view(0u, _tile_offsets.size()).copy_from(luisa::span{_tile_offsets.data(), _tile_offsets.size()})
+                << _tile_tri_index_buffer.view(0u, _tile_tri_indices.size()).copy_from(luisa::span{_tile_tri_indices.data(), _tile_tri_indices.size()})
+                << _compute_render_shader(fb, tiles_x, _tile_offset_buffer, _tile_tri_index_buffer,
+                                          _vertex_buffer, _texture_array, _clip_buffer)
+                       .dispatch(fb_size);
+    }
+
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
 
         auto vp = draw_data->OwnerViewport;
@@ -1088,10 +1430,16 @@ private:
         auto clip_size = make_float2(draw_data->DisplaySize.x, draw_data->DisplaySize.y) *
                          make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
         if (all(clip_size > 0.f)) {
-            if (_rasterization_enabled) {
-                if (_build_raster_mesh(draw_data)) { _draw_raster(fb); }
-            } else {
-                _draw_raytraced(fb, draw_data);
+            switch (_render_mode) {
+                case RenderMode::HARDWARE_RASTER:
+                    if (_build_raster_mesh(draw_data)) { _draw_raster(fb); }
+                    break;
+                case RenderMode::COMPUTE_RASTER:
+                    _draw_compute(fb, draw_data);
+                    break;
+                case RenderMode::RAY_TRACED:
+                    _draw_raytraced(fb, draw_data);
+                    break;
             }
         }
         _stream << sc.present(fb);

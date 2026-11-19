@@ -941,6 +941,9 @@ if has_config("lc_cuda_backend") or has_config("lc_dx_backend") or has_config("l
       end)
   end
 
+-- integration/runtime: backend-agnostic GUI compute rasterizer test
+test_proj("test_imgui_compute_offline", "integration/runtime/test_imgui_compute_offline.cpp", false)
+
 -- integration/runtime: DX-only tests
 if has_config("lc_dx_backend") then
     test_proj("test_raster", "integration/runtime/test_raster.cpp", true)

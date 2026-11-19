@@ -1837,6 +1837,9 @@ if (TARGET luisa-compute-backend-metal4)
     endif ()
 endif ()
 
+# --- integration/runtime: backend-agnostic GUI compute rasterizer test ---
+luisa_compute_add_test(test_imgui_compute_offline integration/runtime/test_imgui_compute_offline.cpp)
+
 # --- integration/runtime: DX-only tests ---
 if (LUISA_COMPUTE_ENABLE_DX)
       luisa_compute_add_test(test_raster integration/runtime/test_raster.cpp)

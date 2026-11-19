@@ -3,8 +3,8 @@
 //
 
 #pragma once
-#pragma once
 
+#include <cstdio>
 #include <string_view>
 #include <hip/hip_runtime.h>
 #include <hiprt/hiprt.h>
@@ -35,6 +35,7 @@
 #define LUISA_CHECK_HIPRT(...)                           \
     do {                                                 \
         if (auto ec = __VA_ARGS__; ec != hiprtSuccess) { \
+            std::fflush(stdout);                         \
             LUISA_ERROR_WITH_LOCATION(                   \
                 "HIPRT error: {} (code = {})",           \
                 luisa::to_string(ec),                    \

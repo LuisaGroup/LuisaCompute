@@ -218,7 +218,7 @@ private:
             src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
             dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         } else if (new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-            barrier.srcAccessMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
             barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
             src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
             dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
@@ -337,12 +337,19 @@ private:
 
     void _cleanup() noexcept {
         auto device = _base.device();
-        // cuda objects
+        // Finish both HIP (including host-func semaphore signaling) and Vulkan
+        // (presenting from the shared image and waiting on the timeline
+        // semaphore) before releasing any shared or Vulkan-side resource.
         LUISA_CHECK_HIP(hipDeviceSynchronize());
-        LUISA_CHECK_HIP(hipDestroyExternalMemory(_hip_ext_image_memory));
-        vkDestroySemaphore(_base.device(), _sync_semaphore, nullptr);
-        // vulkan objects
         LUISA_CHECK_VULKAN(vkDeviceWaitIdle(device));
+        // HIP objects
+        if (_hip_ext_image_buffer != nullptr) {
+            LUISA_CHECK_HIP(hipFree(_hip_ext_image_buffer));
+            _hip_ext_image_buffer = nullptr;
+        }
+        LUISA_CHECK_HIP(hipDestroyExternalMemory(_hip_ext_image_memory));
+        // Vulkan objects
+        vkDestroySemaphore(device, _sync_semaphore, nullptr);
         vkDestroyImageView(device, _image_view, nullptr);
         vkDestroyImage(device, _image, nullptr);
         vkFreeMemory(device, _image_memory, nullptr);

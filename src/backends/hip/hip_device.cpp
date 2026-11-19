@@ -843,7 +843,7 @@ hiprtContext HIPDevice::_ensure_hiprt_context_locked() const noexcept {
             LUISA_CHECK_HIPRT(hiprtCreateContext(HIPRT_API_VERSION, input, _hiprt_context));
             LUISA_CHECK_HIPRT(hiprtSetLogLevel(
                 _hiprt_context,
-                static_cast<hiprtLogLevel>(hiprtLogLevelInfo | hiprtLogLevelWarn | hiprtLogLevelError)));
+                static_cast<hiprtLogLevel>(hiprtLogLevelWarn | hiprtLogLevelError)));
             LUISA_INFO("Created HIPRT context lazily for HIP device {}.", _device_id);
         });
     }

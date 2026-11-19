@@ -34,12 +34,13 @@ public:
         bool vsync{false};
         bool hdr{false};
         bool ssaa{false};
-        /// Render the ImGui draw data with the GPU's fixed-function
-        /// rasterizer (triangle draws) instead of the default ray-tracing path
-        /// (which rebuilds the acceleration structure and mesh every frame and
-        /// depth-peels with per-pixel rays). Falls back to the ray-tracing path
-        /// when the backend has no working JIT raster pipeline (e.g. the
-        /// AOT-only Vulkan raster path).
+        /// Render the ImGui draw data with rasterization instead of the legacy
+        /// ray-tracing path (which rebuilds an acceleration structure and mesh
+        /// every frame and depth-peels with per-pixel rays). Uses the GPU's
+        /// fixed-function rasterizer when the backend provides a JIT raster
+        /// pipeline, and otherwise uses a tiled compute rasterizer so backends
+        /// without RasterExt (e.g. HIP, CUDA, Vulkan, fallback) never require
+        /// ray-tracing support to render ImGui.
         bool rasterization{true};
         bool docking{true};
         bool multi_viewport{true};
