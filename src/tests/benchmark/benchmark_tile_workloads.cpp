@@ -1,5 +1,6 @@
 // Actual Tile workload benchmark: exported fixtures, complete FP64/guard
-// checks, explicit routes, host/event timing, and optional CUDA graph replay.
+// checks, explicit routes, host/event timing, optional L2-flush buffer
+// rotation, and optional CUDA graph replay.
 #include "tile_workload_test_utils.h"
 #include <luisa/core/platform.h>
 #include <luisa/core/stl/filesystem.h>
@@ -114,7 +115,10 @@ void identity(std::ostream &out, const workloads::Options &o) {
         out << ",\"ranking_algorithm\":";
         quoted(out, o.ranking_algorithm);
     }
-    out << ",\"fast_math\":" << (o.fast_math ? "true" : "false") << ",\"graph_batch\":" << o.graph_batch;
+    out << ",\"fast_math\":" << (o.fast_math ? "true" : "false")
+        << ",\"graph_batch\":" << o.graph_batch
+        << ",\"l2_flush\":" << (o.l2_flush ? "true" : "false");
+    if (o.sampled_oracle != 0u) { out << ",\"sampled_oracle\":" << o.sampled_oracle; }
 }
 
 [[nodiscard]] int finish(const workloads::Options &o, const luisa::filesystem::path &directory,
@@ -184,6 +188,7 @@ template<typename T>
     }
     if (f.input_ids && !write_binary(directory / "input1.i64", *f.input_ids)) { return false; }
     if (!write_binary(directory / "expected.f64", f.expected) || !write_binary(directory / "per_element_bound.f64", f.bound)) { return false; }
+    if (!f.sampled_indices.empty() && !write_binary(directory / "sampled_indices.i64", f.sampled_indices)) { return false; }
     if (f.ranking && !write_binary(directory / "expected_indices.i64", f.expected_indices)) { return false; }
     if (!f.strict_bound.empty() &&
         (!write_binary(directory / "strict_bound.f64", f.strict_bound) ||
@@ -211,6 +216,9 @@ template<typename T>
     out << ",\"shape\":";
     array(out, f.output_shape);
     out << "},\"expected\":{\"path\":\"expected.f64\",\"bound_path\":\"per_element_bound.f64\",\"storage_dtype\":\"float64\"";
+    if (!f.sampled_indices.empty()) {
+        out << ",\"sampled_indices_path\":\"sampled_indices.i64\",\"sampled_elements\":" << f.sampled_indices.size();
+    }
     if (!f.strict_bound.empty()) {
         out << ",\"strict_bound_path\":\"strict_bound.f64\",\"probability_rounding_bound_path\":\"probability_rounding_bound.f64\"";
     }
@@ -260,7 +268,9 @@ template<typename T>
     if (o.operation == "bmm") { out << ",\"batch_layout\":\"contiguous_bmk_bkn_bmn\",\"batch_broadcast\":false"; }
     out << ",\"logical_view_offset_elements\":64,\"logical_view_offset_bytes\":" << 64u * sizeof(T)
         << ",\"output_preallocated\":true,\"graph_contract\":\"Native: N complete identical workloads including every pipeline stage; same inputs/output/scratch allocations and hazard-DAG ordering. Independent pipeline stages may overlap across calls. R complete graph replays per timed sample, divided by N*R complete workloads; event-primed adaptive_replay_span_v2. Functional Torch output allocation is a separate contract.\"}"
-           ",\"validation\":{\"reference\":\"host_fp64\",\"bound\":\"per_element_bound.f64\","
+           ",\"validation\":{\"reference\":";
+    quoted(out, f.sampled_indices.empty() ? "host_fp64" : "host_fp64_sampled");
+    out << ",\"bound\":\"per_element_bound.f64\","
            "\"require_finite\":true,\"output_guard_elements\":128,\"readonly_inputs_checked\":true}}\n";
     return write_text(directory / "manifest.json", out.str());
 }
@@ -281,6 +291,7 @@ private:
 #endif
 public:
     bool enabled{false};
+    int l2_cache_bytes{0};
     string error;
     CudaTiming(Device &device, Stream &stream, bool requested) {
         if (!requested) { return; }
@@ -288,6 +299,10 @@ public:
         _context = static_cast<CUcontext>(device.impl()->native_handle());
         _stream = static_cast<CUstream>(stream.native_handle());
         if (!_check(cuCtxPushCurrent(_context))) { return; }
+        CUdevice cu_device{};
+        if (cuCtxGetDevice(&cu_device) == CUDA_SUCCESS) {
+            static_cast<void>(cuDeviceGetAttribute(&l2_cache_bytes, CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, cu_device));
+        }
         auto a = _check(cuEventCreate(&_start, CU_EVENT_DEFAULT));
         auto b = a && _check(cuEventCreate(&_end, CU_EVENT_DEFAULT));
         CUcontext previous{};
@@ -339,8 +354,8 @@ public:
 template<typename T>
 int run(int argc, char *argv[]) {
     workloads::Options options;
-    if (argc < 13 || argc > 19 || (argc - 13) % 2 != 0) {
-        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N] [--ranking-algorithm full_sort_prefix|packed_fp32|repeated_extrema|chunked_bitonic_c256|chunked_bitonic_c512] [--fast-math 0|1]\n";
+    if (argc < 13 || argc > 23 || (argc - 13) % 2 != 0) {
+        std::cerr << "Usage: benchmark_tile_workloads <cuda|simd> <native|tirx> operation <fp32|fp16|bf16> dimensions_csv tile_m,tile_n,tile_k seed <random|cancellation|adversarial> samples sample_ms warmup_ms export_dir [--graph-batch N] [--ranking-algorithm full_sort_prefix|packed_fp32|repeated_extrema|chunked_bitonic_c256|chunked_bitonic_c512] [--fast-math 0|1] [--l2-flush 0|1] [--sampled-oracle N]\n";
         std::cerr << "BMM operation dimensions are B,M,N,K; tile is BM,BN,BK.\n";
         std::cerr << "Embedding dimensions are V,D,T; tile is 1,feature_width,1, with true INT64 row IDs.\n";
         return finish(options, {}, "failed", "invalid argument count", 1);
@@ -351,7 +366,7 @@ int run(int argc, char *argv[]) {
     options.precision = argv[4];
     options.pattern = argv[8];
     vector<int64_t> schedule;
-    uint64_t samples{}, sample_ms{}, warmup_ms{}, graph_batch{};
+    uint64_t samples{}, sample_ms{}, warmup_ms{}, graph_batch{}, sampled_oracle{};
     if ((options.backend != "cuda" && options.backend != "simd") ||
         (options.lowering != "native" && options.lowering != "tirx") ||
         (options.pattern != "random" && options.pattern != "cancellation" && options.pattern != "adversarial") ||
@@ -361,7 +376,7 @@ int run(int argc, char *argv[]) {
         !integer(argv[11], warmup_ms) || warmup_ms < 1u || warmup_ms > 60000u) {
         return finish(options, {}, "failed", "invalid operation arguments, dimensions, schedule or timing limits", 1);
     }
-    auto graph_seen = false, ranking_seen = false, fast_seen = false;
+    auto graph_seen = false, ranking_seen = false, fast_seen = false, l2_flush_seen = false, sampled_seen = false;
     for (auto i = 13; i < argc; i += 2) {
         auto flag = string_view{argv[i]};
         if (flag == "--graph-batch" && !graph_seen) {
@@ -381,6 +396,17 @@ int run(int argc, char *argv[]) {
             auto value = string_view{argv[i + 1]};
             if (value != "0" && value != "1") { return finish(options, {}, "failed", "invalid --fast-math", 1); }
             options.fast_math = value == "1";
+        } else if (flag == "--l2-flush" && !l2_flush_seen) {
+            l2_flush_seen = true;
+            auto value = string_view{argv[i + 1]};
+            if (value != "0" && value != "1") { return finish(options, {}, "failed", "invalid --l2-flush", 1); }
+            options.l2_flush = value == "1";
+        } else if (flag == "--sampled-oracle" && !sampled_seen) {
+            sampled_seen = true;
+            if (!integer(argv[i + 1], sampled_oracle) || sampled_oracle == 0u || sampled_oracle > 1000000u) {
+                return finish(options, {}, "failed", "invalid --sampled-oracle", 1);
+            }
+            options.sampled_oracle = static_cast<uint32_t>(sampled_oracle);
         } else {
             return finish(options, {}, "failed", "unknown or duplicate optional argument", 1);
         }
@@ -498,50 +524,101 @@ int run(int argc, char *argv[]) {
     constexpr size_t pad = 64u;
     constexpr float guard = -719.5f;
     constexpr int64_t index_guard = std::numeric_limits<int64_t>::min() + 37;
+    constexpr int32_t scratch_index_guard = std::numeric_limits<int32_t>::min() + 37;
+    const size_t output_elements = workloads::volume(fixture.output_shape);
+
+    // Rotate over enough buffer sets (>= 2x L2 capacity) to evict L2 between
+    // consecutive timed iterations when --l2-flush 1 is requested.
+    size_t l2_buffer_sets = 1u;
+    if (options.l2_flush) {
+        if (options.backend != "cuda" || events.l2_cache_bytes <= 0) {
+            return finish(options, directory, "unsupported", "l2-flush requires CUDA with a positive reported L2 cache size", 3, compile_ms, shader.metadata().realization);
+        }
+        size_t per_set_bytes = (output_elements + 2u * pad) * sizeof(T);
+        for (size_t i = 0u; i < 3u; i++) {
+            per_set_bytes += (fixture.inputs[i].size() + 2u * pad) * sizeof(T);
+        }
+        if (fixture.input_ids) { per_set_bytes += (fixture.input_ids->size() + 2u * pad) * sizeof(int64_t); }
+        if (fixture.ranking) { per_set_bytes += (fixture.expected_indices.size() + 2u * pad) * sizeof(int64_t); }
+        if (fixture.scratch_elements != 0u) {
+            per_set_bytes += 2u * (fixture.scratch_elements + 2u * pad) * (sizeof(float) + sizeof(int32_t));
+        }
+        l2_buffer_sets = std::max<size_t>(1u, (2ull * static_cast<size_t>(events.l2_cache_bytes) + per_set_bytes - 1u) / per_set_bytes);
+    }
+
     std::array<vector<T>, 3u> host_inputs;
-    std::array<Buffer<T>, 3u> inputs;
-    start = Clock::now();
     for (size_t i = 0; i < 3u; i++) {
         host_inputs[i].assign(fixture.inputs[i].size() + 2u * pad, T{guard});
         for (size_t j = 0; j < fixture.inputs[i].size(); j++) { host_inputs[i][j + pad] = T{fixture.inputs[i][j]}; }
-        inputs[i] = device.create_buffer<T>(host_inputs[i].size());
-        stream << inputs[i].copy_from(span{host_inputs[i]});
     }
     vector<int64_t> host_input_ids;
-    Buffer<int64_t> input_ids;
     if (fixture.input_ids) {
         host_input_ids.assign(fixture.input_ids->size() + 2u * pad, index_guard);
         std::copy(fixture.input_ids->begin(), fixture.input_ids->end(), host_input_ids.begin() + pad);
-        input_ids = device.create_buffer<int64_t>(host_input_ids.size());
-        stream << input_ids.copy_from(span{host_input_ids});
     }
-    vector<T> host_output(fixture.expected.size() + 2u * pad, T{guard});
+    vector<T> host_output(output_elements + 2u * pad, T{guard});
     std::fill(host_output.begin() + pad, host_output.end() - pad, std::numeric_limits<T>::quiet_NaN());
-    auto output = device.create_buffer<T>(host_output.size());
     vector<int64_t> host_indices((fixture.ranking ? fixture.expected_indices.size() : 1u) + 2u * pad, index_guard);
-    auto indices = device.create_buffer<int64_t>(host_indices.size());
-    stream << output.copy_from(span{host_output}) << indices.copy_from(span{host_indices}) << synchronize();
-    std::array<Buffer<float>, 2u> scratch_values;
-    std::array<Buffer<int32_t>, 2u> scratch_indices;
     std::array<vector<float>, 2u> host_scratch_values;
     std::array<vector<int32_t>, 2u> host_scratch_indices;
-    constexpr int32_t scratch_index_guard = std::numeric_limits<int32_t>::min() + 37;
     if (fixture.scratch_elements != 0u) {
         for (auto slot = size_t{0u}; slot < 2u; slot++) {
             host_scratch_values[slot].assign(fixture.scratch_elements + 2u * pad, guard);
             host_scratch_indices[slot].assign(fixture.scratch_elements + 2u * pad, scratch_index_guard);
-            scratch_values[slot] = device.create_buffer<float>(host_scratch_values[slot].size());
-            scratch_indices[slot] = device.create_buffer<int32_t>(host_scratch_indices[slot].size());
-            stream << scratch_values[slot].copy_from(span{host_scratch_values[slot]})
-                   << scratch_indices[slot].copy_from(span{host_scratch_indices[slot]});
         }
-        stream << synchronize();
     }
+
+    vector<std::array<Buffer<T>, 3u>> input_sets(l2_buffer_sets);
+    vector<Buffer<int64_t>> input_ids_sets;
+    if (fixture.input_ids) { input_ids_sets.resize(l2_buffer_sets); }
+    vector<Buffer<T>> output_sets(l2_buffer_sets);
+    vector<Buffer<int64_t>> indices_sets(l2_buffer_sets);
+    vector<std::array<Buffer<float>, 2u>> scratch_values_sets;
+    vector<std::array<Buffer<int32_t>, 2u>> scratch_indices_sets;
+    if (fixture.scratch_elements != 0u) {
+        scratch_values_sets.resize(l2_buffer_sets);
+        scratch_indices_sets.resize(l2_buffer_sets);
+    }
+
+    start = Clock::now();
+    for (size_t set = 0u; set < l2_buffer_sets; set++) {
+        for (size_t i = 0; i < 3u; i++) {
+            input_sets[set][i] = device.create_buffer<T>(host_inputs[i].size());
+            stream << input_sets[set][i].copy_from(span{host_inputs[i]});
+        }
+        if (fixture.input_ids) {
+            input_ids_sets[set] = device.create_buffer<int64_t>(host_input_ids.size());
+            stream << input_ids_sets[set].copy_from(span{host_input_ids});
+        }
+        output_sets[set] = device.create_buffer<T>(host_output.size());
+        indices_sets[set] = device.create_buffer<int64_t>(host_indices.size());
+        stream << output_sets[set].copy_from(span{host_output})
+               << indices_sets[set].copy_from(span{host_indices});
+        if (fixture.scratch_elements != 0u) {
+            for (auto slot = size_t{0u}; slot < 2u; slot++) {
+                scratch_values_sets[set][slot] = device.create_buffer<float>(host_scratch_values[slot].size());
+                scratch_indices_sets[set][slot] = device.create_buffer<int32_t>(host_scratch_indices[slot].size());
+                stream << scratch_values_sets[set][slot].copy_from(span{host_scratch_values[slot]})
+                       << scratch_indices_sets[set][slot].copy_from(span{host_scratch_indices[slot]});
+            }
+        }
+    }
+    stream << synchronize();
     auto upload_ms = elapsed(start);
-    auto make_commands = [&](uint64_t repetitions) {
+
+    size_t buffer_cursor = 0u;
+    size_t last_written_set = 0u;
+    auto make_commands = [&](uint64_t repetitions, bool advance_cursor = true) {
         CommandList commands;
         for (uint64_t i = 0; i < repetitions; i++) {
+            auto set = options.l2_flush && advance_cursor ? (buffer_cursor++ % l2_buffer_sets) : size_t{0u};
+            if (advance_cursor) { last_written_set = set; }
+            auto &inputs = input_sets[set];
+            auto &output = output_sets[set];
+            auto &indices = indices_sets[set];
             if (fixture.scratch_elements != 0u) {
+                auto &scratch_values = scratch_values_sets[set];
+                auto &scratch_indices = scratch_indices_sets[set];
                 // A full operation always starts from the original input. No
                 // iteration consumes the previous operation's sorted output.
                 commands << shaders[0](inputs[0].view(pad, fixture.inputs[0].size()),
@@ -553,7 +630,7 @@ int run(int argc, char *argv[]) {
                     if (stage + 1u == shaders.size()) {
                         commands << shaders[stage](scratch_values[read_slot].view(pad, fixture.scratch_elements),
                                                    scratch_indices[read_slot].view(pad, fixture.scratch_elements),
-                                                   output.view(pad, fixture.expected.size()),
+                                                   output.view(pad, output_elements),
                                                    indices.view(pad, fixture.expected_indices.size()))
                                         .dispatch();
                     } else {
@@ -566,15 +643,15 @@ int run(int argc, char *argv[]) {
                 }
             } else if (fixture.input_ids) {
                 commands << shader(inputs[0].view(pad, fixture.inputs[0].size()),
-                                   input_ids.view(pad, fixture.input_ids->size()), output.view(pad, fixture.expected.size()))
+                                   input_ids_sets[set].view(pad, fixture.input_ids->size()), output.view(pad, output_elements))
                                 .dispatch();
             } else if (fixture.ranking) {
-                commands << shader(inputs[0].view(pad, fixture.inputs[0].size()), output.view(pad, fixture.expected.size()),
+                commands << shader(inputs[0].view(pad, fixture.inputs[0].size()), output.view(pad, output_elements),
                                    indices.view(pad, fixture.expected_indices.size()))
                                 .dispatch();
             } else {
                 commands << shader(inputs[0].view(pad, fixture.inputs[0].size()), inputs[1].view(pad, fixture.inputs[1].size()),
-                                   inputs[2].view(pad, fixture.inputs[2].size()), output.view(pad, fixture.expected.size()))
+                                   inputs[2].view(pad, fixture.inputs[2].size()), output.view(pad, output_elements))
                                 .dispatch();
             }
         }
@@ -592,17 +669,17 @@ int run(int argc, char *argv[]) {
         auto register_buffer = [&](auto &&buffer) {
             buffer_bases.emplace_back(buffer.handle(), reinterpret_cast<uintptr_t>(buffer.native_handle()));
         };
-        for (auto &&input : inputs) { register_buffer(input); }
-        register_buffer(output);
-        register_buffer(indices);
-        if (fixture.input_ids) { register_buffer(input_ids); }
+        for (auto &&input : input_sets[0]) { register_buffer(input); }
+        register_buffer(output_sets[0]);
+        register_buffer(indices_sets[0]);
+        if (fixture.input_ids) { register_buffer(input_ids_sets[0]); }
         if (fixture.scratch_elements != 0u) {
-            for (auto &&buffer : scratch_values) { register_buffer(buffer); }
-            for (auto &&buffer : scratch_indices) { register_buffer(buffer); }
+            for (auto &&buffer : scratch_values_sets[0]) { register_buffer(buffer); }
+            for (auto &&buffer : scratch_indices_sets[0]) { register_buffer(buffer); }
         }
         auto request = luisa::get_environment_variable("LUISA_CUDA_TILE_IR_ALIGNED16");
         auto requested = request && string_view{*request} == "1";
-        auto commands = make_commands(1u).steal_commands();
+        auto commands = make_commands(1u, false).steal_commands();
         LUISA_ASSERT(commands.size() == shaders.size(), "Alignment receipts require one command per stage.");
         std::ostringstream receipt;
         std::ostringstream streaming_receipt;
@@ -800,13 +877,17 @@ int run(int argc, char *argv[]) {
     uint64_t checks = 0u, errors = 0u, strict_errors = 0u;
     double strict_max_error_over_bound = 0.0;
     auto check = [&] {
+        auto set = last_written_set;
+        auto &inputs = input_sets[set];
+        auto &output = output_sets[set];
+        auto &indices = indices_sets[set];
         stream << output.copy_to(span{host_output}) << indices.copy_to(span{host_indices});
         for (size_t i = 0; i < 3u; i++) { stream << inputs[i].copy_to(span{host_inputs[i]}); }
-        if (fixture.input_ids) { stream << input_ids.copy_to(span{host_input_ids}); }
+        if (fixture.input_ids) { stream << input_ids_sets[set].copy_to(span{host_input_ids}); }
         if (fixture.scratch_elements != 0u) {
             for (auto slot = size_t{0u}; slot < 2u; slot++) {
-                stream << scratch_values[slot].copy_to(span{host_scratch_values[slot]})
-                       << scratch_indices[slot].copy_to(span{host_scratch_indices[slot]});
+                stream << scratch_values_sets[set][slot].copy_to(span{host_scratch_values[slot]})
+                       << scratch_indices_sets[set][slot].copy_to(span{host_scratch_indices[slot]});
             }
         }
         stream << synchronize();
@@ -834,26 +915,47 @@ int run(int argc, char *argv[]) {
                 errors += bits(host_inputs[i][j]) != bits(expected);
             }
         }
-        for (size_t i = 0; i < host_output.size(); i++) {
-            if (i < pad || i >= host_output.size() - pad) {
+        if (!fixture.sampled_indices.empty()) {
+            for (size_t i = 0; i < pad; i++) {
                 errors += bits(host_output[i]) != bits(T{guard});
-                continue;
+                errors += bits(host_output[host_output.size() - pad + i]) != bits(T{guard});
             }
-            auto j = i - pad;
-            auto error = std::abs(static_cast<double>(static_cast<float>(host_output[i])) - fixture.expected[j]);
-            auto finite = std::isfinite(static_cast<float>(host_output[i]));
-            errors += !finite || error > fixture.bound[j];
-            if (!fixture.strict_bound.empty()) {
-                strict_errors += !finite || error > fixture.strict_bound[j];
-                if (finite && fixture.strict_bound[j] > 0.0) {
-                    strict_max_error_over_bound = std::max(strict_max_error_over_bound, error / fixture.strict_bound[j]);
+            for (size_t j = 0; j < output_elements; j++) {
+                errors += !std::isfinite(static_cast<float>(host_output[j + pad]));
+            }
+            for (size_t s = 0; s < fixture.sampled_indices.size(); s++) {
+                auto j = static_cast<size_t>(fixture.sampled_indices[s]);
+                auto got = static_cast<double>(static_cast<float>(host_output[j + pad]));
+                auto finite = std::isfinite(got);
+                auto error = std::abs(got - fixture.expected[s]);
+                errors += !finite || error > fixture.bound[s];
+                if (finite) {
+                    max_error = std::max(max_error, error);
+                    if (fixture.bound[s] > 0.0) { max_error_over_bound = std::max(max_error_over_bound, error / fixture.bound[s]); }
                 }
             }
-            if (finite) {
-                max_error = std::max(max_error, error);
-                if (fixture.bound[j] > 0.0) { max_error_over_bound = std::max(max_error_over_bound, error / fixture.bound[j]); }
+        } else {
+            for (size_t i = 0; i < host_output.size(); i++) {
+                if (i < pad || i >= host_output.size() - pad) {
+                    errors += bits(host_output[i]) != bits(T{guard});
+                    continue;
+                }
+                auto j = i - pad;
+                auto error = std::abs(static_cast<double>(static_cast<float>(host_output[i])) - fixture.expected[j]);
+                auto finite = std::isfinite(static_cast<float>(host_output[i]));
+                errors += !finite || error > fixture.bound[j];
+                if (!fixture.strict_bound.empty()) {
+                    strict_errors += !finite || error > fixture.strict_bound[j];
+                    if (finite && fixture.strict_bound[j] > 0.0) {
+                        strict_max_error_over_bound = std::max(strict_max_error_over_bound, error / fixture.strict_bound[j]);
+                    }
+                }
+                if (finite) {
+                    max_error = std::max(max_error, error);
+                    if (fixture.bound[j] > 0.0) { max_error_over_bound = std::max(max_error_over_bound, error / fixture.bound[j]); }
+                }
+                if (fixture.ranking || fixture.input_ids) { errors += bits(host_output[i]) != bits(T{static_cast<float>(fixture.expected[j])}); }
             }
-            if (fixture.ranking || fixture.input_ids) { errors += bits(host_output[i]) != bits(T{static_cast<float>(fixture.expected[j])}); }
         }
         for (size_t i = 0; i < host_indices.size(); i++) {
             auto expected = fixture.ranking && i >= pad && i < host_indices.size() - pad ? fixture.expected_indices[i - pad] : index_guard;
@@ -1022,7 +1124,8 @@ int run(int argc, char *argv[]) {
         }
         out << "],\"graph_stage_dispatches\":" << shaders.size() * options.graph_batch;
     }
-    out << ",\"timing_scope\":\"C++ command construction, submission, execution and final synchronization\","
+    out << ",\"l2_cache_bytes\":" << events.l2_cache_bytes << ",\"l2_buffer_sets\":" << l2_buffer_sets
+        << ",\"timing_scope\":\"C++ command construction, submission, execution and final synchronization\","
            "\"device_timing_scope\":\"CUDA event stream span after command construction; may include host submission starvation; not isolated kernel time\","
            "\"graph_timing_scope\":\"R complete graph replays per sample; all stages included; event stream span and synchronized host wall divided by graph_batch*R; complete-operation throughput; hazard DAG may overlap independent stages across calls and host submission may starve GPU\","
            "\"fixture_ms\":"
@@ -1064,8 +1167,11 @@ int run(int argc, char *argv[]) {
     array(out, graph_host);
     out << ",\"graph_event_stream_span_us_per_op\":";
     array(out, graph_device);
-    out << ",\"correctness\":{\"checks\":" << checks << ",\"elements_per_check\":" << fixture.expected.size()
-        << ",\"errors\":" << errors << ",\"max_abs_error\":" << max_error << ",\"max_error_over_bound\":" << max_error_over_bound
+    out << ",\"correctness\":{\"checks\":" << checks << ",\"elements_per_check\":" << fixture.expected.size();
+    if (!fixture.sampled_indices.empty()) {
+        out << ",\"oracle\":\"sampled_fp64\",\"total_output_elements\":" << output_elements;
+    }
+    out << ",\"errors\":" << errors << ",\"max_abs_error\":" << max_error << ",\"max_error_over_bound\":" << max_error_over_bound
         << ",\"inputs_unchanged\":true,\"guards_unchanged\":true,\"all_outputs_finite\":true}";
     if (!fixture.strict_bound.empty()) {
         out << ",\"strict_correctness\":{\"primary_acceptance\":false,\"checks\":" << checks

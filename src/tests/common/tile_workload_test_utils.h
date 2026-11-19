@@ -25,8 +25,10 @@ struct Options {
     vector<int64_t> dimensions;
     std::array<int64_t, 3u> tile{};
     bool fast_math{false};
+    bool l2_flush{false};
     uint64_t seed{0u};
     uint32_t samples{7u}, sample_ms{100u}, warmup_ms{500u}, graph_batch{0u};
+    uint32_t sampled_oracle{0u};
 };
 
 struct Fixture {
@@ -42,6 +44,9 @@ struct Fixture {
     // three homogeneous input descriptors and ABI remain unchanged.
     optional<vector<int64_t>> input_ids;
     vector<int64_t> output_shape;
+    // When non-empty (large GEMM/BMM with --sampled-oracle N), expected and
+    // bound hold exact FP64 references only for these flat output indices.
+    vector<int64_t> sampled_indices;
     vector<double> expected, bound;
     vector<double> strict_bound, probability_rounding_bound;
     vector<int64_t> expected_indices;
@@ -309,10 +314,17 @@ template<typename T = float>
         f.error = "operation has no benchmark fixture";
         return f;
     }
+    if (o.sampled_oracle != 0u && !gemm && !bmm) {
+        f.error = "sampled_oracle is only supported for gemm and bmm";
+        return f;
+    }
     auto count = rows || first_max ? 2u : attention ? 7u : bmm ? 4u : 3u;
     // The complete matrix FP64 oracle visits one product per B*M*N*K term.
-    // This work limit is separate from each tensor's unchanged allocation cap.
-    auto work_limit = embedding ? (1ull << 48u) : gemm || bmm ? (1ull << 34u) : attention ? (1ull << 31u) : (1ull << 28u);
+    // Sampled FP64 oracle permits larger shapes (e.g. 4096^3) while keeping
+    // each tensor's unchanged 2^24 element allocation cap.
+    auto work_limit = embedding ? (1ull << 48u) :
+                      (gemm || bmm) ? (o.sampled_oracle != 0u ? (1ull << 40u) : (1ull << 34u)) :
+                      attention ? (1ull << 31u) : (1ull << 28u);
     if (o.dimensions.size() != count || !product_bounded(o.dimensions, work_limit)) {
         f.error = "invalid dimensions or fixture work bound exceeded";
         return f;
@@ -603,8 +615,11 @@ template<typename T = float>
         f.error = "ranking inputs must not contain NaNs";
         return f;
     }
-    f.expected.resize(volume(f.output_shape));
-    f.bound.resize(f.expected.size());
+    auto sampled_matrix = (gemm || bmm) && o.sampled_oracle != 0u;
+    if (!sampled_matrix) {
+        f.expected.resize(volume(f.output_shape));
+        f.bound.resize(f.expected.size());
+    }
     if (tensorcore_attention) { f.probability_rounding_bound.resize(f.expected.size()); }
     if (rows) {
         row_oracle(f, o);
@@ -612,18 +627,45 @@ template<typename T = float>
         auto base = bmm ? 1u : 0u;
         auto batches = bmm ? o.dimensions[0] : int64_t{1};
         auto m = o.dimensions[base], n = o.dimensions[base + 1u], k = o.dimensions[base + 2u];
-        for (int64_t batch = 0; batch < batches; batch++) {
-            auto a_offset = batch * m * k, b_offset = batch * k * n, c_offset = batch * m * n;
-            for (int64_t i = 0; i < m; i++) {
-                for (int64_t j = 0; j < n; j++) {
-                    double value = 0.0, absolute = 0.0;
-                    for (int64_t t = 0; t < k; t++) {
-                        auto product = static_cast<double>(f.inputs[0][a_offset + i * k + t]) * f.inputs[1][b_offset + t * n + j];
-                        value += product;
-                        absolute += std::abs(product);
+        if (sampled_matrix) {
+            auto total_out = volume(f.output_shape);
+            auto sample_count = std::min<size_t>(total_out, o.sampled_oracle);
+            f.sampled_indices.resize(sample_count);
+            f.expected.resize(sample_count);
+            f.bound.resize(sample_count);
+            uint64_t sample_state = o.seed ^ uint64_t{0x517cc1b727220a95ull};
+            for (size_t s = 0u; s < sample_count; s++) {
+                auto flat = static_cast<int64_t>(random_bits(sample_state) % total_out);
+                f.sampled_indices[s] = flat;
+                auto plane = m * n;
+                auto batch = flat / plane;
+                auto rem = flat % plane;
+                auto i = rem / n;
+                auto j = rem % n;
+                auto a_offset = batch * m * k, b_offset = batch * k * n;
+                double value = 0.0, absolute = 0.0;
+                for (int64_t t = 0; t < k; t++) {
+                    auto product = static_cast<double>(f.inputs[0][a_offset + i * k + t]) * f.inputs[1][b_offset + t * n + j];
+                    value += product;
+                    absolute += std::abs(product);
+                }
+                f.expected[s] = value;
+                f.bound[s] = sum_bound(k, absolute);
+            }
+        } else {
+            for (int64_t batch = 0; batch < batches; batch++) {
+                auto a_offset = batch * m * k, b_offset = batch * k * n, c_offset = batch * m * n;
+                for (int64_t i = 0; i < m; i++) {
+                    for (int64_t j = 0; j < n; j++) {
+                        double value = 0.0, absolute = 0.0;
+                        for (int64_t t = 0; t < k; t++) {
+                            auto product = static_cast<double>(f.inputs[0][a_offset + i * k + t]) * f.inputs[1][b_offset + t * n + j];
+                            value += product;
+                            absolute += std::abs(product);
+                        }
+                        f.expected[c_offset + i * n + j] = value;
+                        f.bound[c_offset + i * n + j] = sum_bound(k, absolute);
                     }
-                    f.expected[c_offset + i * n + j] = value;
-                    f.bound[c_offset + i * n + j] = sum_bound(k, absolute);
                 }
             }
         }
