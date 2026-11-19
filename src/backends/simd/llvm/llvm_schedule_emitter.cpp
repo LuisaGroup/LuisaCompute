@@ -905,6 +905,7 @@ void ScheduleEmitter::_preflight() {
                 instruction.opcode != schedule::Opcode::warp_collective &&
                 instruction.opcode != schedule::Opcode::print &&
                 instruction.opcode != schedule::Opcode::assert_ &&
+                instruction.opcode != schedule::Opcode::assume &&
                 instruction.opcode != schedule::Opcode::clock) {
                 auto message = std::string{
                                    "LLVM packet codegen encountered unsupported Schedule IR opcode '"} +

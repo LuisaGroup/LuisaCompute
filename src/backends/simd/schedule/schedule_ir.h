@@ -123,6 +123,7 @@ enum struct Opcode {
     edge_copy,
     print,
     assert_,
+    assume,
     clock,
     opaque,
 };

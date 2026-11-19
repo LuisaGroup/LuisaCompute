@@ -23,6 +23,7 @@
 #include <luisa/xir/debug_printer.h>
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/destructure_cfg.h>
@@ -154,31 +155,46 @@ namespace {
 
 void strip_debug_call_metadata_for_legalization(
     xir::Module *module) noexcept {
-    // The generic XIR inliner conservatively retains a call when metadata has
-    // no unique replacement owner. DSL $outline sites carry source comments,
-    // but the SIMD backend requires every ordinary callable to be legalized
-    // away before scheduling. Name/location/comment metadata is diagnostic
-    // only, so discard it at this backend boundary while preserving semantic
-    // metadata (which continues to produce a precise unsupported-call error).
+    // The generic XIR inliner conservatively retains a call when metadata on
+    // the call site, caller block, single-block callee body, or callee return
+    // has no unique replacement owner. DSL $outline sites and cached Coro XIR
+    // carry diagnostic name/location/comment metadata, but the SIMD backend
+    // requires every ordinary callable to be legalized away before scheduling.
+    // Discard diagnostic-only metadata on those inline boundaries while
+    // preserving semantic metadata (which still reports a precise error).
+    auto strip_diagnostic = [](xir::MetadataList &list) noexcept {
+        auto *metadata = list.head();
+        while (metadata != nullptr) {
+            auto *next = metadata->next();
+            switch (metadata->derived_metadata_tag()) {
+                case xir::DerivedMetadataTag::NAME:
+                case xir::DerivedMetadataTag::LOCATION:
+                case xir::DerivedMetadataTag::COMMENT:
+                    static_cast<void>(metadata->remove_self());
+                    break;
+                default: break;
+            }
+            metadata = next;
+        }
+    };
     for (auto *function : module->function_list()) {
         auto *definition = function->definition();
         if (definition == nullptr) { continue; }
+        const auto single_block_callable =
+            function->derived_function_tag() == xir::DerivedFunctionTag::CALLABLE &&
+            definition->basic_blocks().count_size() == 1u;
         for (auto *block : definition->basic_blocks()) {
+            auto has_call = false;
             for (auto *instruction : block->instructions()) {
-                if (!instruction->isa<xir::CallInst>()) { continue; }
-                auto *metadata = instruction->metadata_list().head();
-                while (metadata != nullptr) {
-                    auto *next = metadata->next();
-                    switch (metadata->derived_metadata_tag()) {
-                        case xir::DerivedMetadataTag::NAME:
-                        case xir::DerivedMetadataTag::LOCATION:
-                        case xir::DerivedMetadataTag::COMMENT:
-                            static_cast<void>(metadata->remove_self());
-                            break;
-                        default: break;
-                    }
-                    metadata = next;
+                if (instruction->isa<xir::CallInst>()) {
+                    has_call = true;
+                    strip_diagnostic(instruction->metadata_list());
+                } else if (instruction->isa<xir::ReturnInst>()) {
+                    strip_diagnostic(instruction->metadata_list());
                 }
+            }
+            if (has_call || single_block_callable) {
+                strip_diagnostic(block->metadata_list());
             }
         }
     }
@@ -1131,7 +1147,8 @@ SIMDCompiledKernel compile_simd_kernel(
     // Single-block callables can be folded before CFG legalization. A second
     // pass after destructuring handles multi-block callables without cloning
     // structured regions into the caller.
-    static_cast<void>(xir::inline_all_pass_run_on_module(module.get()));
+    static_cast<void>(xir::inline_all_pass_run_on_module(
+        module.get(), {.override_noinline = true}));
     static_cast<void>(xir::local_store_forward_pass_run_on_module(module.get()));
     static_cast<void>(xir::local_load_elimination_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));
@@ -1160,7 +1177,8 @@ SIMDCompiledKernel compile_simd_kernel(
         return result;
     }
     strip_debug_call_metadata_for_legalization(module.get());
-    static_cast<void>(xir::inline_all_pass_run_on_module(module.get()));
+    static_cast<void>(xir::inline_all_pass_run_on_module(
+        module.get(), {.override_noinline = true}));
     promote_aggregate_allocas();
     static_cast<void>(xir::mem2reg_pass_run_on_module(module.get()));
     static_cast<void>(xir::dce_pass_run_on_module(module.get()));

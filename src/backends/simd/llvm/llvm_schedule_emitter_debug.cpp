@@ -270,6 +270,44 @@ void ScheduleEmitter::_assert(
     _builder.SetInsertPoint(continuation);
 }
 
+void ScheduleEmitter::_assume(
+    const schedule::Instruction &instruction) {
+    if (instruction.result || instruction.operands.size() != 1u ||
+        instruction.message) {
+        _fail("assume instruction is malformed");
+        return;
+    }
+    auto *condition_metadata = _source.value(
+        instruction.operands.front());
+    auto *condition = _load_value(instruction.operands.front());
+    if (condition_metadata == nullptr || condition == nullptr ||
+        condition_metadata->type != Type::of<bool>()) {
+        _fail("assume instruction requires one Boolean operand");
+        return;
+    }
+
+    ::llvm::Value *holds = nullptr;
+    if (schedule::is_uniform(condition_metadata->value_class)) {
+        // Inactive packets in predicated regions must never turn a uniform
+        // assumption into unconditional UB.
+        auto *any_active = _builder.CreateOrReduce(_active_mask);
+        holds = _builder.CreateSelect(
+            any_active, condition, _builder.getTrue(),
+            "assume.active.condition");
+    } else {
+        auto *lanes = _as_lane_vector(
+            condition, *condition_metadata);
+        if (lanes == nullptr) { return; }
+        auto *safe = _builder.CreateSelect(
+            _active_mask, lanes,
+            ::llvm::Constant::getAllOnesValue(
+                _layout.mask_type()),
+            "assume.active.conditions");
+        holds = _builder.CreateAndReduce(safe);
+    }
+    _builder.CreateAssumption(holds);
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_clock(
     const schedule::Instruction &instruction) {
     if (!instruction.result || !instruction.operands.empty() ||

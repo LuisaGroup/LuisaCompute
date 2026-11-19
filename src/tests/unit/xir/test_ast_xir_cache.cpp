@@ -237,4 +237,138 @@ int main(int argc, char *argv[]) {
             }
         }
     };
+    "cached_struct_and_array_aggregate_and_diagnostic_inline_metadata"_test = [&] {
+        // Exercises two real Coro XIR cache consumer contracts:
+        // 1) Struct/array ArithmeticOp::AGGREGATE (including Ray-like and
+        //    vector-bearing padded structs) preserved across cached XIR handoff.
+        // 2) Diagnostic block/return/call metadata + NoInlineMD on a multi-block
+        //    cached callable legalized by backends such as SIMD.
+        auto *f32_ty = Type::of<float>();
+        auto *u8_ty = Type::of<uint8_t>();
+        auto *u32_ty = Type::of<uint>();
+        auto *f2_ty = Type::of<float2>();
+        auto *f3_ty = Type::of<float3>();
+        auto *f4_ty = Type::of<float4>();
+        auto *arr_f3_ty = Type::array(f32_ty, 3u);
+        auto *arr_vec3_ty = Type::array(f3_ty, 2u);
+        auto *ray_ty = Type::structure(16u, {arr_f3_ty, f32_ty, arr_f3_ty, f32_ty});
+        auto *padded_ty = Type::structure(16u, {u8_ty, f3_ty, f2_ty, arr_vec3_ty});
+
+        xir::Module xir_mod;
+        xir::XIRBuilder b;
+
+        auto *helper = xir_mod.create_callable(f4_ty);
+        helper->set_name("cached_aggregate_helper");
+        static_cast<void>(helper->create_metadata<xir::NoInlineMD>());
+        auto *h_idx = helper->create_value_argument(u32_ty);
+        auto *h_entry = helper->create_body_block();
+        h_entry->set_name("helper_entry");
+        h_entry->add_comment("diagnostic block metadata");
+        auto *h_then = helper->create_basic_block();
+        auto *h_else = helper->create_basic_block();
+        auto *h_merge = helper->create_basic_block();
+        h_merge->set_name("helper_merge");
+
+        b.set_insertion_point(h_entry);
+        auto *h_slot = b.alloca_local(f32_ty);
+        auto make_const = [&]<typename T>(T val) noexcept {
+            return xir_mod.create_constant(Type::of<T>(), &val);
+        };
+        auto *c0u = make_const(0u);
+        auto *c1u = make_const(1u);
+        auto *c2u = make_const(2u);
+        auto *c3u = make_const(3u);
+        auto *idx_f = b.static_cast_(f32_ty, h_idx);
+        auto *bit = b.call(u32_ty, xir::ArithmeticOp::BINARY_BIT_AND, {h_idx, c1u});
+        auto *is_odd = b.call(Type::of<bool>(), xir::ArithmeticOp::BINARY_NOT_EQUAL, {bit, c0u});
+        auto *if_inst = b.if_(is_odd);
+        if_inst->set_true_target(h_then);
+        if_inst->set_false_target(h_else);
+        if_inst->set_merge_block(h_merge);
+
+        b.set_insertion_point(h_then);
+        b.store(h_slot, b.call(f32_ty, xir::ArithmeticOp::BINARY_ADD,
+                               {idx_f, make_const(10.f)}));
+        b.br(h_merge);
+
+        b.set_insertion_point(h_else);
+        b.store(h_slot, b.call(f32_ty, xir::ArithmeticOp::BINARY_ADD,
+                               {idx_f, make_const(20.f)}));
+        b.br(h_merge);
+
+        b.set_insertion_point(h_merge);
+        auto *v = b.load(f32_ty, h_slot);
+        auto *v_plus1 = b.call(f32_ty, xir::ArithmeticOp::BINARY_ADD, {v, make_const(1.f)});
+        auto *v_plus2 = b.call(f32_ty, xir::ArithmeticOp::BINARY_ADD, {v, make_const(2.f)});
+        auto *orig = b.call(arr_f3_ty, xir::ArithmeticOp::AGGREGATE, {v, v_plus1, v_plus2});
+        auto *dir = b.call(arr_f3_ty, xir::ArithmeticOp::AGGREGATE, {v_plus2, v, v_plus1});
+        auto *ray = b.call(ray_ty, xir::ArithmeticOp::AGGREGATE,
+                           {orig, make_const(0.25f), dir, v_plus2});
+        auto *v2 = b.call(f2_ty, xir::ArithmeticOp::AGGREGATE, {v, v_plus1});
+        auto *v3 = b.call(f3_ty, xir::ArithmeticOp::AGGREGATE, {v, v_plus1, v_plus2});
+        auto *v3_arr = b.call(arr_vec3_ty, xir::ArithmeticOp::AGGREGATE, {v3, v3});
+        auto *padded = b.call(padded_ty, xir::ArithmeticOp::AGGREGATE,
+                              {make_const(uint8_t{7u}), v3, v2, v3_arr});
+        auto *ray_orig = b.call(arr_f3_ty, xir::ArithmeticOp::EXTRACT, {ray, c0u});
+        auto *r0 = b.call(f32_ty, xir::ArithmeticOp::EXTRACT, {ray_orig, c1u});
+        auto *r1 = b.call(f32_ty, xir::ArithmeticOp::EXTRACT, {ray, c3u});
+        auto *p_v2 = b.call(f2_ty, xir::ArithmeticOp::EXTRACT, {padded, c2u});
+        auto *r2 = b.call(f32_ty, xir::ArithmeticOp::EXTRACT, {p_v2, c0u});
+        auto *p_arr = b.call(arr_vec3_ty, xir::ArithmeticOp::EXTRACT, {padded, c3u});
+        auto *p_arr1 = b.call(f3_ty, xir::ArithmeticOp::EXTRACT, {p_arr, c1u});
+        auto *r3 = b.call(f32_ty, xir::ArithmeticOp::EXTRACT, {p_arr1, c2u});
+        auto *out_f4 = b.call(f4_ty, xir::ArithmeticOp::AGGREGATE, {r0, r1, r2, r3});
+        auto *ret = b.return_(out_f4);
+        ret->add_comment("diagnostic return metadata");
+
+        auto *kernel = xir_mod.create_kernel();
+        kernel->set_block_size({64u, 1u, 1u});
+        auto *out_buf = kernel->create_resource_argument(Type::of<Buffer<float4>>());
+        auto *k_entry = kernel->create_body_block();
+        k_entry->set_name("kernel_entry");
+        k_entry->add_comment("caller block diagnostic metadata");
+        b.set_insertion_point(k_entry);
+        auto *did = xir_mod.create_dispatch_id();
+        auto *tid = b.call(u32_ty, xir::ArithmeticOp::EXTRACT, {did, c0u});
+        auto *res = b.call(f4_ty, helper, {tid});
+        res->add_comment("call site diagnostic metadata");
+        b.call(xir::ResourceWriteOp::BUFFER_WRITE, {out_buf, tid, res});
+        b.return_void();
+
+        expect(xir::xir_verify_module(&xir_mod).succeeded()) << fatal;
+        auto retained = xir::xir_to_ast_translate(*kernel, {.cache_transformed_functions = true});
+        xir::AST2XIRTranslationStatistics stats;
+        auto imported = xir::ast_to_xir_translate(retained->function(), {.statistics = &stats});
+        expect(stats.cached_function_imports == 1u);
+        expect(stats.ast_function_translations == 0u);
+        expect(xir::xir_verify_module(imported.get()).succeeded());
+
+        if (argc > 1) {
+            Context context{argv[0]};
+            auto device = context.create_device(argv[1]);
+            auto stream = device.create_stream();
+            constexpr uint count = 16u;
+            auto output = device.create_buffer<float4>(count);
+            Kernel1D<Buffer<float4>> cached_kernel{retained};
+            Kernel1D<Buffer<float4>> oracle_kernel{retained->duplicate()};
+            auto cached_shader = device.compile(cached_kernel, {.enable_cache = false});
+            auto oracle_shader = device.compile(oracle_kernel, {.enable_cache = false});
+            std::vector<float4> cached_host(count), oracle_host(count);
+            stream << cached_shader(output).dispatch(count)
+                   << output.copy_to(cached_host.data()) << synchronize();
+            stream << oracle_shader(output).dispatch(count)
+                   << output.copy_to(oracle_host.data()) << synchronize();
+            for (auto i = 0u; i < count; i++) {
+                auto base = static_cast<float>(i) + ((i & 1u) != 0u ? 10.f : 20.f);
+                expect(cached_host[i].x == base + 1.f);
+                expect(cached_host[i].y == base + 2.f);
+                expect(cached_host[i].z == base);
+                expect(cached_host[i].w == base + 2.f);
+                expect(cached_host[i].x == oracle_host[i].x);
+                expect(cached_host[i].y == oracle_host[i].y);
+                expect(cached_host[i].z == oracle_host[i].z);
+                expect(cached_host[i].w == oracle_host[i].w);
+            }
+        }
+    };
 }

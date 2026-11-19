@@ -1487,6 +1487,16 @@ if (TARGET luisa-compute-backend-fallback)
     set_tests_properties(test_coro_xir_cache_fallback PROPERTIES
             LABELS "integration;integration_fallback;integration_coro" TIMEOUT 180)
 endif ()
+if (TARGET luisa-compute-backend-simd)
+    add_dependencies(test_ast_xir_cache luisa-compute-backend-simd)
+    add_test(NAME test_ast_xir_cache_simd COMMAND test_ast_xir_cache simd)
+    set_tests_properties(test_ast_xir_cache_simd PROPERTIES
+            LABELS "integration;integration_simd;integration_xir" TIMEOUT 180)
+    add_dependencies(test_coro_xir_cache luisa-compute-backend-simd)
+    add_test(NAME test_coro_xir_cache_simd COMMAND test_coro_xir_cache simd)
+    set_tests_properties(test_coro_xir_cache_simd PROPERTIES
+            LABELS "integration;integration_simd;integration_coro" TIMEOUT 180)
+endif ()
 
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_ast_pack_usage unit/xir/test_ast_pack_usage.cpp LABELS "unit;unit_xir")

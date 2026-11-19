@@ -1400,6 +1400,7 @@ void register_debug_instruction_tests() {
         auto *clock = builder.clock();
         builder.print("clock={}", {clock});
         builder.assert_(condition, "clock assertion");
+        builder.assume_(condition, "clock assumption");
         builder.return_void();
 
         auto result = lower_xir_to_schedule(
@@ -1408,6 +1409,7 @@ void register_debug_instruction_tests() {
         if (!result.succeeded()) { return; }
         auto print_count = size_t{0u};
         auto assert_count = size_t{0u};
+        auto assume_count = size_t{0u};
         auto clock_count = size_t{0u};
         for (auto &&block : result.function->blocks()) {
             for (auto &&instruction : block.instructions) {
@@ -1417,6 +1419,11 @@ void register_debug_instruction_tests() {
                 } else if (instruction.opcode == Opcode::assert_) {
                     assert_count++;
                     expect(instruction.message == "clock assertion");
+                } else if (instruction.opcode == Opcode::assume) {
+                    assume_count++;
+                    expect(!instruction.source_op.has_value());
+                    expect(!instruction.message.has_value());
+                    expect(instruction.operands.size() == 1u);
                 } else if (instruction.opcode == Opcode::clock) {
                     clock_count++;
                 }
@@ -1424,6 +1431,7 @@ void register_debug_instruction_tests() {
         }
         expect(print_count == 1u);
         expect(assert_count == 1u);
+        expect(assume_count == 1u);
         expect(clock_count == 1u);
         expect(verify(*result.function).succeeded());
     };

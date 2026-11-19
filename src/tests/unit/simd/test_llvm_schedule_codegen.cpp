@@ -16456,6 +16456,62 @@ make_structured_early_exit_foreign_convergence_fixture() {
     return true;
 }
 
+[[nodiscard]] bool run_ast_assume_and_noinline_legalization() {
+    // Regression for Psycles Coro SIMD blockers:
+    // 1) Uniform and varying XIR ASSUME instructions (including tail packets
+    //    and divergent branches where inactive lanes have condition == false).
+    // 2) NoInline callables that SIMD must legalize away before scheduling.
+    static constexpr auto count = 13u;
+    Callable helper = [](UInt x) noexcept {
+        luisa::compute::detail::FunctionBuilder::current()->mark_noinline();
+        auto result = def(0u);
+        $if ((x & 1u) == 0u) {
+            assume((x & 1u) == 0u);
+            result = x * 3u + 1u;
+        } $else {
+            assume((x & 1u) != 0u);
+            result = x * 5u + 2u;
+        };
+        return result;
+    };
+    Kernel1D kernel = [&](BufferUInt output) noexcept {
+        assume(dispatch_size().x == count);
+        auto index = dispatch_id().x;
+        assume(index < count);
+        output.write(index, helper(index));
+    };
+    for (auto width : {1u, 4u, 8u}) {
+        auto compiled = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_assume_and_noinline");
+        if (!compiled.succeeded()) {
+            for (auto &&diagnostic : compiled.diagnostics) {
+                std::cerr << diagnostic << '\n';
+            }
+            return false;
+        }
+        std::array<uint32_t, count> output{};
+        alignas(16) SIMDHostBufferView argument{
+            output.data(), sizeof(output)};
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+        auto entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u; first += width) {
+            config.thread_index = first;
+            entry(&argument, nullptr, &config, width);
+        }
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto expected = (index & 1u) == 0u ?
+                                index * 3u + 1u :
+                                index * 5u + 2u;
+            CHECK(output[index] == expected);
+        }
+    }
+    return true;
+}
+
 template<typename T>
 [[nodiscard]] bool run_contiguous_private_accesses() {
     for (auto width : {2u, 4u, 8u, 16u}) {
@@ -18201,6 +18257,8 @@ int main() {
          &run_ast_shader_execution_reorder},
         {"AST boolean-vector all/any",
          &run_ast_boolean_vector_reduction},
+        {"AST assume and noinline legalization",
+         &run_ast_assume_and_noinline_legalization},
     };
     auto failures = 0u;
     for (auto test : tests) {

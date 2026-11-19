@@ -163,6 +163,7 @@ const char *to_string(Opcode value) noexcept {
         case Opcode::edge_copy: return "edge_copy";
         case Opcode::print: return "print";
         case Opcode::assert_: return "assert";
+        case Opcode::assume: return "assume";
         case Opcode::clock: return "clock";
         case Opcode::opaque: return "opaque";
     }
@@ -414,6 +415,13 @@ VerificationResult verify(const Function &function) {
                     requires_message ?
                         "print/assert instruction is missing its message" :
                         "non-debug instruction unexpectedly carries a message",
+                    block.id);
+            }
+            if (instruction.opcode == Opcode::assume &&
+                (instruction.result || instruction.operands.size() != 1u)) {
+                add_error(
+                    result,
+                    "assume instruction requires one operand and no result",
                     block.id);
             }
             if (instruction.opcode == Opcode::call) {

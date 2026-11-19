@@ -1174,6 +1174,7 @@ private:
             case Tag::PRINT: return Opcode::print;
             case Tag::CLOCK: return Opcode::clock;
             case Tag::ASSERT: return Opcode::assert_;
+            case Tag::ASSUME: return Opcode::assume;
             case Tag::THREAD_GROUP: {
                 auto op = static_cast<const xir::ThreadGroupInst *>(instruction)
                               ->op();
@@ -1186,7 +1187,6 @@ private:
                                            Opcode::opaque;
             }
             case Tag::DEBUG_BREAK:
-            case Tag::ASSUME:
             case Tag::OUTLINE: return Opcode::opaque;
             default: return Opcode::opaque;
         }
@@ -1473,7 +1473,6 @@ private:
                     static_cast<const xir::ThreadGroupInst *>(instruction)
                         ->op());
             case Tag::DEBUG_BREAK:
-            case Tag::ASSUME:
             case Tag::OUTLINE:
                 return static_cast<uint32_t>(
                     instruction->derived_instruction_tag());

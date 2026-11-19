@@ -373,12 +373,45 @@ namespace {
     return true;
 }
 
+[[nodiscard]] bool test_assume_verification() {
+    CHECK(luisa::string_view{to_string(Opcode::assume)} == "assume");
+    Function function{"assume_verify", 8u};
+    auto entry = function.add_block("entry");
+    function.set_entry(entry);
+    auto condition = function.add_value(
+        ValueClass::varying, nullptr, ValueOrigin::parameter,
+        luisa::nullopt, "condition");
+    function.block(entry)->instructions.emplace_back(Instruction{
+        .opcode = Opcode::assume,
+        .operands = {condition},
+    });
+    function.block(entry)->terminator = ReturnTerminator{};
+    auto &inst = function.block(entry)->instructions.front();
+    CHECK(verify(function).succeeded());
+    CHECK(to_string(function).find("assume %0") != std::string::npos);
+
+    inst.operands.clear();
+    CHECK(contains_error(verify(function), "assume instruction requires one operand"));
+    inst.operands = {condition, condition};
+    CHECK(contains_error(verify(function), "assume instruction requires one operand"));
+    inst.operands = {condition};
+    inst.message = "unexpected";
+    CHECK(contains_error(verify(function), "unexpectedly carries a message"));
+    inst.message.reset();
+    inst.result = function.add_value(
+        ValueClass::varying, nullptr, ValueOrigin::instruction,
+        entry, "bad_result");
+    CHECK(contains_error(verify(function), "assume instruction requires one operand"));
+    return true;
+}
+
 int main() {
     struct Test {
         luisa::string_view name;
         bool (*run)();
     };
     constexpr Test tests[]{
+        {"assume verification", &test_assume_verification},
         {"contiguous copy semantics", &test_contiguous_copy_semantics},
         {"cohort GEP annotation", &test_cohort_gep_annotation},
         {"valid diamond", &test_valid_diamond},
