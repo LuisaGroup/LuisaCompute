@@ -110,8 +110,8 @@ void test_remainder(Device &device) {
         }
     }
 
-    // Fast math permits finite-input assumptions; exceptional inputs belong
-    // to the precise contract. Check classes/signs, not NaN payload bits.
+    // Both precise and fast-math modes must handle Inf/NaN without entering
+    // unbounded range-reduction loops, including specialized constant divisors.
     auto infinity = std::numeric_limits<T>::infinity();
     auto nan = std::numeric_limits<T>::quiet_NaN();
     auto zero = static_cast<T>(0.0);
@@ -122,24 +122,41 @@ void test_remainder(Device &device) {
     rhs[1] = V{infinity, -infinity, infinity, -infinity};
     lhs[2] = V{infinity, nan, one, zero};
     rhs[2] = V{infinity, nan, nan, zero};
-    auto precise = device.compile(kernel, ShaderOption{
-        .enable_cache = false, .enable_fast_math = false});
-    std::array<V, count> exceptional_result{};
-    stream << x.copy_from(luisa::span{lhs}) << y.copy_from(luisa::span{rhs})
-           << precise(x, y, scalar, vector, broadcast).dispatch(count)
-           << vector.copy_to(luisa::span{exceptional_result}) << synchronize();
-    for (auto i = 0u; i < 3u; i++) {
-        for (auto lane = 0u; lane < 4u; lane++) {
-            auto expected = std::fmod(static_cast<double>(lhs[i][lane]),
-                                      static_cast<double>(rhs[i][lane]));
-            auto actual = static_cast<double>(exceptional_result[i][lane]);
-            if (std::isnan(expected)) {
-                expect(std::isnan(actual));
-            } else {
-                expect(actual == expected);
-                expect(std::signbit(actual) == std::signbit(expected));
+    Kernel1D const_divisor_kernel = [](Var<Buffer<V>> x, Var<Buffer<V>> out) noexcept {
+        auto i = dispatch_x();
+        out.write(i, fmod(x.read(i), make_vector<T, 4u>(static_cast<T>(1024.0))));
+    };
+    for (auto fast : {false, true}) {
+        auto mode_shader = device.compile(kernel, ShaderOption{
+            .enable_cache = false, .enable_fast_math = fast});
+        auto const_shader = device.compile(const_divisor_kernel, ShaderOption{
+            .enable_cache = false, .enable_fast_math = fast});
+        std::array<V, count> exceptional_result{};
+        std::array<V, count> const_result{};
+        stream << x.copy_from(luisa::span{lhs}) << y.copy_from(luisa::span{rhs})
+               << mode_shader(x, y, scalar, vector, broadcast).dispatch(count)
+               << vector.copy_to(luisa::span{exceptional_result})
+               << const_shader(x, broadcast).dispatch(count)
+               << broadcast.copy_to(luisa::span{const_result}) << synchronize();
+        for (auto i = 0u; i < 3u; i++) {
+            for (auto lane = 0u; lane < 4u; lane++) {
+                auto expected = std::fmod(static_cast<double>(lhs[i][lane]),
+                                          static_cast<double>(rhs[i][lane]));
+                auto actual = static_cast<double>(exceptional_result[i][lane]);
+                if (std::isnan(expected)) {
+                    expect(std::isnan(actual));
+                } else {
+                    expect(actual == expected);
+                    if (!fast) {
+                        expect(std::signbit(actual) == std::signbit(expected));
+                    }
+                }
             }
         }
+        expect(std::isnan(static_cast<double>(const_result[0][0])));
+        expect(std::isnan(static_cast<double>(const_result[0][1])));
+        expect(std::isnan(static_cast<double>(const_result[0][2])));
+        expect(static_cast<double>(const_result[0][3]) == 1.0);
     }
 }
 

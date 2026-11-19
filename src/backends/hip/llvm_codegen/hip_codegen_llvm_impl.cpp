@@ -490,7 +490,10 @@ void HIPCodegenLLVMImpl::_specialize_oclc_options() noexcept {
     };
     auto llvm_i8_type = llvm::Type::getInt8Ty(_llvm_context);
     auto llvm_i32_type = llvm::Type::getInt32Ty(_llvm_context);
-    set_oclc_option("__oclc_finite_only_opt", llvm::ConstantInt::get(llvm_i8_type, _config.enable_fast_math ? 1 : 0));
+    // Keep OCML range-reduction finite guards active even when fast math is
+    // enabled: __ocml_fmod_* uses frexp exponent stepping that would otherwise
+    // spin for ~1.8e8 iterations on Inf/NaN dividends from degenerate geometry.
+    set_oclc_option("__oclc_finite_only_opt", llvm::ConstantInt::get(llvm_i8_type, 0));
     set_oclc_option("__oclc_unsafe_math_opt", llvm::ConstantInt::get(llvm_i8_type, _config.enable_fast_math ? 1 : 0));
     set_oclc_option("__oclc_ABI_version", llvm::ConstantInt::get(llvm_i32_type, 600u));
     set_oclc_option("__oclc_wavefrontsize64", llvm::ConstantInt::get(llvm_i8_type, _config.wave_size == 64u));
@@ -1020,19 +1023,32 @@ void HIPCodegenLLVMImpl::_run_optimization_passes() noexcept {
         luisa::compute::detail::apply_llvm_fp_function_options(function, luisa::compute::detail::LLVMFPOpFusion::Standard);
     }
     if (_config.enable_fast_math) {
+        // Enable fast reciprocal, contraction, approximate intrinsics,
+        // reassociation, and signed-zero elision without `nnan`/`ninf` poison.
+        // Real shaders can produce NaN/Inf on degenerate geometry (e.g. 0/0 or
+        // 1/0); marking operations or comparisons `nnan`/`ninf` turns those
+        // values into LLVM `poison`, breaking clamp/comparison guards and
+        // miscompiling bounded device loops or OCML range reduction into
+        // unbounded GPU loops. Also leave linked OCML/OCKL library bitcode
+        // functions untouched so their range-reduction predicates stay intact.
+        llvm::FastMathFlags fmf;
+        fmf.setAllowReciprocal(true);
+        fmf.setAllowContract(true);
+        fmf.setApproxFunc(true);
+        fmf.setAllowReassoc(true);
+        fmf.setNoSignedZeros(true);
         for (auto &f : *_llvm_module) {
+            if (f.isDeclaration() ||
+                f.getName().starts_with("__ocml_") ||
+                f.getName().starts_with("__ockl_")) {
+                continue;
+            }
             for (auto &bb : f) {
                 for (auto &inst : bb) {
-                    // `frem` is a range-reduction primitive, not an
-                    // approximable arithmetic operation. Marking it `fast`
-                    // permits quotient-based lowering, which is not
-                    // equivalent to IEEE remainder once the quotient has too
-                    // few mantissa bits to recover the residue. The DSL fmod
-                    // contract therefore requires precise `frem` even when
-                    // surrounding continuous arithmetic uses fast math.
                     if (llvm::isa<llvm::FPMathOperator>(inst) &&
-                        inst.getOpcode() != llvm::Instruction::FRem) {
-                        inst.setFast(true);
+                        inst.getOpcode() != llvm::Instruction::FRem &&
+                        !llvm::isa<llvm::FCmpInst>(inst)) {
+                        inst.setFastMathFlags(fmf);
                     }
                 }
             }

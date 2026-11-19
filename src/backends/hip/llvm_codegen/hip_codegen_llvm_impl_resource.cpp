@@ -13,13 +13,25 @@ namespace luisa::compute::hip {
 
 namespace {
 
-[[nodiscard]] bool is_frame_raw_scalar_access(
+[[nodiscard]] bool is_frame_raw_32bit_scalar(const Type *type) noexcept {
+    return type->tag() == Type::Tag::INT32 ||
+           type->tag() == Type::Tag::UINT32 ||
+           type->tag() == Type::Tag::FLOAT32;
+}
+
+[[nodiscard]] bool is_frame_raw_buffer_access(
     const xir::Instruction *inst, const Type *type,
     llvm::Value *offset) noexcept {
-    if (!offset->getType()->isIntegerTy(32) ||
-        (type->tag() != Type::Tag::INT32 &&
-         type->tag() != Type::Tag::UINT32 &&
-         type->tag() != Type::Tag::FLOAT32)) {
+    if (!offset->getType()->isIntegerTy(32)) {
+        return false;
+    }
+    const bool supported_type =
+        is_frame_raw_32bit_scalar(type) ||
+        (type->is_vector() &&
+         type->dimension() >= 2u &&
+         type->dimension() <= 4u &&
+         is_frame_raw_32bit_scalar(type->element()));
+    if (!supported_type) {
         return false;
     }
     for (auto *md : inst->metadata_list()) {
@@ -1339,15 +1351,14 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Func
             auto llvm_byte_offset = _get_llvm_value(b, func_ctx, inst->operand(1));
             auto elem_type = inst->type();
             if (!is_volatile &&
-                is_frame_raw_scalar_access(inst, elem_type, llvm_byte_offset)) {
+                is_frame_raw_buffer_access(inst, elem_type, llvm_byte_offset)) {
                 auto llvm_type_info = _get_llvm_type(elem_type);
                 auto *raw_load = llvm::Intrinsic::getOrInsertDeclaration(
                     _llvm_module.get(), llvm::Intrinsic::amdgcn_raw_buffer_load,
-                    {llvm_type_info->mem_type});
-                auto *value = b.CreateCall(raw_load,
+                    {llvm_type_info->reg_type});
+                return b.CreateCall(raw_load,
                     {make_frame_buffer_resource_descriptor(b, llvm_buffer),
                      llvm_byte_offset, b.getInt32(0), b.getInt32(0)});
-                return _convert_llvm_mem_value_to_reg(b, value, elem_type);
             }
             auto llvm_elem_ptr = _get_buffer_element_pointer(b, llvm_buffer, llvm_byte_offset, 1, elem_type->size());
             return _load_llvm_value(b, llvm_elem_ptr, elem_type, is_volatile);
@@ -1633,13 +1644,12 @@ void HIPCodegenLLVMImpl::_translate_resource_write_inst(IB &b, FunctionContext &
             auto llvm_value = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto elem_type = inst->operand(2)->type();
             if (!is_volatile &&
-                is_frame_raw_scalar_access(inst, elem_type, llvm_byte_offset)) {
-                auto *value = _convert_llvm_reg_value_to_mem(b, llvm_value, elem_type);
+                is_frame_raw_buffer_access(inst, elem_type, llvm_byte_offset)) {
                 auto *raw_store = llvm::Intrinsic::getOrInsertDeclaration(
                     _llvm_module.get(), llvm::Intrinsic::amdgcn_raw_buffer_store,
-                    {value->getType()});
+                    {llvm_value->getType()});
                 b.CreateCall(raw_store,
-                    {value, make_frame_buffer_resource_descriptor(b, llvm_buffer),
+                    {llvm_value, make_frame_buffer_resource_descriptor(b, llvm_buffer),
                      llvm_byte_offset, b.getInt32(0), b.getInt32(0)});
                 return;
             }

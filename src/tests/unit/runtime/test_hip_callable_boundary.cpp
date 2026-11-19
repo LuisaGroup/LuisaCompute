@@ -1306,9 +1306,14 @@ int main(int argc, char *argv[]) {
             expect(contains_dynamic_fp_operation(fast_root) &&
                    contains_dynamic_fp_operation(strict_root))
                 << "fast/strict regression kernel lost its dynamic FP work";
-            expect(fast_root.find(" fast ") != luisa::string_view::npos)
+            expect(fast_root.find("reassoc nsz arcp contract afn") != luisa::string_view::npos)
                 << "ShaderOption::enable_fast_math did not reach HIP LLVM IR";
-            expect(strict_root.find(" fast ") == luisa::string_view::npos)
+            expect(fast_root.find(" fast ") == luisa::string_view::npos &&
+                   fast_root.find(" nnan ") == luisa::string_view::npos &&
+                   fast_root.find(" ninf ") == luisa::string_view::npos)
+                << "HIP fast-math LLVM IR unexpectedly injected nnan/ninf poison flags";
+            expect(strict_root.find(" fast ") == luisa::string_view::npos &&
+                   strict_root.find("reassoc nsz arcp contract afn") == luisa::string_view::npos)
                 << "strict HIP LLVM IR unexpectedly retained fast-math flags";
         };
 
