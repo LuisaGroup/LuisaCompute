@@ -36,7 +36,7 @@ class CurveBasisSet;
 namespace luisa::compute::xir {
 class AST2XIRContext;
 class XIR2ASTContext;
-struct ASTFunctionCache;
+class FunctionDefinition;
 }// namespace luisa::compute::xir
 
 namespace luisa::compute::detail {
@@ -134,7 +134,7 @@ private:
     uint64_t _hash;
     // Set only while building, before hashing/publication. Kept opaque here so
     // AST-only builds retain no link-time dependency on XIR.
-    luisa::shared_ptr<const xir::ASTFunctionCache> _xir_cache;
+    luisa::shared_ptr<const xir::FunctionDefinition> _xir_cache;
     uint64_t _xir_cache_hash{0u};
     // Launch dimensions belong exclusively to kernels. Keep the metadata
     // defined for non-kernel functions so reflection and hashing never read

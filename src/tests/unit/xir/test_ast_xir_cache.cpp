@@ -22,13 +22,20 @@ using FB = luisa::compute::detail::FunctionBuilder;
 
 namespace {
 
-shared_ptr<const FB> make_cached_callable(bool cache, string_view comment = "snapshot") {
+shared_ptr<const FB> make_cached_callable(bool cache, string_view comment = "snapshot",
+                                          string_view leaf_comment = {}, bool unrelated = false) {
     xir::Module module;
+    xir::XIRBuilder builder;
+    if (unrelated) {
+        auto *unused = module.create_callable(nullptr);
+        builder.set_insertion_point(unused->create_body_block());
+        builder.return_void();
+    }
     auto *leaf = module.create_callable(Type::of<int>());
     leaf->set_name("leaf");
+    if (!leaf_comment.empty()) { leaf->add_comment(leaf_comment); }
     static_cast<void>(leaf->create_metadata<xir::NoInlineMD>());
     auto *x = leaf->create_value_argument(Type::of<int>());
-    xir::XIRBuilder builder;
     builder.set_insertion_point(leaf->create_body_block());
     auto *sum = builder.call(Type::of<int>(), xir::ArithmeticOp::BINARY_ADD,
                              {x, module.create_constant_one(Type::of<int>())});
@@ -46,6 +53,33 @@ shared_ptr<const FB> make_cached_callable(bool cache, string_view comment = "sna
 }// namespace
 
 int main(int argc, char *argv[]) {
+    "only_opted_in_xir_to_ast_attaches_a_cache"_test = [] {
+        Callable leaf = [](UInt value) { return value + 1u; };
+        Kernel1D kernel = [&](BufferUInt output) { output.write(dispatch_x(), leaf(dispatch_x())); };
+        auto ast = kernel.function()->function();
+        auto lower = [](luisa::compute::Function f, size_t bodies, size_t imports) {
+            xir::AST2XIRTranslationStatistics stats;
+            auto ir = xir::ast_to_xir_translate(f, {.statistics = &stats});
+            expect(stats.ast_function_translations == bodies);
+            expect(stats.cached_function_imports == imports);
+            expect(xir::xir_verify_module(ir.get()).succeeded());
+            return ir;
+        };
+
+        auto module = lower(ast, 2u, 0u);
+        const xir::KernelFunction *root = nullptr;
+        for (auto *function : module->function_list()) {
+            if (function->isa<xir::KernelFunction>()) {
+                root = static_cast<const xir::KernelFunction *>(function);
+            }
+        }
+        expect(root != nullptr) << fatal;
+        auto plain = xir::xir_to_ast_translate(*root, {});
+        auto retained = xir::xir_to_ast_translate(*root, {.cache_transformed_functions = true});
+        lower(plain->function(), 2u, 0u);
+        lower(retained->function(), 0u, 1u);
+        lower(ast, 2u, 0u);
+    };
     "cache_survives_source_and_imports_without_ast_lowering"_test = [] {
         auto ast = make_cached_callable(true);
         xir::AST2XIRTranslationStatistics statistics;
@@ -88,10 +122,12 @@ int main(int argc, char *argv[]) {
     };
     "cache_identity_and_parallel_consumers"_test = [] {
         auto ast = make_cached_callable(true);
-        auto same = make_cached_callable(true);
+        auto same = make_cached_callable(true, "snapshot", {}, true);
+        auto different_leaf = make_cached_callable(true, "snapshot", "callee metadata");
         auto different = make_cached_callable(true, "different preserved metadata");
         expect(ast->hash() == same->hash());
         expect(ast->hash() != different->hash());
+        expect(ast->hash() != different_leaf->hash());
         auto plain = make_cached_callable(false);
         expect(plain->hash() == make_cached_callable(false)->hash());
         expect(ast->hash() != plain->hash());
@@ -108,6 +144,22 @@ int main(int argc, char *argv[]) {
         }
         for (auto &worker : workers) { worker.join(); }
         expect(successes.load() == 4u);
+    };
+    "fingerprint_includes_instruction_state_erased_by_xir_to_ast"_test = [] {
+        xir::Module module;
+        auto *function = module.create_callable(nullptr);
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(function->create_body_block());
+        auto *slot = builder.alloca_local(Type::of<uint>());
+        builder.return_void();
+        auto hash = [&](bool retain) {
+            return xir::xir_to_ast_translate(*function, {.cache_transformed_functions = retain})->hash();
+        };
+        auto ast_hash = hash(false);
+        auto retained_hash = hash(true);
+        slot->set_coro_return_selector(7u);
+        expect(hash(false) == ast_hash);
+        expect(hash(true) != retained_hash);
     };
     "bound_argument_sorting_uses_ast_fallback"_test = [] {
         xir::Module module;
@@ -146,7 +198,14 @@ int main(int argc, char *argv[]) {
                 output.write(0u, grad(x));
             };
         };
-        auto transformed = backend_detail::lower_autodiff_to_ast(kernel.function()->function());
+        auto ast_only = backend_detail::lower_autodiff_to_ast(kernel.function()->function());
+        xir::AST2XIRTranslationStatistics ast_only_stats;
+        auto ast_only_ir = xir::ast_to_xir_translate(ast_only->function(), {.statistics = &ast_only_stats});
+        expect(ast_only_stats.cached_function_imports == 0u);
+        expect(ast_only_stats.ast_function_translations == 1u);
+        expect(xir::xir_verify_module(ast_only_ir.get()).succeeded());
+
+        auto transformed = backend_detail::lower_autodiff_to_ast(kernel.function()->function(), true);
         expect(!transformed->function().requires_autodiff());
         xir::AST2XIRTranslationStatistics stats;
         auto module = xir::ast_to_xir_translate(transformed->function(), {.statistics = &stats});

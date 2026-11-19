@@ -9,7 +9,8 @@ when the entry kernel and scheduler wrappers are newly recorded ASTs.
 ## Ownership and isolation
 
 `FunctionBuilder` owns an opaque, immutable cache handle. The AST library only
-stores a shared pointer and a fingerprint; it does not link against XIR.
+stores a shared pointer and a fingerprint. The pointer addresses the cloned
+function and shares its snapshot module's control block.
 `XIR2ASTConfig::cache_transformed_functions` opts a producer into retention and
 requires its input module to remain immutable until translation finalization.
 The producer copies the reachable functions and their globals into one shared
@@ -29,13 +30,16 @@ boundary. It is not a general cloning API for arbitrary intermediate SSA.
 
 ## Conservative misses and identity
 
-The cache is attached before the AST builder is hashed and published. Its
-identity includes a fingerprint of the immutable source module (computed once
-per batch) and the selected function's ordinal, in addition to the AST hash.
-This prevents metadata-rich preserved XIR from aliasing an AST-only generated
-shader. Uncached functions retain their existing hash algorithm and values.
-Including the whole source module is conservative: unrelated source changes
-can cause an extra cache miss, never reuse a different transformed function.
+Only XIR-to-AST translation with explicit retention attaches a cache, before
+the AST builder is hashed and published. Ordinary DSL recording, AST function
+duplication and AST-to-XIR translation never populate it.
+
+The AST hash incorporates a structural fingerprint of the retained function.
+Local IDs follow argument, block and instruction definition order. Global
+operands contribute their content, including callee fingerprints and metadata.
+The translation context computes shared dependencies once. Unrelated functions,
+module insertion order and allocator addresses do not affect the key. A closure
+with an unsupported instruction or metadata kind falls back to AST lowering.
 
 Bound-resource argument sorting/deduplication can change the XIR signature.
 This initial implementation deliberately does not attach snapshots when any
@@ -43,9 +47,8 @@ This initial implementation deliberately does not attach snapshots when any
 argument types/reference modes differ from the source. These functions use the
 ordinary AST path. Coroutine continuations use explicit arguments; their
 scheduler/capture wrappers remain AST and can still import the cached bodies.
-Unbound AutoDiff kernels retain XIR; bound AutoDiff kernels fall back. The
-classic Metal/DX AutoDiff helper remains an AST consumer, so retention there
-is not itself a claim of immediate backend speedup.
+AutoDiff callers can request retention for unbound kernels. Classic Metal and
+DX consume the AST and use the helper's default of disabled retention.
 
 Legacy inline-ray-query translation and raster-stage configurations bypass
 snapshots. AST rewrites/duplication do not automatically copy a cache to a

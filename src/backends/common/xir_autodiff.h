@@ -9,7 +9,7 @@
 namespace luisa::compute::backend_detail {
 
 [[nodiscard]] inline luisa::shared_ptr<const xir::ASTFunctionBuilder>
-lower_autodiff_to_ast(Function kernel) noexcept {
+lower_autodiff_to_ast(Function kernel, bool cache_transformed_functions = false) noexcept {
     auto module = xir::ast_to_xir_translate(kernel, {});
     auto inline_info = xir::inline_all_pass_run_on_module(module.get());
     auto autodiff_info = xir::autodiff_pass_run_on_module(module.get());
@@ -22,7 +22,7 @@ lower_autodiff_to_ast(Function kernel) noexcept {
         autodiff_info.removed_instruction_count);
     auto config = xir::XIR2ASTConfig{
         .bound_arguments = kernel.bound_arguments(),
-        .cache_transformed_functions = true};
+        .cache_transformed_functions = cache_transformed_functions};
     for (auto *function : module->function_list()) {
         if (function->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
             return xir::xir_to_ast_translate(

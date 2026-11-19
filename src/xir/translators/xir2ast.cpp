@@ -1,6 +1,5 @@
-#include "ast_xir_cache.h"
+#include "ast_xir_cache_fingerprint.h"
 #include "ast_xir_cache_clone.h"
-#include <luisa/xir/translators/xir2text.h>
 #include <algorithm>
 
 #include <luisa/core/clock.h>
@@ -476,7 +475,7 @@ private:
     luisa::shared_ptr<const ASTFunctionBuilder> _builder;
     luisa::shared_ptr<Module> _cache_module;
     luisa::unique_ptr<AstXirCacheCloner> _cache_cloner;
-    luisa::unordered_map<const Function *, uint64_t> _cache_hashes;
+    AstXirCacheFingerprint _cache_fingerprint;
     luisa::unordered_map<const FunctionDefinition *, luisa::shared_ptr<const ASTFunctionBuilder>> _function_map;
     luisa::unordered_set<const FunctionDefinition *> _translating_functions;
     luisa::unordered_set<const BasicBlock *> _active_blocks;
@@ -1627,24 +1626,16 @@ private:
             if (argument->type() != ast_argument.type() ||
                 argument->is_reference() != ast_argument.is_reference()) { return; }
         }
+        auto fingerprint = _cache_fingerprint(f);
+        if (!fingerprint) { return; }
         if (!_cache_module) {
             _cache_module = luisa::make_shared<Module>();
             _cache_cloner = luisa::make_unique<AstXirCacheCloner>(*_cache_module);
         }
         auto *root = _cache_cloner->import(&f);
-        // Fingerprint each immutable input module once, before builders escape.
-        // Include metadata as well as AST semantics. Whole-module identity is
-        // conservative (unrelated changes may miss), but linear for a batch.
-        if (!_cache_hashes.contains(&f)) {
-            auto text = xir_to_flat_text_translate(f.parent_module(), true);
-            auto module_hash = hash64(text.data(), text.size(), hash64_default_seed);
-            auto ordinal = uint64_t{0u};
-            for (auto *function : f.parent_module()->function_list()) {
-                _cache_hashes.emplace(function, hash_value(ordinal++, module_hash));
-            }
-        }
-        builder->_xir_cache_hash = _cache_hashes.at(&f);
-        builder->_xir_cache = luisa::make_shared<ASTFunctionCache>(ASTFunctionCache{_cache_module, root});
+        builder->_xir_cache_hash = *fingerprint;
+        // The handle points at the cloned root and shares ownership of its module.
+        builder->_xir_cache = {_cache_module, root};
     }
 
     [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder> _translate(const FunctionDefinition &f) noexcept {
