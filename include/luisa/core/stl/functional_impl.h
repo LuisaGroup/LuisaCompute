@@ -409,20 +409,25 @@ struct _callable_trait {
             return reinterpret_cast<T *>(val.fp_);
     }
 
+    // Keep the parameter pack in a named function: MSVC can mis-instantiate
+    // reference arguments in the lambda of a variable-template initializer.
+    template<class T, template<class> class quals>
+    static auto call_target(handle this_, Args... args) noexcept(noex) -> R {
+        if constexpr (std::is_lvalue_reference_v<T> or std::is_pointer_v<T>) {
+            using Tp = std::remove_reference_t<std::remove_pointer_t<T>>;
+            return luisa::move_only_function_detail::invoke_r<R>(*get<Tp>(this_),
+                                                                 static_cast<Args>(args)...);
+        } else {
+            using Fp = typename quals<T>::type;
+            return luisa::move_only_function_detail::invoke_r<R>(static_cast<Fp>(*get<T>(this_)),
+                                                                 static_cast<Args>(args)...);
+        }
+    }
+
     // See also: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=71954
     template<class T, template<class> class quals>
     static inline constinit vtable const callable_target{
-        .call = [](handle this_, Args... args) noexcept(noex) -> R {
-            if constexpr (std::is_lvalue_reference_v<T> or std::is_pointer_v<T>) {
-                using Tp = std::remove_reference_t<std::remove_pointer_t<T>>;
-                return luisa::move_only_function_detail::invoke_r<R>(*get<Tp>(this_),
-                                                                     static_cast<Args>(args)...);
-            } else {
-                using Fp = typename quals<T>::type;
-                return luisa::move_only_function_detail::invoke_r<R>(static_cast<Fp>(*get<T>(this_)),
-                                                                     static_cast<Args>(args)...);
-            }
-        },
+        .call = &call_target<T, quals>,
         .destroy =
             [](handle this_) noexcept {
                 if constexpr (not std::is_lvalue_reference_v<T> and

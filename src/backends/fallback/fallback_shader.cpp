@@ -1295,13 +1295,18 @@ void FallbackShader::_initialize_target_machine_jit(const ShaderOption &option) 
             });
             LUISA_ERROR_WITH_LOCATION("Failed to create target machine.");
         }
+        // LLVM < 22 has no SectionMemoryManager reservation mode; keep its default layer.
+#if LLVM_VERSION_MAJOR >= 22
         if (is_coff_x86) {
             // RuntimeDyldCOFFX86_64 requires all sections referenced by 32-bit
             // image-base-relative relocations (IMAGE_REL_AMD64_ADDR32NB) to be
             // allocated in a single monotonically ordered address range.
             jit_builder.setObjectLinkingLayerCreator(
-                [](::llvm::orc::ExecutionSession &es,
-                   ::llvm::jitlink::JITLinkMemoryManager &)
+#if LLVM_VERSION_MAJOR >= 23
+                [](::llvm::orc::ExecutionSession &es, ::llvm::jitlink::JITLinkMemoryManager &)
+#else
+                [](::llvm::orc::ExecutionSession &es)
+#endif
                     -> ::llvm::Expected<std::unique_ptr<::llvm::orc::ObjectLayer>> {
                     auto layer = std::make_unique<::llvm::orc::RTDyldObjectLinkingLayer>(
                         es, [](const ::llvm::MemoryBuffer &) {
@@ -1313,6 +1318,7 @@ void FallbackShader::_initialize_target_machine_jit(const ShaderOption &option) 
                     return layer;
                 });
         }
+#endif
         jit_builder.setJITTargetMachineBuilder(std::move(*host));
     } else {
         ::llvm::handleAllErrors(host.takeError(), [&](const ::llvm::ErrorInfoBase &e) {

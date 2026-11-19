@@ -293,6 +293,8 @@ luisa_compute_add_test(test_first_fit          unit/core/test_first_fit.cpp     
 luisa_compute_add_test(test_logging            unit/core/test_logging.cpp            LABELS "unit;unit_core")
 luisa_compute_add_test(test_mathematics        unit/core/test_mathematics.cpp        LABELS "unit;unit_core")
 luisa_compute_add_test(test_matrix             unit/core/test_matrix.cpp             LABELS "unit;unit_core")
+luisa_compute_add_test(test_dsl_function_signature unit/dsl/test_dsl_function_signature.cpp LABELS "unit;unit_dsl")
+luisa_compute_add_test(test_move_only_function unit/core/test_move_only_function.cpp LABELS "unit;unit_core")
 luisa_compute_add_test(test_pool               unit/core/test_pool.cpp               LABELS "unit;unit_core")
 
 # Benchmark: reference-count-block recycle bins (lock-free CAS pool vs spin_mutex

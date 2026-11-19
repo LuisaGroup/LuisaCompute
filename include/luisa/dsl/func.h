@@ -557,31 +557,32 @@ struct dsl_function {
             std::remove_cvref_t<T>>>::type;
 };
 
-template<typename... Args>
-struct dsl_function<function_signature<void, Args...>> {
-    using type = function_signature<
-        void,
-        definition_to_prototype_t<Args>...>;
+// Separate return-type mapping from the function specialization to avoid
+// ambiguous alias-template partial ordering on MSVC.
+template<typename Ret>
+struct dsl_return_type {
+    using type = expr_value_t<Ret>;
+};
+
+template<>
+struct dsl_return_type<void> {
+    using type = void;
+};
+
+template<typename... Ret>
+struct dsl_return_type<std::tuple<Ret...>> {
+    using type = std::tuple<expr_value_t<Ret>...>;
+};
+
+template<typename RA, typename RB>
+struct dsl_return_type<std::pair<RA, RB>> {
+    using type = std::tuple<expr_value_t<RA>, expr_value_t<RB>>;
 };
 
 template<typename Ret, typename... Args>
-struct dsl_function<function_signature<Ret, Args...>> {
+struct dsl_function<Ret(Args...)> {
     using type = function_signature<
-        expr_value_t<Ret>,
-        definition_to_prototype_t<Args>...>;
-};
-
-template<typename... Ret, typename... Args>
-struct dsl_function<function_signature<std::tuple<Ret...>, Args...>> {
-    using type = function_signature<
-        std::tuple<expr_value_t<Ret>...>,
-        definition_to_prototype_t<Args>...>;
-};
-
-template<typename RA, typename RB, typename... Args>
-struct dsl_function<function_signature<std::pair<RA, RB>, Args...>> {
-    using type = function_signature<
-        std::tuple<expr_value_t<RA>, expr_value_t<RB>>,
+        typename dsl_return_type<Ret>::type,
         definition_to_prototype_t<Args>...>;
 };
 

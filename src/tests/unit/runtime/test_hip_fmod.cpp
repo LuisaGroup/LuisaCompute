@@ -124,7 +124,7 @@ void test_remainder(Device &device) {
     rhs[2] = V{infinity, nan, nan, zero};
     Kernel1D const_divisor_kernel = [](Var<Buffer<V>> x, Var<Buffer<V>> out) noexcept {
         auto i = dispatch_x();
-        out.write(i, fmod(x.read(i), make_vector<T, 4u>(static_cast<T>(1024.0))));
+        out.write(i, fmod(x.read(i), V{static_cast<T>(1024.0)}));
     };
     for (auto fast : {false, true}) {
         auto mode_shader = device.compile(kernel, ShaderOption{
