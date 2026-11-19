@@ -341,11 +341,12 @@ template<typename T = float>
             f.error = "matrix fixtures require dimensions<=65536, bounded tile extents, BMM power-of-two tiles and GEMV N=1";
             return f;
         }
-        if (!product_bounded(std::array{batches, m, k}, 1ull << 24u) ||
-            !product_bounded(std::array{batches, k, n}, 1ull << 24u) ||
-            !product_bounded(std::array{batches, m, n}, 1ull << 24u) ||
+        auto tensor_limit = o.sampled_oracle != 0u ? (1ull << 28u) : (1ull << 24u);
+        if (!product_bounded(std::array{batches, m, k}, tensor_limit) ||
+            !product_bounded(std::array{batches, k, n}, tensor_limit) ||
+            !product_bounded(std::array{batches, m, n}, tensor_limit) ||
             (bmm && ceil_div(m, bm) > 65535) || ((bmm || o.backend == "cuda") && ceil_div(n, bn) > 65535)) {
-            f.error = "matrix input/output allocation exceeds 2^24 elements or launch grid exceeds CUDA limits";
+            f.error = "matrix input/output allocation exceeds element cap or launch grid exceeds CUDA limits";
             return f;
         }
     }
@@ -565,9 +566,10 @@ template<typename T = float>
                                       tensor_shape(batches, kv_heads, keys, value_channels), tensor_shape(batches, heads, queries, value_channels));
         f.algorithm = tensorcore_attention ? "causal_online_softmax_gqa_narrow_pv" : "causal_online_softmax_gqa";
     }
+    auto input_tensor_limit = (gemm || bmm) && o.sampled_oracle != 0u ? (1ull << 28u) : (1ull << 24u);
     for (auto &shape : f.input_shapes) {
-        if (!product_bounded(shape, 1ull << 24u)) {
-            f.error = "input allocation exceeds 2^24 elements";
+        if (!product_bounded(shape, input_tensor_limit)) {
+            f.error = "input allocation exceeds element cap";
             return f;
         }
     }
