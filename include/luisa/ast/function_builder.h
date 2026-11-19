@@ -33,6 +33,12 @@ class CallableLibrary;
 class CurveBasisSet;
 }// namespace luisa::compute
 
+namespace luisa::compute::xir {
+class AST2XIRContext;
+class XIR2ASTContext;
+struct ASTFunctionCache;
+}// namespace luisa::compute::xir
+
 namespace luisa::compute::detail {
 
 class FunctionDuplicator;
@@ -56,6 +62,8 @@ class LUISA_AST_API FunctionBuilder : public luisa::enable_shared_from_this<Func
     friend class lc::validation::Device;
     friend class FunctionDuplicator;
     friend class FunctionDebugger;
+    friend class xir::AST2XIRContext;
+    friend class xir::XIR2ASTContext;
 
 public:
     /**
@@ -124,6 +132,10 @@ private:
     CallOpSet _direct_builtin_callables;
     CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
+    // Set only while building, before hashing/publication. Kept opaque here so
+    // AST-only builds retain no link-time dependency on XIR.
+    luisa::shared_ptr<const xir::ASTFunctionCache> _xir_cache;
+    uint64_t _xir_cache_hash{0u};
     // Launch dimensions belong exclusively to kernels. Keep the metadata
     // defined for non-kernel functions so reflection and hashing never read
     // indeterminate storage; DSL access is rejected at the API boundary.

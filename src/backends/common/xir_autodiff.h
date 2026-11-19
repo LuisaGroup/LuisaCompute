@@ -21,7 +21,8 @@ lower_autodiff_to_ast(Function kernel) noexcept {
         autodiff_info.transformed_scope_count,
         autodiff_info.removed_instruction_count);
     auto config = xir::XIR2ASTConfig{
-        .bound_arguments = kernel.bound_arguments()};
+        .bound_arguments = kernel.bound_arguments(),
+        .cache_transformed_functions = true};
     for (auto *function : module->function_list()) {
         if (function->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
             return xir::xir_to_ast_translate(

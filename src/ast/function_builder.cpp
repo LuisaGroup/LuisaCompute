@@ -782,6 +782,7 @@ void FunctionBuilder::_compute_hash() noexcept {
         propagated_builtin_callables,
         launch_config,
         semantic_flags,
+        transformed_xir,
     };
     luisa::vector<uint64_t> hashes;
     hashes.reserve(32u +
@@ -854,6 +855,11 @@ void FunctionBuilder::_compute_hash() noexcept {
                         static_cast<uint64_t>(_requires_printing) << 1u |
                         static_cast<uint64_t>(_use_cooperative_operations) << 2u |
                         static_cast<uint64_t>(_requires_noinline) << 3u);
+
+    if (_xir_cache != nullptr) {
+        begin_group(Field::transformed_xir, 1u);
+        hashes.emplace_back(_xir_cache_hash);
+    }
 
     _hash = hash64(hashes.data(), hashes.size() * sizeof(uint64_t), function_builder_seed);
     _hash_computed = true;

@@ -43,6 +43,11 @@ struct XIR2ASTConfig {
     // before translating any root. Mutually exclusive with
     // verify_same_module_once.
     XIRPassVerificationTransaction *verification_transaction{nullptr};
+    // Retain an immutable transformed XIR closure for later AST-to-XIR imports.
+    // The source module must remain immutable until context finalization.
+    // Bound arguments and non-identity AST argument layouts conservatively
+    // retain the ordinary AST path. AST-only backends are unaffected.
+    bool cache_transformed_functions{false};
 };
 
 using ASTFunctionBuilder = compute::detail::FunctionBuilder;
