@@ -1,9 +1,162 @@
 #include "fallback_texture.h"
 #include "fallback_texture_bc.h"
 #include "fallback_accel.h"
+#include <bit>
+#include <cstdio>
+#include <cstdlib>
+#include <mutex>
+#include <string_view>
+#if defined(_M_X64) || defined(__x86_64__)
+#ifdef _MSC_VER
+#include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
+#elif (defined(_M_ARM64) || defined(__aarch64__)) && !defined(__clang__)
+#if __has_include(<arm_neon.h>)
+#include <arm_neon.h>
+#define LUISA_FALLBACK_HAS_ARM_NEON_HEADER 1
+#endif
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+#endif
 #include <luisa/core/stl/memory.h>
 
 namespace luisa::compute::fallback::api {
+
+namespace detail_api_profile {
+
+[[nodiscard]] inline uint64_t read_tsc() noexcept {
+#if defined(_M_X64) || defined(__x86_64__)
+    return __rdtsc();
+#elif defined(_M_ARM64) || defined(__aarch64__)
+#if defined(_MSC_VER) && !defined(__clang__)
+    return static_cast<uint64_t>(_ReadStatusReg(ARM64_CNTVCT));
+#else
+    uint64_t cnt = 0ull;
+    asm volatile("mrs %0, cntvct_el0" : "=r"(cnt));
+    return cnt;
+#endif
+#else
+    return 0ull;
+#endif
+}
+
+inline const bool g_enabled = []() noexcept {
+    const char *raw = std::getenv("LUISA_FALLBACK_API_PROFILE");
+    return raw != nullptr && std::string_view{raw} == "1";
+}();
+
+[[nodiscard]] inline bool enabled() noexcept {
+    return g_enabled;
+}
+
+struct Counters {
+    uint64_t trace_closest_calls = 0;
+    uint64_t trace_closest_tsc = 0;
+    uint64_t rq_all_calls = 0;
+    uint64_t rq_all_total_tsc = 0;
+    uint64_t rq_all_callback_calls = 0;
+    uint64_t rq_all_callback_tsc = 0;
+    uint64_t trace_any_calls = 0;
+    uint64_t trace_any_tsc = 0;
+    uint64_t rq_any_calls = 0;
+    uint64_t rq_any_total_tsc = 0;
+    uint64_t rq_any_callback_calls = 0;
+    uint64_t rq_any_callback_tsc = 0;
+    uint64_t tex2d_sample_calls = 0;
+    uint64_t tex2d_sample_tsc = 0;
+    uint64_t tex2d_in_shadow_cb_tsc = 0;
+    uint64_t tex3d_sample_calls = 0;
+    uint64_t tex3d_sample_tsc = 0;
+
+    void add(const Counters &o) noexcept {
+        trace_closest_calls += o.trace_closest_calls;
+        trace_closest_tsc += o.trace_closest_tsc;
+        rq_all_calls += o.rq_all_calls;
+        rq_all_total_tsc += o.rq_all_total_tsc;
+        rq_all_callback_calls += o.rq_all_callback_calls;
+        rq_all_callback_tsc += o.rq_all_callback_tsc;
+        trace_any_calls += o.trace_any_calls;
+        trace_any_tsc += o.trace_any_tsc;
+        rq_any_calls += o.rq_any_calls;
+        rq_any_total_tsc += o.rq_any_total_tsc;
+        rq_any_callback_calls += o.rq_any_callback_calls;
+        rq_any_callback_tsc += o.rq_any_callback_tsc;
+        tex2d_sample_calls += o.tex2d_sample_calls;
+        tex2d_sample_tsc += o.tex2d_sample_tsc;
+        tex2d_in_shadow_cb_tsc += o.tex2d_in_shadow_cb_tsc;
+        tex3d_sample_calls += o.tex3d_sample_calls;
+        tex3d_sample_tsc += o.tex3d_sample_tsc;
+    }
+};
+
+struct GlobalSink {
+    std::mutex mtx;
+    Counters total{};
+    void flush(Counters &local) noexcept {
+        std::scoped_lock lk{mtx};
+        total.add(local);
+        local = Counters{};
+    }
+};
+
+inline GlobalSink &sink() noexcept {
+    static GlobalSink s;
+    return s;
+}
+
+struct ThreadSlot {
+    Counters c{};
+    uint32_t in_shadow_cb = 0u;
+    ~ThreadSlot() noexcept {
+        if (enabled()) { sink().flush(c); }
+    }
+};
+
+inline thread_local ThreadSlot tls_slot{};
+
+} // namespace detail_api_profile
+
+void luisa_fallback_dump_api_profile_if_enabled() noexcept {
+    if (!detail_api_profile::enabled()) { return; }
+    detail_api_profile::sink().flush(detail_api_profile::tls_slot.c);
+    detail_api_profile::Counters snap{};
+    {
+        std::scoped_lock lk{detail_api_profile::sink().mtx};
+        snap = detail_api_profile::sink().total;
+        detail_api_profile::sink().total = detail_api_profile::Counters{};
+    }
+    std::printf(
+        "LUISA_FALLBACK_API_PROFILE_JSON: "
+        "{\"trace_closest_calls\":%llu,\"trace_closest_tsc\":%llu,"
+        "\"rq_all_calls\":%llu,\"rq_all_total_tsc\":%llu,"
+        "\"rq_all_callback_calls\":%llu,\"rq_all_callback_tsc\":%llu,"
+        "\"trace_any_calls\":%llu,\"trace_any_tsc\":%llu,"
+        "\"rq_any_calls\":%llu,\"rq_any_total_tsc\":%llu,"
+        "\"rq_any_callback_calls\":%llu,\"rq_any_callback_tsc\":%llu,"
+        "\"tex2d_sample_calls\":%llu,\"tex2d_sample_tsc\":%llu,\"tex2d_in_shadow_cb_tsc\":%llu,"
+        "\"tex3d_sample_calls\":%llu,\"tex3d_sample_tsc\":%llu}\n",
+        static_cast<unsigned long long>(snap.trace_closest_calls),
+        static_cast<unsigned long long>(snap.trace_closest_tsc),
+        static_cast<unsigned long long>(snap.rq_all_calls),
+        static_cast<unsigned long long>(snap.rq_all_total_tsc),
+        static_cast<unsigned long long>(snap.rq_all_callback_calls),
+        static_cast<unsigned long long>(snap.rq_all_callback_tsc),
+        static_cast<unsigned long long>(snap.trace_any_calls),
+        static_cast<unsigned long long>(snap.trace_any_tsc),
+        static_cast<unsigned long long>(snap.rq_any_calls),
+        static_cast<unsigned long long>(snap.rq_any_total_tsc),
+        static_cast<unsigned long long>(snap.rq_any_callback_calls),
+        static_cast<unsigned long long>(snap.rq_any_callback_tsc),
+        static_cast<unsigned long long>(snap.tex2d_sample_calls),
+        static_cast<unsigned long long>(snap.tex2d_sample_tsc),
+        static_cast<unsigned long long>(snap.tex2d_in_shadow_cb_tsc),
+        static_cast<unsigned long long>(snap.tex3d_sample_calls),
+        static_cast<unsigned long long>(snap.tex3d_sample_tsc));
+    std::fflush(stdout);
+}
 
 void luisa_bc7_read(const FallbackTextureView *tex, uint x, uint y, float4 &out) noexcept {
     auto block_pos = make_uint2(x / 4, y / 4);
@@ -159,12 +312,217 @@ template<typename T>
     return std::make_pair<luisa::float2, luisa::float2>(luisa::min(c_min, c_max), luisa::max(c_min, c_max));
 }
 
+[[nodiscard]] inline luisa::float4 bilinear_rgba8_pair(
+    const uint8_t *p00, const uint8_t *p01,
+    const uint8_t *p10, const uint8_t *p11,
+    float tx, float ty) noexcept {
+#if defined(_M_X64) || defined(__x86_64__)
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i u0 = _mm_unpacklo_epi8(_mm_set_epi32(0, 0, *reinterpret_cast<const int *>(p01), *reinterpret_cast<const int *>(p00)), zero);
+    const __m128i u1 = _mm_unpacklo_epi8(_mm_set_epi32(0, 0, *reinterpret_cast<const int *>(p11), *reinterpret_cast<const int *>(p10)), zero);
+    const __m128 f00 = _mm_cvtepi32_ps(_mm_unpacklo_epi16(u0, zero));
+    const __m128 f01 = _mm_cvtepi32_ps(_mm_unpackhi_epi16(u0, zero));
+    const __m128 f10 = _mm_cvtepi32_ps(_mm_unpacklo_epi16(u1, zero));
+    const __m128 f11 = _mm_cvtepi32_ps(_mm_unpackhi_epi16(u1, zero));
+    const __m128 vtx = _mm_set1_ps(tx);
+    const __m128 vty = _mm_set1_ps(ty);
+    const __m128 r0 = _mm_add_ps(f00, _mm_mul_ps(_mm_sub_ps(f01, f00), vtx));
+    const __m128 r1 = _mm_add_ps(f10, _mm_mul_ps(_mm_sub_ps(f11, f10), vtx));
+    const __m128 res = _mm_mul_ps(_mm_add_ps(r0, _mm_mul_ps(_mm_sub_ps(r1, r0), vty)), _mm_set1_ps(1.f / 255.f));
+    alignas(16) float out[4];
+    _mm_store_ps(out, res);
+    return luisa::make_float4(out[0], out[1], out[2], out[3]);
+#elif defined(LUISA_FALLBACK_HAS_ARM_NEON_HEADER)
+    uint32_t w00 = 0u, w01 = 0u, w10 = 0u, w11 = 0u;
+    std::memcpy(&w00, p00, 4u);
+    std::memcpy(&w01, p01, 4u);
+    std::memcpy(&w10, p10, 4u);
+    std::memcpy(&w11, p11, 4u);
+    const uint8x8_t u8_0 = vreinterpret_u8_u64(vcreate_u64(static_cast<uint64_t>(w00) | (static_cast<uint64_t>(w01) << 32u)));
+    const uint8x8_t u8_1 = vreinterpret_u8_u64(vcreate_u64(static_cast<uint64_t>(w10) | (static_cast<uint64_t>(w11) << 32u)));
+    const uint16x8_t u16_0 = vmovl_u8(u8_0);
+    const uint16x8_t u16_1 = vmovl_u8(u8_1);
+    const float32x4_t f00 = vcvtq_f32_u32(vmovl_u16(vget_low_u16(u16_0)));
+    const float32x4_t f01 = vcvtq_f32_u32(vmovl_u16(vget_high_u16(u16_0)));
+    const float32x4_t f10 = vcvtq_f32_u32(vmovl_u16(vget_low_u16(u16_1)));
+    const float32x4_t f11 = vcvtq_f32_u32(vmovl_u16(vget_high_u16(u16_1)));
+    const float32x4_t r0 = vfmaq_n_f32(f00, vsubq_f32(f01, f00), tx);
+    const float32x4_t r1 = vfmaq_n_f32(f10, vsubq_f32(f11, f10), tx);
+    const float32x4_t res = vmulq_n_f32(vfmaq_n_f32(r0, vsubq_f32(r1, r0), ty), 1.f / 255.f);
+    alignas(16) float out[4];
+    vst1q_f32(out, res);
+    return luisa::make_float4(out[0], out[1], out[2], out[3]);
+#elif defined(__clang__)
+    using u8x4 = uint8_t __attribute__((ext_vector_type(4)));
+    using f32x4 = float __attribute__((ext_vector_type(4)));
+    u8x4 b00, b01, b10, b11;
+    std::memcpy(&b00, p00, 4u);
+    std::memcpy(&b01, p01, 4u);
+    std::memcpy(&b10, p10, 4u);
+    std::memcpy(&b11, p11, 4u);
+    const f32x4 f00 = __builtin_convertvector(b00, f32x4);
+    const f32x4 f01 = __builtin_convertvector(b01, f32x4);
+    const f32x4 f10 = __builtin_convertvector(b10, f32x4);
+    const f32x4 f11 = __builtin_convertvector(b11, f32x4);
+    const f32x4 r0 = f00 + (f01 - f00) * tx;
+    const f32x4 r1 = f10 + (f11 - f10) * tx;
+    const f32x4 res = (r0 + (r1 - r0) * ty) * (1.f / 255.f);
+    return luisa::make_float4(res.x, res.y, res.z, res.w);
+#else
+    auto v00 = detail::pixel_to_float4<uint8_t, 4u>(reinterpret_cast<const std::byte *>(p00));
+    auto v01 = detail::pixel_to_float4<uint8_t, 4u>(reinterpret_cast<const std::byte *>(p01));
+    auto v10 = detail::pixel_to_float4<uint8_t, 4u>(reinterpret_cast<const std::byte *>(p10));
+    auto v11 = detail::pixel_to_float4<uint8_t, 4u>(reinterpret_cast<const std::byte *>(p11));
+    return luisa::lerp(luisa::lerp(v00, v01, tx), luisa::lerp(v10, v11, tx), ty);
+#endif
+}
+
 [[nodiscard]] inline auto texture_sample_linear(FallbackTextureView view, Sampler::Address address, luisa::float2 uv) noexcept {
-    auto size = make_float2(view.size2d());
+    const auto sz = view.size2d();
+    const uint w = sz.x;
+    const uint h = sz.y;
+    const auto size = make_float2(sz);
+    const auto storage = view.storage();
+
+    // Fast division-free interior path for REPEAT and EDGE (covers >99% of UV lookups).
+    if (w >= 2u && h >= 2u &&
+        (address == Sampler::Address::REPEAT || address == Sampler::Address::EDGE)) {
+        float ux = uv.x;
+        float uy = uv.y;
+        if (address == Sampler::Address::REPEAT) {
+            ux -= std::floor(ux);
+            uy -= std::floor(uy);
+        }
+        if (ux >= 0.f && ux < 1.f && uy >= 0.f && uy < 1.f) {
+            const float px = ux * size.x - 0.5f;
+            const float py = uy * size.y - 0.5f;
+            if (px >= 0.f && px < size.x - 1.f && py >= 0.f && py < size.y - 1.f) [[likely]] {
+                const uint x0 = static_cast<uint>(px);
+                const uint y0 = static_cast<uint>(py);
+                const float tx = px - static_cast<float>(x0);
+                const float ty = py - static_cast<float>(y0);
+                const auto *raw = reinterpret_cast<const uint8_t *>(view.data());
+                switch (storage) {
+                    case PixelStorage::BYTE4: {
+                        const size_t stride = static_cast<size_t>(w) << 2u;
+                        const uint8_t *r0 = raw + static_cast<size_t>(y0) * stride + (static_cast<size_t>(x0) << 2u);
+                        const uint8_t *r1 = r0 + stride;
+#if defined(_M_X64) || defined(__x86_64__)
+                        const __m128i zero = _mm_setzero_si128();
+                        const __m128i u0 = _mm_unpacklo_epi8(_mm_loadl_epi64(reinterpret_cast<const __m128i *>(r0)), zero);
+                        const __m128i u1 = _mm_unpacklo_epi8(_mm_loadl_epi64(reinterpret_cast<const __m128i *>(r1)), zero);
+                        const __m128 f00 = _mm_cvtepi32_ps(_mm_unpacklo_epi16(u0, zero));
+                        const __m128 f01 = _mm_cvtepi32_ps(_mm_unpackhi_epi16(u0, zero));
+                        const __m128 f10 = _mm_cvtepi32_ps(_mm_unpacklo_epi16(u1, zero));
+                        const __m128 f11 = _mm_cvtepi32_ps(_mm_unpackhi_epi16(u1, zero));
+                        const __m128 vtx = _mm_set1_ps(tx);
+                        const __m128 vty = _mm_set1_ps(ty);
+                        const __m128 row0 = _mm_add_ps(f00, _mm_mul_ps(_mm_sub_ps(f01, f00), vtx));
+                        const __m128 row1 = _mm_add_ps(f10, _mm_mul_ps(_mm_sub_ps(f11, f10), vtx));
+                        const __m128 res = _mm_mul_ps(
+                            _mm_add_ps(row0, _mm_mul_ps(_mm_sub_ps(row1, row0), vty)),
+                            _mm_set1_ps(1.f / 255.f));
+                        alignas(16) float out[4];
+                        _mm_store_ps(out, res);
+                        return luisa::make_float4(out[0], out[1], out[2], out[3]);
+#else
+                        return bilinear_rgba8_pair(r0, r0 + 4u, r1, r1 + 4u, tx, ty);
+#endif
+                    }
+                    case PixelStorage::BYTE4_SRGB: {
+                        const size_t stride = static_cast<size_t>(w) << 2u;
+                        const auto *r0 = reinterpret_cast<const std::byte *>(raw + static_cast<size_t>(y0) * stride + (static_cast<size_t>(x0) << 2u));
+                        const auto *r1 = r0 + stride;
+                        const auto v00 = detail::pixel_srgb8_to_float4(r0);
+                        const auto v01 = detail::pixel_srgb8_to_float4(r0 + 4u);
+                        const auto v10 = detail::pixel_srgb8_to_float4(r1);
+                        const auto v11 = detail::pixel_srgb8_to_float4(r1 + 4u);
+                        return luisa::lerp(luisa::lerp(v00, v01, tx), luisa::lerp(v10, v11, tx), ty);
+                    }
+                    case PixelStorage::FLOAT4: {
+                        const auto *fraw = reinterpret_cast<const luisa::float4 *>(raw);
+                        const size_t idx0 = static_cast<size_t>(y0) * w + x0;
+                        const size_t idx1 = idx0 + w;
+                        return luisa::lerp(
+                            luisa::lerp(fraw[idx0], fraw[idx0 + 1u], tx),
+                            luisa::lerp(fraw[idx1], fraw[idx1 + 1u], tx), ty);
+                    }
+                    case PixelStorage::BYTE1: {
+                        const size_t idx0 = static_cast<size_t>(y0) * w + x0;
+                        const size_t idx1 = idx0 + w;
+                        const float r0 = static_cast<float>(raw[idx0]) + (static_cast<float>(raw[idx0 + 1u]) - static_cast<float>(raw[idx0])) * tx;
+                        const float r1 = static_cast<float>(raw[idx1]) + (static_cast<float>(raw[idx1 + 1u]) - static_cast<float>(raw[idx1])) * tx;
+                        return luisa::make_float4((r0 + (r1 - r0) * ty) * (1.f / 255.f), 0.f, 0.f, 0.f);
+                    }
+                    case PixelStorage::FLOAT1: {
+                        const auto *fraw = reinterpret_cast<const float *>(raw);
+                        const size_t idx0 = static_cast<size_t>(y0) * w + x0;
+                        const size_t idx1 = idx0 + w;
+                        const float r0 = fraw[idx0] + (fraw[idx0 + 1u] - fraw[idx0]) * tx;
+                        const float r1 = fraw[idx1] + (fraw[idx1 + 1u] - fraw[idx1]) * tx;
+                        return luisa::make_float4(r0 + (r1 - r0) * ty, 0.f, 0.f, 0.f);
+                    }
+                    case PixelStorage::HALF4: {
+                        const size_t stride = static_cast<size_t>(w) << 3u;
+                        const auto *r0 = reinterpret_cast<const std::byte *>(raw + static_cast<size_t>(y0) * stride + (static_cast<size_t>(x0) << 3u));
+                        const auto *r1 = r0 + stride;
+                        const auto v00 = detail::pixel_to_float4<luisa::half, 4u>(r0);
+                        const auto v01 = detail::pixel_to_float4<luisa::half, 4u>(r0 + 8u);
+                        const auto v10 = detail::pixel_to_float4<luisa::half, 4u>(r1);
+                        const auto v11 = detail::pixel_to_float4<luisa::half, 4u>(r1 + 8u);
+                        return luisa::lerp(luisa::lerp(v00, v01, tx), luisa::lerp(v10, v11, tx), ty);
+                    }
+                    default: break;
+                }
+            }
+        }
+    }
+
     auto [st_min, st_max] = texture_coord_linear(address, uv, size);
     auto t = luisa::fract(st_max);
     auto c0 = make_uint2(st_min);
     auto c1 = make_uint2(st_max);
+    if ((c0.x < w) & (c1.x < w) & (c0.y < h) & (c1.y < h)) [[likely]] {
+        const auto *raw = reinterpret_cast<const uint8_t *>(view.data());
+        switch (storage) {
+            case PixelStorage::BYTE4: {
+                const size_t stride = static_cast<size_t>(w) << 2u;
+                const uint8_t *row0 = raw + static_cast<size_t>(c0.y) * stride;
+                const uint8_t *row1 = raw + static_cast<size_t>(c1.y) * stride;
+                return bilinear_rgba8_pair(
+                    row0 + (static_cast<size_t>(c0.x) << 2u),
+                    row0 + (static_cast<size_t>(c1.x) << 2u),
+                    row1 + (static_cast<size_t>(c0.x) << 2u),
+                    row1 + (static_cast<size_t>(c1.x) << 2u),
+                    t.x, t.y);
+            }
+            case PixelStorage::BYTE4_SRGB: {
+                const size_t stride = static_cast<size_t>(w) << 2u;
+                const auto *row0 = reinterpret_cast<const std::byte *>(raw + static_cast<size_t>(c0.y) * stride);
+                const auto *row1 = reinterpret_cast<const std::byte *>(raw + static_cast<size_t>(c1.y) * stride);
+                const auto v00 = detail::pixel_srgb8_to_float4(row0 + (static_cast<size_t>(c0.x) << 2u));
+                const auto v01 = detail::pixel_srgb8_to_float4(row0 + (static_cast<size_t>(c1.x) << 2u));
+                const auto v10 = detail::pixel_srgb8_to_float4(row1 + (static_cast<size_t>(c0.x) << 2u));
+                const auto v11 = detail::pixel_srgb8_to_float4(row1 + (static_cast<size_t>(c1.x) << 2u));
+                return luisa::lerp(luisa::lerp(v00, v01, t.x), luisa::lerp(v10, v11, t.x), t.y);
+            }
+            case PixelStorage::FLOAT4: {
+                const auto *fraw = reinterpret_cast<const luisa::float4 *>(raw);
+                const auto *row0 = fraw + static_cast<size_t>(c0.y) * w;
+                const auto *row1 = fraw + static_cast<size_t>(c1.y) * w;
+                return luisa::lerp(luisa::lerp(row0[c0.x], row0[c1.x], t.x),
+                                   luisa::lerp(row1[c0.x], row1[c1.x], t.x), t.y);
+            }
+            case PixelStorage::BYTE1: {
+                const auto *row0 = raw + static_cast<size_t>(c0.y) * w;
+                const auto *row1 = raw + static_cast<size_t>(c1.y) * w;
+                const float r0 = static_cast<float>(row0[c0.x]) + (static_cast<float>(row0[c1.x]) - static_cast<float>(row0[c0.x])) * t.x;
+                const float r1 = static_cast<float>(row1[c0.x]) + (static_cast<float>(row1[c1.x]) - static_cast<float>(row1[c0.x])) * t.x;
+                return luisa::make_float4((r0 + (r1 - r0) * t.y) * (1.f / 255.f), 0.f, 0.f, 0.f);
+            }
+            default: break;
+        }
+    }
     auto handle = reinterpret_cast<const PackedTextureView *>(&view);
     auto v00 = bit_cast<luisa::float4>(luisa_fallback_texture2d_read_float(handle->data, handle->extra, c0.x, c0.y));
     auto v01 = bit_cast<luisa::float4>(luisa_fallback_texture2d_read_float(handle->data, handle->extra, c1.x, c0.y));
@@ -174,12 +532,20 @@ template<typename T>
 }
 
 [[nodiscard]] float4 luisa_fallback_bindless_texture2d_sample(const Texture *handle, uint sampler, float u, float v) noexcept {
+    const uint64_t t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
     auto tex = reinterpret_cast<const FallbackTexture *>(handle);
     auto s = Sampler::decode(sampler);
     auto view = tex->view(0);
     auto result = s.filter() == Sampler::Filter::POINT ?
                       texture_sample_point(view, s.address(), make_float2(u, v)) :
                       texture_sample_linear(view, s.address(), make_float2(u, v));
+    if (detail_api_profile::enabled()) [[unlikely]] {
+        const uint64_t dt = detail_api_profile::read_tsc() - t0;
+        auto &slot = detail_api_profile::tls_slot;
+        slot.c.tex2d_sample_calls += 1;
+        slot.c.tex2d_sample_tsc += dt;
+        if (slot.in_shadow_cb != 0u) { slot.c.tex2d_in_shadow_cb_tsc += dt; }
+    }
     return {result.x, result.y, result.z, result.w};
 }
 
@@ -250,12 +616,18 @@ template<typename T>
 }
 
 [[nodiscard]] float4 luisa_fallback_bindless_texture3d_sample(const Texture *handle, uint sampler, float u, float v, float w) noexcept {
+    const uint64_t t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
     auto tex = reinterpret_cast<const FallbackTexture *>(handle);
     auto s = Sampler::decode(sampler);
     auto view = tex->view(0);
     auto result = s.filter() == Sampler::Filter::POINT ?
                       texture_sample_point(view, s.address(), make_float3(u, v, w)) :
                       texture_sample_linear(view, s.address(), make_float3(u, v, w));
+    if (detail_api_profile::enabled()) [[unlikely]] {
+        auto &slot = detail_api_profile::tls_slot;
+        slot.c.tex3d_sample_calls += 1;
+        slot.c.tex3d_sample_tsc += detail_api_profile::read_tsc() - t0;
+    }
     return {result.x, result.y, result.z, result.w};
 }
 
@@ -321,7 +693,7 @@ struct alignas(16) RayQueryObject {
     RayQueryCandidate candidate;
     RTCRayHit ray_hit;
     Ray world_ray;
-    Ray object_ray;
+    const RTCRay *active_rtc_ray;
 };
 
 struct alignas(16) RayQueryContext {
@@ -336,15 +708,28 @@ struct alignas(16) RayQueryContext {
 struct RayQueryContextEx {
     RayQueryContext base;
     const void *capture;
+    const uint8_t *instance_flags;
     float current_t;
     float original_tnear;
+    bool object_ray_dirty;
+    bool terminate_on_surface_commit;
+    uint excl_inst0;
+    uint excl_prim0;
+    uint excl_inst1;
+    uint excl_prim1;
     RayQueryOnSurfaceFunc *on_surface;
     RayQueryOnProceduralFunc *on_procedural;
 };
 
+[[nodiscard]] static inline uint resolve_top_level_hit_inst(const RTCHit *hit) noexcept {
+    return hit->instID[0] != RTC_INVALID_GEOMETRY_ID ? hit->instID[0] : hit->geomID;
+}
+
 // possibly a curve hit, we should modify hit.v to -1
 static void ray_trace_fix_hit_for_curves(RTCScene scene, RTCRayHit *rh) noexcept {
-    if (auto inst = rh->hit.instID[0]; inst != RTC_INVALID_GEOMETRY_ID && rh->hit.v == 0.f) {
+    const auto inst = resolve_top_level_hit_inst(&rh->hit);
+    rh->hit.instID[0] = inst;
+    if (inst != RTC_INVALID_GEOMETRY_ID && rh->hit.v == 0.f) {
 #if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
         auto flags = reinterpret_cast<uint64_t>(rtcGetGeometryUserData(rtcGetGeometry(scene, inst)));
 #else
@@ -357,7 +742,7 @@ static void ray_trace_fix_hit_for_curves(RTCScene scene, RTCRayHit *rh) noexcept
 }
 
 void luisa_fallback_accel_trace_closest(void *handle, EmbreeRayHit *ray_hit) noexcept {
-
+    const uint64_t t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
     auto scene = static_cast<RTCScene>(handle);
     auto rh = reinterpret_cast<RTCRayHit *>(ray_hit);
 
@@ -378,10 +763,15 @@ void luisa_fallback_accel_trace_closest(void *handle, EmbreeRayHit *ray_hit) noe
     rtcIntersect1(scene, rh, &args);
 #endif
     ray_trace_fix_hit_for_curves(scene, rh);
+    if (detail_api_profile::enabled()) [[unlikely]] {
+        auto &c = detail_api_profile::tls_slot.c;
+        c.trace_closest_calls += 1;
+        c.trace_closest_tsc += detail_api_profile::read_tsc() - t0;
+    }
 }
 
 void luisa_fallback_accel_trace_any(void *handle, EmbreeRay *ray) noexcept {
-
+    const uint64_t t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
     auto scene = static_cast<RTCScene>(handle);
     auto r = reinterpret_cast<RTCRay *>(ray);
 
@@ -401,6 +791,11 @@ void luisa_fallback_accel_trace_any(void *handle, EmbreeRay *ray) noexcept {
     args.context = &ctx.rtc_ctx;
     rtcOccluded1(scene, r, &args);
 #endif
+    if (detail_api_profile::enabled()) [[unlikely]] {
+        auto &c = detail_api_profile::tls_slot.c;
+        c.trace_any_calls += 1;
+        c.trace_any_tsc += detail_api_profile::read_tsc() - t0;
+    }
 }
 
 size_t luisa_fallback_ray_query_object_size() noexcept {
@@ -414,16 +809,6 @@ size_t luisa_fallback_ray_query_object_alignment() noexcept {
 static void ray_query_update_current_t(RayQueryContextEx *ctx, float new_t) noexcept {
     ctx->current_t = std::min(ctx->current_t, new_t);
     ctx->base.q->world_ray.t_max = ctx->current_t;
-    ctx->base.q->object_ray.t_max = ctx->current_t;
-}
-
-static void ray_query_capture_object_ray(
-    RayQueryContextEx *ctx, const RTCRay *ray) noexcept {
-    ctx->base.q->object_ray = {
-        .origin = {ray->org_x, ray->org_y, ray->org_z},
-        .t_min = ctx->original_tnear,
-        .direction = {ray->dir_x, ray->dir_y, ray->dir_z},
-        .t_max = ctx->current_t};
 }
 
 // Luisa ray queries use a closed lower bound, as do the hardware backends.
@@ -433,14 +818,16 @@ static void ray_query_capture_object_ray(
 // original bound in the filter. The smallest-normal fallback keeps the
 // widening effective when FTZ/DAZ would erase a subnormal nextafter result.
 [[nodiscard]] static float ray_query_embree_tnear(float tnear) noexcept {
-    if (!std::isfinite(tnear)) { return tnear; }
-    auto widened = std::nextafter(
-        tnear, -std::numeric_limits<float>::infinity());
-    if (std::abs(widened) <
-        std::numeric_limits<float>::min()) {
-        widened = -std::numeric_limits<float>::min();
+    constexpr uint32_t exp_mask = 0x7f800000u;
+    const uint32_t bits = std::bit_cast<uint32_t>(tnear);
+    if ((bits & exp_mask) == exp_mask) [[unlikely]] { return tnear; }
+    if (tnear > std::numeric_limits<float>::min()) [[likely]] {
+        return std::bit_cast<float>(bits - 1u);
     }
-    return widened;
+    if (tnear > -std::numeric_limits<float>::min()) [[likely]] {
+        return -std::numeric_limits<float>::min();
+    }
+    return std::bit_cast<float>(bits + 1u);
 }
 
 [[nodiscard]] static bool ray_query_candidate_in_range(
@@ -448,8 +835,9 @@ static void ray_query_capture_object_ray(
     return t >= ctx->original_tnear;
 }
 
-static void ray_query_decode_surface_candidate(RayQueryCandidate *out, const RTCRay *ray, const RTCHit *hit) noexcept {
-    out->inst = hit->instID[0];
+static void ray_query_decode_surface_candidate(
+    RayQueryCandidate *out, const RTCRay *ray, const RTCHit *hit, uint resolved_inst) noexcept {
+    out->inst = resolved_inst;
     out->prim = hit->primID;
     out->bary = {hit->u, hit->v};
     out->t = ray->tfar;
@@ -464,21 +852,23 @@ static void ray_query_decode_procedural_candidate(RayQueryCandidate *out, const 
     out->terminated = false;
 }
 
-[[nodiscard]] static uint64_t ray_query_surface_instance_flags(
-    const RayQueryContextEx *ctx, const RTCHit *hit) noexcept {
-    auto scene = static_cast<RTCScene>(
-        ctx->base.q->accel.embree_scene);
-    auto inst = hit->instID[0];
+[[nodiscard]] static inline uint64_t ray_query_surface_instance_flags(
+    const RayQueryContextEx *ctx, uint resolved_inst) noexcept {
     LUISA_DEBUG_ASSERT(
-        inst != RTC_INVALID_GEOMETRY_ID,
-        "Ray query surface hit is missing its top-level instance ID.");
-#if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
-    return reinterpret_cast<uint64_t>(
-        rtcGetGeometryUserData(rtcGetGeometry(scene, inst)));
-#else
-    return reinterpret_cast<uint64_t>(
-        rtcGetGeometryUserDataFromScene(scene, inst));
-#endif
+        resolved_inst != RTC_INVALID_GEOMETRY_ID,
+        "Ray query surface hit is missing its top-level instance/geometry ID.");
+    if (ctx->instance_flags != nullptr) [[likely]] {
+        return ctx->instance_flags[resolved_inst];
+    }
+    const auto *instances = *ctx->base.q->accel.instances;
+    const auto &desc = instances[resolved_inst];
+    return (desc.opaque ? luisa_fallback_embree_accel_user_data_flags_opaque : 0u) |
+           (desc.is_curve ? luisa_fallback_embree_accel_user_data_flags_curve : 0u);
+}
+
+static inline void ray_query_set_active_rtc_ray(
+    RayQueryObject *q, const RTCRay *ray) noexcept {
+    q->active_rtc_ray = ray;
 }
 
 void luisa_fallback_ray_query_terminate_ray(RTCRay *ray) noexcept {
@@ -496,7 +886,7 @@ void luisa_fallback_ray_query_procedural_intersect_function(const RayQueryInters
             auto candidate = &q->candidate;
             auto ray_hit = reinterpret_cast<RTCRayHit *>(args->rayhit);
             ray_query_decode_procedural_candidate(candidate, &ctx->base, &ray_hit->ray, args->primID);
-            ray_query_capture_object_ray(ctx, &ray_hit->ray);
+            ray_query_set_active_rtc_ray(q, &ray_hit->ray);
             const auto embree_tnear = ray_hit->ray.tnear;
             ray_hit->ray.tnear = ctx->original_tnear;
             on_procedural(reinterpret_cast<LC_RayQueryObject *>(q), ctx->capture);
@@ -537,7 +927,7 @@ void luisa_fallback_ray_query_procedural_occluded_function(const RayQueryOcclude
             auto candidate = &q->candidate;
             auto ray = reinterpret_cast<RTCRay *>(args->ray);
             ray_query_decode_procedural_candidate(candidate, &ctx->base, ray, args->primID);
-            ray_query_capture_object_ray(ctx, ray);
+            ray_query_set_active_rtc_ray(q, ray);
             const auto embree_tnear = ray->tnear;
             ray->tnear = ctx->original_tnear;
             on_procedural(reinterpret_cast<LC_RayQueryObject *>(q), ctx->capture);
@@ -569,7 +959,8 @@ static void luisa_fallback_ray_query_surface_intersect_filter_function(const RTC
     auto ctx = reinterpret_cast<RayQueryContextEx *>(args->context);
     auto ray = reinterpret_cast<RTCRay *>(args->ray);
     auto hit = reinterpret_cast<RTCHit *>(args->hit);
-    auto flags = ray_query_surface_instance_flags(ctx, hit);
+    const auto resolved_inst = resolve_top_level_hit_inst(hit);
+    auto flags = ray_query_surface_instance_flags(ctx, resolved_inst);
     if (flags & luisa_fallback_embree_accel_user_data_flags_curve) {// curve
         hit->v = -1.f;
     }
@@ -583,12 +974,14 @@ static void luisa_fallback_ray_query_surface_intersect_filter_function(const RTC
     } else if (auto on_surface = ctx->on_surface) {
         auto q = ctx->base.q;
         auto candidate = &q->candidate;
-        ray_query_decode_surface_candidate(candidate, ray, hit);
-        ray_query_capture_object_ray(ctx, ray);
-        const auto embree_tnear = ray->tnear;
-        ray->tnear = ctx->original_tnear;
+        ray_query_decode_surface_candidate(candidate, ray, hit, resolved_inst);
+        const uint64_t cb_t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
         on_surface(reinterpret_cast<LC_RayQueryObject *>(q), ctx->capture);
-        ray->tnear = embree_tnear;
+        if (detail_api_profile::enabled()) [[unlikely]] {
+            auto &c = detail_api_profile::tls_slot.c;
+            c.rq_all_callback_calls += 1;
+            c.rq_all_callback_tsc += detail_api_profile::read_tsc() - cb_t0;
+        }
         if (candidate->committed) {
             ray_query_update_current_t(ctx, ray->tfar);
             candidate->committed_hit_type = HitType::Surface;
@@ -606,7 +999,7 @@ static void luisa_fallback_ray_query_surface_intersect_filter_function(const RTC
 static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCFilterFunctionNArguments *args) noexcept {
     LUISA_DEBUG_ASSERT(args->N == 1u, "Only single ray is support.");
     LUISA_DEBUG_ASSERT(args->valid[0] == -1, "Only valid ray is support.");
-    static constexpr auto record_hit_data = [](RayQueryObject *q, const RTCRay *ray, const RTCHit *hit) noexcept {
+    static constexpr auto record_hit_data = [](RayQueryObject *q, const RTCRay *ray, const RTCHit *hit, uint resolved_inst) noexcept {
         q->candidate.committed_hit_type = HitType::Surface;
         q->ray_hit.hit.Ng_x = 0.f;
         q->ray_hit.hit.Ng_y = 0.f;
@@ -615,12 +1008,13 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
         q->ray_hit.hit.v = hit->v;
         q->ray_hit.hit.primID = hit->primID;
         q->ray_hit.hit.geomID = hit->geomID;
-        q->ray_hit.hit.instID[0] = hit->instID[0];
+        q->ray_hit.hit.instID[0] = resolved_inst;
     };
     auto ctx = reinterpret_cast<RayQueryContextEx *>(args->context);
     auto ray = reinterpret_cast<RTCRay *>(args->ray);
     auto hit = reinterpret_cast<RTCHit *>(args->hit);
-    auto flags = ray_query_surface_instance_flags(ctx, hit);
+    const auto resolved_inst = resolve_top_level_hit_inst(hit);
+    auto flags = ray_query_surface_instance_flags(ctx, resolved_inst);
     if (flags & luisa_fallback_embree_accel_user_data_flags_curve) {// curve
         hit->v = -1.f;
     }
@@ -630,17 +1024,24 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
     }
     auto q = ctx->base.q;
     if (flags & luisa_fallback_embree_accel_user_data_flags_opaque) {// opaque
-        record_hit_data(q, ray, hit);
+        record_hit_data(q, ray, hit, resolved_inst);
     } else if (auto on_surface = ctx->on_surface) {
         auto candidate = &q->candidate;
-        ray_query_decode_surface_candidate(candidate, ray, hit);
-        ray_query_capture_object_ray(ctx, ray);
-        const auto embree_tnear = ray->tnear;
-        ray->tnear = ctx->original_tnear;
+        ray_query_decode_surface_candidate(candidate, ray, hit, resolved_inst);
+        uint64_t cb_t0 = 0ull;
+        if (detail_api_profile::enabled()) [[unlikely]] {
+            detail_api_profile::tls_slot.in_shadow_cb += 1u;
+            cb_t0 = detail_api_profile::read_tsc();
+        }
         on_surface(reinterpret_cast<LC_RayQueryObject *>(q), ctx->capture);
-        ray->tnear = embree_tnear;
+        if (detail_api_profile::enabled()) [[unlikely]] {
+            auto &slot = detail_api_profile::tls_slot;
+            slot.c.rq_any_callback_calls += 1;
+            slot.c.rq_any_callback_tsc += detail_api_profile::read_tsc() - cb_t0;
+            slot.in_shadow_cb -= 1u;
+        }
         if (candidate->committed) {
-            record_hit_data(q, ray, hit);
+            record_hit_data(q, ray, hit, resolved_inst);
         } else {
             args->valid[0] = 0;
         }
@@ -652,8 +1053,16 @@ static void luisa_fallback_ray_query_surface_occluded_filter_function(const RTCF
     }
 }
 
-void luisa_fallback_ray_query_pipeline_all(LC_RayQueryObject *query_object, const void *capture, RayQueryOnSurfaceFunc *on_surface, RayQueryOnProceduralFunc *on_procedural) noexcept {
+[[nodiscard]] static inline const uint8_t *ray_query_resolve_instance_flags(const AccelView &accel) noexcept {
+    // FallbackAccelRuntimeHeader stores {Instance *instances, const uint8_t *instance_flags}
+    // contiguously and passes &header.instances as AccelView::instances.
+    return accel.instances != nullptr
+               ? reinterpret_cast<const uint8_t *const *>(accel.instances)[1]
+               : nullptr;
+}
 
+void luisa_fallback_ray_query_pipeline_all(LC_RayQueryObject *query_object, const void *capture, RayQueryOnSurfaceFunc *on_surface, RayQueryOnProceduralFunc *on_procedural) noexcept {
+    const uint64_t rq_t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
     auto q = reinterpret_cast<RayQueryObject *>(query_object);
     auto scene = static_cast<RTCScene>(q->accel.embree_scene);
 
@@ -665,8 +1074,15 @@ void luisa_fallback_ray_query_pipeline_all(LC_RayQueryObject *query_object, cons
 #endif
     ctx.base.q = q;
     ctx.capture = capture;
+    ctx.instance_flags = ray_query_resolve_instance_flags(q->accel);
     ctx.current_t = q->world_ray.t_max;
     ctx.original_tnear = q->ray_hit.ray.tnear;
+    ctx.object_ray_dirty = false;
+    ctx.terminate_on_surface_commit = false;
+    ctx.excl_inst0 = RTC_INVALID_GEOMETRY_ID;
+    ctx.excl_prim0 = RTC_INVALID_GEOMETRY_ID;
+    ctx.excl_inst1 = RTC_INVALID_GEOMETRY_ID;
+    ctx.excl_prim1 = RTC_INVALID_GEOMETRY_ID;
     ctx.on_surface = on_surface;
     ctx.on_procedural = on_procedural;
     q->ray_hit.ray.tnear =
@@ -683,13 +1099,28 @@ void luisa_fallback_ray_query_pipeline_all(LC_RayQueryObject *query_object, cons
     args.filter = luisa_fallback_ray_query_surface_intersect_filter_function;
     rtcIntersect1(scene, &q->ray_hit, &args);
 #endif
+    q->active_rtc_ray = nullptr;
     q->ray_hit.ray.tnear = ctx.original_tnear;
     q->ray_hit.hit.Ng_z = ctx.current_t;
-    ray_trace_fix_hit_for_curves(scene, &q->ray_hit);
+    const auto committed_inst = resolve_top_level_hit_inst(&q->ray_hit.hit);
+    q->ray_hit.hit.instID[0] = committed_inst;
+    if (committed_inst != RTC_INVALID_GEOMETRY_ID && q->ray_hit.hit.v == 0.f) {
+        const bool is_curve = ctx.instance_flags != nullptr
+            ? ((ctx.instance_flags[committed_inst] & luisa_fallback_embree_accel_user_data_flags_curve) != 0u)
+            : static_cast<bool>((*q->accel.instances)[committed_inst].is_curve);
+        if (is_curve) {
+            q->ray_hit.hit.v = -1.f;
+        }
+    }
+    if (detail_api_profile::enabled()) [[unlikely]] {
+        auto &c = detail_api_profile::tls_slot.c;
+        c.rq_all_calls += 1;
+        c.rq_all_total_tsc += detail_api_profile::read_tsc() - rq_t0;
+    }
 }
 
 void luisa_fallback_ray_query_pipeline_any(LC_RayQueryObject *query_object, const void *capture, RayQueryOnSurfaceFunc *on_surface, RayQueryOnProceduralFunc *on_procedural) noexcept {
-
+    const uint64_t rq_t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
     auto q = reinterpret_cast<RayQueryObject *>(query_object);
     auto scene = static_cast<RTCScene>(q->accel.embree_scene);
 
@@ -701,8 +1132,15 @@ void luisa_fallback_ray_query_pipeline_any(LC_RayQueryObject *query_object, cons
 #endif
     ctx.base.q = q;
     ctx.capture = capture;
+    ctx.instance_flags = ray_query_resolve_instance_flags(q->accel);
     ctx.current_t = q->world_ray.t_max;
     ctx.original_tnear = q->ray_hit.ray.tnear;
+    ctx.object_ray_dirty = false;
+    ctx.terminate_on_surface_commit = false;
+    ctx.excl_inst0 = RTC_INVALID_GEOMETRY_ID;
+    ctx.excl_prim0 = RTC_INVALID_GEOMETRY_ID;
+    ctx.excl_inst1 = RTC_INVALID_GEOMETRY_ID;
+    ctx.excl_prim1 = RTC_INVALID_GEOMETRY_ID;
     ctx.on_surface = on_surface;
     ctx.on_procedural = on_procedural;
     q->ray_hit.ray.tnear =
@@ -719,7 +1157,232 @@ void luisa_fallback_ray_query_pipeline_any(LC_RayQueryObject *query_object, cons
     args.filter = luisa_fallback_ray_query_surface_occluded_filter_function;
     rtcOccluded1(scene, &q->ray_hit.ray, &args);
 #endif
+    q->active_rtc_ray = nullptr;
     q->ray_hit.ray.tnear = ctx.original_tnear;
+    if (detail_api_profile::enabled()) [[unlikely]] {
+        auto &c = detail_api_profile::tls_slot.c;
+        c.rq_any_calls += 1;
+        c.rq_any_total_tsc += detail_api_profile::read_tsc() - rq_t0;
+    }
+}
+
+static void luisa_fallback_ray_query_surface_intersect_excl_filter_function(const RTCFilterFunctionNArguments *args) noexcept {
+    LUISA_DEBUG_ASSERT(args->N == 1u, "Only single ray is support.");
+    LUISA_DEBUG_ASSERT(args->valid[0] == -1, "Only valid ray is support.");
+    auto ctx = reinterpret_cast<RayQueryContextEx *>(args->context);
+    auto ray = reinterpret_cast<RTCRay *>(args->ray);
+    auto hit = reinterpret_cast<RTCHit *>(args->hit);
+    const auto resolved_inst = resolve_top_level_hit_inst(hit);
+    const auto flags = ray_query_surface_instance_flags(ctx, resolved_inst);
+    if (flags & luisa_fallback_embree_accel_user_data_flags_curve) [[unlikely]] {
+        hit->v = -1.f;
+    }
+    if (!ray_query_candidate_in_range(ctx, ray->tfar)) [[unlikely]] {
+        args->valid[0] = 0;
+        return;
+    }
+    if ((flags & luisa_fallback_embree_accel_user_data_flags_opaque) == 0u) {
+        const uint prim = hit->primID;
+        if ((resolved_inst == ctx->excl_inst0 && prim == ctx->excl_prim0) ||
+            (resolved_inst == ctx->excl_inst1 && prim == ctx->excl_prim1)) {
+            args->valid[0] = 0;
+            return;
+        }
+    }
+    ray_query_update_current_t(ctx, ray->tfar);
+    ctx->base.q->candidate.committed_hit_type = HitType::Surface;
+    if ((flags & luisa_fallback_embree_accel_user_data_flags_opaque) == 0u &&
+        ctx->terminate_on_surface_commit) [[unlikely]] {
+        luisa_fallback_ray_query_terminate_ray(ray);
+    }
+}
+
+static void luisa_fallback_ray_query_surface_occluded_excl_filter_function(const RTCFilterFunctionNArguments *args) noexcept {
+    LUISA_DEBUG_ASSERT(args->N == 1u, "Only single ray is support.");
+    LUISA_DEBUG_ASSERT(args->valid[0] == -1, "Only valid ray is support.");
+    auto ctx = reinterpret_cast<RayQueryContextEx *>(args->context);
+    auto ray = reinterpret_cast<RTCRay *>(args->ray);
+    auto hit = reinterpret_cast<RTCHit *>(args->hit);
+    const auto resolved_inst = resolve_top_level_hit_inst(hit);
+    const auto flags = ray_query_surface_instance_flags(ctx, resolved_inst);
+    if (flags & luisa_fallback_embree_accel_user_data_flags_curve) [[unlikely]] {
+        hit->v = -1.f;
+    }
+    if (!ray_query_candidate_in_range(ctx, ray->tfar)) [[unlikely]] {
+        args->valid[0] = 0;
+        return;
+    }
+    auto q = ctx->base.q;
+    if ((flags & luisa_fallback_embree_accel_user_data_flags_opaque) == 0u) {
+        const uint prim = hit->primID;
+        if ((resolved_inst == ctx->excl_inst0 && prim == ctx->excl_prim0) ||
+            (resolved_inst == ctx->excl_inst1 && prim == ctx->excl_prim1)) {
+            args->valid[0] = 0;
+            return;
+        }
+        q->world_ray.t_max = ray->tfar;
+    }
+    q->candidate.committed_hit_type = HitType::Surface;
+    q->ray_hit.hit.Ng_x = 0.f;
+    q->ray_hit.hit.Ng_y = 0.f;
+    q->ray_hit.hit.Ng_z = ray->tfar;
+    q->ray_hit.hit.u = hit->u;
+    q->ray_hit.hit.v = hit->v;
+    q->ray_hit.hit.primID = hit->primID;
+    q->ray_hit.hit.geomID = hit->geomID;
+    q->ray_hit.hit.instID[0] = resolved_inst;
+    if ((flags & luisa_fallback_embree_accel_user_data_flags_opaque) == 0u &&
+        ctx->terminate_on_surface_commit) {
+        luisa_fallback_ray_query_terminate_ray(ray);
+    }
+}
+
+void luisa_fallback_ray_query_pipeline_all_excl(
+    LC_RayQueryObject *query_object,
+    uint excl_inst0, uint excl_prim0,
+    uint excl_inst1, uint excl_prim1,
+    uint flags,
+    const void *capture,
+    RayQueryOnProceduralFunc *on_procedural) noexcept {
+    const uint64_t rq_t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
+    auto q = reinterpret_cast<RayQueryObject *>(query_object);
+    auto scene = static_cast<RTCScene>(q->accel.embree_scene);
+
+    RayQueryContextEx ctx;
+#if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
+    rtcInitIntersectContext(&ctx.base.rtc_ctx);
+#else
+    rtcInitRayQueryContext(&ctx.base.rtc_ctx);
+#endif
+    ctx.base.q = q;
+    ctx.capture = capture;
+    ctx.instance_flags = ray_query_resolve_instance_flags(q->accel);
+    ctx.current_t = q->world_ray.t_max;
+    ctx.original_tnear = q->ray_hit.ray.tnear;
+    ctx.object_ray_dirty = false;
+    ctx.terminate_on_surface_commit = (flags & 1u) != 0u;
+    ctx.excl_inst0 = excl_inst0;
+    ctx.excl_prim0 = excl_prim0;
+    ctx.excl_inst1 = excl_inst1;
+    ctx.excl_prim1 = excl_prim1;
+    ctx.on_surface = nullptr;
+    ctx.on_procedural = on_procedural;
+    q->ray_hit.ray.tnear = ray_query_embree_tnear(ctx.original_tnear);
+
+#if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
+    ctx.base.rtc_ctx.filter = luisa_fallback_ray_query_surface_intersect_excl_filter_function;
+    rtcIntersect1(scene, &ctx.base.rtc_ctx, &q->ray_hit);
+#else
+    const bool no_filter_fast_path =
+        on_procedural == nullptr &&
+        !ctx.terminate_on_surface_commit &&
+        excl_inst0 == RTC_INVALID_GEOMETRY_ID &&
+        excl_inst1 == RTC_INVALID_GEOMETRY_ID &&
+        ctx.original_tnear == 0.f;
+    RTCIntersectArguments args;
+    rtcInitIntersectArguments(&args);
+    args.context = &ctx.base.rtc_ctx;
+    if (no_filter_fast_path) {
+        q->ray_hit.ray.tnear = 0.f;
+        rtcIntersect1(scene, &q->ray_hit, &args);
+        const auto committed_inst = resolve_top_level_hit_inst(&q->ray_hit.hit);
+        q->ray_hit.hit.instID[0] = committed_inst;
+        if (committed_inst != RTC_INVALID_GEOMETRY_ID) {
+            ctx.current_t = q->ray_hit.ray.tfar;
+            q->world_ray.t_max = ctx.current_t;
+            q->candidate.committed_hit_type = HitType::Surface;
+            if (q->ray_hit.hit.v == 0.f) {
+                const bool is_curve = ctx.instance_flags != nullptr
+                    ? ((ctx.instance_flags[committed_inst] & luisa_fallback_embree_accel_user_data_flags_curve) != 0u)
+                    : static_cast<bool>((*q->accel.instances)[committed_inst].is_curve);
+                if (is_curve) {
+                    q->ray_hit.hit.v = -1.f;
+                }
+            }
+        }
+        q->active_rtc_ray = nullptr;
+        q->ray_hit.hit.Ng_z = ctx.current_t;
+        if (detail_api_profile::enabled()) [[unlikely]] {
+            auto &c = detail_api_profile::tls_slot.c;
+            c.rq_all_calls += 1;
+            c.rq_all_total_tsc += detail_api_profile::read_tsc() - rq_t0;
+        }
+        return;
+    }
+    args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
+    args.filter = luisa_fallback_ray_query_surface_intersect_excl_filter_function;
+    rtcIntersect1(scene, &q->ray_hit, &args);
+#endif
+    q->active_rtc_ray = nullptr;
+    q->ray_hit.ray.tnear = ctx.original_tnear;
+    q->ray_hit.hit.Ng_z = ctx.current_t;
+    const auto committed_inst = resolve_top_level_hit_inst(&q->ray_hit.hit);
+    q->ray_hit.hit.instID[0] = committed_inst;
+    if (committed_inst != RTC_INVALID_GEOMETRY_ID && q->ray_hit.hit.v == 0.f) {
+        const bool is_curve = ctx.instance_flags != nullptr
+            ? ((ctx.instance_flags[committed_inst] & luisa_fallback_embree_accel_user_data_flags_curve) != 0u)
+            : static_cast<bool>((*q->accel.instances)[committed_inst].is_curve);
+        if (is_curve) {
+            q->ray_hit.hit.v = -1.f;
+        }
+    }
+    if (detail_api_profile::enabled()) [[unlikely]] {
+        auto &c = detail_api_profile::tls_slot.c;
+        c.rq_all_calls += 1;
+        c.rq_all_total_tsc += detail_api_profile::read_tsc() - rq_t0;
+    }
+}
+
+void luisa_fallback_ray_query_pipeline_any_excl(
+    LC_RayQueryObject *query_object,
+    uint excl_inst0, uint excl_prim0,
+    uint excl_inst1, uint excl_prim1,
+    uint flags,
+    const void *capture,
+    RayQueryOnProceduralFunc *on_procedural) noexcept {
+    const uint64_t rq_t0 = detail_api_profile::enabled() ? detail_api_profile::read_tsc() : 0ull;
+    auto q = reinterpret_cast<RayQueryObject *>(query_object);
+    auto scene = static_cast<RTCScene>(q->accel.embree_scene);
+
+    RayQueryContextEx ctx;
+#if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
+    rtcInitIntersectContext(&ctx.base.rtc_ctx);
+#else
+    rtcInitRayQueryContext(&ctx.base.rtc_ctx);
+#endif
+    ctx.base.q = q;
+    ctx.capture = capture;
+    ctx.instance_flags = ray_query_resolve_instance_flags(q->accel);
+    ctx.current_t = q->world_ray.t_max;
+    ctx.original_tnear = q->ray_hit.ray.tnear;
+    ctx.object_ray_dirty = false;
+    ctx.terminate_on_surface_commit = (flags & 1u) != 0u;
+    ctx.excl_inst0 = excl_inst0;
+    ctx.excl_prim0 = excl_prim0;
+    ctx.excl_inst1 = excl_inst1;
+    ctx.excl_prim1 = excl_prim1;
+    ctx.on_surface = nullptr;
+    ctx.on_procedural = on_procedural;
+    q->ray_hit.ray.tnear = ray_query_embree_tnear(ctx.original_tnear);
+
+#if LUISA_COMPUTE_FALLBACK_EMBREE_VERSION == 3
+    ctx.base.rtc_ctx.filter = luisa_fallback_ray_query_surface_occluded_excl_filter_function;
+    rtcOccluded1(scene, &ctx.base.rtc_ctx, &q->ray_hit.ray);
+#else
+    RTCOccludedArguments args;
+    rtcInitOccludedArguments(&args);
+    args.context = &ctx.base.rtc_ctx;
+    args.flags = RTC_RAY_QUERY_FLAG_INVOKE_ARGUMENT_FILTER;
+    args.filter = luisa_fallback_ray_query_surface_occluded_excl_filter_function;
+    rtcOccluded1(scene, &q->ray_hit.ray, &args);
+#endif
+    q->active_rtc_ray = nullptr;
+    q->ray_hit.ray.tnear = ctx.original_tnear;
+    if (detail_api_profile::enabled()) [[unlikely]] {
+        auto &c = detail_api_profile::tls_slot.c;
+        c.rq_any_calls += 1;
+        c.rq_any_total_tsc += detail_api_profile::read_tsc() - rq_t0;
+    }
 }
 
 }// namespace luisa::compute::fallback::api

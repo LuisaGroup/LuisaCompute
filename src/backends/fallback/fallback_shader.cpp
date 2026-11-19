@@ -12,6 +12,8 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
+#include <llvm/ExecutionEngine/SectionMemoryManager.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/raw_ostream.h>
@@ -27,6 +29,11 @@
 #include "../common/llvm_pass_builder.h"
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Operator.h>
+#include <llvm/Transforms/IPO/AlwaysInliner.h>
+#include <llvm/Transforms/Scalar/EarlyCSE.h>
+#include <llvm/Transforms/Scalar/SROA.h>
+#include <llvm/Transforms/Scalar/SimplifyCFG.h>
+#include <llvm/Transforms/Utils/Mem2Reg.h>
 
 #include <luisa/core/stl.h>
 #include <luisa/core/logging.h>
@@ -50,6 +57,7 @@
 #include <luisa/xir/passes/fast_math_simplify.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/verifier.h>
 
@@ -105,7 +113,7 @@ static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
 }();
 
 static const std::size_t LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT = [] {
-    constexpr std::size_t default_limit = 250'000u;
+    constexpr std::size_t default_limit = 800'000u;
     if (auto env = getenv("LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT")) {
         auto text = luisa::string_view{env};
         std::size_t value{};
@@ -135,7 +143,7 @@ namespace {
 
 // Increment whenever the persisted object or its external symbol contract
 // changes in a way that makes an older cache artifact unsafe to load.
-static constexpr auto fallback_shader_cache_abi = 10u;
+static constexpr auto fallback_shader_cache_abi = 24u;
 
 void verify_xir_or_error(const xir::Module *module,
                          luisa::string_view stage) noexcept {
@@ -798,8 +806,50 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     llvm_module->setTargetTriple(_target_machine->getTargetTriple().str());
 #endif
 
+    std::size_t largest_function_instruction_count = 0u;
+    for (const auto &function : *llvm_module) {
+        if (!function.isDeclaration()) {
+            largest_function_instruction_count = std::max<std::size_t>(
+                largest_function_instruction_count,
+                function.getInstructionCount());
+        }
+    }
     for (auto &function : *llvm_module) {
         apply_fallback_math_function_options(function, option.enable_fast_math);
+        if (!function.isDeclaration() &&
+            function.hasLocalLinkage() &&
+            !function.hasFnAttribute(::llvm::Attribute::NoInline) &&
+            !function.hasFnAttribute(::llvm::Attribute::AlwaysInline) &&
+            !function.hasFnAttribute("luisa.cpu.native_math")) {
+            const bool is_generated_callable =
+                function.hasFnAttribute("luisa.fallback.generated_callable");
+            if (!is_generated_callable) {
+                if (function.getInstructionCount() <= 96u) {
+                    function.addFnAttr(::llvm::Attribute::InlineHint);
+                }
+            } else if (function.getInstructionCount() <= 240u) {
+                // Only boost true leaf callables (e.g. cycles_signed_noise_3d)
+                // that do not call other generated callables, avoiding exponential
+                // transitive code bloat in multi-shader modules.
+                bool calls_generated_callable = false;
+                for (const auto &bb : function) {
+                    for (const auto &inst : bb) {
+                        if (const auto *cb = ::llvm::dyn_cast<::llvm::CallBase>(&inst)) {
+                            if (const auto *callee = cb->getCalledFunction();
+                                callee != nullptr &&
+                                callee->hasFnAttribute("luisa.fallback.generated_callable")) {
+                                calls_generated_callable = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (calls_generated_callable) { break; }
+                }
+                if (!calls_generated_callable) {
+                    function.addFnAttr(::llvm::Attribute::InlineHint);
+                }
+            }
+        }
     }
 
     if (LUISA_SHOULD_DUMP_LLVM_IR) {
@@ -819,16 +869,6 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     ::llvm::CGSCCAnalysisManager CGAM;
     ::llvm::ModuleAnalysisManager MAM;
     ::llvm::PipelineTuningOptions PTO;
-    std::size_t largest_function_instruction_count = 0u;
-    for (const auto &function : *llvm_module) {
-        std::size_t instruction_count = 0u;
-        for (const auto &block : function) {
-            instruction_count += block.size();
-        }
-        largest_function_instruction_count = std::max(
-            largest_function_instruction_count,
-            instruction_count);
-    }
     // LLVM's O3 pipeline has superlinear compile-time behavior on very large
     // generated dispatch functions (notably in SROA and SLP vectorization).
     // Keep it for normal kernels, but use the minimal O0 pipeline once a
@@ -838,25 +878,30 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     // four-byte-aligned scalar spill slots into aligned vector loads in very
     // large functions. O1 uses SelectionDAG with the optimizing register
     // allocator while avoiding the superlinear IR transforms above.
+    constexpr std::size_t full_o3_instruction_limit = 250'000u;
+    const auto use_bounded_o2 =
+        largest_function_instruction_count > full_o3_instruction_limit &&
+        largest_function_instruction_count <=
+            LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT;
     const auto use_minimal_optimization =
         largest_function_instruction_count >
         LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT;
     if (use_minimal_optimization) {
         LUISA_WARNING_WITH_LOCATION(
-            "Fallback LLVM function has {} instructions; using the minimal "
-            "O0 IR pipeline and O1 machine-code generation above the "
+            "Fallback LLVM function has {} instructions; using the linear "
+            "SSA IR pipeline and O1 machine-code generation above the "
             "{}-instruction scalability limit.",
             largest_function_instruction_count,
             LUISA_FALLBACK_OPTIMIZATION_INSTRUCTION_LIMIT);
         _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Less);
     }
-    PTO.LoopInterleaving = true;
+    PTO.LoopInterleaving = !use_minimal_optimization;
 #if LLVM_VERSION_MAJOR >= 21
-    PTO.LoopInterchange = true;
+    PTO.LoopInterchange = !use_bounded_o2 && !use_minimal_optimization;
 #endif
-    PTO.LoopVectorization = true;
-    PTO.SLPVectorization = !use_minimal_optimization;
-    PTO.LoopUnrolling = true;
+    PTO.LoopVectorization = !use_bounded_o2 && !use_minimal_optimization;
+    PTO.SLPVectorization = !use_bounded_o2 && !use_minimal_optimization;
+    PTO.LoopUnrolling = !use_bounded_o2 && !use_minimal_optimization;
 #if LLVM_VERSION_MAJOR >= 23
     // LLVM 23 MergeFunctionsPass copies Function-only denormal_fpenv onto its
     // generated thunk CallInst, which fails LLVM module verification.
@@ -878,9 +923,19 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
 #endif
     Clock clk;
     clk.tic();
-    auto MPM = use_minimal_optimization
-                   ? PB.buildO0DefaultPipeline(::llvm::OptimizationLevel::O0)
-                   : PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
+    ::llvm::ModulePassManager MPM;
+    if (use_minimal_optimization) {
+        MPM.addPass(::llvm::AlwaysInlinerPass{});
+        ::llvm::FunctionPassManager FPM;
+        FPM.addPass(::llvm::PromotePass{});
+        FPM.addPass(::llvm::EarlyCSEPass{/*UseMemorySSA=*/false});
+        FPM.addPass(::llvm::SimplifyCFGPass{});
+        MPM.addPass(::llvm::createModuleToFunctionPassAdaptor(std::move(FPM)));
+    } else if (use_bounded_o2) {
+        MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O2);
+    } else {
+        MPM = PB.buildPerModuleDefaultPipeline(::llvm::OptimizationLevel::O3);
+    }
     MPM.run(*llvm_module, MAM);
 
     LUISA_VERBOSE("Optimized LLVM module in {} ms.", clk.toc());
@@ -1076,28 +1131,124 @@ void FallbackShader::dispatch(FallbackCommandQueue *queue, luisa::unique_ptr<Sha
 
     auto grid_size = roundup_div(dispatch_size, block_size);
     auto grid_count = grid_size.x * grid_size.y * grid_size.z;
+    static const int tile_order_mode = []() noexcept {
+        if (const auto *raw = std::getenv("LUISA_FALLBACK_TILE_ORDER")) {
+            const luisa::string_view sv{raw};
+            if (sv == "bottom_up") { return 1; }
+            if (sv == "strided8") { return 2; }
+            if (sv == "swizzle4x4") { return 3; }
+        }
+        return 0;
+    }();
+    static const bool orig_per_block_env = []() noexcept {
+        if (const auto *s = std::getenv("LUISA_FALLBACK_BACKEND_SCHEDULER")) {
+            if (luisa::string_view{s} == "akari_orig") { return true; }
+        }
+        if (const auto *q = std::getenv("LUISA_FALLBACK_QUEUE_MODE")) {
+            if (luisa::string_view{q} == "orig") { return true; }
+        }
+        return false;
+    }();
 
-    queue->enqueue_parallel(grid_count, [queue, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](auto block) noexcept {
-        auto config = dispatch_buffer.config();
-        auto dispatch_size = config->dispatch_size;
-        auto block_size = config->block_size;
-        auto grid_size_x = roundup_div(dispatch_size[0], block_size[0]);
-        auto grid_size_y = roundup_div(dispatch_size[1], block_size[1]);
-        auto bx = block % grid_size_x;
-        auto by = (block / grid_size_x) % grid_size_y;
-        auto bz = block / (grid_size_x * grid_size_y);
-        FallbackShaderLaunchConfig launch_config{
-            .block_id = make_uint3(bx, by, bz),
-            .dispatch_size = {dispatch_size[0], dispatch_size[1], dispatch_size[2]},
-            .block_size = {block_size[0], block_size[1], block_size[2]},
-        };
-        auto launch_params = dispatch_buffer.argument_buffer();
-        luisa_coro_reset_counter();
-        FallbackShaderEnvironment environment{
-            enable_fast_math,
-            queue->log_callback() ? &queue->log_callback() : nullptr};
-        config->kernel(launch_params, &launch_config);
-    });
+    auto decode_block_coords = [](uint block, uint grid_size_x, uint grid_size_y) noexcept -> uint3 {
+        const auto plane_size = grid_size_x * grid_size_y;
+        auto bz = block / plane_size;
+        auto in_plane = block % plane_size;
+        uint bx = 0u;
+        uint by = 0u;
+        if (tile_order_mode == 0) {
+            bx = in_plane % grid_size_x;
+            by = in_plane / grid_size_x;
+        } else if (tile_order_mode == 1) {
+            bx = in_plane % grid_size_x;
+            by = (grid_size_y - 1u) - (in_plane / grid_size_x);
+        } else if (tile_order_mode == 2) {
+            bx = in_plane % grid_size_x;
+            const uint row_idx = in_plane / grid_size_x;
+            constexpr uint stride = 8u;
+            uint acc = 0u;
+            for (uint r = 0u; r < stride; ++r) {
+                const uint count_r = (grid_size_y > r) ? ((grid_size_y - 1u - r) / stride + 1u) : 0u;
+                if (row_idx < acc + count_r) {
+                    by = r + (row_idx - acc) * stride;
+                    break;
+                }
+                acc += count_r;
+            }
+        } else {
+            constexpr uint T = 4u;
+            const uint full_y = (grid_size_y / T) * T;
+            const uint full_plane = grid_size_x * full_y;
+            if (in_plane < full_plane) {
+                const uint full_x = (grid_size_x / T) * T;
+                const uint band_idx = in_plane / (grid_size_x * T);
+                const uint rem = in_plane % (grid_size_x * T);
+                if (rem < full_x * T) {
+                    const uint macro_x = rem / (T * T);
+                    const uint sub = rem % (T * T);
+                    bx = macro_x * T + (sub % T);
+                    by = band_idx * T + (sub / T);
+                } else {
+                    const uint tail = rem - full_x * T;
+                    const uint tail_w = grid_size_x - full_x;
+                    bx = full_x + (tail % tail_w);
+                    by = band_idx * T + (tail / tail_w);
+                }
+            } else {
+                const uint rem = in_plane - full_plane;
+                bx = rem % grid_size_x;
+                by = full_y + (rem / grid_size_x);
+            }
+        }
+        return make_uint3(bx, by, bz);
+    };
+
+    if (orig_per_block_env) {
+        queue->enqueue_parallel(grid_count, [queue, decode_block_coords, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](auto block) noexcept {
+            auto config = dispatch_buffer.config();
+            auto dispatch_size = config->dispatch_size;
+            auto block_size = config->block_size;
+            auto grid_size_x = roundup_div(dispatch_size[0], block_size[0]);
+            auto grid_size_y = roundup_div(dispatch_size[1], block_size[1]);
+            FallbackShaderLaunchConfig launch_config{
+                .block_id = decode_block_coords(block, grid_size_x, grid_size_y),
+                .dispatch_size = {dispatch_size[0], dispatch_size[1], dispatch_size[2]},
+                .block_size = {block_size[0], block_size[1], block_size[2]},
+            };
+            auto launch_params = dispatch_buffer.argument_buffer();
+            luisa_coro_reset_counter();
+            FallbackShaderEnvironment environment{
+                enable_fast_math,
+                queue->log_callback() ? &queue->log_callback() : nullptr};
+            config->kernel(launch_params, &launch_config);
+        });
+    } else {
+        queue->enqueue_parallel_workers(grid_count, [queue, decode_block_coords, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](FallbackCommandQueue::ParallelClaimFn next_range) noexcept {
+            auto config = dispatch_buffer.config();
+            auto dispatch_size = config->dispatch_size;
+            auto block_size = config->block_size;
+            auto grid_size_x = roundup_div(dispatch_size[0], block_size[0]);
+            auto grid_size_y = roundup_div(dispatch_size[1], block_size[1]);
+            auto launch_params = dispatch_buffer.argument_buffer();
+            FallbackShaderEnvironment environment{
+                enable_fast_math,
+                queue->log_callback() ? &queue->log_callback() : nullptr};
+            FallbackShaderLaunchConfig launch_config{
+                .block_id = make_uint3(0u, 0u, 0u),
+                .dispatch_size = {dispatch_size[0], dispatch_size[1], dispatch_size[2]},
+                .block_size = {block_size[0], block_size[1], block_size[2]},
+            };
+            uint begin_block = 0u;
+            uint end_block = 0u;
+            while (next_range(begin_block, end_block)) {
+                for (uint block = begin_block; block < end_block; ++block) {
+                    launch_config.block_id = decode_block_coords(block, grid_size_x, grid_size_y);
+                    luisa_coro_reset_counter();
+                    config->kernel(launch_params, &launch_config);
+                }
+            }
+        });
+    }
 }
 
 FallbackShader::~FallbackShader() noexcept = default;
@@ -1117,16 +1268,25 @@ void FallbackShader::_initialize_target_machine_jit(const ShaderOption &option) 
 #else
         options.TrapUnreachable = false;
 #endif
-        luisa::compute::detail::enable_llvm_machine_function_splitting(options);
+        const auto &triple = host->getTargetTriple();
+        const bool is_coff = triple.isOSBinFormatCOFF();
+        const bool is_coff_x86 = is_coff && triple.isX86();
+        if (!is_coff) {
+            luisa::compute::detail::enable_llvm_machine_function_splitting(options);
+        }
         options.EnableMachineOutliner = false;
         options.NoTrapAfterNoreturn = true;
         host->setOptions(options);
+        if (is_coff_x86) {
+            host->setRelocationModel(::llvm::Reloc::PIC_);
+            host->setCodeModel(::llvm::CodeModel::Small);
+        }
         host->setCodeGenOptLevel(::llvm::CodeGenOptLevel::Aggressive);
-#ifdef __aarch64__
-        host->addFeatures({"+neon"});
-#endif
+        if (triple.isAArch64()) {
+            host->addFeatures({"+neon"});
+        }
         LUISA_VERBOSE("LLVM JIT target: triplet = {}, features = {}.",
-                      host->getTargetTriple().str(), host->getFeatures().getString());
+                      triple.str(), host->getFeatures().getString());
         if (auto machine = host->createTargetMachine()) {
             _target_machine = std::move(machine.get());
         } else {
@@ -1134,6 +1294,24 @@ void FallbackShader::_initialize_target_machine_jit(const ShaderOption &option) 
                 LUISA_WARNING_WITH_LOCATION("JITTargetMachineBuilder::createTargetMachine(): {}.", e.message());
             });
             LUISA_ERROR_WITH_LOCATION("Failed to create target machine.");
+        }
+        if (is_coff_x86) {
+            // RuntimeDyldCOFFX86_64 requires all sections referenced by 32-bit
+            // image-base-relative relocations (IMAGE_REL_AMD64_ADDR32NB) to be
+            // allocated in a single monotonically ordered address range.
+            jit_builder.setObjectLinkingLayerCreator(
+                [](::llvm::orc::ExecutionSession &es,
+                   ::llvm::jitlink::JITLinkMemoryManager &)
+                    -> ::llvm::Expected<std::unique_ptr<::llvm::orc::ObjectLayer>> {
+                    auto layer = std::make_unique<::llvm::orc::RTDyldObjectLinkingLayer>(
+                        es, [](const ::llvm::MemoryBuffer &) {
+                            return std::make_unique<::llvm::SectionMemoryManager>(
+                                nullptr, /*ReserveAlloc=*/true);
+                        });
+                    layer->setOverrideObjectFlagsWithResponsibilityFlags(true);
+                    layer->setAutoClaimResponsibilityForObjectSymbols(true);
+                    return layer;
+                });
         }
         jit_builder.setJITTargetMachineBuilder(std::move(*host));
     } else {

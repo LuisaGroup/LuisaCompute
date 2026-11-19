@@ -7,16 +7,20 @@
 #include <unordered_map>
 #include <vector>
 
+#include <llvm/IR/CallingConv.h>
+#include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/TargetParser/Triple.h>
 
 #include <luisa/ast/type_registry.h>
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/module.h>
 
 using namespace luisa::compute;
@@ -101,9 +105,127 @@ int main() {
                                "luisa.accel.instance.transform", output);
         contracts.emplace("luisa.accel.instance.transform", std::vector<size_t>{alignof(void *), 0u, matrix->alignment()});
     }
+    // Internal callables must use LLVM fastcc with normalized aggregate/vec3 ABI
+    // (0 FCA params/returns, 0 <3 x T> params/returns) and preserve NoInlineMD
+    // across both x86-64 and AArch64 targets.
+    {
+        auto *agg_ty = Type::matrix(4u);
+        auto *vec3_ty = Type::of<luisa::float3>();
+        auto *callee = input.create_callable(agg_ty);
+        callee->set_name("fastcc_noinline_agg_vec3_callee");
+        (void)callee->find_or_create_metadata<xir::NoInlineMD>();
+        auto *in_agg = callee->create_value_argument(agg_ty);
+        auto *in_v3 = callee->create_value_argument(vec3_ty);
+        auto *inout_v3 = callee->create_reference_argument(vec3_ty);
+        xir::XIRBuilder b_callee;
+        b_callee.set_insertion_point(callee->create_body_block());
+        auto *sum_v3 = b_callee.call(vec3_ty, xir::ArithmeticOp::BINARY_ADD, {in_v3, in_v3});
+        b_callee.store(inout_v3, sum_v3);
+        b_callee.return_(in_agg);
+
+        auto *caller = input.create_callable(vec3_ty);
+        caller->set_name("fastcc_agg_vec3_caller");
+        auto *c_agg = caller->create_value_argument(agg_ty);
+        auto *c_v3 = caller->create_value_argument(vec3_ty);
+        xir::XIRBuilder b_caller;
+        b_caller.set_insertion_point(caller->create_body_block());
+        auto *ref_slot = b_caller.alloca_local(vec3_ty);
+        b_caller.store(ref_slot, c_v3);
+        auto *ret_agg = b_caller.call(agg_ty, callee, {c_agg, c_v3, ref_slot});
+        (void)ret_agg;
+        auto *loaded_v3 = b_caller.load(vec3_ty, ref_slot);
+        b_caller.return_(loaded_v3);
+    }
     static_cast<void>(fallback::luisa_fallback_backend_codegen(context, &output, &input, false));
     if (llvm::verifyModule(output, &llvm::errs())) { return 1; }
     auto passed = true;
+    // Verify fastcc + normalized ABI + NoInline on both host module and an AArch64 module.
+    auto check_fastcc_abi = [&](llvm::Module &mod, const char *label) {
+        auto *callee_fn = mod.getFunction("fastcc_noinline_agg_vec3_callee");
+        auto *caller_fn = mod.getFunction("fastcc_agg_vec3_caller");
+        if (!callee_fn || !caller_fn) {
+            std::cerr << "[" << label << "] Missing fastcc probe functions\n";
+            passed = false;
+            return;
+        }
+        if (!callee_fn->hasFnAttribute(llvm::Attribute::NoInline) ||
+            callee_fn->hasFnAttribute(llvm::Attribute::AlwaysInline)) {
+            std::cerr << "[" << label << "] NoInline attribute not preserved on callee\n";
+            passed = false;
+        }
+        for (auto &fn : mod) {
+            if (fn.isDeclaration()) {
+                if (fn.getCallingConv() != llvm::CallingConv::C) {
+                    std::cerr << "[" << label << "] External declaration " << fn.getName().str()
+                              << " must retain C calling convention\n";
+                    passed = false;
+                }
+                continue;
+            }
+            if (fn.hasLocalLinkage() && fn.hasFnAttribute("luisa.fallback.generated_callable")) {
+                if (fn.getCallingConv() != llvm::CallingConv::Fast) {
+                    std::cerr << "[" << label << "] Generated callable " << fn.getName().str()
+                              << " is not fastcc\n";
+                    passed = false;
+                }
+                auto *ft = fn.getFunctionType();
+                auto bad_abi_ty = [](const llvm::Type *t) {
+                    if (!t) { return false; }
+                    if (t->isStructTy() || t->isArrayTy()) { return true; }
+                    if (auto *vt = llvm::dyn_cast<llvm::FixedVectorType>(t)) {
+                        return vt->getNumElements() == 3u;
+                    }
+                    return false;
+                };
+                if (bad_abi_ty(ft->getReturnType())) {
+                    std::cerr << "[" << label << "] Unnormalized return type on " << fn.getName().str() << '\n';
+                    passed = false;
+                }
+                for (unsigned i = 0u; i < ft->getNumParams(); ++i) {
+                    if (bad_abi_ty(ft->getParamType(i))) {
+                        std::cerr << "[" << label << "] Unnormalized param " << i << " on " << fn.getName().str() << '\n';
+                        passed = false;
+                    }
+                }
+                for (const auto *u : fn.users()) {
+                    if (const auto *cb = llvm::dyn_cast<llvm::CallBase>(u)) {
+                        if (cb->getCalledOperand() == &fn &&
+                            cb->getCallingConv() != llvm::CallingConv::Fast) {
+                            std::cerr << "[" << label << "] Call site to " << fn.getName().str()
+                                      << " does not use fastcc\n";
+                            passed = false;
+                        }
+                    }
+                }
+            }
+        }
+    };
+    check_fastcc_abi(output, "default-layout");
+    {
+        llvm::LLVMContext aarch64_ctx;
+        llvm::Module aarch64_mod{"fallback-abi-aarch64", aarch64_ctx};
+#if LLVM_VERSION_MAJOR >= 21
+        aarch64_mod.setTargetTriple(llvm::Triple{"aarch64-unknown-linux-gnu"});
+#else
+        aarch64_mod.setTargetTriple("aarch64-unknown-linux-gnu");
+#endif
+        aarch64_mod.setDataLayout("e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32");
+        for (const auto &[name, align_vec] : contracts) {
+            std::vector<llvm::Type *> args;
+            for (auto a : align_vec) {
+                args.emplace_back(a == 0u ? static_cast<llvm::Type *>(llvm::Type::getInt32Ty(aarch64_ctx))
+                                          : static_cast<llvm::Type *>(llvm::PointerType::getUnqual(aarch64_ctx)));
+            }
+            auto *ret = name.find("determinant") != std::string::npos
+                            ? llvm::Type::getFloatTy(aarch64_ctx)
+                            : llvm::Type::getVoidTy(aarch64_ctx);
+            llvm::Function::Create(llvm::FunctionType::get(ret, args, false),
+                                   llvm::GlobalValue::ExternalLinkage, name, aarch64_mod);
+        }
+        static_cast<void>(fallback::luisa_fallback_backend_codegen(aarch64_ctx, &aarch64_mod, &input, false));
+        if (llvm::verifyModule(aarch64_mod, &llvm::errs())) { return 1; }
+        check_fastcc_abi(aarch64_mod, "aarch64-linux-gnu");
+    }
     auto checked = 0u;
     for (auto &function : output) {
         for (auto &block : function) {

@@ -10,6 +10,7 @@ using llvm_uint2 = uint __attribute__((ext_vector_type(2)));
 using llvm_uint3 = uint __attribute__((ext_vector_type(3)));
 using llvm_uint4 = uint __attribute__((ext_vector_type(4)));
 
+using llvm_uchar4 = uint8_t __attribute__((ext_vector_type(4)));
 using llvm_float2 = float __attribute__((ext_vector_type(2)));
 using llvm_float3 = float __attribute__((ext_vector_type(3)));
 using llvm_float4 = float __attribute__((ext_vector_type(4)));
@@ -363,46 +364,232 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_texture3d_size(const TextureV
     return (filter << 2u) | address;
 }
 
+struct alignas(16) TextureHeader {
+    const uint8_t *data;
+    unsigned short size[3];
+    unsigned short storage;
+    uint8_t pixel_stride_shift;
+    uint8_t mip_levels;
+    uint8_t dimension;
+    uint8_t is_external;
+    uint32_t mip_offsets[3];
+};
+static_assert(sizeof(TextureHeader) == 32u);
+
+[[nodiscard]] LUISA_FALLBACK_INTERNAL float luisa_fallback_tex_coord_point_1d(uint address, float u, float s) noexcept {
+    constexpr float one_minus_eps = 0x1.fffffep-1f;
+    switch (address) {
+        case 0u: {
+            const float c = u < 0.0f ? 0.0f : (u < one_minus_eps ? u : one_minus_eps);
+            return c * s;
+        }
+        case 1u: {
+            const float f = u - __builtin_floorf(u);
+            return (f < one_minus_eps ? f : one_minus_eps) * s;
+        }
+        case 2u: {
+            const float a = __builtin_fabsf(u);
+            float m = a - 2.0f * __builtin_floorf(a * 0.5f);
+            m = m < 1.0f ? m : (2.0f - m);
+            return (m < one_minus_eps ? m : one_minus_eps) * s;
+        }
+        default:
+            return ((u < 0.0f) | (u >= 1.0f)) ? 65536.0f : (u * s);
+    }
+}
+
+[[nodiscard]] LUISA_FALLBACK_INTERNAL llvm_float4 luisa_fallback_tex2d_fetch_rgba(
+    const TextureHeader *t, uint storage, uint w, uint h, uint x, uint y) noexcept {
+    if ((x >= w) | (y >= h)) {
+        return {0.0f, 0.0f, 0.0f, 0.0f};
+    }
+    if (storage == 2u) {
+        const auto *p = reinterpret_cast<const llvm_uchar4 *>(
+            t->data + ((static_cast<size_t>(y) * w + x) << 2u));
+        return __builtin_convertvector(p[0], llvm_float4) * (1.0f / 255.0f);
+    }
+    const auto *fraw = reinterpret_cast<const llvm_float4 *>(t->data);
+    return fraw[static_cast<size_t>(y) * w + x];
+}
+
+static __attribute__((noinline)) bool luisa_fallback_tex2d_sample_level0_general(
+    const TextureHeader *t, uint filter, uint address, float ux, float uy, float4 *out) noexcept {
+    const uint w = t->size[0];
+    const uint h = t->size[1];
+    const uint storage = t->storage;
+    if ((w == 0u) | (h == 0u)) { return false; }
+    const uint ux_bits = __builtin_bit_cast(uint, ux);
+    const uint uy_bits = __builtin_bit_cast(uint, uy);
+    if (((ux_bits & 0x7f800000u) == 0x7f800000u) | ((uy_bits & 0x7f800000u) == 0x7f800000u)) {
+        return false;
+    }
+    const float fw = static_cast<float>(w);
+    const float fh = static_cast<float>(h);
+    if (filter == 0u) {
+        const uint cx = static_cast<uint>(luisa_fallback_tex_coord_point_1d(address, ux, fw));
+        const uint cy = static_cast<uint>(luisa_fallback_tex_coord_point_1d(address, uy, fh));
+        *reinterpret_cast<llvm_float4 *>(out) = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, cx, cy);
+        return true;
+    }
+    const float half_inv_w = 0.5f / fw;
+    const float half_inv_h = 0.5f / fh;
+    const float x_a = luisa_fallback_tex_coord_point_1d(address, ux - half_inv_w, fw);
+    const float x_b = luisa_fallback_tex_coord_point_1d(address, ux + half_inv_w, fw);
+    const float y_a = luisa_fallback_tex_coord_point_1d(address, uy - half_inv_h, fh);
+    const float y_b = luisa_fallback_tex_coord_point_1d(address, uy + half_inv_h, fh);
+    const float st_min_x = x_a < x_b ? x_a : x_b;
+    const float st_max_x = x_a > x_b ? x_a : x_b;
+    const float st_min_y = y_a < y_b ? y_a : y_b;
+    const float st_max_y = y_a > y_b ? y_a : y_b;
+    const float tx = st_max_x - __builtin_floorf(st_max_x);
+    const float ty = st_max_y - __builtin_floorf(st_max_y);
+    const uint c0x = static_cast<uint>(st_min_x);
+    const uint c1x = static_cast<uint>(st_max_x);
+    const uint c0y = static_cast<uint>(st_min_y);
+    const uint c1y = static_cast<uint>(st_max_y);
+    const llvm_float4 v00 = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, c0x, c0y);
+    const llvm_float4 v01 = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, c1x, c0y);
+    const llvm_float4 v10 = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, c0x, c1y);
+    const llvm_float4 v11 = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, c1x, c1y);
+    const llvm_float4 r0 = v00 + (v01 - v00) * tx;
+    const llvm_float4 r1 = v10 + (v11 - v10) * tx;
+    *reinterpret_cast<llvm_float4 *>(out) = r0 + (r1 - r0) * ty;
+    return true;
+}
+
+LUISA_FALLBACK_INTERNAL bool luisa_fallback_try_tex2d_sample_level0_fast(
+    const TextureHeader *t, uint filter, uint address, float ux, float uy, float4 *out) noexcept {
+    const uint storage = t->storage;
+    if ((storage != 2u) & (storage != 14u)) {
+        return false;
+    }
+    const uint w = t->size[0];
+    const uint h = t->size[1];
+    if ((filter != 0u) & (address <= 1u) & (w >= 2u) & (h >= 2u)) {
+        const uint ux_bits = __builtin_bit_cast(uint, ux);
+        const uint uy_bits = __builtin_bit_cast(uint, uy);
+        if (((ux_bits & 0x7f800000u) != 0x7f800000u) & ((uy_bits & 0x7f800000u) != 0x7f800000u)) {
+            float u = ux;
+            float v = uy;
+            if (address == 1u) {
+                u -= __builtin_floorf(u);
+                v -= __builtin_floorf(v);
+            }
+            const float px = u * static_cast<float>(w) - 0.5f;
+            const float py = v * static_cast<float>(h) - 0.5f;
+            if ((px >= 0.0f) & (py >= 0.0f) &
+                (px < static_cast<float>(w - 1u)) & (py < static_cast<float>(h - 1u))) {
+                const uint x0 = static_cast<uint>(px);
+                const uint y0 = static_cast<uint>(py);
+                if ((x0 + 1u < w) & (y0 + 1u < h)) {
+                    const float tx = px - static_cast<float>(x0);
+                    const float ty = py - static_cast<float>(y0);
+                    if (storage == 2u) {
+                        const size_t stride = static_cast<size_t>(w) << 2u;
+                        const auto *p0 = reinterpret_cast<const llvm_uchar4 *>(
+                            t->data + static_cast<size_t>(y0) * stride + (static_cast<size_t>(x0) << 2u));
+                        const auto *p1 = reinterpret_cast<const llvm_uchar4 *>(
+                            reinterpret_cast<const uint8_t *>(p0) + stride);
+                        const llvm_float4 f00 = __builtin_convertvector(p0[0], llvm_float4);
+                        const llvm_float4 f01 = __builtin_convertvector(p0[1], llvm_float4);
+                        const llvm_float4 f10 = __builtin_convertvector(p1[0], llvm_float4);
+                        const llvm_float4 f11 = __builtin_convertvector(p1[1], llvm_float4);
+                        const llvm_float4 r0 = f00 + (f01 - f00) * tx;
+                        const llvm_float4 r1 = f10 + (f11 - f10) * tx;
+                        *reinterpret_cast<llvm_float4 *>(out) = (r0 + (r1 - r0) * ty) * (1.0f / 255.0f);
+                        return true;
+                    }
+                    const auto *fraw = reinterpret_cast<const llvm_float4 *>(t->data);
+                    const size_t idx0 = static_cast<size_t>(y0) * w + x0;
+                    const size_t idx1 = idx0 + w;
+                    const llvm_float4 r0 = fraw[idx0] + (fraw[idx0 + 1u] - fraw[idx0]) * tx;
+                    const llvm_float4 r1 = fraw[idx1] + (fraw[idx1 + 1u] - fraw[idx1]) * tx;
+                    *reinterpret_cast<llvm_float4 *>(out) = r0 + (r1 - r0) * ty;
+                    return true;
+                }
+            }
+        }
+    }
+    return luisa_fallback_tex2d_sample_level0_general(t, filter, address, ux, uy, out);
+}
+
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample(const BindlessArrayView *handle, uint slot_index, const float2 *uv, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(handle, slot_index)
+    const auto *t = reinterpret_cast<const TextureHeader *>(texture);
+    if (luisa_fallback_try_tex2d_sample_level0_fast(t, sampler >> 2u, sampler & 0x03u, uv->x, uv->y, out)) { return; }
     *out = luisa_fallback_bindless_texture2d_sample(texture, sampler, uv->x, uv->y);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_level(const BindlessArrayView *handle, uint slot_index, const float2 *uv, float level, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(handle, slot_index)
+    const auto *t = reinterpret_cast<const TextureHeader *>(texture);
+    const uint filter = sampler >> 2u;
+    if (((level <= 0.0f) | (t->mip_levels <= 1u) | (filter == 0u)) &&
+        luisa_fallback_try_tex2d_sample_level0_fast(t, filter, sampler & 0x03u, uv->x, uv->y, out)) {
+        return;
+    }
     *out = luisa_fallback_bindless_texture2d_sample_level(texture, sampler, uv->x, uv->y, level);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_grad(const BindlessArrayView *handle, uint slot_index, const float2 *uv, const float2 *ddx, const float2 *ddy, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(handle, slot_index)
+    const auto *t = reinterpret_cast<const TextureHeader *>(texture);
+    const uint filter = sampler >> 2u;
+    if (((t->mip_levels <= 1u) | (filter <= 1u)) &&
+        luisa_fallback_try_tex2d_sample_level0_fast(t, filter, sampler & 0x03u, uv->x, uv->y, out)) {
+        return;
+    }
     *out = luisa_fallback_bindless_texture2d_sample_grad(texture, sampler, uv->x, uv->y, ddx->x, ddx->y, ddy->x, ddy->y);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_grad_level(const BindlessArrayView *handle, uint slot_index, const float2 *uv, const float2 *ddx, const float2 *ddy, float level, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(handle, slot_index)
+    const auto *t = reinterpret_cast<const TextureHeader *>(texture);
+    const uint filter = sampler >> 2u;
+    if (((level <= 0.0f) | (t->mip_levels <= 1u) | (filter == 0u)) &&
+        luisa_fallback_try_tex2d_sample_level0_fast(t, filter, sampler & 0x03u, uv->x, uv->y, out)) {
+        return;
+    }
     *out = luisa_fallback_bindless_texture2d_sample_grad_level(texture, sampler, uv->x, uv->y, ddx->x, ddx->y, ddy->x, ddy->y, level);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, uint filter, uint address, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
+    const auto *t = reinterpret_cast<const TextureHeader *>(texture);
+    if (luisa_fallback_try_tex2d_sample_level0_fast(t, filter, address, uv->x, uv->y, out)) { return; }
     auto sampler = luisa_fallback_explicit_sampler(filter, address);
     *out = luisa_fallback_bindless_texture2d_sample(texture, sampler, uv->x, uv->y);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_level_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, float level, uint filter, uint address, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
+    const auto *t = reinterpret_cast<const TextureHeader *>(texture);
+    if (((level <= 0.0f) | (t->mip_levels <= 1u) | (filter == 0u)) &&
+        luisa_fallback_try_tex2d_sample_level0_fast(t, filter, address, uv->x, uv->y, out)) {
+        return;
+    }
     auto sampler = luisa_fallback_explicit_sampler(filter, address);
     *out = luisa_fallback_bindless_texture2d_sample_level(texture, sampler, uv->x, uv->y, level);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_grad_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, const float2 *ddx, const float2 *ddy, uint filter, uint address, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
+    const auto *t = reinterpret_cast<const TextureHeader *>(texture);
+    if (((t->mip_levels <= 1u) | (filter <= 1u)) &&
+        luisa_fallback_try_tex2d_sample_level0_fast(t, filter, address, uv->x, uv->y, out)) {
+        return;
+    }
     auto sampler = luisa_fallback_explicit_sampler(filter, address);
     *out = luisa_fallback_bindless_texture2d_sample_grad(texture, sampler, uv->x, uv->y, ddx->x, ddx->y, ddy->x, ddy->y);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_sample_grad_level_sampler(const BindlessArrayView *handle, uint slot_index, const float2 *uv, const float2 *ddx, const float2 *ddy, float level, uint filter, uint address, float4 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_TEXTURE2D(handle, slot_index)
+    const auto *t = reinterpret_cast<const TextureHeader *>(texture);
+    if (((level <= 0.0f) | (t->mip_levels <= 1u) | (filter == 0u)) &&
+        luisa_fallback_try_tex2d_sample_level0_fast(t, filter, address, uv->x, uv->y, out)) {
+        return;
+    }
     auto sampler = luisa_fallback_explicit_sampler(filter, address);
     *out = luisa_fallback_bindless_texture2d_sample_grad_level(texture, sampler, uv->x, uv->y, ddx->x, ddx->y, ddy->x, ddy->y, level);
 }
@@ -471,10 +658,6 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture3d_read_level
     *out = luisa_fallback_bindless_texture3d_read_level(texture, coord->x, coord->y, coord->z, level);
 }
 
-struct alignas(16) TextureHeader {
-    void *data;
-    unsigned short size[3];
-};
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_bindless_texture2d_size_level(const BindlessArrayView *handle, uint slot_index, uint level, uint2 *out) noexcept {
     LUISA_FALLBACK_BINDLESS_DECODE_TEXTURE2D(handle, slot_index)
@@ -540,7 +723,7 @@ struct alignas(16) LC_RayQueryObject {
     RayQueryCandidate candidate;
     EmbreeRayHit ray_hit;
     Ray world_ray;
-    Ray object_ray;
+    const EmbreeRay *active_rtc_ray;
 };
 
 LUISA_FALLBACK_INTERNAL void luisa_fallback_create_embree_ray(EmbreeRay *embree_ray, const Ray *ray, float time, uint mask) noexcept {
@@ -558,7 +741,8 @@ LUISA_FALLBACK_INTERNAL void luisa_fallback_create_embree_hit(EmbreeHit *embree_
 }
 
 LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_surface_hit(SurfaceHit *surface_hit, const EmbreeRayHit *ray_hit) noexcept {
-    *surface_hit = {.inst = ray_hit->hit.instID[0],
+    const uint inst = ray_hit->hit.instID[0] != ~0u ? ray_hit->hit.instID[0] : ray_hit->hit.geomID;
+    *surface_hit = {.inst = inst,
                     .prim = ray_hit->hit.primID,
                     .bary = {ray_hit->hit.u, ray_hit->hit.v},
                     .committed_ray_t = ray_hit->ray.extra.tfar};
@@ -566,7 +750,8 @@ LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_surface_hit(SurfaceHit *surfa
 
 LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_committed_hit(CommittedHit *committed_hit, const LC_RayQueryObject *q) noexcept {
     auto hit = &q->ray_hit.hit;
-    *committed_hit = {.inst = hit->instID[0],
+    const uint inst = hit->instID[0] != ~0u ? hit->instID[0] : hit->geomID;
+    *committed_hit = {.inst = inst,
                       .prim = hit->primID,
                       .bary = {hit->u, hit->v},
                       .hit_type = q->candidate.committed_hit_type,
@@ -576,7 +761,7 @@ LUISA_FALLBACK_INTERNAL void luisa_fallback_decode_committed_hit(CommittedHit *c
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_traverse_motion(const AccelView *handle, const Ray *ray, float time, uint mask, LC_RayQueryObject *out) noexcept {
     out->accel = *handle;
     out->world_ray = *ray;
-    out->object_ray = *ray;
+    out->active_rtc_ray = nullptr;
     out->candidate.committed_hit_type = HitType::Miss;
     luisa_fallback_create_embree_ray(&out->ray_hit.ray, ray, time, mask);
     luisa_fallback_create_embree_hit(&out->ray_hit.hit);
@@ -591,7 +776,14 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_world_space_
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_candidate_object_space_ray(const LC_RayQueryObject *q, Ray *out) noexcept {
-    *out = q->object_ray;
+    if (const auto *r = q->active_rtc_ray) {
+        *out = {.origin = {r->org_tnear.x, r->org_tnear.y, r->org_tnear.z},
+                .t_min = q->world_ray.t_min,
+                .direction = {r->dir_time.x, r->dir_time.y, r->dir_time.z},
+                .t_max = q->world_ray.t_max};
+    } else {
+        *out = q->world_ray;
+    }
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_procedural_candidate_hit(const LC_RayQueryObject *q, AABBHit *out) noexcept {
@@ -613,7 +805,6 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_committed_hi
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_surface_hit(LC_RayQueryObject *q) noexcept {
     q->candidate.committed = true;
     q->world_ray.t_max = q->candidate.t;
-    q->object_ray.t_max = q->candidate.t;
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_procedural_hit(LC_RayQueryObject *q, float t) noexcept {
@@ -622,7 +813,6 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_object_commit_proce
         t <= q->world_ray.t_max) {
         q->candidate.committed = true;
         q->world_ray.t_max = t;
-        q->object_ray.t_max = t;
     }
 }
 
@@ -636,6 +826,14 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_pipeline_all(LC_Ray
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_pipeline_any(LC_RayQueryObject *q, const void *capture, RayQueryOnSurfaceFunc *on_surface, RayQueryOnProceduralFunc *on_procedural) noexcept {
     luisa_fallback_ray_query_pipeline_any(q, capture, on_surface, on_procedural);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_pipeline_all_excl(LC_RayQueryObject *q, uint excl_inst0, uint excl_prim0, uint excl_inst1, uint excl_prim1, uint flags, const void *capture, RayQueryOnProceduralFunc *on_procedural) noexcept {
+    luisa_fallback_ray_query_pipeline_all_excl(q, excl_inst0, excl_prim0, excl_inst1, excl_prim1, flags, capture, on_procedural);
+}
+
+LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_ray_query_pipeline_any_excl(LC_RayQueryObject *q, uint excl_inst0, uint excl_prim0, uint excl_inst1, uint excl_prim1, uint flags, const void *capture, RayQueryOnProceduralFunc *on_procedural) noexcept {
+    luisa_fallback_ray_query_pipeline_any_excl(q, excl_inst0, excl_prim0, excl_inst1, excl_prim1, flags, capture, on_procedural);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_accel_trace_closest_motion(const AccelView *handle, const Ray *ray, float time, uint mask, SurfaceHit *out) noexcept {

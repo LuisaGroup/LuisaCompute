@@ -12,8 +12,6 @@ inline void apply_fallback_math_target_options(Options &options, bool enable_fas
     if (enable_fast_math) {
         if constexpr (requires { options.UnsafeFPMath = true; }) { options.UnsafeFPMath = true; }
         if constexpr (requires { options.ApproxFuncFPMath = true; }) { options.ApproxFuncFPMath = true; }
-        if constexpr (requires { options.NoInfsFPMath = true; }) { options.NoInfsFPMath = true; }
-        if constexpr (requires { options.NoNaNsFPMath = true; }) { options.NoNaNsFPMath = true; }
         if constexpr (requires { options.NoSignedZerosFPMath = true; }) { options.NoSignedZerosFPMath = true; }
     }
     luisa::compute::detail::apply_llvm_fp_target_options(
@@ -22,6 +20,11 @@ inline void apply_fallback_math_target_options(Options &options, bool enable_fas
 }
 
 inline void apply_fallback_math_function_options(::llvm::Function &function, bool enable_fast_math) noexcept {
+    // Remove generic baseline target attributes stamped by offline wrapper bitcode compilation so
+    // TargetMachine's actual CPU/subtarget features and TTI inline-compatibility apply uniformly.
+    for (auto attr_name : {"target-cpu", "target-features", "tune-cpu"}) {
+        function.removeFnAttr(attr_name);
+    }
     // Dispatch establishes f32 FTZ/DAZ for the complete JIT call tree.
     // Native-math helpers share that environment, but retain their own FMF.
     luisa::compute::detail::apply_llvm_fp_function_options(function, luisa::compute::detail::LLVMFPOpFusion::Standard);
@@ -49,7 +52,8 @@ inline void apply_fallback_math_function_options(::llvm::Function &function, boo
     }
     for (auto &block : function) {
         for (auto &instruction : block) {
-            if (::llvm::isa<::llvm::FPMathOperator>(instruction)) {
+            if (::llvm::isa<::llvm::FPMathOperator>(instruction) &&
+                !::llvm::isa<::llvm::FCmpInst>(instruction)) {
                 instruction.setFast(enable_fast_math);
             }
         }
