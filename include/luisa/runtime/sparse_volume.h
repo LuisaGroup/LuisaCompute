@@ -58,12 +58,9 @@ public:
     using Resource::operator bool;
     using Resource::release;
     SparseVolume(SparseVolume &&) noexcept = default;
-    SparseVolume(const SparseVolume &) noexcept = delete;
-    SparseVolume &operator=(SparseVolume &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    SparseVolume &operator=(const SparseVolume &) noexcept = delete;
+    SparseVolume(const SparseVolume &) noexcept = default;
+    SparseVolume &operator=(SparseVolume &&rhs) noexcept = default;
+    SparseVolume &operator=(const SparseVolume &rhs) noexcept = default;
 
     // properties
     [[nodiscard]] auto mip_levels() const noexcept {

@@ -4,11 +4,11 @@ import("lib.detect.find_file")
 import("core.project.config")
 local _sdks = {
     dx_sdk = {
-        name = 'dx_sdk_20261113.zip'
+        name = 'dx_sdk_20261119.zip'
     },
     vk_sdk = {
         -- Match the CMake Linux runtime: 20261113 requires GLIBC_2.43.
-        name = 'linux_dxc_20261102_x86_64.zip'
+        name = 'linux_dxc_20261119_x86_64.zip'
     }
 }
 

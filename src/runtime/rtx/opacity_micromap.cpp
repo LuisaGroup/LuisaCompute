@@ -437,7 +437,49 @@ OpacityMicromap::OpacityMicromap(
 OpacityMicromap::OpacityMicromap() noexcept = default;
 OpacityMicromap::OpacityMicromap(OpacityMicromap &&) noexcept = default;
 
-OpacityMicromap::~OpacityMicromap() noexcept = default;
+OpacityMicromap::OpacityMicromap(OpacityMicromap const &rhs) noexcept
+    : Resource{rhs},
+      _data{rhs._data},
+      _index{rhs._index},
+      _option{rhs._option},
+      _triangle_count{rhs._triangle_count},
+      _ready{rhs._ready} {
+    // `_baker` caches shaders compiled for this instance; a copy compiles its own on
+    // first use instead of sharing them.
+}
+
+OpacityMicromap &OpacityMicromap::operator=(OpacityMicromap &&rhs) noexcept {
+    if (this != &rhs) [[likely]] {
+        Resource::operator=(std::move(rhs));
+        _data = std::move(rhs._data);
+        _index = std::move(rhs._index);
+        _option = rhs._option;
+        _triangle_count = rhs._triangle_count;
+        _ready = rhs._ready;
+        _baker = std::move(rhs._baker);
+    }
+    return *this;
+}
+
+OpacityMicromap &OpacityMicromap::operator=(OpacityMicromap const &rhs) noexcept {
+    if (this != &rhs) [[likely]] {
+        Resource::operator=(rhs);
+        _data = rhs._data;
+        _index = rhs._index;
+        _option = rhs._option;
+        _triangle_count = rhs._triangle_count;
+        _ready = rhs._ready;
+        _baker = nullptr;
+    }
+    return *this;
+}
+
+void OpacityMicromap::destroy() noexcept {
+    if (*this) { device()->destroy_opacity_micromap(handle()); }
+}
+
+// defined here (not inline in the header) so `Baker` may stay incomplete there
+OpacityMicromap::~OpacityMicromap() noexcept { _release(); }
 
 OpacityMicromap::Format OpacityMicromap::format() const noexcept {
     return _option.format;

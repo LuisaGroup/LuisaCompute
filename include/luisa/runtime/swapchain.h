@@ -28,15 +28,12 @@ private:
 
 public:
     Swapchain() noexcept = default;
-    ~Swapchain() noexcept override;
+    ~Swapchain() noexcept override { _release(); }
     using Resource::operator bool;
     Swapchain(Swapchain &&) noexcept = default;
-    Swapchain(Swapchain const &) noexcept = delete;
-    Swapchain &operator=(Swapchain &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    Swapchain &operator=(Swapchain const &) noexcept = delete;
+    Swapchain(Swapchain const &) noexcept = default;
+    Swapchain &operator=(Swapchain &&rhs) noexcept = default;
+    Swapchain &operator=(Swapchain const &rhs) noexcept = default;
     [[nodiscard]] PixelStorage backend_storage() const {
         _check_is_valid();
         return _storage;
@@ -47,6 +44,9 @@ public:
             Resource::release(),
             _storage};
     }
+
+protected:
+    void destroy() noexcept override;
 };
 
 LUISA_MARK_STREAM_EVENT_TYPE(SwapchainPresent)

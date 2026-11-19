@@ -1664,6 +1664,48 @@ stream << cmdlist.commit() << synchronize();
 
 A non-empty, uncommitted list asserts in its destructor; the destructor never auto-commits. A wrapper that intentionally cancels recording on an error path must call `clear()` explicitly. `clear()` drops commands and callbacks (destructor callbacks are destroyed, not invoked) and resets the committed flag, so document this as discard semantics rather than silently losing work accidentally (`src/runtime/command_list.cpp:8-29`). It cannot cancel batches that were already committed; those may still be executing and must be included in the subsequent reset/synchronization plan.
 
+#### Deferred destruction via completion callbacks
+
+A `Resource` handle is reference-counted in the frontend, but the backend holds **no**
+reference of its own: dropping the last handle calls `device()->destroy_*` immediately, even
+while the GPU is still reading that object. `stream << kernel.dispatch(...); buffer = {};` is
+a use-after-free on the device.
+
+`Stream::operator<<` also accepts a `luisa::move_only_function<void()>`, and
+`CommandList::add_callback` queues the same thing for a list. Both run **after the batch has
+completed on the device** (`src/backends/cuda/cuda_stream.cpp:230` host function plus callback
+thread, `src/backends/vk/stream.cpp:2255` queued behind the command buffer,
+`src/backends/dx/DXApi/LCDevice.cpp:379`). A handle captured *by move* into that lambda dies
+exactly when the GPU is done with it — no `synchronize()`, no host stall:
+
+```cpp
+// give the buffer away: released on the backend's callback thread, GPU-idle
+stream << kernel.dispatch(n) << [out = std::move(out)] {};
+
+// same thing on an explicit list -- the canonical shape
+CommandList list = CommandList::create(1u, 1u);                     // (command, callback) reserve
+list << tlas.heap().update();
+list.add_callback([old = std::move(old)]() mutable { old = {}; });  // explicit release point
+stream << list.commit();
+```
+
+* **Not your thread.** The callback runs on the backend's worker/driver thread, never the
+  submitting one: no thread-locals, no UI, and never submit to or `synchronize()` the same
+  stream from inside it (self-deadlock).
+* **It ends the batch.** `Delegate::operator<<(cmd)` commits a pending callback first
+  (`src/runtime/stream.cpp:75`), so commands recorded after it form a new submission. Put the
+  callback where you want the boundary, normally last.
+* **Capture only what you retire, and move it in.** A copy also works — the object then dies
+  when that copy dies, i.e. at completion, while your local handle keeps it alive meanwhile.
+  Capturing a *moved* handle another owner still expects to use is a use-after-free;
+  `src/tests/integration/compute/lbvh/software_lbvh.cpp:154-172` shows why the callback owns
+  the moved buffers and why the new buffer is adopted *before* the commit.
+* **`add_dtor_callback` is not this.** It runs when the `CommandList` is destroyed — at commit,
+  long before the GPU is idle — so it is only for host temporaries whose bytes the recorded
+  commands already consumed (`include/luisa/runtime/builtin_kernel.h:59`).
+* **It queues.** Retiring thousands of buffers per frame without ever draining the stream keeps
+  every one of them alive; bound the pipeline with events or a per-frame sync.
+
 ### Native Shader Injection (`NativeShaderExt`)
 
 Injects **native compute shaders** (HLSL/GLSL on dx/vk, CUDA C++ on cuda, bypassing the

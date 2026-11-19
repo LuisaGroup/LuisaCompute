@@ -39,13 +39,33 @@ Event::Event(Event &&rhs) noexcept
     : Resource{std::move(rhs)},
       _fence{rhs.last_fence()} {}
 
+Event::Event(Event const &rhs) noexcept
+    : Resource{rhs},
+      _fence{rhs.last_fence()} {}
+
+Event &Event::operator=(Event &&rhs) noexcept {
+    if (this != &rhs) [[likely]] {
+        Resource::operator=(std::move(rhs));
+        _fence.store(rhs.last_fence());
+    }
+    return *this;
+}
+
+Event &Event::operator=(Event const &rhs) noexcept {
+    if (this != &rhs) [[likely]] {
+        Resource::operator=(rhs);
+        _fence.store(rhs.last_fence());
+    }
+    return *this;
+}
+
 void Event::synchronize(uint64_t fence) const noexcept {
     _check_is_valid();
     if (fence == std::numeric_limits<uint64_t>::max()) { fence = last_fence(); }
     device()->synchronize_event(handle(), fence);
 }
 
-Event::~Event() noexcept {
+void Event::destroy() noexcept {
     if (*this) { device()->destroy_event(handle()); }
 }
 
@@ -86,12 +106,25 @@ TimelineEvent::TimelineEvent(DeviceInterface *device) noexcept
                         return info;
                     }()} {}
 
-TimelineEvent::~TimelineEvent() noexcept {
+void TimelineEvent::destroy() noexcept {
     if (*this) { device()->destroy_event(handle()); }
 }
 
 TimelineEvent::TimelineEvent(TimelineEvent &&event) noexcept
     : Resource{std::move(event)} {}
+
+TimelineEvent::TimelineEvent(TimelineEvent const &event) noexcept
+    : Resource{event} {}
+
+TimelineEvent &TimelineEvent::operator=(TimelineEvent &&event) noexcept {
+    Resource::operator=(std::move(event));
+    return *this;
+}
+
+TimelineEvent &TimelineEvent::operator=(TimelineEvent const &event) noexcept {
+    Resource::operator=(event);
+    return *this;
+}
 
 TimelineEvent::Signal TimelineEvent::signal(uint64_t fence) const noexcept {
     _check_is_valid();

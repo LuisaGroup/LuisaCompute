@@ -48,20 +48,17 @@ public:
                                  }()} {
     }
     IndirectDispatchBuffer() noexcept = default;
-    ~IndirectDispatchBuffer() noexcept override;
+    ~IndirectDispatchBuffer() noexcept override { _release(); }
     IndirectDispatchBuffer(IndirectDispatchBuffer &&) noexcept = default;
-    IndirectDispatchBuffer(IndirectDispatchBuffer const &) noexcept = delete;
-    IndirectDispatchBuffer &operator=(IndirectDispatchBuffer &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
+    IndirectDispatchBuffer(IndirectDispatchBuffer const &) noexcept = default;
+    IndirectDispatchBuffer &operator=(IndirectDispatchBuffer &&rhs) noexcept = default;
+    IndirectDispatchBuffer &operator=(IndirectDispatchBuffer const &rhs) noexcept = default;
     BufferCreationInfo release() noexcept {
         return BufferCreationInfo{
             Resource::release(),
             1,
             _byte_size};
     }
-    IndirectDispatchBuffer &operator=(IndirectDispatchBuffer const &) noexcept = delete;
     using Resource::operator bool;
     [[nodiscard]] auto capacity() const noexcept {
         _check_is_valid();
@@ -77,6 +74,9 @@ public:
         _check_is_valid();
         return reinterpret_cast<const detail::IndirectDispatchBufferExprProxy *>(this);
     }
+
+protected:
+    void destroy() noexcept override;
 };
 
 }// namespace luisa::compute

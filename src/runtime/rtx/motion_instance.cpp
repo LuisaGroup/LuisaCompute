@@ -88,7 +88,7 @@ MotionInstance::MotionInstance(DeviceInterface *device,
                                const AccelMotionOption &option) noexcept
     : MotionInstance{device, static_cast<const Resource &>(primitive), option} {}
 
-MotionInstance::~MotionInstance() noexcept {
+void MotionInstance::destroy() noexcept {
     if (*this) { device()->destroy_motion_instance(handle()); }
 }
 

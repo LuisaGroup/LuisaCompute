@@ -3,7 +3,7 @@
 
 namespace luisa::compute {
 
-Curve::~Curve() noexcept {
+void Curve::destroy() noexcept {
     if (*this) { device()->destroy_curve(handle()); }
 }
 

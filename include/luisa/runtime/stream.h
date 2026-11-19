@@ -72,14 +72,11 @@ private:
 
 public:
     Stream() noexcept = default;
-    ~Stream() noexcept override;
+    ~Stream() noexcept override { _release(); }
     Stream(Stream &&) noexcept = default;
-    Stream(Stream const &) noexcept = delete;
-    Stream &operator=(Stream &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    Stream &operator=(Stream const &) noexcept = delete;
+    Stream(Stream const &) noexcept = default;
+    Stream &operator=(Stream &&rhs) noexcept = default;
+    Stream &operator=(Stream const &rhs) noexcept = default;
     using Resource::operator bool;
     using Resource::release;
     Delegate operator<<(luisa::unique_ptr<Command> &&cmd) noexcept;
@@ -105,6 +102,9 @@ public:
 
     using LogCallback = DeviceInterface::StreamLogCallback;
     void set_log_callback(const LogCallback &callback) noexcept;
+
+protected:
+    void destroy() noexcept override;
 };
 
 [[nodiscard]] constexpr auto commit() noexcept { return Stream::Commit{}; }

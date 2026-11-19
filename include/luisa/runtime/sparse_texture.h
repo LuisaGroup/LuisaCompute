@@ -39,15 +39,15 @@ protected:
     size_t _tile_size_bytes;
     uint3 _tile_size;
     SparseTexture(DeviceInterface *device, const SparseTextureCreationInfo &info) noexcept;
-    SparseTexture(SparseTexture &&) noexcept = default;
-    ~SparseTexture() noexcept override;
+    void destroy() noexcept override;
 
 public:
     SparseTexture() noexcept : _tile_size_bytes{0}, _tile_size{0} {}
-    // deleted members should be public
-    SparseTexture(const SparseTexture &) noexcept = delete;
-    SparseTexture &operator=(SparseTexture &&) noexcept = delete;// use _move_from in derived classes
-    SparseTexture &operator=(const SparseTexture &) noexcept = delete;
+    SparseTexture(SparseTexture &&) noexcept = default;
+    SparseTexture(const SparseTexture &) noexcept = default;
+    SparseTexture &operator=(SparseTexture &&) noexcept = default;
+    SparseTexture &operator=(const SparseTexture &) noexcept = default;
+    ~SparseTexture() noexcept override { _release(); }
     using Resource::operator bool;
     using Resource::release;
     [[nodiscard]] auto tile_size_bytes() const noexcept {

@@ -152,6 +152,8 @@ def make_zip(staging: Path, zip_path: Path, seven_zip: Path) -> None:
     files = sorted(p.name for p in staging.iterdir() if p.is_file())
     if not files:
         fail(f"Staging dir {staging} is empty, nothing to zip.")
+    if zip_path.exists():
+        zip_path.unlink()
     # Files are added from inside the staging dir so they land at the zip
     # root (matching the layout of the existing SDK zips).
     run([str(seven_zip), "a", "-tzip", "-mx=9", "-mfb=258", "-mpass=15",
@@ -188,10 +190,10 @@ def update_find_sdk_lua(dx_zip: str, linux_zip: str) -> None:
         fail(f"{lua_file} not found.")
     content = lua_file.read_text(encoding="utf-8")
     new_content, n1 = re.subn(
-        r"(dx_sdk\s*=\s*\{\s*\n\s*name\s*=\s*')[^']+(')",
+        r"(dx_sdk\s*=\s*\{(?:\s*\n\s*--[^\n]*)*\s*\n\s*name\s*=\s*')[^']+(')",
         rf"\g<1>{dx_zip}\g<2>", content, count=1)
     new_content, n2 = re.subn(
-        r"(vk_sdk\s*=\s*\{\s*\n\s*name\s*=\s*')[^']+(')",
+        r"(vk_sdk\s*=\s*\{(?:\s*\n\s*--[^\n]*)*\s*\n\s*name\s*=\s*')[^']+(')",
         rf"\g<1>{linux_zip}\g<2>", new_content, count=1)
     if n1 == 0 or n2 == 0:
         fail("Could not find dx_sdk/vk_sdk entries in scripts/find_sdk.lua.")

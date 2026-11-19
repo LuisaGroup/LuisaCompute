@@ -35,10 +35,11 @@ class Device;
 //     ray flag. What *is* bindable is `data()`, a plain `BufferView<uint>`, which is
 //     the documented inspection surface (see also `Mesh::cutout_mask()`).
 //
-// The resource is a move-only `Resource`: a `Mesh` binds its *handle*
+// The resource is a shared `Resource`: a `Mesh` binds its *handle*
 // (`Mesh::cutout_mask()`), so the micromap must outlive every traced acceleration
 // structure built from that mesh unless the driver reports the build sizes as
-// discardable.
+// discardable. A copy of the handle keeps the micromap alive, just like any other
+// `Resource`.
 class LUISA_RUNTIME_API OpacityMicromap : public Resource {
 
 public:
@@ -167,12 +168,9 @@ public:
     OpacityMicromap() noexcept;
     ~OpacityMicromap() noexcept override;
     OpacityMicromap(OpacityMicromap &&) noexcept;
-    OpacityMicromap &operator=(OpacityMicromap &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    OpacityMicromap(OpacityMicromap const &) noexcept = delete;
-    OpacityMicromap &operator=(OpacityMicromap const &) noexcept = delete;
+    OpacityMicromap(OpacityMicromap const &) noexcept;
+    OpacityMicromap &operator=(OpacityMicromap &&rhs) noexcept;
+    OpacityMicromap &operator=(OpacityMicromap const &rhs) noexcept;
     using Resource::operator bool;
     using Resource::release;
 
@@ -278,6 +276,9 @@ private:
                                     BufferView<float2> uv,
                                     BufferView<Triangle> triangles,
                                     uint32_t mask_channel) const;
+
+protected:
+    void destroy() noexcept override;
 };
 
 }// namespace luisa::compute

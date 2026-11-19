@@ -31,6 +31,32 @@ BindlessArray::BindlessArray(BindlessArray &&rhs) noexcept
     rhs._size = 0;
 }
 
+BindlessArray::BindlessArray(BindlessArray const &rhs) noexcept
+    : Resource{rhs},
+      _size{rhs._size},
+      _updates{rhs._updates} {}
+
+BindlessArray &BindlessArray::operator=(BindlessArray &&rhs) noexcept {
+    if (this != &rhs) [[likely]] {
+        // the base assignment releases our current object first, while _updates is
+        // still the one that belongs to it
+        Resource::operator=(std::move(rhs));
+        _size = rhs._size;
+        _updates = std::move(rhs._updates);
+        rhs._size = 0;
+    }
+    return *this;
+}
+
+BindlessArray &BindlessArray::operator=(BindlessArray const &rhs) noexcept {
+    if (this != &rhs) [[likely]] {
+        Resource::operator=(rhs);
+        _size = rhs._size;
+        _updates = rhs._updates;
+    }
+    return *this;
+}
+
 BindlessArray::BindlessArray(DeviceInterface *device, size_t size, BindlessSlotType type) noexcept
     : Resource{device, Tag::BINDLESS_ARRAY, [&] {
                    auto info = device->create_bindless_array(size, type);
@@ -195,7 +221,7 @@ luisa::unique_ptr<Command> BindlessArray::update() noexcept {
         _updates);
 }
 
-BindlessArray::~BindlessArray() noexcept {
+void BindlessArray::destroy() noexcept {
     if (!luisa::visit([](auto &&t) { return t.empty(); }, _updates)) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Bindless array #{} destroyed with {} pending updates. "

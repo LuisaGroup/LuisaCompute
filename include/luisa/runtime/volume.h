@@ -75,17 +75,12 @@ private:
 
 public:
     Volume() noexcept = default;
-    ~Volume() noexcept override {
-        if (*this) { device()->destroy_texture(handle()); }
-    }
+    ~Volume() noexcept override { _release(); }
     using Resource::operator bool;
     Volume(Volume &&) noexcept = default;
-    Volume(Volume const &) noexcept = delete;
-    Volume &operator=(Volume &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    Volume &operator=(Volume const &) noexcept = delete;
+    Volume(Volume const &) noexcept = default;
+    Volume &operator=(Volume &&rhs) noexcept = default;
+    Volume &operator=(Volume const &rhs) noexcept = default;
     using Resource::release;
     // properties
     [[nodiscard]] auto mip_levels() const noexcept {
@@ -131,6 +126,11 @@ public:
     [[nodiscard]] auto operator->() const noexcept {
         _check_is_valid();
         return reinterpret_cast<const detail::VolumeExprProxy<Volume<T>> *>(this);
+    }
+
+protected:
+    void destroy() noexcept override {
+        if (*this) { device()->destroy_texture(handle()); }
     }
 };
 

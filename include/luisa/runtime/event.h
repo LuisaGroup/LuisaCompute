@@ -29,27 +29,27 @@ private:
     friend class Device;
     friend class DxCudaInterop;
     friend class VkCudaInterop;
-    mutable std::atomic_uint64_t _fence;
+    mutable std::atomic_uint64_t _fence{0u};
     explicit Event(DeviceInterface *device) noexcept;
     explicit Event(DeviceInterface *device, const ResourceCreationInfo &info) noexcept;
 
 public:
     Event() noexcept = default;
-    ~Event() noexcept override;
+    ~Event() noexcept override { _release(); }
     using Resource::operator bool;
     using Resource::release;
     Event(Event &&) noexcept;
-    Event(Event const &) noexcept = delete;
-    Event &operator=(Event &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    Event &operator=(Event const &) noexcept = delete;
+    Event(Event const &) noexcept;
+    Event &operator=(Event &&rhs) noexcept;
+    Event &operator=(Event const &rhs) noexcept;
     [[nodiscard]] Signal signal() const noexcept;
     [[nodiscard]] Wait wait(uint64_t fence = std::numeric_limits<uint64_t>::max()) const noexcept;
     [[nodiscard]] bool is_completed(uint64_t fence = std::numeric_limits<uint64_t>::max()) const noexcept;
     [[nodiscard]] uint64_t last_fence() const noexcept { return _fence.load(); }
     void synchronize(uint64_t fence = std::numeric_limits<uint64_t>::max()) const noexcept;
+
+protected:
+    void destroy() noexcept override;
 };
 
 LUISA_MARK_STREAM_EVENT_TYPE(Event::Signal)
@@ -70,20 +70,20 @@ private:
 
 public:
     TimelineEvent() noexcept = default;
-    ~TimelineEvent() noexcept override;
+    ~TimelineEvent() noexcept override { _release(); }
     using Resource::operator bool;
     using Resource::release;
     TimelineEvent(TimelineEvent &&) noexcept;
-    TimelineEvent(TimelineEvent const &) noexcept = delete;
-    TimelineEvent &operator=(TimelineEvent &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    TimelineEvent &operator=(TimelineEvent const &) noexcept = delete;
+    TimelineEvent(TimelineEvent const &) noexcept;
+    TimelineEvent &operator=(TimelineEvent &&) noexcept;
+    TimelineEvent &operator=(TimelineEvent const &) noexcept;
     [[nodiscard]] Signal signal(uint64_t fence) const noexcept;
     [[nodiscard]] Wait wait(uint64_t fence) const noexcept;
     [[nodiscard]] bool is_completed(uint64_t fence) const noexcept;
     void synchronize(uint64_t fence) const noexcept;
+
+protected:
+    void destroy() noexcept override;
 };
 
 }// namespace luisa::compute

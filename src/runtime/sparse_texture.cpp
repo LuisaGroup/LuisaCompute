@@ -65,7 +65,7 @@ SparseTexture::SparseTexture(DeviceInterface *device, const SparseTextureCreatio
       _tile_size{info.tile_size} {
 }
 
-SparseTexture::~SparseTexture() noexcept {
+void SparseTexture::destroy() noexcept {
     if (*this) { device()->destroy_sparse_texture(handle()); }
 }
 

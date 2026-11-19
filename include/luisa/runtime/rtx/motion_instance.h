@@ -47,14 +47,11 @@ private:
 
 public:
     MotionInstance() noexcept = default;
-    ~MotionInstance() noexcept override;
+    ~MotionInstance() noexcept override { _release(); }
     MotionInstance(MotionInstance &&) noexcept = default;
-    MotionInstance &operator=(MotionInstance &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    MotionInstance(const MotionInstance &) noexcept = delete;
-    MotionInstance &operator=(const MotionInstance &) noexcept = delete;
+    MotionInstance &operator=(MotionInstance &&rhs) noexcept = default;
+    MotionInstance(const MotionInstance &) noexcept = default;
+    MotionInstance &operator=(const MotionInstance &rhs) noexcept = default;
     using Resource::operator bool;
     using Resource::release;
     void set_keyframe(size_t index, const MotionInstanceTransform &transform) noexcept;
@@ -82,6 +79,9 @@ public:
     }
 
     [[nodiscard]] luisa::unique_ptr<Command> build() noexcept;
+
+protected:
+    void destroy() noexcept override;
 };
 
 }// namespace luisa::compute

@@ -189,14 +189,16 @@ CompileResult ShaderCompiler::compile(
     }
 }
 template<typename Vec>
-static void AddCompileFlags(Vec &args, bool debug) {
+static void AddCompileFlags(Vec &args, bool debug, bool spirv) {
     vstd::push_back_all(
         args,
         {DXC_ARG_ALL_RESOURCES_BOUND,
          L"-enable-16bit-types",
          DXC_ARG_PACK_MATRIX_ROW_MAJOR,
-         DXC_ARG_AVOID_FLOW_CONTROL,
          L"-HV 2021"});
+    if (!spirv) {
+        args.emplace_back(DXC_ARG_AVOID_FLOW_CONTROL);
+    }
     if (debug) {
         args.emplace_back(DXC_ARG_DEBUG);
     } else {
@@ -275,16 +277,10 @@ static void AddSpirvCapabilityFlags(Vec &args, SpirvShaderCapabilities capabilit
 }
 
 template<typename Vec>
-static void AddUnsafeMathFlags(Vec &args) {
-    // unsafe opt may conflict with dxc
-    // vstd::push_back_all(
-    //     args,
-    //     {L"-opt-enable",
-    //      L"-funsafe-math-optimizations",
-    //      L"-opt-enable",
-    //      L"-fassociative-math",
-    //      L"-opt-enable",
-    //      L"-freciprocal-math"});
+static void AddUnsafeMathFlags(Vec &args, bool spirv) {
+    if (spirv) {
+        args.emplace_back(L"-ffinite-math-only");
+    }
 }
 CompileResult ShaderCompiler::_compile_with_profile(
     vstd::string_view code,
@@ -330,9 +326,9 @@ CompileResult ShaderCompiler::_compile_with_profile(
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());
-    AddCompileFlags(args, debug);
+    AddCompileFlags(args, debug, spirv);
     if (enableUnsafeMath) {
-        AddUnsafeMathFlags(args);
+        AddUnsafeMathFlags(args, spirv);
     }
     if (optimize) {
         args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
@@ -393,7 +389,7 @@ RasterBin ShaderCompiler::compile_raster(
     }
 #endif
     vstd::fixed_vector<LPCWSTR, 32> args;
-    AddCompileFlags(args, debug);
+    AddCompileFlags(args, debug, spirv);
     if (spirv) {
         args.emplace_back(L"/DSPV");
         args.emplace_back(L"-spirv");
@@ -405,7 +401,7 @@ RasterBin ShaderCompiler::compile_raster(
         AddSpirvCapabilityFlags(args, spirv_capabilities);
     }
     if (enableUnsafeMath) {
-        AddUnsafeMathFlags(args);
+        AddUnsafeMathFlags(args, spirv);
     }
     if (optimize) {
         args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
@@ -454,9 +450,9 @@ CompileResult ShaderCompiler::compile_raytracing(
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());
-    AddCompileFlags(args, debug);
+    AddCompileFlags(args, debug, spirv);
     if (enableUnsafeMath) {
-        AddUnsafeMathFlags(args);
+        AddUnsafeMathFlags(args, spirv);
     }
     if (optimize) {
         args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);

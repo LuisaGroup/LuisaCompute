@@ -41,8 +41,8 @@ luisa::unique_ptr<Command> DepthBuffer::clear(float value) const noexcept {
     return luisa::make_unique<ClearDepthCommand>(handle(), value);
 }
 
-DepthBuffer::~DepthBuffer() noexcept {
-    if (*this) _raster_ext->destroy_depth_buffer(handle());
+void DepthBuffer::destroy() noexcept {
+    if (*this) { _raster_ext->destroy_depth_buffer(handle()); }
 }
 
 namespace detail {

@@ -114,16 +114,11 @@ private:
 
 public:
     Buffer() noexcept = default;
-    ~Buffer() noexcept override {
-        if (*this) { device()->destroy_buffer(handle()); }
-    }
+    ~Buffer() noexcept override { _release(); }
     Buffer(Buffer &&) noexcept = default;
-    Buffer(Buffer const &) noexcept = delete;
-    Buffer &operator=(Buffer &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    Buffer &operator=(Buffer const &) noexcept = delete;
+    Buffer(Buffer const &) noexcept = default;
+    Buffer &operator=(Buffer &&rhs) noexcept = default;
+    Buffer &operator=(Buffer const &rhs) noexcept = default;
     using Resource::operator bool;
     // properties
     [[nodiscard]] auto size() const noexcept {
@@ -209,6 +204,11 @@ public:
             Resource::release(),
             _element_stride,
             _size * sizeof(T)};
+    }
+
+protected:
+    void destroy() noexcept override {
+        if (*this) { device()->destroy_buffer(handle()); }
     }
 };
 

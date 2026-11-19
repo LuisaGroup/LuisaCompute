@@ -117,7 +117,7 @@ void Stream::set_log_callback(const LogCallback &callback) noexcept {
     device()->set_stream_log_callback(handle(), callback);
 }
 
-Stream::~Stream() noexcept {
+void Stream::destroy() noexcept {
     if (*this) { device()->destroy_stream(handle()); }
 }
 

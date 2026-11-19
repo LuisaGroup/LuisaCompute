@@ -257,16 +257,11 @@ public:
           _block_size{info.block_size},
           _compile_ok{info.compile_ok} {}
     explicit ShaderBase() = default;
-    ~ShaderBase() noexcept override {
-        if (*this) { device()->destroy_shader(handle()); }
-    }
+    ~ShaderBase() noexcept override { _release(); }
     ShaderBase(ShaderBase &&) noexcept = default;
-    ShaderBase(ShaderBase const &) noexcept = delete;
-    ShaderBase &operator=(ShaderBase &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
-    ShaderBase &operator=(ShaderBase const &) noexcept = delete;
+    ShaderBase(ShaderBase const &) noexcept = default;
+    ShaderBase &operator=(ShaderBase &&rhs) noexcept = default;
+    ShaderBase &operator=(ShaderBase const &rhs) noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] auto block_size() const noexcept {
         _check_is_valid();
@@ -284,6 +279,11 @@ public:
             _block_size,
             _compile_ok
         };
+    }
+
+protected:
+    void destroy() noexcept override {
+        if (*this) { device()->destroy_shader(handle()); }
     }
 };
 template<size_t dimension, concepts::non_cvref... Args>
@@ -334,9 +334,9 @@ public:
     Shader() noexcept = default;
     ~Shader() noexcept = default;
     Shader(Shader &&) noexcept = default;
-    Shader(Shader const &) noexcept = delete;
+    Shader(Shader const &) noexcept = default;
     Shader &operator=(Shader &&rhs) noexcept = default;
-    Shader &operator=(Shader const &) noexcept = delete;
+    Shader &operator=(Shader const &rhs) noexcept = default;
     using Resource::operator bool;
     [[nodiscard]] static constexpr uint arg_count() noexcept {
         return (0u + ... + detail::shader_argument_encode_count<Args>::value);

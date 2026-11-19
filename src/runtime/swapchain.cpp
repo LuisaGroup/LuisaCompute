@@ -36,7 +36,7 @@ Swapchain::Present Swapchain::present(ImageView<float> frame) const noexcept {
     return {this, frame};
 }
 
-Swapchain::~Swapchain() noexcept {
+void Swapchain::destroy() noexcept {
     if (*this) { device()->destroy_swapchain(handle()); }
 }
 
