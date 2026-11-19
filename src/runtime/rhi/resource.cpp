@@ -78,6 +78,10 @@ void Resource::_share(const Resource &other) noexcept {
         // a compare-and-swap, because two threads may copy the same handle at the same
         // time; the loser hands its block straight back to the pool.
         auto fresh = detail::ref_count_pool().create();
+        // Seed the shared state from the source *before* publishing the block, so a
+        // concurrent handle can never observe a half-initialized block. The source is
+        // still a single owner here, so the seed reads exactly the state it owns.
+        other._init_shared_state(*fresh);
         if (other._rc.compare_exchange_strong(rc, fresh,
                                               std::memory_order_acq_rel,
                                               std::memory_order_acquire)) {

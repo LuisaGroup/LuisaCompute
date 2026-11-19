@@ -39,8 +39,9 @@ namespace {
 /// Same shape as `luisa::compute::ResourceRefCount`.
 struct RefCount {
     std::atomic<int64_t> count{1};
+    std::atomic<uint64_t> state{0u};
 };
-static_assert(sizeof(RefCount) == 8u, "the benchmark must model the 8-byte block");
+static_assert(sizeof(RefCount) == 16u, "the benchmark must model the 16-byte block");
 
 using Clock = std::chrono::steady_clock;
 

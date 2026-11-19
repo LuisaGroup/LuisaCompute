@@ -13,6 +13,14 @@
 // - `release()` detaching one instance from the shared block
 // - self assignment, invalid-resource assignment, and re-assignment over a live
 //   resource
+// - assignment corner cases: a moved-from source, an aliasing assignment between two
+//   copies, a block that dropped back to a single owner, and handles in a copied
+//   container
+// - state that belongs to the shared object rather than to one handle: copies of an
+//   `Event` share the fence they signal, so a signal through one copy is what a
+//   `wait()` through another copy waits for
+// - copies on several threads at once (a racing promotion must pick one winner)
+// - retiring a handle on a backend completion callback
 
 #include "ut/ut.hpp"
 #include "test_device.h"
@@ -517,6 +525,150 @@ void test_sparse_resources(Device &device) {
     }
 }
 
+/// Corner cases of the copy/move/assign matrix that the case-by-case tests above do not
+/// reach: assignment from a moved-from handle, a block that is back to a single owner and
+/// then released, aliasing assignments, and handles kept in a copied container.
+void test_assignment_corner_cases(Device &device) {
+    // Assigning a moved-from (and therefore invalid) handle leaves the target empty, and
+    // must not leak the object the target used to own.
+    {
+        auto source = device.create_buffer<float>(8u);
+        Buffer<float> moved = std::move(source);
+        expect(!source) << "a moved-from handle must be invalid";
+        Buffer<float> target = device.create_buffer<float>(8u);
+        expect(static_cast<bool>(target));
+        target = source;
+        expect(!target) << "assigning a moved-from handle must leave the target empty";
+        expect(target.reference_count() == 1) << "an empty handle owns no block";
+        target = moved;
+        expect_same_object(target, moved);
+        expect(moved.reference_count() == 2);
+    }
+
+    // The block survives a drop back to a single owner and has to stay releasable.
+    {
+        auto buffer = device.create_buffer<float>(8u);
+        {
+            auto copy = buffer;
+            expect(buffer.reference_count() == 2);
+        }
+        expect(buffer.reference_count() == 1)
+            << "the block must outlive the copies that created it";
+        auto info = buffer.release();
+        expect(info.valid()) << "a sole owner must still be releasable";
+        expect(!buffer);
+    }
+
+    // Assigning one copy onto another copy of the same object must keep the count exact:
+    // the release and the share of that one assignment cancel out.
+    {
+        auto buffer = device.create_buffer<float>(8u);
+        auto first = buffer;
+        auto second = buffer;
+        expect(buffer.reference_count() == 3);
+        first = second;
+        expect_same_object(first, second);
+        expect(buffer.reference_count() == 3)
+            << "an aliasing copy assignment must not leak a reference";
+        first = buffer;
+        expect(buffer.reference_count() == 3);
+    }
+
+    // A container of handles copies element by element, so every element takes its own
+    // reference and the container copy must release all of them.
+    {
+        auto buffer = device.create_buffer<float>(8u);
+        luisa::vector<Buffer<float>> handles;
+        handles.emplace_back(buffer);
+        handles.emplace_back(buffer);
+        {
+            auto copied = handles;
+            expect(buffer.reference_count() == 5)
+                << "a container copy must share every element";
+        }
+        expect(buffer.reference_count() == 3)
+            << "a dead container copy must drop every reference";
+    }
+}
+
+/// Copies of one `Event` are handles to one device-side timeline, so they must agree on
+/// the fence they signal: a signal through one copy is what a `wait()` through another
+/// copy has to wait for, and two copies must never hand the backend the same fence value
+/// (Vulkan requires a signal value strictly greater than the current one, and a D3D12
+/// fence is monotonic in the same way). The counter therefore lives in the shared block.
+void test_event_shared_fence(Device &device) {
+    Stream stream = device.create_stream();
+    auto event = device.create_event();
+    expect(event.last_fence() == 0u);
+
+    auto copy = event;
+    expect(event.reference_count() == 2);
+    expect(copy.last_fence() == event.last_fence())
+        << "copies must start from the same fence";
+
+    // A signal through the copy advances the timeline for both handles, and the next
+    // signal through the original has to pick up where the copy left off.
+    auto first = copy.signal();
+    expect(first.fence == 1u);
+    expect(event.last_fence() == 1u)
+        << "a signal through one copy must advance every copy's fence";
+    auto second = event.signal();
+    expect(second.fence == 2u)
+        << "two copies must not reuse one timeline value";
+    expect(copy.last_fence() == 2u);
+
+    // Waiting through a handle that did not issue the signal still has to catch it. With a
+    // per-copy counter `event` would wait for fence 0 -- a no-op -- while the work `copy`
+    // signed off on is still in flight.
+    stream << copy.signal() << event.wait() << synchronize();
+    expect(copy.last_fence() == 3u);
+    event.synchronize();// waits for the fence both copies share
+    expect(event.is_completed())
+        << "a synchronize through one copy must wait for the other copy's signal";
+
+    // Dropping a handle keeps the shared fence: the survivors are not reset to zero.
+    {
+        auto transient = event;// event + copy + transient
+        expect(event.reference_count() == 3);
+        expect(transient.last_fence() == 3u);
+    }
+    expect(event.reference_count() == 2);
+    copy = {};
+    expect(event.reference_count() == 1);
+    expect(event.last_fence() == 3u)
+        << "the fence must survive the copies that created the block";
+    auto third = event.signal();
+    expect(third.fence == 4u)
+        << "the timeline must keep increasing once every copy is gone";
+    auto again = event;
+    expect(again.last_fence() == 4u) << "a new copy must pick up the shared fence";
+    expect(event.reference_count() == 2);
+
+    // A sole owner keeps working through the plain, allocation-free path.
+    auto sole = device.create_event();
+    expect(sole.reference_count() == 1);
+    expect(sole.signal().fence == 1u);
+    expect(sole.last_fence() == 1u);
+
+    // `release()` dismantles the shared block, so the fence has to move back into the
+    // handle that hands the event over.
+    {
+        auto handed_over = device.create_event();
+        {
+            auto copy = handed_over;
+            expect(handed_over.signal().fence == 1u);
+        }
+        expect(handed_over.reference_count() == 1);
+        auto info = handed_over.release();
+        expect(info.valid());
+        expect(!handed_over);
+        expect(handed_over.last_fence() == 1u)
+            << "a released handle must keep the fence it handed over";
+        // give the ownership of the released handle to somebody that frees it
+        device.impl()->destroy_event(info.handle);
+    }
+}
+
 }// namespace
 
 
@@ -648,6 +800,8 @@ int main(int argc, char *argv[]) {
     "typed_resources"_test = [&] { test_typed_resources(device); };
     "accel_geometry"_test = [&] { test_accel_geometry(device); };
     "sparse_resources"_test = [&] { test_sparse_resources(device); };
+    "assignment_corner_cases"_test = [&] { test_assignment_corner_cases(device); };
+    "event_shared_fence"_test = [&] { test_event_shared_fence(device); };
     "concurrent_copies"_test = [&] { test_concurrent_copies(device); };
     "deferred_destroy"_test = [&] { test_deferred_destroy(device); };
     return 0;

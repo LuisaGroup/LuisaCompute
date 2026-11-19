@@ -249,8 +249,8 @@ class Resource;
 /// \brief Reference-count block shared by all the copies of one `Resource`.
 /// \details A resource that is never copied keeps `Resource::_rc == nullptr`, so the
 /// plain single-owner path allocates nothing and never touches an atomic: the block
-/// is created lazily, only when a copy is actually made, and it holds nothing but the
-/// number of live handles.
+/// is created lazily, only when a copy is actually made, and it holds the number of
+/// live handles plus one word of state the handles must agree on.
 ///
 /// The block deliberately carries no teardown hook. A release always runs from inside
 /// the destructor body of the concrete class (see `Resource::destroy()`), which is the
@@ -263,6 +263,14 @@ class Resource;
 struct ResourceRefCount {
     /// Number of live `Resource` instances sharing the underlying object.
     std::atomic<int64_t> count{1};
+    /// \brief Word of state that every handle of the resource shares.
+    /// \details A shared object has exactly one device-side identity, so any mutable
+    /// frontend state that names a point *on that object* (rather than a per-handle
+    /// recording of work to submit) has to live here instead of in one instance --
+    /// otherwise two copies would disagree about the same object. `Event` keeps the
+    /// fence it has signaled here; every other resource leaves it at zero.
+    /// \sa Resource::_init_shared_state
+    std::atomic<uint64_t> state{0u};
 };
 
 /// \brief Base class of every frontend handle of a device-side object.
@@ -352,6 +360,27 @@ protected:
     /// `luisa::new_with_allocator` when `other` still has a single owner, and makes
     /// `other` shared as well.
     void _share(const Resource &other) noexcept;
+
+    /// \brief The block shared by every handle of this object, or `nullptr` while this
+    /// instance is the only owner.
+    /// \details Derived classes use it to reach the word every copy shares
+    /// (`ResourceRefCount::state`) without exposing the block to callers.
+    [[nodiscard]] ResourceRefCount *_shared_block() const noexcept {
+        return _rc.load(std::memory_order_acquire);
+    }
+
+    /// \brief Seed `ResourceRefCount::state` for the handles that will share this
+    /// object.
+    /// \details Runs at most once per resource, right before `_share()` publishes the
+    /// block it just created, and only for a resource that was a single owner up to
+    /// that point -- a block that already exists keeps the state its own seed produced.
+    /// It is invoked on the *source* handle of the copy, which is a completely
+    /// constructed object there, so a derived override dispatches correctly; calling it
+    /// on `*this` would not, because that object is still under construction.
+    ///
+    /// The default leaves the word at zero, which is all a resource whose copies need to
+    /// agree on nothing beyond the lifetime requires.
+    virtual void _init_shared_state(ResourceRefCount & /*block*/) const noexcept {}
 
     void _check_is_valid() const noexcept {
 #ifndef NDEBUG

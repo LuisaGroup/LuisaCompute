@@ -77,7 +77,9 @@ bool Event::is_completed(uint64_t fence) const noexcept {
 
 [[nodiscard]] Event::Signal Event::signal() const noexcept {
     _check_is_valid();
-    return {handle(), ++_fence};
+    // `_next_fence` claims the value from the counter every handle of this event shares,
+    // so a signal through one copy advances the timeline the other copies wait on.
+    return {handle(), _next_fence()};
 }
 
 [[nodiscard]] Event::Wait Event::wait(uint64_t fence) const noexcept {
