@@ -11,6 +11,10 @@
 #include "../simd_compiler.h"
 #include "../llvm/llvm_schedule_codegen.h"
 
+namespace luisa {
+class BinaryIO;
+}// namespace luisa
+
 namespace luisa::compute {
 class ShaderPrintFormatter;
 }// namespace luisa::compute
@@ -64,7 +68,8 @@ private:
 public:
     SIMDShader(
         const ShaderOption &option, Function kernel,
-        uint32_t warp_width, uint32_t dispatch_worker_count) noexcept;
+        uint32_t warp_width, uint32_t dispatch_worker_count,
+        const luisa::BinaryIO *binary_io = nullptr) noexcept;
     // A verified, already compiled XIR entry uses the same argument packing,
     // worker pool, command encoder and resource lifetime as a SIMT kernel.
     SIMDShader(SIMDCompiledKernel compiled, uint3 block_size,

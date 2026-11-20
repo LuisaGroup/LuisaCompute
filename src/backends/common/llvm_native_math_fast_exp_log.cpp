@@ -15,10 +15,12 @@ private:
     [[nodiscard]] ::llvm::Value *_exp_reduced(
         ::llvm::Value *reduced) {
         auto &b = builder();
-        // exp(r) Maclaurin polynomial through r^4. Nearest-integer range
+        // exp(r) Maclaurin polynomial through r^6. Nearest-integer range
         // reduction guarantees |r| <= ln(2)/2.
         auto *polynomial = mla(
-            f32(1.0 / 24.0), reduced, f32(1.0 / 6.0));
+            f32(1.0 / 720.0), reduced, f32(1.0 / 120.0));
+        polynomial = mla(polynomial, reduced, f32(1.0 / 24.0));
+        polynomial = mla(polynomial, reduced, f32(1.0 / 6.0));
         polynomial = mla(polynomial, reduced, f32(0.5));
         return b.CreateFAdd(
             f32(1.0),
@@ -82,7 +84,9 @@ private:
         auto *q = b.CreateFPToSI(q_float, int_vector());
         auto *q_as_float = b.CreateSIToFP(q, float_vector());
         auto *reduced = mla(
-            q_as_float, f32(-0.69314718055994530942), safe);
+            q_as_float, f32(-0.693145751953125), safe);
+        reduced = mla(
+            q_as_float, f32(-1.428606765330187045e-6), reduced);
 
         auto *scale_exponent = half_scale ?
                                    b.CreateSub(q, i32(1u)) :
@@ -169,10 +173,12 @@ private:
             b.CreateFSub(mantissa, f32(1.0)),
             b.CreateFAdd(mantissa, f32(1.0)));
         auto *x2 = b.CreateFMul(x, x);
-        // log(m) = 2 (x + x^3/3 + x^5/5 + ...), where
+        // log(m) = 2 (x + x^3/3 + x^5/5 + x^7/7 + x^9/9 + ...), where
         // x=(m-1)/(m+1) and |x| <= (sqrt(2)-1)/(sqrt(2)+1).
         auto *polynomial = mla(
-            f32(1.0 / 5.0), x2, f32(1.0 / 3.0));
+            f32(1.0 / 9.0), x2, f32(1.0 / 7.0));
+        polynomial = mla(polynomial, x2, f32(1.0 / 5.0));
+        polynomial = mla(polynomial, x2, f32(1.0 / 3.0));
         polynomial = mla(polynomial, x2, f32(1.0));
         return {
             b.CreateFMul(f32(2.0), b.CreateFMul(x, polynomial)),

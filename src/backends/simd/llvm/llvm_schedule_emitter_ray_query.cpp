@@ -191,6 +191,7 @@ namespace {
     auto *plain_proceed = _builder.CreateExtractValue(
         accel, {_width >= 8u ? 5u : 4u});
     auto *candidate_object_ray = _builder.CreateExtractValue(accel, {6u});
+    auto *ray_query_live = _builder.CreateExtractValue(accel, {7u});
     auto cache_status =
         _ray_query_status_slot(*instruction.result) != nullptr;
     auto *null_pointer = ::llvm::ConstantPointerNull::get(pointer_type);
@@ -217,6 +218,10 @@ namespace {
         result_id <
             _ray_query_direct_output_surface_filter_state.size() &&
         _ray_query_direct_output_surface_filter_state[result_id] != 0u;
+    auto surface_exclusion_soa_eligible =
+        result_id <
+            _ray_query_surface_exclusion_soa_state.size() &&
+        _ray_query_surface_exclusion_soa_state[result_id] != 0u;
     if (cache_status) {
         auto *instances = _builder.CreateExtractValue(accel, {3u});
         _trap_if(
@@ -337,6 +342,13 @@ namespace {
             direct_output_surface_filter_pipeline, null_pointer,
             "ray.query.direct.output.state");
     }
+    auto *use_surface_exclusion_soa_state = static_cast<::llvm::Value *>(
+        _builder.getFalse());
+    if (surface_exclusion_soa_eligible) {
+        use_surface_exclusion_soa_state = _builder.CreateICmpNE(
+            ray_query_live, null_pointer,
+            "ray.query.surface.exclusion.soa.state");
+    }
     auto *use_compact_state = static_cast<::llvm::Value *>(
         _builder.getFalse());
     if (compact_eligible) {
@@ -393,6 +405,19 @@ namespace {
                 old_callbacks),
             _ray_query_status_callback_storage[status_slot],
             ::llvm::Align{alignof(void *)});
+        if (status_slot < _ray_query_live_dispatch_storage.size()) {
+            auto *old_live = _builder.CreateAlignedLoad(
+                pointer_lanes,
+                _ray_query_live_dispatch_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+            _builder.CreateAlignedStore(
+                _builder.CreateSelect(
+                    _active_mask,
+                    _builder.CreateVectorSplat(_width, ray_query_live),
+                    old_live),
+                _ray_query_live_dispatch_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+        }
         if (cache_pipeline_w1) {
             auto *old_pipelines = _builder.CreateAlignedLoad(
                 pointer_lanes,
@@ -496,6 +521,26 @@ namespace {
                     [status_slot],
                 ::llvm::Align{alignof(void *)});
         }
+        if (status_slot <
+            _ray_query_surface_exclusion_soa_accel_storage.size()) {
+            auto *old_accels = _builder.CreateAlignedLoad(
+                pointer_lanes,
+                _ray_query_surface_exclusion_soa_accel_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+            auto *soa_accel =
+                surface_exclusion_soa_eligible ?
+                    _builder.CreateSelect(
+                        use_surface_exclusion_soa_state, object,
+                        static_cast<::llvm::Value *>(null_pointer)) :
+                    static_cast<::llvm::Value *>(null_pointer);
+            _builder.CreateAlignedStore(
+                _builder.CreateSelect(
+                    _active_mask,
+                    _builder.CreateVectorSplat(_width, soa_accel),
+                    old_accels),
+                _ray_query_surface_exclusion_soa_accel_storage[status_slot],
+                ::llvm::Align{alignof(void *)});
+        }
     }
 
     auto *zero_offsets = ::llvm::Constant::getNullValue(
@@ -583,10 +628,65 @@ namespace {
         }
     };
     auto *output_packet =
-        (output_only_eligible || direct_output_eligible) &&
+        (output_only_eligible || direct_output_eligible ||
+         surface_exclusion_soa_eligible) &&
                 status_index < _ray_query_output_packet_storage.size() ?
             _ray_query_output_packet_storage[status_index] :
             nullptr;
+    auto *surface_exclusion_soa_input =
+        surface_exclusion_soa_eligible &&
+                status_index <
+                    _ray_query_surface_exclusion_soa_input_storage.size() ?
+            _ray_query_surface_exclusion_soa_input_storage[status_index] :
+            nullptr;
+    auto initialize_surface_exclusion_soa_input = [&]() noexcept {
+        auto store_field = [&](::llvm::Value *value,
+                               size_t offset) noexcept {
+            auto *pointer =
+                offset == 0u ?
+                    static_cast<::llvm::Value *>(
+                        surface_exclusion_soa_input) :
+                    _builder.CreateGEP(
+                        _builder.getInt8Ty(),
+                        surface_exclusion_soa_input,
+                        _builder.getInt64(offset));
+            _builder.CreateMaskedStore(
+                value, pointer,
+                ::llvm::Align{alignof(
+                    SIMDHostRayQuerySurfaceExclusionInputPacket)},
+                _active_mask);
+        };
+        auto *origin_type = _child_type(ray_value->type, 0u);
+        auto *direction_type = _child_type(ray_value->type, 2u);
+        auto *origin = _extract_child(ray, ray_value->type, 0u, true);
+        auto *direction = _extract_child(ray, ray_value->type, 2u, true);
+        store_field(
+            _extract_child(origin, origin_type, 0u, true),
+            offsetof(SIMDHostRayQuerySurfaceExclusionInputPacket, org_x));
+        store_field(
+            _extract_child(origin, origin_type, 1u, true),
+            offsetof(SIMDHostRayQuerySurfaceExclusionInputPacket, org_y));
+        store_field(
+            _extract_child(origin, origin_type, 2u, true),
+            offsetof(SIMDHostRayQuerySurfaceExclusionInputPacket, org_z));
+        store_field(
+            _extract_child(direction, direction_type, 0u, true),
+            offsetof(SIMDHostRayQuerySurfaceExclusionInputPacket, dir_x));
+        store_field(
+            _extract_child(direction, direction_type, 1u, true),
+            offsetof(SIMDHostRayQuerySurfaceExclusionInputPacket, dir_y));
+        store_field(
+            _extract_child(direction, direction_type, 2u, true),
+            offsetof(SIMDHostRayQuerySurfaceExclusionInputPacket, dir_z));
+        store_field(
+            safe_time,
+            offsetof(SIMDHostRayQuerySurfaceExclusionInputPacket, time));
+        store_field(
+            visibility,
+            offsetof(
+                SIMDHostRayQuerySurfaceExclusionInputPacket,
+                visibility_mask));
+    };
     auto initialize_output_packet = [&]() noexcept {
         auto store_field = [&](::llvm::Value *value,
                                size_t offset) noexcept {
@@ -759,8 +859,11 @@ namespace {
             initialize_full_state();
         }
     };
-    if (direct_output_eligible || output_only_eligible) {
-        if (output_packet == nullptr) {
+    if (direct_output_eligible || output_only_eligible ||
+        surface_exclusion_soa_eligible) {
+        if (output_packet == nullptr ||
+            (surface_exclusion_soa_eligible &&
+             surface_exclusion_soa_input == nullptr)) {
             _fail("output-only ray query lost its field-major packet");
             return nullptr;
         }
@@ -772,12 +875,17 @@ namespace {
         auto *state_ready = ::llvm::BasicBlock::Create(
             _module.getContext(), "ray.query.state.ready", _entry);
         auto *use_output_packet = _builder.CreateOr(
-            use_output_only_state, use_direct_output_state,
+            _builder.CreateOr(
+                use_output_only_state, use_direct_output_state),
+            use_surface_exclusion_soa_state,
             "ray.query.output.packet");
         _builder.CreateCondBr(
             use_output_packet, output_packet_init, operational_init);
         _builder.SetInsertPoint(output_packet_init);
         initialize_output_packet();
+        if (surface_exclusion_soa_eligible) {
+            initialize_surface_exclusion_soa_input();
+        }
         _builder.CreateBr(state_ready);
         _builder.SetInsertPoint(operational_init);
         initialize_operational_state();
@@ -951,6 +1059,9 @@ void ScheduleEmitter::_ray_query_update_status(
                     .size() ||
             slot <
                 _ray_query_direct_output_surface_filter_pipeline_callback_storage
+                    .size() ||
+            slot <
+                _ray_query_surface_exclusion_soa_accel_storage
                     .size();
         if (slot < _ray_query_output_packet_storage.size() &&
             has_output_callback_storage) {
@@ -990,6 +1101,9 @@ void ScheduleEmitter::_ray_query_update_status(
             add_output_callbacks(
                 _ray_query_direct_output_surface_filter_pipeline_callback_storage,
                 "ray.query.direct.output.read");
+            add_output_callbacks(
+                _ray_query_surface_exclusion_soa_accel_storage,
+                "ray.query.surface.exclusion.soa.output.read");
             auto *state_mask = _builder.CreateAnd(
                 _active_mask, _builder.CreateNot(output_mask),
                 "ray.query.state.read.mask");

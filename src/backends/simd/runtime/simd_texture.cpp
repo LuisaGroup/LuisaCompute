@@ -29,6 +29,15 @@ using Sampler = luisa::compute::Sampler;
 using Address = Sampler::Address;
 using Filter = Sampler::Filter;
 
+[[nodiscard]] LUISA_FORCE_INLINE float fast_floor_f32(float x) noexcept {
+    if (std::fabs(x) < 8388608.0f) [[likely]] {
+        auto i = static_cast<int32_t>(x);
+        auto f = static_cast<float>(i);
+        return f - static_cast<float>(f > x);
+    }
+    return std::floor(x);
+}
+
 template<Address Mode>
 [[nodiscard]] LUISA_FORCE_INLINE float texture_coordinate_point_unchecked(
     float uv, float size) noexcept {
@@ -37,14 +46,14 @@ template<Address Mode>
         uv = std::clamp(
             uv, 0.0f, luisa::one_minus_epsilon);
     } else if constexpr (Mode == Address::REPEAT) {
-        uv -= std::floor(uv);
+        uv -= fast_floor_f32(uv);
     } else if constexpr (Mode == Address::MIRROR) {
         uv = std::abs(uv);
         // fmod(x, 2) compiled to a serialized x87 fprem sequence on the
         // measured x86 host. The quotient/remainder identity is equivalent
         // for finite non-negative float inputs and vectorizes to ordinary
         // floor/multiply/subtract operations.
-        uv -= std::floor(uv * 0.5f) * 2.0f;
+        uv -= fast_floor_f32(uv * 0.5f) * 2.0f;
         uv = uv < 1.0f ? uv : 2.0f - uv;
         uv = std::min(uv, luisa::one_minus_epsilon);
     } else {
@@ -106,7 +115,7 @@ texture_coordinate_linear_precomputed(
         if (!std::isfinite(position)) {
             return {invalid_coordinate, invalid_coordinate, 0.0f};
         }
-        auto lower = std::floor(position);
+        auto lower = fast_floor_f32(position);
         auto upper = lower + 1.0f;
         auto encode = [size](float index) noexcept {
             return index >= 0.0f && index < size ?
@@ -122,16 +131,18 @@ texture_coordinate_linear_precomputed(
     if constexpr (Mode == Address::MIRROR) {
         auto lo = std::min(a, b);
         auto hi = std::max(a, b);
+        auto hi_i = static_cast<uint32_t>(hi);
         return {
             static_cast<uint32_t>(lo),
-            static_cast<uint32_t>(hi),
-            hi - std::floor(hi),
+            hi_i,
+            hi - static_cast<float>(hi_i),
         };
     }
+    auto b_i = static_cast<uint32_t>(b);
     return {
         static_cast<uint32_t>(a),
-        static_cast<uint32_t>(b),
-        b - std::floor(b),
+        b_i,
+        b - static_cast<float>(b_i),
     };
 }
 
@@ -275,6 +286,99 @@ LUISA_FORCE_INLINE void sample_byte1_2d_packet(
     }
 }
 
+template<size_t Width, Filter FilterMode, Address AddressMode, typename ReadTexel>
+LUISA_FORCE_INLINE void sample_rgba_2d_lane(
+    luisa::uint2 size,
+    const float *u, const float *v, float *values,
+    float half_inverse_width, float half_inverse_height,
+    uint32_t lane, ReadTexel &&read_texel) noexcept {
+    auto store = [&](luisa::float4 pixel) noexcept {
+        values[lane] = pixel.x;
+        values[Width + lane] = pixel.y;
+        values[2u * Width + lane] = pixel.z;
+        values[3u * Width + lane] = pixel.w;
+    };
+    auto read_checked = [&](uint32_t x, uint32_t y) noexcept -> luisa::float4 {
+        if (x >= size.x || y >= size.y) [[unlikely]] {
+            return luisa::make_float4(0.0f);
+        }
+        return read_texel(static_cast<size_t>(y) * size.x + x);
+    };
+    if constexpr (FilterMode == Filter::POINT) {
+        auto x = static_cast<uint32_t>(
+            texture_coordinate_point<AddressMode>(
+                u[lane], static_cast<float>(size.x)));
+        auto y = static_cast<uint32_t>(
+            texture_coordinate_point<AddressMode>(
+                v[lane], static_cast<float>(size.y)));
+        store(read_checked(x, y));
+    } else {
+        auto x = texture_coordinate_linear_precomputed<AddressMode>(
+            u[lane], static_cast<float>(size.x), half_inverse_width);
+        auto y = texture_coordinate_linear_precomputed<AddressMode>(
+            v[lane], static_cast<float>(size.y), half_inverse_height);
+        luisa::float4 v00, v01, v10, v11;
+        if ((x.lo < size.x) & (x.hi < size.x) &
+            (y.lo < size.y) & (y.hi < size.y)) [[likely]] {
+            const auto row0_base = static_cast<size_t>(y.lo) * size.x;
+            const auto row1_base = static_cast<size_t>(y.hi) * size.x;
+            v00 = read_texel(row0_base + x.lo);
+            v01 = read_texel(row0_base + x.hi);
+            v10 = read_texel(row1_base + x.lo);
+            v11 = read_texel(row1_base + x.hi);
+        } else {
+            v00 = read_checked(x.lo, y.lo);
+            v01 = read_checked(x.hi, y.lo);
+            v10 = read_checked(x.lo, y.hi);
+            v11 = read_checked(x.hi, y.hi);
+        }
+        auto row0 = v00 + (v01 - v00) * x.t;
+        auto row1 = v10 + (v11 - v10) * x.t;
+        store(row0 + (row1 - row0) * y.t);
+    }
+}
+
+template<size_t Width, Filter FilterMode, Address AddressMode, typename ReadTexel>
+LUISA_FORCE_INLINE void sample_rgba_2d_packet(
+    luisa::uint2 size, uint64_t active_mask_bits,
+    const float *u, const float *v, float *values,
+    ReadTexel &&read_texel) noexcept {
+    if (size.x == 0u || size.y == 0u) [[unlikely]] {
+        for (auto remaining = active_mask_bits; remaining != 0u;
+             remaining &= remaining - 1u) {
+            auto lane = static_cast<uint32_t>(std::countr_zero(remaining));
+            values[lane] = 0.0f;
+            values[Width + lane] = 0.0f;
+            values[2u * Width + lane] = 0.0f;
+            values[3u * Width + lane] = 0.0f;
+        }
+        return;
+    }
+    auto half_inverse_width = 0.5f / static_cast<float>(size.x);
+    auto half_inverse_height = 0.5f / static_cast<float>(size.y);
+    if (active_mask_bits == full_lane_mask<Width>()) {
+#if defined(__GNUC__)
+#pragma GCC ivdep
+#endif
+        for (auto lane = 0u; lane < Width; lane++) {
+            sample_rgba_2d_lane<Width, FilterMode, AddressMode>(
+                size, u, v, values,
+                half_inverse_width, half_inverse_height, lane,
+                read_texel);
+        }
+    } else {
+        for (auto remaining = active_mask_bits; remaining != 0u;
+             remaining &= remaining - 1u) {
+            auto lane = static_cast<uint32_t>(
+                std::countr_zero(remaining));
+            sample_rgba_2d_lane<Width, FilterMode, AddressMode>(
+                size, u, v, values,
+                half_inverse_width, half_inverse_height, lane,
+                read_texel);
+        }
+    }
+}
+
 template<uint32_t Dimension, Filter FilterMode, Address AddressMode>
 [[nodiscard]] LUISA_FORCE_INLINE luisa::float4 sample_spatial(
     luisa::compute::fallback::FallbackTextureView view,
@@ -313,13 +417,13 @@ template<uint32_t Dimension, Filter FilterMode, Address AddressMode>
     if constexpr (FilterMode == Filter::POINT ||
                   FilterMode == Filter::LINEAR_POINT) {
         auto nearest_level = static_cast<uint32_t>(
-            std::floor(level + 0.5f));
+            fast_floor_f32(level + 0.5f));
         return spatial(std::min(nearest_level, last_level));
     }
     auto level0 = static_cast<uint32_t>(level);
     auto value0 = spatial(level0);
     auto value1 = spatial(level0 + 1u);
-    auto t = level - std::floor(level);
+    auto t = level - static_cast<float>(level0);
     return value0 + (value1 - value0) * t;
 }
 
@@ -360,11 +464,67 @@ LUISA_FORCE_INLINE void sample_packet_fixed_specialized(
     if (levels == nullptr && base_level < texture->mip_levels()) {
         auto view = texture->view(base_level);
         if constexpr (Dimension == 2u) {
-            if (view.storage() == luisa::compute::PixelStorage::BYTE1) {
-                sample_byte1_2d_packet<
-                    Width, FilterMode, AddressMode>(
-                    view, active_mask_bits, u, v, values);
-                return;
+            switch (view.storage()) {
+                case luisa::compute::PixelStorage::BYTE1:
+                    sample_byte1_2d_packet<
+                        Width, FilterMode, AddressMode>(
+                        view, active_mask_bits, u, v, values);
+                    return;
+                case luisa::compute::PixelStorage::BYTE4: {
+                    auto *bytes = reinterpret_cast<const uint8_t *>(view.data());
+                    constexpr float inv_255 = 1.0f / 255.0f;
+                    sample_rgba_2d_packet<Width, FilterMode, AddressMode>(
+                        view.size2d(), active_mask_bits, u, v, values,
+                        [bytes](size_t idx) noexcept {
+                            const auto *p = bytes + idx * 4u;
+                            return luisa::make_float4(
+                                static_cast<float>(p[0]) * inv_255,
+                                static_cast<float>(p[1]) * inv_255,
+                                static_cast<float>(p[2]) * inv_255,
+                                static_cast<float>(p[3]) * inv_255);
+                        });
+                    return;
+                }
+                case luisa::compute::PixelStorage::BYTE4_SRGB: {
+                    auto *bytes = reinterpret_cast<const uint8_t *>(view.data());
+                    const auto &lut =
+                        luisa::compute::fallback::detail::srgb_byte_to_linear_lut();
+                    constexpr float inv_255 = 1.0f / 255.0f;
+                    sample_rgba_2d_packet<Width, FilterMode, AddressMode>(
+                        view.size2d(), active_mask_bits, u, v, values,
+                        [bytes, &lut](size_t idx) noexcept {
+                            const auto *p = bytes + idx * 4u;
+                            return luisa::make_float4(
+                                lut[p[0]], lut[p[1]], lut[p[2]],
+                                static_cast<float>(p[3]) * inv_255);
+                        });
+                    return;
+                }
+                case luisa::compute::PixelStorage::FLOAT4: {
+                    auto *floats = reinterpret_cast<const float *>(view.data());
+                    sample_rgba_2d_packet<Width, FilterMode, AddressMode>(
+                        view.size2d(), active_mask_bits, u, v, values,
+                        [floats](size_t idx) noexcept {
+                            const auto *p = floats + idx * 4u;
+                            return luisa::make_float4(p[0], p[1], p[2], p[3]);
+                        });
+                    return;
+                }
+                case luisa::compute::PixelStorage::HALF4: {
+                    auto *halves = reinterpret_cast<const luisa::half *>(view.data());
+                    sample_rgba_2d_packet<Width, FilterMode, AddressMode>(
+                        view.size2d(), active_mask_bits, u, v, values,
+                        [halves](size_t idx) noexcept {
+                            const auto *p = halves + idx * 4u;
+                            return luisa::make_float4(
+                                static_cast<float>(p[0]),
+                                static_cast<float>(p[1]),
+                                static_cast<float>(p[2]),
+                                static_cast<float>(p[3]));
+                        });
+                    return;
+                }
+                default: break;
             }
         }
         visit_lanes([&](uint32_t lane) noexcept {

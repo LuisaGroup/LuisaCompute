@@ -43,14 +43,19 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         value_count, uint8_t{0u});
     _ray_query_direct_output_surface_filter_state.assign(
         value_count, uint8_t{0u});
+    _ray_query_surface_exclusion_soa_state.assign(
+        value_count, uint8_t{0u});
     _ray_query_status_storage.clear();
     _ray_query_status_callback_storage.clear();
+    _ray_query_live_dispatch_storage.clear();
     _ray_query_pipeline_callback_storage.clear();
     _ray_query_surface_filter_pipeline_callback_storage.clear();
     _ray_query_empty_surface_filter_pipeline_callback_storage.clear();
     _ray_query_empty_surface_filter_accel_storage.clear();
     _ray_query_direct_output_surface_filter_pipeline_callback_storage.clear();
     _ray_query_direct_output_surface_filter_accel_storage.clear();
+    _ray_query_surface_exclusion_soa_accel_storage.clear();
+    _ray_query_surface_exclusion_soa_input_storage.clear();
     _ray_query_output_packet_storage.clear();
     _ray_query_surface_filter_ray_packet_storage.clear();
     _ray_query_surface_filter_ray_packet_call_storage.clear();
@@ -59,6 +64,11 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     std::vector<schedule::ValueId> constructions;
     std::vector<uint32_t> construction_for_value(value_count, invalid);
     auto has_pipeline = false;
+    auto has_live_pipeline = false;
+    auto has_surface_exclusion_soa_pipeline = false;
+    auto disable_surface_exclusion_soa =
+        luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_RAY_QUERY_SURFACE_EXCLUSION_SOA");
     auto has_surface_filter_pipeline = false;
     auto has_output_only_empty_surface_filter_pipeline = false;
     auto has_direct_output_surface_filter_pipeline = false;
@@ -73,6 +83,13 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                     _ray_query_pipeline_handlers.size()) {
                 auto handlers =
                     _ray_query_pipeline_handlers[*instruction.source_op];
+                has_live_pipeline |=
+                    handlers.surface_exclusion_safe ||
+                    handlers.live_embree_safe;
+                has_surface_exclusion_soa_pipeline |=
+                    !disable_surface_exclusion_soa &&
+                    handlers.surface_exclusion_safe &&
+                    !handlers.embree_surface_filter_safe;
                 has_surface_filter_pipeline |=
                     handlers.embree_surface_filter_safe;
                 has_output_only_empty_surface_filter_pipeline |=
@@ -655,6 +672,10 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
         }
         _ray_query_status_storage.assign(status_slot_count, nullptr);
         _ray_query_status_callback_storage.assign(status_slot_count, nullptr);
+        if (_width >= 2u && has_live_pipeline) {
+            _ray_query_live_dispatch_storage.assign(
+                status_slot_count, nullptr);
+        }
         if (_width == 1u && has_pipeline) {
             _ray_query_pipeline_callback_storage.assign(
                 status_slot_count, nullptr);
@@ -687,8 +708,16 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 status_slot_count, nullptr);
         }
         if (_width >= 2u &&
+            has_surface_exclusion_soa_pipeline) {
+            _ray_query_surface_exclusion_soa_accel_storage.assign(
+                status_slot_count, nullptr);
+            _ray_query_surface_exclusion_soa_input_storage.assign(
+                status_slot_count, nullptr);
+        }
+        if (_width >= 2u &&
             (has_output_only_empty_surface_filter_pipeline ||
-             has_direct_output_surface_filter_pipeline)) {
+             has_direct_output_surface_filter_pipeline ||
+             has_surface_exclusion_soa_pipeline)) {
             _ray_query_output_packet_storage.assign(
                 status_slot_count, nullptr);
         }
@@ -715,17 +744,22 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
     // per query variable rather than per function: a module may contain both
     // eligible and ordinary query sites sharing the same acceleration table.
     if (_width >= 2u &&
-        !_ray_query_surface_filter_pipeline_callback_storage.empty()) {
+        (!_ray_query_surface_filter_pipeline_callback_storage.empty() ||
+         !_ray_query_surface_exclusion_soa_accel_storage.empty())) {
         std::vector<uint8_t> eligible(
             variable_count, uint8_t{1u});
         std::vector<uint8_t> output_only_eligible(
             variable_count, uint8_t{1u});
         std::vector<uint8_t> direct_output_eligible(
             variable_count, uint8_t{1u});
+        std::vector<uint8_t> surface_exclusion_soa_eligible(
+            variable_count, uint8_t{1u});
         std::vector<uint32_t> pipeline_count(variable_count, 0u);
         std::vector<uint32_t> empty_pipeline_count(
             variable_count, 0u);
         std::vector<uint32_t> direct_pipeline_count(
+            variable_count, 0u);
+        std::vector<uint32_t> surface_exclusion_pipeline_count(
             variable_count, 0u);
         for (auto &&block : _source.blocks()) {
             for (auto &&instruction : block.instructions) {
@@ -733,11 +767,14 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 if (variable == invalid) { continue; }
                 if (instruction.opcode ==
                     schedule::Opcode::ray_query_pipeline) {
-                    auto safe = instruction.source_op &&
-                                *instruction.source_op <
-                                    _ray_query_pipeline_handlers.size() &&
-                                _ray_query_pipeline_handlers[*instruction.source_op]
-                                    .embree_surface_filter_safe;
+                    auto has_handler =
+                        instruction.source_op &&
+                        *instruction.source_op <
+                            _ray_query_pipeline_handlers.size();
+                    auto safe =
+                        has_handler &&
+                        _ray_query_pipeline_handlers[*instruction.source_op]
+                            .embree_surface_filter_safe;
                     auto output_only_safe =
                         safe &&
                         _ray_query_pipeline_handlers[*instruction.source_op]
@@ -746,6 +783,11 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                         safe &&
                         !_ray_query_pipeline_handlers[*instruction.source_op]
                              .surface_handler_empty;
+                    auto excl_soa_safe =
+                        !disable_surface_exclusion_soa && has_handler &&
+                        _ray_query_pipeline_handlers[*instruction.source_op]
+                            .surface_exclusion_safe &&
+                        !safe;
                     if (safe) {
                         pipeline_count[variable]++;
                     } else {
@@ -760,6 +802,11 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                         direct_pipeline_count[variable]++;
                     } else {
                         direct_output_eligible[variable] = 0u;
+                    }
+                    if (excl_soa_safe) {
+                        surface_exclusion_pipeline_count[variable]++;
+                    } else {
+                        surface_exclusion_soa_eligible[variable] = 0u;
                     }
                 } else if (instruction.opcode ==
                            schedule::Opcode::ray_query_read) {
@@ -783,9 +830,8 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                                  RAY_QUERY_OBJECT_IS_TERMINATED);
                     if (!output_only_safe) {
                         output_only_eligible[variable] = 0u;
-                    }
-                    if (!output_only_safe) {
                         direct_output_eligible[variable] = 0u;
+                        surface_exclusion_soa_eligible[variable] = 0u;
                     }
                 } else if (instruction.opcode ==
                            schedule::Opcode::ray_query_write) {
@@ -796,6 +842,7 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                     eligible[variable] = 0u;
                     output_only_eligible[variable] = 0u;
                     direct_output_eligible[variable] = 0u;
+                    surface_exclusion_soa_eligible[variable] = 0u;
                 }
             }
         }
@@ -840,6 +887,19 @@ void ScheduleEmitter::_analyze_ray_query_scratch() {
                 _ray_query_direct_output_surface_filter_state
                     [construction.value] = 1u;
                 _result.direct_output_surface_filter_state_count++;
+            }
+            if (surface_exclusion_soa_eligible[variable] != 0u &&
+                surface_exclusion_pipeline_count[variable] == 1u &&
+                status_slot != invalid &&
+                status_slot <
+                    _ray_query_surface_exclusion_soa_accel_storage.size() &&
+                status_slot <
+                    _ray_query_surface_exclusion_soa_input_storage.size() &&
+                status_slot < _ray_query_output_packet_storage.size() &&
+                status_slot < _ray_query_live_dispatch_storage.size()) {
+                _ray_query_surface_exclusion_soa_state
+                    [construction.value] = 1u;
+                _result.surface_exclusion_soa_state_count++;
             }
         }
     }

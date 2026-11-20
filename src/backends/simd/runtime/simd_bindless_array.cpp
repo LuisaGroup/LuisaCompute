@@ -133,13 +133,23 @@ void SIMDBindlessArray::_update_texture(
                 "20-bit packet descriptor limit.",
                 size.x, size.y, size.z);
             auto base_view = resource->view(0u);
+            const bool is_2d_byte1 =
+                dimension == 2u && base_view.storage() == PixelStorage::BYTE1;
+            const bool is_2d_byte4 =
+                dimension == 2u && base_view.storage() == PixelStorage::BYTE4;
+            const bool is_2d_float4 =
+                dimension == 2u && base_view.storage() == PixelStorage::FLOAT4;
+            const auto mip0_fmt =
+                is_2d_byte4  ? simd_bindless_texture_mip0_format_byte4 :
+                is_2d_float4 ? simd_bindless_texture_mip0_format_float4 :
+                               simd_bindless_texture_mip0_format_byte1;
             descriptor = {
                 .texture = resource,
-                .byte1_mip0 = base_view.storage() == PixelStorage::BYTE1 ?
+                .byte1_mip0 = (is_2d_byte1 || is_2d_byte4 || is_2d_float4) ?
                                   base_view.data() :
                                   nullptr,
                 .metadata = simd_bindless_texture_metadata(
-                    texture.sampler.code(), size.x, size.y, size.z),
+                    texture.sampler.code(), size.x, size.y, size.z, mip0_fmt),
             };
             break;
         }

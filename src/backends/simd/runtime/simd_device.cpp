@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <limits>
+#include <mutex>
 #include <string_view>
 #include <thread>
 
@@ -43,67 +44,98 @@ namespace {
 class SharedEmbreeDevice {
 
 private:
-    RTCDevice _handle;
+    std::mutex _mutex;
+    RTCDevice _handle{nullptr};
+    size_t _ref_count{0u};
+#if !defined(_WIN32) && LUISA_COMPUTE_SIMD_HAS_TBB_SCHEDULER_HANDLE
+    bool _uses_tbb_tasking{false};
+#endif
 
 public:
-    SharedEmbreeDevice() noexcept
-        : _handle{rtcNewDevice(nullptr)} {
+    SharedEmbreeDevice() noexcept = default;
+
+    [[nodiscard]] RTCDevice acquire() noexcept {
+        std::scoped_lock lock{_mutex};
+        if (_ref_count++ == 0u) {
+            _handle = rtcNewDevice(nullptr);
+            LUISA_ASSERT(
+                _handle != nullptr,
+                "Failed to create the shared SIMD Embree device.");
+            rtcSetDeviceErrorFunction(
+                _handle,
+                [](void *, RTCError code, const char *message) noexcept {
+                    if (code != RTC_ERROR_NONE) {
+                        LUISA_ERROR_WITH_LOCATION(
+                            "SIMD Embree error (code = {}): {}",
+                            luisa::to_underlying(code), message);
+                    }
+                },
+                nullptr);
+#if !defined(_WIN32) && LUISA_COMPUTE_SIMD_HAS_TBB_SCHEDULER_HANDLE
+            _uses_tbb_tasking =
+                rtcGetDeviceProperty(
+                    _handle,
+                    RTC_DEVICE_PROPERTY_TASKING_SYSTEM) == 1;
+#endif
+            LUISA_VERBOSE(
+                "SIMD Embree {}.{}.{} native ray packets: W4={}, W8={}, W16={}",
+                rtcGetDeviceProperty(
+                    _handle, RTC_DEVICE_PROPERTY_VERSION_MAJOR),
+                rtcGetDeviceProperty(
+                    _handle, RTC_DEVICE_PROPERTY_VERSION_MINOR),
+                rtcGetDeviceProperty(
+                    _handle, RTC_DEVICE_PROPERTY_VERSION_PATCH),
+                rtcGetDeviceProperty(
+                    _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED),
+                rtcGetDeviceProperty(
+                    _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED),
+                rtcGetDeviceProperty(
+                    _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED));
+        }
+        return _handle;
+    }
+
+    void release() noexcept {
+        std::scoped_lock lock{_mutex};
         LUISA_ASSERT(
-            _handle != nullptr,
-            "Failed to create the shared SIMD Embree device.");
-        rtcSetDeviceErrorFunction(
-            _handle,
-            [](void *, RTCError code, const char *message) noexcept {
-                if (code != RTC_ERROR_NONE) {
-                    LUISA_ERROR_WITH_LOCATION(
-                        "SIMD Embree error (code = {}): {}",
-                        luisa::to_underlying(code), message);
-                }
-            },
-            nullptr);
-        LUISA_VERBOSE(
-            "SIMD Embree {}.{}.{} native ray packets: W4={}, W8={}, W16={}",
-            rtcGetDeviceProperty(
-                _handle, RTC_DEVICE_PROPERTY_VERSION_MAJOR),
-            rtcGetDeviceProperty(
-                _handle, RTC_DEVICE_PROPERTY_VERSION_MINOR),
-            rtcGetDeviceProperty(
-                _handle, RTC_DEVICE_PROPERTY_VERSION_PATCH),
-            rtcGetDeviceProperty(
-                _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED),
-            rtcGetDeviceProperty(
-                _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED),
-            rtcGetDeviceProperty(
-                _handle, RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED));
+            _ref_count != 0u && _handle != nullptr,
+            "Unbalanced release of shared SIMD Embree device.");
+        if (--_ref_count == 0u) {
+            rtcReleaseDevice(_handle);
+            _handle = nullptr;
+        }
     }
 
     ~SharedEmbreeDevice() noexcept {
-#if LUISA_COMPUTE_SIMD_HAS_TBB_SCHEDULER_HANDLE
-        if (rtcGetDeviceProperty(
-                _handle,
-                RTC_DEVICE_PROPERTY_TASKING_SYSTEM) == 1) {
-            oneapi::tbb::task_scheduler_handle scheduler{
-                oneapi::tbb::attach{}};
+#ifdef _WIN32
+        // ContextImpl keeps backend DLLs mapped until ExitProcess, so this
+        // destructor runs inside DllMain(DLL_PROCESS_DETACH) under the Windows
+        // loader lock after worker threads have already been terminated by the
+        // OS. Active devices already released _handle in ~SIMDDevice(); never
+        // call rtcReleaseDevice or oneapi::tbb::finalize during process exit.
+#else
+        if (_handle != nullptr) {
             rtcReleaseDevice(_handle);
             _handle = nullptr;
+        }
+#if LUISA_COMPUTE_SIMD_HAS_TBB_SCHEDULER_HANDLE
+        if (_uses_tbb_tasking) {
+            oneapi::tbb::task_scheduler_handle scheduler{
+                oneapi::tbb::attach{}};
             if (!oneapi::tbb::finalize(scheduler, std::nothrow)) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Failed to quiesce the Embree TBB scheduler before "
                     "unloading the SIMD backend.");
             }
-            return;
         }
 #endif
-        rtcReleaseDevice(_handle);
-        _handle = nullptr;
+#endif
     }
-
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
 };
 
-[[nodiscard]] RTCDevice shared_embree_device() noexcept {
+[[nodiscard]] SharedEmbreeDevice &shared_embree_device() noexcept {
     static SharedEmbreeDevice device;
-    return device.handle();
+    return device;
 }
 
 }// namespace
@@ -111,6 +143,14 @@ public:
 SIMDDevice::SIMDDevice(
     Context &&context, const DeviceConfig *config) noexcept
     : DeviceInterface{std::move(context)} {
+    if (config == nullptr || config->binary_io == nullptr) {
+        auto use_lmdb = config != nullptr && config->use_lmdb;
+        _default_io = luisa::make_unique<DefaultBinaryIO>(
+            this->context(), false, use_lmdb);
+        _io = _default_io.get();
+    } else {
+        _io = config->binary_io;
+    }
     auto requested_worker_count = uint32_t{0u};
     auto requested_width = uint32_t{0u};
     if (config != nullptr && config->extension != nullptr) {
@@ -165,7 +205,7 @@ SIMDDevice::SIMDDevice(
                 text);
         }
     }
-    _rtc_device = shared_embree_device();
+    _rtc_device = shared_embree_device().acquire();
     auto hardware_worker_count = static_cast<uint32_t>(
         std::max(std::thread::hardware_concurrency(), 1u));
     _thread_pool = std::make_unique<SIMDThreadPool>(
@@ -174,7 +214,13 @@ SIMDDevice::SIMDDevice(
             requested_worker_count);
 }
 
-SIMDDevice::~SIMDDevice() noexcept = default;
+SIMDDevice::~SIMDDevice() noexcept {
+    _thread_pool.reset();
+    if (_rtc_device != nullptr) {
+        shared_embree_device().release();
+        _rtc_device = nullptr;
+    }
+}
 
 void *SIMDDevice::native_handle() const noexcept {
     return const_cast<SIMDDevice *>(this);
@@ -346,7 +392,7 @@ ShaderCreationInfo SIMDDevice::create_shader(
     auto block_size = kernel.block_size();
     auto *shader = luisa::new_with_allocator<SIMDShader>(
         option, kernel, _warp_width,
-        _thread_pool->worker_count());
+        _thread_pool->worker_count(), _io);
     LUISA_VERBOSE(
         "SIMD shader compilation took {} ms.", clock.toc());
     ShaderCreationInfo info{};

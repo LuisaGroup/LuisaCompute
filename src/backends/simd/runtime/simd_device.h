@@ -3,6 +3,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/runtime/device.h>
 
+#include "../../common/default_binary_io.h"
 #include "simd_embree.h"
 
 namespace luisa::compute::simd {
@@ -14,12 +15,15 @@ class SIMDDevice final : public DeviceInterface {
 private:
     uint _warp_width{8u};
     RTCDevice _rtc_device{nullptr};
+    luisa::unique_ptr<DefaultBinaryIO> _default_io{};
+    const BinaryIO *_io{nullptr};
     std::unique_ptr<SIMDThreadPool> _thread_pool;
 
 public:
     explicit SIMDDevice(Context &&context, const DeviceConfig *config) noexcept;
     ~SIMDDevice() noexcept override;
 
+    [[nodiscard]] auto binary_io() const noexcept { return _io; }
     [[nodiscard]] void *native_handle() const noexcept override;
     [[nodiscard]] uint compute_warp_size() const noexcept override;
     [[nodiscard]] size_t compute_max_shared_memory_size() const noexcept override;

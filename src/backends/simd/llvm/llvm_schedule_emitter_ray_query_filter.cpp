@@ -86,8 +86,14 @@ namespace {
     if (bary == nullptr) { return nullptr; }
     auto *hit = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(_data_type(result->type, true)));
+    auto *raw_inst = load_hit_field(simd_host_accel_hit_inst_field);
+    auto *raw_geom = load_hit_field(simd_host_accel_hit_geom_field);
+    auto *resolved_inst = _builder.CreateSelect(
+        _builder.CreateICmpEQ(
+            raw_inst, ::llvm::Constant::getAllOnesValue(i32_lanes)),
+        raw_geom, raw_inst, "surface.filter.resolved.inst");
     hit = _insert_child(
-        hit, load_hit_field(simd_host_accel_hit_inst_field),
+        hit, resolved_inst,
         result->type, 0u, true);
     hit = _insert_child(
         hit, load_hit_field(simd_host_accel_hit_prim_field),

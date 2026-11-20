@@ -127,7 +127,9 @@ void apply_packet_wrapper_abi_attributes(
             return false;
         }
         for (auto &&instruction : block.instructions) {
-            if (instruction.opcode == schedule::Opcode::alloca) {
+            if (instruction.opcode == schedule::Opcode::alloca ||
+                (instruction.opcode == schedule::Opcode::call &&
+                 instruction.outlined_callable_id.has_value())) {
                 return false;
             }
             for (auto operand_index = size_t{0u};
@@ -717,7 +719,8 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
     bool enable_gathered_native_texture_read,
     bool enable_native_half4_texture_packet,
     size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays,
-    bool enable_contiguous_private_access) {
+    bool enable_contiguous_private_access,
+    luisa::span<const LLVMSIMDOutlinedCallable> outlined_callables) {
     auto enable_linear_1d_packet_tail_narrowing =
         enable_packet_batch_entry &&
         specialization_width != 0u &&
@@ -787,7 +790,8 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         enable_biased_narrow_buffer_gather,
         enable_gathered_native_texture_read,
         enable_native_half4_texture_packet,
-        private_stack_budget_bytes, enable_interleaved_private_arrays, enable_contiguous_private_access}
+        private_stack_budget_bytes, enable_interleaved_private_arrays, enable_contiguous_private_access,
+        outlined_callables}
                       .run();
     result.full_packet_simplification_requested = luisa::compute::detail::env_flag(
         "LUISA_SIMD_ENABLE_SIMPLIFIED_FULL_PACKET_SPECIALIZATION");
@@ -844,8 +848,14 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
                                 block_thread_count /
                                     specialization_width;
         auto lowering = PacketBatchLowering::dynamic_loop;
+        auto entry_instruction_count =
+            count_function_instructions(*result.entry);
+        auto bounded_packet_body =
+            result.entry->size() <= 256u &&
+            entry_instruction_count <= 8192u;
         if (packet_count != 0u &&
-            packet_count <= max_specialized_packet_count) {
+            packet_count <= max_specialized_packet_count &&
+            bounded_packet_body) {
             if (enable_inlined_packet_batch &&
                 (specialization_width == 8u ||
                  enable_bounded_w16_packet_inline)) {
@@ -950,6 +960,58 @@ LLVMScheduleCodegenResult lower_schedule_to_llvm(
         }
     }
     return result;
+}
+
+LLVMScheduleCodegenResult
+lower_outlined_callable_schedule_to_llvm(
+    ::llvm::Module &module, const schedule::Function &function,
+    const Type *return_type,
+    uint32_t specialization_width, luisa::string_view entry_name,
+    bool enable_fast_math,
+    std::array<uint32_t, 3u> static_block_size,
+    bool enable_uniform_buffer_broadcast,
+    bool enable_lane_affine_buffer,
+    bool enable_paired_leaf_gather,
+    uint32_t dispatch_worker_count,
+    bool enable_native_predicated_loop,
+    size_t print_format_id_base,
+    bool enable_native_vector_compress,
+    bool enable_biased_narrow_buffer_gather,
+    bool enable_gathered_native_texture_read,
+    bool enable_native_half4_texture_packet,
+    bool enable_interleaved_private_arrays,
+    bool enable_contiguous_private_access,
+    luisa::span<const LLVMSIMDOutlinedCallable> outlined_callables,
+    luisa::span<const uint8_t> outlined_parameter_soa_cell_bytes,
+    uint32_t outlined_parameter_soa_stride,
+    luisa::span<const LLVMSIMDRayQueryPipelineHandlers>
+        ray_query_pipeline_handlers) {
+    auto enable_predicated_acyclic_outlined =
+        !luisa::compute::detail::env_flag(
+            "LUISA_SIMD_DISABLE_OUTLINED_PREDICATED_ACYCLIC");
+    return detail::ScheduleEmitter{
+        module, function, specialization_width, entry_name,
+        enable_fast_math, static_block_size,
+        enable_uniform_buffer_broadcast,
+        enable_lane_affine_buffer,
+        enable_paired_leaf_gather,
+        dispatch_worker_count,
+        enable_native_predicated_loop,
+        enable_native_vector_compress,
+        false, false,
+        detail::ScheduleEntryABI::outlined_callable,
+        ray_query_pipeline_handlers, print_format_id_base,
+        enable_predicated_acyclic_outlined,
+        enable_biased_narrow_buffer_gather,
+        enable_gathered_native_texture_read,
+        enable_native_half4_texture_packet,
+        0u, enable_interleaved_private_arrays,
+        enable_contiguous_private_access,
+        outlined_callables,
+        return_type,
+        outlined_parameter_soa_cell_bytes,
+        outlined_parameter_soa_stride}
+        .run();
 }
 
 LLVMScheduleCodegenResult

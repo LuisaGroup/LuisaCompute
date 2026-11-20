@@ -4,6 +4,9 @@
 #include <unordered_set>
 
 #include <llvm/IR/Attributes.h>
+#include <llvm/IR/MDBuilder.h>
+#include <llvm/IR/InlineAsm.h>
+#include <llvm/Support/ModRef.h>
 
 #include "../../common/env_flag.h"
 #include <luisa/core/stl/string.h>
@@ -26,7 +29,9 @@ void ScheduleEmitter::_emit_instruction(
             _local_store(instruction);
             break;
         case schedule::Opcode::call:
-            if (instruction.contiguous_copy) {
+            if (instruction.outlined_callable_id) {
+                value = _outlined_call(instruction);
+            } else if (instruction.contiguous_copy) {
                 _contiguous_copy(instruction);
             } else {
                 _strided_mma(instruction);
@@ -91,12 +96,24 @@ void ScheduleEmitter::_emit_instruction(
             auto *schedule_value = _source.value(*instruction.result);
             auto *slot = _state_slots[id];
             if (_is_local_lvalue(*instruction.result)) {
-                auto *old = _builder.CreateLoad(
-                    slot->getAllocatedType(), slot);
-                _builder.CreateStore(
-                    _merge_local_handles(
-                        value, old, _active_mask),
-                    slot);
+                auto kind = _local_soa_kind_of(*instruction.result);
+                if (kind == LocalSoAKind::uniform || _width == 1u) {
+                    _builder.CreateStore(value, slot);
+                } else if (kind == LocalSoAKind::varying) {
+                    auto *old = _builder.CreateLoad(
+                        slot->getAllocatedType(), slot);
+                    _builder.CreateStore(
+                        _merge_varying_soa_handles(
+                            value, old, _active_mask),
+                        slot);
+                } else {
+                    auto *old = _builder.CreateLoad(
+                        slot->getAllocatedType(), slot);
+                    _builder.CreateStore(
+                        _merge_local_handles(
+                            value, old, _active_mask),
+                        slot);
+                }
             } else if (schedule_value->value_class ==
                            schedule::ValueClass::warp_uniform ||
                        (_direct_control_flow &&
@@ -109,15 +126,19 @@ void ScheduleEmitter::_emit_instruction(
                                   _splat(value) :
                                   _as_lane_vector(value, *schedule_value);
                 if (lanes == nullptr) { return; }
-                auto *old = _builder.CreateLoad(
-                    slot->getAllocatedType(), slot);
-                auto *merged = schedule_value->type == nullptr ?
-                                   _builder.CreateSelect(_active_mask, lanes, old) :
-                                   _masked_merge(
-                                       lanes, old, schedule_value->type,
-                                       _active_mask);
-                if (merged != nullptr) {
-                    _builder.CreateStore(merged, slot);
+                if (_width == 1u) {
+                    _builder.CreateStore(lanes, slot);
+                } else {
+                    auto *old = _builder.CreateLoad(
+                        slot->getAllocatedType(), slot);
+                    auto *merged = schedule_value->type == nullptr ?
+                                       _builder.CreateSelect(_active_mask, lanes, old) :
+                                       _masked_merge(
+                                           lanes, old, schedule_value->type,
+                                           _active_mask);
+                    if (merged != nullptr) {
+                        _builder.CreateStore(merged, slot);
+                    }
                 }
             }
         }
@@ -145,10 +166,20 @@ void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
     if (value == nullptr) { return; }
     auto *slot = _state_slots[assignment.destination.value];
     if (_is_local_lvalue(assignment.destination)) {
-        auto *old = _builder.CreateLoad(
-            slot->getAllocatedType(), slot);
-        _builder.CreateStore(
-            _merge_local_handles(value, old, mask), slot);
+        auto kind = _local_soa_kind_of(assignment.destination);
+        if (kind == LocalSoAKind::uniform || _width == 1u) {
+            _builder.CreateStore(value, slot);
+        } else if (kind == LocalSoAKind::varying) {
+            auto *old = _builder.CreateLoad(
+                slot->getAllocatedType(), slot);
+            _builder.CreateStore(
+                _merge_varying_soa_handles(value, old, mask), slot);
+        } else {
+            auto *old = _builder.CreateLoad(
+                slot->getAllocatedType(), slot);
+            _builder.CreateStore(
+                _merge_local_handles(value, old, mask), slot);
+        }
         return;
     }
     if (destination->value_class == schedule::ValueClass::warp_uniform ||
@@ -160,6 +191,10 @@ void ScheduleEmitter::_assign(schedule::EdgeAssignment assignment,
     }
     auto *lanes = _as_lane_vector(value, *source);
     if (lanes == nullptr) { return; }
+    if (_width == 1u) {
+        _builder.CreateStore(lanes, slot);
+        return;
+    }
     auto *old = _builder.CreateLoad(slot->getAllocatedType(), slot);
     auto *merged = _masked_merge(lanes, old, destination->type, mask);
     if (merged != nullptr) { _builder.CreateStore(merged, slot); }
@@ -201,8 +236,7 @@ void ScheduleEmitter::_apply_assignments(
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_frame_bit(
     ::llvm::Value *index) {
-    auto *bits_type = ::llvm::cast<::llvm::IntegerType>(
-        _frame_active->getAllocatedType());
+    auto *bits_type = ::llvm::cast<::llvm::IntegerType>(_frame_active_type);
     auto *bit_index = _builder.CreateZExtOrTrunc(index, bits_type);
     return _builder.CreateShl(
         ::llvm::ConstantInt::get(bits_type, 1u), bit_index);
@@ -216,16 +250,15 @@ void ScheduleEmitter::_apply_assignments(
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_frame_mask_pointer(
-    ::llvm::AllocaInst *frames, ::llvm::Value *index) {
-    auto *array = ::llvm::cast<::llvm::ArrayType>(
-        frames->getAllocatedType());
+    ::llvm::Value *frames, ::llvm::Value *index) {
+    auto *array = ::llvm::cast<::llvm::ArrayType>(_ready_masks_type);
     return _builder.CreateInBoundsGEP(
         array, frames, {_builder.getInt32(0u), index});
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_frame_metadata(
-    ::llvm::AllocaInst *frames, ::llvm::Value *index) {
-    auto *type = frames->getAllocatedType();
+    ::llvm::Value *frames, ::llvm::Value *index) {
+    auto *type = _frame_metadata_type;
     if (auto *array = ::llvm::dyn_cast<::llvm::ArrayType>(type)) {
         auto *pointer = _builder.CreateInBoundsGEP(
             array, frames, {_builder.getInt32(0u), index});
@@ -236,9 +269,9 @@ void ScheduleEmitter::_apply_assignments(
 }
 
 void ScheduleEmitter::_store_frame_metadata(
-    ::llvm::AllocaInst *frames, ::llvm::Value *index,
+    ::llvm::Value *frames, ::llvm::Value *index,
     ::llvm::Value *value) {
-    auto *type = frames->getAllocatedType();
+    auto *type = _frame_metadata_type;
     if (auto *array = ::llvm::dyn_cast<::llvm::ArrayType>(type)) {
         auto *pointer = _builder.CreateInBoundsGEP(
             array, frames, {_builder.getInt32(0u), index});
@@ -269,12 +302,411 @@ void ScheduleEmitter::_store_frame_metadata(
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_ready_element_pointer(
-    ::llvm::AllocaInst *array, ::llvm::Value *index) {
-    auto *array_type = ::llvm::cast<::llvm::ArrayType>(
-        array->getAllocatedType());
+    ::llvm::Value *array, ::llvm::Type *array_type, ::llvm::Value *index) {
+    auto *typed = ::llvm::cast<::llvm::ArrayType>(array_type);
     return _builder.CreateInBoundsGEP(
-        array_type, array,
+        typed, array,
         {_builder.getInt32(0u), index});
+}
+
+[[nodiscard]] ::llvm::StructType *ScheduleEmitter::_get_or_create_sched_state_type() {
+    auto &ctx = _module.getContext();
+    const auto name = "__luisa_simd_sched_state_w" + std::to_string(_width);
+    if (auto *existing = ::llvm::StructType::getTypeByName(ctx, name)) {
+        return existing;
+    }
+    auto *mask_type = _layout.mask_type();
+    auto *i32_ty = ::llvm::Type::getInt32Ty(ctx);
+    auto *frame_active_ty = ::llvm::IntegerType::get(ctx, _width);
+    auto *ready_masks_ty = ::llvm::ArrayType::get(mask_type, _width);
+    auto *ready_i32_ty = ::llvm::ArrayType::get(i32_ty, _width);
+    return ::llvm::StructType::create(
+        ctx,
+        {mask_type,        // 0: live_mask
+         mask_type,        // 1: runnable_mask
+         i32_ty,           // 2: ready_count
+         ready_masks_ty,   // 3: ready_masks
+         ready_i32_ty,     // 4: ready_targets
+         ready_i32_ty,     // 5: ready_tokens
+         mask_type,        // 6: current_mask
+         i32_ty,           // 7: current_token
+         frame_active_ty,  // 8: frame_active
+         ready_i32_ty,     // 9: frame_static_id
+         ready_i32_ty,     // 10: frame_parent_token
+         ready_masks_ty,   // 11: frame_expected
+         ready_masks_ty},  // 12: frame_arrived
+        name);
+}
+
+[[nodiscard]] ::llvm::Function *ScheduleEmitter::_get_or_create_sched_declare_helper() {
+    auto &ctx = _module.getContext();
+    const auto fn_name = "__luisa_simd_sched_declare_w" + std::to_string(_width);
+    if (auto *existing = _module.getFunction(fn_name)) {
+        return existing;
+    }
+    auto *sched_ty = _get_or_create_sched_state_type();
+    auto *ptr_ty = ::llvm::PointerType::getUnqual(ctx);
+    auto *i32_ty = ::llvm::Type::getInt32Ty(ctx);
+    auto *i1_ty = ::llvm::Type::getInt1Ty(ctx);
+    auto *mask_int_ty = ::llvm::IntegerType::get(ctx, _width);
+    auto *mask_arg_ty = _width <= 32u ?
+                            static_cast<::llvm::Type *>(i32_ty) :
+                            static_cast<::llvm::Type *>(::llvm::Type::getInt64Ty(ctx));
+    auto *frame_active_ty = ::llvm::IntegerType::get(ctx, _width);
+    auto *ready_masks_ty = ::llvm::ArrayType::get(mask_int_ty, _width);
+    auto *ready_i32_ty = ::llvm::ArrayType::get(i32_ty, _width);
+
+    // Pure-GPR leaf helper: zero vector/FP register touches so PreserveAll is
+    // safe on x86-64 (SSE/AVX2/AVX-512) and AArch64 without partial-vector saves.
+    const auto sched_cc =
+        luisa::compute::detail::env_flag("LUISA_SIMD_SCHED_HELPER_FASTCC") ?
+            ::llvm::CallingConv::Fast :
+            ::llvm::CallingConv::PreserveAll;
+
+    auto *fn_ty = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(ctx), {ptr_ty, i32_ty, i1_ty, mask_arg_ty}, false);
+    auto *fn = ::llvm::Function::Create(
+        fn_ty, ::llvm::GlobalValue::InternalLinkage, fn_name, _module);
+    fn->setDSOLocal(true);
+    fn->setCallingConv(sched_cc);
+    fn->addFnAttr(::llvm::Attribute::NoInline);
+    fn->addFnAttr(::llvm::Attribute::NoUnwind);
+    fn->addFnAttr(::llvm::Attribute::WillReturn);
+    fn->addParamAttr(0u, ::llvm::Attribute::NoAlias);
+    fn->addParamAttr(0u, ::llvm::Attribute::NonNull);
+#if LLVM_VERSION_MAJOR >= 21
+    fn->addParamAttr(
+        0u, ::llvm::Attribute::getWithCaptureInfo(
+                ctx, ::llvm::CaptureInfo::none()));
+#else
+    fn->addParamAttr(0u, ::llvm::Attribute::NoCapture);
+#endif
+
+    auto *entry_bb = ::llvm::BasicBlock::Create(ctx, "entry", fn);
+    auto *body_bb = ::llvm::BasicBlock::Create(ctx, "body", fn);
+    auto *ret_bb = ::llvm::BasicBlock::Create(ctx, "ret", fn);
+    auto *trap_bb = ::llvm::BasicBlock::Create(ctx, "overflow.trap", fn);
+    auto *alloc_bb = ::llvm::BasicBlock::Create(ctx, "alloc", fn);
+
+    ::llvm::IRBuilder<> b{entry_bb};
+    auto *sched = fn->getArg(0u);
+    auto *conv_id = fn->getArg(1u);
+    auto *divergent = fn->getArg(2u);
+    auto *active_mask_bits = fn->getArg(3u);
+
+    b.CreateCondBr(divergent, body_bb, ret_bb);
+
+    b.SetInsertPoint(ret_bb);
+    b.CreateRetVoid();
+
+    b.SetInsertPoint(body_bb);
+    auto *cur_tok_ptr = b.CreateStructGEP(sched_ty, sched, 7u);
+    auto *frame_act_ptr = b.CreateStructGEP(sched_ty, sched, 8u);
+    auto *frame_sid_ptr = b.CreateStructGEP(sched_ty, sched, 9u);
+    auto *frame_par_ptr = b.CreateStructGEP(sched_ty, sched, 10u);
+    auto *frame_exp_ptr = b.CreateStructGEP(sched_ty, sched, 11u);
+    auto *frame_arr_ptr = b.CreateStructGEP(sched_ty, sched, 12u);
+
+    auto *current_token = b.CreateLoad(i32_ty, cur_tok_ptr);
+    auto *has_current = b.CreateICmpNE(current_token, b.getInt32(0u));
+    auto *current_index = b.CreateSelect(
+        has_current, b.CreateSub(current_token, b.getInt32(1u)), b.getInt32(0u));
+    auto *active_frames = b.CreateLoad(frame_active_ty, frame_act_ptr);
+    auto *cur_bit = b.CreateShl(
+        ::llvm::ConstantInt::get(frame_active_ty, 1u),
+        b.CreateZExtOrTrunc(current_index, frame_active_ty));
+    auto *current_active = b.CreateICmpNE(
+        b.CreateAnd(active_frames, cur_bit),
+        ::llvm::Constant::getNullValue(frame_active_ty));
+    auto *cur_sid = b.CreateLoad(
+        i32_ty,
+        b.CreateInBoundsGEP(ready_i32_ty, frame_sid_ptr, {b.getInt32(0u), current_index}));
+    auto *reuse = b.CreateAnd(
+        has_current,
+        b.CreateAnd(current_active, b.CreateICmpEQ(cur_sid, conv_id)));
+    b.CreateCondBr(reuse, ret_bb, alloc_bb);
+
+    b.SetInsertPoint(alloc_bb);
+    auto *free_frames = b.CreateNot(active_frames);
+    auto *has_free = b.CreateICmpNE(
+        free_frames, ::llvm::Constant::getNullValue(frame_active_ty));
+    auto *do_alloc_bb = ::llvm::BasicBlock::Create(ctx, "do.alloc", fn);
+    b.CreateCondBr(has_free, do_alloc_bb, trap_bb);
+
+    b.SetInsertPoint(trap_bb);
+#if LLVM_VERSION_MAJOR >= 22
+    auto *trap_fn = ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+    auto *trap_fn = ::llvm::Intrinsic::getDeclaration(
+#endif
+        &_module, ::llvm::Intrinsic::trap);
+    b.CreateCall(trap_fn);
+    b.CreateUnreachable();
+
+    b.SetInsertPoint(do_alloc_bb);
+    auto *active_mask = b.CreateTrunc(active_mask_bits, mask_int_ty);
+    auto *raw_free = b.CreateBinaryIntrinsic(
+        ::llvm::Intrinsic::cttz, free_frames, b.getFalse());
+    auto *free_index = b.CreateZExtOrTrunc(raw_free, i32_ty);
+    auto *free_bit = b.CreateShl(
+        ::llvm::ConstantInt::get(frame_active_ty, 1u),
+        b.CreateZExtOrTrunc(free_index, frame_active_ty));
+    b.CreateStore(b.CreateOr(active_frames, free_bit), frame_act_ptr);
+    b.CreateStore(
+        conv_id,
+        b.CreateInBoundsGEP(ready_i32_ty, frame_sid_ptr, {b.getInt32(0u), free_index}));
+    b.CreateStore(
+        current_token,
+        b.CreateInBoundsGEP(ready_i32_ty, frame_par_ptr, {b.getInt32(0u), free_index}));
+    b.CreateStore(
+        active_mask,
+        b.CreateInBoundsGEP(ready_masks_ty, frame_exp_ptr, {b.getInt32(0u), free_index}));
+    b.CreateStore(
+        ::llvm::Constant::getNullValue(mask_int_ty),
+        b.CreateInBoundsGEP(ready_masks_ty, frame_arr_ptr, {b.getInt32(0u), free_index}));
+    b.CreateStore(b.CreateAdd(free_index, b.getInt32(1u)), cur_tok_ptr);
+    b.CreateRetVoid();
+    return fn;
+}
+
+[[nodiscard]] ::llvm::Function *ScheduleEmitter::_get_or_create_sched_resume_helper() {
+    auto &ctx = _module.getContext();
+    const auto fn_name = "__luisa_simd_sched_resume_w" + std::to_string(_width);
+    if (auto *existing = _module.getFunction(fn_name)) {
+        return existing;
+    }
+    auto *sched_ty = _get_or_create_sched_state_type();
+    auto *ptr_ty = ::llvm::PointerType::getUnqual(ctx);
+    auto *i32_ty = ::llvm::Type::getInt32Ty(ctx);
+    auto *mask_int_ty = ::llvm::IntegerType::get(ctx, _width);
+    auto *mask_arg_ty = _width <= 32u ?
+                            static_cast<::llvm::Type *>(i32_ty) :
+                            static_cast<::llvm::Type *>(::llvm::Type::getInt64Ty(ctx));
+    auto *ready_masks_ty = ::llvm::ArrayType::get(mask_int_ty, _width);
+    auto *ready_i32_ty = ::llvm::ArrayType::get(i32_ty, _width);
+
+    const auto sched_cc =
+        luisa::compute::detail::env_flag("LUISA_SIMD_SCHED_HELPER_FASTCC") ?
+            ::llvm::CallingConv::Fast :
+            ::llvm::CallingConv::PreserveAll;
+
+    auto *fn_ty = ::llvm::FunctionType::get(
+        ::llvm::Type::getVoidTy(ctx), {ptr_ty, i32_ty, mask_arg_ty, i32_ty}, false);
+    auto *fn = ::llvm::Function::Create(
+        fn_ty, ::llvm::GlobalValue::InternalLinkage, fn_name, _module);
+    fn->setDSOLocal(true);
+    fn->setCallingConv(sched_cc);
+    fn->addFnAttr(::llvm::Attribute::NoInline);
+    fn->addFnAttr(::llvm::Attribute::NoUnwind);
+    fn->addFnAttr(::llvm::Attribute::WillReturn);
+    fn->addParamAttr(0u, ::llvm::Attribute::NoAlias);
+    fn->addParamAttr(0u, ::llvm::Attribute::NonNull);
+#if LLVM_VERSION_MAJOR >= 21
+    fn->addParamAttr(
+        0u, ::llvm::Attribute::getWithCaptureInfo(
+                ctx, ::llvm::CaptureInfo::none()));
+#else
+    fn->addParamAttr(0u, ::llvm::Attribute::NoCapture);
+#endif
+
+    auto *entry_bb = ::llvm::BasicBlock::Create(ctx, "entry", fn);
+    auto *push_bb = ::llvm::BasicBlock::Create(ctx, "push", fn);
+    auto *ok_bb = ::llvm::BasicBlock::Create(ctx, "ok", fn);
+    auto *trap_bb = ::llvm::BasicBlock::Create(ctx, "overflow.trap", fn);
+    auto *ret_bb = ::llvm::BasicBlock::Create(ctx, "ret", fn);
+
+    ::llvm::IRBuilder<> b{entry_bb};
+    auto *sched = fn->getArg(0u);
+    auto *target = fn->getArg(1u);
+    auto *mask_bits = fn->getArg(2u);
+    auto *token = fn->getArg(3u);
+
+    auto *nonempty = b.CreateICmpNE(
+        mask_bits, ::llvm::Constant::getNullValue(mask_arg_ty));
+    b.CreateCondBr(nonempty, push_bb, ret_bb);
+
+    b.SetInsertPoint(ret_bb);
+    b.CreateRetVoid();
+
+    b.SetInsertPoint(push_bb);
+    auto *ready_cnt_ptr = b.CreateStructGEP(sched_ty, sched, 2u);
+    auto *count = b.CreateLoad(i32_ty, ready_cnt_ptr);
+    b.CreateCondBr(b.CreateICmpUGE(count, b.getInt32(_width)), trap_bb, ok_bb);
+
+    b.SetInsertPoint(trap_bb);
+#if LLVM_VERSION_MAJOR >= 22
+    auto *trap_fn = ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+    auto *trap_fn = ::llvm::Intrinsic::getDeclaration(
+#endif
+        &_module, ::llvm::Intrinsic::trap);
+    b.CreateCall(trap_fn);
+    b.CreateUnreachable();
+
+    b.SetInsertPoint(ok_bb);
+    auto *mask = b.CreateTrunc(mask_bits, mask_int_ty);
+    auto *runnable_ptr = b.CreateStructGEP(sched_ty, sched, 1u);
+    auto *ready_masks_ptr = b.CreateStructGEP(sched_ty, sched, 3u);
+    auto *ready_targets_ptr = b.CreateStructGEP(sched_ty, sched, 4u);
+    auto *ready_tokens_ptr = b.CreateStructGEP(sched_ty, sched, 5u);
+    b.CreateStore(
+        mask,
+        b.CreateInBoundsGEP(ready_masks_ty, ready_masks_ptr, {b.getInt32(0u), count}));
+    b.CreateStore(
+        target,
+        b.CreateInBoundsGEP(ready_i32_ty, ready_targets_ptr, {b.getInt32(0u), count}));
+    b.CreateStore(
+        token,
+        b.CreateInBoundsGEP(ready_i32_ty, ready_tokens_ptr, {b.getInt32(0u), count}));
+    b.CreateStore(b.CreateAdd(count, b.getInt32(1u)), ready_cnt_ptr);
+    auto *runnable = b.CreateLoad(mask_int_ty, runnable_ptr);
+    b.CreateStore(b.CreateOr(runnable, mask), runnable_ptr);
+    b.CreateRetVoid();
+    return fn;
+}
+
+[[nodiscard]] ::llvm::Function *ScheduleEmitter::_get_or_create_sched_cascade_helper() {
+    auto &ctx = _module.getContext();
+    const auto fn_name = "__luisa_simd_sched_cascade_w" + std::to_string(_width);
+    if (auto *existing = _module.getFunction(fn_name)) {
+        return existing;
+    }
+    auto *sched_ty = _get_or_create_sched_state_type();
+    auto *ptr_ty = ::llvm::PointerType::getUnqual(ctx);
+    auto *i32_ty = ::llvm::Type::getInt32Ty(ctx);
+    auto *mask_int_ty = ::llvm::IntegerType::get(ctx, _width);
+    auto *mask_arg_ty = _width <= 32u ?
+                            static_cast<::llvm::Type *>(i32_ty) :
+                            static_cast<::llvm::Type *>(::llvm::Type::getInt64Ty(ctx));
+    auto *zero_mask = ::llvm::Constant::getNullValue(mask_int_ty);
+    auto *frame_active_ty = ::llvm::IntegerType::get(ctx, _width);
+    auto *ready_masks_ty = ::llvm::ArrayType::get(mask_int_ty, _width);
+    auto *ready_i32_ty = ::llvm::ArrayType::get(i32_ty, _width);
+
+    const auto sched_cc =
+        luisa::compute::detail::env_flag("LUISA_SIMD_SCHED_HELPER_FASTCC") ?
+            ::llvm::CallingConv::Fast :
+            ::llvm::CallingConv::PreserveAll;
+
+    auto *fn_ty = ::llvm::FunctionType::get(
+        mask_arg_ty, {ptr_ty, ptr_ty, i32_ty, mask_arg_ty}, false);
+    auto *fn = ::llvm::Function::Create(
+        fn_ty, ::llvm::GlobalValue::InternalLinkage, fn_name, _module);
+    fn->setDSOLocal(true);
+    fn->setCallingConv(sched_cc);
+    fn->addFnAttr(::llvm::Attribute::NoInline);
+    fn->addFnAttr(::llvm::Attribute::NoUnwind);
+    fn->addFnAttr(::llvm::Attribute::WillReturn);
+    fn->addParamAttr(0u, ::llvm::Attribute::NoAlias);
+    fn->addParamAttr(0u, ::llvm::Attribute::NonNull);
+    fn->addParamAttr(1u, ::llvm::Attribute::NoAlias);
+    fn->addParamAttr(1u, ::llvm::Attribute::NonNull);
+    fn->addParamAttr(1u, ::llvm::Attribute::ReadOnly);
+#if LLVM_VERSION_MAJOR >= 21
+    fn->addParamAttr(
+        0u, ::llvm::Attribute::getWithCaptureInfo(
+                ctx, ::llvm::CaptureInfo::none()));
+    fn->addParamAttr(
+        1u, ::llvm::Attribute::getWithCaptureInfo(
+                ctx, ::llvm::CaptureInfo::none()));
+#else
+    fn->addParamAttr(0u, ::llvm::Attribute::NoCapture);
+    fn->addParamAttr(1u, ::llvm::Attribute::NoCapture);
+#endif
+
+    auto *entry_bb = ::llvm::BasicBlock::Create(ctx, "entry", fn);
+    auto *loop_bb = ::llvm::BasicBlock::Create(ctx, "loop", fn);
+    auto *apply_bb = ::llvm::BasicBlock::Create(ctx, "apply", fn);
+    auto *exit_bb = ::llvm::BasicBlock::Create(ctx, "exit", fn);
+
+    ::llvm::IRBuilder<> b{entry_bb};
+    auto *sched = fn->getArg(0u);
+    auto *conv_targets = fn->getArg(1u);
+    auto *target = fn->getArg(2u);
+    auto *initial_flow = b.CreateTrunc(fn->getArg(3u), mask_int_ty);
+
+    auto *live_ptr = b.CreateStructGEP(sched_ty, sched, 0u);
+    auto *runnable_ptr = b.CreateStructGEP(sched_ty, sched, 1u);
+    auto *cur_tok_ptr = b.CreateStructGEP(sched_ty, sched, 7u);
+    auto *frame_act_ptr = b.CreateStructGEP(sched_ty, sched, 8u);
+    auto *frame_sid_ptr = b.CreateStructGEP(sched_ty, sched, 9u);
+    auto *frame_par_ptr = b.CreateStructGEP(sched_ty, sched, 10u);
+    auto *frame_exp_ptr = b.CreateStructGEP(sched_ty, sched, 11u);
+    auto *frame_arr_ptr = b.CreateStructGEP(sched_ty, sched, 12u);
+    b.CreateBr(loop_bb);
+
+    b.SetInsertPoint(loop_bb);
+    auto *current_flow = b.CreatePHI(mask_int_ty, 2u, "flow");
+    auto *depth = b.CreatePHI(i32_ty, 2u, "depth");
+    current_flow->addIncoming(initial_flow, entry_bb);
+    depth->addIncoming(b.getInt32(0u), entry_bb);
+
+    auto *any = b.CreateICmpNE(current_flow, zero_mask);
+    auto *token = b.CreateLoad(i32_ty, cur_tok_ptr);
+    auto *has_token = b.CreateAnd(any, b.CreateICmpNE(token, b.getInt32(0u)));
+    auto *index = b.CreateSelect(
+        has_token, b.CreateSub(token, b.getInt32(1u)), b.getInt32(0u));
+    auto *active_frames = b.CreateLoad(frame_active_ty, frame_act_ptr);
+    auto *idx_bit = b.CreateShl(
+        ::llvm::ConstantInt::get(frame_active_ty, 1u),
+        b.CreateZExtOrTrunc(index, frame_active_ty));
+    auto *frame_active = b.CreateICmpNE(
+        b.CreateAnd(active_frames, idx_bit),
+        ::llvm::Constant::getNullValue(frame_active_ty));
+    auto *static_id = b.CreateLoad(
+        i32_ty,
+        b.CreateInBoundsGEP(ready_i32_ty, frame_sid_ptr, {b.getInt32(0u), index}));
+    auto *dyn_target = b.CreateLoad(
+        i32_ty, b.CreateInBoundsGEP(i32_ty, conv_targets, static_id));
+    auto *matches = b.CreateAnd(
+        has_token,
+        b.CreateAnd(frame_active, b.CreateICmpEQ(dyn_target, target)));
+    b.CreateCondBr(matches, apply_bb, exit_bb);
+
+    b.SetInsertPoint(apply_bb);
+    auto *expected_ptr = b.CreateInBoundsGEP(
+        ready_masks_ty, frame_exp_ptr, {b.getInt32(0u), index});
+    auto *arrived_ptr = b.CreateInBoundsGEP(
+        ready_masks_ty, frame_arr_ptr, {b.getInt32(0u), index});
+    auto *expected = b.CreateLoad(mask_int_ty, expected_ptr);
+    auto *arrived = b.CreateLoad(mask_int_ty, arrived_ptr);
+    auto *new_arrived = b.CreateOr(arrived, current_flow);
+    auto *live = b.CreateLoad(mask_int_ty, live_ptr);
+    auto *expected_live = b.CreateAnd(expected, live);
+    auto *complete = b.CreateICmpEQ(new_arrived, expected_live);
+
+    b.CreateStore(b.CreateSelect(complete, zero_mask, new_arrived), arrived_ptr);
+    b.CreateStore(b.CreateSelect(complete, zero_mask, expected), expected_ptr);
+    auto *released_frames = b.CreateAnd(active_frames, b.CreateNot(idx_bit));
+    b.CreateStore(b.CreateSelect(complete, released_frames, active_frames), frame_act_ptr);
+    auto *runnable = b.CreateLoad(mask_int_ty, runnable_ptr);
+    b.CreateStore(b.CreateAnd(runnable, b.CreateNot(current_flow)), runnable_ptr);
+    auto *released = b.CreateSelect(complete, new_arrived, zero_mask);
+    auto *parent_token = b.CreateLoad(
+        i32_ty,
+        b.CreateInBoundsGEP(ready_i32_ty, frame_par_ptr, {b.getInt32(0u), index}));
+    auto *next_token = b.CreateSelect(complete, parent_token, token);
+    b.CreateStore(next_token, cur_tok_ptr);
+
+    auto *next_depth = b.CreateAdd(depth, b.getInt32(1u));
+    auto *more = b.CreateAnd(
+        complete,
+        b.CreateAnd(
+            b.CreateICmpNE(released, zero_mask),
+            b.CreateAnd(
+                b.CreateICmpULT(next_depth, b.getInt32(_width)),
+                b.CreateICmpNE(next_token, b.getInt32(0u)))));
+    auto *latch_bb = b.GetInsertBlock();
+    b.CreateCondBr(more, loop_bb, exit_bb);
+    current_flow->addIncoming(released, latch_bb);
+    depth->addIncoming(next_depth, latch_bb);
+
+    b.SetInsertPoint(exit_bb);
+    auto *ret_flow = b.CreatePHI(mask_int_ty, 2u, "ret.flow");
+    ret_flow->addIncoming(current_flow, loop_bb);
+    ret_flow->addIncoming(released, latch_bb);
+    b.CreateRet(b.CreateZExt(ret_flow, mask_arg_ty));
+    return fn;
 }
 
 void ScheduleEmitter::_trap_if(::llvm::Value *condition, luisa::string_view label) {
@@ -297,8 +729,24 @@ void ScheduleEmitter::_trap_if(::llvm::Value *condition, luisa::string_view labe
 
 void ScheduleEmitter::_declare_convergence(
     schedule::ConvergenceId convergence, ::llvm::Value *divergent) {
+    if (_outline_scheduler_helpers) {
+        auto &ctx = _module.getContext();
+        auto *helper = _get_or_create_sched_declare_helper();
+        auto *mask_int_ty = ::llvm::IntegerType::get(ctx, _width);
+        auto *mask_arg_ty = _width <= 32u ?
+                                static_cast<::llvm::Type *>(_builder.getInt32Ty()) :
+                                static_cast<::llvm::Type *>(_builder.getInt64Ty());
+        auto *mask_bits = _builder.CreateZExt(
+            _builder.CreateBitCast(_active_mask, mask_int_ty), mask_arg_ty);
+        auto *call = _builder.CreateCall(
+            helper,
+            {_sched_state, _builder.getInt32(convergence.value),
+             divergent, mask_bits});
+        call->setCallingConv(helper->getCallingConv());
+        return;
+    }
     auto *current_token = _builder.CreateLoad(
-        _current_token->getAllocatedType(), _current_token);
+        _builder.getInt32Ty(), _current_token);
     auto *has_current = _builder.CreateICmpNE(
         current_token, _builder.getInt32(0u));
     auto *current_index = _builder.CreateSelect(
@@ -306,7 +754,7 @@ void ScheduleEmitter::_declare_convergence(
         _builder.CreateSub(current_token, _builder.getInt32(1u)),
         _builder.getInt32(0u));
     auto *active_frames = _builder.CreateLoad(
-        _frame_active->getAllocatedType(), _frame_active);
+        _frame_active_type, _frame_active);
     auto *current_active = _frame_is_active(
         active_frames, current_index);
     auto *current_static = _load_frame_metadata(
@@ -384,7 +832,7 @@ void ScheduleEmitter::_declare_convergence(
     if (_convergence_targets == nullptr) { return flow; }
     auto *any = _builder.CreateOrReduce(flow);
     auto *token = _builder.CreateLoad(
-        _current_token->getAllocatedType(), _current_token);
+        _builder.getInt32Ty(), _current_token);
     auto *has_token = _builder.CreateAnd(
         any, _builder.CreateICmpNE(token, _builder.getInt32(0u)));
     auto *index = _builder.CreateSelect(
@@ -392,7 +840,7 @@ void ScheduleEmitter::_declare_convergence(
         _builder.CreateSub(token, _builder.getInt32(1u)),
         _builder.getInt32(0u));
     auto *active_frames = _builder.CreateLoad(
-        _frame_active->getAllocatedType(), _frame_active);
+        _frame_active_type, _frame_active);
     auto *frame_active = _frame_is_active(active_frames, index);
     auto *static_id = _load_frame_metadata(
         _frame_static_id, index);
@@ -412,7 +860,7 @@ void ScheduleEmitter::_declare_convergence(
         _layout.mask_type(), arrived_ptr);
     auto *new_arrived = _builder.CreateOr(arrived, flow);
     auto *live = _builder.CreateLoad(
-        _live_mask->getAllocatedType(), _live_mask);
+        _layout.mask_type(), _live_mask);
     auto *expected_live = _builder.CreateAnd(expected, live);
     auto *complete = _builder.CreateAnd(
         matches,
@@ -436,7 +884,7 @@ void ScheduleEmitter::_declare_convergence(
 
     auto *matching_lanes = _builder.CreateAnd(flow, _splat(matches));
     auto *runnable = _builder.CreateLoad(
-        _runnable_mask->getAllocatedType(), _runnable_mask);
+        _layout.mask_type(), _runnable_mask);
     _builder.CreateStore(
         _builder.CreateAnd(runnable,
                            _builder.CreateNot(matching_lanes)),
@@ -461,6 +909,77 @@ void ScheduleEmitter::_declare_convergence(
     if (guard_empty_chain) {
         _result.convergence_token_guard_count++;
     }
+    if (_outline_scheduler_helpers &&
+        ::llvm::isa<::llvm::GlobalVariable>(_convergence_targets)) {
+        auto *helper = _get_or_create_sched_cascade_helper();
+        auto *preheader = _builder.GetInsertBlock();
+        auto *check_target = ::llvm::BasicBlock::Create(
+            _module.getContext(), "convergence.cascade.check", _entry);
+        auto *slow = ::llvm::BasicBlock::Create(
+            _module.getContext(), "convergence.cascade.call", _entry);
+        auto *exit = ::llvm::BasicBlock::Create(
+            _module.getContext(), "convergence.cascade.exit", _entry);
+        if (guard_empty_chain) {
+            auto *token = _builder.CreateLoad(
+                _builder.getInt32Ty(), _current_token,
+                "convergence.current.token");
+            _builder.CreateCondBr(
+                _builder.CreateICmpNE(
+                    token, _builder.getInt32(0u),
+                    "convergence.token.present"),
+                check_target, exit);
+            _builder.SetInsertPoint(check_target);
+            // Inline the top-frame target check before paying a helper call and
+            // caller-saved SIMD register spills on non-matching inner blocks.
+            auto *index = _builder.CreateSub(
+                token, _builder.getInt32(1u), "convergence.top.index");
+            auto *static_id = _builder.CreateLoad(
+                _builder.getInt32Ty(),
+                _builder.CreateInBoundsGEP(
+                    _ready_i32_type, _frame_static_id,
+                    {_builder.getInt32(0u), index}),
+                "convergence.top.sid");
+            auto *dyn_target = _builder.CreateLoad(
+                _builder.getInt32Ty(),
+                _builder.CreateInBoundsGEP(
+                    _builder.getInt32Ty(), _convergence_targets, static_id),
+                "convergence.top.target");
+            auto *target_br = _builder.CreateCondBr(
+                _builder.CreateICmpEQ(
+                    dyn_target, target, "convergence.top.matches"),
+                slow, exit);
+            target_br->setMetadata(
+                ::llvm::LLVMContext::MD_prof,
+                ::llvm::MDBuilder{_module.getContext()}.createBranchWeights(1u, 32u));
+        } else {
+            _builder.CreateBr(slow);
+        }
+        _builder.SetInsertPoint(slow);
+        auto &ctx = _module.getContext();
+        auto *mask_int_ty = ::llvm::IntegerType::get(ctx, _width);
+        auto *mask_arg_ty = _width <= 32u ?
+                                static_cast<::llvm::Type *>(_builder.getInt32Ty()) :
+                                static_cast<::llvm::Type *>(_builder.getInt64Ty());
+        auto *flow_bits = _builder.CreateZExt(
+            _builder.CreateBitCast(flow, mask_int_ty), mask_arg_ty);
+        auto *call = _builder.CreateCall(
+            helper,
+            {_sched_state, _convergence_targets, target, flow_bits});
+        call->setCallingConv(helper->getCallingConv());
+        auto *call_mask = _builder.CreateBitCast(
+            _builder.CreateTrunc(call, mask_int_ty), _layout.mask_type());
+        _builder.CreateBr(exit);
+        _builder.SetInsertPoint(exit);
+        if (guard_empty_chain) {
+            auto *result = _builder.CreatePHI(
+                _layout.mask_type(), 3u, "convergence.cascade.result");
+            result->addIncoming(flow, preheader);
+            result->addIncoming(flow, check_target);
+            result->addIncoming(call_mask, slow);
+            return result;
+        }
+        return call_mask;
+    }
     auto *preheader = _builder.GetInsertBlock();
     auto *loop = ::llvm::BasicBlock::Create(
         _module.getContext(), "convergence.cascade", _entry);
@@ -468,7 +987,7 @@ void ScheduleEmitter::_declare_convergence(
         _module.getContext(), "convergence.cascade.exit", _entry);
     if (guard_empty_chain) {
         auto *token = _builder.CreateLoad(
-            _current_token->getAllocatedType(), _current_token,
+            _builder.getInt32Ty(), _current_token,
             "convergence.current.token");
         _builder.CreateCondBr(
             _builder.CreateICmpNE(
@@ -498,7 +1017,7 @@ void ScheduleEmitter::_declare_convergence(
                 next_depth, _builder.getInt32(_width))));
     if (guard_empty_chain) {
         auto *next_token = _builder.CreateLoad(
-            _current_token->getAllocatedType(), _current_token,
+            _builder.getInt32Ty(), _current_token,
             "convergence.parent.token");
         more = _builder.CreateAnd(
             more,
@@ -525,9 +1044,23 @@ void ScheduleEmitter::_declare_convergence(
 void ScheduleEmitter::_resume(
     ::llvm::Value *target, ::llvm::Value *mask,
     ::llvm::Value *token) {
+    if (_outline_scheduler_helpers) {
+        auto &ctx = _module.getContext();
+        auto *helper = _get_or_create_sched_resume_helper();
+        auto *mask_int_ty = ::llvm::IntegerType::get(ctx, _width);
+        auto *mask_arg_ty = _width <= 32u ?
+                                static_cast<::llvm::Type *>(_builder.getInt32Ty()) :
+                                static_cast<::llvm::Type *>(_builder.getInt64Ty());
+        auto *mask_bits = _builder.CreateZExt(
+            _builder.CreateBitCast(mask, mask_int_ty), mask_arg_ty);
+        auto *call = _builder.CreateCall(
+            helper, {_sched_state, target, mask_bits, token});
+        call->setCallingConv(helper->getCallingConv());
+        return;
+    }
     auto *nonempty = _builder.CreateOrReduce(mask);
     auto *count = _builder.CreateLoad(
-        _ready_count->getAllocatedType(), _ready_count);
+        _builder.getInt32Ty(), _ready_count);
     _trap_if(
         _builder.CreateAnd(
             nonempty,
@@ -537,21 +1070,21 @@ void ScheduleEmitter::_resume(
     auto *index = _builder.CreateSelect(
         nonempty, count, _builder.getInt32(0u));
     auto *mask_ptr = _ready_element_pointer(
-        _ready_masks, index);
+        _ready_masks, _ready_masks_type, index);
     auto *old_mask = _builder.CreateLoad(
         _layout.mask_type(), mask_ptr);
     _builder.CreateStore(
         _builder.CreateSelect(nonempty, mask, old_mask),
         mask_ptr);
     auto *target_ptr = _ready_element_pointer(
-        _ready_targets, index);
+        _ready_targets, _ready_i32_type, index);
     auto *old_target = _builder.CreateLoad(
         _builder.getInt32Ty(), target_ptr);
     _builder.CreateStore(
         _builder.CreateSelect(nonempty, target, old_target),
         target_ptr);
     auto *token_ptr = _ready_element_pointer(
-        _ready_tokens, index);
+        _ready_tokens, _ready_i32_type, index);
     auto *old_token = _builder.CreateLoad(
         _builder.getInt32Ty(), token_ptr);
     _builder.CreateStore(
@@ -564,7 +1097,7 @@ void ScheduleEmitter::_resume(
             count),
         _ready_count);
     auto *runnable = _builder.CreateLoad(
-        _runnable_mask->getAllocatedType(), _runnable_mask);
+        _layout.mask_type(), _runnable_mask);
     _builder.CreateStore(_builder.CreateOr(runnable, mask),
                          _runnable_mask);
 }
@@ -572,7 +1105,7 @@ void ScheduleEmitter::_resume(
 void ScheduleEmitter::_resume(
     ::llvm::Value *target, ::llvm::Value *mask) {
     auto *token = _builder.CreateLoad(
-        _current_token->getAllocatedType(), _current_token);
+        _builder.getInt32Ty(), _current_token);
     _resume(target, mask, token);
 }
 
@@ -609,1139 +1142,6 @@ void ScheduleEmitter::_emit_arrival(const schedule::ControlEdge &edge,
     if (flow != nullptr) {
         _continue_at(edge.target, flow);
     }
-}
-
-void ScheduleEmitter::_find_instruction_spills() {
-    _spilled_instruction_values.assign(
-        _source.values().size(), uint8_t{0u});
-    std::vector<schedule::BlockId> emission_blocks;
-    emission_blocks.reserve(_source.blocks().size());
-    for (auto &&block : _source.blocks()) {
-        emission_blocks.emplace_back(block.id);
-    }
-    std::vector<uint8_t> chained_blocks(
-        _source.blocks().size(), uint8_t{0u});
-    auto in_structured_loop = [&](schedule::BlockId id) noexcept {
-        return _structured_early_exit_loop &&
-               std::find(
-                   _structured_early_exit_loop->loop->blocks.cbegin(),
-                   _structured_early_exit_loop->loop->blocks.cend(), id) !=
-                   _structured_early_exit_loop->loop->blocks.cend();
-    };
-    if (!_predicated_acyclic_control_flow) {
-        for (auto &&block : _source.blocks()) {
-            if (chained_blocks[block.id.value] != 0u) { continue; }
-            if (auto region =
-                    _find_chained_predicated_region(block)) {
-                chained_blocks[block.id.value] = 1u;
-                for (auto *inlined : region->inlined_blocks) {
-                    emission_blocks[inlined->id.value] = block.id;
-                    chained_blocks[inlined->id.value] = 1u;
-                }
-            }
-        }
-        for (auto &&block : _source.blocks()) {
-            if (chained_blocks[block.id.value] != 0u) { continue; }
-            if (auto diamond =
-                    _find_guarded_predicated_math_diamond(
-                        block, in_structured_loop(block.id))) {
-                for (auto *arm : diamond->true_blocks) {
-                    emission_blocks[arm->id.value] = block.id;
-                }
-                for (auto *arm : diamond->false_blocks) {
-                    emission_blocks[arm->id.value] = block.id;
-                }
-            }
-        }
-        for (auto &&block : _source.blocks()) {
-            if (chained_blocks[block.id.value] != 0u) { continue; }
-            if (auto region = _find_nested_predicated_region(
-                    block, in_structured_loop(block.id))) {
-                emission_blocks[region->nested_split_block->id.value] =
-                    block.id;
-                for (auto *arm : region->nested_diamond.true_blocks) {
-                    emission_blocks[arm->id.value] = block.id;
-                }
-                for (auto *arm : region->nested_diamond.false_blocks) {
-                    emission_blocks[arm->id.value] = block.id;
-                }
-                emission_blocks[region->nested_merge_block->id.value] =
-                    block.id;
-                emission_blocks[region->other_block->id.value] = block.id;
-            }
-        }
-    }
-    if (_direct_control_flow) {
-        for (auto &&block : _source.blocks()) {
-            if (auto diamond =
-                    _find_predicated_memory_diamond(block)) {
-                if (diamond->true_block) { emission_blocks[diamond->true_block->id.value] = block.id; }
-                if (diamond->false_block) { emission_blocks[diamond->false_block->id.value] = block.id; }
-            }
-        }
-    }
-    auto mark = [&](schedule::ValueId id,
-                    schedule::BlockId use_block) noexcept {
-        auto *value = _source.value(id);
-        if (value != nullptr &&
-            value->origin == schedule::ValueOrigin::instruction &&
-            value->defining_block &&
-            emission_blocks[value->defining_block->value] !=
-                emission_blocks[use_block.value]) {
-            _spilled_instruction_values[id.value] = 1u;
-        }
-    };
-    for (auto &&block : _source.blocks()) {
-        // Predicated direct-control diamonds emit both arms in the split
-        // block. Compare definition and use after that emission-block remap:
-        // arm-local/outer values remain LLVM SSA, while a value genuinely
-        // produced by an earlier emitted block still receives a spill slot.
-        for (auto &&instruction : block.instructions) {
-            for (auto operand : instruction.operands) {
-                mark(operand, block.id);
-            }
-            if (instruction.participant_mask) {
-                mark(*instruction.participant_mask, block.id);
-            }
-        }
-        auto mark_assignments = [&](const auto &assignments) noexcept {
-            for (auto assignment : assignments) {
-                mark(assignment.source, block.id);
-            }
-        };
-        auto mark_edge = [&](const schedule::ControlEdge &edge) noexcept {
-            mark_assignments(edge.assignments);
-        };
-        std::visit(
-            [&](const auto &terminator) noexcept {
-                using T = std::decay_t<decltype(terminator)>;
-                if constexpr (std::is_same_v<
-                                  T, schedule::BranchTerminator>) {
-                    mark_edge(terminator.edge);
-                } else if constexpr (std::is_same_v<
-                                         T, schedule::SplitTerminator>) {
-                    mark(terminator.condition, block.id);
-                    mark_edge(terminator.true_edge);
-                    mark_edge(terminator.false_edge);
-                } else if constexpr (std::is_same_v<
-                                         T, schedule::SwitchTerminator>) {
-                    mark(terminator.selector, block.id);
-                    for (auto &&item : terminator.cases) {
-                        mark_edge(item.edge);
-                    }
-                    mark_edge(terminator.default_edge);
-                } else if constexpr (std::is_same_v<
-                                         T, schedule::JoinTerminator> ||
-                                     std::is_same_v<
-                                         T, schedule::LoopBackTerminator>) {
-                    mark_assignments(terminator.assignments);
-                } else if constexpr (std::is_same_v<
-                                         T,
-                                         schedule::BlockBarrierTerminator>) {
-                    mark_edge(terminator.resume_edge);
-                } else if constexpr (std::is_same_v<
-                                         T, schedule::ReturnTerminator>) {
-                    if (terminator.value) {
-                        mark(*terminator.value, block.id);
-                    }
-                }
-            },
-            block.terminator);
-    }
-}
-
-void ScheduleEmitter::_allocate_state() {
-    if (!_direct_control_flow &&
-        !_predicated_acyclic_control_flow) {
-        for (auto &&block : _source.blocks()) {
-            if (auto candidate =
-                    _find_structured_early_exit_loop(block)) {
-                _structured_early_exit_loop =
-                    std::move(*candidate);
-                break;
-            }
-        }
-    }
-    if (!_direct_control_flow &&
-        !_predicated_acyclic_control_flow) {
-        auto *mask_type = _layout.mask_type();
-        auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
-        // Dynamic whole-vector frame updates are cheaper through promoted
-        // vectors at W1--W8, but measurably increase register/stack pressure
-        // at W16. Keep this width policy independently A/B-testable.
-        _use_scalar_frame_metadata =
-            _width == 16u &&
-            !luisa::compute::detail::env_flag(
-                "LUISA_SIMD_DISABLE_SCALAR_FRAME_METADATA");
-        _result.scalar_frame_metadata =
-            _use_scalar_frame_metadata;
-        auto *i32_lanes = _use_scalar_frame_metadata ?
-                              static_cast<::llvm::Type *>(
-                                  ::llvm::ArrayType::get(
-                                      _builder.getInt32Ty(), _width)) :
-                              static_cast<::llvm::Type *>(
-                                  ::llvm::FixedVectorType::get(
-                                      _builder.getInt32Ty(), _width));
-        auto *zero_i32_lanes = ::llvm::Constant::getNullValue(i32_lanes);
-        auto *frame_active_type = ::llvm::IntegerType::get(
-            _module.getContext(), _width);
-        _live_mask = _builder.CreateAlloca(
-            mask_type, nullptr, "live.mask");
-        _runnable_mask = _builder.CreateAlloca(
-            mask_type, nullptr, "runnable.mask");
-        _ready_count = _builder.CreateAlloca(
-            _builder.getInt32Ty(), nullptr, "ready.count");
-        auto *ready_masks = ::llvm::ArrayType::get(
-            mask_type, _width);
-        _ready_masks = _builder.CreateAlloca(
-            ready_masks, nullptr, "ready.mask");
-        auto *ready_targets = ::llvm::ArrayType::get(
-            _builder.getInt32Ty(), _width);
-        _ready_targets = _builder.CreateAlloca(
-            ready_targets, nullptr, "ready.target");
-        auto *ready_tokens = ::llvm::ArrayType::get(
-            _builder.getInt32Ty(), _width);
-        _ready_tokens = _builder.CreateAlloca(
-            ready_tokens, nullptr, "ready.token");
-        _current_mask = _builder.CreateAlloca(
-            mask_type, nullptr, "current.mask");
-        _current_token = _builder.CreateAlloca(
-            _builder.getInt32Ty(), nullptr, "current.token");
-        _frame_active = _builder.CreateAlloca(
-            frame_active_type, nullptr, "frame.active");
-        _frame_static_id = _builder.CreateAlloca(
-            i32_lanes, nullptr, "frame.static.id");
-        _frame_parent_token = _builder.CreateAlloca(
-            i32_lanes, nullptr, "frame.parent.token");
-        auto *frame_masks = ::llvm::ArrayType::get(mask_type, _width);
-        _frame_expected = _builder.CreateAlloca(
-            frame_masks, nullptr, "frame.expected");
-        _frame_arrived = _builder.CreateAlloca(
-            frame_masks, nullptr, "frame.arrived");
-        _builder.CreateStore(zero_mask, _live_mask);
-        _builder.CreateStore(zero_mask, _runnable_mask);
-        _builder.CreateStore(
-            _builder.getInt32(0u), _ready_count);
-        _builder.CreateStore(
-            ::llvm::Constant::getNullValue(ready_masks),
-            _ready_masks);
-        _builder.CreateStore(
-            ::llvm::Constant::getNullValue(ready_targets),
-            _ready_targets);
-        _builder.CreateStore(
-            ::llvm::Constant::getNullValue(ready_tokens),
-            _ready_tokens);
-        _builder.CreateStore(zero_mask, _current_mask);
-        _builder.CreateStore(
-            _builder.getInt32(0u), _current_token);
-        _builder.CreateStore(
-            ::llvm::Constant::getNullValue(frame_active_type),
-            _frame_active);
-        _builder.CreateStore(zero_i32_lanes, _frame_static_id);
-        _builder.CreateStore(zero_i32_lanes, _frame_parent_token);
-        _builder.CreateStore(
-            ::llvm::Constant::getNullValue(frame_masks),
-            _frame_expected);
-        _builder.CreateStore(
-            ::llvm::Constant::getNullValue(frame_masks),
-            _frame_arrived);
-
-        auto *loop_epoch_type = ::llvm::FixedVectorType::get(
-            _builder.getInt64Ty(), _width);
-        _cooperative_loop_epochs.reserve(
-            _result.block_barrier_loop_epoch_count);
-        for (auto index = size_t{0u};
-             index < _result.block_barrier_loop_epoch_count; index++) {
-            auto *epoch = _builder.CreateAlloca(
-                loop_epoch_type, nullptr,
-                "cooperative.loop.epoch." + std::to_string(index));
-            _builder.CreateStore(
-                ::llvm::Constant::getNullValue(loop_epoch_type), epoch);
-            _cooperative_loop_epochs.emplace_back(epoch);
-        }
-
-        std::vector<::llvm::Constant *> convergence_targets;
-        convergence_targets.reserve(
-            _source.convergence_points().size());
-        for (auto &&point : _source.convergence_points()) {
-            convergence_targets.emplace_back(
-                _builder.getInt32(point.target.value));
-        }
-        if (!convergence_targets.empty() && _width >= 4u) {
-            auto *array = ::llvm::ArrayType::get(
-                _builder.getInt32Ty(), convergence_targets.size());
-            auto *initializer = ::llvm::ConstantArray::get(
-                array, convergence_targets);
-            auto *global = new ::llvm::GlobalVariable(
-                _module, array, true,
-                ::llvm::GlobalValue::PrivateLinkage, initializer,
-                "convergence.targets");
-            global->setUnnamedAddr(
-                ::llvm::GlobalValue::UnnamedAddr::Global);
-            global->setAlignment(::llvm::Align{4u});
-            _convergence_targets = global;
-        } else if (!convergence_targets.empty()) {
-            _convergence_targets =
-                ::llvm::ConstantVector::get(convergence_targets);
-        }
-        _target_convergence_depths.assign(
-            _source.blocks().size(), 0u);
-        for (auto &&point : _source.convergence_points()) {
-            ++_target_convergence_depths[point.target.value];
-        }
-    }
-    _find_instruction_spills();
-    _local_allocations.resize(_source.values().size(), nullptr);
-    _find_interleaved_private_arrays();
-    _shared_memory_size = 0u;
-    // A private Tile is replicated per packet lane. Bound this physical
-    // allocation before choosing stack versus Runtime-owned workspace, not
-    // merely the size of one logical worker's array. No lifetime coalescing
-    // is assumed: every allocation receives a distinct aligned interval.
-    auto private_bytes = size_t{0u};
-    if (_private_stack_budget_bytes != 0u) {
-        for (auto &&block : _source.blocks()) {
-            for (auto &&instruction : block.instructions) {
-                if (instruction.opcode != schedule::Opcode::alloca ||
-                    !instruction.result || _is_shared_lvalue(*instruction.result)) { continue; }
-                auto *value = _source.value(*instruction.result);
-                if (value == nullptr || value->type == nullptr) {
-                    _fail("private workspace allocation has an invalid type");
-                    return;
-                }
-                auto size = _abi_size(value->type);
-                auto alignment = _abi_alignment(value->type);
-                if (alignment > 64u || size > simd_max_private_workspace_bytes / _width) {
-                    _fail("SIMD private workspace exceeds the runtime capacity/alignment limit");
-                    return;
-                }
-                auto offset = _align_up(private_bytes, alignment);
-                auto bytes = size * _width;
-                if (offset > simd_max_private_workspace_bytes || bytes > simd_max_private_workspace_bytes - offset) {
-                    _fail("SIMD private workspace exceeds the runtime capacity limit");
-                    return;
-                }
-                private_bytes = offset + bytes;
-            }
-        }
-        if (private_bytes > _private_stack_budget_bytes) {
-            if (_cooperative_block || _is_handler_entry() || !_ray_query_pipeline_handlers.empty()) {
-                _fail("private workspace reuse requires independent non-cooperative packets without nested handlers");
-                return;
-            }
-            _result.private_workspace_size = private_bytes;
-        }
-    }
-    auto private_offset = size_t{0u};
-    for (auto &&block : _source.blocks()) {
-        for (auto &&instruction : block.instructions) {
-            if (instruction.opcode != schedule::Opcode::alloca ||
-                !instruction.result) {
-                continue;
-            }
-            auto *value = _source.value(*instruction.result);
-            auto value_size = value == nullptr ? 0u :
-                                                 _abi_size(value->type);
-            auto value_alignment = value == nullptr ? 1u :
-                                                      _abi_alignment(value->type);
-            if (value == nullptr || value->type == nullptr ||
-                !_is_local_lvalue(*instruction.result) ||
-                value_size == 0u) {
-                _fail("thread-local allocation has an invalid data type");
-                return;
-            }
-            if (_is_shared_lvalue(*instruction.result)) {
-                auto alignment = std::max<size_t>(
-                    value_alignment, 16u);
-                auto offset = _align_up(
-                    _shared_memory_size, alignment);
-                if (offset > simd_max_shared_memory_bytes ||
-                    value_size >
-                        simd_max_shared_memory_bytes - offset) {
-                    _fail("SIMD cooperative shared memory exceeds the runtime limit");
-                    return;
-                }
-                _shared_memory_size = offset + value_size;
-                auto *shared_address = _byte_pointer(
-                    _launch_config,
-                    offsetof(SIMDPacketLaunchConfig, shared_memory));
-                auto *shared = _builder.CreateLoad(
-                    ::llvm::PointerType::getUnqual(
-                        _module.getContext()),
-                    shared_address, "shared.memory");
-                auto *base = offset == 0u ?
-                                 shared :
-                                 _builder.CreateInBoundsPtrAdd(
-                                     shared,
-                                     _builder.getInt64(offset));
-                auto *zero_offsets = ::llvm::Constant::getNullValue(
-                    ::llvm::FixedVectorType::get(
-                        _builder.getInt64Ty(), _width));
-                _local_allocations[instruction.result->value] =
-                    _local_handle(
-                        _builder.CreateVectorSplat(_width, base),
-                        zero_offsets);
-            } else {
-                auto byte_count = static_cast<uint64_t>(_width) *
-                                  value_size;
-                ::llvm::Value *storage = nullptr;
-                if (_result.private_workspace_size != 0u) {
-                    private_offset = _align_up(private_offset, value_alignment);
-                    auto *address = _byte_pointer(_launch_config, offsetof(SIMDPacketLaunchConfig, private_workspace));
-                    auto *workspace = _builder.CreateLoad(::llvm::PointerType::getUnqual(_module.getContext()), address, "private.workspace");
-                    storage = _builder.CreateInBoundsPtrAdd(workspace, _builder.getInt64(private_offset), value->name + ".private");
-                    private_offset += byte_count;
-                } else {
-                    auto *storage_type = ::llvm::ArrayType::get(_builder.getInt8Ty(), byte_count);
-                    auto *local = _builder.CreateAlloca(storage_type, nullptr, value->name + ".local");
-                    local->setAlignment(::llvm::Align{value_alignment});
-                    storage = local;
-                }
-                auto *offsets = _lane_offsets(
-                    _lane_ids(), _interleaved_local_values[instruction.result->value] ? value->type->element()->size() : value_size);
-                _local_allocations[instruction.result->value] =
-                    _local_handle(
-                        _builder.CreateVectorSplat(_width, storage),
-                        offsets);
-            }
-        }
-    }
-    _result.shared_memory_size = _shared_memory_size;
-    for (auto slot = size_t{0u};
-         slot < _ray_query_status_storage.size(); slot++) {
-        auto *storage = _builder.CreateAlloca(
-            _builder.getInt64Ty(), nullptr,
-            "ray.query.status.slot." + std::to_string(slot));
-        storage->setAlignment(::llvm::Align{alignof(uint64_t)});
-        _builder.CreateStore(_builder.getInt64(0u), storage);
-        _ray_query_status_storage[slot] = storage;
-        auto *callback_type = ::llvm::FixedVectorType::get(
-            ::llvm::PointerType::getUnqual(_module.getContext()), _width);
-        auto *callback = _builder.CreateAlloca(
-            callback_type, nullptr,
-            "ray.query.status.callback.slot." + std::to_string(slot));
-        callback->setAlignment(::llvm::Align{alignof(void *)});
-        _builder.CreateAlignedStore(
-            ::llvm::Constant::getNullValue(callback_type),
-            callback, ::llvm::Align{alignof(void *)});
-        _ray_query_status_callback_storage[slot] = callback;
-        if (slot < _ray_query_pipeline_callback_storage.size()) {
-            auto *pipeline_callback = _builder.CreateAlloca(
-                callback_type, nullptr,
-                "ray.query.pipeline.w1.callback.slot." +
-                    std::to_string(slot));
-            pipeline_callback->setAlignment(
-                ::llvm::Align{alignof(void *)});
-            _builder.CreateAlignedStore(
-                ::llvm::Constant::getNullValue(callback_type),
-                pipeline_callback,
-                ::llvm::Align{alignof(void *)});
-            _ray_query_pipeline_callback_storage[slot] =
-                pipeline_callback;
-        }
-        if (slot <
-            _ray_query_surface_filter_pipeline_callback_storage.size()) {
-            auto *pipeline_callback = _builder.CreateAlloca(
-                callback_type, nullptr,
-                "ray.query.surface.filter.pipeline.callback.slot." +
-                    std::to_string(slot));
-            pipeline_callback->setAlignment(
-                ::llvm::Align{alignof(void *)});
-            _builder.CreateAlignedStore(
-                ::llvm::Constant::getNullValue(callback_type),
-                pipeline_callback,
-                ::llvm::Align{alignof(void *)});
-            _ray_query_surface_filter_pipeline_callback_storage[slot] =
-                pipeline_callback;
-        }
-        if (slot <
-            _ray_query_empty_surface_filter_pipeline_callback_storage.size()) {
-            auto *pipeline_callback = _builder.CreateAlloca(
-                callback_type, nullptr,
-                "ray.query.empty.surface.filter.pipeline.callback.slot." +
-                    std::to_string(slot));
-            pipeline_callback->setAlignment(
-                ::llvm::Align{alignof(void *)});
-            _builder.CreateAlignedStore(
-                ::llvm::Constant::getNullValue(callback_type),
-                pipeline_callback,
-                ::llvm::Align{alignof(void *)});
-            _ray_query_empty_surface_filter_pipeline_callback_storage[slot] =
-                pipeline_callback;
-        }
-        if (slot < _ray_query_empty_surface_filter_accel_storage.size()) {
-            auto *accel = _builder.CreateAlloca(
-                callback_type, nullptr,
-                "ray.query.empty.surface.filter.accel.slot." +
-                    std::to_string(slot));
-            accel->setAlignment(::llvm::Align{alignof(void *)});
-            _builder.CreateAlignedStore(
-                ::llvm::Constant::getNullValue(callback_type), accel,
-                ::llvm::Align{alignof(void *)});
-            _ray_query_empty_surface_filter_accel_storage[slot] = accel;
-        }
-        if (slot <
-            _ray_query_direct_output_surface_filter_pipeline_callback_storage
-                .size()) {
-            auto *pipeline_callback = _builder.CreateAlloca(
-                callback_type, nullptr,
-                "ray.query.direct.output.surface.filter.pipeline.callback.slot." +
-                    std::to_string(slot));
-            pipeline_callback->setAlignment(
-                ::llvm::Align{alignof(void *)});
-            _builder.CreateAlignedStore(
-                ::llvm::Constant::getNullValue(callback_type),
-                pipeline_callback,
-                ::llvm::Align{alignof(void *)});
-            _ray_query_direct_output_surface_filter_pipeline_callback_storage
-                [slot] = pipeline_callback;
-        }
-        if (slot <
-            _ray_query_direct_output_surface_filter_accel_storage.size()) {
-            auto *accel = _builder.CreateAlloca(
-                callback_type, nullptr,
-                "ray.query.direct.output.surface.filter.accel.slot." +
-                    std::to_string(slot));
-            accel->setAlignment(::llvm::Align{alignof(void *)});
-            _builder.CreateAlignedStore(
-                ::llvm::Constant::getNullValue(callback_type), accel,
-                ::llvm::Align{alignof(void *)});
-            _ray_query_direct_output_surface_filter_accel_storage[slot] =
-                accel;
-        }
-        if (slot < _ray_query_output_packet_storage.size()) {
-            auto *committed_type = ::llvm::ArrayType::get(
-                _builder.getInt8Ty(),
-                sizeof(SIMDHostRayQueryOutputPacket));
-            auto *committed = _builder.CreateAlloca(
-                committed_type, nullptr,
-                "ray.query.output.packet.slot." +
-                    std::to_string(slot));
-            committed->setAlignment(::llvm::Align{
-                alignof(SIMDHostRayQueryOutputPacket)});
-            _ray_query_output_packet_storage[slot] = committed;
-        }
-        if (slot <
-            _ray_query_surface_filter_ray_packet_storage.size()) {
-            auto *lane_type = ::llvm::FixedVectorType::get(
-                _builder.getInt32Ty(), _width);
-            auto *packet_type = ::llvm::ArrayType::get(
-                lane_type, simd_host_accel_ray_packet_field_count);
-            auto *ray_packet = _builder.CreateAlloca(
-                packet_type, nullptr,
-                "ray.query.surface.filter.ray.packet.slot." +
-                    std::to_string(slot));
-            ray_packet->setAlignment(::llvm::Align{
-                _width * sizeof(uint32_t)});
-            _ray_query_surface_filter_ray_packet_storage[slot] =
-                ray_packet;
-            auto *call_packet = _builder.CreateAlloca(
-                packet_type, nullptr,
-                "ray.query.surface.filter.call.ray.packet.slot." +
-                    std::to_string(slot));
-            call_packet->setAlignment(::llvm::Align{
-                _width * sizeof(uint32_t)});
-            _ray_query_surface_filter_ray_packet_call_storage[slot] =
-                call_packet;
-        }
-        if (slot < _ray_query_state_handle_storage.size()) {
-            auto *state_handles = _builder.CreateAlloca(
-                callback_type, nullptr,
-                "ray.query.state.handles.slot." + std::to_string(slot));
-            state_handles->setAlignment(::llvm::Align{alignof(void *)});
-            _builder.CreateAlignedStore(
-                ::llvm::Constant::getNullValue(callback_type),
-                state_handles, ::llvm::Align{alignof(void *)});
-            _ray_query_state_handle_storage[slot] = state_handles;
-        }
-    }
-    _state_slots.resize(_source.values().size(), nullptr);
-    for (auto &&value : _source.values()) {
-        auto spill = value.id.value <
-                         _spilled_instruction_values.size() &&
-                     _spilled_instruction_values[value.id.value] != 0u;
-        if (value.origin != schedule::ValueOrigin::state_slot &&
-            !spill) {
-            continue;
-        }
-        auto *type = _is_local_lvalue(value.id) ?
-                         static_cast<::llvm::Type *>(_local_handle_type()) :
-                     _direct_control_flow &&
-                             value.value_class ==
-                                 schedule::ValueClass::cohort_uniform ?
-                         _layout.expression_type(value) :
-                         _layout.state_type(value);
-        if (type == nullptr) {
-            _fail(_layout.error());
-            return;
-        }
-        auto *slot = _builder.CreateAlloca(
-            type, nullptr,
-            value.name + (spill ? ".spill" : ".slot"));
-        _builder.CreateStore(::llvm::Constant::getNullValue(type), slot);
-        _state_slots[value.id.value] = slot;
-        _result.state_slot_count++;
-        _result.spilled_instruction_count += spill;
-    }
-    _coalesce_state_slots();
-}
-
-void ScheduleEmitter::_partition_state_residency() {
-    // LLVM's default O2 pipeline promotes eligible allocas through the global
-    // dispatcher. That is profitable for hot state, but a large set of rarely
-    // accessed slots creates wide scheduler PHIs and ultimately physical
-    // register spills. Keep hot state promotable and pin cold state to its L1
-    // stack slot when cold state dominates the function's state set.
-    static constexpr auto max_cold_accesses = size_t{6u};
-    static constexpr auto high_pressure_state_slot_count = size_t{2048u};
-    static constexpr auto max_high_pressure_promotable_state_slots =
-        size_t{256u};
-    auto count_accesses = [](const ::llvm::AllocaInst *slot) noexcept {
-        auto count = size_t{0u};
-        for (auto *user : slot->users()) {
-            count += ::llvm::isa<::llvm::LoadInst>(user) ||
-                     ::llvm::isa<::llvm::StoreInst>(user);
-        }
-        return count;
-    };
-    std::vector<::llvm::AllocaInst *> physical_slots;
-    physical_slots.reserve(_state_slots.size());
-    std::unordered_set<::llvm::AllocaInst *> seen_slots;
-    seen_slots.reserve(_state_slots.size());
-    for (auto *slot : _state_slots) {
-        if (slot != nullptr && seen_slots.emplace(slot).second) {
-            physical_slots.emplace_back(slot);
-        }
-    }
-    auto slot_count = physical_slots.size();
-    auto cold_count = size_t{0u};
-    for (auto *slot : physical_slots) {
-        cold_count += count_accesses(slot) <= max_cold_accesses;
-    }
-    _result.cold_state_slot_count = cold_count;
-    if (slot_count == 0u ||
-        luisa::compute::detail::env_flag(
-            "LUISA_SIMD_DISABLE_COLD_STATE_PARTITION")) {
-        return;
-    }
-    auto pin = [&](::llvm::AllocaInst *slot) noexcept {
-        for (auto *user : slot->users()) {
-            if (auto *load = ::llvm::dyn_cast<::llvm::LoadInst>(user)) {
-                load->setVolatile(true);
-            } else if (auto *store =
-                           ::llvm::dyn_cast<::llvm::StoreInst>(user)) {
-                store->setVolatile(true);
-            }
-        }
-        _result.stack_pinned_state_slot_count++;
-    };
-
-    // Coalescing has already collapsed mutually exclusive PHI versions into
-    // a much smaller physical set. Pinning a majority of that set recreates
-    // the very copy/load traffic the liveness proof removed, so leave compact
-    // state promotable. Very large graphics kernels are different: asking
-    // LLVM SROA to promote thousands of slots through the global dispatcher
-    // creates a basic-block-by-slot SSA explosion before codegen. Bound that
-    // work by ranking slots by direct access count, keeping only the hottest
-    // fixed-size prefix promotable and preserving all other state in its L1
-    // stack slot.
-    auto high_pressure =
-        slot_count >= high_pressure_state_slot_count;
-    if (high_pressure) {
-        std::stable_sort(
-            physical_slots.begin(), physical_slots.end(),
-            [&](auto *lhs, auto *rhs) noexcept {
-                return count_accesses(lhs) > count_accesses(rhs);
-            });
-        for (auto index = max_high_pressure_promotable_state_slots;
-             index < physical_slots.size(); index++) {
-            pin(physical_slots[index]);
-        }
-        return;
-    }
-    if (_result.coalesced_state_slot_count != 0u ||
-        cold_count * 2u < slot_count) {
-        return;
-    }
-    for (auto *slot : physical_slots) {
-        if (count_accesses(slot) <= max_cold_accesses) { pin(slot); }
-    }
-}
-
-void ScheduleEmitter::_build() {
-    auto &context = _module.getContext();
-    auto handler_entry = _is_handler_entry();
-    auto parameter_types = std::vector<::llvm::Type *>{};
-    if (handler_entry) {
-        if (_is_surface_filter_handler_entry()) {
-            parameter_types = {
-                ::llvm::Type::getInt32Ty(context),
-                ::llvm::Type::getInt64Ty(context),
-                ::llvm::PointerType::getUnqual(context),
-                ::llvm::PointerType::getUnqual(context),
-                ::llvm::PointerType::getUnqual(context)};
-        } else {
-            parameter_types = {
-                ::llvm::Type::getInt32Ty(context),
-                ::llvm::Type::getInt64Ty(context),
-                ::llvm::PointerType::getUnqual(context),
-                ::llvm::PointerType::getUnqual(context)};
-            parameter_types.reserve(3u + _parameters.size());
-            for (auto index = size_t{1u};
-                 index < _parameters.size(); index++) {
-                auto *type = _handler_parameter_type(
-                    *_parameters[index]);
-                if (type == nullptr) { return; }
-                parameter_types.emplace_back(type);
-            }
-        }
-    } else {
-        parameter_types = {
-            ::llvm::PointerType::getUnqual(context),
-            ::llvm::PointerType::getUnqual(context),
-            ::llvm::PointerType::getUnqual(context),
-            ::llvm::Type::getInt32Ty(context)};
-    }
-    auto *function_type = ::llvm::FunctionType::get(
-        !handler_entry && _cooperative_block ?
-            static_cast<::llvm::Type *>(
-                ::llvm::PointerType::getUnqual(context)) :
-            static_cast<::llvm::Type *>(
-                ::llvm::Type::getVoidTy(context)),
-        parameter_types,
-        false);
-    if (_entry_name.empty()) {
-        _entry_name = _source.name().empty() ? "simd_kernel" :
-                                               _source.name();
-        _entry_name += ".simd_w" + std::to_string(_width);
-    }
-    if (_module.getFunction(_entry_name) != nullptr) {
-        _fail("LLVM module already contains the requested SIMD entry name");
-        return;
-    }
-    _entry = ::llvm::Function::Create(
-        function_type,
-        handler_entry ? ::llvm::GlobalValue::InternalLinkage :
-                        ::llvm::GlobalValue::ExternalLinkage,
-        _entry_name, _module);
-    if (handler_entry) {
-        _entry->setDSOLocal(true);
-        _entry->addFnAttr(::llvm::Attribute::InlineHint);
-        if (_is_surface_filter_handler_entry()) {
-            for (auto index : {2u, 3u}) {
-                _entry->addParamAttr(index, ::llvm::Attribute::NonNull);
-                _entry->addParamAttr(index, ::llvm::Attribute::ReadOnly);
-            }
-            _entry->addParamAttr(4u, ::llvm::Attribute::NonNull);
-            _entry->addParamAttr(4u, ::llvm::Attribute::NoAlias);
-        }
-    }
-    _result.schedule_block_count = _source.blocks().size();
-    _result.convergence_point_count =
-        _source.convergence_points().size();
-    auto argument = _entry->arg_begin();
-    if (handler_entry) {
-        _active_lane_count = &*argument++;
-        _active_lane_count->setName("lane_count");
-        _handler_active_mask_bits = &*argument++;
-        _handler_active_mask_bits->setName("active_mask_bits");
-        if (_is_surface_filter_handler_entry()) {
-            auto *pointer_type =
-                ::llvm::PointerType::getUnqual(context);
-            _argument_buffer =
-                ::llvm::ConstantPointerNull::get(pointer_type);
-            _launch_config =
-                ::llvm::ConstantPointerNull::get(pointer_type);
-            _surface_filter_ray_packet = &*argument++;
-            _surface_filter_ray_packet->setName("ray_packet");
-            _surface_filter_hit_packet = &*argument++;
-            _surface_filter_hit_packet->setName("hit_packet");
-            _surface_filter_committed_mask_bits = &*argument;
-            _surface_filter_committed_mask_bits->setName(
-                "committed_mask_bits");
-        } else {
-            _argument_buffer = &*argument++;
-            _argument_buffer->setName("state_pointer_lanes");
-            _launch_config = &*argument++;
-            _launch_config->setName("launch_config");
-            for (auto index = size_t{1u};
-                 index < _parameters.size(); index++) {
-                argument->setName(
-                    "capture." + std::to_string(index - 1u));
-                ++argument;
-            }
-        }
-        _return_buffer = ::llvm::ConstantPointerNull::get(
-            ::llvm::PointerType::getUnqual(context));
-    } else {
-        _argument_buffer = &*argument++;
-        _argument_buffer->setName("argument_buffer");
-        _return_buffer = &*argument++;
-        _return_buffer->setName("return_lanes");
-        _launch_config = &*argument++;
-        _launch_config->setName("launch_config");
-        _active_lane_count = &*argument;
-        _active_lane_count->setName("active_lane_count");
-    }
-    // The runtime owns launch_config separately from every resource and from
-    // the packed descriptor buffer. The packet body only observes it. These
-    // attributes let an inlined batch hoist immutable launch geometry across
-    // packet iterations without changing the portable packet ABI.
-    if (!handler_entry &&
-        !luisa::compute::detail::env_flag(
-            "LUISA_SIMD_DISABLE_PACKET_ABI_ALIAS_ATTRIBUTES")) {
-        _entry->addParamAttr(0u, ::llvm::Attribute::NoAlias);
-        _entry->addParamAttr(0u, ::llvm::Attribute::ReadOnly);
-        _entry->addParamAttr(2u, ::llvm::Attribute::NoAlias);
-        _entry->addParamAttr(2u, ::llvm::Attribute::NonNull);
-        if (!_cooperative_block) {
-            _entry->addParamAttr(2u, ::llvm::Attribute::ReadOnly);
-        }
-    }
-
-    auto *prologue = ::llvm::BasicBlock::Create(
-        context, "prologue", _entry);
-    _builder.SetInsertPoint(prologue);
-    if (handler_entry) {
-        _entry->addParamAttr(2u, ::llvm::Attribute::NoAlias);
-        _entry->addParamAttr(2u, ::llvm::Attribute::NonNull);
-        _entry->addParamAttr(3u, ::llvm::Attribute::NoAlias);
-        _entry->addParamAttr(3u, ::llvm::Attribute::NonNull);
-        _entry->addParamAttr(3u, ::llvm::Attribute::ReadOnly);
-        _trap_if(
-            _builder.CreateICmpNE(
-                _active_lane_count, _builder.getInt32(_width)),
-            "ray.query.handler.width.mismatch");
-        auto lane_bits = (uint64_t{1u} << _width) - 1u;
-        _trap_if(
-            _builder.CreateICmpNE(
-                _builder.CreateAnd(
-                    _handler_active_mask_bits,
-                    _builder.getInt64(~lane_bits)),
-                _builder.getInt64(0u)),
-            "ray.query.handler.mask.out.of.range");
-    }
-    if (_cooperative_block) {
-        _begin_cooperative_coroutine();
-        if (_failed()) { return; }
-    }
-    _direct_control_flow =
-        !_cooperative_block &&
-        (_width == 1u ||
-         (!luisa::compute::detail::env_flag(
-              "LUISA_SIMD_DISABLE_COHERENT_DIRECT_CFG") &&
-          _can_emit_direct_control_flow()));
-    _result.direct_control_flow = _direct_control_flow;
-    if (!_direct_control_flow &&
-        _enable_predicated_acyclic_control_flow) {
-        if (auto order = _find_predicated_acyclic_order()) {
-            _predicated_acyclic_control_flow = true;
-            _predicated_acyclic_order = std::move(*order);
-        }
-    }
-    _result.predicated_acyclic_control_flow =
-        _predicated_acyclic_control_flow;
-    _allocate_state();
-    if (_failed()) { return; }
-    _create_external_values();
-    if (_failed()) { return; }
-
-    auto *lane_ids = _lane_ids();
-    auto *initial_mask = static_cast<::llvm::Value *>(nullptr);
-    if (handler_entry) {
-        auto *packed_mask_type = ::llvm::IntegerType::get(
-            context, _width);
-        initial_mask = _builder.CreateBitCast(
-            _builder.CreateTrunc(
-                _handler_active_mask_bits, packed_mask_type),
-            _layout.mask_type(), "handler.active.mask");
-    } else {
-        auto *count = _builder.CreateVectorSplat(
-            _width, _active_lane_count);
-        initial_mask = _builder.CreateICmpULT(lane_ids, count);
-    }
-    _ensure_launch_vectors();
-    // Runtime block IDs are always drawn from ceil(dispatch_size / block_size)
-    // in each dimension. A statically unit-sized dimension therefore has
-    // thread_id == 0 and block_id < dispatch_size for every launched block;
-    // it cannot contribute a dispatch-edge tail. Avoid materializing that
-    // redundant vector compare, especially for the two unit dimensions of a
-    // 1D kernel. Standalone packet callers have the same valid-block contract.
-    auto elide_unit_dimension_masks =
-        !luisa::compute::detail::env_flag(
-            "LUISA_SIMD_DISABLE_UNIT_DIMENSION_MASK_ELISION");
-    if (handler_entry) {
-        // The caller supplies the exact sparse physical-lane cohort. Dispatch
-        // geometry remains available to handler expressions but must not
-        // widen or narrow this semantic candidate mask.
-    } else if (_enable_linear_1d_packet_tail_narrowing &&
-               !_cooperative_block) {
-        // The runtime-only packet wrapper narrows its final 1D packet to the
-        // exact dispatch and block remainder, and skips packets with no live
-        // lanes. The active-lane prefix above is therefore the complete
-        // dispatch mask; rebuilding dispatch_id < dispatch_size in every
-        // packet would be redundant. Cooperative wrappers deliberately issue
-        // every static packet in a block so all participating packets can
-        // rendezvous. They must retain the full dispatch-extent mask for a
-        // partial edge block, including a mixed final packet.
-        _result.linear_1d_packet_tail_narrowing_count++;
-    } else {
-        for (auto i = uint32_t{0u}; i < 3u; i++) {
-            if (elide_unit_dimension_masks &&
-                _static_block_size[i] == 1u) {
-                _result.unit_dimension_mask_elision_count++;
-                continue;
-            }
-            initial_mask = _builder.CreateAnd(
-                initial_mask,
-                _builder.CreateICmpULT(
-                    _dispatch_id[i],
-                    _builder.CreateVectorSplat(
-                        _width, _dispatch_size[i])));
-        }
-    }
-    if (_cooperative_block) {
-        _initialize_cooperative_packet(initial_mask);
-    }
-    if (_direct_control_flow) {
-        _build_direct(initial_mask);
-        return;
-    }
-    if (_predicated_acyclic_control_flow) {
-        _build_predicated_acyclic(initial_mask);
-        return;
-    }
-    _builder.CreateStore(initial_mask, _live_mask);
-    _resume(_source.entry(), initial_mask);
-
-    _scheduler_loop = ::llvm::BasicBlock::Create(
-        context, "scheduler.loop", _entry);
-    auto *dispatch = ::llvm::BasicBlock::Create(
-        context, "scheduler.dispatch", _entry);
-    _scheduler_dispatch_route = ::llvm::BasicBlock::Create(
-        context, "scheduler.dispatch.route", _entry);
-    auto *done = ::llvm::BasicBlock::Create(
-        context, "scheduler.done", _entry);
-    auto *exit = ::llvm::BasicBlock::Create(
-        context, "scheduler.exit", _entry);
-    auto *stalled = ::llvm::BasicBlock::Create(
-        context, "scheduler.stalled", _entry);
-    auto *invalid = ::llvm::BasicBlock::Create(
-        context, "scheduler.invalid", _entry);
-    _schedule_blocks.reserve(_source.blocks().size());
-    for (auto &&block : _source.blocks()) {
-        _schedule_blocks.emplace_back(::llvm::BasicBlock::Create(
-            context,
-            "schedule." + std::to_string(block.id.value), _entry));
-    }
-    std::vector<uint8_t> structured_emitted_blocks(
-        _source.blocks().size(), uint8_t{0u});
-    std::vector<uint8_t> structured_absorbed_blocks(
-        _source.blocks().size(), uint8_t{0u});
-    if (_structured_early_exit_loop) {
-        for (auto *block :
-             _structured_early_exit_loop->emitted_blocks) {
-            structured_emitted_blocks[block->id.value] = 1u;
-        }
-        for (auto *block :
-             _structured_early_exit_loop->absorbed_blocks) {
-            structured_absorbed_blocks[block->id.value] = 1u;
-        }
-    }
-    _builder.CreateBr(_scheduler_loop);
-
-    _builder.SetInsertPoint(_scheduler_loop);
-    auto *ready_count = _builder.CreateLoad(
-        _ready_count->getAllocatedType(), _ready_count);
-    _builder.CreateCondBr(
-        _builder.CreateICmpNE(
-            ready_count, _builder.getInt32(0u)),
-        dispatch, done);
-
-    _builder.SetInsertPoint(dispatch);
-    auto *ready_index = _builder.CreateSub(
-        ready_count, _builder.getInt32(1u));
-    _builder.CreateStore(ready_index, _ready_count);
-    auto *ready_mask_ptr = _ready_element_pointer(
-        _ready_masks, ready_index);
-    auto *popped_mask = _builder.CreateLoad(
-        _layout.mask_type(), ready_mask_ptr);
-    _builder.CreateStore(popped_mask, _current_mask);
-    auto *ready_target_ptr = _ready_element_pointer(
-        _ready_targets, ready_index);
-    auto *pc = _builder.CreateLoad(
-        _builder.getInt32Ty(), ready_target_ptr);
-    auto *ready_token_ptr = _ready_element_pointer(
-        _ready_tokens, ready_index);
-    auto *token = _builder.CreateLoad(
-        _builder.getInt32Ty(), ready_token_ptr);
-    _builder.CreateStore(token, _current_token);
-    auto *runnable = _builder.CreateLoad(
-        _runnable_mask->getAllocatedType(), _runnable_mask);
-    _builder.CreateStore(
-        _builder.CreateAnd(
-            runnable, _builder.CreateNot(popped_mask)),
-        _runnable_mask);
-    _builder.CreateBr(_scheduler_dispatch_route);
-
-    _builder.SetInsertPoint(_scheduler_dispatch_route);
-    _scheduler_dispatch_pc = _builder.CreatePHI(
-        _builder.getInt32Ty(), 1u, "scheduler.dispatch.pc");
-    _scheduler_dispatch_pc->addIncoming(pc, dispatch);
-    auto *dispatch_switch = _builder.CreateSwitch(
-        _scheduler_dispatch_pc,
-        invalid,
-        static_cast<unsigned>(_schedule_blocks.size()));
-    for (auto &&block : _source.blocks()) {
-        if (structured_emitted_blocks[block.id.value] != 0u ||
-            structured_absorbed_blocks[block.id.value] != 0u) {
-            continue;
-        }
-        dispatch_switch->addCase(
-            _builder.getInt32(block.id.value),
-            _schedule_blocks[block.id.value]);
-    }
-
-    _builder.SetInsertPoint(invalid);
-    auto *invalid_trap =
-#if LLVM_VERSION_MAJOR >= 22
-        ::llvm::Intrinsic::getOrInsertDeclaration(
-#else
-        ::llvm::Intrinsic::getDeclaration(
-#endif
-            &_module, ::llvm::Intrinsic::trap);
-    _builder.CreateCall(invalid_trap);
-    _builder.CreateUnreachable();
-
-    _builder.SetInsertPoint(done);
-    auto *live = _builder.CreateLoad(
-        _live_mask->getAllocatedType(), _live_mask);
-    _builder.CreateCondBr(
-        _builder.CreateOrReduce(live), stalled, exit);
-
-    _builder.SetInsertPoint(stalled);
-    auto *stalled_trap =
-#if LLVM_VERSION_MAJOR >= 22
-        ::llvm::Intrinsic::getOrInsertDeclaration(
-#else
-        ::llvm::Intrinsic::getDeclaration(
-#endif
-            &_module, ::llvm::Intrinsic::trap);
-    _builder.CreateCall(stalled_trap);
-    _builder.CreateUnreachable();
-
-    _builder.SetInsertPoint(exit);
-    if (_cooperative_block) {
-        _finish_entry();
-    } else {
-        _builder.CreateRetVoid();
-    }
-
-    std::vector<uint8_t> locally_inlined_blocks(
-        _source.blocks().size(), uint8_t{0u});
-    auto in_structured_loop = [&](schedule::BlockId id) noexcept {
-        return _structured_early_exit_loop &&
-               std::find(
-                   _structured_early_exit_loop->loop->blocks.cbegin(),
-                   _structured_early_exit_loop->loop->blocks.cend(), id) !=
-                   _structured_early_exit_loop->loop->blocks.cend();
-    };
-    std::vector<uint8_t> chained_blocks(
-        _source.blocks().size(), uint8_t{0u});
-    for (auto &&block : _source.blocks()) {
-        if (chained_blocks[block.id.value] != 0u) { continue; }
-        if (auto region =
-                _find_chained_predicated_region(block)) {
-            chained_blocks[block.id.value] = 1u;
-            for (auto *inlined : region->inlined_blocks) {
-                locally_inlined_blocks[inlined->id.value] = 1u;
-                chained_blocks[inlined->id.value] = 1u;
-            }
-        }
-    }
-    for (auto &&block : _source.blocks()) {
-        if (chained_blocks[block.id.value] != 0u) { continue; }
-        if (auto diamond =
-                _find_guarded_predicated_math_diamond(
-                    block, in_structured_loop(block.id))) {
-            for (auto *arm : diamond->true_blocks) {
-                locally_inlined_blocks[arm->id.value] = 1u;
-            }
-            for (auto *arm : diamond->false_blocks) {
-                locally_inlined_blocks[arm->id.value] = 1u;
-            }
-        }
-    }
-    for (auto &&block : _source.blocks()) {
-        if (chained_blocks[block.id.value] != 0u) { continue; }
-        if (auto region = _find_nested_predicated_region(
-                block, in_structured_loop(block.id))) {
-            locally_inlined_blocks[region->nested_split_block->id.value] = 1u;
-            for (auto *arm : region->nested_diamond.true_blocks) {
-                locally_inlined_blocks[arm->id.value] = 1u;
-            }
-            for (auto *arm : region->nested_diamond.false_blocks) {
-                locally_inlined_blocks[arm->id.value] = 1u;
-            }
-            locally_inlined_blocks[region->nested_merge_block->id.value] = 1u;
-            locally_inlined_blocks[region->other_block->id.value] = 1u;
-        }
-    }
-    if (_structured_early_exit_loop) {
-        for (auto *block :
-             _structured_early_exit_loop->absorbed_blocks) {
-            locally_inlined_blocks[block->id.value] = 1u;
-        }
-    }
-    for (auto &&block : _source.blocks()) {
-        if (structured_emitted_blocks[block.id.value] != 0u) {
-            continue;
-        }
-        _builder.SetInsertPoint(
-            _schedule_blocks[block.id.value]);
-        if (locally_inlined_blocks[block.id.value] != 0u) {
-            _builder.CreateUnreachable();
-            continue;
-        }
-        _locals.clear();
-        _active_mask = _builder.CreateLoad(
-            _layout.mask_type(), _current_mask);
-        if (_target_convergence_depths[block.id.value] != 0u) {
-            auto *flow = _cascade_at_convergence_target(
-                _builder.getInt32(block.id.value), _active_mask);
-            auto *ready = ::llvm::BasicBlock::Create(
-                context,
-                "convergence.target." +
-                    std::to_string(block.id.value) + ".ready",
-                _entry);
-            _builder.CreateCondBr(
-                _builder.CreateOrReduce(flow),
-                ready, _scheduler_loop);
-            _builder.SetInsertPoint(ready);
-            _active_mask = flow;
-        }
-        _seed_lane = _safe_first_lane(_active_mask);
-        if (_structured_early_exit_loop &&
-            _structured_early_exit_loop->header->id == block.id) {
-            _emit_structured_early_exit_loop(
-                *_structured_early_exit_loop);
-            if (_failed()) { return; }
-            continue;
-        }
-        if (auto loop = _find_predicated_loop(block)) {
-            _emit_predicated_loop(*loop);
-            if (_failed()) { return; }
-            continue;
-        }
-        for (auto &&instruction : block.instructions) {
-            _emit_instruction(instruction);
-            if (_failed()) { return; }
-        }
-        _emit_terminator(block);
-        if (_failed()) { return; }
-    }
-
-    _partition_state_residency();
 }
 
 }// namespace luisa::compute::simd::detail

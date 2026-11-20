@@ -70,6 +70,7 @@ struct XIRToScheduleResult {
     // intentionally not copied into dependency-light Schedule IR. The caller
     // consumes these pointers while the source XIR module is still alive.
     std::vector<const xir::RayQueryPipelineInst *> ray_query_pipelines{};
+    std::vector<const xir::Function *> outlined_callables{};
     std::vector<XIRToScheduleDiagnostic> diagnostics{};
 
     [[nodiscard]] bool succeeded() const noexcept {

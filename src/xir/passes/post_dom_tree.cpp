@@ -138,7 +138,12 @@ PostDomTree compute_post_dom_tree(
         if (!block->is_terminated()) { return; }
         auto has_successor = false;
         block->traverse_successors(false, [&](BasicBlock *) noexcept { has_successor = true; });
-        if (!has_successor) { real_sinks.emplace(block); }
+        if (!has_successor &&
+            (!options.ignore_unreachable ||
+             block->terminator()->derived_instruction_tag() !=
+                 DerivedInstructionTag::UNREACHABLE)) {
+            real_sinks.emplace(block);
+        }
     });
 
     // Post-dominance here is defined over all maximal executions, including

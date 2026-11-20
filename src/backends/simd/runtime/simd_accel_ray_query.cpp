@@ -157,8 +157,12 @@ void ray_query_filter_wide(
         if (state == nullptr || state->terminated != 0u) { continue; }
         auto t = RTCRayN_tfar(
             arguments->ray, arguments->N, packet_lane);
-        auto inst = RTCHitN_instID(
+        auto raw_inst = RTCHitN_instID(
             arguments->hit, arguments->N, packet_lane, 0u);
+        auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
+                        RTCHitN_geomID(
+                            arguments->hit, arguments->N, packet_lane) :
+                        raw_inst;
         auto prim = RTCHitN_primID(
             arguments->hit, arguments->N, packet_lane);
         if (!(t >= state->world_ray[3u] &&

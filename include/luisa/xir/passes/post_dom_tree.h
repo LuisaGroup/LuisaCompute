@@ -14,6 +14,10 @@ struct PostDomTreeOptions {
     // Analyses whose contract is conditional on eventual termination may
     // disable this to compute post-dominance over terminating executions.
     bool account_for_infinite_paths{true};
+    // When true, blocks terminated by UnreachableInst are excluded from real
+    // sinks so undefined unreachable arms (e.g., exhaustive switch defaults)
+    // do not prevent post-dominator reconvergence of enclosing branches/loops.
+    bool ignore_unreachable{false};
 };
 
 class LUISA_XIR_API PostDomTreeNode : public concepts::Noncopyable {

@@ -425,8 +425,13 @@ VerificationResult verify(const Function &function) {
                     block.id);
             }
             if (instruction.opcode == Opcode::call) {
-                if (instruction.strided_mma.has_value() == instruction.contiguous_copy.has_value() || instruction.result) {
-                    add_error(result, "call requires exactly one supported void semantic descriptor", block.id);
+                auto descriptor_count =
+                    static_cast<uint32_t>(instruction.strided_mma.has_value()) +
+                    static_cast<uint32_t>(instruction.contiguous_copy.has_value()) +
+                    static_cast<uint32_t>(instruction.outlined_callable_id.has_value());
+                if (descriptor_count != 1u ||
+                    (instruction.result && !instruction.outlined_callable_id)) {
+                    add_error(result, "call requires exactly one supported semantic descriptor", block.id);
                 } else if (instruction.strided_mma) {
                     if (instruction.operands.size() != 4u) {
                         add_error(result, "strided MMA call requires four references", block.id);
@@ -434,7 +439,7 @@ VerificationResult verify(const Function &function) {
                     if (auto error = validate_strided_mma_descriptor(*instruction.strided_mma); !error.empty()) {
                         add_error(result, std::string{error}, block.id);
                     }
-                } else {
+                } else if (instruction.contiguous_copy) {
                     if (instruction.operands.size() != 3u) {
                         add_error(result, "contiguous copy call requires three operands", block.id);
                     }
@@ -442,7 +447,7 @@ VerificationResult verify(const Function &function) {
                         add_error(result, std::string{error}, block.id);
                     }
                 }
-            } else if (instruction.strided_mma || instruction.contiguous_copy) {
+            } else if (instruction.strided_mma || instruction.contiguous_copy || instruction.outlined_callable_id) {
                 add_error(result, "non-call instruction unexpectedly carries native call semantics", block.id);
             }
             if (instruction.opcode == Opcode::warp_collective &&
@@ -848,6 +853,9 @@ std::string to_string(const Function &function) {
             if (instruction.contiguous_copy) {
                 out << " contiguous_copy=" << instruction.contiguous_copy->element_count
                     << " width=" << instruction.contiguous_copy->vector_width;
+            }
+            if (instruction.outlined_callable_id) {
+                out << " outlined_callable=" << *instruction.outlined_callable_id;
             }
             for (auto operand : instruction.operands) {
                 out << " %" << operand.value;

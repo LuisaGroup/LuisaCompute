@@ -60,7 +60,11 @@ ScheduleEmitter::ScheduleEmitter(
     bool enable_gathered_native_texture_read,
     bool enable_native_half4_texture_packet,
     size_t private_stack_budget_bytes, bool enable_interleaved_private_arrays,
-    bool enable_contiguous_private_access)
+    bool enable_contiguous_private_access,
+    luisa::span<const LLVMSIMDOutlinedCallable> outlined_callables,
+    const Type *outlined_return_type,
+    luisa::span<const uint8_t> outlined_parameter_soa_cell_bytes,
+    uint32_t outlined_parameter_soa_stride)
     : _module{module},
       _source{source},
       _width{width},
@@ -92,6 +96,10 @@ ScheduleEmitter::ScheduleEmitter(
           enable_predicated_acyclic_control_flow},
       _entry_abi{entry_abi},
       _ray_query_pipeline_handlers{ray_query_pipeline_handlers},
+      _outlined_callables{outlined_callables},
+      _outlined_return_type{outlined_return_type},
+      _outlined_parameter_soa_cell_bytes{outlined_parameter_soa_cell_bytes},
+      _outlined_parameter_soa_stride{outlined_parameter_soa_stride},
       _print_format_id_base{print_format_id_base},
       _layout{module.getContext(), width},
       _collectives{width},
@@ -261,13 +269,13 @@ void ScheduleEmitter::_fail(std::string message) {
         _module.getContext());
     return ::llvm::StructType::get(
         _module.getContext(),
-        {pointer, pointer, pointer, pointer, pointer, pointer, pointer});
+        {pointer, pointer, pointer, pointer, pointer, pointer, pointer, pointer});
 }
 
 [[nodiscard]] ::llvm::Type *ScheduleEmitter::_handler_parameter_type(
     const schedule::Value &value) {
     if (_is_local_lvalue(value.id)) {
-        return _local_handle_type();
+        return _local_value_llvm_type(value.id);
     }
     if (is_indirect_dispatch_type(value.type) ||
         (value.type != nullptr && value.type->is_buffer())) {
@@ -391,10 +399,38 @@ void ScheduleEmitter::_fail(std::string message) {
              _builder.getInt64Ty(), _width)});
 }
 
+[[nodiscard]] ::llvm::StructType *ScheduleEmitter::_local_soa_varying_type() {
+    auto *pointer = ::llvm::PointerType::getUnqual(_module.getContext());
+    return ::llvm::StructType::get(
+        _module.getContext(),
+        {pointer,
+         ::llvm::FixedVectorType::get(_builder.getInt32Ty(), _width)});
+}
+
+[[nodiscard]] ::llvm::Type *ScheduleEmitter::_local_value_llvm_type(
+    schedule::ValueId id) {
+    auto kind = _local_soa_kind_of(id);
+    if (kind == LocalSoAKind::uniform) {
+        return ::llvm::PointerType::getUnqual(_module.getContext());
+    }
+    if (kind == LocalSoAKind::varying) {
+        return _local_soa_varying_type();
+    }
+    return _local_handle_type();
+}
+
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_local_handle(
     ::llvm::Value *base, ::llvm::Value *offsets) {
     auto *handle = static_cast<::llvm::Value *>(
         ::llvm::PoisonValue::get(_local_handle_type()));
+    handle = _builder.CreateInsertValue(handle, base, {0u});
+    return _builder.CreateInsertValue(handle, offsets, {1u});
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_soa_varying_handle(
+    ::llvm::Value *base, ::llvm::Value *offsets) {
+    auto *handle = static_cast<::llvm::Value *>(
+        ::llvm::PoisonValue::get(_local_soa_varying_type()));
     handle = _builder.CreateInsertValue(handle, base, {0u});
     return _builder.CreateInsertValue(handle, offsets, {1u});
 }
@@ -421,6 +457,34 @@ void ScheduleEmitter::_fail(std::string message) {
         _local_offsets(_builder, new_handle),
         _local_offsets(_builder, old_handle));
     return _local_handle(base, offsets);
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_merge_varying_soa_handles(
+    ::llvm::Value *new_handle, ::llvm::Value *old_handle,
+    ::llvm::Value *mask) {
+    // All handles in a single-root VaryingSoA slot share the exact same
+    // immutable root base pointer; keep the live handle's base pointer and
+    // merge only the per-lane 32-bit offsets.
+    auto *base = _local_base(_builder, new_handle);
+    auto *offsets = _builder.CreateSelect(
+        mask,
+        _local_offsets(_builder, new_handle),
+        _local_offsets(_builder, old_handle));
+    return _soa_varying_handle(base, offsets);
+}
+
+[[nodiscard]] LocalSoAKind ScheduleEmitter::_local_soa_kind_of(
+    schedule::ValueId id) const noexcept {
+    return id.value < _local_soa_kind.size() ?
+               _local_soa_kind[id.value] :
+               LocalSoAKind::none;
+}
+
+[[nodiscard]] uint8_t ScheduleEmitter::_local_soa_cell_of(
+    schedule::ValueId id) const noexcept {
+    return id.value < _local_soa_cell_bytes.size() ?
+               _local_soa_cell_bytes[id.value] :
+               uint8_t{0u};
 }
 
 [[nodiscard]] bool ScheduleEmitter::_is_local_lvalue(
@@ -623,10 +687,14 @@ void ScheduleEmitter::_preflight() {
         _fail("LLVM packet specialization width must be in [1, 128]");
         return;
     }
-    if (_is_handler_entry() &&
+    if (_is_ray_query_handler_entry() &&
         _width != 1u && _width != 2u && _width != 4u &&
         _width != 8u && _width != 16u) {
         _fail("ray-query handler width must be one of W1/W2/W4/W8/W16");
+        return;
+    }
+    if (_is_outlined_callable_entry() && _width > 64u) {
+        _fail("outlined callable ABI requires packet width at most 64");
         return;
     }
     if (_is_surface_filter_handler_entry() &&
@@ -636,7 +704,9 @@ void ScheduleEmitter::_preflight() {
         return;
     }
     if (_source.logical_warp_width() != 0u &&
-        _source.logical_warp_width() != _width) {
+        _source.logical_warp_width() != _width &&
+        !(_is_outlined_callable_entry() && _width == 1u &&
+          _outlined_parameter_soa_stride == _source.logical_warp_width())) {
         _fail("Schedule IR warp width does not match LLVM specialization width");
         return;
     }
@@ -733,7 +803,11 @@ void ScheduleEmitter::_preflight() {
     }
     _analyze_local_lvalues();
     if (_failed()) { return; }
+    _analyze_local_soa();
+    if (_failed()) { return; }
     _preflight_typed_calls();
+    if (_failed()) { return; }
+    _preflight_outlined_calls();
     if (_failed()) { return; }
     _analyze_ray_query_scratch();
     if (_source.blocks().size() >
@@ -771,6 +845,34 @@ void ScheduleEmitter::_preflight() {
                        !value.type->is_bindless_array() &&
                        !value.type->is_accel())))) {
                     _fail("packet ABI supports data, buffer, texture, bindless, accel, and indirect-dispatch arguments only");
+                    return;
+                }
+            } else if (_is_outlined_callable_entry()) {
+                if (argument_tag == xir::DerivedArgumentTag::REFERENCE) {
+                    if (value.value_class != schedule::ValueClass::varying ||
+                        !_is_data(value.type) || is_ray_query_type(value.type)) {
+                        _fail("outlined callable reference arguments must be varying data lvalues");
+                        return;
+                    }
+                } else if (argument_tag == xir::DerivedArgumentTag::VALUE) {
+                    if (!_is_data(value.type) || is_ray_query_type(value.type) ||
+                        value.value_class == schedule::ValueClass::mask ||
+                        value.value_class == schedule::ValueClass::token) {
+                        _fail("outlined callable value argument has an unsupported type or class");
+                        return;
+                    }
+                } else if (argument_tag == xir::DerivedArgumentTag::RESOURCE) {
+                    if (value.value_class != schedule::ValueClass::warp_uniform ||
+                        value.type == nullptr ||
+                        (!value.type->is_buffer() &&
+                         !value.type->is_texture() &&
+                         !value.type->is_bindless_array() &&
+                         !value.type->is_accel())) {
+                        _fail("outlined callable resource arguments must be supported warp-uniform descriptors");
+                        return;
+                    }
+                } else {
+                    _fail("outlined callable argument has an invalid argument tag");
                     return;
                 }
             } else {
@@ -834,7 +936,7 @@ void ScheduleEmitter::_preflight() {
             return;
         }
     }
-    if (_is_handler_entry() && parameters.empty()) {
+    if (_is_ray_query_handler_entry() && parameters.empty()) {
         _fail("ray-query handler ABI requires a query parameter");
         return;
     }
@@ -919,7 +1021,8 @@ void ScheduleEmitter::_preflight() {
             }
             if (instruction.opcode ==
                 schedule::Opcode::ray_query_pipeline) {
-                if (_entry_abi != ScheduleEntryABI::packet ||
+                if ((_entry_abi != ScheduleEntryABI::packet &&
+                     _entry_abi != ScheduleEntryABI::outlined_callable) ||
                     !instruction.source_op ||
                     *instruction.source_op >=
                         _ray_query_pipeline_handlers.size() ||
@@ -1053,7 +1156,23 @@ void ScheduleEmitter::_preflight() {
                     _preflight_edge(terminator.resume_edge, false);
                 } else if constexpr (
                     std::is_same_v<T, schedule::ReturnTerminator>) {
-                    if (terminator.value) {
+                    if (_is_outlined_callable_entry()) {
+                        if (_outlined_return_type == nullptr) {
+                            if (terminator.value) {
+                                _fail("void outlined callable cannot return a value");
+                            }
+                        } else {
+                            auto *value = terminator.value ?
+                                              _source.value(*terminator.value) :
+                                              nullptr;
+                            if (value == nullptr ||
+                                value->type != _outlined_return_type ||
+                                !_is_data(value->type) ||
+                                is_ray_query_type(value->type)) {
+                                _fail("outlined callable return value does not match its declared type");
+                            }
+                        }
+                    } else if (terminator.value) {
                         auto *value = _source.value(*terminator.value);
                         if (value == nullptr ||
                             !_is_scalar_data(value->type) ||
@@ -1292,6 +1411,7 @@ void ScheduleEmitter::_preflight() {
         offsetof(
             SIMDHostAccelView,
             ray_query_candidate_object_ray),
+        offsetof(SIMDHostAccelView, ray_query_live),
     };
     for (auto i = uint32_t{0u}; i < offsets.size(); i++) {
         auto *field = _builder.CreateLoad(
@@ -1447,6 +1567,18 @@ void ScheduleEmitter::_create_external_values() {
             case schedule::ValueOrigin::parameter: {
                 auto *metadata = std::get_if<
                     schedule::ParameterValueMetadata>(&value.metadata);
+                if (_is_outlined_callable_entry()) {
+                    auto *field_ptr = _builder.CreateStructGEP(
+                        _outlined_io_frame_type, _outlined_io_frame,
+                        static_cast<unsigned>(metadata->index),
+                        "outlined.arg.ptr." + std::to_string(metadata->index));
+                    llvm_value = _builder.CreateLoad(
+                        _outlined_io_frame_type->getElementType(
+                            static_cast<unsigned>(metadata->index)),
+                        field_ptr,
+                        "outlined.arg." + std::to_string(metadata->index));
+                    break;
+                }
                 if (_is_handler_entry()) {
                     if (metadata->index == 0u) {
                         auto *pointer_type =
@@ -1547,6 +1679,10 @@ void ScheduleEmitter::_create_external_values() {
         }
         return state;
     }
+    if (id.value < _local_allocations.size() &&
+        _local_allocations[id.value] != nullptr) {
+        return _local_allocations[id.value];
+    }
     if (auto iter = _locals.find(id.value); iter != _locals.end()) {
         return iter->second;
     }
@@ -1599,6 +1735,7 @@ void ScheduleEmitter::_create_external_values() {
         _entry = nullptr;
     }
     _result.entry = _entry;
+    _result.outlined_io_frame_type = _outlined_io_frame_type;
     return std::move(_result);
 }
 

@@ -1,7 +1,13 @@
 #include "llvm_schedule_emitter.h"
 
+#include <algorithm>
+#include <array>
 #include <bit>
+#include <unordered_map>
 
+#include <llvm/IR/GlobalVariable.h>
+
+#include "../../common/env_flag.h"
 #include "../../common/indirect_dispatch_layout.h"
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/string.h>
@@ -14,6 +20,14 @@ namespace luisa::compute::simd::detail {
         _builder.getInt64Ty(), _width);
     auto *extended = _builder.CreateZExtOrTrunc(index, i64_lanes);
     return stride == 1u ? extended : _builder.CreateMul(extended, _builder.CreateVectorSplat(_width, _builder.getInt64(stride)));
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_lane_offsets_i32(
+    ::llvm::Value *index, uint32_t stride) {
+    auto *i32_lanes = ::llvm::FixedVectorType::get(
+        _builder.getInt32Ty(), _width);
+    auto *extended = _builder.CreateZExtOrTrunc(index, i32_lanes);
+    return stride == 1u ? extended : _builder.CreateMul(extended, _builder.CreateVectorSplat(_width, _builder.getInt32(stride)));
 }
 
 [[nodiscard]] luisa::optional<uint64_t> ScheduleEmitter::_constant_aggregate_index(
@@ -120,21 +134,153 @@ namespace luisa::compute::simd::detail {
         _fail("thread-local GEP is malformed");
         return nullptr;
     }
-    auto *base_value = _source.value(instruction.operands.front());
-    auto *result_value = _source.value(*instruction.result);
-    auto *handle = _load_value(instruction.operands.front());
+    auto base_id = instruction.operands.front();
+    auto res_id = *instruction.result;
+    auto *base_value = _source.value(base_id);
+    auto *result_value = _source.value(res_id);
+    auto *handle = _load_value(base_id);
     if (base_value == nullptr || result_value == nullptr ||
         handle == nullptr || base_value->type == nullptr) {
         _fail("thread-local GEP has invalid values");
         return nullptr;
     }
+    auto base_kind = _local_soa_kind_of(base_id);
+    auto res_kind = _local_soa_kind_of(res_id);
+    auto cell = _local_soa_cell_of(res_id);
+    auto *current_type = base_value->type;
+    auto soa_stride = _soa_stride();
+    if (res_kind == LocalSoAKind::uniform) {
+        auto *ptr = handle;
+        for (auto i = size_t{1u}; i < instruction.operands.size(); i++) {
+            auto idx_id = instruction.operands[i];
+            if (current_type->is_structure()) {
+                auto idx = _constant_aggregate_index(idx_id);
+                if (!idx || *idx >= _child_count(current_type)) {
+                    _fail("structure address requires a valid constant member index");
+                    return nullptr;
+                }
+                auto child_offset = _child_offset(
+                    current_type, static_cast<uint32_t>(*idx));
+                if (child_offset != 0u) {
+                    ptr = _builder.CreateGEP(
+                        _builder.getInt8Ty(), ptr,
+                        _builder.getInt64(child_offset * soa_stride));
+                }
+                current_type = _child_type(
+                    current_type, static_cast<uint32_t>(*idx));
+                continue;
+            }
+            auto stride = static_cast<uint64_t>(
+                              current_type->is_vector() ?
+                                  current_type->element()->size() :
+                                  current_type->size() / current_type->dimension()) *
+                          soa_stride;
+            if (auto c = _constant_aggregate_index(idx_id)) {
+                if (*c != 0u) {
+                    ptr = _builder.CreateGEP(
+                        _builder.getInt8Ty(), ptr,
+                        _builder.getInt64(*c * stride));
+                }
+            } else {
+                auto *idx_val_meta = _source.value(idx_id);
+                auto *idx_val = _load_value(idx_id);
+                if (idx_val_meta == nullptr || idx_val == nullptr) {
+                    _fail("uniform SoA GEP has an invalid index");
+                    return nullptr;
+                }
+                if (idx_val->getType()->isVectorTy()) {
+                    auto *seed = _seed_lane ?
+                                     _seed_lane :
+                                     _safe_first_lane(_active_mask);
+                    idx_val = _builder.CreateExtractElement(idx_val, seed);
+                }
+                auto *ext = idx_val_meta->type->is_int() ?
+                                _builder.CreateSExtOrTrunc(
+                                    idx_val, _builder.getInt64Ty()) :
+                                _builder.CreateZExtOrTrunc(
+                                    idx_val, _builder.getInt64Ty());
+                auto *byte_off = stride == 1u ?
+                                     ext :
+                                     _builder.CreateMul(
+                                         ext, _builder.getInt64(stride));
+                byte_off = _builder.CreateSelect(
+                    _builder.CreateOrReduce(_active_mask), byte_off,
+                    _builder.getInt64(0u));
+                ptr = _builder.CreateGEP(_builder.getInt8Ty(), ptr, byte_off);
+            }
+            current_type = _child_type(current_type, 0u);
+        }
+        if (current_type != result_value->type) {
+            _fail("thread-local GEP result type does not match its index path");
+            return nullptr;
+        }
+        return ptr;
+    }
+    if (res_kind == LocalSoAKind::varying) {
+        auto *i32_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt32Ty(), _width);
+        auto *base_ptr = base_kind == LocalSoAKind::uniform ?
+                             handle :
+                             _local_base(_builder, handle);
+        auto *offsets = base_kind == LocalSoAKind::uniform ?
+                            static_cast<::llvm::Value *>(
+                                ::llvm::Constant::getNullValue(i32_lanes)) :
+                            _local_offsets(_builder, handle);
+        for (auto i = size_t{1u}; i < instruction.operands.size(); i++) {
+            auto idx_id = instruction.operands[i];
+            if (current_type->is_structure()) {
+                auto idx = _constant_aggregate_index(idx_id);
+                if (!idx || *idx >= _child_count(current_type)) {
+                    _fail("structure address requires a valid constant member index");
+                    return nullptr;
+                }
+                auto child_offset = _child_offset(
+                    current_type, static_cast<uint32_t>(*idx));
+                if (child_offset != 0u) {
+                    offsets = _builder.CreateAdd(
+                        offsets,
+                        _builder.CreateVectorSplat(
+                            _width,
+                            _builder.getInt32(static_cast<uint32_t>(
+                                child_offset * soa_stride))));
+                }
+                current_type = _child_type(
+                    current_type, static_cast<uint32_t>(*idx));
+                continue;
+            }
+            auto *idx_val_meta = _source.value(idx_id);
+            auto *idx_vec = idx_val_meta == nullptr ?
+                                nullptr :
+                                _as_lane_vector(
+                                    _load_value(idx_id), *idx_val_meta);
+            if (idx_vec == nullptr) { return nullptr; }
+            auto *ext = idx_val_meta->type->is_int() ?
+                            _builder.CreateSExtOrTrunc(idx_vec, i32_lanes) :
+                            _builder.CreateZExtOrTrunc(idx_vec, i32_lanes);
+            auto stride = static_cast<uint32_t>(
+                              current_type->is_vector() ?
+                                  current_type->element()->size() :
+                                  current_type->size() / current_type->dimension()) *
+                          soa_stride;
+            if (stride != 1u) {
+                ext = _builder.CreateMul(
+                    ext, _builder.CreateVectorSplat(
+                             _width, _builder.getInt32(stride)));
+            }
+            offsets = _builder.CreateAdd(offsets, ext);
+            current_type = _child_type(current_type, 0u);
+        }
+        if (current_type != result_value->type) {
+            _fail("thread-local GEP result type does not match its index path");
+            return nullptr;
+        }
+        return _soa_varying_handle(base_ptr, offsets);
+    }
     auto *base = _local_base(_builder, handle);
     auto *offsets = _local_offsets(_builder, handle);
-    auto *current_type = base_value->type;
     for (auto i = size_t{1u}; i < instruction.operands.size(); i++) {
         if (!_advance_aggregate_offset(
-                offsets, current_type,
-                instruction.operands[i], _interleaved_local_values[instruction.result->value] ? _width : 1u)) {
+                offsets, current_type, instruction.operands[i], 1u)) {
             return nullptr;
         }
     }
@@ -145,109 +291,202 @@ namespace luisa::compute::simd::detail {
     return _local_handle(base, offsets);
 }
 
-void ScheduleEmitter::_find_interleaved_private_arrays() {
-    _interleaved_local_values.assign(_source.values().size(), 0u);
-    _contiguous_private_accesses.clear();
-    if (!_enable_interleaved_private_arrays || _width == 1u) { return; }
-    struct Use {
-        const schedule::Instruction *instruction;
-        size_t operand;
-        const schedule::BasicBlock *block;
-    };
-    std::vector<std::vector<Use>> users(_source.values().size());
-    std::vector<uint8_t> escapes(_source.values().size(), 0u);
-    for (auto &block : _source.blocks()) {
-        for (auto &instruction : block.instructions) {
-            for (size_t i = 0u; i < instruction.operands.size(); i++) {
-                users[instruction.operands[i].value].emplace_back(Use{&instruction, i, &block});
-            }
-        }
-        _for_each_assignment(block, [&](schedule::EdgeAssignment assignment) {
-            escapes[assignment.source.value] = escapes[assignment.destination.value] = 1u;
-        });
-        if (auto ret = std::get_if<schedule::ReturnTerminator>(&block.terminator); ret && ret->value) {
-            escapes[ret->value->value] = 1u;
-        }
+void ScheduleEmitter::_analyze_local_soa() {
+    std::vector<std::vector<uint8_t>> callee_cells;
+    callee_cells.reserve(_outlined_callables.size());
+    for (auto &&callee : _outlined_callables) {
+        callee_cells.emplace_back(callee.parameter_soa_cell_bytes);
     }
-    for (auto &block : _source.blocks()) {
-        for (auto &allocation : block.instructions) {
-            if (allocation.opcode != schedule::Opcode::alloca || !allocation.result || _is_shared_lvalue(*allocation.result)) { continue; }
-            auto id = allocation.result->value;
-            auto type = _source.value(*allocation.result)->type;
-            if (!type || !type->is_array() || !type->element()->is_scalar() || escapes[id]) { continue; }
-            auto element = type->element();
-            // Admit byte storage explicitly: bool computes as i1 but stores
-            // as i8. FP8 and sub-byte quantized types need separate lowering.
-            if (element->size() != 4u && element->size() != 8u &&
-                !element->is_bool() && !element->is_int8() && !element->is_uint8()) { continue; }
-            // A closed, typed address tree: allocation -> element GEP ->
-            // scalar load/store, or a preflighted typed copy destination.
-            // The copy emitter implements the same physical element stride.
-            // Reject other aggregate access, pointer arithmetic, PHIs and
-            // reference calls (including native MMA). Thus every
-            // observable byte access participates in the same bijection:
-            //   (lane, element) -> (element * W + lane) * sizeof(T).
-            auto legal = true;
-            for (auto use : users[id]) {
-                auto gep = use.instruction;
-                if (use.operand == 2u && gep->opcode == schedule::Opcode::call && gep->contiguous_copy) { continue; }
-                if (use.operand != 0u || gep->opcode != schedule::Opcode::gep || !gep->result ||
-                    gep->operands.size() != 2u || _source.value(*gep->result)->type != type->element() || escapes[gep->result->value]) {
-                    legal = false;
-                    break;
-                }
-                for (auto access : users[gep->result->value]) {
-                    auto op = access.instruction->opcode;
-                    if (access.operand != 0u || (op != schedule::Opcode::load && op != schedule::Opcode::store)) {
-                        legal = false;
-                        break;
-                    }
-                }
-                if (!legal) { break; }
+    auto analysis = analyze_local_soa(
+        _source, _width,
+        _is_outlined_callable_entry() ?
+            _outlined_parameter_soa_cell_bytes :
+            luisa::span<const uint8_t>{},
+        callee_cells, _enable_interleaved_private_arrays, _soa_stride());
+    _local_soa_kind = std::move(analysis.kind);
+    _local_soa_cell_bytes = std::move(analysis.cell_bytes);
+    _result.interleaved_private_arrays =
+        analysis.interleaved_allocation_count;
+}
+
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_uniform_soa_data(
+    ::llvm::Value *ptr, const Type *type,
+    uint8_t cell_bytes, size_t leaf_offset) {
+    if (_is_scalar_data(type)) {
+        auto *element = type->is_bool() ?
+                            static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
+                            _data_type(type, false);
+        auto stride = _soa_stride();
+        auto leaf_sz = type->size();
+        auto *addr = leaf_offset == 0u ?
+                         ptr :
+                         _builder.CreateGEP(
+                             _builder.getInt8Ty(), ptr,
+                             _builder.getInt64(leaf_offset * stride));
+        if (_width == 1u && _outlined_soa_lane != nullptr) {
+            auto *lane64 = _builder.CreateZExt(
+                _outlined_soa_lane, _builder.getInt64Ty());
+            auto *lane_off = leaf_sz == 1u ?
+                                 lane64 :
+                                 _builder.CreateMul(
+                                     lane64, _builder.getInt64(leaf_sz));
+            auto *lane_addr = _builder.CreateGEP(
+                _builder.getInt8Ty(), addr, lane_off);
+            ::llvm::Value *scalar = _builder.CreateAlignedLoad(
+                element, lane_addr, ::llvm::Align{type->alignment()},
+                "private.soa.w1.load");
+            if (type->is_bool()) {
+                scalar = _builder.CreateICmpNE(
+                    scalar, ::llvm::Constant::getNullValue(element));
             }
-            if (!legal) { continue; }
-            _interleaved_local_values[id] = 1u;
-            for (auto use : users[id]) {
-                auto gep = use.instruction;
-                if (use.operand == 2u && gep->opcode == schedule::Opcode::call && gep->contiguous_copy) { continue; }
-                _interleaved_local_values[gep->result->value] = 1u;
-                if (!_enable_contiguous_private_access) { continue; }
-                auto index = _source.value(gep->operands[1u]);
-                for (auto access : users[gep->result->value]) {
-                    // A cohort-uniform index can differ after suspension or
-                    // reconvergence. Admit it only at uses in the GEP's own
-                    // Schedule block. Warp-uniform indices survive epochs.
-                    if (index->value_class == schedule::ValueClass::warp_uniform ||
-                        ((index->value_class == schedule::ValueClass::cohort_uniform ||
-                          gep->cohort_uniform_operand_index == 1u) &&
-                         access.block == use.block)) {
-                        _contiguous_private_accesses.emplace(access.instruction, *allocation.result);
-                    }
-                }
-            }
-            _result.interleaved_private_arrays++;
+            return _builder.CreateInsertElement(
+                ::llvm::PoisonValue::get(
+                    ::llvm::FixedVectorType::get(scalar->getType(), 1u)),
+                scalar, _builder.getInt32(0u));
         }
+        auto *lanes = ::llvm::FixedVectorType::get(element, _width);
+        auto vector_alignment = std::max<size_t>(
+            type->alignment(),
+            std::min<size_t>(
+                static_cast<size_t>(_width) * leaf_sz, size_t{64u}));
+        ::llvm::Value *loaded = _builder.CreateAlignedLoad(
+            lanes, addr, ::llvm::Align{vector_alignment},
+            "private.contiguous.load");
+        if (type->is_bool()) {
+            loaded = _builder.CreateICmpNE(
+                loaded, ::llvm::Constant::getNullValue(lanes));
+        }
+        return _builder.CreateSelect(
+            _active_mask, loaded,
+            ::llvm::Constant::getNullValue(loaded->getType()));
+    }
+    return _assemble(type, true, [&](uint32_t i) {
+        return _load_uniform_soa_data(
+            ptr, _child_type(type, i), cell_bytes,
+            leaf_offset + _child_offset(type, i));
+    });
+}
+
+void ScheduleEmitter::_store_uniform_soa_data(
+    ::llvm::Value *ptr, const Type *type, ::llvm::Value *value,
+    uint8_t cell_bytes, size_t leaf_offset) {
+    if (_is_scalar_data(type)) {
+        auto stride = _soa_stride();
+        auto leaf_sz = type->size();
+        auto *addr = leaf_offset == 0u ?
+                         ptr :
+                         _builder.CreateGEP(
+                             _builder.getInt8Ty(), ptr,
+                             _builder.getInt64(leaf_offset * stride));
+        if (_width == 1u && _outlined_soa_lane != nullptr) {
+            auto *lane64 = _builder.CreateZExt(
+                _outlined_soa_lane, _builder.getInt64Ty());
+            auto *lane_off = leaf_sz == 1u ?
+                                 lane64 :
+                                 _builder.CreateMul(
+                                     lane64, _builder.getInt64(leaf_sz));
+            auto *lane_addr = _builder.CreateGEP(
+                _builder.getInt8Ty(), addr, lane_off);
+            auto *scalar = _builder.CreateExtractElement(
+                value, _builder.getInt32(0u));
+            if (type->is_bool()) {
+                scalar = _builder.CreateZExt(scalar, _builder.getInt8Ty());
+            }
+            _builder.CreateAlignedStore(
+                scalar, lane_addr, ::llvm::Align{type->alignment()});
+            return;
+        }
+        auto vector_alignment = std::max<size_t>(
+            type->alignment(),
+            std::min<size_t>(
+                static_cast<size_t>(_width) * leaf_sz, size_t{64u}));
+        auto alignment = ::llvm::Align{vector_alignment};
+        auto *stored = type->is_bool() ?
+                           _builder.CreateZExt(
+                               value,
+                               ::llvm::FixedVectorType::get(
+                                   _builder.getInt8Ty(), _width)) :
+                           value;
+        auto *previous = _builder.CreateAlignedLoad(
+            stored->getType(), addr, alignment,
+            "private.soa.uniform.preserve");
+        _builder.CreateAlignedStore(
+            _builder.CreateSelect(_active_mask, stored, previous),
+            addr, alignment);
+        return;
+    }
+    for (auto i = uint32_t{0u}; i < _child_count(type); i++) {
+        _store_uniform_soa_data(
+            ptr, _child_type(type, i),
+            _extract_child(value, type, i, true), cell_bytes,
+            leaf_offset + _child_offset(type, i));
     }
 }
 
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_contiguous_private_address(::llvm::Value *handle, const Type *type, schedule::ValueId allocation) {
-    // For every active lane l, the admitted handle addresses
-    //   base + (q * W + l) * sizeof(T)
-    // with one q in this cohort. The allocation's immutable base dominates
-    // every use; do not reconstruct it from a masked vector of handles.
-    // Keep the GEP's saved offset (rather than re-evaluating its index), so
-    // accesses across Schedule blocks retain the original address snapshot.
-    auto base = _local_base(_builder, _local_allocations[allocation.value]);
-    auto offsets = _local_offsets(_builder, handle);
-    auto seed = _seed_lane ? _seed_lane : _safe_first_lane(_active_mask);
-    auto scalar_base = _builder.CreateExtractElement(base, _builder.getInt32(0u));
-    auto offset = _builder.CreateExtractElement(offsets, seed);
-    auto lane_bytes = _builder.CreateMul(_builder.CreateZExtOrTrunc(seed, _builder.getInt64Ty()), _builder.getInt64(type->size()));
-    offset = _builder.CreateSub(offset, lane_bytes);
-    // An empty cohort need not have a valid handle. Use the first allocated
-    // slot instead: every private slot physically contains all W lanes.
-    offset = _builder.CreateSelect(_builder.CreateOrReduce(_active_mask), offset, _builder.getInt64(0u));
-    return _builder.CreateGEP(_builder.getInt8Ty(), scalar_base, offset, "private.contiguous.address");
+[[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_varying_soa_data(
+    ::llvm::Value *base, ::llvm::Value *offsets, const Type *type,
+    uint8_t cell_bytes, size_t leaf_offset) {
+    if (_is_scalar_data(type)) {
+        auto leaf_sz = static_cast<uint32_t>(type->size());
+        std::vector<::llvm::Constant *> lane_const;
+        lane_const.reserve(_width);
+        for (auto lane = uint32_t{0u}; lane < _width; ++lane) {
+            lane_const.emplace_back(_builder.getInt32(
+                static_cast<uint32_t>(leaf_offset * _width) + lane * leaf_sz));
+        }
+        auto *off = _builder.CreateAdd(
+            offsets, ::llvm::ConstantVector::get(lane_const));
+        auto *pointers = _builder.CreateGEP(_builder.getInt8Ty(), base, off);
+        auto *element = type->is_bool() ?
+                            static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
+                            _data_type(type, false);
+        auto *lanes = ::llvm::FixedVectorType::get(element, _width);
+        auto *gathered = _builder.CreateMaskedGather(
+            lanes, pointers, ::llvm::Align{leaf_sz}, _active_mask,
+            ::llvm::Constant::getNullValue(lanes),
+            "private.soa.varying.gather");
+        return type->is_bool() ?
+                   _builder.CreateICmpNE(
+                       gathered, ::llvm::Constant::getNullValue(lanes)) :
+                   gathered;
+    }
+    return _assemble(type, true, [&](uint32_t i) {
+        return _gather_varying_soa_data(
+            base, offsets, _child_type(type, i), cell_bytes,
+            leaf_offset + _child_offset(type, i));
+    });
+}
+
+void ScheduleEmitter::_scatter_varying_soa_data(
+    ::llvm::Value *base, ::llvm::Value *offsets, const Type *type,
+    ::llvm::Value *value, uint8_t cell_bytes, size_t leaf_offset) {
+    if (_is_scalar_data(type)) {
+        auto leaf_sz = static_cast<uint32_t>(type->size());
+        std::vector<::llvm::Constant *> lane_const;
+        lane_const.reserve(_width);
+        for (auto lane = uint32_t{0u}; lane < _width; ++lane) {
+            lane_const.emplace_back(_builder.getInt32(
+                static_cast<uint32_t>(leaf_offset * _width) + lane * leaf_sz));
+        }
+        auto *off = _builder.CreateAdd(
+            offsets, ::llvm::ConstantVector::get(lane_const));
+        auto *pointers = _builder.CreateGEP(_builder.getInt8Ty(), base, off);
+        auto *stored = type->is_bool() ?
+                           _builder.CreateZExt(
+                               value,
+                               ::llvm::FixedVectorType::get(
+                                   _builder.getInt8Ty(), _width)) :
+                           value;
+        _builder.CreateMaskedScatter(
+            stored, pointers, ::llvm::Align{leaf_sz}, _active_mask);
+        return;
+    }
+    for (auto i = uint32_t{0u}; i < _child_count(type); i++) {
+        _scatter_varying_soa_data(
+            base, offsets, _child_type(type, i),
+            _extract_child(value, type, i, true), cell_bytes,
+            leaf_offset + _child_offset(type, i));
+    }
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_local_load(
@@ -256,30 +495,31 @@ void ScheduleEmitter::_find_interleaved_private_arrays() {
         _fail("thread-local load is malformed");
         return nullptr;
     }
-    auto *variable = _source.value(instruction.operands.front());
+    auto ptr_id = instruction.operands.front();
+    auto *variable = _source.value(ptr_id);
     auto *result = _source.value(*instruction.result);
-    auto *handle = _load_value(instruction.operands.front());
+    auto *handle = _load_value(ptr_id);
     if (variable == nullptr || result == nullptr || handle == nullptr ||
         variable->type != result->type) {
         _fail("thread-local load has mismatched value types");
         return nullptr;
     }
-    if (auto access = _contiguous_private_accesses.find(&instruction); access != _contiguous_private_accesses.end()) {
-        auto element = result->type->is_bool() ?
-                           static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
-                           _data_type(result->type, false);
-        auto lanes = ::llvm::FixedVectorType::get(element, _width);
-        _result.contiguous_private_read_count++;
-        // This closed allocation is private to this packet invocation. A
-        // common valid slot contains W readable lanes, including inactive
-        // lanes. Select away their values; no external-buffer overread or
-        // widened shared-memory effect is admitted by this realization.
-        ::llvm::Value *loaded = _builder.CreateAlignedLoad(lanes, _contiguous_private_address(handle, result->type, access->second),
-                                                           ::llvm::Align{result->type->alignment()}, "private.contiguous.load");
-        if (result->type->is_bool()) {
-            loaded = _builder.CreateICmpNE(loaded, ::llvm::Constant::getNullValue(lanes));
+    auto kind = _local_soa_kind_of(ptr_id);
+    auto cell = _local_soa_cell_of(ptr_id);
+    if (kind == LocalSoAKind::uniform) {
+        if (_enable_contiguous_private_access ||
+            (_width == 1u && _outlined_soa_lane != nullptr)) {
+            _result.contiguous_private_read_count++;
+            return _load_uniform_soa_data(handle, result->type, cell);
         }
-        return _builder.CreateSelect(_active_mask, loaded, ::llvm::Constant::getNullValue(loaded->getType()));
+        auto *zero_off = ::llvm::Constant::getNullValue(
+            ::llvm::FixedVectorType::get(_builder.getInt32Ty(), _width));
+        return _gather_varying_soa_data(handle, zero_off, result->type, cell);
+    }
+    if (kind == LocalSoAKind::varying) {
+        return _gather_varying_soa_data(
+            _local_base(_builder, handle), _local_offsets(_builder, handle),
+            result->type, cell);
     }
     return _gather_data(
         _local_base(_builder, handle),
@@ -291,9 +531,10 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         _fail("thread-local store is malformed");
         return;
     }
-    auto *variable = _source.value(instruction.operands[0u]);
+    auto ptr_id = instruction.operands[0u];
+    auto *variable = _source.value(ptr_id);
     auto *written_value = _source.value(instruction.operands[1u]);
-    auto *handle = _load_value(instruction.operands[0u]);
+    auto *handle = _load_value(ptr_id);
     auto *written = written_value == nullptr ? nullptr :
                                                _as_lane_vector(
                                                    _load_value(instruction.operands[1u]), *written_value);
@@ -303,21 +544,27 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
         _fail("thread-local store has mismatched value types");
         return;
     }
-    if (auto access = _contiguous_private_accesses.find(&instruction); access != _contiguous_private_accesses.end()) {
-        _result.contiguous_private_write_count++;
-        auto address = _contiguous_private_address(handle, written_value->type, access->second);
-        auto alignment = ::llvm::Align{written_value->type->alignment()};
-        auto stored = written;
-        if (written_value->type->is_bool()) {
-            stored = _builder.CreateZExt(written, ::llvm::FixedVectorType::get(_builder.getInt8Ty(), _width));
+    auto kind = _local_soa_kind_of(ptr_id);
+    auto cell = _local_soa_cell_of(ptr_id);
+    if (kind == LocalSoAKind::uniform) {
+        if (_enable_contiguous_private_access ||
+            (_width == 1u && _outlined_soa_lane != nullptr)) {
+            _result.contiguous_private_write_count++;
+            _store_uniform_soa_data(handle, written_value->type, written, cell);
+        } else {
+            auto *zero_off = ::llvm::Constant::getNullValue(
+                ::llvm::FixedVectorType::get(_builder.getInt32Ty(), _width));
+            _scatter_varying_soa_data(
+                handle, zero_off, written_value->type, written, cell);
         }
-        auto previous = _builder.CreateAlignedLoad(stored->getType(), address, alignment, "private.contiguous.preserve");
-        // Preserve every inactive lane bit-for-bit. There are no concurrent
-        // observers or escaping aliases of this packet-private allocation.
-        // In particular, do not round-trip inactive bool bytes through i1.
-        _builder.CreateAlignedStore(_builder.CreateSelect(_active_mask, stored, previous), address, alignment);
+    } else if (kind == LocalSoAKind::varying) {
+        _scatter_varying_soa_data(
+            _local_base(_builder, handle), _local_offsets(_builder, handle),
+            written_value->type, written, cell);
     } else {
-        _scatter_data(_local_base(_builder, handle), _local_offsets(_builder, handle), written_value->type, written);
+        _scatter_data(
+            _local_base(_builder, handle), _local_offsets(_builder, handle),
+            written_value->type, written);
     }
     // A proven ray-query sidecar becomes valid only when the pointer value is
     // actually installed in its thread-local owner. Construction may precede
@@ -586,1128 +833,6 @@ void ScheduleEmitter::_local_store(const schedule::Instruction &instruction) {
     }
     auto *base = _builder.CreateExtractValue(buffer, {0u});
     return _atomic_lanes(op, *result, base, offsets, values);
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_leaf_pointers(
-    ::llvm::Value *base, ::llvm::Value *offsets,
-    size_t leaf_offset) {
-    if (leaf_offset != 0u) {
-        offsets = _builder.CreateAdd(
-            offsets,
-            _builder.CreateVectorSplat(
-                _width, _builder.getInt64(leaf_offset)));
-    }
-    return _builder.CreateGEP(
-        _builder.getInt8Ty(), base, offsets);
-}
-
-[[nodiscard]] ::llvm::AllocaInst *ScheduleEmitter::_entry_scratch(
-    ::llvm::Type *type, luisa::string_view name) {
-    auto &entry_block = _entry->getEntryBlock();
-    ::llvm::IRBuilder<> builder{
-        &entry_block, entry_block.begin()};
-    return builder.CreateAlloca(
-        type, nullptr, ::llvm::StringRef{name.data(), name.size()});
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_data(
-    ::llvm::Value *base, ::llvm::Value *offsets,
-    const Type *type, size_t leaf_offset) {
-    return _gather_data_masked(
-        base, offsets, type, _active_mask, leaf_offset);
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_data_masked(
-    ::llvm::Value *base, ::llvm::Value *offsets,
-    const Type *type, ::llvm::Value *mask, size_t leaf_offset) {
-    if (_is_scalar_data(type)) {
-        auto *pointers = _leaf_pointers(base, offsets, leaf_offset);
-        auto *element = type->is_bool() ?
-                            static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
-                            _data_type(type, false);
-        auto *lanes = ::llvm::FixedVectorType::get(element, _width);
-        auto *gathered = _builder.CreateMaskedGather(
-            lanes, pointers, ::llvm::Align{1u}, mask,
-            ::llvm::Constant::getNullValue(lanes));
-        return type->is_bool() ?
-                   _builder.CreateICmpNE(
-                       gathered, ::llvm::Constant::getNullValue(lanes)) :
-                   gathered;
-    }
-    return _assemble(type, true, [&](uint32_t i) {
-        return _gather_data_masked(
-            base, offsets, _child_type(type, i),
-            mask, leaf_offset + _child_offset(type, i));
-    });
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_gather_paired_vector_data(
-    ::llvm::Value *base, ::llvm::Value *offsets, const Type *type,
-    ::llvm::Value *mask) {
-    static_assert(std::endian::native == std::endian::little ||
-                  std::endian::native == std::endian::big);
-    // A direct typed-buffer vector read is a flat AoS packet access. Pair two
-    // adjacent 32-bit leaves into one 64-bit masked gather, then split each
-    // packed lane back into its two SoA component vectors. This preserves the
-    // exact active mask and address set while reducing hardware gathers. The
-    // caller proves the direct, non-volatile buffer boundary; structures and
-    // recursive aggregates deliberately stay on the ordinary leaf path.
-    auto *element = _data_type(type->element(), false);
-    auto *packed_lanes = ::llvm::FixedVectorType::get(
-        _builder.getInt64Ty(), _width);
-    auto pairs = type->dimension() / 2u;
-    mask = mask == nullptr ? _active_mask : mask;
-    luisa::vector<std::array<::llvm::Value *, 2u>> values;
-    values.reserve(pairs);
-    for (auto pair = uint32_t{0u}; pair < pairs; pair++) {
-        auto offset = _child_offset(type, pair * 2u);
-        auto *pointers = _leaf_pointers(base, offsets, offset);
-        auto *packed = _builder.CreateMaskedGather(
-            packed_lanes, pointers, ::llvm::Align{1u}, mask,
-            ::llvm::Constant::getNullValue(packed_lanes),
-            "buffer.paired.gather");
-        auto *low = _builder.CreateTrunc(
-            packed,
-            ::llvm::FixedVectorType::get(
-                _builder.getInt32Ty(), _width));
-        auto *high = _builder.CreateTrunc(
-            _builder.CreateLShr(
-                packed, _builder.CreateVectorSplat(
-                            _width, _builder.getInt64(32u))),
-            ::llvm::FixedVectorType::get(
-                _builder.getInt32Ty(), _width));
-        if (element->isFloatTy()) {
-            low = _builder.CreateBitCast(
-                low, ::llvm::FixedVectorType::get(element, _width));
-            high = _builder.CreateBitCast(
-                high, ::llvm::FixedVectorType::get(element, _width));
-        }
-        if constexpr (std::endian::native == std::endian::little) {
-            values.push_back({low, high});
-        } else {
-            values.push_back({high, low});
-        }
-    }
-    return _assemble(type, true, [&](uint32_t i) {
-        if (i < pairs * 2u) {
-            return values[i / 2u][i % 2u];
-        }
-        return _gather_data_masked(
-            base, offsets, type->element(), mask,
-            _child_offset(type, i));
-    });
-}
-
-[[nodiscard]] uint32_t ScheduleEmitter::_vector_storage_component_count(
-    const Type *type) noexcept {
-    // Accept only a top-level homogeneous vector whose physical representation
-    // is its semantic components plus, at most, float3-style trailing padding.
-    // Recursive aggregates retain leaf gathers/scatters.
-    if (type == nullptr || !type->is_vector() ||
-        type->dimension() < 2u || type->dimension() > 4u) {
-        return 0u;
-    }
-    auto *element = type->element();
-    if (!_is_scalar_data(element) || element->is_bool() ||
-        element->size() != sizeof(uint32_t) ||
-        type->size() % element->size() != 0u) {
-        return 0u;
-    }
-    auto storage_component_count = static_cast<uint32_t>(
-        type->size() / element->size());
-    auto valid_storage =
-        (type->dimension() == 2u && storage_component_count == 2u) ||
-        (type->dimension() == 3u &&
-         (storage_component_count == 3u ||
-          storage_component_count == 4u)) ||
-        (type->dimension() == 4u && storage_component_count == 4u);
-    if (!valid_storage) { return 0u; }
-    for (auto i = uint32_t{0u}; i < type->dimension(); i++) {
-        if (_child_offset(type, i) != element->size() * i) {
-            return 0u;
-        }
-    }
-    return storage_component_count;
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_lane_consecutive_address(
-    ::llvm::Value *base, ::llvm::Value *index,
-    uint64_t stride, ::llvm::Value *seed_lane,
-    ::llvm::Value *seed_mask) {
-    if (base == nullptr || index == nullptr || seed_lane == nullptr ||
-        !index->getType()->isVectorTy()) {
-        _fail("lane-consecutive buffer access requires a lane index");
-        return nullptr;
-    }
-    // An empty predicated arm still reaches this IR. Sanitize the complete
-    // source vector before dynamically extracting a seed so an inactive
-    // poison element cannot become scalar poison while merely forming the
-    // masked-off address.
-    auto *safe_index = seed_mask == nullptr ? index :
-                                              _builder.CreateSelect(
-                                                  seed_mask, index,
-                                                  ::llvm::Constant::getNullValue(
-                                                      index->getType()));
-    auto *seed = _builder.CreateExtractElement(safe_index, seed_lane);
-    auto *seed_index = _builder.CreateZExtOrTrunc(
-        seed, _builder.getInt64Ty());
-    auto *scalar_seed_lane = _builder.CreateZExtOrTrunc(
-        seed_lane, _builder.getInt64Ty());
-    auto *offset = _builder.CreateSub(seed_index, scalar_seed_lane);
-    if (stride != 1u) {
-        offset = _builder.CreateMul(
-            offset, _builder.getInt64(stride));
-    }
-    return _builder.CreateGEP(
-        _builder.getInt8Ty(), base, offset,
-        "buffer.contiguous.address");
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_expand_lane_mask(
-    ::llvm::Value *mask, uint32_t component_count,
-    uint32_t storage_component_count) {
-    if (mask == nullptr || !mask->getType()->isVectorTy() ||
-        component_count < 2u || component_count > 4u ||
-        storage_component_count < component_count ||
-        storage_component_count > 4u) {
-        _fail("AoS buffer mask expansion requires two to four components");
-        return nullptr;
-    }
-    std::vector<int> shuffle;
-    shuffle.reserve(_width * storage_component_count);
-    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-        for (auto component = uint32_t{0u};
-             component < storage_component_count; component++) {
-            shuffle.emplace_back(static_cast<int>(lane));
-        }
-    }
-    auto *expanded = _builder.CreateShuffleVector(
-        mask, ::llvm::PoisonValue::get(mask->getType()), shuffle,
-        "buffer.aos.mask");
-    if (component_count == storage_component_count) {
-        return expanded;
-    }
-    // A padded three-component vector occupies four physical scalar slots.
-    // Keep the padding bit false even for an active logical lane so a typed
-    // store cannot modify bytes that the source operation does not write.
-    std::vector<::llvm::Constant *> valid_components;
-    valid_components.reserve(_width * storage_component_count);
-    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-        for (auto component = uint32_t{0u};
-             component < storage_component_count; component++) {
-            valid_components.emplace_back(
-                _builder.getInt1(component < component_count));
-        }
-    }
-    return _builder.CreateAnd(
-        expanded, ::llvm::ConstantVector::get(valid_components),
-        "buffer.aos.valid.mask");
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_interleave_vector_data(
-    ::llvm::Value *value, const Type *type) {
-    auto storage_component_count =
-        _vector_storage_component_count(type);
-    if (value == nullptr || storage_component_count == 0u) {
-        _fail("AoS buffer interleave requires a regular 32-bit vector");
-        return nullptr;
-    }
-    std::array<::llvm::Value *, 4u> components{};
-    for (auto i = uint32_t{0u}; i < type->dimension(); i++) {
-        components[i] = _extract_child(value, type, i, true);
-    }
-    auto interleave_pair = [&](::llvm::Value *lhs,
-                               ::llvm::Value *rhs) {
-        std::vector<int> shuffle;
-        shuffle.reserve(_width * 2u);
-        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-            shuffle.emplace_back(static_cast<int>(lane));
-            shuffle.emplace_back(static_cast<int>(_width + lane));
-        }
-        return _builder.CreateShuffleVector(
-            lhs, rhs, shuffle, "buffer.aos.interleave.pair");
-    };
-    auto *pair01 = interleave_pair(components[0u], components[1u]);
-    if (storage_component_count == 2u) { return pair01; }
-    auto pair_width = _width * 2u;
-    if (storage_component_count == 3u) {
-        std::vector<int> widen_mask(
-            pair_width, ::llvm::PoisonMaskElem);
-        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-            widen_mask[lane] = static_cast<int>(lane);
-        }
-        auto *component2 = _builder.CreateShuffleVector(
-            components[2u],
-            ::llvm::PoisonValue::get(components[2u]->getType()),
-            widen_mask, "buffer.aos.interleave.widen");
-        std::vector<int> shuffle;
-        shuffle.reserve(_width * 3u);
-        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-            shuffle.emplace_back(static_cast<int>(lane * 2u));
-            shuffle.emplace_back(static_cast<int>(lane * 2u + 1u));
-            shuffle.emplace_back(static_cast<int>(pair_width + lane));
-        }
-        return _builder.CreateShuffleVector(
-            pair01, component2, shuffle,
-            "buffer.aos.interleave");
-    }
-    auto *component3 = type->dimension() == 4u ?
-                           components[3u] :
-                           static_cast<::llvm::Value *>(
-                               ::llvm::PoisonValue::get(components[2u]->getType()));
-    auto *pair23 = interleave_pair(components[2u], component3);
-    std::vector<int> shuffle;
-    shuffle.reserve(_width * 4u);
-    for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-        shuffle.emplace_back(static_cast<int>(lane * 2u));
-        shuffle.emplace_back(static_cast<int>(lane * 2u + 1u));
-        shuffle.emplace_back(static_cast<int>(pair_width + lane * 2u));
-        shuffle.emplace_back(static_cast<int>(pair_width + lane * 2u + 1u));
-    }
-    return _builder.CreateShuffleVector(
-        pair01, pair23, shuffle, "buffer.aos.interleave");
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_deinterleave_vector_data(
-    ::llvm::Value *value, const Type *type) {
-    auto storage_component_count =
-        _vector_storage_component_count(type);
-    if (value == nullptr || !value->getType()->isVectorTy() ||
-        storage_component_count == 0u) {
-        _fail("AoS buffer deinterleave requires a regular 32-bit vector");
-        return nullptr;
-    }
-    return _assemble(type, true, [&](uint32_t component) {
-        std::vector<int> shuffle;
-        shuffle.reserve(_width);
-        for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-            shuffle.emplace_back(static_cast<int>(
-                lane * storage_component_count + component));
-        }
-        return _builder.CreateShuffleVector(
-            value, ::llvm::PoisonValue::get(value->getType()), shuffle,
-            "buffer.aos.deinterleave");
-    });
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_contiguous_data(
-    ::llvm::Value *base, ::llvm::Value *index,
-    const Type *type, ::llvm::Value *seed_lane,
-    ::llvm::Value *seed_mask) {
-    if (!_is_scalar_data(type) || index == nullptr ||
-        seed_lane == nullptr || !index->getType()->isVectorTy()) {
-        _fail("contiguous buffer load requires a scalar type and lane index");
-        return nullptr;
-    }
-    auto *address = _lane_consecutive_address(
-        base, index, type->size(), seed_lane, seed_mask);
-    if (address == nullptr) { return nullptr; }
-    auto *element = type->is_bool() ?
-                        static_cast<::llvm::Type *>(_builder.getInt8Ty()) :
-                        _data_type(type, false);
-    auto *lanes = ::llvm::FixedVectorType::get(element, _width);
-    auto *loaded = _builder.CreateMaskedLoad(
-        lanes, address, ::llvm::Align{1u}, _active_mask,
-        ::llvm::Constant::getNullValue(lanes),
-        "buffer.contiguous.load");
-    return type->is_bool() ?
-               _builder.CreateICmpNE(
-                   loaded, ::llvm::Constant::getNullValue(lanes)) :
-               loaded;
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_contiguous_vector_data(
-    ::llvm::Value *base, ::llvm::Value *index,
-    const Type *type, ::llvm::Value *seed_lane,
-    ::llvm::Value *seed_mask) {
-    auto storage_component_count =
-        _vector_storage_component_count(type);
-    if (storage_component_count == 0u) {
-        _fail("contiguous vector buffer load requires a regular 32-bit vector");
-        return nullptr;
-    }
-    auto *address = _lane_consecutive_address(
-        base, index, type->size(), seed_lane, seed_mask);
-    auto *mask = _expand_lane_mask(
-        _active_mask, type->dimension(), storage_component_count);
-    if (address == nullptr || mask == nullptr) { return nullptr; }
-    auto *element = _data_type(type->element(), false);
-    auto *lanes = ::llvm::FixedVectorType::get(
-        element, _width * storage_component_count);
-    auto *loaded = _builder.CreateMaskedLoad(
-        lanes, address, ::llvm::Align{1u}, mask,
-        ::llvm::Constant::getNullValue(lanes),
-        "buffer.aos.load");
-    return _deinterleave_vector_data(loaded, type);
-}
-
-void ScheduleEmitter::_scatter_data(
-    ::llvm::Value *base, ::llvm::Value *offsets,
-    const Type *type, ::llvm::Value *value,
-    size_t leaf_offset) {
-    if (_is_scalar_data(type)) {
-        auto *pointers = _leaf_pointers(base, offsets, leaf_offset);
-        if (type->is_bool()) {
-            value = _builder.CreateZExt(
-                value,
-                ::llvm::FixedVectorType::get(
-                    _builder.getInt8Ty(), _width));
-        }
-        _builder.CreateMaskedScatter(
-            value, pointers, ::llvm::Align{1u}, _active_mask);
-        return;
-    }
-    for (auto i = uint32_t{0u}; i < _child_count(type); i++) {
-        _scatter_data(
-            base, offsets, _child_type(type, i),
-            _extract_child(value, type, i, true),
-            leaf_offset + _child_offset(type, i));
-    }
-}
-
-void ScheduleEmitter::_store_contiguous_data(
-    ::llvm::Value *base, ::llvm::Value *index,
-    const Type *type, ::llvm::Value *value) {
-    if (!_is_scalar_data(type) || index == nullptr || value == nullptr ||
-        !index->getType()->isVectorTy()) {
-        _fail("contiguous buffer store requires a scalar type and lane index");
-        return;
-    }
-    auto *address = _lane_consecutive_address(
-        base, index, type->size(), _seed_lane, nullptr);
-    if (address == nullptr) { return; }
-    if (type->is_bool()) {
-        value = _builder.CreateZExt(
-            value,
-            ::llvm::FixedVectorType::get(
-                _builder.getInt8Ty(), _width));
-    }
-    _builder.CreateMaskedStore(
-        value, address, ::llvm::Align{1u}, _active_mask);
-}
-
-void ScheduleEmitter::_store_contiguous_vector_data(
-    ::llvm::Value *base, ::llvm::Value *index,
-    const Type *type, ::llvm::Value *value) {
-    auto storage_component_count =
-        _vector_storage_component_count(type);
-    if (storage_component_count == 0u || value == nullptr) {
-        _fail("contiguous vector buffer store requires a regular 32-bit vector");
-        return;
-    }
-    auto *address = _lane_consecutive_address(
-        base, index, type->size(), _seed_lane, nullptr);
-    auto *interleaved = _interleave_vector_data(value, type);
-    auto *mask = _expand_lane_mask(
-        _active_mask, type->dimension(), storage_component_count);
-    if (address == nullptr || interleaved == nullptr || mask == nullptr) {
-        return;
-    }
-    _builder.CreateMaskedStore(
-        interleaved, address, ::llvm::Align{1u}, mask);
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_resource_read(
-    const schedule::Instruction &instruction,
-    ::llvm::Value *lane_affine_seed,
-    ::llvm::Value *operand_sanitization_mask) {
-    if (instruction.result) {
-        if (auto iter = _interleaved_scalar_read_overrides.find(
-                instruction.result->value);
-            iter != _interleaved_scalar_read_overrides.end()) {
-            return iter->second;
-        }
-    }
-    if (!instruction.result || !instruction.source_op) {
-        _fail("buffer read instruction is malformed");
-        return nullptr;
-    }
-    auto op = static_cast<xir::ResourceReadOp>(
-        *instruction.source_op);
-    if (op == xir::ResourceReadOp::BINDLESS_BUFFER_READ ||
-        op == xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ) {
-        return _bindless_resource_read(instruction);
-    }
-    if (op == xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ ||
-        op == xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ ||
-        op == xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL ||
-        op == xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL) {
-        return _bindless_texture_read(instruction);
-    }
-    if (instruction.operands.size() != 2u) {
-        _fail("direct resource read instruction is malformed");
-        return nullptr;
-    }
-    if (op == xir::ResourceReadOp::TEXTURE2D_READ ||
-        op == xir::ResourceReadOp::TEXTURE3D_READ) {
-        return _texture_read(instruction);
-    }
-    auto byte_address =
-        op == xir::ResourceReadOp::BYTE_BUFFER_READ ||
-        op == xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ;
-    if (!byte_address &&
-        op != xir::ResourceReadOp::BUFFER_READ &&
-        op != xir::ResourceReadOp::BUFFER_VOLATILE_READ) {
-        _fail("LLVM packet codegen only supports direct buffer reads");
-        return nullptr;
-    }
-    auto *buffer_value = _source.value(instruction.operands[0u]);
-    auto *index_value = _source.value(instruction.operands[1u]);
-    auto *result_value = _source.value(*instruction.result);
-    auto *buffer = _load_value(instruction.operands[0u]);
-    auto *index = index_value == nullptr ?
-                      nullptr :
-                      _load_value(instruction.operands[1u]);
-    if (buffer_value == nullptr || result_value == nullptr ||
-        buffer == nullptr || index == nullptr ||
-        !buffer_value->type->is_buffer()) {
-        _fail("buffer read has invalid operands");
-        return nullptr;
-    }
-    auto stride = byte_address ? 1u :
-                                 static_cast<uint64_t>(buffer_value->type->element()->size());
-    auto *base = _builder.CreateExtractValue(buffer, {0u});
-
-    // A non-volatile typed-buffer read through a warp/cohort-uniform index
-    // observes one address for every executing lane. A canonical induction
-    // can also carry a use-site proof: its state remains varying because loop
-    // exits may merge different epochs, but every lane in this instruction's
-    // in-loop continuation has the same index. Load that address once and
-    // broadcast its Luisa value instead of materializing W identical pointers
-    // and a masked gather. The Schedule block never executes with an empty
-    // active mask, so this does not make a previously inactive access
-    // observable. Volatile and byte-address reads retain their original
-    // per-lane memory operations.
-    // W2 needs a dynamic first-active-lane extraction but avoids only one
-    // additional address/load lane. Repeated n-body A/B measurements show
-    // that trade is neutral-to-negative, whereas W4/W8/W16 consistently win.
-    // W1 uses the statically known lane zero and retains the scalar form.
-    auto cohort_uniform_at_use =
-        instruction.cohort_uniform_operand_index == 1u &&
-        _width != 2u;
-    if (_enable_uniform_buffer_broadcast &&
-        op == xir::ResourceReadOp::BUFFER_READ &&
-        (schedule::is_uniform(index_value->value_class) ||
-         cohort_uniform_at_use)) {
-        if (index->getType()->isVectorTy()) {
-            if (!cohort_uniform_at_use) {
-                _fail("uniform buffer index unexpectedly has a vector representation");
-                return nullptr;
-            }
-            index = _extract_lane(
-                index, index_value->type,
-                _width == 1u ? _builder.getInt32(0u) :
-                               _seed_lane);
-        }
-        auto *offset = _builder.CreateZExtOrTrunc(
-            index, _builder.getInt64Ty());
-        if (stride != 1u) {
-            offset = _builder.CreateMul(
-                offset, _builder.getInt64(stride));
-        }
-        auto *address = _builder.CreateGEP(
-            _builder.getInt8Ty(), base, offset);
-        auto *uniform = _load_uniform_data(
-            address, result_value->type);
-        if (uniform == nullptr) { return nullptr; }
-        _result.uniform_buffer_broadcast_count++;
-        return schedule::is_uniform(result_value->value_class) ?
-                   uniform :
-                   _splat_data(uniform, result_value->type);
-    }
-
-    auto lane_consecutive_at_use =
-        instruction.lane_consecutive_operand_index == 1u;
-    // W2 masked contiguous operations cost more than LLVM's two-lane
-    // gather/scatter legalization on the measured host. Keep the proof in
-    // Schedule IR, but select this wide-memory lowering only from W4 upward.
-    if (_enable_lane_affine_buffer && _width >= 4u &&
-        op == xir::ResourceReadOp::BUFFER_READ &&
-        lane_consecutive_at_use &&
-        _is_scalar_data(result_value->type) &&
-        buffer_value->type->element() == result_value->type) {
-        index = _as_lane_vector(index, *index_value);
-        if (index == nullptr) { return nullptr; }
-        auto *loaded = _load_contiguous_data(
-            base, index, result_value->type,
-            lane_affine_seed == nullptr ? _seed_lane :
-                                          lane_affine_seed,
-            lane_affine_seed == nullptr ? operand_sanitization_mask :
-                                          nullptr);
-        if (loaded != nullptr) {
-            _result.contiguous_buffer_read_count++;
-        }
-        return loaded;
-    }
-    if (_enable_lane_affine_buffer && _width >= 2u &&
-        op == xir::ResourceReadOp::BUFFER_READ &&
-        lane_consecutive_at_use &&
-        _vector_storage_component_count(result_value->type) != 0u &&
-        buffer_value->type->element() == result_value->type) {
-        index = _as_lane_vector(index, *index_value);
-        if (index == nullptr) { return nullptr; }
-        auto *loaded = _load_contiguous_vector_data(
-            base, index, result_value->type,
-            lane_affine_seed == nullptr ? _seed_lane :
-                                          lane_affine_seed,
-            lane_affine_seed == nullptr ? operand_sanitization_mask :
-                                          nullptr);
-        if (loaded != nullptr) {
-            _result.contiguous_buffer_read_count++;
-            _result.transposed_buffer_read_count++;
-        }
-        return loaded;
-    }
-
-    index = _as_lane_vector(index, *index_value);
-    if (index == nullptr) { return nullptr; }
-    if (operand_sanitization_mask != nullptr) {
-        index = _builder.CreateSelect(
-            operand_sanitization_mask, index,
-            ::llvm::Constant::getNullValue(index->getType()));
-    }
-    auto biased_narrow_gather =
-        _enable_biased_narrow_buffer_gather &&
-        (_width == 8u || _width == 16u) &&
-        op == xir::ResourceReadOp::BUFFER_READ &&
-        (index_value->type->is_int32() ||
-         index_value->type->is_uint32()) &&
-        _is_scalar_data(result_value->type) &&
-        !result_value->type->is_bool() &&
-        result_value->type->size() == sizeof(uint32_t) &&
-        buffer_value->type->element() == result_value->type &&
-        result_value->defining_block &&
-        _innermost_loop_containing(
-            *result_value->defining_block) != nullptr;
-    if (biased_narrow_gather) {
-        constexpr auto sign_bias = uint32_t{1u} << 31u;
-        auto *biased_base = _builder.CreateGEP(
-            _builder.getInt8Ty(), base,
-            _builder.getInt64(
-                static_cast<uint64_t>(sign_bias) * stride),
-            "buffer.narrow.gather.biased.base");
-        auto *biased_index = _builder.CreateXor(
-            index,
-            _builder.CreateVectorSplat(
-                _width, _builder.getInt32(sign_bias)),
-            "buffer.narrow.gather.biased.index");
-        auto *element = _data_type(result_value->type, false);
-        ::llvm::Value *gathered = nullptr;
-        if (_width == 8u) {
-            auto *pointers = _builder.CreateGEP(
-                element, biased_base, biased_index,
-                "buffer.narrow.gather.pointers");
-            auto *lanes = ::llvm::FixedVectorType::get(element, _width);
-            gathered = _builder.CreateMaskedGather(
-                lanes, pointers, ::llvm::Align{1u}, _active_mask,
-                ::llvm::Constant::getNullValue(lanes),
-                "buffer.narrow.gather");
-        } else {
-            std::array<std::vector<int>, 2u> half_masks;
-            for (auto half = uint32_t{0u}; half < 2u; half++) {
-                half_masks[half].reserve(8u);
-                for (auto lane = uint32_t{0u}; lane < 8u; lane++) {
-                    half_masks[half].emplace_back(
-                        static_cast<int>(half * 8u + lane));
-                }
-            }
-            auto *poison_index =
-                ::llvm::PoisonValue::get(biased_index->getType());
-            auto *poison_mask =
-                ::llvm::PoisonValue::get(_active_mask->getType());
-            std::array<::llvm::Value *, 2u> halves{};
-            auto *half_lanes =
-                ::llvm::FixedVectorType::get(element, 8u);
-            for (auto half = uint32_t{0u}; half < 2u; half++) {
-                auto *half_index = _builder.CreateShuffleVector(
-                    biased_index, poison_index, half_masks[half],
-                    "buffer.narrow.gather.half.index");
-                auto *half_active = _builder.CreateShuffleVector(
-                    _active_mask, poison_mask, half_masks[half],
-                    "buffer.narrow.gather.half.mask");
-                auto *half_pointers = _builder.CreateGEP(
-                    element, biased_base, half_index,
-                    "buffer.narrow.gather.half.pointers");
-                halves[half] = _builder.CreateMaskedGather(
-                    half_lanes, half_pointers, ::llvm::Align{1u},
-                    half_active,
-                    ::llvm::Constant::getNullValue(half_lanes),
-                    "buffer.narrow.gather.half");
-            }
-            std::vector<int> concatenate_mask;
-            concatenate_mask.reserve(_width);
-            for (auto lane = uint32_t{0u}; lane < _width; lane++) {
-                concatenate_mask.emplace_back(
-                    static_cast<int>(lane));
-            }
-            gathered = _builder.CreateShuffleVector(
-                halves[0u], halves[1u], concatenate_mask,
-                "buffer.narrow.gather.join");
-        }
-        _result.biased_narrow_buffer_gather_count++;
-        return gathered;
-    }
-    auto *offsets = _lane_offsets(index, stride);
-    auto paired_vector = _enable_paired_leaf_gather && _width == 8u &&
-                         op == xir::ResourceReadOp::BUFFER_READ &&
-                         result_value->type->is_vector() &&
-                         result_value->type->dimension() >= 2u &&
-                         result_value->type->element() != nullptr &&
-                         _is_scalar_data(result_value->type->element()) &&
-                         !result_value->type->element()->is_bool() &&
-                         result_value->type->element()->size() ==
-                             sizeof(uint32_t) &&
-                         buffer_value->type->element() ==
-                             result_value->type;
-    if (paired_vector) {
-        for (auto i = uint32_t{0u};
-             i + 1u < result_value->type->dimension(); i += 2u) {
-            if (_child_offset(result_value->type, i + 1u) !=
-                _child_offset(result_value->type, i) +
-                    sizeof(uint32_t)) {
-                paired_vector = false;
-                break;
-            }
-        }
-    }
-    if (paired_vector) {
-        _result.paired_leaf_gather_count +=
-            result_value->type->dimension() / 2u;
-        return _gather_paired_vector_data(
-            base, offsets, result_value->type);
-    }
-    return _gather_data(base, offsets, result_value->type);
-}
-
-void ScheduleEmitter::_resource_write(const schedule::Instruction &instruction) {
-    if (!instruction.source_op) {
-        _fail("buffer write instruction is malformed");
-        return;
-    }
-    auto op = static_cast<xir::ResourceWriteOp>(
-        *instruction.source_op);
-    if (op == xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT ||
-        op == xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_KERNEL) {
-        _indirect_dispatch_write(instruction);
-        return;
-    }
-    if (op == xir::ResourceWriteOp::BINDLESS_BUFFER_WRITE ||
-        op == xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE) {
-        _bindless_resource_write(instruction);
-        return;
-    }
-    if (op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM ||
-        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK ||
-        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID ||
-        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY) {
-        _accel_instance_write(instruction);
-        return;
-    }
-    if (op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX ||
-        op == xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT) {
-        _accel_motion_write(instruction);
-        return;
-    }
-    if (instruction.operands.size() != 3u) {
-        _fail("direct resource write instruction is malformed");
-        return;
-    }
-    if (op == xir::ResourceWriteOp::TEXTURE2D_WRITE ||
-        op == xir::ResourceWriteOp::TEXTURE3D_WRITE) {
-        _texture_write(instruction);
-        return;
-    }
-    auto byte_address =
-        op == xir::ResourceWriteOp::BYTE_BUFFER_WRITE ||
-        op == xir::ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE;
-    if (!byte_address &&
-        op != xir::ResourceWriteOp::BUFFER_WRITE &&
-        op != xir::ResourceWriteOp::BUFFER_VOLATILE_WRITE) {
-        _fail("LLVM packet codegen only supports direct buffer writes");
-        return;
-    }
-    auto *buffer_value = _source.value(instruction.operands[0u]);
-    auto *index_value = _source.value(instruction.operands[1u]);
-    auto *written_value = _source.value(instruction.operands[2u]);
-    auto *buffer = _load_value(instruction.operands[0u]);
-    auto *index = _as_lane_vector(
-        _load_value(instruction.operands[1u]), *index_value);
-    auto *value = _as_lane_vector(
-        _load_value(instruction.operands[2u]), *written_value);
-    if (buffer_value == nullptr || buffer == nullptr ||
-        index == nullptr || value == nullptr ||
-        !buffer_value->type->is_buffer()) {
-        _fail("buffer write has invalid operands");
-        return;
-    }
-    auto stride = byte_address ? 1u :
-                                 static_cast<uint64_t>(buffer_value->type->element()->size());
-    auto *base = _builder.CreateExtractValue(buffer, {0u});
-    auto lane_consecutive_at_use =
-        instruction.lane_consecutive_operand_index == 1u;
-    if (_enable_lane_affine_buffer && _width >= 4u &&
-        op == xir::ResourceWriteOp::BUFFER_WRITE &&
-        lane_consecutive_at_use &&
-        _is_scalar_data(written_value->type) &&
-        buffer_value->type->element() == written_value->type) {
-        _store_contiguous_data(
-            base, index, written_value->type, value);
-        if (!_failed()) {
-            _result.contiguous_buffer_write_count++;
-        }
-        return;
-    }
-    if (_enable_lane_affine_buffer && _width >= 2u &&
-        op == xir::ResourceWriteOp::BUFFER_WRITE &&
-        lane_consecutive_at_use &&
-        _vector_storage_component_count(written_value->type) != 0u &&
-        buffer_value->type->element() == written_value->type) {
-        _store_contiguous_vector_data(
-            base, index, written_value->type, value);
-        if (!_failed()) {
-            _result.contiguous_buffer_write_count++;
-            _result.transposed_buffer_write_count++;
-        }
-        return;
-    }
-    _scatter_data(
-        base, _lane_offsets(index, stride), written_value->type, value);
-}
-
-void ScheduleEmitter::_indirect_dispatch_write(
-    const schedule::Instruction &instruction) {
-    auto op = static_cast<xir::ResourceWriteOp>(
-        *instruction.source_op);
-    auto set_count =
-        op == xir::ResourceWriteOp::INDIRECT_DISPATCH_SET_COUNT;
-    auto expected_operands = set_count ? 2u : 5u;
-    if (instruction.operands.size() != expected_operands) {
-        _fail("indirect-dispatch write instruction is malformed");
-        return;
-    }
-    auto *buffer_value = _source.value(instruction.operands[0u]);
-    auto *buffer = _load_value(instruction.operands[0u]);
-    auto *indirect_type = Type::custom("LC_IndirectDispatchBuffer");
-    if (buffer_value == nullptr || buffer == nullptr ||
-        buffer_value->type != indirect_type) {
-        _fail("indirect-dispatch write has an invalid buffer operand");
-        return;
-    }
-    auto *base = _builder.CreateExtractValue(buffer, {0u});
-    auto *size = _builder.CreateExtractValue(buffer, {1u});
-    auto *size_valid = _builder.CreateICmpUGE(
-        size,
-        _builder.getInt64(lc::IndirectDispatchLayout::header_size));
-    auto *capacity_bytes = _builder.CreateSelect(
-        size_valid,
-        _builder.CreateSub(
-            size,
-            _builder.getInt64(lc::IndirectDispatchLayout::header_size)),
-        _builder.getInt64(0u));
-    auto *capacity = _builder.CreateUDiv(
-        capacity_bytes,
-        _builder.getInt64(lc::IndirectDispatchLayout::record_size));
-    auto *capacity_lanes = _builder.CreateVectorSplat(
-        _width, capacity);
-    auto *layout_mask = _builder.CreateAnd(
-        _active_mask,
-        _builder.CreateVectorSplat(_width, size_valid));
-    auto *i32_lanes = ::llvm::FixedVectorType::get(
-        _builder.getInt32Ty(), _width);
-    auto *i64_lanes = ::llvm::FixedVectorType::get(
-        _builder.getInt64Ty(), _width);
-    auto *zero_i32 = ::llvm::Constant::getNullValue(i32_lanes);
-    auto *zero_i64 = ::llvm::Constant::getNullValue(i64_lanes);
-    auto masked_scatter_u32 = [&](::llvm::Value *offsets,
-                                  ::llvm::Value *value,
-                                  ::llvm::Value *mask) noexcept {
-        auto *pointers = _leaf_pointers(base, offsets, 0u);
-        _builder.CreateMaskedScatter(
-            value, pointers, ::llvm::Align{1u}, mask);
-    };
-
-    if (set_count) {
-        auto *count_value = _source.value(instruction.operands[1u]);
-        auto *count = count_value == nullptr ? nullptr :
-                                               _as_lane_vector(
-                                                   _load_value(instruction.operands[1u]),
-                                                   *count_value);
-        if (count_value == nullptr || count_value->type == nullptr ||
-            count == nullptr ||
-            !count_value->type->is_uint32()) {
-            _fail("indirect-dispatch count write expects a uint count");
-            return;
-        }
-        count = _builder.CreateSelect(
-            _active_mask, count, zero_i32,
-            "indirect.count.sanitized");
-        auto *count64 = _builder.CreateZExt(count, i64_lanes);
-        auto *clamped64 = _builder.CreateSelect(
-            _builder.CreateICmpULT(count64, capacity_lanes),
-            count64, capacity_lanes,
-            "indirect.count.clamped");
-        auto *clamped = _builder.CreateTrunc(clamped64, i32_lanes);
-        auto *first_lane = _safe_first_lane(layout_mask);
-        auto *first_lane_mask = _builder.CreateAnd(
-            layout_mask,
-            _builder.CreateICmpEQ(
-                _lane_ids(),
-                _builder.CreateVectorSplat(
-                    _width, first_lane)),
-            "indirect.count.first.lane");
-        masked_scatter_u32(
-            zero_i64, clamped, first_lane_mask);
-        return;
-    }
-
-    auto *index_value = _source.value(instruction.operands[1u]);
-    auto *block_size_value = _source.value(instruction.operands[2u]);
-    auto *logical_size_value = _source.value(instruction.operands[3u]);
-    auto *kernel_id_value = _source.value(instruction.operands[4u]);
-    auto *index = index_value == nullptr ? nullptr :
-                                           _as_lane_vector(
-                                               _load_value(instruction.operands[1u]),
-                                               *index_value);
-    auto *block_size = block_size_value == nullptr ? nullptr :
-                                                     _as_lane_vector(
-                                                         _load_value(instruction.operands[2u]),
-                                                         *block_size_value);
-    auto *logical_size = logical_size_value == nullptr ? nullptr :
-                                                         _as_lane_vector(
-                                                             _load_value(instruction.operands[3u]),
-                                                             *logical_size_value);
-    auto *kernel_id = kernel_id_value == nullptr ? nullptr :
-                                                   _as_lane_vector(
-                                                       _load_value(instruction.operands[4u]),
-                                                       *kernel_id_value);
-    if (index_value == nullptr || block_size_value == nullptr ||
-        logical_size_value == nullptr || kernel_id_value == nullptr ||
-        index_value->type == nullptr ||
-        block_size_value->type == nullptr ||
-        logical_size_value->type == nullptr ||
-        kernel_id_value->type == nullptr ||
-        index == nullptr || block_size == nullptr ||
-        logical_size == nullptr || kernel_id == nullptr ||
-        !index_value->type->is_uint32() ||
-        !block_size_value->type->is_vector() ||
-        block_size_value->type->dimension() != 3u ||
-        !block_size_value->type->element()->is_uint32() ||
-        !logical_size_value->type->is_vector() ||
-        logical_size_value->type->dimension() != 3u ||
-        !logical_size_value->type->element()->is_uint32() ||
-        !kernel_id_value->type->is_uint32()) {
-        _fail("indirect-dispatch record write expects "
-              "(uint, uint3, uint3, uint)");
-        return;
-    }
-
-    index = _builder.CreateSelect(
-        _active_mask, index, zero_i32,
-        "indirect.index.sanitized");
-    auto *index64 = _builder.CreateZExt(index, i64_lanes);
-    auto *valid_index = _builder.CreateICmpULT(
-        index64, capacity_lanes,
-        "indirect.index.valid");
-    auto *write_mask = _builder.CreateAnd(layout_mask, valid_index);
-    auto *safe_index = _builder.CreateSelect(
-        write_mask, index64, zero_i64,
-        "indirect.index.safe");
-    auto *record_offsets = _builder.CreateAdd(
-        _builder.CreateMul(
-            safe_index,
-            _builder.CreateVectorSplat(
-                _width,
-                _builder.getInt64(
-                    lc::IndirectDispatchLayout::record_size))),
-        _builder.CreateVectorSplat(
-            _width,
-            _builder.getInt64(
-                lc::IndirectDispatchLayout::header_size)));
-    auto store_record_word = [&](uint32_t word,
-                                 ::llvm::Value *value) noexcept {
-        auto byte_offset = static_cast<uint64_t>(word) *
-                           lc::IndirectDispatchLayout::word_size;
-        auto *offsets = byte_offset == 0u ?
-                            record_offsets :
-                            _builder.CreateAdd(
-                                record_offsets,
-                                _builder.CreateVectorSplat(
-                                    _width,
-                                    _builder.getInt64(byte_offset)));
-        masked_scatter_u32(offsets, value, write_mask);
-    };
-
-    auto *valid_block = _active_mask;
-    std::array<::llvm::Value *, 3u> blocks{};
-    std::array<::llvm::Value *, 3u> logicals{};
-    for (auto component = uint32_t{0u}; component < 3u; component++) {
-        auto *raw_block = _extract_child(
-            block_size, block_size_value->type, component, true);
-        auto *raw_logical = _extract_child(
-            logical_size, logical_size_value->type, component, true);
-        blocks[component] = _builder.CreateSelect(
-            _active_mask, raw_block,
-            _builder.CreateVectorSplat(
-                _width, _builder.getInt32(1u)),
-            "indirect.block.sanitized");
-        logicals[component] = _builder.CreateSelect(
-            _active_mask, raw_logical, zero_i32,
-            "indirect.logical.sanitized");
-        valid_block = _builder.CreateAnd(
-            valid_block,
-            _builder.CreateICmpNE(
-                blocks[component], zero_i32));
-        store_record_word(
-            lc::IndirectDispatchLayout::logical_size_word + component,
-            logicals[component]);
-    }
-    for (auto component = uint32_t{0u}; component < 3u; component++) {
-        auto *safe_block = _builder.CreateSelect(
-            valid_block, blocks[component],
-            _builder.CreateVectorSplat(
-                _width, _builder.getInt32(1u)),
-            "indirect.block.safe");
-        auto *quotient = _builder.CreateUDiv(
-            logicals[component], safe_block);
-        auto *remainder = _builder.CreateURem(
-            logicals[component], safe_block);
-        auto *group_count = _builder.CreateAdd(
-            quotient,
-            _builder.CreateZExt(
-                _builder.CreateICmpNE(remainder, zero_i32),
-                i32_lanes));
-        group_count = _builder.CreateSelect(
-            valid_block, group_count, zero_i32,
-            "indirect.group.count");
-        store_record_word(
-            lc::IndirectDispatchLayout::group_count_word + component,
-            group_count);
-    }
-    kernel_id = _builder.CreateSelect(
-        _active_mask, kernel_id, zero_i32,
-        "indirect.kernel.id.sanitized");
-    store_record_word(
-        lc::IndirectDispatchLayout::kernel_id_word, kernel_id);
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_resource_query(
-    const schedule::Instruction &instruction) {
-    if (!instruction.result || !instruction.source_op) {
-        _fail("buffer query instruction is malformed");
-        return nullptr;
-    }
-    auto op = static_cast<xir::ResourceQueryOp>(
-        *instruction.source_op);
-    if (op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL ||
-        op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY ||
-        op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
-        op == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR) {
-        return _ray_query_create(instruction);
-    }
-    if (op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST ||
-        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY ||
-        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR ||
-        op == xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR) {
-        return _accel_query(instruction);
-    }
-    if (op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM ||
-        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID ||
-        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK) {
-        return _accel_instance_query(instruction);
-    }
-    if (op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX ||
-        op == xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT) {
-        return _accel_motion_query(instruction);
-    }
-    if (op == xir::ResourceQueryOp::BINDLESS_BUFFER_SIZE ||
-        op == xir::ResourceQueryOp::BINDLESS_BYTE_BUFFER_SIZE ||
-        op == xir::ResourceQueryOp::BINDLESS_BUFFER_DEVICE_ADDRESS) {
-        return _bindless_resource_query(instruction);
-    }
-    if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE ||
-        op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE ||
-        op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL ||
-        op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL ||
-        (op >= xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE &&
-         op <= xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER)) {
-        return _bindless_texture_query(instruction);
-    }
-    if (op >= xir::ResourceQueryOp::TEXTURE2D_SAMPLE &&
-        op <= xir::ResourceQueryOp::TEXTURE3D_SAMPLE_GRAD_LEVEL) {
-        return _direct_texture_sample(instruction);
-    }
-    if (instruction.operands.size() != 1u) {
-        _fail("direct resource query instruction is malformed");
-        return nullptr;
-    }
-    auto *result = _source.value(*instruction.result);
-    auto *buffer_value = _source.value(instruction.operands[0u]);
-    auto *buffer = _load_value(instruction.operands[0u]);
-    if (result == nullptr || buffer_value == nullptr ||
-        buffer == nullptr) {
-        _fail("resource query has invalid operands");
-        return nullptr;
-    }
-    if (op == xir::ResourceQueryOp::TEXTURE2D_SIZE ||
-        op == xir::ResourceQueryOp::TEXTURE3D_SIZE) {
-        if (!buffer_value->type->is_texture() ||
-            !result->type->is_vector()) {
-            _fail("texture size query has invalid types");
-            return nullptr;
-        }
-        auto dimension =
-            op == xir::ResourceQueryOp::TEXTURE2D_SIZE ? 2u : 3u;
-        if (result->type->dimension() != dimension) {
-            _fail("texture size query result dimension mismatch");
-            return nullptr;
-        }
-        auto *object = _builder.CreateExtractValue(buffer, {0u});
-        auto *size = _builder.CreateExtractValue(buffer, {5u});
-        auto *level = _builder.CreateExtractValue(buffer, {6u});
-        auto *size_type = ::llvm::FunctionType::get(
-            _builder.getInt32Ty(),
-            {::llvm::PointerType::getUnqual(_module.getContext()),
-             _builder.getInt32Ty(), _builder.getInt32Ty()},
-            false);
-        auto *uniform = _assemble(
-            result->type, false, [&](uint32_t axis) {
-                return _builder.CreateCall(
-                    size_type, size,
-                    {object, level, _builder.getInt32(axis)});
-            });
-        return result->value_class ==
-                       schedule::ValueClass::varying ?
-                   _splat_data(uniform, result->type) :
-                   uniform;
-    }
-    if (!buffer_value->type->is_buffer()) {
-        _fail("buffer query has invalid resource type");
-        return nullptr;
-    }
-    auto *value = _builder.CreateExtractValue(buffer, {1u});
-    switch (op) {
-        case xir::ResourceQueryOp::BUFFER_SIZE:
-            value = _builder.CreateUDiv(
-                value,
-                _builder.getInt64(
-                    buffer_value->type->element()->size()));
-            break;
-        case xir::ResourceQueryOp::BYTE_BUFFER_SIZE: break;
-        case xir::ResourceQueryOp::BUFFER_DEVICE_ADDRESS: {
-            auto *pointer = _builder.CreateExtractValue(buffer, {0u});
-            value = _builder.CreatePtrToInt(
-                pointer, _builder.getInt64Ty());
-            break;
-        }
-        default:
-            _fail("LLVM packet codegen only supports direct buffer queries");
-            return nullptr;
-    }
-    auto *destination = _data_type(result->type, false);
-    value = _builder.CreateZExtOrTrunc(value, destination);
-    return result->value_class == schedule::ValueClass::varying ?
-               _splat_data(value, result->type) :
-               value;
 }
 
 }// namespace luisa::compute::simd::detail

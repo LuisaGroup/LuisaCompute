@@ -27,15 +27,40 @@ namespace luisa::compute::simd {
     };
 }
 
+inline void simd_geometry_enable_argument_filter(
+    RTCGeometry geometry) noexcept {
+#if LUISA_COMPUTE_SIMD_EMBREE_VERSION != 3
+    rtcSetGeometryEnableFilterFunctionFromArguments(geometry, true);
+#else
+    static_cast<void>(geometry);
+#endif
+}
+
+[[nodiscard]] inline RTCBuildQuality simd_triangle_geometry_build_quality(
+    const AccelOption &option) noexcept {
+    if (option.allow_update) { return RTC_BUILD_QUALITY_LOW; }
+    if (option.hint == AccelOption::UsageHint::FAST_TRACE &&
+        !option.motion) {
+        return RTC_BUILD_QUALITY_HIGH;
+    }
+    return RTC_BUILD_QUALITY_MEDIUM;
+}
+
 inline void simd_accel_set_flags(
     RTCScene scene, const AccelOption &option) noexcept {
     auto flags = static_cast<unsigned>(RTC_SCENE_FLAG_ROBUST);
 #if LUISA_COMPUTE_SIMD_EMBREE_VERSION == 3
     flags |= RTC_SCENE_FLAG_CONTEXT_FILTER_FUNCTION;
+#else
+    flags |= RTC_SCENE_FLAG_FILTER_FUNCTION_IN_ARGUMENTS;
 #endif
     if (option.allow_compaction) { flags |= RTC_SCENE_FLAG_COMPACT; }
     if (option.allow_update) { flags |= RTC_SCENE_FLAG_DYNAMIC; }
     rtcSetSceneFlags(scene, static_cast<RTCSceneFlags>(flags));
+    if (option.allow_update) {
+        rtcSetSceneBuildQuality(scene, RTC_BUILD_QUALITY_LOW);
+        return;
+    }
     rtcSetSceneBuildQuality(
         scene,
         option.hint == AccelOption::UsageHint::FAST_TRACE ?

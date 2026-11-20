@@ -59,15 +59,20 @@ set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_codegen.cpp
         llvm/llvm_schedule_codegen_cooperative.cpp
         llvm/llvm_schedule_emitter_bindless.cpp
+        llvm/llvm_schedule_emitter_bindless_texture.cpp
         llvm/llvm_schedule_emitter.cpp
         llvm/llvm_schedule_emitter_arithmetic.cpp
+        llvm/llvm_schedule_emitter_arithmetic_ops.cpp
         llvm/llvm_schedule_emitter_accel.cpp
+        llvm/llvm_schedule_emitter_build.cpp
+        llvm/llvm_schedule_emitter_callable.cpp
         llvm/llvm_schedule_emitter_collectives.cpp
         llvm/llvm_schedule_emitter_cooperative.cpp
         llvm/llvm_schedule_emitter_control.cpp
         llvm/llvm_schedule_emitter_debug.cpp
         llvm/llvm_schedule_emitter_direct.cpp
         llvm/llvm_schedule_emitter_memory.cpp
+        llvm/llvm_schedule_emitter_resource.cpp
         llvm/llvm_schedule_emitter_mma.cpp
         llvm/llvm_schedule_emitter_texture.cpp
         llvm/llvm_schedule_emitter_terminators.cpp
@@ -175,7 +180,8 @@ luisa_compute_add_backend(simd SOURCES
         runtime/simd_accel_ray_query_triangle.cpp
         runtime/simd_accel_ray_query_status.cpp
         runtime/simd_accel_ray_query_filter_pipeline.cpp
-        runtime/simd_swapchain.cpp)
+        runtime/simd_swapchain.cpp
+        ../common/default_binary_io.cpp)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # Keep the optional W8/W16 ray-query filter from contributing a small
     # .text.unlikely partition ahead of the established narrow hot text. On

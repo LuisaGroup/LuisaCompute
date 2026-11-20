@@ -3,7 +3,20 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <optional>
 #include <utility>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
 
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
@@ -12,6 +25,8 @@
 #include <llvm/Config/llvm-config.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ObjectTransformLayer.h>
+#include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
+#include <llvm/ExecutionEngine/SectionMemoryManager.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -24,7 +39,14 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Target/TargetMachine.h>
+#include <llvm/Transforms/IPO/AlwaysInliner.h>
+#include <llvm/Transforms/InstCombine/InstCombine.h>
+#include <llvm/Transforms/Scalar/EarlyCSE.h>
+#include <llvm/Transforms/Scalar/SROA.h>
+#include <llvm/Transforms/Scalar/Scalarizer.h>
+#include <llvm/Transforms/Scalar/SimplifyCFG.h>
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Vectorize/SLPVectorizer.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
@@ -47,6 +69,105 @@ struct ModuleContextLifetime {
     ~ModuleContextLifetime() noexcept {
         module.reset();
         context.reset();
+    }
+};
+
+// Large vectorized kernels can recurse deeply inside LLVM -O2 / codegen passes
+// and exceed the 1 MB default main-thread stack on Windows (or 512 KB worker
+// stacks on macOS). Run heavy compiler steps on a 16 MB stack when needed.
+template<typename Fn>
+void run_with_compiler_stack(Fn &&fn) noexcept {
+    constexpr size_t compiler_stack_bytes = 16u * 1024u * 1024u;
+    struct Context {
+        std::remove_reference_t<Fn> *fn;
+    } ctx{&fn};
+#ifdef _WIN32
+    auto proc = [](LPVOID param) noexcept -> DWORD {
+        (*static_cast<Context *>(param)->fn)();
+        return 0u;
+    };
+    HANDLE thread = ::CreateThread(
+        nullptr, compiler_stack_bytes, proc, &ctx,
+        STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (thread != nullptr) {
+        ::WaitForSingleObject(thread, INFINITE);
+        ::CloseHandle(thread);
+        return;
+    }
+    fn();
+#else
+    auto proc = [](void *param) noexcept -> void * {
+        (*static_cast<Context *>(param)->fn)();
+        return nullptr;
+    };
+    pthread_attr_t attr{};
+    if (::pthread_attr_init(&attr) == 0) {
+        ::pthread_attr_setstacksize(&attr, compiler_stack_bytes);
+        pthread_t thread{};
+        if (::pthread_create(&thread, &attr, proc, &ctx) == 0) {
+            ::pthread_join(thread, nullptr);
+            ::pthread_attr_destroy(&attr);
+            return;
+        }
+        ::pthread_attr_destroy(&attr);
+    }
+    fn();
+#endif
+}
+
+// Strip <1 x T> pseudo-vectors in W=1 functions after SROA/scalar opts and
+// immediately before LoopVectorize/SLPVectorizer so LLVM SLP can pack
+// independent scalar lanes (e.g. 8-corner 3D Perlin noise, Float3/Float4 math)
+// into native SIMD registers on both x86-64 and AArch64.
+struct ScalarizeW1FunctionPass
+    : ::llvm::PassInfoMixin<ScalarizeW1FunctionPass> {
+    ::llvm::PreservedAnalyses run(
+        ::llvm::Function &function,
+        ::llvm::FunctionAnalysisManager &am) noexcept {
+        if (!function.getName().ends_with(".simd_w1") &&
+            !function.getName().ends_with(".live_w1")) {
+            return ::llvm::PreservedAnalyses::all();
+        }
+        bool has_v1 = false;
+        bool has_wide = false;
+        auto inspect_type = [&](::llvm::Type *ty) noexcept {
+            if (auto *vt = ::llvm::dyn_cast<::llvm::FixedVectorType>(ty)) {
+                auto n = vt->getNumElements();
+                if (n == 1u) {
+                    has_v1 = true;
+                } else if (n > 1u) {
+                    has_wide = true;
+                }
+            }
+        };
+        for (auto &&bb : function) {
+            for (auto &&inst : bb) {
+                inspect_type(inst.getType());
+                for (auto &op : inst.operands()) {
+                    inspect_type(op->getType());
+                }
+                if (has_wide) { break; }
+            }
+            if (has_wide) { break; }
+        }
+        if (!has_v1 || has_wide) {
+            return ::llvm::PreservedAnalyses::all();
+        }
+        ::llvm::ScalarizerPassOptions opts{};
+        opts.ScalarizeLoadStore = true;
+        opts.ScalarizeVariableInsertExtract = true;
+        ::llvm::ScalarizerPass scalarizer{opts};
+        auto pa = scalarizer.run(function, am);
+        if (pa.areAllPreserved()) { return pa; }
+        am.invalidate(function, pa);
+        ::llvm::InstCombinePass ic{};
+        auto ic_pa = ic.run(function, am);
+        am.invalidate(function, ic_pa);
+        pa.intersect(ic_pa);
+        ::llvm::SLPVectorizerPass slp{};
+        auto slp_pa = slp.run(function, am);
+        pa.intersect(slp_pa);
+        return pa;
     }
 };
 
@@ -85,6 +206,24 @@ LLVMJIT::LLVMJIT(bool capture_object) noexcept {
     _target_machine = std::move(*target_machine);
     _target_machine->Options.MCOptions.AsmVerbose = true;
     ::llvm::orc::LLJITBuilder builder;
+    const auto &triple = host->getTargetTriple();
+    if (triple.isOSBinFormatCOFF() && triple.isX86()) {
+        // RuntimeDyldCOFFX86_64 requires all sections referenced by 32-bit
+        // image-base-relative relocations (IMAGE_REL_AMD64_ADDR32NB) to be
+        // allocated in a single monotonically ordered address range.
+        builder.setObjectLinkingLayerCreator(
+            [](::llvm::orc::ExecutionSession &es, auto &&...)
+                -> ::llvm::Expected<std::unique_ptr<::llvm::orc::ObjectLayer>> {
+                auto layer = std::make_unique<::llvm::orc::RTDyldObjectLinkingLayer>(
+                    es, [](const ::llvm::MemoryBuffer &) {
+                        return std::make_unique<::llvm::SectionMemoryManager>(
+                            nullptr, /*ReserveAlloc=*/true);
+                    });
+                layer->setOverrideObjectFlagsWithResponsibilityFlags(true);
+                layer->setAutoClaimResponsibilityForObjectSymbols(true);
+                return layer;
+            });
+    }
     builder.setJITTargetMachineBuilder(std::move(*host));
     auto jit = builder.create();
     if (!jit) {
@@ -107,12 +246,24 @@ LLVMJIT::LLVMJIT(bool capture_object) noexcept {
     };
     using FloatMath = float (*)(float);
     using DoubleMath = double (*)(double);
+    using FloatBinaryMath = float (*)(float, float);
+    using DoubleBinaryMath = double (*)(double, double);
     bind_math_symbol("asinhf", static_cast<FloatMath>(&std::asinh));
     bind_math_symbol("acoshf", static_cast<FloatMath>(&std::acosh));
     bind_math_symbol("atanhf", static_cast<FloatMath>(&std::atanh));
     bind_math_symbol("asinh", static_cast<DoubleMath>(&std::asinh));
     bind_math_symbol("acosh", static_cast<DoubleMath>(&std::acosh));
     bind_math_symbol("atanh", static_cast<DoubleMath>(&std::atanh));
+    bind_math_symbol("log2f", static_cast<FloatMath>(&std::log2));
+    bind_math_symbol("log2", static_cast<DoubleMath>(&std::log2));
+    bind_math_symbol("exp2f", static_cast<FloatMath>(&std::exp2));
+    bind_math_symbol("exp2", static_cast<DoubleMath>(&std::exp2));
+    bind_math_symbol("log10f", static_cast<FloatMath>(&std::log10));
+    bind_math_symbol("log10", static_cast<DoubleMath>(&std::log10));
+    bind_math_symbol("fmodf", static_cast<FloatBinaryMath>(&std::fmod));
+    bind_math_symbol("fmod", static_cast<DoubleBinaryMath>(&std::fmod));
+    bind_math_symbol("powf", static_cast<FloatBinaryMath>(&std::pow));
+    bind_math_symbol("pow", static_cast<DoubleBinaryMath>(&std::pow));
     if (auto error = _jit->getMainJITDylib().define(
             ::llvm::orc::absoluteSymbols(std::move(math_symbols)))) {
         _fail("failed to define LLVM JIT scalar math symbols: " +
@@ -139,8 +290,8 @@ LLVMJIT &LLVMJIT::operator=(LLVMJIT &&) noexcept = default;
 
 bool LLVMJIT::selects_size_bounded_pipeline(
     size_t block_count, size_t instruction_count) noexcept {
-    static constexpr auto max_o2_blocks = size_t{8192u};
-    static constexpr auto max_o2_instructions = size_t{262144u};
+    static constexpr auto max_o2_blocks = size_t{65536u};
+    static constexpr auto max_o2_instructions = size_t{1048576u};
     return block_count >= max_o2_blocks ||
            instruction_count >= max_o2_instructions;
 }
@@ -155,7 +306,36 @@ bool LLVMJIT::add_module(
         _fail("LLVM JIT module and context ownership do not match");
         return false;
     }
-    if (!_prepare_module(*module)) { return false; }
+    auto size_bounded = false;
+    if (!_prepare_module(*module, &size_bounded)) { return false; }
+
+    if (size_bounded) {
+        ::llvm::SmallVector<char, 0u> object_storage;
+        ::llvm::raw_svector_ostream object_stream{object_storage};
+        ::llvm::legacy::PassManager object_codegen;
+        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Less);
+        if (_target_machine->addPassesToEmitFile(
+                object_codegen, object_stream, nullptr,
+                ::llvm::CodeGenFileType::ObjectFile)) {
+            _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Aggressive);
+            _fail("LLVM host target cannot emit relocatable object");
+            return false;
+        }
+        object_codegen.run(*module);
+        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Aggressive);
+        if (_object != nullptr) {
+            _object->assign(object_storage.data(), object_storage.size());
+        }
+        auto object_buffer = ::llvm::MemoryBuffer::getMemBufferCopy(
+            ::llvm::StringRef{object_storage.data(), object_storage.size()},
+            module->getModuleIdentifier());
+        if (auto error = _jit->addObjectFile(std::move(object_buffer))) {
+            _fail("failed to add size-bounded object to ORC JIT: " +
+                  ::llvm::toString(std::move(error)));
+            return false;
+        }
+        return true;
+    }
 
     if (auto error = _jit->addIRModule(::llvm::orc::ThreadSafeModule(
             std::move(module), std::move(context)))) {
@@ -166,7 +346,27 @@ bool LLVMJIT::add_module(
     return true;
 }
 
-bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
+bool LLVMJIT::add_object(
+    luisa::string_view object,
+    luisa::string_view buffer_name) noexcept {
+    if (!succeeded()) { return false; }
+    if (object.empty()) {
+        _fail("cannot add an empty object buffer to LLVM ORC JIT");
+        return false;
+    }
+    auto object_buffer = ::llvm::MemoryBuffer::getMemBufferCopy(
+        ::llvm::StringRef{object.data(), object.size()},
+        ::llvm::StringRef{buffer_name.data(), buffer_name.size()});
+    if (auto error = _jit->addObjectFile(std::move(object_buffer))) {
+        _fail("failed to add cached object to ORC JIT: " +
+              ::llvm::toString(std::move(error)));
+        return false;
+    }
+    return true;
+}
+
+bool LLVMJIT::_prepare_module(
+    ::llvm::Module &module, bool *out_size_bounded) noexcept {
     module.setDataLayout(_target_machine->createDataLayout());
 #if LLVM_VERSION_MAJOR >= 21
     module.setTargetTriple(_target_machine->getTargetTriple());
@@ -182,8 +382,18 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
     ::llvm::FunctionAnalysisManager function_analyses;
     ::llvm::CGSCCAnalysisManager cgscc_analyses;
     ::llvm::ModuleAnalysisManager module_analyses;
+    ::llvm::PipelineTuningOptions tuning_options;
+#if LLVM_VERSION_MAJOR >= 23
+    tuning_options.MergeFunctions = false;
+#endif
     auto pass_builder = luisa::compute::detail::make_llvm_pass_builder(
-        module.getContext(), _target_machine.get());
+        module.getContext(), _target_machine.get(), tuning_options);
+    if (!luisa::compute::detail::env_flag("LUISA_SIMD_DISABLE_W1_SCALARIZE")) {
+        pass_builder.registerVectorizerStartEPCallback(
+            [](::llvm::FunctionPassManager &fpm, ::llvm::OptimizationLevel) {
+                fpm.addPass(ScalarizeW1FunctionPass{});
+            });
+    }
     pass_builder.registerModuleAnalyses(module_analyses);
     pass_builder.registerCGSCCAnalyses(cgscc_analyses);
     pass_builder.registerFunctionAnalyses(function_analyses);
@@ -193,29 +403,93 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
         cgscc_analyses, module_analyses);
     auto block_count = size_t{0u};
     auto instruction_count = size_t{0u};
+    auto max_function_blocks = size_t{0u};
+    auto max_function_instructions = size_t{0u};
     for (auto &&function : module) {
         if (function.isDeclaration()) { continue; }
+        auto fn_blocks = size_t{0u};
+        auto fn_instructions = size_t{0u};
         for (auto &&block : function) {
-            block_count++;
-            instruction_count += block.size();
+            fn_blocks++;
+            fn_instructions += block.size();
         }
+        block_count += fn_blocks;
+        instruction_count += fn_instructions;
+        max_function_blocks = std::max(max_function_blocks, fn_blocks);
+        max_function_instructions =
+            std::max(max_function_instructions, fn_instructions);
     }
     auto size_bounded = selects_size_bounded_pipeline(
-        block_count, instruction_count);
-    auto optimization_level = size_bounded ?
-                                  ::llvm::OptimizationLevel::O1 :
-                                  ::llvm::OptimizationLevel::O2;
+        max_function_blocks, max_function_instructions);
+    if (out_size_bounded != nullptr) {
+        *out_size_bounded = size_bounded;
+    }
     auto report = luisa::compute::detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
     if (report) {
         LUISA_INFO(
-            "SIMD LLVM pipeline: {}, blocks={}, instructions={}",
-            size_bounded ? "O1 size-bounded" : "O2",
-            block_count, instruction_count);
+            "SIMD LLVM pipeline: {}, blocks={}, instructions={}, "
+            "max_fn_blocks={}, max_fn_instructions={}",
+            size_bounded ? "linear-SROA/O1-CG size-bounded" : "O2",
+            block_count, instruction_count,
+            max_function_blocks, max_function_instructions);
     }
-    auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
-        optimization_level);
+    // In large kernels (e.g. multi-hundred-material path tracers), force-inlining
+    // heavy transcendental math helpers (pow/exp/log/atan2/sin/cos) at hundreds of
+    // sites causes massive code-size explosion, I-cache thrashing, and quadratic
+    // register-allocation compile time. Outline heavily reused pure-IR native math
+    // helpers with FastCC (never PreserveAll on AVX-512, since ymm saves zero the
+    // upper 256 bits of live caller zmm registers).
+    if (instruction_count >= size_t{32768u} &&
+        !luisa::compute::detail::env_flag("LUISA_SIMD_KEEP_INLINE_NATIVE_MATH")) {
+        for (auto &&function : module) {
+            if (function.isDeclaration() ||
+                !function.hasFnAttribute("luisa.cpu.native_math")) {
+                continue;
+            }
+            size_t call_count = 0u;
+            bool all_direct_calls = true;
+            for (auto *user : function.users()) {
+                auto *cb = ::llvm::dyn_cast<::llvm::CallBase>(user);
+                if (cb == nullptr || cb->getCalledFunction() != &function) {
+                    all_direct_calls = false;
+                    break;
+                }
+                ++call_count;
+            }
+            if (all_direct_calls && call_count >= size_t{8u}) {
+                function.removeFnAttr(::llvm::Attribute::AlwaysInline);
+                function.addFnAttr(::llvm::Attribute::NoInline);
+                function.setCallingConv(::llvm::CallingConv::Fast);
+                for (auto *user : function.users()) {
+                    ::llvm::cast<::llvm::CallBase>(user)->setCallingConv(
+                        ::llvm::CallingConv::Fast);
+                }
+            }
+        }
+    }
     auto started = report ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-    pipeline.run(module, module_analyses);
+    auto run_opt = [&]() noexcept {
+        if (size_bounded) {
+            ::llvm::ModulePassManager pipeline;
+            pipeline.addPass(::llvm::AlwaysInlinerPass{});
+            ::llvm::FunctionPassManager fpm;
+            fpm.addPass(::llvm::SROAPass{::llvm::SROAOptions::PreserveCFG});
+            fpm.addPass(::llvm::EarlyCSEPass{/*UseMemorySSA=*/false});
+            fpm.addPass(::llvm::SimplifyCFGPass{});
+            pipeline.addPass(
+                ::llvm::createModuleToFunctionPassAdaptor(std::move(fpm)));
+            pipeline.run(module, module_analyses);
+        } else {
+            auto pipeline = pass_builder.buildPerModuleDefaultPipeline(
+                ::llvm::OptimizationLevel::O2);
+            pipeline.run(module, module_analyses);
+        }
+    };
+    if (instruction_count >= size_t{32768u}) {
+        run_with_compiler_stack(run_opt);
+    } else {
+        run_opt();
+    }
     if (report) {
         auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         auto post_block_count = size_t{0u};
@@ -240,24 +514,34 @@ bool LLVMJIT::_prepare_module(::llvm::Module &module) noexcept {
         LUISA_INFO(
             "SIMD LLVM post-opt '{}': pipeline={}, optimize_ms={:.3f}, "
             "blocks={}, instructions={}, phis={}, max_block_size={}, max_block_phis={}",
-            module.getModuleIdentifier(), size_bounded ? "O1 size-bounded" : "O2", elapsed_ms,
+            module.getModuleIdentifier(), size_bounded ? "O0-IR/O1-CG size-bounded" : "O2", elapsed_ms,
             post_block_count, post_instruction_count, phi_count, max_block_size, max_block_phis);
     }
     return true;
 }
 
 std::string LLVMJIT::_emit_assembly(::llvm::Module &module) noexcept {
-    if (!_prepare_module(module)) { return {}; }
+    auto size_bounded = false;
+    if (!_prepare_module(module, &size_bounded)) { return {}; }
     ::llvm::SmallVector<char, 0u> storage;
     ::llvm::raw_svector_ostream output{storage};
     ::llvm::legacy::PassManager codegen;
+    if (size_bounded) {
+        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Less);
+    }
     if (_target_machine->addPassesToEmitFile(
             codegen, output, nullptr,
             ::llvm::CodeGenFileType::AssemblyFile)) {
+        if (size_bounded) {
+            _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Aggressive);
+        }
         _fail("LLVM host target cannot emit assembly");
         return {};
     }
     codegen.run(module);
+    if (size_bounded) {
+        _target_machine->setOptLevel(::llvm::CodeGenOptLevel::Aggressive);
+    }
     return std::string{storage.begin(), storage.end()};
 }
 
@@ -285,7 +569,11 @@ void *LLVMJIT::lookup(luisa::string_view name) noexcept {
     if (!succeeded()) { return nullptr; }
     auto report = luisa::compute::detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
     auto started = report ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-    auto symbol = _jit->lookup(::llvm::StringRef{name.data(), name.size()});
+    std::optional<::llvm::Expected<::llvm::orc::ExecutorAddr>> symbol_opt;
+    run_with_compiler_stack([&]() noexcept {
+        symbol_opt.emplace(_jit->lookup(::llvm::StringRef{name.data(), name.size()}));
+    });
+    auto &symbol = *symbol_opt;
     if (report) {
         auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         // ORC lookup includes materialization, native codegen and linking on

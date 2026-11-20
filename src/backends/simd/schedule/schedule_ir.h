@@ -192,6 +192,8 @@ struct Instruction {
     luisa::optional<StridedMmaMetadata> strided_mma{};
     // void(buffer<float>, uint64 element_offset, local array<float> reference).
     luisa::optional<ContiguousCopyMetadata> contiguous_copy{};
+    // Index into XIRToScheduleResult::outlined_callables for NoInlineMD callables.
+    luisa::optional<uint32_t> outlined_callable_id{};
 };
 
 struct EdgeAssignment {

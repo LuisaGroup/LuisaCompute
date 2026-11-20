@@ -1,256 +1,11 @@
 #include "llvm_schedule_emitter.h"
 
 #include "../../common/llvm_native_math.h"
+#include <llvm/IR/MDBuilder.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/string.h>
 
 namespace luisa::compute::simd::detail {
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_select_data(
-    ::llvm::Value *condition, ::llvm::Value *true_value,
-    ::llvm::Value *false_value, const Type *type, bool varying) {
-    if (_is_scalar_data(type)) {
-        return _builder.CreateSelect(
-            condition, true_value, false_value);
-    }
-    return _assemble(type, varying, [&](uint32_t i) {
-        return _select_data(
-            condition,
-            _extract_child(true_value, type, i, varying),
-            _extract_child(false_value, type, i, varying),
-            _child_type(type, i), varying);
-    });
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_componentwise_unary(
-    const Type *result_type, ::llvm::Value *operand,
-    const Type *operand_type, bool varying, const UnaryLeaf &leaf) {
-    if (_is_scalar_data(result_type)) {
-        return leaf(operand, operand_type);
-    }
-    return _assemble(result_type, varying, [&](uint32_t i) {
-        auto scalar_operand = _is_scalar_data(operand_type);
-        auto *child_operand_type = scalar_operand ? operand_type :
-                                                    _child_type(operand_type, i);
-        auto *child_operand = scalar_operand ? operand :
-                                               _extract_child(operand, operand_type, i, varying);
-        return _componentwise_unary(
-            _child_type(result_type, i), child_operand,
-            child_operand_type, varying, leaf);
-    });
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_componentwise_binary(
-    const Type *result_type, ::llvm::Value *lhs, const Type *lhs_type,
-    ::llvm::Value *rhs, const Type *rhs_type, bool varying,
-    const BinaryLeaf &leaf) {
-    if (_is_scalar_data(result_type)) {
-        return leaf(lhs, rhs, lhs_type, rhs_type);
-    }
-    return _assemble(result_type, varying, [&](uint32_t i) {
-        auto lhs_scalar = _is_scalar_data(lhs_type);
-        auto rhs_scalar = _is_scalar_data(rhs_type);
-        auto *lhs_child_type = lhs_scalar ? lhs_type :
-                                            _child_type(lhs_type, i);
-        auto *rhs_child_type = rhs_scalar ? rhs_type :
-                                            _child_type(rhs_type, i);
-        auto *lhs_child = lhs_scalar ? lhs :
-                                       _extract_child(lhs, lhs_type, i, varying);
-        auto *rhs_child = rhs_scalar ? rhs :
-                                       _extract_child(rhs, rhs_type, i, varying);
-        return _componentwise_binary(
-            _child_type(result_type, i), lhs_child, lhs_child_type,
-            rhs_child, rhs_child_type, varying, leaf);
-    });
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_componentwise_ternary(
-    const Type *result_type,
-    ::llvm::Value *a, const Type *a_type,
-    ::llvm::Value *b, const Type *b_type,
-    ::llvm::Value *c, const Type *c_type, bool varying,
-    const TernaryLeaf &leaf) {
-    if (_is_scalar_data(result_type)) {
-        return leaf(a, b, c, a_type, b_type, c_type);
-    }
-    return _assemble(result_type, varying, [&](uint32_t i) {
-        auto a_scalar = _is_scalar_data(a_type);
-        auto b_scalar = _is_scalar_data(b_type);
-        auto c_scalar = _is_scalar_data(c_type);
-        auto *a_child_type = a_scalar ? a_type :
-                                        _child_type(a_type, i);
-        auto *b_child_type = b_scalar ? b_type :
-                                        _child_type(b_type, i);
-        auto *c_child_type = c_scalar ? c_type :
-                                        _child_type(c_type, i);
-        auto *a_child = a_scalar ? a :
-                                   _extract_child(a, a_type, i, varying);
-        auto *b_child = b_scalar ? b :
-                                   _extract_child(b, b_type, i, varying);
-        auto *c_child = c_scalar ? c :
-                                   _extract_child(c, c_type, i, varying);
-        return _componentwise_ternary(
-            _child_type(result_type, i),
-            a_child, a_child_type, b_child, b_child_type,
-            c_child, c_child_type, varying, leaf);
-    });
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_componentwise_varying_to_uniform(
-    const Type *result_type, ::llvm::Value *operand,
-    const Type *operand_type, const UnaryLeaf &leaf) {
-    if (_is_scalar_data(result_type)) {
-        if (!_is_scalar_data(operand_type)) {
-            _fail("aggregate warp collective result shape does not match its operand");
-            return nullptr;
-        }
-        return leaf(operand, operand_type);
-    }
-    if (_is_scalar_data(operand_type) ||
-        _child_count(result_type) != _child_count(operand_type)) {
-        _fail("aggregate warp collective result shape does not match its operand");
-        return nullptr;
-    }
-    return _assemble(result_type, false, [&](uint32_t i) {
-        return _componentwise_varying_to_uniform(
-            _child_type(result_type, i),
-            _extract_child(operand, operand_type, i, true),
-            _child_type(operand_type, i), leaf);
-    });
-}
-
-[[nodiscard]] luisa::optional<uint64_t> ScheduleEmitter::_constant_index(
-    ::llvm::Value *value) noexcept {
-    if (auto *integer = ::llvm::dyn_cast<::llvm::ConstantInt>(value)) {
-        return integer->getZExtValue();
-    }
-    if (auto *constant = ::llvm::dyn_cast<::llvm::Constant>(value)) {
-        if (auto *splat = constant->getSplatValue()) {
-            if (auto *integer = ::llvm::dyn_cast<::llvm::ConstantInt>(splat)) {
-                return integer->getZExtValue();
-            }
-        }
-    }
-    return luisa::nullopt;
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_index_constant_like(
-    ::llvm::Value *index, uint64_t value) {
-    auto *type = index->getType();
-    if (auto *vector = ::llvm::dyn_cast<::llvm::VectorType>(type)) {
-        auto *element = ::llvm::cast<::llvm::IntegerType>(
-            vector->getElementType());
-        return _builder.CreateVectorSplat(
-            vector->getElementCount(),
-            ::llvm::ConstantInt::get(element, value));
-    }
-    return ::llvm::ConstantInt::get(
-        ::llvm::cast<::llvm::IntegerType>(type), value);
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_extract_indexed(
-    ::llvm::Value *aggregate, const Type *type,
-    const std::vector<::llvm::Value *> &indices, size_t depth,
-    bool varying) {
-    if (depth == indices.size()) { return aggregate; }
-    auto *index = indices[depth];
-    auto count = _child_count(type);
-    if (count == 0u) {
-        _fail("aggregate extract has too many indices");
-        return nullptr;
-    }
-    ::llvm::Value *selected = nullptr;
-    auto *child_type = _child_type(type, 0u);
-    if (auto constant = _constant_index(index)) {
-        if (*constant >= count) {
-            _fail("aggregate extract index is out of range");
-            return nullptr;
-        }
-        selected = _extract_child(
-            aggregate, type, static_cast<uint32_t>(*constant), varying);
-        child_type = _child_type(
-            type, static_cast<uint32_t>(*constant));
-    } else {
-        if (type->is_structure()) {
-            _fail("dynamic structure member extraction is invalid");
-            return nullptr;
-        }
-        selected = _extract_child(aggregate, type, 0u, varying);
-        for (auto i = uint32_t{1u}; i < count; i++) {
-            auto *candidate = _extract_child(
-                aggregate, type, i, varying);
-            auto *condition = _builder.CreateICmpEQ(
-                index, _index_constant_like(index, i));
-            selected = _select_data(
-                condition, candidate, selected, child_type, varying);
-        }
-    }
-    return _extract_indexed(
-        selected, child_type, indices, depth + 1u, varying);
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_insert_indexed(
-    ::llvm::Value *aggregate, const Type *type,
-    ::llvm::Value *replacement,
-    const std::vector<::llvm::Value *> &indices, size_t depth,
-    bool varying) {
-    if (depth == indices.size()) { return replacement; }
-    auto *index = indices[depth];
-    auto count = _child_count(type);
-    if (count == 0u) {
-        _fail("aggregate insert has too many indices");
-        return nullptr;
-    }
-    if (auto constant = _constant_index(index)) {
-        if (*constant >= count) {
-            _fail("aggregate insert index is out of range");
-            return nullptr;
-        }
-        auto i = static_cast<uint32_t>(*constant);
-        auto *child_type = _child_type(type, i);
-        auto *old_child = _extract_child(
-            aggregate, type, i, varying);
-        auto *new_child = _insert_indexed(
-            old_child, child_type, replacement,
-            indices, depth + 1u, varying);
-        return new_child == nullptr ? nullptr :
-                                      _insert_child(aggregate, new_child, type, i, varying);
-    }
-    if (type->is_structure()) {
-        _fail("dynamic structure member insertion is invalid");
-        return nullptr;
-    }
-    auto *result = aggregate;
-    for (auto i = uint32_t{0u}; i < count; i++) {
-        auto *child_type = _child_type(type, i);
-        auto *old_child = _extract_child(
-            aggregate, type, i, varying);
-        auto *updated = _insert_indexed(
-            old_child, child_type, replacement,
-            indices, depth + 1u, varying);
-        if (updated == nullptr) { return nullptr; }
-        auto *condition = _builder.CreateICmpEQ(
-            index, _index_constant_like(index, i));
-        auto *selected = _select_data(
-            condition, updated, old_child, child_type, varying);
-        result = _insert_child(
-            result, selected, type, i, varying);
-    }
-    return result;
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_aggregate_operation(
-    const schedule::Value &result,
-    const schedule::Instruction &instruction,
-    const std::vector<::llvm::Value *> &operands, bool varying) {
-    if (operands.size() != _child_count(result.type)) {
-        _fail("aggregate construction operand count mismatch");
-        return nullptr;
-    }
-    return _assemble(result.type, varying, [&](uint32_t i) {
-        return operands[i];
-    });
-}
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_arithmetic(
     const schedule::Instruction &instruction) {
@@ -575,7 +330,7 @@ namespace luisa::compute::simd::detail {
                                    _builder.CreateUDiv(lhs, rhs);
             }
             case xir::ArithmeticOp::BINARY_MOD: {
-                if (is_float) { return _builder.CreateFRem(lhs, rhs); }
+                if (is_float) { return _emit_float_fmod(lhs, rhs, varying); }
 #if LLVM_VERSION_MAJOR >= 23
                 if (varying) {
                     auto *value = intrinsic(
@@ -597,18 +352,30 @@ namespace luisa::compute::simd::detail {
             case xir::ArithmeticOp::BINARY_BIT_XOR:
                 return _builder.CreateXor(lhs, rhs);
             case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
-                return _builder.CreateShl(
-                    sanitize_inactive_integer(lhs, 0u),
-                    sanitize_inactive_integer(rhs, 0u));
-            case xir::ArithmeticOp::BINARY_SHIFT_RIGHT:
-                lhs = sanitize_inactive_integer(lhs, 0u);
-                rhs = sanitize_inactive_integer(rhs, 0u);
+            case xir::ArithmeticOp::BINARY_SHIFT_RIGHT: {
+                auto is_safe_constant_shift = [&](::llvm::Value *shift_val) noexcept {
+                    auto *c = ::llvm::dyn_cast<::llvm::Constant>(shift_val);
+                    if (c == nullptr) { return false; }
+                    auto *ci = ::llvm::dyn_cast<::llvm::ConstantInt>(c);
+                    if (ci == nullptr) {
+                        ci = ::llvm::dyn_cast_or_null<::llvm::ConstantInt>(
+                            c->getSplatValue());
+                    }
+                    if (ci == nullptr) { return false; }
+                    auto bits = shift_val->getType()->getScalarSizeInBits();
+                    return ci->getZExtValue() < bits;
+                };
+                if (!is_safe_constant_shift(rhs)) {
+                    rhs = sanitize_inactive_integer(rhs, 0u);
+                }
+                if (op == xir::ArithmeticOp::BINARY_SHIFT_LEFT) {
+                    return _builder.CreateShl(lhs, rhs);
+                }
                 return is_signed ? _builder.CreateAShr(lhs, rhs) :
                                    _builder.CreateLShr(lhs, rhs);
+            }
             case xir::ArithmeticOp::BINARY_ROTATE_LEFT:
             case xir::ArithmeticOp::BINARY_ROTATE_RIGHT:
-                lhs = sanitize_inactive_integer(lhs, 0u);
-                rhs = sanitize_inactive_integer(rhs, 0u);
                 return intrinsic(
                     op == xir::ArithmeticOp::BINARY_ROTATE_LEFT ?
                         ::llvm::Intrinsic::fshl :
@@ -1197,6 +964,33 @@ namespace luisa::compute::simd::detail {
                               ::llvm::Value *exponent,
                               const Type *base_type, const Type *)
                               -> ::llvm::Value * {
+                if (auto *c = ::llvm::dyn_cast<::llvm::Constant>(exponent)) {
+                    auto *cfp = ::llvm::dyn_cast<::llvm::ConstantFP>(c);
+                    if (cfp == nullptr) {
+                        cfp = ::llvm::dyn_cast_or_null<::llvm::ConstantFP>(
+                            c->getSplatValue());
+                    }
+                    if (cfp != nullptr) {
+                        const double exp_val = cfp->getValueAPF().convertToDouble();
+                        if (exp_val == 2.0) {
+                            return _builder.CreateFMul(base, base);
+                        }
+                        if (exp_val == 3.0) {
+                            return _builder.CreateFMul(_builder.CreateFMul(base, base), base);
+                        }
+                        if (exp_val == 4.0) {
+                            auto *sq = _builder.CreateFMul(base, base);
+                            return _builder.CreateFMul(sq, sq);
+                        }
+                        if (exp_val == 5.0) {
+                            auto *sq = _builder.CreateFMul(base, base);
+                            return _builder.CreateFMul(_builder.CreateFMul(sq, sq), base);
+                        }
+                        if (exp_val == 0.5 && _enable_fast_math) {
+                            return intrinsic(::llvm::Intrinsic::sqrt, {base});
+                        }
+                    }
+                }
                 if (varying && base_type->is_float32()) {
                     // POW contains float-to-int conversion for its integer
                     // exponent classification. Neutralize inactive lanes
@@ -1454,7 +1248,25 @@ namespace luisa::compute::simd::detail {
         case xir::ArithmeticOp::TRUNC:
             return unary_intrinsic(::llvm::Intrinsic::trunc);
         case xir::ArithmeticOp::ROUND:
-            return unary_intrinsic(::llvm::Intrinsic::round);
+            return unary([&](::llvm::Value *value, const Type *type) {
+                if (type->is_float32() || type->is_float64()) {
+                    // LLVM lowers @llvm.round on x86 AVX2/AVX-512 vectors to
+                    // scalar libm roundf/round calls. trunc(x + copysign(0.5 - ulp, x))
+                    // is bit-exact IEEE round-half-away-from-zero for all float32/64
+                    // values and lowers to 3 native SIMD instructions on x86 & AArch64.
+                    ::llvm::IRBuilder<>::FastMathFlagGuard strict_guard{_builder};
+                    _builder.clearFastMathFlags();
+                    auto *half_down = type->is_float32() ?
+                                          float_constant_like(value, 0x1.fffffep-2) :
+                                          float_constant_like(value, 0x1.fffffffffffffp-2);
+                    auto *signed_half = intrinsic(
+                        ::llvm::Intrinsic::copysign, {half_down, value});
+                    return intrinsic(
+                        ::llvm::Intrinsic::trunc,
+                        {_builder.CreateFAdd(value, signed_half)});
+                }
+                return intrinsic(::llvm::Intrinsic::round, {value});
+            });
         case xir::ArithmeticOp::RINT:
             return unary_intrinsic(::llvm::Intrinsic::rint);
         case xir::ArithmeticOp::FRACT:
@@ -1855,128 +1667,6 @@ namespace luisa::compute::simd::detail {
                   std::string{xir::to_string(op)} + "' yet");
             return nullptr;
     }
-}
-
-[[nodiscard]] ::llvm::Value *ScheduleEmitter::_cast(
-    const schedule::Instruction &instruction,
-    ::llvm::Value *operand_sanitization_mask) {
-    if (!instruction.result || !instruction.source_op ||
-        instruction.operands.size() != 1u) {
-        _fail("cast instruction is malformed");
-        return nullptr;
-    }
-    auto *result = _source.value(*instruction.result);
-    auto *source = _source.value(instruction.operands.front());
-    auto *value = _load_value(instruction.operands.front());
-    if (result == nullptr || source == nullptr || value == nullptr ||
-        !_is_data(result->type) || !_is_data(source->type)) {
-        _fail("cast requires supported data types");
-        return nullptr;
-    }
-    auto varying = result->value_class == schedule::ValueClass::varying;
-    if (varying) { value = _as_lane_vector(value, *source); }
-    auto *sanitization_mask = operand_sanitization_mask != nullptr ?
-                                  operand_sanitization_mask :
-                              varying ? _active_mask :
-                                        nullptr;
-    auto op = static_cast<xir::CastOp>(*instruction.source_op);
-    if (op == xir::CastOp::BITWISE_CAST) {
-        auto *uniform_result_type = _data_type(result->type, false);
-        if (uniform_result_type == nullptr) { return nullptr; }
-        if (!varying) {
-            return _builder.CreateBitCast(value, uniform_result_type);
-        }
-
-        // Varying aggregates use a structure-of-arrays representation, while
-        // an XIR bitwise cast reinterprets one complete logical register. Pack
-        // and cast each logical lane independently so shape-changing casts
-        // such as float2 <-> uint64 preserve their bits and still return the
-        // expected SIMD lane-vector/SoA representation.
-        auto *varying_result_type = _data_type(result->type, true);
-        if (varying_result_type == nullptr) { return nullptr; }
-        if (_is_scalar_data(source->type) &&
-            _is_scalar_data(result->type)) {
-            return _builder.CreateBitCast(value, varying_result_type);
-        }
-        auto *cast = static_cast<::llvm::Value *>(
-            ::llvm::PoisonValue::get(varying_result_type));
-        for (auto lane_index = uint32_t{0u};
-             lane_index < _width; lane_index++) {
-            auto *lane = _builder.getInt32(lane_index);
-            auto *source_lane = _extract_lane(
-                value, source->type, lane);
-            auto *result_lane = _builder.CreateBitCast(
-                source_lane, uniform_result_type);
-            cast = _insert_lane(
-                cast, result_lane, result->type, lane);
-            if (cast == nullptr) { return nullptr; }
-        }
-        return cast;
-    }
-    return _componentwise_unary(
-        result->type, value, source->type, varying,
-        [&](::llvm::Value *scalar, const Type *source_type) {
-            auto *destination_type = result->type;
-            while (!_is_scalar_data(destination_type)) {
-                destination_type = destination_type->element();
-            }
-            auto destination_is_float =
-                destination_type->is_float16() ||
-                destination_type->is_float32() ||
-                destination_type->is_float64();
-            auto source_is_float = source_type->is_float16() ||
-                                   source_type->is_float32() ||
-                                   source_type->is_float64();
-            // LLVM floating-point-to-integer conversions produce poison for
-            // NaN and out-of-range operands. SIMD control flow still forms
-            // vector instructions for inactive lanes, so replace only those
-            // leaf operands before the conversion. Explicitly predicated
-            // regions pass their block mask; ordinary Schedule blocks use the
-            // current cohort mask. Masking the result afterwards would be too
-            // late because poison could already have escaped through a
-            // following comparison or address expression.
-            if (sanitization_mask != nullptr &&
-                source_is_float && !destination_is_float &&
-                !destination_type->is_bool() &&
-                scalar->getType()->isVectorTy()) {
-                scalar = _builder.CreateSelect(
-                    sanitization_mask, scalar,
-                    ::llvm::Constant::getNullValue(
-                        scalar->getType()));
-            }
-            auto *destination = scalar->getType()->isVectorTy() ?
-                                    static_cast<::llvm::Type *>(::llvm::FixedVectorType::get(
-                                        _data_type(destination_type, false), _width)) :
-                                    _data_type(destination_type, false);
-            if (destination_type->is_bool()) {
-                auto *zero = ::llvm::Constant::getNullValue(
-                    scalar->getType());
-                return source_is_float ?
-                           _builder.CreateFCmpUNE(scalar, zero) :
-                           _builder.CreateICmpNE(scalar, zero);
-            }
-            if (source_type->is_bool()) {
-                return destination_is_float ?
-                           _builder.CreateUIToFP(scalar, destination) :
-                           _builder.CreateZExtOrTrunc(scalar, destination);
-            }
-            if (source_is_float && destination_is_float) {
-                return _builder.CreateFPCast(scalar, destination);
-            }
-            if (source_is_float) {
-                return destination_type->is_int() ?
-                           _builder.CreateFPToSI(scalar, destination) :
-                           _builder.CreateFPToUI(scalar, destination);
-            }
-            if (destination_is_float) {
-                return source_type->is_int() ?
-                           _builder.CreateSIToFP(scalar, destination) :
-                           _builder.CreateUIToFP(scalar, destination);
-            }
-            return source_type->is_int() ?
-                       _builder.CreateSExtOrTrunc(scalar, destination) :
-                       _builder.CreateZExtOrTrunc(scalar, destination);
-        });
 }
 
 }// namespace luisa::compute::simd::detail

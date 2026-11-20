@@ -92,21 +92,36 @@ bool ScheduleEmitter::_can_emit_direct_control_flow() const noexcept {
 
 [[nodiscard]] luisa::optional<std::vector<schedule::BlockId>>
 ScheduleEmitter::_find_predicated_acyclic_order() const noexcept {
-    static constexpr auto max_block_count = size_t{16u};
-    static constexpr auto max_instruction_count = size_t{32u};
-    if (!_is_surface_filter_handler_entry() ||
+    static constexpr auto max_surface_filter_block_count = size_t{16u};
+    static constexpr auto max_surface_filter_instruction_count = size_t{32u};
+    const bool is_surface_filter = _is_surface_filter_handler_entry();
+    const bool is_outlined = _is_outlined_callable_entry();
+    if ((!is_surface_filter && !is_outlined) ||
         (_width != 4u && _width != 8u && _width != 16u) ||
         _source.blocks().empty() ||
-        _source.blocks().size() > max_block_count ||
         !_source.loops().empty()) {
         return luisa::nullopt;
     }
-    auto instruction_count = size_t{0u};
-    for (auto &&block : _source.blocks()) {
-        instruction_count += block.instructions.size();
-    }
-    if (instruction_count > max_instruction_count) {
-        return luisa::nullopt;
+    if (is_surface_filter) {
+        if (_source.blocks().size() > max_surface_filter_block_count) {
+            return luisa::nullopt;
+        }
+        auto instruction_count = size_t{0u};
+        for (auto &&block : _source.blocks()) {
+            instruction_count += block.instructions.size();
+        }
+        if (instruction_count > max_surface_filter_instruction_count) {
+            return luisa::nullopt;
+        }
+    } else {
+        for (auto &&block : _source.blocks()) {
+            for (auto &&instruction : block.instructions) {
+                if (instruction.opcode == schedule::Opcode::warp_collective ||
+                    instruction.opcode == schedule::Opcode::ray_query_pipeline) {
+                    return luisa::nullopt;
+                }
+            }
+        }
     }
 
     auto block_count = _source.blocks().size();
@@ -159,7 +174,10 @@ ScheduleEmitter::_find_predicated_acyclic_order() const noexcept {
                     return add_edge(block.id, edge);
                 } else if constexpr (std::is_same_v<
                                          T, schedule::ReturnTerminator>) {
-                    return !terminator.value.has_value();
+                    return is_outlined || !terminator.value.has_value();
+                } else if constexpr (std::is_same_v<
+                                         T, schedule::UnreachableTerminator>) {
+                    return is_outlined;
                 } else {
                     return false;
                 }
@@ -185,12 +203,28 @@ ScheduleEmitter::_find_predicated_acyclic_order() const noexcept {
     ready.emplace_back(_source.entry());
     std::vector<schedule::BlockId> order;
     order.reserve(block_count);
-    for (auto cursor = size_t{0u}; cursor < ready.size(); cursor++) {
-        auto block = ready[cursor];
-        order.emplace_back(block);
-        for (auto target : successors[block.value]) {
-            if (--indegrees[target.value] == 0u) {
-                ready.emplace_back(target);
+    if (is_outlined) {
+        // LIFO topological order keeps each branch arm / switch case subgraph
+        // contiguous, improving locality and branch-skip folding in LLVM.
+        while (!ready.empty()) {
+            auto block = ready.back();
+            ready.pop_back();
+            order.emplace_back(block);
+            auto &succ = successors[block.value];
+            for (auto it = succ.rbegin(); it != succ.rend(); ++it) {
+                if (--indegrees[it->value] == 0u) {
+                    ready.emplace_back(*it);
+                }
+            }
+        }
+    } else {
+        for (auto cursor = size_t{0u}; cursor < ready.size(); cursor++) {
+            auto block = ready[cursor];
+            order.emplace_back(block);
+            for (auto target : successors[block.value]) {
+                if (--indegrees[target.value] == 0u) {
+                    ready.emplace_back(target);
+                }
             }
         }
     }
@@ -797,8 +831,8 @@ void ScheduleEmitter::_build_direct(::llvm::Value *initial_mask) {
     // changes that mask, so keep the seed in a register constant instead of
     // repeating first-active extraction in hot memory loops.
     auto lane_zero_is_active =
-        _entry_abi == ScheduleEntryABI::packet &&
-        (_width == 1u ||
+        _width == 1u ||
+        (_entry_abi == ScheduleEntryABI::packet &&
          (_static_block_size[0u] >= _width &&
           _static_block_size[0u] % _width == 0u));
     _seed_lane = lane_zero_is_active ?
@@ -831,6 +865,31 @@ void ScheduleEmitter::_build_predicated_acyclic(
     auto *mask_type = _layout.mask_type();
     auto *zero_mask = ::llvm::Constant::getNullValue(mask_type);
     auto block_count = _source.blocks().size();
+
+    std::vector<size_t> predecessor_counts(block_count, 0u);
+    for (auto &&block : _source.blocks()) {
+        std::visit(
+            [&](const auto &terminator) noexcept {
+                using T = std::decay_t<decltype(terminator)>;
+                if constexpr (std::is_same_v<T, schedule::BranchTerminator>) {
+                    predecessor_counts[terminator.edge.target.value]++;
+                } else if constexpr (std::is_same_v<T, schedule::SplitTerminator>) {
+                    predecessor_counts[terminator.true_edge.target.value]++;
+                    predecessor_counts[terminator.false_edge.target.value]++;
+                } else if constexpr (std::is_same_v<T, schedule::SwitchTerminator>) {
+                    for (auto &&item : terminator.cases) {
+                        predecessor_counts[item.edge.target.value]++;
+                    }
+                    predecessor_counts[terminator.default_edge.target.value]++;
+                } else if constexpr (std::is_same_v<T, schedule::JoinTerminator>) {
+                    auto *point = _source.convergence(terminator.convergence);
+                    if (point != nullptr) {
+                        predecessor_counts[point->target.value]++;
+                    }
+                }
+            },
+            block.terminator);
+    }
 
     std::vector<::llvm::AllocaInst *> incoming_masks;
     incoming_masks.reserve(block_count);
@@ -865,12 +924,33 @@ void ScheduleEmitter::_build_predicated_acyclic(
     _builder.CreateBr(checks.front());
 
     auto merge_edge = [&](const schedule::ControlEdge &edge,
-                          ::llvm::Value *mask) {
-        _apply_assignments(edge.assignments, mask);
-        if (_failed()) { return; }
+                          ::llvm::Value *mask,
+                          bool guaranteed_nonempty) {
+        if (!edge.assignments.empty()) {
+            if (guaranteed_nonempty) {
+                _apply_assignments(edge.assignments, mask);
+                if (_failed()) { return; }
+            } else {
+                auto *assign_bb = ::llvm::BasicBlock::Create(
+                    context, "predicated.acyclic.assign", _entry);
+                auto *cont_bb = ::llvm::BasicBlock::Create(
+                    context, "predicated.acyclic.assign.done", _entry);
+                _builder.CreateCondBr(
+                    _builder.CreateOrReduce(mask), assign_bb, cont_bb);
+                _builder.SetInsertPoint(assign_bb);
+                _apply_assignments(edge.assignments, mask);
+                if (_failed()) { return; }
+                _builder.CreateBr(cont_bb);
+                _builder.SetInsertPoint(cont_bb);
+            }
+        }
         auto *slot = incoming_masks[edge.target.value];
-        auto *previous = _builder.CreateLoad(mask_type, slot);
-        _builder.CreateStore(_builder.CreateOr(previous, mask), slot);
+        if (predecessor_counts[edge.target.value] <= 1u) {
+            _builder.CreateStore(mask, slot);
+        } else {
+            auto *previous = _builder.CreateLoad(mask_type, slot);
+            _builder.CreateStore(_builder.CreateOr(previous, mask), slot);
+        }
     };
 
     for (auto order_index = size_t{0u};
@@ -897,12 +977,13 @@ void ScheduleEmitter::_build_predicated_acyclic(
             _emit_instruction(instruction, nullptr, _active_mask);
             if (_failed()) { return; }
         }
+        bool block_terminated = false;
         std::visit(
             [&](const auto &terminator) {
                 using T = std::decay_t<decltype(terminator)>;
                 if constexpr (std::is_same_v<
                                   T, schedule::BranchTerminator>) {
-                    merge_edge(terminator.edge, _active_mask);
+                    merge_edge(terminator.edge, _active_mask, true);
                 } else if constexpr (std::is_same_v<
                                          T, schedule::SplitTerminator>) {
                     auto *condition_value = _source.value(
@@ -919,9 +1000,9 @@ void ScheduleEmitter::_build_predicated_acyclic(
                         _active_mask, condition);
                     auto *false_mask = _builder.CreateAnd(
                         _active_mask, _builder.CreateNot(condition));
-                    merge_edge(terminator.true_edge, true_mask);
+                    merge_edge(terminator.true_edge, true_mask, false);
                     if (!_failed()) {
-                        merge_edge(terminator.false_edge, false_mask);
+                        merge_edge(terminator.false_edge, false_mask, false);
                     }
                 } else if constexpr (std::is_same_v<
                                          T, schedule::SwitchTerminator>) {
@@ -953,29 +1034,62 @@ void ScheduleEmitter::_build_predicated_acyclic(
                         // duplicate label.
                         auto *case_mask = _builder.CreateAnd(
                             remaining_mask, matches);
-                        merge_edge(item.edge, case_mask);
+                        merge_edge(item.edge, case_mask, false);
                         if (_failed()) { return; }
                         remaining_mask = _builder.CreateAnd(
                             remaining_mask,
                             _builder.CreateNot(matches));
                     }
                     merge_edge(
-                        terminator.default_edge, remaining_mask);
+                        terminator.default_edge, remaining_mask, false);
                 } else if constexpr (std::is_same_v<
                                          T, schedule::JoinTerminator>) {
                     auto *point = _source.convergence(
                         terminator.convergence);
                     schedule::ControlEdge edge{point->target};
                     edge.assignments = terminator.assignments;
-                    merge_edge(edge, _active_mask);
-                } else if constexpr (!std::is_same_v<
+                    merge_edge(edge, _active_mask, true);
+                } else if constexpr (std::is_same_v<
                                          T, schedule::ReturnTerminator>) {
+                    if (terminator.value) {
+                        auto *schedule_value = _source.value(*terminator.value);
+                        auto *value = _as_lane_vector(
+                            _load_value(*terminator.value), *schedule_value);
+                        if (value != nullptr && _is_outlined_callable_entry()) {
+                            auto *ret_ptr = _builder.CreateStructGEP(
+                                _outlined_io_frame_type, _outlined_io_frame,
+                                static_cast<unsigned>(_parameters.size()),
+                                "outlined.ret.ptr");
+                            auto *old_ret = _builder.CreateLoad(
+                                value->getType(), ret_ptr, "outlined.ret.old");
+                            auto *merged_ret = _masked_merge(
+                                value, old_ret, schedule_value->type,
+                                _active_mask);
+                            if (merged_ret != nullptr) {
+                                _builder.CreateStore(merged_ret, ret_ptr);
+                            }
+                        }
+                    }
+                } else if constexpr (std::is_same_v<
+                                         T, schedule::UnreachableTerminator>) {
+#if LLVM_VERSION_MAJOR >= 22
+                    auto *trap = ::llvm::Intrinsic::getOrInsertDeclaration(
+#else
+                    auto *trap = ::llvm::Intrinsic::getDeclaration(
+#endif
+                        &_module, ::llvm::Intrinsic::trap);
+                    _builder.CreateCall(trap);
+                    _builder.CreateUnreachable();
+                    block_terminated = true;
+                } else {
                     _fail("unsupported terminator reached predicated acyclic LLVM emission");
                 }
             },
             block->terminator);
         if (_failed()) { return; }
-        _builder.CreateBr(next);
+        if (!block_terminated) {
+            _builder.CreateBr(next);
+        }
     }
 
     _builder.SetInsertPoint(exit);

@@ -31,6 +31,7 @@
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/metadata/strided_mma.h>
 #include <luisa/xir/metadata/contiguous_copy.h>
+#include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/special_register.h>
@@ -258,6 +259,21 @@ struct CFGEdgeHash {
 
 [[nodiscard]] luisa::string_view validate_native_call(const xir::CallInst *call) {
     auto *callee = call->callee();
+    if (callee != nullptr && callee->isa<xir::CallableFunction>() &&
+        callee->definition() != nullptr &&
+        callee->find_metadata<xir::NoInlineMD>() != nullptr) {
+        auto expected_args = size_t{0u};
+        for ([[maybe_unused]] auto *arg : callee->arguments()) {
+            expected_args++;
+        }
+        if (call->argument_count() != expected_args) {
+            return "outlined callable argument count does not match its callee signature";
+        }
+        if (call->type() != callee->type()) {
+            return "outlined callable return type does not match its callee signature";
+        }
+        return {};
+    }
     if (callee == nullptr || !callee->isa<xir::ExternalFunction>()) {
         return "SIMD only admits compiler-owned native external calls; inline other calls first";
     }
@@ -1544,6 +1560,22 @@ private:
             } else if (auto metadata = call->callee()->find_metadata<xir::ContiguousCopyMD>()) {
                 instruction.contiguous_copy = ContiguousCopyMetadata{
                     metadata->descriptor.element_count, metadata->descriptor.vector_width};
+            } else if (call->callee() != nullptr &&
+                       call->callee()->isa<xir::CallableFunction>() &&
+                       call->callee()->definition() != nullptr &&
+                       call->callee()->find_metadata<xir::NoInlineMD>() != nullptr) {
+                auto *callee = call->callee();
+                auto existing = std::find(
+                    _result.outlined_callables.begin(),
+                    _result.outlined_callables.end(), callee);
+                if (existing == _result.outlined_callables.end()) {
+                    instruction.outlined_callable_id = static_cast<uint32_t>(
+                        _result.outlined_callables.size());
+                    _result.outlined_callables.emplace_back(callee);
+                } else {
+                    instruction.outlined_callable_id = static_cast<uint32_t>(
+                        existing - _result.outlined_callables.begin());
+                }
             }
             for (auto *use : call->argument_uses()) {
                 if (auto operand = _map_value(use->value(), source_instruction->parent_block(), source_instruction)) {
@@ -1983,7 +2015,7 @@ public:
         // conservative about genuinely infinite executions.
         auto post_dom_tree = xir::compute_post_dom_tree(
             const_cast<xir::Function *>(_source),
-            {.account_for_infinite_paths = false});
+            {.account_for_infinite_paths = false, .ignore_unreachable = true});
         _uniformity.analyze(
             _source, _options.parameter_value_classes,
             {natural_loops.data(), natural_loops.size()});

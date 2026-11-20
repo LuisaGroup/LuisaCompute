@@ -399,20 +399,34 @@ void ScheduleEmitter::_emit_terminator(
                     auto *value = _as_lane_vector(
                         _load_value(*control.value), *schedule_value);
                     if (value != nullptr) {
-                        _builder.CreateMaskedStore(
-                            value, _return_buffer,
-                            ::llvm::Align{schedule_value->type->alignment()},
-                            _active_mask);
+                        if (_is_outlined_callable_entry()) {
+                            auto *ret_ptr = _builder.CreateStructGEP(
+                                _outlined_io_frame_type, _outlined_io_frame,
+                                static_cast<unsigned>(_parameters.size()),
+                                "outlined.ret.ptr");
+                            auto *old_ret = _builder.CreateLoad(
+                                value->getType(), ret_ptr, "outlined.ret.old");
+                            auto *merged_ret = _masked_merge(
+                                value, old_ret, schedule_value->type,
+                                _active_mask);
+                            if (merged_ret != nullptr) {
+                                _builder.CreateStore(merged_ret, ret_ptr);
+                            }
+                        } else {
+                            _builder.CreateMaskedStore(
+                                value, _return_buffer,
+                                ::llvm::Align{schedule_value->type->alignment()},
+                                _active_mask);
+                        }
                     }
                 }
                 auto *live = _builder.CreateLoad(
-                    _live_mask->getAllocatedType(), _live_mask);
+                    _layout.mask_type(), _live_mask);
                 auto *new_live = _builder.CreateAnd(
                     live, _builder.CreateNot(_active_mask));
                 _builder.CreateStore(new_live, _live_mask);
                 auto *runnable = _builder.CreateLoad(
-                    _runnable_mask->getAllocatedType(),
-                    _runnable_mask);
+                    _layout.mask_type(), _runnable_mask);
                 _builder.CreateStore(
                     _builder.CreateAnd(
                         runnable, _builder.CreateNot(_active_mask)),
@@ -431,7 +445,7 @@ void ScheduleEmitter::_emit_terminator(
                         _module.getContext(),
                         "return.frame.cleanup.done", _entry);
                     auto *active_frames = _builder.CreateLoad(
-                        _frame_active->getAllocatedType(),
+                        _frame_active_type,
                         _frame_active, "return.active.frames");
                     _builder.CreateCondBr(
                         _builder.CreateICmpNE(
@@ -449,7 +463,7 @@ void ScheduleEmitter::_emit_terminator(
                 for (auto frame = uint32_t{0u}; frame < _width; frame++) {
                     auto *index = _builder.getInt32(frame);
                     auto *active_frames = _builder.CreateLoad(
-                        _frame_active->getAllocatedType(),
+                        _frame_active_type,
                         _frame_active);
                     auto *frame_active = _frame_is_active(
                         active_frames, index);
@@ -595,6 +609,12 @@ void ScheduleEmitter::_emit_direct_terminator(
                 edge.assignments = control.assignments;
                 emit_edge(edge);
             } else if constexpr (std::is_same_v<
+                                     T, schedule::LoopBackTerminator>) {
+                auto *loop = _source.loop(control.loop);
+                schedule::ControlEdge edge{loop->header};
+                edge.assignments = control.assignments;
+                emit_edge(edge);
+            } else if constexpr (std::is_same_v<
                                      T, schedule::ReturnTerminator>) {
                 if (control.value) {
                     auto *schedule_value = _source.value(
@@ -603,11 +623,30 @@ void ScheduleEmitter::_emit_direct_terminator(
                         _load_value(*control.value),
                         *schedule_value);
                     if (value != nullptr) {
-                        _builder.CreateMaskedStore(
-                            value, _return_buffer,
-                            ::llvm::Align{
-                                schedule_value->type->alignment()},
-                            _active_mask);
+                        if (_is_outlined_callable_entry()) {
+                            auto *ret_ptr = _builder.CreateStructGEP(
+                                _outlined_io_frame_type, _outlined_io_frame,
+                                static_cast<unsigned>(_parameters.size()),
+                                "outlined.ret.ptr");
+                            if (_width == 1u) {
+                                _builder.CreateStore(value, ret_ptr);
+                            } else {
+                                auto *old_ret = _builder.CreateLoad(
+                                    value->getType(), ret_ptr, "outlined.ret.old");
+                                auto *merged_ret = _masked_merge(
+                                    value, old_ret, schedule_value->type,
+                                    _active_mask);
+                                if (merged_ret != nullptr) {
+                                    _builder.CreateStore(merged_ret, ret_ptr);
+                                }
+                            }
+                        } else {
+                            _builder.CreateMaskedStore(
+                                value, _return_buffer,
+                                ::llvm::Align{
+                                    schedule_value->type->alignment()},
+                                _active_mask);
+                        }
                     }
                 }
                 _builder.CreateRetVoid();

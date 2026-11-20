@@ -243,15 +243,15 @@ void ScheduleEmitter::_initialize_cooperative_packet(
 void ScheduleEmitter::_emit_block_barrier(
     const schedule::BlockBarrierTerminator &barrier) {
     auto *live = _builder.CreateLoad(
-        _live_mask->getAllocatedType(), _live_mask,
+        _layout.mask_type(), _live_mask,
         "barrier.live.mask");
     auto *same_mask = _builder.CreateAndReduce(
         _builder.CreateICmpEQ(_active_mask, live));
     auto *ready_count = _builder.CreateLoad(
-        _ready_count->getAllocatedType(), _ready_count,
+        _builder.getInt32Ty(), _ready_count,
         "barrier.ready.count");
     auto *runnable = _builder.CreateLoad(
-        _runnable_mask->getAllocatedType(), _runnable_mask,
+        _layout.mask_type(), _runnable_mask,
         "barrier.runnable.mask");
     auto *invalid = _builder.CreateOr(
         _builder.CreateNot(same_mask),

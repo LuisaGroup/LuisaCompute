@@ -4,6 +4,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <span>
@@ -14,6 +15,7 @@
 namespace llvm {
 class Function;
 class Module;
+class StructType;
 }// namespace llvm
 
 namespace luisa::compute {
@@ -22,6 +24,7 @@ class Type;
 
 namespace luisa::compute::simd::schedule {
 class Function;
+enum struct ValueClass;
 }// namespace luisa::compute::simd::schedule
 
 namespace luisa::compute::simd {
@@ -66,10 +69,15 @@ static constexpr auto simd_bindless_linear_point_mirror_sampler_code =
 static constexpr auto simd_bindless_texture_extent_bits = 20u;
 static constexpr auto simd_bindless_texture_extent_mask =
     (uint64_t{1u} << simd_bindless_texture_extent_bits) - 1u;
+static constexpr auto simd_bindless_texture_mip0_format_shift = 62u;
+static constexpr auto simd_bindless_texture_mip0_format_byte1 = uint64_t{0u};
+static constexpr auto simd_bindless_texture_mip0_format_byte4 = uint64_t{1u};
+static constexpr auto simd_bindless_texture_mip0_format_float4 = uint64_t{2u};
 
 [[nodiscard]] constexpr uint64_t simd_bindless_texture_metadata(
     uint32_t sampler_code, uint32_t width,
-    uint32_t height, uint32_t depth) noexcept {
+    uint32_t height, uint32_t depth,
+    uint64_t mip0_format = simd_bindless_texture_mip0_format_byte1) noexcept {
     return (sampler_code & 0x0fu) |
            ((static_cast<uint64_t>(width) &
              simd_bindless_texture_extent_mask)
@@ -79,7 +87,8 @@ static constexpr auto simd_bindless_texture_extent_mask =
             << 24u) |
            ((static_cast<uint64_t>(depth) &
              simd_bindless_texture_extent_mask)
-            << 44u);
+            << 44u) |
+           ((mip0_format & 0x3u) << simd_bindless_texture_mip0_format_shift);
 }
 
 [[nodiscard]] constexpr uint32_t simd_bindless_texture_sampler(
@@ -192,6 +201,17 @@ struct alignas(64) SIMDHostRayQueryOutputPacket {
     std::array<float, 16u> committed_bary_y{};
     std::array<uint32_t, 16u> committed_kind{};
     std::array<float, 16u> committed_t{};
+};
+
+struct alignas(64) SIMDHostRayQuerySurfaceExclusionInputPacket {
+    std::array<float, 16u> org_x{};
+    std::array<float, 16u> org_y{};
+    std::array<float, 16u> org_z{};
+    std::array<float, 16u> dir_x{};
+    std::array<float, 16u> dir_y{};
+    std::array<float, 16u> dir_z{};
+    std::array<float, 16u> time{};
+    std::array<uint32_t, 16u> visibility_mask{};
 };
 
 struct alignas(8) SIMDHostRayQueryProceduralHit {
@@ -512,6 +532,44 @@ struct alignas(16) SIMDHostAccelInstanceTable {
         ray_query_direct_output_surface_filter_packet_pipeline{nullptr};
 };
 
+using SIMDHostRayQueryLiveCandidateHandler = void(
+    uint32_t lane_count, uint64_t active_lane_mask,
+    SIMDHostRayQueryState *const *states, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    uint32_t candidate_kind);
+using SIMDHostAccelRayQuerySurfaceExclusion = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states,
+    const uint32_t *excl_inst0, const uint32_t *excl_prim0,
+    const uint32_t *excl_inst1, const uint32_t *excl_prim1,
+    uint32_t flags);
+using SIMDHostAccelRayQuerySurfaceExclusionSoA = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    void *accel,
+    const SIMDHostRayQuerySurfaceExclusionInputPacket *inputs,
+    SIMDHostRayQueryOutputPacket *outputs,
+    const uint32_t *excl_inst0, const uint32_t *excl_prim0,
+    const uint32_t *excl_inst1, const uint32_t *excl_prim1,
+    uint32_t flags);
+using SIMDHostAccelRayQueryLivePipeline = void(
+    uint32_t lane_count, uint64_t active_mask_bits,
+    SIMDHostRayQueryState *const *states, const void *capture,
+    const SIMDPacketLaunchConfig *launch_config,
+    SIMDHostRayQueryLiveCandidateHandler *on_candidate,
+    uint32_t flags);
+inline constexpr uint32_t
+    simd_host_ray_query_live_flag_terminate_on_commit = 1u << 0u;
+inline constexpr uint32_t
+    simd_host_ray_query_live_flag_has_procedural = 1u << 1u;
+inline constexpr uint32_t
+    simd_host_ray_query_live_flag_query_any = 1u << 2u;
+
+struct alignas(16) SIMDHostAccelRayQueryLiveDispatch {
+    SIMDHostAccelRayQuerySurfaceExclusion *surface_exclusion{nullptr};
+    SIMDHostAccelRayQueryLivePipeline *live_pipeline{nullptr};
+    SIMDHostAccelRayQuerySurfaceExclusionSoA *surface_exclusion_soa{nullptr};
+};
+
 struct alignas(16) SIMDHostAccelView {
     void *accel{nullptr};
     SIMDHostAccelTraceClosest *trace_closest{nullptr};
@@ -523,6 +581,7 @@ struct alignas(16) SIMDHostAccelView {
     SIMDHostAccelRayQueryProceed *ray_query_proceed_wide{nullptr};
     SIMDHostAccelRayQueryCandidateObjectRay *
         ray_query_candidate_object_ray{nullptr};
+    const SIMDHostAccelRayQueryLiveDispatch *ray_query_live{nullptr};
 };
 static_assert(sizeof(SIMDHostAccelTraceClosest *) == sizeof(void *));
 static_assert(sizeof(SIMDHostAccelTraceAny *) == sizeof(void *));
@@ -638,6 +697,8 @@ static_assert(offsetof(
                   SIMDHostAccelView,
                   ray_query_candidate_object_ray) ==
               6u * sizeof(void *));
+static_assert(offsetof(SIMDHostAccelView, ray_query_live) ==
+              7u * sizeof(void *));
 static_assert(sizeof(SIMDHostAccelView) == 8u * sizeof(void *));
 
 // Texture callbacks operate once per SIMD packet. Coordinates are SoA vectors
@@ -815,6 +876,57 @@ struct LLVMSIMDRayQueryPipelineHandlers {
     // instruction. This enables the output-only opacity-filter packet ABI;
     // nonempty candidate-local handlers retain the general packet provider.
     bool surface_handler_empty{false};
+    ::llvm::Function *on_candidate_live{nullptr};
+    bool live_embree_safe{false};
+    bool procedural_handler_empty{true};
+    bool surface_exclusion_safe{false};
+    bool surface_exclusion_terminate_on_commit{false};
+    std::array<uint32_t, 4u> surface_exclusion_capture_indices{
+        std::numeric_limits<uint32_t>::max(),
+        std::numeric_limits<uint32_t>::max(),
+        std::numeric_limits<uint32_t>::max(),
+        std::numeric_limits<uint32_t>::max()};
+    std::array<uint32_t, 4u> surface_exclusion_constants{
+        ~uint32_t{0u}, ~uint32_t{0u}, ~uint32_t{0u}, ~uint32_t{0u}};
+};
+
+enum class LocalSoAKind : uint8_t {
+    none = 0u,
+    varying = 1u,
+    uniform = 2u,
+};
+
+struct LocalSoAAnalysis {
+    std::vector<LocalSoAKind> kind{};
+    std::vector<uint8_t> cell_bytes{};
+    std::vector<uint32_t> root_value{};
+    uint32_t interleaved_allocation_count{0u};
+};
+
+[[nodiscard]] uint8_t uniform_leaf_cell_size(const Type *type) noexcept;
+
+[[nodiscard]] LocalSoAAnalysis analyze_local_soa(
+    const schedule::Function &function,
+    uint32_t width,
+    luisa::span<const uint8_t> param_soa_cell_bytes,
+    luisa::span<const std::vector<uint8_t>> callee_param_soa_cell_bytes,
+    bool enable_interleaved_private_arrays,
+    uint32_t soa_stride = 0u) noexcept;
+
+[[nodiscard]] uint32_t simd_sparse_w1_outlined_max_lanes() noexcept;
+
+struct LLVMSIMDOutlinedCallable {
+    ::llvm::Function *entry{nullptr};
+    ::llvm::StructType *io_frame_type{nullptr};
+    ::llvm::Function *entry_w1{nullptr};
+    ::llvm::StructType *io_frame_type_w1{nullptr};
+    bool uses_lane_launch_index{false};
+    bool prefer_w1_all_lanes{false};
+    const Type *return_type{nullptr};
+    std::vector<const Type *> parameter_types{};
+    std::vector<uint32_t> parameter_argument_tags{};
+    std::vector<schedule::ValueClass> parameter_value_classes{};
+    std::vector<uint8_t> parameter_soa_cell_bytes{};
 };
 
 // Representation-budget diagnostics, not semantic legality or measured cost.
@@ -891,6 +1003,7 @@ struct LLVMScheduleCodegenResult {
     size_t compact_surface_filter_state_count{0u};
     size_t output_only_empty_surface_filter_state_count{0u};
     size_t direct_output_surface_filter_state_count{0u};
+    size_t surface_exclusion_soa_state_count{0u};
     size_t uniform_buffer_broadcast_count{0u};
     size_t contiguous_buffer_read_count{0u};
     size_t contiguous_buffer_write_count{0u};
@@ -967,6 +1080,7 @@ struct LLVMScheduleCodegenResult {
     bool cooperative_block{false};
     bool direct_control_flow{false};
     bool predicated_acyclic_control_flow{false};
+    ::llvm::StructType *outlined_io_frame_type{nullptr};
     std::string error{};
 
     [[nodiscard]] bool succeeded() const noexcept {
@@ -1032,7 +1146,33 @@ struct LLVMScheduleCodegenResult {
     bool enable_interleaved_private_arrays = false,
     // Preserve exact active-lane addresses while exposing same-slot private
     // accesses as masked vectors. Independent of the physical layout switch.
-    bool enable_contiguous_private_access = true);
+    bool enable_contiguous_private_access = true,
+    luisa::span<const LLVMSIMDOutlinedCallable> outlined_callables = {});
+
+[[nodiscard]] LLVMScheduleCodegenResult
+lower_outlined_callable_schedule_to_llvm(
+    ::llvm::Module &module, const schedule::Function &function,
+    const Type *return_type,
+    uint32_t specialization_width, luisa::string_view entry_name,
+    bool enable_fast_math = false,
+    std::array<uint32_t, 3u> static_block_size = {},
+    bool enable_uniform_buffer_broadcast = true,
+    bool enable_lane_affine_buffer = true,
+    bool enable_paired_leaf_gather = false,
+    uint32_t dispatch_worker_count = 1u,
+    bool enable_native_predicated_loop = true,
+    size_t print_format_id_base = 0u,
+    bool enable_native_vector_compress = false,
+    bool enable_biased_narrow_buffer_gather = false,
+    bool enable_gathered_native_texture_read = false,
+    bool enable_native_half4_texture_packet = false,
+    bool enable_interleaved_private_arrays = false,
+    bool enable_contiguous_private_access = true,
+    luisa::span<const LLVMSIMDOutlinedCallable> outlined_callables = {},
+    luisa::span<const uint8_t> outlined_parameter_soa_cell_bytes = {},
+    uint32_t outlined_parameter_soa_stride = 0u,
+    luisa::span<const LLVMSIMDRayQueryPipelineHandlers>
+        ray_query_pipeline_handlers = {});
 
 // Ray-query handler ABI:
 //   void handler(i32 lane_count, i64 active_mask_bits,

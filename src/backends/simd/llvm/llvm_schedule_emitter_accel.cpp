@@ -962,8 +962,13 @@ void ScheduleEmitter::_accel_motion_write(
             });
         auto *hits = static_cast<::llvm::Value *>(
             ::llvm::PoisonValue::get(_data_type(result->type, true)));
+        auto *raw_inst = load_field(simd_host_accel_hit_inst_field);
+        auto *raw_geom = load_field(simd_host_accel_hit_geom_field);
+        auto *resolved_inst = _builder.CreateSelect(
+            _builder.CreateICmpEQ(raw_inst, invalid_i32),
+            raw_geom, raw_inst, "accel.hit.resolved.inst");
         hits = _insert_child(
-            hits, load_field(simd_host_accel_hit_inst_field),
+            hits, resolved_inst,
             result->type, 0u, true);
         hits = _insert_child(
             hits, load_field(simd_host_accel_hit_prim_field),

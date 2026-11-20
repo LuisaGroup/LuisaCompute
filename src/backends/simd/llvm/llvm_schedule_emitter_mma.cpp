@@ -268,8 +268,15 @@ void ScheduleEmitter::_preflight_typed_calls() {
     for (auto &&block : _source.blocks()) {
         for (auto &&instruction : block.instructions) {
             if (instruction.opcode != schedule::Opcode::call) {
-                if (instruction.strided_mma || instruction.contiguous_copy) {
+                if (instruction.strided_mma || instruction.contiguous_copy || instruction.outlined_callable_id) {
                     _fail("typed call metadata requires a call instruction");
+                    return;
+                }
+                continue;
+            }
+            if (instruction.outlined_callable_id) {
+                if (instruction.strided_mma || instruction.contiguous_copy) {
+                    _fail("outlined call cannot carry strided MMA or contiguous copy metadata");
                     return;
                 }
                 continue;
@@ -341,7 +348,7 @@ void ScheduleEmitter::_strided_mma(const schedule::Instruction &instruction) {
     std::array<::llvm::Value *, 4u> handles{};
     for (auto i = size_t{0u}; i < handles.size(); i++) {
         auto id = instruction.operands[i];
-        if (_interleaved_local_values[id.value] != 0u) {
+        if (_local_soa_kind_of(id) != LocalSoAKind::none) {
             _fail("strided MMA references cannot use packet-interleaved private arrays");
             return;
         }
@@ -374,7 +381,14 @@ void ScheduleEmitter::_contiguous_copy(const schedule::Instruction &instruction)
     auto *offsets = _load_value(instruction.operands[1u]);
     auto *handle = _load_value(destination);
     if (buffer == nullptr || offsets == nullptr || handle == nullptr) { return; }
-    auto stride = _interleaved_local_values[destination.value] != 0u ? _width : 1u;
+    auto soa_kind = _local_soa_kind_of(destination);
+    auto *dest_val = _source.value(destination);
+    auto elem_size = dest_val != nullptr && dest_val->type != nullptr &&
+                             dest_val->type->is_array() &&
+                             dest_val->type->element() != nullptr ?
+                         dest_val->type->element()->size() :
+                         size_t{0u};
+    auto stride = soa_kind != LocalSoAKind::none ? _soa_stride() : 1u;
     auto *helper = emit_contiguous_copy(_module, *instruction.contiguous_copy, _entry_name + ".contiguous_copy", stride);
     auto *base = _builder.CreateExtractValue(buffer, {0u});
     // The contiguous dimension belongs to one program's snapshot, not the
@@ -384,9 +398,31 @@ void ScheduleEmitter::_contiguous_copy(const schedule::Instruction &instruction)
         auto *next = ::llvm::BasicBlock::Create(_module.getContext(), "copy.continue", _entry);
         _builder.CreateCondBr(_builder.CreateExtractElement(_active_mask, lane), call_block, next);
         _builder.SetInsertPoint(call_block);
-        auto *local_base = _builder.CreateExtractElement(_local_base(_builder, handle), lane);
-        auto *local_offset = _builder.CreateExtractElement(_local_offsets(_builder, handle), lane);
-        auto *pointer = _builder.CreateGEP(_builder.getInt8Ty(), local_base, local_offset);
+        ::llvm::Value *pointer = nullptr;
+        if (soa_kind == LocalSoAKind::uniform) {
+            auto *lane_off =
+                (_width == 1u && _outlined_soa_lane != nullptr) ?
+                    _builder.CreateMul(
+                        _builder.CreateZExt(
+                            _outlined_soa_lane, _builder.getInt64Ty()),
+                        _builder.getInt64(elem_size)) :
+                    static_cast<::llvm::Value *>(_builder.getInt64(
+                        static_cast<uint64_t>(lane) * elem_size));
+            pointer = _builder.CreateGEP(
+                _builder.getInt8Ty(), handle, lane_off);
+        } else if (soa_kind == LocalSoAKind::varying) {
+            auto *local_base = _local_base(_builder, handle);
+            auto *local_offset = _builder.CreateAdd(
+                _builder.CreateExtractElement(
+                    _local_offsets(_builder, handle), lane),
+                _builder.getInt32(static_cast<uint32_t>(lane * elem_size)));
+            pointer = _builder.CreateGEP(
+                _builder.getInt8Ty(), local_base, local_offset);
+        } else {
+            auto *local_base = _builder.CreateExtractElement(_local_base(_builder, handle), lane);
+            auto *local_offset = _builder.CreateExtractElement(_local_offsets(_builder, handle), lane);
+            pointer = _builder.CreateGEP(_builder.getInt8Ty(), local_base, local_offset);
+        }
         auto *offset = offsets->getType()->isVectorTy() ? _builder.CreateExtractElement(offsets, lane) : offsets;
         _builder.CreateCall(helper, {base, offset, pointer});
         _builder.CreateBr(next);

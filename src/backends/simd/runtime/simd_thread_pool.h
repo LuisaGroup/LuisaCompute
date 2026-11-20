@@ -31,12 +31,23 @@ private:
         Invoke invoke{nullptr};
     };
 
-    // Each worker owns one strided chunk sequence. Keeping the cursor on a
-    // separate cache line avoids turning chunk acquisition into a global
-    // cache-line ping-pong point. Idle workers may advance another worker's
-    // cursor to steal only work that has not been claimed yet.
+    // Each worker owns one contiguous chunk slice (or strided sequence when
+    // configured). Keeping each cursor on its own cache line avoids turning
+    // chunk acquisition into a global cache-line ping-pong point. Idle workers
+    // check `next < home_end` with a relaxed load before stealing one chunk.
     struct alignas(64) WorkerCursor {
         std::atomic_uint64_t next{0u};
+        uint64_t home_begin{0u};
+        uint64_t home_end{0u};
+        uint64_t busy_ns{0u};
+        uint64_t home_chunks{0u};
+        uint64_t stolen_chunks{0u};
+    };
+
+    enum class ScheduleMode : uint8_t {
+        contiguous,
+        strided,
+        dynamic,
     };
 
 private:
@@ -47,9 +58,11 @@ private:
     std::condition_variable _work_done;
     ParallelFor _work{};
     std::unique_ptr<WorkerCursor[]> _worker_cursors;
+    alignas(64) std::atomic_uint64_t _dynamic_cursor{0u};
     uint64_t _generation{0u};
     uint32_t _working_workers{0u};
     uint32_t _worker_count{1u};
+    ScheduleMode _schedule_mode{ScheduleMode::strided};
     bool _stopping{false};
 
 private:

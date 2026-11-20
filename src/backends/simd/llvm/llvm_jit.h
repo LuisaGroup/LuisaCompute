@@ -35,7 +35,8 @@ private:
 
 private:
     void _fail(std::string message) noexcept;
-    [[nodiscard]] bool _prepare_module(::llvm::Module &module) noexcept;
+    [[nodiscard]] bool _prepare_module(
+        ::llvm::Module &module, bool *out_size_bounded = nullptr) noexcept;
     [[nodiscard]] std::string _emit_assembly(
         ::llvm::Module &module) noexcept;
 
@@ -56,6 +57,9 @@ public:
     [[nodiscard]] bool add_module(
         std::unique_ptr<::llvm::Module> module,
         std::unique_ptr<::llvm::LLVMContext> context) noexcept;
+    [[nodiscard]] bool add_object(
+        luisa::string_view object,
+        luisa::string_view buffer_name = "simd_cached_object") noexcept;
     // Runs the same optimization and host target-machine pipeline as the JIT
     // and returns assembly for native-lowering regression audits.
     [[nodiscard]] std::string emit_assembly(

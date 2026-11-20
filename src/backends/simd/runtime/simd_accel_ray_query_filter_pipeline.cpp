@@ -148,9 +148,14 @@ void surface_filter_pipeline(
     std::array<uint32_t, 16u> packet_lanes{};
     packet_lanes.fill(std::numeric_limits<uint32_t>::max());
     auto load_candidate = [&](uint32_t packet_lane) noexcept {
+        auto raw_inst = RTCHitN_instID(
+            arguments->hit, packet_width, packet_lane, 0u);
+        auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
+                        RTCHitN_geomID(
+                            arguments->hit, packet_width, packet_lane) :
+                        raw_inst;
         return SIMDHostRayQuerySurfaceHit{
-            .inst = RTCHitN_instID(
-                arguments->hit, packet_width, packet_lane, 0u),
+            .inst = inst,
             .prim = RTCHitN_primID(
                 arguments->hit, packet_width, packet_lane),
             .bary = {

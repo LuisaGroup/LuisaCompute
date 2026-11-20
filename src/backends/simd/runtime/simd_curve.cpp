@@ -42,6 +42,7 @@ void SIMDCurve::build(const CurveBuildCommand &command) noexcept {
         _basis = command.basis();
         _geometry = rtcNewGeometry(
             rtcGetSceneDevice(_scene), embree_curve_type(_basis));
+        simd_geometry_enable_argument_filter(_geometry);
         rtcSetGeometryMask(_geometry, ~0u);
         rtcAttachGeometry(_scene, _geometry);
         rtcReleaseGeometry(_geometry);

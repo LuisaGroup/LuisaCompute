@@ -45,6 +45,7 @@ enum class ScheduleEntryABI {
     packet,
     ray_query_handler,
     ray_query_surface_filter_handler,
+    outlined_callable,
 };
 
 // Private implementation shared by the focused Schedule IR lowering units.
@@ -77,8 +78,17 @@ private:
     ScheduleEntryABI _entry_abi{ScheduleEntryABI::packet};
     luisa::span<const LLVMSIMDRayQueryPipelineHandlers>
         _ray_query_pipeline_handlers{};
+    luisa::span<const LLVMSIMDOutlinedCallable>
+        _outlined_callables{};
+    const Type *_outlined_return_type{nullptr};
+    luisa::span<const uint8_t> _outlined_parameter_soa_cell_bytes{};
+    uint32_t _outlined_parameter_soa_stride{0u};
+    ::llvm::Value *_outlined_io_frame{nullptr};
+    ::llvm::StructType *_outlined_io_frame_type{nullptr};
+    ::llvm::Value *_outlined_soa_lane{nullptr};
     size_t _print_format_id_base{0u};
     bool _use_scalar_frame_metadata{false};
+    bool _outline_scheduler_helpers{false};
     bool _direct_control_flow{false};
     bool _predicated_acyclic_control_flow{false};
     std::vector<schedule::BlockId> _predicated_acyclic_order{};
@@ -102,19 +112,25 @@ private:
     ::llvm::BasicBlock *_scheduler_loop{nullptr};
     ::llvm::BasicBlock *_scheduler_dispatch_route{nullptr};
     ::llvm::PHINode *_scheduler_dispatch_pc{nullptr};
-    ::llvm::AllocaInst *_live_mask{nullptr};
-    ::llvm::AllocaInst *_runnable_mask{nullptr};
-    ::llvm::AllocaInst *_ready_count{nullptr};
-    ::llvm::AllocaInst *_ready_masks{nullptr};
-    ::llvm::AllocaInst *_ready_targets{nullptr};
-    ::llvm::AllocaInst *_ready_tokens{nullptr};
-    ::llvm::AllocaInst *_current_mask{nullptr};
-    ::llvm::AllocaInst *_current_token{nullptr};
-    ::llvm::AllocaInst *_frame_active{nullptr};
-    ::llvm::AllocaInst *_frame_static_id{nullptr};
-    ::llvm::AllocaInst *_frame_parent_token{nullptr};
-    ::llvm::AllocaInst *_frame_expected{nullptr};
-    ::llvm::AllocaInst *_frame_arrived{nullptr};
+    ::llvm::StructType *_sched_state_type{nullptr};
+    ::llvm::AllocaInst *_sched_state{nullptr};
+    ::llvm::Type *_frame_active_type{nullptr};
+    ::llvm::Type *_frame_metadata_type{nullptr};
+    ::llvm::Type *_ready_masks_type{nullptr};
+    ::llvm::Type *_ready_i32_type{nullptr};
+    ::llvm::Value *_live_mask{nullptr};
+    ::llvm::Value *_runnable_mask{nullptr};
+    ::llvm::Value *_ready_count{nullptr};
+    ::llvm::Value *_ready_masks{nullptr};
+    ::llvm::Value *_ready_targets{nullptr};
+    ::llvm::Value *_ready_tokens{nullptr};
+    ::llvm::Value *_current_mask{nullptr};
+    ::llvm::Value *_current_token{nullptr};
+    ::llvm::Value *_frame_active{nullptr};
+    ::llvm::Value *_frame_static_id{nullptr};
+    ::llvm::Value *_frame_parent_token{nullptr};
+    ::llvm::Value *_frame_expected{nullptr};
+    ::llvm::Value *_frame_arrived{nullptr};
     ::llvm::Constant *_convergence_targets{nullptr};
     std::vector<uint32_t> _target_convergence_depths{};
     std::vector<::llvm::AllocaInst *> _state_slots{};
@@ -122,8 +138,8 @@ private:
     std::vector<uint8_t> _local_lvalue_values{};
     std::vector<uint8_t> _shared_lvalue_values{};
     std::vector<::llvm::Value *> _local_allocations{};
-    std::vector<uint8_t> _interleaved_local_values{};
-    std::unordered_map<const schedule::Instruction *, schedule::ValueId> _contiguous_private_accesses{};
+    std::vector<LocalSoAKind> _local_soa_kind{};
+    std::vector<uint8_t> _local_soa_cell_bytes{};
     std::vector<uint32_t> _ray_query_scratch_slots{};
     std::vector<::llvm::AllocaInst *> _ray_query_scratch_storage{};
     std::vector<uint32_t> _ray_query_status_slots{};
@@ -132,8 +148,11 @@ private:
         _ray_query_output_only_empty_surface_filter_state{};
     std::vector<uint8_t>
         _ray_query_direct_output_surface_filter_state{};
+    std::vector<uint8_t>
+        _ray_query_surface_exclusion_soa_state{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_status_callback_storage{};
+    std::vector<::llvm::AllocaInst *> _ray_query_live_dispatch_storage{};
     std::vector<::llvm::AllocaInst *> _ray_query_pipeline_callback_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_surface_filter_pipeline_callback_storage{};
@@ -145,6 +164,10 @@ private:
         _ray_query_direct_output_surface_filter_pipeline_callback_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_direct_output_surface_filter_accel_storage{};
+    std::vector<::llvm::AllocaInst *>
+        _ray_query_surface_exclusion_soa_accel_storage{};
+    std::vector<::llvm::AllocaInst *>
+        _ray_query_surface_exclusion_soa_input_storage{};
     std::vector<::llvm::AllocaInst *>
         _ray_query_output_packet_storage{};
     std::vector<::llvm::AllocaInst *>
@@ -350,7 +373,12 @@ private:
         ::llvm::Value *new_value, ::llvm::Value *old_value,
         const Type *type, ::llvm::Value *mask);
     [[nodiscard]] ::llvm::StructType *_local_handle_type();
+    [[nodiscard]] ::llvm::StructType *_local_soa_varying_type();
+    [[nodiscard]] ::llvm::Type *_local_value_llvm_type(
+        schedule::ValueId id);
     [[nodiscard]] ::llvm::Value *_local_handle(
+        ::llvm::Value *base, ::llvm::Value *offsets);
+    [[nodiscard]] ::llvm::Value *_soa_varying_handle(
         ::llvm::Value *base, ::llvm::Value *offsets);
     [[nodiscard]] static ::llvm::Value *_local_base(
         ::llvm::IRBuilder<> &builder, ::llvm::Value *handle);
@@ -359,6 +387,13 @@ private:
     [[nodiscard]] ::llvm::Value *_merge_local_handles(
         ::llvm::Value *new_handle, ::llvm::Value *old_handle,
         ::llvm::Value *mask);
+    [[nodiscard]] ::llvm::Value *_merge_varying_soa_handles(
+        ::llvm::Value *new_handle, ::llvm::Value *old_handle,
+        ::llvm::Value *mask);
+    [[nodiscard]] LocalSoAKind _local_soa_kind_of(
+        schedule::ValueId id) const noexcept;
+    [[nodiscard]] uint8_t _local_soa_cell_of(
+        schedule::ValueId id) const noexcept;
     [[nodiscard]] bool _is_local_lvalue(
         schedule::ValueId id) const noexcept;
     [[nodiscard]] bool _is_shared_lvalue(
@@ -437,6 +472,8 @@ private:
         const schedule::Value &result,
         const schedule::Instruction &instruction,
         const std::vector<::llvm::Value *> &operands, bool varying);
+    [[nodiscard]] ::llvm::Value *_emit_float_fmod(
+        ::llvm::Value *lhs, ::llvm::Value *rhs, bool varying);
     [[nodiscard]] ::llvm::Value *_arithmetic(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_cast(
@@ -444,13 +481,26 @@ private:
         ::llvm::Value *operand_sanitization_mask = nullptr);
     [[nodiscard]] ::llvm::Value *_lane_offsets(
         ::llvm::Value *index, uint64_t stride);
+    [[nodiscard]] ::llvm::Value *_lane_offsets_i32(
+        ::llvm::Value *index, uint32_t stride);
     [[nodiscard]] luisa::optional<uint64_t> _constant_aggregate_index(
         schedule::ValueId id) const noexcept;
     [[nodiscard]] bool _advance_aggregate_offset(
         ::llvm::Value *&offsets, const Type *&current_type,
         schedule::ValueId index_id, uint32_t scale = 1u);
-    void _find_interleaved_private_arrays();
-    [[nodiscard]] ::llvm::Value *_contiguous_private_address(::llvm::Value *handle, const Type *type, schedule::ValueId allocation);
+    void _analyze_local_soa();
+    [[nodiscard]] ::llvm::Value *_load_uniform_soa_data(
+        ::llvm::Value *ptr, const Type *type,
+        uint8_t cell_bytes, size_t leaf_offset = 0u);
+    void _store_uniform_soa_data(
+        ::llvm::Value *ptr, const Type *type, ::llvm::Value *value,
+        uint8_t cell_bytes, size_t leaf_offset = 0u);
+    [[nodiscard]] ::llvm::Value *_gather_varying_soa_data(
+        ::llvm::Value *base, ::llvm::Value *offsets, const Type *type,
+        uint8_t cell_bytes, size_t leaf_offset = 0u);
+    void _scatter_varying_soa_data(
+        ::llvm::Value *base, ::llvm::Value *offsets, const Type *type,
+        ::llvm::Value *value, uint8_t cell_bytes, size_t leaf_offset = 0u);
     [[nodiscard]] ::llvm::Value *_local_alloca(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_local_gep(
@@ -460,6 +510,9 @@ private:
     void _local_store(const schedule::Instruction &instruction);
     void _strided_mma(const schedule::Instruction &instruction);
     void _contiguous_copy(const schedule::Instruction &instruction);
+    void _preflight_outlined_calls();
+    [[nodiscard]] ::llvm::Value *_outlined_call(
+        const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_atomic_lanes(
         xir::AtomicOp op, const schedule::Value &result,
         ::llvm::Value *base, ::llvm::Value *offsets,
@@ -507,6 +560,11 @@ private:
     [[nodiscard]] ::llvm::Value *_gather_paired_vector_data(
         ::llvm::Value *base, ::llvm::Value *offsets,
         const Type *type, ::llvm::Value *mask = nullptr);
+    [[nodiscard]] ::llvm::GlobalVariable *_get_or_create_zero_read_buffer(
+        size_t min_bytes);
+    [[nodiscard]] ::llvm::Value *_gather_aos_chunked_w8(
+        ::llvm::Value *base, ::llvm::Value *offsets,
+        const Type *type);
     [[nodiscard]] static uint32_t _vector_storage_component_count(
         const Type *type) noexcept;
     [[nodiscard]] ::llvm::Value *_lane_consecutive_address(
@@ -645,16 +703,20 @@ private:
     [[nodiscard]] ::llvm::Value *_frame_is_active(
         ::llvm::Value *active_bits, ::llvm::Value *index);
     [[nodiscard]] ::llvm::Value *_frame_mask_pointer(
-        ::llvm::AllocaInst *frames, ::llvm::Value *index);
+        ::llvm::Value *frames, ::llvm::Value *index);
     [[nodiscard]] ::llvm::Value *_load_frame_metadata(
-        ::llvm::AllocaInst *frames, ::llvm::Value *index);
+        ::llvm::Value *frames, ::llvm::Value *index);
     void _store_frame_metadata(
-        ::llvm::AllocaInst *frames, ::llvm::Value *index,
+        ::llvm::Value *frames, ::llvm::Value *index,
         ::llvm::Value *value);
     [[nodiscard]] ::llvm::Value *_load_convergence_target(
         ::llvm::Value *static_id);
     [[nodiscard]] ::llvm::Value *_ready_element_pointer(
-        ::llvm::AllocaInst *array, ::llvm::Value *index);
+        ::llvm::Value *array, ::llvm::Type *array_type, ::llvm::Value *index);
+    [[nodiscard]] ::llvm::StructType *_get_or_create_sched_state_type();
+    [[nodiscard]] ::llvm::Function *_get_or_create_sched_declare_helper();
+    [[nodiscard]] ::llvm::Function *_get_or_create_sched_resume_helper();
+    [[nodiscard]] ::llvm::Function *_get_or_create_sched_cascade_helper();
     void _trap_if(::llvm::Value *condition, luisa::string_view label);
     void _declare_convergence(schedule::ConvergenceId convergence,
                               ::llvm::Value *divergent);
@@ -765,9 +827,22 @@ private:
     [[nodiscard]] bool _is_handler_entry() const noexcept {
         return _entry_abi != ScheduleEntryABI::packet;
     }
+    [[nodiscard]] bool _is_ray_query_handler_entry() const noexcept {
+        return _entry_abi == ScheduleEntryABI::ray_query_handler ||
+               _entry_abi ==
+                   ScheduleEntryABI::ray_query_surface_filter_handler;
+    }
+    [[nodiscard]] bool _is_outlined_callable_entry() const noexcept {
+        return _entry_abi == ScheduleEntryABI::outlined_callable;
+    }
     [[nodiscard]] bool _is_surface_filter_handler_entry() const noexcept {
         return _entry_abi ==
                ScheduleEntryABI::ray_query_surface_filter_handler;
+    }
+    [[nodiscard]] uint32_t _soa_stride() const noexcept {
+        return (_width == 1u && _outlined_parameter_soa_stride > 1u) ?
+                   _outlined_parameter_soa_stride :
+                   _width;
     }
 
 public:
@@ -794,7 +869,13 @@ public:
                     bool enable_native_half4_texture_packet = false,
                     size_t private_stack_budget_bytes = 0u,
                     bool enable_interleaved_private_arrays = false,
-                    bool enable_contiguous_private_access = true);
+                    bool enable_contiguous_private_access = true,
+                    luisa::span<const LLVMSIMDOutlinedCallable>
+                        outlined_callables = {},
+                    const Type *outlined_return_type = nullptr,
+                    luisa::span<const uint8_t>
+                        outlined_parameter_soa_cell_bytes = {},
+                    uint32_t outlined_parameter_soa_stride = 0u);
     [[nodiscard]] LLVMScheduleCodegenResult run();
 };
 

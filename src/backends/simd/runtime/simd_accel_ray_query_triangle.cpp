@@ -149,8 +149,12 @@ void ray_query_filter_wide_triangle_only_specialized(
         if (state == nullptr || state->terminated != 0u) { continue; }
         auto t = RTCRayN_tfar(
             arguments->ray, packet_width, packet_lane);
-        auto inst = RTCHitN_instID(
+        auto raw_inst = RTCHitN_instID(
             arguments->hit, packet_width, packet_lane, 0u);
+        auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
+                        RTCHitN_geomID(
+                            arguments->hit, packet_width, packet_lane) :
+                        raw_inst;
         auto prim = RTCHitN_primID(
             arguments->hit, packet_width, packet_lane);
         if (!(t >= state->world_ray[3u] &&
@@ -197,8 +201,12 @@ LUISA_NEVER_INLINE void ray_query_filter_wide_triangle_only_generic(
         if (state == nullptr || state->terminated != 0u) { continue; }
         auto t = RTCRayN_tfar(
             arguments->ray, arguments->N, packet_lane);
-        auto inst = RTCHitN_instID(
+        auto raw_inst = RTCHitN_instID(
             arguments->hit, arguments->N, packet_lane, 0u);
+        auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
+                        RTCHitN_geomID(
+                            arguments->hit, arguments->N, packet_lane) :
+                        raw_inst;
         auto prim = RTCHitN_primID(
             arguments->hit, arguments->N, packet_lane);
         if (!(t >= state->world_ray[3u] &&
@@ -283,8 +291,12 @@ void ray_query_filter_triangle_only(
         if (state == nullptr || state->terminated != 0u) { continue; }
         auto t = RTCRayN_tfar(
             arguments->ray, arguments->N, packet_lane);
-        auto inst = RTCHitN_instID(
+        auto raw_inst = RTCHitN_instID(
             arguments->hit, arguments->N, packet_lane, 0u);
+        auto inst = raw_inst == RTC_INVALID_GEOMETRY_ID ?
+                        RTCHitN_geomID(
+                            arguments->hit, arguments->N, packet_lane) :
+                        raw_inst;
         auto prim = RTCHitN_primID(
             arguments->hit, arguments->N, packet_lane);
         if (!(t >= state->world_ray[3u] &&

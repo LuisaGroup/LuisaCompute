@@ -19,6 +19,8 @@
 #include <unistd.h>
 #endif
 
+#include <luisa/core/binary_io.h>
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/stl/filesystem.h>
@@ -308,7 +310,8 @@ void dump_compilation_artifacts(
 
 SIMDShader::SIMDShader(
     const ShaderOption &option, Function kernel,
-    uint32_t warp_width, uint32_t dispatch_worker_count) noexcept
+    uint32_t warp_width, uint32_t dispatch_worker_count,
+    const luisa::BinaryIO *binary_io) noexcept
     : _block_size{kernel.block_size()} {
     if (auto allowed = kernel.allowed_warp_size();
         allowed && *allowed != warp_width) {
@@ -348,21 +351,185 @@ SIMDShader::SIMDShader(
     auto capture_assembly =
         detail::env_flag("LUISA_SIMD_REPORT_ASSEMBLY") ||
         assembly_directory != nullptr;
-    _compiled = compile_simd_kernel(
-        kernel, warp_width,
-        kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
-        option.enable_fast_math, capture_assembly,
-        dispatch_worker_count, _enable_packet_batch_entry,
-        _enable_block_batch_entry);
-    if (!_compiled.succeeded()) {
-        luisa::string diagnostics;
-        for (auto &&message : _compiled.diagnostics) {
-            if (!diagnostics.empty()) { diagnostics += '\n'; }
-            diagnostics += message;
+    auto report_optimizations =
+        detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
+
+    static constexpr uint32_t simd_shader_cache_abi = 12u;
+    const auto cache_enabled =
+        binary_io != nullptr &&
+        option.enable_cache &&
+        option.name.empty() &&
+        !kernel.requires_printing() &&
+        !capture_assembly &&
+        !report_optimizations &&
+        !detail::env_flag("LUISA_SIMD_DISABLE_SHADER_CACHE");
+
+    const auto cache_stem = cache_enabled ?
+                                luisa::format(
+                                    "kernel.{:016x}.w{}.fm{}.simd",
+                                    kernel.hash(), warp_width,
+                                    option.enable_fast_math ? 1u : 0u) :
+                                luisa::string{};
+    const auto cache_object_name =
+        cache_enabled ? cache_stem + ".obj" : luisa::string{};
+    const auto cache_meta_name =
+        cache_enabled ? cache_stem + ".meta" : luisa::string{};
+    auto build_cache_key = [&](std::string_view triple) {
+        return luisa::format(
+            "abi={}|hash={:016x}|w={}|workers={}|bs={}x{}x{}|fm={}|pb={}|bb={}|triple={}",
+            simd_shader_cache_abi, kernel.hash(), warp_width,
+            dispatch_worker_count,
+            _block_size.x, _block_size.y, _block_size.z,
+            option.enable_fast_math ? 1u : 0u,
+            _enable_packet_batch_entry ? 1u : 0u,
+            _enable_block_batch_entry ? 1u : 0u,
+            triple);
+    };
+
+    bool loaded_from_cache = false;
+    if (cache_enabled) {
+        Clock cache_clock;
+        auto probe_jit = luisa::make_unique<LLVMJIT>(false);
+        if (probe_jit->succeeded()) {
+            const auto expected_key =
+                build_cache_key(probe_jit->target_triple());
+            auto meta_stream =
+                binary_io->read_shader_cache(cache_meta_name);
+            auto obj_stream =
+                binary_io->read_shader_cache(cache_object_name);
+            if (meta_stream != nullptr && meta_stream->length() != 0u &&
+                obj_stream != nullptr && obj_stream->length() != 0u) {
+                luisa::string meta_text;
+                meta_text.resize(meta_stream->length());
+                meta_stream->read(luisa::span{
+                    reinterpret_cast<std::byte *>(meta_text.data()),
+                    meta_text.size()});
+                auto nl = meta_text.find('\n');
+                if (nl != luisa::string::npos &&
+                    luisa::string_view{meta_text.data(), nl} == expected_key) {
+                    auto info = luisa::string_view{meta_text}.substr(nl + 1u);
+                    // Format: kind|arg_bytes|priv_bytes|ray_queries|schedule_blocks|symbol
+                    auto p1 = info.find('|');
+                    auto p2 = p1 == luisa::string_view::npos ?
+                                  luisa::string_view::npos :
+                                  info.find('|', p1 + 1u);
+                    auto p3 = p2 == luisa::string_view::npos ?
+                                  luisa::string_view::npos :
+                                  info.find('|', p2 + 1u);
+                    auto p4 = p3 == luisa::string_view::npos ?
+                                  luisa::string_view::npos :
+                                  info.find('|', p3 + 1u);
+                    auto p5 = p4 == luisa::string_view::npos ?
+                                  luisa::string_view::npos :
+                                  info.find('|', p4 + 1u);
+                    uint32_t entry_kind = 99u;
+                    size_t arg_bytes = 0u;
+                    size_t priv_bytes = 0u;
+                    size_t ray_queries = 0u;
+                    size_t schedule_blocks = 0u;
+                    if (p5 != luisa::string_view::npos &&
+                        std::from_chars(
+                            info.data(), info.data() + p1, entry_kind)
+                                .ec == std::errc{} &&
+                        std::from_chars(
+                            info.data() + p1 + 1u, info.data() + p2, arg_bytes)
+                                .ec == std::errc{} &&
+                        std::from_chars(
+                            info.data() + p2 + 1u, info.data() + p3, priv_bytes)
+                                .ec == std::errc{} &&
+                        std::from_chars(
+                            info.data() + p3 + 1u, info.data() + p4, ray_queries)
+                                .ec == std::errc{} &&
+                        std::from_chars(
+                            info.data() + p4 + 1u, info.data() + p5, schedule_blocks)
+                                .ec == std::errc{}) {
+                        auto sym = info.substr(p5 + 1u);
+                        auto obj_bytes = obj_stream->read(obj_stream->length());
+                        luisa::string_view obj_view{
+                            reinterpret_cast<const char *>(obj_bytes.data()),
+                            obj_bytes.size()};
+                        if (!sym.empty() &&
+                            probe_jit->add_object(obj_view, cache_object_name)) {
+                            if (void *fn = probe_jit->lookup(sym);
+                                fn != nullptr) {
+                                _compiled.jit = std::move(probe_jit);
+                                _compiled.warp_width = warp_width;
+                                _compiled.enable_fast_math =
+                                    option.enable_fast_math;
+                                _compiled.argument_buffer_size = arg_bytes;
+                                _compiled.private_workspace_size = priv_bytes;
+                                _compiled.ray_query_count = ray_queries;
+                                _compiled.schedule_block_count = schedule_blocks;
+                                _compiled.target_triple =
+                                    _compiled.jit->target_triple();
+                                _compiled.entry_symbol.assign(
+                                    sym.data(), sym.size());
+                                if (entry_kind == 2u) {
+                                    _compiled.block_batch_entry = fn;
+                                } else if (entry_kind == 1u) {
+                                    _compiled.packet_batch_entry = fn;
+                                } else {
+                                    _compiled.entry = fn;
+                                }
+                                loaded_from_cache = _compiled.succeeded();
+                                if (loaded_from_cache) {
+                                    LUISA_VERBOSE(
+                                        "SIMD shader cache hit '{}' in {} ms.",
+                                        cache_object_name, cache_clock.toc());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        LUISA_ERROR_WITH_LOCATION(
-            "Failed to compile SIMD kernel (warp width {}):\n{}",
-            warp_width, diagnostics);
+    }
+
+    if (!loaded_from_cache) {
+        _compiled = compile_simd_kernel(
+            kernel, warp_width,
+            kernel.name().empty() ? "simd_runtime_kernel" : kernel.name(),
+            option.enable_fast_math, capture_assembly,
+            dispatch_worker_count, _enable_packet_batch_entry,
+            _enable_block_batch_entry, cache_enabled);
+        if (!_compiled.succeeded()) {
+            luisa::string diagnostics;
+            for (auto &&message : _compiled.diagnostics) {
+                if (!diagnostics.empty()) { diagnostics += '\n'; }
+                diagnostics += message;
+            }
+            LUISA_ERROR_WITH_LOCATION(
+                "Failed to compile SIMD kernel (warp width {}):\n{}",
+                warp_width, diagnostics);
+        }
+        if (cache_enabled && _compiled.print_formats.empty() &&
+            !_compiled.jit->object().empty() &&
+            !_compiled.entry_symbol.empty()) {
+            const auto &obj = _compiled.jit->object();
+            const uint32_t entry_kind =
+                _compiled.block_batch_entry != nullptr ? 2u :
+                _compiled.packet_batch_entry != nullptr ? 1u :
+                                                          0u;
+            const auto meta = luisa::format(
+                "{}\n{}|{}|{}|{}|{}|{}",
+                build_cache_key(_compiled.target_triple),
+                entry_kind,
+                _compiled.argument_buffer_size,
+                _compiled.private_workspace_size,
+                _compiled.ray_query_count,
+                _compiled.schedule_block_count,
+                _compiled.entry_symbol);
+            static_cast<void>(binary_io->write_shader_cache(
+                cache_object_name,
+                luisa::span<const std::byte>{
+                    reinterpret_cast<const std::byte *>(obj.data()),
+                    obj.size()}));
+            static_cast<void>(binary_io->write_shader_cache(
+                cache_meta_name,
+                luisa::span<const std::byte>{
+                    reinterpret_cast<const std::byte *>(meta.data()),
+                    meta.size()}));
+        }
     }
     _print_formatters.reserve(_compiled.print_formats.size());
     for (auto &&format : _compiled.print_formats) {
@@ -442,6 +609,10 @@ SIMDShader::SIMDShader(
             "compact_surface_filter_states={}, "
             "output_only_empty_surface_filter_states={}, "
             "direct_output_surface_filter_states={}, "
+            "surface_exclusion_soa_states={}, "
+            "interleaved_private_arrays={}, "
+            "contiguous_private_reads={}, "
+            "contiguous_private_writes={}, "
             "uniform_buffer_broadcasts={}, contiguous_buffer_reads={}, "
             "contiguous_buffer_writes={}, transposed_buffer_reads={}, "
             "transposed_buffer_writes={}, paired_leaf_gathers={}, "
@@ -537,6 +708,10 @@ SIMDShader::SIMDShader(
             _compiled.compact_surface_filter_state_count,
             _compiled.output_only_empty_surface_filter_state_count,
             _compiled.direct_output_surface_filter_state_count,
+            _compiled.surface_exclusion_soa_state_count,
+            _compiled.interleaved_private_arrays,
+            _compiled.contiguous_private_read_count,
+            _compiled.contiguous_private_write_count,
             _compiled.uniform_buffer_broadcast_count,
             _compiled.contiguous_buffer_read_count,
             _compiled.contiguous_buffer_write_count,
@@ -709,6 +884,13 @@ void SIMDShader::_dispatch_once(
     auto grain_size = grid_count == 0u ?
                           uint64_t{1u} :
                           (grid_count - 1u) / target_chunks + 1u;
+    if (_compiled.ray_query_count != 0u ||
+        _compiled.schedule_block_count >= 16u) {
+        auto worker_count = std::max<uint64_t>(
+            static_cast<uint64_t>(thread_pool.worker_count()), 1u);
+        auto balanced_grain = grid_count / (worker_count * 64ull);
+        grain_size = std::clamp<uint64_t>(balanced_grain, 1ull, 8ull);
+    }
     if (_blocks_per_task != 0u) { grain_size = _blocks_per_task; }
     thread_pool.parallel_for(
         grid_count, grain_size,

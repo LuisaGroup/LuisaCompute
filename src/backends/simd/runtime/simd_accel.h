@@ -10,6 +10,7 @@
 namespace luisa::compute::simd {
 
 class SIMDPrimitive;
+class SIMDMesh;
 class SIMDSRTMotionForwarder;
 
 namespace triangle_ray_query {
@@ -70,6 +71,7 @@ private:
     enum class GeometryRoute : uint8_t {
         instance,
         forwarded_srt,
+        direct_triangle,
     };
 
 private:
@@ -82,6 +84,8 @@ private:
     luisa::vector<SIMDPrimitive *> _primitives;
     luisa::vector<RTCGeometry> _geometries;
     luisa::vector<GeometryRoute> _geometry_routes;
+    luisa::vector<const SIMDMesh *> _direct_meshes;
+    luisa::vector<uint64_t> _mesh_revisions;
     // Callback payloads belong to the committed Embree scene rather than the
     // desired public instance table. A buffer-only update must keep the old
     // payload alive until the following ordinary build detaches or replaces
@@ -99,6 +103,7 @@ private:
         .ray_query_proceed_wide_status = simd_host_ray_query_proceed_status};
     bool _has_curve_instances{false};
     bool _has_procedural_instances{false};
+    bool _has_direct_triangle_instances{false};
     // True when the desired instance topology no longer matches the query
     // provider summary for the last committed Embree scene.
     bool _instance_summary_dirty{true};
@@ -115,6 +120,7 @@ private:
     bool _enable_w8_wide_shared_status{true};
     bool _enable_procedural_dense_status{true};
     bool _enable_procedural_fused_status{true};
+    bool _enable_live_ray_query_pipeline{true};
 
     friend struct triangle_ray_query::SIMDAccelAccess;
     friend struct triangle_ray_query::SurfaceFilterPipelineAccelAccess;
@@ -157,6 +163,27 @@ private:
         SIMDHostRayQueryState *state, const void *capture,
         const SIMDPacketLaunchConfig *launch_config,
         SIMDHostRayQueryPipelineHandlerW1 *on_candidate) noexcept;
+    static void _ray_query_surface_exclusion(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states,
+        const uint32_t *excl_inst0, const uint32_t *excl_prim0,
+        const uint32_t *excl_inst1, const uint32_t *excl_prim1,
+        uint32_t flags) noexcept;
+    static void _ray_query_surface_exclusion_soa(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        void *accel,
+        const SIMDHostRayQuerySurfaceExclusionInputPacket *inputs,
+        SIMDHostRayQueryOutputPacket *outputs,
+        const uint32_t *excl_inst0, const uint32_t *excl_prim0,
+        const uint32_t *excl_inst1, const uint32_t *excl_prim1,
+        uint32_t flags) noexcept;
+    static void _ray_query_live_pipeline(
+        uint32_t lane_count, uint64_t active_mask_bits,
+        SIMDHostRayQueryState *const *states, const void *capture,
+        const SIMDPacketLaunchConfig *launch_config,
+        SIMDHostRayQueryLiveCandidateHandler *on_candidate,
+        uint32_t flags) noexcept;
+    static const SIMDHostAccelRayQueryLiveDispatch _live_dispatch;
     static LUISA_FORCE_INLINE void _ray_query_proceed_wide_lane(
         SIMDHostRayQueryState *state, uint32_t lane,
         uint64_t bit, uint64_t &pending) noexcept;
@@ -186,6 +213,9 @@ public:
                                           _ray_query_proceed_wide,
             .ray_query_candidate_object_ray =
                 _ray_query_candidate_object_ray,
+            .ray_query_live = _enable_live_ray_query_pipeline ?
+                                  &_live_dispatch :
+                                  nullptr,
         };
     }
 };

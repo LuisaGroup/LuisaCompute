@@ -77,6 +77,7 @@ struct SIMDCompiledKernel {
     size_t compact_surface_filter_state_count{0u};
     size_t output_only_empty_surface_filter_state_count{0u};
     size_t direct_output_surface_filter_state_count{0u};
+    size_t surface_exclusion_soa_state_count{0u};
     size_t direct_ray_query_pipeline_count{0u};
     size_t post_reconstruction_ray_query_pipeline_count{0u};
     size_t resident_ray_query_pipeline_count{0u};
@@ -154,6 +155,7 @@ struct SIMDCompiledKernel {
     bool enable_fast_math{false};
     uint32_t warp_width{0u};
     std::string target_triple{};
+    std::string entry_symbol{};
     // Populated only when explicitly requested for diagnostics.
     std::string llvm_ir{};
     std::string assembly{};
@@ -187,7 +189,8 @@ struct SIMDCompiledKernel {
     // Runtime supplies the corresponding private workspace when nonzero.
     size_t private_stack_budget_bytes = 0u,
     bool enable_interleaved_private_arrays = false,
-    bool enable_contiguous_private_access = true);
+    bool enable_contiguous_private_access = true,
+    bool capture_object = false);
 
 // Translates a DSL/AST kernel to XIR, legalizes its structured control flow,
 // inlines callables, promotes local SSA storage, and then invokes the packet
@@ -198,6 +201,7 @@ struct SIMDCompiledKernel {
     bool capture_assembly = false,
     uint32_t dispatch_worker_count = 1u,
     bool enable_packet_batch_entry = false,
-    bool enable_block_batch_entry = false);
+    bool enable_block_batch_entry = false,
+    bool capture_object = false);
 
 }// namespace luisa::compute::simd
