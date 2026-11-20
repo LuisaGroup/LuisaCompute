@@ -1,5 +1,6 @@
 #include <mutex>
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdlib>
 
@@ -305,13 +306,15 @@ private:
              Buffer<float4> /* clip rectangles */>
         _render_shader;
     // Tiled compute 2D rasterizer: renders ImGui triangles in exact
-    // front-to-back submission order using a per-tile CSR triangle list and a
-    // watertight IEEE-754 top-left edge test. Used on backends without a
-    // JIT-capable RasterExt (e.g. HIP, CUDA, Vulkan, fallback) so ImGui works
-    // without requiring ray-tracing support or per-frame BVH rebuilds.
+    // front-to-back submission order using a compacted list of active tiles
+    // plus a CSR triangle-index buffer and a watertight IEEE-754 top-left
+    // edge test. Used on backends without a JIT-capable RasterExt (e.g. HIP,
+    // CUDA, Vulkan, fallback) so ImGui works without requiring ray-tracing
+    // support or per-frame BVH rebuilds.
     Shader2D<Image<float> /* framebuffer */,
-             uint /* tiles_x */,
-             Buffer<uint> /* tile_offsets */,
+             uint /* active_tile_count */,
+             uint /* active_grid_x */,
+             Buffer<uint2> /* active_tiles: {(ty<<16)|tx, range_begin}, len=active_tile_count+1 */,
              Buffer<uint> /* tile_tri_indices */,
              Buffer<Vertex> /* vertices */,
              BindlessArray /* textures */,
@@ -322,7 +325,7 @@ private:
     Buffer<Vertex> _vertex_buffer;
     Buffer<Triangle> _triangle_buffer;
     Buffer<float4> _clip_buffer;
-    Buffer<uint> _tile_offset_buffer;
+    Buffer<uint2> _active_tile_buffer;
     Buffer<uint> _tile_tri_index_buffer;
 
     // Hardware rasterization renderer: replaces the per-frame acceleration
@@ -352,10 +355,22 @@ private:
     Buffer<detail::GUIMeshVertex> _raster_vertex_buffer;
     // persistent host scratch reused across frames to avoid per-frame
     // allocations of the staging vectors.
+    struct TileTriBounds {
+        uint16_t tx0;
+        uint16_t ty0;
+        uint16_t tx1;
+        uint16_t ty1;
+    };
+    struct TileRowSpan {
+        uint32_t tile_start;
+        uint32_t count;
+    };
     luisa::vector<detail::GUIMeshVertex> _raster_vertices;
-    luisa::vector<uint4> _tile_tri_bounds;
+    luisa::vector<TileTriBounds> _tile_tri_bounds;
+    luisa::vector<TileRowSpan> _tile_row_spans;
+    luisa::vector<uint> _large_tri_span_ends;
     luisa::vector<uint> _tile_counts;
-    luisa::vector<uint> _tile_offsets;
+    luisa::vector<uint2> _active_tiles;
     luisa::vector<uint> _tile_cursors;
     luisa::vector<uint> _tile_tri_indices;
 
@@ -742,19 +757,24 @@ public:
         if (_render_mode == RenderMode::COMPUTE_RASTER) {
             _compute_render_shader = _device.compile<2>(
                 [ssaa = config.ssaa](ImageFloat fb,
-                                     UInt tiles_x,
-                                     BufferUInt tile_offsets,
+                                     UInt active_tile_count,
+                                     UInt active_grid_x,
+                                     BufferUInt2 active_tiles,
                                      BufferUInt tile_tri_indices,
                                      BufferVar<Vertex> vertices,
                                      BindlessVar texture_array,
                                      BufferFloat4 clip_rects) noexcept {
                     set_block_size(compute_tile_size, compute_tile_size, 1u);
-                    auto tid = dispatch_id().xy();
-                    auto tile_xy = tid / compute_tile_size;
-                    auto tile_id = tile_xy.y * tiles_x + tile_xy.x;
-                    auto range_begin = tile_offsets.read(tile_id);
-                    auto range_end = tile_offsets.read(tile_id + 1u);
-                    $if (range_begin == range_end) { $return(); };
+                    auto active_idx = block_id().y * active_grid_x + block_id().x;
+                    $if (active_idx >= active_tile_count) { $return(); };
+                    auto tile_info = active_tiles.read(active_idx);
+                    auto next_info = active_tiles.read(active_idx + 1u);
+                    auto packed_xy = tile_info.x;
+                    auto range_begin = tile_info.y;
+                    auto range_end = next_info.y;
+                    auto tile_xy = make_uint2(packed_xy & 0xffffu, packed_xy >> 16u);
+                    auto tid = tile_xy * compute_tile_size + thread_id().xy();
+                    $if (any(tid >= fb.size())) { $return(); };
 
                     // Exact watertight edge function in IEEE-754 float32:
                     // canonical endpoint ordering guarantees shared edges of
@@ -1228,33 +1248,104 @@ private:
 
         auto tiles_x = (fb_size.x + compute_tile_size - 1u) / compute_tile_size;
         auto tiles_y = (fb_size.y + compute_tile_size - 1u) / compute_tile_size;
+        LUISA_ASSERT(tiles_x <= 0xffffu && tiles_y <= 0xffffu,
+                     "Framebuffer tile dimensions ({}x{}) exceed 16-bit tile bounds.",
+                     tiles_x, tiles_y);
         auto num_tiles = static_cast<size_t>(tiles_x) * static_cast<size_t>(tiles_y);
 
-        _vertices.clear();
+        size_t max_tris = 0u;
+        bool has_callback = false;
+        for (auto i = 0; i < draw_data->CmdLists.Size; i++) {
+            auto cmd_list = draw_data->CmdLists[i];
+            for (auto j = 0; j < cmd_list->CmdBuffer.Size; j++) {
+                auto cmd = &cmd_list->CmdBuffer[j];
+                if (cmd->UserCallback) {
+                    if (cmd->UserCallback != ImDrawCallback_ResetRenderState) {
+                        has_callback = true;
+                    }
+                } else if (cmd->ElemCount >= 3u) {
+                    max_tris += cmd->ElemCount / 3u;
+                }
+            }
+        }
+        if (max_tris == 0u && !has_callback) { return; }
+
+        _vertices.resize(max_tris * 3u);
+        _tile_tri_bounds.resize(max_tris);
         _clip_rects.clear();
-        _tile_tri_bounds.clear();
-        _vertices.reserve(64_k);
+        _tile_row_spans.clear();
+        _large_tri_span_ends.clear();
         _clip_rects.reserve(64u);
-        _tile_tri_bounds.reserve(24_k);
         _tile_counts.assign(num_tiles, 0u);
 
-        auto tile_overlaps_tri = [](float x0, float y0, float x1, float y1,
-                                    float2 p0, float2 p1, float2 p2) noexcept {
-            auto edge_accepts_box = [&](float2 a, float2 b) noexcept {
-                auto dx = b.x - a.x;
-                auto dy = b.y - a.y;
-                auto qx = -dy > 0.f ? x1 : x0;
-                auto qy = dx > 0.f ? y1 : y0;
-                return dx * (qy - a.y) - dy * (qx - a.x) >= -1e-3f;
-            };
-            return edge_accepts_box(p0, p1) &&
-                   edge_accepts_box(p1, p2) &&
-                   edge_accepts_box(p2, p0);
+        // Analytic O(height) per-row half-space interval clipper for large triangles
+        // (bounding box >= 3x3 tiles). Precomputes linear edge equations in double
+        // precision with a conservative margin matching the legacy SAT test so no
+        // overlapping tile is ever dropped; emitted row spans are recorded once and
+        // replayed directly in Pass 2 without recomputing edge math or reloading vertices.
+        struct EdgeRowClipper {
+            double c_y0;
+            double c_step_y;
+            double inv_tile_dy;
+            int dy_sign;
+
+            [[nodiscard]] static EdgeRowClipper make(float2 a, float2 b) noexcept {
+                constexpr double tile_d = static_cast<double>(compute_tile_size);
+                constexpr double eps = 1e-3;
+                double ax = static_cast<double>(a.x);
+                double ay = static_cast<double>(a.y);
+                double dx = static_cast<double>(b.x) - ax;
+                double dy = static_cast<double>(b.y) - ay;
+                double qy0 = dx > 0.0 ? tile_d : 0.0;
+                double c_y0 = dx * (qy0 - ay) + dy * ax + eps;
+                double c_step_y = dx * tile_d;
+                if (std::abs(dy) <= 1e-12) {
+                    return EdgeRowClipper{c_y0, c_step_y, 0.0, 0};
+                }
+                return EdgeRowClipper{
+                    c_y0,
+                    c_step_y,
+                    1.0 / (tile_d * dy),
+                    dy > 0.0 ? 1 : -1};
+            }
+
+            // Intersect [rtx0, rtx1] with this edge's valid tile-x range for row ty.
+            // Returns false if the clipped interval is empty.
+            [[nodiscard]] bool clip_row(double c_row, int &rtx0, int &rtx1) const noexcept {
+                if (dy_sign > 0) {
+                    double t_max = c_row * inv_tile_dy + 1e-9;
+                    if (t_max < static_cast<double>(rtx0)) { return false; }
+                    if (t_max < static_cast<double>(rtx1)) {
+                        rtx1 = static_cast<int>(t_max);
+                    }
+                } else if (dy_sign < 0) {
+                    double t_min_p1 = c_row * inv_tile_dy - 1e-9;
+                    if (t_min_p1 > static_cast<double>(rtx1 + 1)) { return false; }
+                    if (t_min_p1 > static_cast<double>(rtx0)) {
+                        int min_tx = static_cast<int>(t_min_p1);
+                        if (min_tx > rtx0) { rtx0 = min_tx; }
+                    }
+                } else {
+                    if (c_row < 0.0) { return false; }
+                }
+                return rtx0 <= rtx1;
+            }
         };
 
-        for (auto i = 0u; i < draw_data->CmdLists.Size; i++) {
+        auto is_finite_f32 = [](float x) noexcept {
+            return (std::bit_cast<uint32_t>(x) & 0x7f800000u) != 0x7f800000u;
+        };
+
+        Vertex *vtx_out = _vertices.data();
+        TileTriBounds *bnd_out = _tile_tri_bounds.data();
+        uint *tile_counts = _tile_counts.data();
+        size_t tri_count = 0u;
+
+        for (auto i = 0; i < draw_data->CmdLists.Size; i++) {
             auto cmd_list = draw_data->CmdLists[i];
-            for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
+            const ImDrawIdx *idx_base = cmd_list->IdxBuffer.Data;
+            const ImDrawVert *vtx_base = cmd_list->VtxBuffer.Data;
+            for (auto j = 0; j < cmd_list->CmdBuffer.Size; j++) {
                 auto cmd = &cmd_list->CmdBuffer[j];
                 if (auto callback = cmd->UserCallback) {
                     if (callback != ImDrawCallback_ResetRenderState) {
@@ -1278,107 +1369,153 @@ private:
                     }
                     return static_cast<uint>(t);
                 }();
-                auto make_vertex = [&](float2 p, ImDrawVert v) noexcept {
-                    return Vertex{.px = p.x,
-                                  .py = p.y,
-                                  .pz = 0.f,
-                                  .clip_idx = clip_idx,
-                                  .uv = make_float2(v.uv.x, v.uv.y),
-                                  .packed_color = v.col,
-                                  .tex_id = tex_id};
-                };
-                for (auto t = 0u; t + 2u < cmd->ElemCount; t += 3u) {
-                    auto i0 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 0u] + cmd->VtxOffset;
-                    auto i1 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 1u] + cmd->VtxOffset;
-                    auto i2 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 2u] + cmd->VtxOffset;
-                    auto v0 = cmd_list->VtxBuffer[i0];
-                    auto v1 = cmd_list->VtxBuffer[i1];
-                    auto v2 = cmd_list->VtxBuffer[i2];
+                const ImDrawIdx *cmd_idx = idx_base + cmd->IdxOffset;
+                const ImDrawVert *cmd_vtx = vtx_base + cmd->VtxOffset;
+                const auto elem_count = cmd->ElemCount;
+                for (auto t = 0u; t + 2u < elem_count; t += 3u) {
+                    auto v0 = cmd_vtx[cmd_idx[t + 0u]];
+                    auto v1 = cmd_vtx[cmd_idx[t + 1u]];
+                    auto v2 = cmd_vtx[cmd_idx[t + 2u]];
                     auto p0 = transform(v0.pos);
                     auto p1 = transform(v1.pos);
                     auto p2 = transform(v2.pos);
-                    if (!std::isfinite(p0.x) || !std::isfinite(p0.y) ||
-                        !std::isfinite(p1.x) || !std::isfinite(p1.y) ||
-                        !std::isfinite(p2.x) || !std::isfinite(p2.y)) {
+                    if (!is_finite_f32(p0.x) || !is_finite_f32(p0.y) ||
+                        !is_finite_f32(p1.x) || !is_finite_f32(p1.y) ||
+                        !is_finite_f32(p2.x) || !is_finite_f32(p2.y)) {
                         continue;
                     }
                     auto area = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x);
-                    if (!(std::isfinite(area) && std::abs(area) > 0.f)) { continue; }
+                    auto area_abs_bits = std::bit_cast<uint32_t>(area) & 0x7fffffffu;
+                    if (area_abs_bits == 0u || area_abs_bits >= 0x7f800000u) { continue; }
                     if (area < 0.f) {
                         std::swap(p1, p2);
                         std::swap(v1, v2);
                     }
-                    auto tri_min = min(p0, min(p1, p2));
-                    auto tri_max = max(p0, max(p1, p2));
-                    auto bmin = max(tri_min, clip_min);
-                    auto bmax = min(tri_max, clip_max);
-                    if (any(bmin >= bmax)) { continue; }
-                    auto tx0 = static_cast<uint>(std::floor(bmin.x)) / compute_tile_size;
-                    auto ty0 = static_cast<uint>(std::floor(bmin.y)) / compute_tile_size;
-                    auto px1 = static_cast<uint>(std::max(0.f, std::ceil(bmax.x) - 1.f));
-                    auto py1 = static_cast<uint>(std::max(0.f, std::ceil(bmax.y) - 1.f));
+                    auto bmin_x = std::max(std::min(p0.x, std::min(p1.x, p2.x)), clip_min.x);
+                    auto bmin_y = std::max(std::min(p0.y, std::min(p1.y, p2.y)), clip_min.y);
+                    auto bmax_x = std::min(std::max(p0.x, std::max(p1.x, p2.x)), clip_max.x);
+                    auto bmax_y = std::min(std::max(p0.y, std::max(p1.y, p2.y)), clip_max.y);
+                    if (!(bmin_x < bmax_x && bmin_y < bmax_y)) { continue; }
+                    // bmin >= 0 and bmax > 0 are finite and clamped to fb_size_f, so
+                    // truncation equals floor and avoids UCRT floorf/ceilf calls.
+                    auto tx0 = static_cast<uint>(bmin_x) / compute_tile_size;
+                    auto ty0 = static_cast<uint>(bmin_y) / compute_tile_size;
+                    auto bx1_i = static_cast<uint>(bmax_x);
+                    auto by1_i = static_cast<uint>(bmax_y);
+                    auto px1 = static_cast<float>(bx1_i) < bmax_x ? bx1_i : (bx1_i > 0u ? bx1_i - 1u : 0u);
+                    auto py1 = static_cast<float>(by1_i) < bmax_y ? by1_i : (by1_i > 0u ? by1_i - 1u : 0u);
                     auto tx1 = std::min(tiles_x - 1u, px1 / compute_tile_size);
                     auto ty1 = std::min(tiles_y - 1u, py1 / compute_tile_size);
                     if (tx0 > tx1 || ty0 > ty1) { continue; }
 
-                    _vertices.emplace_back(make_vertex(p0, v0));
-                    _vertices.emplace_back(make_vertex(p1, v1));
-                    _vertices.emplace_back(make_vertex(p2, v2));
-                    _tile_tri_bounds.emplace_back(make_uint4(tx0, ty0, tx1, ty1));
+                    vtx_out[0] = Vertex{.px = p0.x, .py = p0.y, .pz = 0.f, .clip_idx = clip_idx,
+                                        .uv = make_float2(v0.uv.x, v0.uv.y), .packed_color = v0.col, .tex_id = tex_id};
+                    vtx_out[1] = Vertex{.px = p1.x, .py = p1.y, .pz = 0.f, .clip_idx = clip_idx,
+                                        .uv = make_float2(v1.uv.x, v1.uv.y), .packed_color = v1.col, .tex_id = tex_id};
+                    vtx_out[2] = Vertex{.px = p2.x, .py = p2.y, .pz = 0.f, .clip_idx = clip_idx,
+                                        .uv = make_float2(v2.uv.x, v2.uv.y), .packed_color = v2.col, .tex_id = tex_id};
+                    vtx_out += 3;
+                    *bnd_out++ = TileTriBounds{
+                        static_cast<uint16_t>(tx0), static_cast<uint16_t>(ty0),
+                        static_cast<uint16_t>(tx1), static_cast<uint16_t>(ty1)};
+                    tri_count++;
 
-                    auto use_exact_box = (tx1 - tx0) >= 2u && (ty1 - ty0) >= 2u;
-                    for (auto ty = ty0; ty <= ty1; ty++) {
-                        auto y0 = static_cast<float>(ty * compute_tile_size);
-                        auto y1 = y0 + static_cast<float>(compute_tile_size);
-                        auto row = static_cast<size_t>(ty) * tiles_x;
-                        for (auto tx = tx0; tx <= tx1; tx++) {
-                            if (use_exact_box) {
-                                auto x0 = static_cast<float>(tx * compute_tile_size);
-                                auto x1 = x0 + static_cast<float>(compute_tile_size);
-                                if (!tile_overlaps_tri(x0, y0, x1, y1, p0, p1, p2)) { continue; }
+                    if (tx0 == tx1 && ty0 == ty1) {
+                        tile_counts[static_cast<size_t>(ty0) * tiles_x + tx0]++;
+                    } else if ((tx1 - tx0) < 2u || (ty1 - ty0) < 2u) {
+                        for (auto ty = ty0; ty <= ty1; ty++) {
+                            auto *row_counts = tile_counts + static_cast<size_t>(ty) * tiles_x;
+                            for (auto tx = tx0; tx <= tx1; tx++) {
+                                row_counts[tx]++;
                             }
-                            _tile_counts[row + tx]++;
                         }
+                    } else {
+                        auto e0 = EdgeRowClipper::make(p0, p1);
+                        auto e1 = EdgeRowClipper::make(p1, p2);
+                        auto e2 = EdgeRowClipper::make(p2, p0);
+                        auto c0 = e0.c_y0 + static_cast<double>(ty0) * e0.c_step_y;
+                        auto c1 = e1.c_y0 + static_cast<double>(ty0) * e1.c_step_y;
+                        auto c2 = e2.c_y0 + static_cast<double>(ty0) * e2.c_step_y;
+                        for (auto ty = ty0; ty <= ty1; ty++) {
+                            int rtx0 = static_cast<int>(tx0);
+                            int rtx1 = static_cast<int>(tx1);
+                            if (e0.clip_row(c0, rtx0, rtx1) &&
+                                e1.clip_row(c1, rtx0, rtx1) &&
+                                e2.clip_row(c2, rtx0, rtx1)) {
+                                auto start = static_cast<uint32_t>(static_cast<size_t>(ty) * tiles_x + static_cast<uint>(rtx0));
+                                auto count = static_cast<uint32_t>(rtx1 - rtx0 + 1);
+                                _tile_row_spans.emplace_back(TileRowSpan{start, count});
+                                auto *dst = tile_counts + start;
+                                for (uint32_t k = 0u; k < count; k++) {
+                                    dst[k]++;
+                                }
+                            }
+                            c0 += e0.c_step_y;
+                            c1 += e1.c_step_y;
+                            c2 += e2.c_step_y;
+                        }
+                        _large_tri_span_ends.emplace_back(static_cast<uint>(_tile_row_spans.size()));
                     }
                 }
             }
         }
 
-        if (_tile_tri_bounds.empty()) { return; }
+        _vertices.resize(tri_count * 3u);
+        _tile_tri_bounds.resize(tri_count);
+        if (tri_count == 0u) { return; }
 
-        _tile_offsets.resize(num_tiles + 1u);
+        _active_tiles.resize(num_tiles + 1u);
+        _tile_cursors.resize(num_tiles);
         uint total_refs = 0u;
-        for (size_t i = 0u; i < num_tiles; i++) {
-            _tile_offsets[i] = total_refs;
-            total_refs += _tile_counts[i];
-        }
-        _tile_offsets[num_tiles] = total_refs;
-        if (total_refs == 0u) { return; }
-
-        _tile_cursors.assign(_tile_offsets.begin(), _tile_offsets.begin() + static_cast<ptrdiff_t>(num_tiles));
-        _tile_tri_indices.resize(total_refs);
-        auto tri_count = static_cast<uint>(_tile_tri_bounds.size());
-        for (auto tri_idx = 0u; tri_idx < tri_count; tri_idx++) {
-            auto b = _tile_tri_bounds[tri_idx];
-            auto use_exact_box = (b.z - b.x) >= 2u && (b.w - b.y) >= 2u;
-            float2 p0{}, p1{}, p2{};
-            if (use_exact_box) {
-                auto base = static_cast<size_t>(tri_idx) * 3u;
-                p0 = make_float2(_vertices[base + 0u].px, _vertices[base + 0u].py);
-                p1 = make_float2(_vertices[base + 1u].px, _vertices[base + 1u].py);
-                p2 = make_float2(_vertices[base + 2u].px, _vertices[base + 2u].py);
+        uint active_tile_count = 0u;
+        uint2 *active_out = _active_tiles.data();
+        uint *tile_cursors = _tile_cursors.data();
+        for (uint ty = 0u; ty < tiles_y; ty++) {
+            const uint y_bits = ty << 16u;
+            const uint *row_counts = tile_counts + static_cast<size_t>(ty) * tiles_x;
+            uint *row_cursors = tile_cursors + static_cast<size_t>(ty) * tiles_x;
+            for (uint tx = 0u; tx < tiles_x; tx++) {
+                auto cnt = row_counts[tx];
+                if (cnt > 0u) {
+                    active_out[active_tile_count++] = make_uint2(y_bits | tx, total_refs);
+                    row_cursors[tx] = total_refs;
+                    total_refs += cnt;
+                }
             }
-            for (auto ty = b.y; ty <= b.w; ty++) {
-                auto y0 = static_cast<float>(ty * compute_tile_size);
-                auto y1 = y0 + static_cast<float>(compute_tile_size);
-                auto row = static_cast<size_t>(ty) * tiles_x;
-                for (auto tx = b.x; tx <= b.z; tx++) {
-                    if (use_exact_box) {
-                        auto x0 = static_cast<float>(tx * compute_tile_size);
-                        auto x1 = x0 + static_cast<float>(compute_tile_size);
-                        if (!tile_overlaps_tri(x0, y0, x1, y1, p0, p1, p2)) { continue; }
+        }
+        if (active_tile_count == 0u) { return; }
+        active_out[active_tile_count] = make_uint2(0u, total_refs);
+        _active_tiles.resize(static_cast<size_t>(active_tile_count) + 1u);
+
+        _tile_tri_indices.resize(total_refs);
+
+        uint *tile_tri_indices = _tile_tri_indices.data();
+        const TileTriBounds *bounds = _tile_tri_bounds.data();
+        const TileRowSpan *spans = _tile_row_spans.data();
+        const uint *large_ends = _large_tri_span_ends.data();
+        size_t large_idx = 0u;
+        size_t span_cursor = 0u;
+        auto tri_count_u = static_cast<uint>(tri_count);
+        for (auto tri_idx = 0u; tri_idx < tri_count_u; tri_idx++) {
+            auto b = bounds[tri_idx];
+            if (b.tx0 == b.tx1 && b.ty0 == b.ty1) {
+                auto tile_id = static_cast<size_t>(b.ty0) * tiles_x + b.tx0;
+                tile_tri_indices[tile_cursors[tile_id]++] = tri_idx;
+            } else if ((b.tx1 - b.tx0) < 2u || (b.ty1 - b.ty0) < 2u) {
+                for (uint ty = b.ty0; ty <= b.ty1; ty++) {
+                    auto *row_cursors = tile_cursors + static_cast<size_t>(ty) * tiles_x;
+                    for (uint tx = b.tx0; tx <= b.tx1; tx++) {
+                        tile_tri_indices[row_cursors[tx]++] = tri_idx;
                     }
-                    _tile_tri_indices[_tile_cursors[row + tx]++] = tri_idx;
+                }
+            } else {
+                size_t span_end = large_ends[large_idx++];
+                for (; span_cursor < span_end; span_cursor++) {
+                    auto s = spans[span_cursor];
+                    auto *cur = tile_cursors + s.tile_start;
+                    for (uint32_t k = 0u; k < s.count; k++) {
+                        tile_tri_indices[cur[k]++] = tri_idx;
+                    }
                 }
             }
         }
@@ -1386,7 +1523,7 @@ private:
         auto need_sync =
             (_vertex_buffer && _vertex_buffer.size() < _vertices.size()) ||
             (_clip_buffer && _clip_buffer.size() < _clip_rects.size()) ||
-            (_tile_offset_buffer && _tile_offset_buffer.size() < _tile_offsets.size()) ||
+            (_active_tile_buffer && _active_tile_buffer.size() < _active_tiles.size()) ||
             (_tile_tri_index_buffer && _tile_tri_index_buffer.size() < _tile_tri_indices.size());
         if (need_sync) { _stream.synchronize(); }
         if (!_vertex_buffer || _vertex_buffer.size() < _vertices.size()) {
@@ -1395,21 +1532,28 @@ private:
         if (!_clip_buffer || _clip_buffer.size() < _clip_rects.size()) {
             _clip_buffer = _device.create_buffer<float4>(std::max(next_pow2(_clip_rects.size()), static_cast<size_t>(64u)));
         }
-        if (!_tile_offset_buffer || _tile_offset_buffer.size() < _tile_offsets.size()) {
-            _tile_offset_buffer = _device.create_buffer<uint>(std::max(next_pow2(_tile_offsets.size()), static_cast<size_t>(4096u)));
+        if (!_active_tile_buffer || _active_tile_buffer.size() < _active_tiles.size()) {
+            _active_tile_buffer = _device.create_buffer<uint2>(std::max(next_pow2(_active_tiles.size()), static_cast<size_t>(4096u)));
         }
         if (!_tile_tri_index_buffer || _tile_tri_index_buffer.size() < _tile_tri_indices.size()) {
             _tile_tri_index_buffer = _device.create_buffer<uint>(std::max(next_pow2(_tile_tri_indices.size()), 64_k));
         }
 
+        constexpr uint kMaxActiveGridX = 65535u;
+        uint active_grid_y = (active_tile_count + kMaxActiveGridX - 1u) / kMaxActiveGridX;
+        uint active_grid_x = (active_tile_count + active_grid_y - 1u) / active_grid_y;
+        auto active_dispatch = make_uint2(active_grid_x * compute_tile_size,
+                                          active_grid_y * compute_tile_size);
+
         if (_texture_array.dirty()) { _stream << _texture_array.update(); }
         _stream << _vertex_buffer.view(0u, _vertices.size()).copy_from(luisa::span{_vertices.data(), _vertices.size()})
                 << _clip_buffer.view(0u, _clip_rects.size()).copy_from(luisa::span{_clip_rects.data(), _clip_rects.size()})
-                << _tile_offset_buffer.view(0u, _tile_offsets.size()).copy_from(luisa::span{_tile_offsets.data(), _tile_offsets.size()})
+                << _active_tile_buffer.view(0u, _active_tiles.size()).copy_from(luisa::span{_active_tiles.data(), _active_tiles.size()})
                 << _tile_tri_index_buffer.view(0u, _tile_tri_indices.size()).copy_from(luisa::span{_tile_tri_indices.data(), _tile_tri_indices.size()})
-                << _compute_render_shader(fb, tiles_x, _tile_offset_buffer, _tile_tri_index_buffer,
+                << _compute_render_shader(fb, active_tile_count, active_grid_x,
+                                          _active_tile_buffer, _tile_tri_index_buffer,
                                           _vertex_buffer, _texture_array, _clip_buffer)
-                       .dispatch(fb_size);
+                       .dispatch(active_dispatch);
     }
 
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
