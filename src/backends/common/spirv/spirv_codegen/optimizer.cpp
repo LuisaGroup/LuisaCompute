@@ -1,6 +1,7 @@
 #include "optimizer.h"
 
 #include "../../env_flag.h"
+#include "../../spirv_fma_rewrite.h"
 
 #include <cerrno>
 #include <cstdlib>
@@ -600,6 +601,13 @@ SpirvOptimizerReport optimize_spirv(
     // exact bytes that would replace the artifact. Intermediate iterations are
     // not validated, matching DXC.
     auto original = words;
+    // SPIRV-Tools omits "SPV_KHR_fma" from the extension allowlists of
+    // AggressiveDCEPass, LocalAccessChainConvertPass,
+    // LocalSingleBlockLoadStoreElimPass, and LocalSingleStoreElimPass.
+    // Temporarily demote OpFmaKHR -> GLSL.std.450 Fma across spirv-opt so all
+    // optimization passes run, then promote float32 Fma back to OpFmaKHR.
+    const bool demoted_fma_khr =
+        luisa::compute::detail::demote_op_fma_khr_for_spirv_opt(words);
     const auto profile =
         luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     luisa::Clock optimizer_clock;
@@ -614,7 +622,10 @@ SpirvOptimizerReport optimize_spirv(
                 "Vulkan native SPIR-V optimizer iteration {}: {:.3f} ms",
                 report.iterations, optimizer_clock.toc());
         }
-        if (!report.succeeded) { return report; }
+        if (!report.succeeded) {
+            words = std::move(original);
+            return report;
+        }
         report.converged = (optimized == words);
         if (profile) {
             LUISA_INFO(
@@ -627,11 +638,15 @@ SpirvOptimizerReport optimize_spirv(
         words.swap(optimized);
         optimized.clear();
     }
+    if (demoted_fma_khr) {
+        static_cast<void>(
+            luisa::compute::detail::promote_glsl_fma_to_op_fma_khr(optimized));
+    }
     if (profile) {
         LUISA_INFO(
             "Vulkan native SPIR-V optimizer fixed point: {} iteration(s), "
             "converged={}, {} words",
-            report.iterations, report.converged, words.size());
+            report.iterations, report.converged, optimized.size());
     }
 
     optimizer_clock.tic();

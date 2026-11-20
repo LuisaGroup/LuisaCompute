@@ -65,6 +65,18 @@ namespace {
     }
 }
 
+[[nodiscard]] bool is_emulated_i8(Type const *t) noexcept {
+    if (t == nullptr) { return false; }
+    auto elem = t->is_vector() ? t->element() : t;
+    return elem != nullptr && elem->is_int8();
+}
+
+[[nodiscard]] bool is_emulated_u8(Type const *t) noexcept {
+    if (t == nullptr) { return false; }
+    auto elem = t->is_vector() ? t->element() : t;
+    return elem != nullptr && elem->is_uint8();
+}
+
 }// namespace
 
 void StringStateVisitor::visit(const UnaryExpr *expr) {
@@ -80,6 +92,14 @@ void StringStateVisitor::visit(const UnaryExpr *expr) {
             return;
         }
     }
+    const bool wrap_i8 = util->opt->emulate_8bit &&
+                         is_emulated_i8(expr->type()) &&
+                         (expr->op() == UnaryOp::MINUS || expr->op() == UnaryOp::BIT_NOT);
+    const bool wrap_u8 = util->opt->emulate_8bit &&
+                         is_emulated_u8(expr->type()) &&
+                         (expr->op() == UnaryOp::MINUS || expr->op() == UnaryOp::BIT_NOT);
+    if (wrap_i8) { str << "_lc_wrap_i8("sv; }
+    else if (wrap_u8) { str << "_lc_wrap_u8("sv; }
     str << "(";
     switch (expr->op()) {
         case UnaryOp::PLUS://+x
@@ -97,6 +117,7 @@ void StringStateVisitor::visit(const UnaryExpr *expr) {
     }
     expr->operand()->accept(*this);
     str << ")";
+    if (wrap_i8 || wrap_u8) { str << ')'; }
 }
 void StringStateVisitor::visit(const BinaryExpr *expr) {
     literalBrace = true;
@@ -175,6 +196,12 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
             str << ")";
         }
     } else {
+        const bool wrap_op = op == BinaryOp::ADD || op == BinaryOp::SUB ||
+                             op == BinaryOp::MUL || op == BinaryOp::SHL;
+        const bool wrap_i8 = util->opt->emulate_8bit && wrap_op && is_emulated_i8(expr->type());
+        const bool wrap_u8 = util->opt->emulate_8bit && wrap_op && is_emulated_u8(expr->type());
+        if (wrap_i8) { str << "_lc_wrap_i8("sv; }
+        else if (wrap_u8) { str << "_lc_wrap_u8("sv; }
         str << "(";
         expr->lhs()->accept(*this);
         switch (op) {
@@ -240,6 +267,7 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         }
         expr->rhs()->accept(*this);
         str << ")";
+        if (wrap_i8 || wrap_u8) { str << ')'; }
     }
 }
 void StringStateVisitor::visit(const MemberExpr *expr) {
@@ -368,6 +396,16 @@ void StringStateVisitor::visit(const LiteralExpr *expr) {
                           std::is_same_v<T, bfloat163> ||
                           std::is_same_v<T, bfloat164>) {
                 prt(value, str, util->opt->bf16_fallback);
+            } else if constexpr (std::is_same_v<T, luisa::byte> ||
+                                 std::is_same_v<T, luisa::ubyte>) {
+                prt(value, str, util->opt->emulate_8bit);
+            } else if constexpr (std::is_same_v<T, byte2> ||
+                                 std::is_same_v<T, byte3> ||
+                                 std::is_same_v<T, byte4> ||
+                                 std::is_same_v<T, ubyte2> ||
+                                 std::is_same_v<T, ubyte3> ||
+                                 std::is_same_v<T, ubyte4>) {
+                prt(value, str, false, util->opt->emulate_8bit);
             } else {
                 prt(value, str);
             }
@@ -471,55 +509,189 @@ void StringStateVisitor::visit(const CastExpr *expr) {
     }
     str << "(";
     switch (expr->op()) {
-        case CastOp::STATIC:
+        case CastOp::STATIC: {
+            const bool wrap_i8 = util->opt->emulate_8bit && is_emulated_i8(expr->type());
+            const bool wrap_u8 = util->opt->emulate_8bit && is_emulated_u8(expr->type());
+            if (wrap_i8) { str << "_lc_wrap_i8("sv; }
+            else if (wrap_u8) { str << "_lc_wrap_u8("sv; }
             str << '(';
             util->GetTypeName(*expr->type(), str, Usage::READ);
-            str << ')';
+            str << ")("sv;
             expr->expression()->accept(*this);
-            break;
+            str << ')';
+            if (wrap_i8 || wrap_u8) { str << ')'; }
+        } break;
         case CastOp::BITWISE: {
-            auto type = expr->type();
+            auto dst_type = expr->type();
+            auto type = dst_type;
             while (type->is_vector()) {
                 type = type->element();
             }
             auto arg_type = expr->expression()->type();
-            auto bit_cast_vec_to_int = [&]() {
-                if (arg_type->dimension() == 2 && arg_type->element()->size() == 2) {
-                    str << "Vec2AsInt<"sv;
-                    util->GetTypeName(*arg_type, str, Usage::READ, true);
-                    str << ',';
-                    util->GetTypeName(*expr->type(), str, Usage::READ, true);
-                    str << '>';
-                } else if (arg_type->dimension() == 4 && arg_type->element()->is_bool()) {
-                    str << "Bool4AsInt<"sv;
-                    util->GetTypeName(*expr->type(), str, Usage::READ, true);
-                    str << '>';
+            // Vector to scalar
+            if (dst_type->dimension() < arg_type->dimension()) {
+                LUISA_ASSERT(dst_type->is_scalar(), "Only support vector to scalar");
+                auto elem = arg_type->element();
+                const auto dim = arg_type->dimension();
+                const auto elem_size = elem->size();
+                // Wrap unsigned bit pattern to final scalar destination type.
+                auto emit_scalar_from_bits = [&](size_t bit_bytes, auto &&emit_bits) {
+                    if (bit_bytes == 2u) {
+                        if (dst_type->is_float16()) {
+                            str << "asfloat16("sv;
+                            emit_bits();
+                            str << ')';
+                        } else if (dst_type->is_int16()) {
+                            str << "(int16_t)("sv;
+                            emit_bits();
+                            str << ')';
+                        } else {
+                            emit_bits();
+                        }
+                    } else if (bit_bytes == 4u) {
+                        if (dst_type->is_float32()) {
+                            str << "asfloat("sv;
+                            emit_bits();
+                            str << ')';
+                        } else if (dst_type->is_int32()) {
+                            str << "asint("sv;
+                            emit_bits();
+                            str << ')';
+                        } else {
+                            emit_bits();
+                        }
+                    } else {
+                        if (dst_type->is_float64()) {
+                            str << "_lc_bitcast_u64_f64("sv;
+                            emit_bits();
+                            str << ')';
+                        } else if (dst_type->is_int64()) {
+                            str << "(int64_t)("sv;
+                            emit_bits();
+                            str << ')';
+                        } else {
+                            emit_bits();
+                        }
+                    }
+                };
+                if (dim == 2u && elem_size == 1u) {
+                    emit_scalar_from_bits(2u, [&]() {
+                        str << (elem->is_bool() ? "_lc_bitcast_bool2_u16("sv : "_lc_bitcast_b8x2_u16("sv);
+                        expr->expression()->accept(*this);
+                        str << ')';
+                    });
+                } else if (dim == 4u && elem_size == 1u) {
+                    emit_scalar_from_bits(4u, [&]() {
+                        str << (elem->is_bool() ? "Bool4AsInt<uint>("sv : "_lc_bitcast_b8x4_u32("sv);
+                        expr->expression()->accept(*this);
+                        str << ')';
+                    });
+                } else if (dim == 2u && elem_size == 2u) {
+                    emit_scalar_from_bits(4u, [&]() {
+                        str << (elem->is_float16() ? "_lc_bitcast_f16x2_u32("sv : "_lc_bitcast_i16x2_u32("sv);
+                        expr->expression()->accept(*this);
+                        str << ')';
+                    });
+                } else if (dim == 2u && elem_size == 4u) {
+                    emit_scalar_from_bits(8u, [&]() {
+                        str << "_lc_bitcast_u32x2_u64<uint64_t>("sv;
+                        expr->expression()->accept(*this);
+                        str << ')';
+                    });
+                } else if (dim == 4u && elem_size == 2u) {
+                    emit_scalar_from_bits(8u, [&]() {
+                        str << (elem->is_float16() ? "_lc_bitcast_f16x4_u64<uint64_t>("sv : "_lc_bitcast_i16x4_u64<uint64_t>("sv);
+                        expr->expression()->accept(*this);
+                        str << ')';
+                    });
                 } else {
-                    LUISA_ERROR("Vector to int unsupported.");
+                    LUISA_ERROR("Vector to scalar bitwise cast unsupported: {} -> {}.",
+                                arg_type->description(), dst_type->description());
                 }
-            };
-            auto bit_cast_int_to_vec = [&]() {
-                if (expr->type()->dimension() == 2 && expr->type()->element()->size() == 2) {
-                    str << "IntAsVec2<"sv;
-                    util->GetTypeName(*arg_type, str, Usage::READ, true);
-                    str << ',';
-                    util->GetTypeName(*expr->type(), str, Usage::READ, true);
-                    str << '>';
-                } else if (expr->type()->dimension() == 4 && expr->type()->element()->is_bool()) {
-                    str << "IntAsBool4"sv;
-                } else {
-                    LUISA_ERROR("Int to vector unsupported.");
-                }
-            };
-            // Vector to int
-            if (expr->type()->dimension() < arg_type->dimension()) {
-                LUISA_ASSERT(expr->type()->is_int() || expr->type()->is_uint(), "Only support vector to scalar");
-                bit_cast_vec_to_int();
             }
-            // Int to vector
-            else if (expr->type()->dimension() > arg_type->dimension()) {
-                LUISA_ASSERT(arg_type->is_int() || arg_type->is_uint(), "Only support vector to scalar");
-                bit_cast_int_to_vec();
+            // Scalar to vector
+            else if (dst_type->dimension() > arg_type->dimension()) {
+                LUISA_ASSERT(arg_type->is_scalar(), "Only support scalar to vector");
+                auto elem = dst_type->element();
+                const auto dim = dst_type->dimension();
+                const auto elem_size = elem->size();
+                auto emit_src_bits = [&](size_t bit_bytes) {
+                    if (bit_bytes == 2u) {
+                        if (arg_type->is_float16()) {
+                            str << "asuint16("sv;
+                            expr->expression()->accept(*this);
+                            str << ')';
+                        } else {
+                            str << "(uint16_t)("sv;
+                            expr->expression()->accept(*this);
+                            str << ')';
+                        }
+                    } else if (bit_bytes == 4u) {
+                        str << "asuint("sv;
+                        expr->expression()->accept(*this);
+                        str << ')';
+                    } else {
+                        if (arg_type->is_float64()) {
+                            str << "_lc_bitcast_f64_u64("sv;
+                            expr->expression()->accept(*this);
+                            str << ')';
+                        } else {
+                            str << "(uint64_t)("sv;
+                            expr->expression()->accept(*this);
+                            str << ')';
+                        }
+                    }
+                };
+                if (dim == 2u && elem_size == 1u) {
+                    if (elem->is_bool()) {
+                        str << "_lc_bitcast_u16_bool2("sv;
+                    } else {
+                        str << (elem->is_int8() ? "_lc_bitcast_u16_i8x2<"sv : "_lc_bitcast_u16_u8x2<"sv);
+                        util->GetTypeName(*dst_type, str, Usage::READ, true);
+                        str << ">("sv;
+                    }
+                    emit_src_bits(2u);
+                    str << ')';
+                } else if (dim == 4u && elem_size == 1u) {
+                    if (elem->is_bool()) {
+                        str << "IntAsBool4("sv;
+                    } else {
+                        str << (elem->is_int8() ? "_lc_bitcast_u32_i8x4<"sv : "_lc_bitcast_u32_u8x4<"sv);
+                        util->GetTypeName(*dst_type, str, Usage::READ, true);
+                        str << ">("sv;
+                    }
+                    emit_src_bits(4u);
+                    str << ')';
+                } else if (dim == 2u && elem_size == 2u) {
+                    str << (elem->is_float16() ? "_lc_bitcast_u32_f16x2<"sv : "_lc_bitcast_u32_i16x2<"sv);
+                    util->GetTypeName(*dst_type, str, Usage::READ, true);
+                    str << ">("sv;
+                    emit_src_bits(4u);
+                    str << ')';
+                } else if (dim == 2u && elem_size == 4u) {
+                    if (elem->is_float32()) {
+                        str << "asfloat(_lc_bitcast_u64_u32x2("sv;
+                        emit_src_bits(8u);
+                        str << "))"sv;
+                    } else if (elem->is_int32()) {
+                        str << "asint(_lc_bitcast_u64_u32x2("sv;
+                        emit_src_bits(8u);
+                        str << "))"sv;
+                    } else {
+                        str << "_lc_bitcast_u64_u32x2("sv;
+                        emit_src_bits(8u);
+                        str << ')';
+                    }
+                } else if (dim == 4u && elem_size == 2u) {
+                    str << (elem->is_float16() ? "_lc_bitcast_u64_f16x4<"sv : "_lc_bitcast_u64_i16x4<"sv);
+                    util->GetTypeName(*dst_type, str, Usage::READ, true);
+                    str << ">("sv;
+                    emit_src_bits(8u);
+                    str << ')';
+                } else {
+                    LUISA_ERROR("Scalar to vector bitwise cast unsupported: {} -> {}.",
+                                arg_type->description(), dst_type->description());
+                }
             } else {
                 switch (type->tag()) {
                     case Type::Tag::FLOAT16:
@@ -543,10 +715,10 @@ void StringStateVisitor::visit(const CastExpr *expr) {
                             "Bitwise cast not implemented for type '{}'.",
                             type->description());
                 }
+                str << '(';
+                expr->expression()->accept(*this);
+                str << ')';
             }
-            str << '(';
-            expr->expression()->accept(*this);
-            str << ')';
         } break;
     }
     str << ")";

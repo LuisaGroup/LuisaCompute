@@ -50,6 +50,7 @@ void CodegenStackData::Clear() {
     useBufferBindless = false;
     enable_fast_math = false;
     use_8bit = false;
+    emulate_8bit = false;
     pixelUseBarycentric = false;
     pixelUseFrontFacing = false;
     internalStruct.clear();
@@ -86,7 +87,7 @@ StructPacking const &CodegenStackData::GetStructPacking(Type const *t) {
             // `vstd::make_unique` allocates through vengine, which is what the
             // vstd deleter frees with.
             return vstd::make_unique<StructPacking>(
-                plan_struct_packing(t, bf16_fallback));
+                plan_struct_packing(t, bf16_fallback, emulate_8bit));
         }));
     return *ite.first.value();
 }

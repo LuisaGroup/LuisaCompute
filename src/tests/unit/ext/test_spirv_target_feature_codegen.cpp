@@ -1799,6 +1799,32 @@ int main(int argc, char *argv[]) {
         expect(eq(extended.required_features, 0u));
     };
 
+    "spirv_shader_fma_preserves_spirv_opt_dce_and_load_store_elim"_test = [] {
+        // Regression: vendored SPIRV-Tools omits "SPV_KHR_fma" from the
+        // allowlists of AggressiveDCEPass, LocalAccessChainConvertPass,
+        // LocalSingleBlockLoadStoreElimPass, and LocalSingleStoreElimPass.
+        // Demoting OpFmaKHR -> GLSL.std.450 Fma around spirv-opt and promoting
+        // back afterwards keeps optimization active while still emitting OpFmaKHR.
+        Kernel1D kernel = [](BufferFloat x, BufferFloat y, BufferFloat z,
+                             BufferFloat out) noexcept {
+            auto i = dispatch_x();
+            Float dead_local = x.read(i) * 17.0f + 3.0f;
+            dead_local = dead_local + y.read(i);
+            Float live_local = fma(x.read(i), y.read(i), z.read(i));
+            out.write(i, live_local);
+        };
+        lc::spirv::SpirvTargetFeatures features{};
+        features.shader_fma_float32 = true;
+        auto fused = compile_spirv_fixture(kernel, features);
+        expect(contains(fused.text, "OpFmaKHR"));
+        expect(contains(fused.text, "OpCapability FMAKHR"));
+        expect(contains(fused.text, "OpExtension \"SPV_KHR_fma\""));
+        expect(!contains(fused.text, "%float_17"))
+            << "AggressiveDCEPass must still eliminate dead computations when SPV_KHR_fma is enabled";
+        expect(!contains(fused.text, "OpVariable %_ptr_Function_float Function"))
+            << "LocalSingleStoreElimPass must still eliminate dead/single-store function locals with SPV_KHR_fma";
+    };
+
     "spirv_dot2add_fused_valve_path_is_exact"_test = [] {
         // Isolate emission: the capability-owned VALVE requirement must be
         // recorded even though the trim-capabilities allowlist deliberately

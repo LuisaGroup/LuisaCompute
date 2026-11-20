@@ -6,6 +6,7 @@
 #include "../constant_printer.h"
 #include "../register_indexer.h"
 
+#include <algorithm>
 #include <luisa/dsl/raster/raster_interpolation.h>
 
 #ifndef LC_NO_HLSL_BUILTIN
@@ -223,11 +224,12 @@ bool IsCBuffer(Variable::Tag t);
 }// namespace detail
 
 // Main compute kernel codegen
-CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities) {
+CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities, bool emulate_8bit) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
     opt->bf16_fallback = bf16_fallback;
+    opt->emulate_8bit = emulate_8bit && !isSpirV;
     opt->spirv_capabilities = spirv_capabilities;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
@@ -380,12 +382,6 @@ uint4 v;
         varData << CodegenUtility::ReadInternalHLSLFile("fallback_rtx_header");
     }
     finalResult << varData << incrementalFunc << codegenData;
-    if (!isSpirV) {
-        // https://learn.microsoft.com/en-us/windows/win32/direct3d12/root-signature-limits
-        if (bind_count >= 64) [[unlikely]] {
-            LUISA_ERROR("Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device. Try to use bindless instead.", bind_count);
-        }
-    }
     return {
         std::move(finalResult),
         std::move(opt->printer),
@@ -401,11 +397,12 @@ uint4 v;
 
 // Ray tracing pipeline codegen for motion blur
 // Generates a lib_6_5 HLSL with raygen/miss/closesthit entry points
-CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities) {
+CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities, bool emulate_8bit) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
     opt->bf16_fallback = bf16_fallback;
+    opt->emulate_8bit = emulate_8bit && !isSpirV;
     opt->spirv_capabilities = spirv_capabilities;
     opt->noRegister = noRegister;
     opt->isRayTracing = true;
@@ -505,11 +502,13 @@ CodegenResult CodegenUtility::RasterCodegen(
     bool enable_fast_math,
     bool fallback_rtx,
     bool bf16_fallback,
-    SpirvShaderCapabilities spirv_capabilities) {
+    SpirvShaderCapabilities spirv_capabilities,
+    bool emulate_8bit) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
     opt->bf16_fallback = bf16_fallback;
+    opt->emulate_8bit = emulate_8bit && !isSpirV;
     opt->spirv_capabilities = spirv_capabilities;
     opt->enable_debug_info = enable_debug_info;
     opt->enable_fast_math = enable_fast_math;
@@ -891,8 +890,19 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
         result << "}\n"sv;
     };
     vstd::unordered_set<uint64_t> callableMap;
+    auto sorted_callables = [](Function func) {
+        vstd::vector<luisa::shared_ptr<const luisa::compute::detail::FunctionBuilder>> ordered;
+        ordered.reserve(func.custom_callables().size());
+        for (auto &&c : func.custom_callables()) {
+            ordered.emplace_back(c);
+        }
+        std::sort(ordered.begin(), ordered.end(), [](auto const &lhs, auto const &rhs) noexcept {
+            return lhs->hash() < rhs->hash();
+        });
+        return ordered;
+    };
     auto callable = [&](auto &&callable, Function func) -> void {
-        for (auto &&i : func.custom_callables()) {
+        for (auto &&i : sorted_callables(func)) {
             if (callableMap.emplace(i->hash()).second) {
                 callable(callable, i->function());
             }
@@ -902,7 +912,7 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
     if (codegen_self)
         callable(callable, func);
     else {
-        for (auto &&i : func.custom_callables()) {
+        for (auto &&i : sorted_callables(func)) {
             if (callableMap.emplace(i->hash()).second) {
                 callable(callable, i->function());
             }

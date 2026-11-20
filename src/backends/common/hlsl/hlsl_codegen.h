@@ -63,9 +63,13 @@ struct PackedStructMember {
         I16,
         U16,
         BF16,// software BF16 (its storage is already a raw 16-bit pattern)
-        BOOL
+        BOOL,
+        I8,
+        U8
     };
-    /// Index of the emitted `uint v<word_index>` that holds the word.
+    /// Field index of the emitted `uint v<word_index>` that holds the word
+    /// (always equal to the AST member index of the word's first member so
+    /// non-packed members after a packed word keep their AST `v<i>` names).
     uint word_index;
     /// Byte offset of the member inside that word.
     uint byte_offset;
@@ -77,7 +81,8 @@ struct StructPacking {
     struct Word {
         /// Byte offset of the word inside the struct.
         size_t byte_offset;
-        /// Emitted member index of the `uint` that holds the word.
+        /// Field index of the `uint v<word_index>` that holds the word (AST
+        /// index of `members.front()`).
         uint word_index;
         /// AST member indices that live in this word, in declaration order.
         vstd::vector<uint> members;
@@ -97,6 +102,8 @@ struct StructPacking {
         case PackedStructMember::Kind::U16: return "u16";
         case PackedStructMember::Kind::BF16: return "bf16";
         case PackedStructMember::Kind::BOOL: return "bool";
+        case PackedStructMember::Kind::I8: return "i8";
+        case PackedStructMember::Kind::U8: return "u8";
     }
     return "u16";
 }
@@ -104,9 +111,11 @@ struct StructPacking {
 /// Layout of `structType`: the words that must be packed, and the member mapping
 /// used when reading or writing a member of such a word.  `bf16_fallback` selects
 /// how a BF16 member is stored (raw 16-bit pattern versus the native type, which
-/// cannot be packed).
+/// cannot be packed); `emulate_8bit` packs 8-bit integer members into 32-bit
+/// words when SM 6.9 native 8-bit types are unavailable.
 [[nodiscard]] StructPacking plan_struct_packing(Type const *structType,
-                                                bool bf16_fallback);
+                                                bool bf16_fallback,
+                                                bool emulate_8bit = false);
 
 /// Optional shader-capability extensions of the SPIR-V target, as negotiated by
 /// the host (see src/backends/vk/vk_shader_capabilities.h).
@@ -232,8 +241,8 @@ public:
     // `spirv_capabilities` names the optional shader-capability extensions the
     // SPIR-V target device negotiated (see `SpirvShaderCapabilities`); it is inert
     // unless `isSpirV` is set and every flag defaults to off.
-    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {});
-    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {});
+    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {}, bool emulate_8bit = false);
+    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {}, bool emulate_8bit = false);
     CodegenResult RasterCodegen(
         Function vertFunc,
         Function pixelFunc,
@@ -245,7 +254,8 @@ public:
         bool enable_fast_math = false,
         bool fallback_rtx = false,
         bool bf16_fallback = false,
-        SpirvShaderCapabilities spirv_capabilities = {});
+        SpirvShaderCapabilities spirv_capabilities = {},
+        bool emulate_8bit = false);
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
     /// Fails closed when an atomic access chain targets a member of a packed
     /// struct word: such a member is a slice of a `uint`, so it has no address.
@@ -467,24 +477,38 @@ struct PrintValue<bool> {
 };
 template<>
 struct PrintValue<luisa::byte> {
-    void operator()(luisa::byte const &v, vstd::StringBuilder &str) {
-        str.append(luisa::format("int8_t({})", static_cast<int>(v)));
+    void operator()(luisa::byte const &v, vstd::StringBuilder &str,
+                    bool emulate_8bit = false) {
+        if (emulate_8bit) {
+            str.append(luisa::format("int({})", static_cast<int>(v)));
+        } else {
+            str.append(luisa::format("int8_t({})", static_cast<int>(v)));
+        }
     }
 };
 template<>
 struct PrintValue<luisa::ubyte> {
-    void operator()(luisa::ubyte const &v, vstd::StringBuilder &str) {
-        str.append(luisa::format("uint8_t({}u)", static_cast<uint>(v)));
+    void operator()(luisa::ubyte const &v, vstd::StringBuilder &str,
+                    bool emulate_8bit = false) {
+        if (emulate_8bit) {
+            str.append(luisa::format("uint({}u)", static_cast<uint>(v)));
+        } else {
+            str.append(luisa::format("uint8_t({}u)", static_cast<uint>(v)));
+        }
     }
 };
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
     void print_elem(T const &v, vstd::StringBuilder &varName,
-                    bool bf16_fallback = false) {
+                    bool bf16_fallback = false,
+                    bool emulate_8bit = false) {
         for (uint64 i = 0; i < N; ++i) {
             if constexpr (std::is_same_v<EleType, bfloat16>) {
                 PrintValue<EleType>{}(v[i], varName, bf16_fallback);
+            } else if constexpr (std::is_same_v<EleType, luisa::byte> ||
+                                 std::is_same_v<EleType, luisa::ubyte>) {
+                PrintValue<EleType>{}(v[i], varName, emulate_8bit);
             } else {
                 PrintValue<EleType>{}(v[i], varName);
             }
@@ -495,7 +519,8 @@ struct PrintValue<Vector<EleType, N>> {
             varName.erase(last);
     }
     void operator()(T const &v, vstd::StringBuilder &varName,
-                    bool bf16_fallback = false) {
+                    bool bf16_fallback = false,
+                    bool emulate_8bit = false) {
         if constexpr (N > 1) {
             if constexpr (std::is_same_v<EleType, float>) {
                 varName << "float";
@@ -512,9 +537,9 @@ struct PrintValue<Vector<EleType, N>> {
             } else if constexpr (std::is_same_v<EleType, double>) {
                 varName << "float64_t";
             } else if constexpr (std::is_same_v<EleType, luisa::byte>) {
-                varName << "int8_t";
+                varName << (emulate_8bit ? "int"sv : "int8_t"sv);
             } else if constexpr (std::is_same_v<EleType, luisa::ubyte>) {
-                varName << "uint8_t";
+                varName << (emulate_8bit ? "uint"sv : "uint8_t"sv);
             } else if constexpr (std::is_same_v<EleType, short>) {
                 varName << "int16_t";
             } else if constexpr (std::is_same_v<EleType, ushort>) {
@@ -529,10 +554,10 @@ struct PrintValue<Vector<EleType, N>> {
             }
             vstd::to_string(N, varName);
             varName << '(';
-            print_elem(v, varName, bf16_fallback);
+            print_elem(v, varName, bf16_fallback, emulate_8bit);
             varName << ')';
         } else {
-            print_elem(v, varName, bf16_fallback);
+            print_elem(v, varName, bf16_fallback, emulate_8bit);
         }
     }
 };

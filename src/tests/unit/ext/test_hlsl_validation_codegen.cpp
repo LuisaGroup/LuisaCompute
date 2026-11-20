@@ -407,7 +407,11 @@ int main(int argc, char *argv[]) {
             integer_kernel.function()->function(), {}, 0u,
             true, false, false);
         auto integer_program = integer_spirv.result.view();
-        expect(contains(integer_program, "InterlockedAdd("));
+        // SPIR-V integer atomics emit inline `_lc_spv_atomic_*` intrinsics so
+        // DXC never passes `RWStructuredBuffer<T>` through a helper parameter
+        // (which triggers invalid function-scope storage-buffer pointers in
+        // Logical-addressing SPIR-V).
+        expect(contains(integer_program, "_lc_spv_atomic_iadd("));
         auto dxc = compile_and_inspect_dxc_spirv(
             integer_program,
             luisa::filesystem::path{argv[0]}.parent_path());

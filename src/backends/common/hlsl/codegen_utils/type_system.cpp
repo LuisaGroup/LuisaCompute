@@ -55,12 +55,20 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << "float64_t"sv;
             return;
         case Type::Tag::INT8:
-            opt->use_8bit = true;
-            str << "int8_t"sv;
+            if (opt->emulate_8bit) {
+                str << "int"sv;
+            } else {
+                opt->use_8bit = true;
+                str << "int8_t"sv;
+            }
             return;
         case Type::Tag::UINT8:
-            opt->use_8bit = true;
-            str << "uint8_t"sv;
+            if (opt->emulate_8bit) {
+                str << "uint"sv;
+            } else {
+                opt->use_8bit = true;
+                str << "uint8_t"sv;
+            }
             return;
         case Type::Tag::INT16:
             str << "int16_t"sv;
@@ -127,6 +135,14 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             auto ele = type.element();
             // StructuredBuffer
             if (ele != nullptr) {
+                if (opt->emulate_8bit &&
+                    (ele->is_int8() || ele->is_uint8() || ele->is_bool())) {
+                    // 1-byte element buffers cannot use StructuredBuffer<uint8_t>
+                    // before SM 6.9; address them via ByteAddressBuffer with
+                    // byte-offset extraction / CAS RMW helpers.
+                    str << "ByteAddressBuffer"sv;
+                    break;
+                }
                 bool aliasStruct = TypeIsAliased(ele);
                 str << "StructuredBuffer<"sv;
                 if (ele->is_matrix()) {
@@ -266,6 +282,12 @@ void CodegenUtility::OriginToAliased(luisa::compute::Type const *t, vstd::String
     } else {
         auto members = t->members();
         for (size_t i : vstd::range(members.size())) {
+            if (auto packed = GetPackedStructMember(t, static_cast<uint>(i))) {
+                if (packed->word_index == static_cast<uint>(i)) {
+                    str << luisa::format("r.v{}=a.v{};\n", packed->word_index, packed->word_index);
+                }
+                continue;
+            }
             auto m = members[i];
             if (TypeIsAliased(m)) {
                 str << luisa::format("r.v{}=", i);
@@ -321,6 +343,12 @@ void CodegenUtility::AliasedToOrigin(luisa::compute::Type const *t, vstd::String
     } else {
         auto members = t->members();
         for (size_t i : vstd::range(members.size())) {
+            if (auto packed = GetPackedStructMember(t, static_cast<uint>(i))) {
+                if (packed->word_index == static_cast<uint>(i)) {
+                    str << luisa::format("r.v{}=a.v{};\n", packed->word_index, packed->word_index);
+                }
+                continue;
+            }
             auto m = members[i];
             if (TypeIsAliased(m)) {
                 str << luisa::format("r.v{}=", i);

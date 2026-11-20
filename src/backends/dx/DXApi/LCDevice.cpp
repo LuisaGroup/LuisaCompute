@@ -411,12 +411,18 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     }
     // use default control flow
     constexpr uint compiler_version = 202403u;// dxc version at march 2024
+    const bool emulate_8bit =
+        !option.compile_only &&
+        !native_device.feature_check.shader_model_6_9_supported();
     mask |= (1 << 2);
     mask |= compiler_version << 3u;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx, kEmulateBfloat16);
+    if (emulate_8bit) {
+        mask |= (1u << 24u);
+    }
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx, kEmulateBfloat16, {}, emulate_8bit);
     // TODO get result from codegen
     auto choose_shader_model = [&]() -> uint {
-        if (kernel.use_cooperative_operations() || code.use_8bit) {
+        if (kernel.use_cooperative_operations() || (code.use_8bit && !emulate_8bit)) {
             // Cooperative-vector kernels are always compiled to SM 6.9 because
             // the long-vector types they use require it.  When the runtime does
             // not actually support the feature, the device-level feature check

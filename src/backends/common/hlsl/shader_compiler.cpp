@@ -1,4 +1,5 @@
 #include "shader_compiler.h"
+#include "../spirv_fma_rewrite.h"
 #include <atomic>
 #include <fstream>
 #include <luisa/core/dynamic_module.h>
@@ -189,16 +190,13 @@ CompileResult ShaderCompiler::compile(
     }
 }
 template<typename Vec>
-static void AddCompileFlags(Vec &args, bool debug, bool spirv) {
+static void AddCompileFlags(Vec &args, bool debug, bool /*spirv*/) {
     vstd::push_back_all(
         args,
         {DXC_ARG_ALL_RESOURCES_BOUND,
          L"-enable-16bit-types",
          DXC_ARG_PACK_MATRIX_ROW_MAJOR,
          L"-HV 2021"});
-    if (!spirv) {
-        args.emplace_back(DXC_ARG_AVOID_FLOW_CONTROL);
-    }
     if (debug) {
         args.emplace_back(DXC_ARG_DEBUG);
     } else {
@@ -231,47 +229,68 @@ static void AddCompileFlags(Vec &args, bool debug, bool spirv) {
 // allow-list preservation as the extension-named capabilities.
 template<typename Vec>
 static void AddSpirvCapabilityFlags(Vec &args, SpirvShaderCapabilities capabilities) {
-    if (!capabilities.fma && !capabilities.abort &&
+    // Do NOT pass -fspv-extension=SPV_KHR_fma or the blanket -fspv-extension=KHR
+    // (which includes SPV_KHR_fma): DXC's bundled SPIRV-Tools omits "SPV_KHR_fma"
+    // from the extension allowlists of AggressiveDCEPass, LocalAccessChainConvertPass,
+    // LocalSingleBlockLoadStoreElimPass, and LocalSingleStoreElimPass, causing all
+    // four legalization/optimization passes to silently no-op and leaving invalid
+    // storage-buffer function variables alive. Instead, DXC lowers `mad()` to core
+    // GLSL.std.450 Fma so spirv-opt legalizes and optimizes fully, and
+    // promote_glsl_fma_to_op_fma_khr upgrades float32 Fma to OpFmaKHR afterwards.
+    if (!capabilities.abort &&
         !capabilities.cluster_acceleration_structure &&
         !capabilities.maintenance9_bitwise &&
         !capabilities.mixed_float_dot_product &&
         !capabilities.split_barrier) {
-        return;// no allow-list at all, so dxc keeps its default set
+        return;// no allow-list at all, so dxc keeps its default set (minus SPV_KHR_fma)
     }
-    args.emplace_back(L"-fspv-extension=KHR");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_8bit_storage");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_16bit_storage");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_device_group");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_fragment_shading_rate");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_non_semantic_info");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_multiview");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_shader_draw_parameters");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_post_depth_coverage");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_ray_tracing");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_shader_clock");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_ray_query");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_physical_storage_buffer");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_vulkan_memory_model");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_compute_shader_derivatives");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_fragment_shader_barycentric");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_maximal_reconvergence");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_float_controls");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_quad_control");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_workgroup_memory_explicit_layout");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_bfloat16");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_opacity_micromap");
+    args.emplace_back(L"-fspv-extension=SPV_KHR_constant_data");
     args.emplace_back(L"-fspv-extension=SPV_EXT_descriptor_indexing");
-    if (capabilities.fma) {
-        args.emplace_back(L"-fspv-extension=SPV_KHR_fma");
-    }
+    args.emplace_back(L"-fspv-extension=SPV_EXT_shader_atomic_float_add");
+    args.emplace_back(L"-fspv-extension=SPV_EXT_shader_atomic_float_min_max");
+    args.emplace_back(L"-fspv-extension=SPV_EXT_demote_to_helper_invocation");
+    args.emplace_back(L"-fspv-extension=SPV_EXT_shader_image_int64");
+    args.emplace_back(L"-fspv-extension=SPV_EXT_long_vector");
+    args.emplace_back(L"-fspv-extension=SPV_EXT_float8");
+    args.emplace_back(L"-fspv-extension=SPV_NV_cooperative_vector");
+    args.emplace_back(L"-fspv-extension=SPV_NV_ray_tracing_motion_blur");
+    args.emplace_back(L"-fspv-extension=SPV_EXT_shader_invocation_reorder");
+    args.emplace_back(L"-fspv-extension=SPV_GOOGLE_hlsl_functionality1");
+    args.emplace_back(L"-fspv-extension=SPV_GOOGLE_user_type");
     if (capabilities.abort) {
         args.emplace_back(L"-fspv-extension=SPV_KHR_abort");
     }
     if (capabilities.maintenance9_bitwise) {
-        // VK_KHR_maintenance9's bitwise relaxation is a dedicated dxc switch, not
-        // an `-fspv-extension=` name: it changes how the *existing* OpBitReverse /
-        // OpBitCount are emitted (natural operand width instead of 32-bit
-        // emulation) and declares no extension of its own, so naming
-        // `SPV_KHR_maintenance9` in the allow-list would be rejected.  The
-        // allow-list above is still required, because passing any
-        // `-fspv-extension=` at all drops dxc's default set.
         args.emplace_back(L"-fspv-enable-maintenance9");
     }
     if (capabilities.cluster_acceleration_structure) {
-        // OpRayQueryGetIntersectionClusterIdNV is opt-in in dxc: without this flag the
-        // call is a compile error rather than a module that declares an extension the
-        // device never asked for.  The ray query object the accessor reads is covered by
-        // the KHR allow-list above (`SPV_KHR_ray_query`).
         args.emplace_back(L"-fspv-extension=SPV_NV_cluster_acceleration_structure");
     }
     if (capabilities.mixed_float_dot_product) {
-        // `dot2add` is lowered to OpFDot2MixAcc32VALVE only with this extension;
-        // without it dxc supplies the unfused half-product/FP32-accumulation
-        // sequence itself, so no source-level fallback exists.
         args.emplace_back(L"-fspv-extension=SPV_VALVE_mixed_float_dot_product");
     }
     if (capabilities.split_barrier) {
-        // vk::SplitBarrierArrive/Wait are compile errors without this flag;
-        // dxc never lowers them to a plain OpControlBarrier on its own.
         args.emplace_back(L"-fspv-extension=SPV_EXT_split_barrier");
     }
 }
@@ -298,7 +317,7 @@ CompileResult ShaderCompiler::_compile_with_profile(
         LUISA_ERROR("Illegal shader model!");
     }
 #endif
-    vstd::fixed_vector<LPCWSTR, 32> args;
+    vstd::fixed_vector<LPCWSTR, 64> args;
     // DXC takes the entry point / target as NUL-terminated wide strings, so the
     // two that are built here (rather than being literals) need an owning local
     // that outlives the argument vector below.
@@ -333,14 +352,37 @@ CompileResult ShaderCompiler::_compile_with_profile(
     if (optimize) {
         args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
     }
+    auto postprocess_spirv_fma = [&](CompileResult result) -> CompileResult {
+        if (!spirv || !spirv_capabilities.fma ||
+            !result.is_type_of<ComUniquePtr<IDxcBlob>>()) {
+            return result;
+        }
+        auto &blob = result.get<0>();
+        const size_t byte_size = blob->GetBufferSize();
+        if (byte_size < 20u || (byte_size % sizeof(uint32_t)) != 0u) {
+            return result;
+        }
+        std::vector<uint32_t> words(byte_size / sizeof(uint32_t));
+        std::memcpy(words.data(), blob->GetBufferPointer(), byte_size);
+        if (luisa::compute::detail::promote_glsl_fma_to_op_fma_khr(words) == 0u) {
+            return result;
+        }
+        IDxcBlobEncoding *rewritten_ptr{};
+        LC_DXC_THROW_IF_FAILED(utils()->CreateBlob(
+            words.data(),
+            static_cast<UINT32>(words.size() * sizeof(uint32_t)),
+            CP_ACP,
+            &rewritten_ptr));
+        return ComUniquePtr<IDxcBlob>{rewritten_ptr};
+    };
     if (include_dirs.empty()) {
         // Historical behaviour: no include handler is registered at all.
-        return compile(code, args);
+        return postprocess_spirv_fma(compile(code, args));
     }
     // Stack-lifetime handler; the synchronous Compile call below never
     // outlives it. The handler searches the directories, so no `-I` args.
     FileSystemIncludeHandler handler{utils(), include_dirs};
-    return compile(code, args, &handler);
+    return postprocess_spirv_fma(compile(code, args, &handler));
 }
 CompileResult ShaderCompiler::compile_compute(
     vstd::string_view code,
@@ -388,7 +430,7 @@ RasterBin ShaderCompiler::compile_raster(
         LUISA_ERROR("Illegal shader model!");
     }
 #endif
-    vstd::fixed_vector<LPCWSTR, 32> args;
+    vstd::fixed_vector<LPCWSTR, 64> args;
     AddCompileFlags(args, debug, spirv);
     if (spirv) {
         args.emplace_back(L"/DSPV");
@@ -412,14 +454,37 @@ RasterBin ShaderCompiler::compile_raster(
     smStr << L"vs_" << GetSM(shaderModel);
     args.emplace_back(smStr.c_str());
     args.emplace_back(L"/DVS");
+    auto postprocess_spirv_fma = [&](CompileResult result) -> CompileResult {
+        if (!spirv || !spirv_capabilities.fma ||
+            !result.is_type_of<ComUniquePtr<IDxcBlob>>()) {
+            return result;
+        }
+        auto &blob = result.get<0>();
+        const size_t byte_size = blob->GetBufferSize();
+        if (byte_size < 20u || (byte_size % sizeof(uint32_t)) != 0u) {
+            return result;
+        }
+        std::vector<uint32_t> words(byte_size / sizeof(uint32_t));
+        std::memcpy(words.data(), blob->GetBufferPointer(), byte_size);
+        if (luisa::compute::detail::promote_glsl_fma_to_op_fma_khr(words) == 0u) {
+            return result;
+        }
+        IDxcBlobEncoding *rewritten_ptr{};
+        LC_DXC_THROW_IF_FAILED(utils()->CreateBlob(
+            words.data(),
+            static_cast<UINT32>(words.size() * sizeof(uint32_t)),
+            CP_ACP,
+            &rewritten_ptr));
+        return ComUniquePtr<IDxcBlob>{rewritten_ptr};
+    };
     RasterBin bin;
-    bin.vertex = compile(code, args);
+    bin.vertex = postprocess_spirv_fma(compile(code, args));
     luisa::vector_resize(args, size);
     smStr.clear();
     smStr << L"ps_" << GetSM(shaderModel);
     args.emplace_back(smStr.c_str());
     args.emplace_back(L"/DPS");
-    bin.pixel = compile(code, args);
+    bin.pixel = postprocess_spirv_fma(compile(code, args));
     return bin;
 }
 CompileResult ShaderCompiler::compile_raytracing(
@@ -435,7 +500,7 @@ CompileResult ShaderCompiler::compile_raytracing(
         LUISA_ERROR("Illegal shader model!");
     }
 #endif
-    vstd::fixed_vector<LPCWSTR, 32> args;
+    vstd::fixed_vector<LPCWSTR, 64> args;
     vstd::wstring smStr;
     smStr << L"lib_" << GetSM(shaderModel);
     if (spirv) {

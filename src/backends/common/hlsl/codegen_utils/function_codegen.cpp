@@ -485,9 +485,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::SMOOTHSTEP:
             str << "smoothstep"sv;
             break;
-        case CallOp::ABS:
+        case CallOp::ABS: {
+            auto elem = expr->type()->is_vector() ? expr->type()->element() : expr->type();
+            if (opt->emulate_8bit && elem->is_int8()) {
+                str << "_lc_wrap_i8(abs("sv;
+                PrintArgs();
+                str << "))"sv;
+                return;
+            }
             str << "abs"sv;
-            break;
+        } break;
         case CallOp::MAX:
             str << "max"sv;
             break;
@@ -803,13 +810,53 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     default: LUISA_ERROR_WITH_LOCATION("Invalid floating-point atomic operation.");
                 }
                 CheckPackedAtomicTarget(args);
-          AccessChain chain{expr->op(), rootVar->variable(), args.subspan(0u, args.size() - 1u), true};
+                AccessChain chain{expr->op(), rootVar->variable(), args.subspan(0u, args.size() - 1u), true};
                 chain.emit_access(args, str, vis);
                 // Workgroup/device scope and relaxed memory ordering.
                 str << (rootVar->variable().is_shared() ? ",2u,0u,"sv : ",1u,0u,"sv);
                 if (expr->op() == CallOp::ATOMIC_FETCH_SUB) { str << "-("sv; }
                 args.back()->accept(vis);
                 if (expr->op() == CallOp::ATOMIC_FETCH_SUB) { str << ')'; }
+                str << ')';
+                return;
+            }
+            if (opt->isSpirv &&
+                (expr->type()->is_int32() || expr->type()->is_uint32() ||
+                 expr->type()->is_int64() || expr->type()->is_uint64())) {
+                // Keep the resource reference at the call site for integer atomics too:
+                // passing RWStructuredBuffer<T> as a helper parameter triggers DXC to
+                // materialize a function-scope ACSBuffer counter pointer, which is
+                // invalid in Logical-addressing SPIR-V without VariablePointersStorageBuffer.
+                const bool is_signed = expr->type()->is_int32() || expr->type()->is_int64();
+                const bool is_cas = expr->op() == CallOp::ATOMIC_COMPARE_EXCHANGE;
+                switch (expr->op()) {
+                    case CallOp::ATOMIC_EXCHANGE: str << "_lc_spv_atomic_exchange("sv; break;
+                    case CallOp::ATOMIC_COMPARE_EXCHANGE: str << "_lc_spv_atomic_cas("sv; break;
+                    case CallOp::ATOMIC_FETCH_ADD: str << "_lc_spv_atomic_iadd("sv; break;
+                    case CallOp::ATOMIC_FETCH_SUB: str << "_lc_spv_atomic_isub("sv; break;
+                    case CallOp::ATOMIC_FETCH_MIN: str << (is_signed ? "_lc_spv_atomic_smin("sv : "_lc_spv_atomic_umin("sv); break;
+                    case CallOp::ATOMIC_FETCH_MAX: str << (is_signed ? "_lc_spv_atomic_smax("sv : "_lc_spv_atomic_umax("sv); break;
+                    case CallOp::ATOMIC_FETCH_AND: str << "_lc_spv_atomic_and("sv; break;
+                    case CallOp::ATOMIC_FETCH_OR: str << "_lc_spv_atomic_or("sv; break;
+                    case CallOp::ATOMIC_FETCH_XOR: str << "_lc_spv_atomic_xor("sv; break;
+                    default: LUISA_ERROR_WITH_LOCATION("Invalid integer atomic operation.");
+                }
+                CheckPackedAtomicTarget(args);
+                const size_t extra_arg_size = is_cas ? 2u : 1u;
+                AccessChain chain{expr->op(), rootVar->variable(), args.subspan(0u, args.size() - extra_arg_size), true};
+                chain.emit_access(args, str, vis);
+                if (is_cas) {
+                    // OpAtomicCompareExchange(Pointer, Scope, Equal, Unequal, Value, Comparator):
+                    // Luisa AST passes (target..., expected, desired), so swap desired/expected.
+                    str << (rootVar->variable().is_shared() ? ",2u,0u,0u,"sv : ",1u,0u,0u,"sv);
+                    args[args.size() - 1u]->accept(vis);
+                    str << ',';
+                    args[args.size() - 2u]->accept(vis);
+                } else {
+                    // Workgroup/device scope and relaxed memory ordering.
+                    str << (rootVar->variable().is_shared() ? ",2u,0u,"sv : ",1u,0u,"sv);
+                    args.back()->accept(vis);
+                }
                 str << ')';
                 return;
             }
@@ -896,10 +943,20 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
         } break;
         case CallOp::BUFFER_READ: {
+            auto elem = args[0]->type()->element();
+            if (opt->emulate_8bit &&
+                (elem->is_int8() || elem->is_uint8() || elem->is_bool())) {
+                if (elem->is_bool()) { str << '('; }
+                str << (elem->is_int8() ? "_lc_byte_bfread_i8("sv : "_lc_byte_bfread_u8("sv);
+                PrintArgs();
+                str << ')';
+                if (elem->is_bool()) { str << " != 0u)"sv; }
+                return;
+            }
             bool aliasStruct = TypeIsAliased(expr->type());
             // Scalar bool is stored as a 1-byte uint8_t (see GetTypeName BUFFER path);
             // convert the loaded byte back into a shader bool.
-            bool elem_is_bool = !aliasStruct && args[0]->type()->element()->is_bool();
+            bool elem_is_bool = !aliasStruct && elem->is_bool();
             if (elem_is_bool) {
                 str << '(';
             }
@@ -908,7 +965,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << '(';
             }
             str << "_bfread"sv;
-            auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
             } else if (elem->is_matrix()) {
@@ -931,8 +987,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::BUFFER_VOLATILE_READ: {
             mark_coherent(args[0]);
+            auto elem = args[0]->type()->element();
+            if (opt->emulate_8bit &&
+                (elem->is_int8() || elem->is_uint8() || elem->is_bool())) {
+                if (elem->is_bool()) { str << '('; }
+                str << (elem->is_int8() ? "_lc_volatile_byte_bfread_i8("sv : "_lc_volatile_byte_bfread_u8("sv);
+                PrintArgs();
+                str << ')';
+                if (elem->is_bool()) { str << " != 0u)"sv; }
+                return;
+            }
             bool aliasStruct = TypeIsAliased(expr->type());
-            bool elem_is_bool = !aliasStruct && args[0]->type()->element()->is_bool();
+            bool elem_is_bool = !aliasStruct && elem->is_bool();
             if (aliasStruct) {
                 AliasedToOrigin(expr->type(), str);
                 str << '(';
@@ -941,7 +1007,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << '(';
             }
             str << "_volatile_bfread"sv;
-            auto elem = args[0]->type()->element();
             if (IsNumVec3(*elem)) {
                 str << "Vec3"sv;
             } else if (elem->is_matrix()) {
@@ -969,11 +1034,35 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::BUFFER_WRITE:
         case CallOp::BUFFER_VOLATILE_WRITE: {
             bool is_volatile = expr->op() == CallOp::BUFFER_VOLATILE_WRITE;
+            auto elem = args[0]->type()->element();
+            if (opt->emulate_8bit &&
+                (elem->is_int8() || elem->is_uint8() || elem->is_bool())) {
+                if (is_volatile) {
+                    mark_coherent(args[0]);
+                    str << "_lc_volatile_byte_bfwrite_u8("sv;
+                } else {
+                    str << "_lc_byte_bfwrite_u8("sv;
+                }
+                args[0]->accept(vis);
+                str << ',';
+                args[1]->accept(vis);
+                str << ',';
+                if (elem->is_bool()) {
+                    str << "(("sv;
+                    args.back()->accept(vis);
+                    str << ") ? 1u : 0u)"sv;
+                } else {
+                    str << "(uint)("sv;
+                    args.back()->accept(vis);
+                    str << ')';
+                }
+                str << ')';
+                return;
+            }
             if (is_volatile) {
                 mark_coherent(args[0]);
                 str << "_volatile"sv;
             }
-            auto elem = args[0]->type()->element();
             bool aliasStruct = TypeIsAliased(elem);
             str << "_bfwrite"sv;
             if (IsNumVec3(*elem)) {

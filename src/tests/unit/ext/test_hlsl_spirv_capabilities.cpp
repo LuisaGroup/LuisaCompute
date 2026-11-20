@@ -567,4 +567,70 @@ int main(int argc, char *argv[]) {
         expect(!contains(sync_program, "#define LUISA_SPV_SPLIT_BARRIER 1"))
             << "the macro must not be defined without the capability";
     };
+
+    "fma_with_buffer_taking_callable_legalizes_valid_spirv"_test = [&] {
+        // Regression: passing -fspv-extension=KHR (including SPV_KHR_fma)
+        // caused DXC's bundled SPIRV-Tools AggressiveDCE / LocalAccessChainConvert /
+        // LocalSingleStoreElim passes to silently no-op, leaving invalid
+        // function-scope StorageBuffer pointer variables alive when a callable
+        // took a Buffer parameter.
+        Callable read_and_fma = [](BufferFloat a, BufferFloat b, BufferFloat c,
+                                   UInt idx) noexcept {
+            return fma(a.read(idx), b.read(idx), c.read(idx));
+        };
+        Kernel1D kernel = [&read_and_fma](BufferFloat a, BufferFloat b,
+                                          BufferFloat c, BufferFloat out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, read_and_fma(a, b, c, i));
+        };
+        auto codegen = lc::hlsl::CodegenUtility{}.Codegen(
+            kernel.function()->function(), {}, 0u, /*isSpirV=*/true, false, false,
+            true, false, false, lc::hlsl::SpirvShaderCapabilities{.fma = true});
+        auto const &runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        auto facts = compile_and_scan(
+            codegen.result.view(), runtime_directory,
+            lc::hlsl::SpirvShaderCapabilities{.fma = true});
+        expect(facts.error.empty()) << facts.error;
+        expect(facts.compiled);
+        expect(facts.validated);
+        expect(facts.declares_fma) << "OpCapability FMAKHR missing after promotion";
+        expect(facts.fma_count >= 1u) << "OpFmaKHR missing after promotion";
+    };
+
+    "spirv_integer_atomics_legalize_valid_spirv"_test = [&] {
+        // Regression: HLSL Interlocked* on structured buffer elements lowered
+        // by DXC emitted invalid function-scope StorageBuffer pointer variables
+        // (%counter_var_a0_0) when buffers were passed through callables or
+        // indexed dynamically. Direct [[vk::ext_instruction(...)]] SPIR-V
+        // integer atomics must compile and validate cleanly for all ops.
+        Callable atomic_ops = [](BufferUInt ubuf, BufferInt ibuf, UInt i) noexcept {
+            auto r0 = ubuf.atomic(i).fetch_add(1u);
+            auto r1 = ubuf.atomic(i).fetch_sub(1u);
+            auto r2 = ubuf.atomic(i).fetch_min(7u);
+            auto r3 = ubuf.atomic(i).fetch_max(3u);
+            auto r4 = ubuf.atomic(i).fetch_and(0xffu);
+            auto r5 = ubuf.atomic(i).fetch_or(0x10u);
+            auto r6 = ubuf.atomic(i).fetch_xor(0x01u);
+            auto r7 = ubuf.atomic(i).exchange(42u);
+            auto r8 = ubuf.atomic(i).compare_exchange(42u, 99u);
+            auto s0 = ibuf.atomic(i).fetch_min(-5);
+            auto s1 = ibuf.atomic(i).fetch_max(5);
+            return r0 + r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8 + cast<uint>(s0 + s1);
+        };
+        Kernel1D kernel = [&atomic_ops](BufferUInt ubuf, BufferInt ibuf,
+                                        BufferUInt out) noexcept {
+            auto i = dispatch_x();
+            out.write(i, atomic_ops(ubuf, ibuf, i));
+        };
+        auto codegen = lc::hlsl::CodegenUtility{}.Codegen(
+            kernel.function()->function(), {}, 0u, /*isSpirV=*/true, false, false,
+            true, false, false, lc::hlsl::SpirvShaderCapabilities{.fma = true});
+        auto const &runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        auto facts = compile_and_scan(
+            codegen.result.view(), runtime_directory,
+            lc::hlsl::SpirvShaderCapabilities{.fma = true});
+        expect(facts.error.empty()) << facts.error;
+        expect(facts.compiled);
+        expect(facts.validated);
+    };
 }

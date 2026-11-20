@@ -77,6 +77,7 @@ public:
         _res_dispose_list.emplace_back(std::move(res));
     }
     ID3D12CommandAllocator *allocator();
+    Device *device() const noexcept { return _device; }
     D3D12_COMMAND_LIST_TYPE type() const { return _type; }
     ~CommandAllocator();
     CommandBuffer *get_buffer() const;

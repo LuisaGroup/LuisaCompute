@@ -4,6 +4,7 @@
 #include "../shader_property.h"
 #include "../register_indexer.h"
 #include "../codegen_stack_data.h"
+#include <algorithm>
 #include <limits>
 
 // Forward declarations for types used in this file
@@ -154,7 +155,18 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
                     if (t->is_structure()) {
                         for (auto i = 0u; i < t->members().size(); i++) {
                             if (auto m = t->members()[i]; detail::can_accum_grad(m)) {
-                                accum_grad(luisa::format(".v{}", i), m);
+                                if (auto packed = GetPackedStructMember(t, i)) {
+                                    vstd::StringBuilder memberType;
+                                    GetTypeName(*m, memberType, Usage::NONE, true);
+                                    auto suffix = packed_kind_suffix(packed->kind);
+                                    finalResult << luisa::format(
+                                        "{0} _g{1}=_lc_pack_get_{2}(x_grad.v{3},{4});"
+                                        "_accum_grad(_g{1},_lc_pack_get_{2}(dx.v{3},{4}));"
+                                        "x_grad.v{3}=_lc_pack_set_{2}(x_grad.v{3},{4},_g{1});\n",
+                                        memberType.view(), i, suffix, packed->word_index, packed->byte_offset);
+                                } else {
+                                    accum_grad(luisa::format(".v{}", i), m);
+                                }
                             }
                         }
                     } else if (detail::can_accum_grad(t->element())) {
@@ -173,7 +185,18 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
             declStruct(v);
         }
     }
+    vstd::vector<SharedVar> ordered_shared;
+    ordered_shared.reserve(opt->sharedVariable.size());
     for (auto &&kv : opt->sharedVariable) {
+        ordered_shared.emplace_back(kv);
+    }
+    std::sort(ordered_shared.begin(), ordered_shared.end(), [](SharedVar const &lhs, SharedVar const &rhs) noexcept {
+        if (lhs.func.hash() != rhs.func.hash()) {
+            return lhs.func.hash() < rhs.func.hash();
+        }
+        return lhs.var.uid() < rhs.var.uid();
+    });
+    for (auto &&kv : ordered_shared) {
         finalResult << "groupshared "sv;
         GetTypeName(*kv.var.type()->element(), finalResult, Usage::READ, false);
         finalResult << ' ';

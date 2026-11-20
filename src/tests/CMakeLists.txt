@@ -745,6 +745,10 @@ if (TARGET luisa-compute-hlsl-codegen)
     target_link_libraries(test_hlsl_spirv_capabilities PRIVATE
             luisa-compute-hlsl-codegen
             SPIRV-Tools-opt)
+    luisa_compute_add_test(test_dx_root_sig_spill unit/ext/test_dx_root_sig_spill.cpp LABELS "unit;unit_ext;hlsl;dx")
+    target_include_directories(test_dx_root_sig_spill PRIVATE ../backends/common/hlsl ../backends/dx)
+    target_link_libraries(test_dx_root_sig_spill PRIVATE
+            luisa-compute-hlsl-codegen)
 endif ()
 if (TARGET luisa-compute-spirv)
     luisa_compute_add_test(test_spirv_buffer_layout unit/ext/test_spirv_buffer_layout.cpp LABELS "unit;unit_ext;spirv")

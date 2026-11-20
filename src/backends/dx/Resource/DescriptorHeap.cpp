@@ -73,13 +73,15 @@ void DescriptorHeap::CreateSampler(D3D12_SAMPLER_DESC const &desc, uint64 index)
     device->device->CreateSampler(&desc, hCPU(index));
 }
 luisa::FirstFit::Node *DescriptorHeap::SubAllocate(uint32_t size) {
+    std::lock_guard lck(heapMtx);
     auto ptr = subAlloc.allocate_best_fit(size);
-    if (ptr->offset() + ptr->size() > (numDescriptors - allocIndex)) [[unlikely]] {
+    if (ptr == nullptr || ptr->offset() + ptr->size() > (numDescriptors - allocIndex)) [[unlikely]] {
         vengine_log("bindless allocator out or range!\n");
     }
     return ptr;
 }
 void DescriptorHeap::DeAllocate(luisa::FirstFit::Node *ptr) {
+    std::lock_guard lck(heapMtx);
     subAlloc.free(ptr);
 }
 uint DescriptorHeap::GetSubAllocOffset(luisa::FirstFit::Node const *ptr) const {

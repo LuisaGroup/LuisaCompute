@@ -101,6 +101,21 @@ void FeatureCheck::check(Device const *device) {
             _flags.work_graph_supported = false;
         }
     }
+
+    // Check highest supported Shader Model (needed to decide whether SM 6.9
+    // native 8-bit types can be submitted to CreateComputePipelineState or must
+    // be emulated in SM 6.5/6.6 HLSL).
+    {
+        _highest_shader_model = D3D_SHADER_MODEL_6_0;
+        constexpr uint32_t kCandidateShaderModels[] = {0x69u, 0x68u, 0x67u, 0x66u, 0x65u, 0x60u};
+        for (uint32_t candidate : kCandidateShaderModels) {
+            D3D12_FEATURE_DATA_SHADER_MODEL sm{static_cast<D3D_SHADER_MODEL>(candidate)};
+            if (SUCCEEDED(d3d_device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &sm, sizeof(sm)))) {
+                _highest_shader_model = sm.HighestShaderModel;
+                break;
+            }
+        }
+    }
 }
 
 }// namespace lc::dx

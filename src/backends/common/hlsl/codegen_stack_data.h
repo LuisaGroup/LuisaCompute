@@ -55,6 +55,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     bool enable_debug_info : 1 = false;
     bool enable_fast_math : 1 = false;
     bool use_8bit : 1 = false;
+    bool emulate_8bit : 1 = false;
     // Software BF16 emulation: the immutable header carries
     // builtin/bfloat16_fallback.bytes (BF16 is then the raw 16-bit pattern of
     // `lc_bf16_t`/`lc_bf16_tN`) and every BF16 operation is emitted as a

@@ -963,9 +963,10 @@ public:
 
         void operator()(Argument::Buffer const &bf) {
             auto res = reinterpret_cast<Buffer const *>(bf.handle);
-
+            const uint64 byte_size =
+                bf.size > 0u ? bf.size : (res->GetByteSize() - bf.offset);
             self->bind_props->emplace_back(
-                BufferView(res, bf.offset));
+                BufferView(res, bf.offset, byte_size));
             ++arg;
         }
         void operator()(Argument::Texture const &bf) {

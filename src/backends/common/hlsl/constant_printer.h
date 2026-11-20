@@ -12,7 +12,14 @@ private:
         if constexpr (std::is_same_v<V, bfloat162> ||
                       std::is_same_v<V, bfloat163> ||
                       std::is_same_v<V, bfloat164>) {
-            PrintValue<V>{}(x, _str, _codegen.opt->bf16_fallback);
+            PrintValue<V>{}(x, _str, _codegen.opt->bf16_fallback, false);
+        } else if constexpr (std::is_same_v<V, byte2> ||
+                             std::is_same_v<V, byte3> ||
+                             std::is_same_v<V, byte4> ||
+                             std::is_same_v<V, ubyte2> ||
+                             std::is_same_v<V, ubyte3> ||
+                             std::is_same_v<V, ubyte4>) {
+            PrintValue<V>{}(x, _str, false, _codegen.opt->emulate_8bit);
         } else {
             PrintValue<V>{}(x, _str);
         }
@@ -28,10 +35,10 @@ protected:
         PrintValue<bool>{}(x, _str);
     }
     void _decode_char(char x) noexcept override {
-        PrintValue<luisa::byte>{}(static_cast<luisa::byte>(x), _str);
+        PrintValue<luisa::byte>{}(static_cast<luisa::byte>(x), _str, _codegen.opt->emulate_8bit);
     }
     void _decode_uchar(uchar x) noexcept override {
-        PrintValue<luisa::ubyte>{}(static_cast<luisa::ubyte>(x), _str);
+        PrintValue<luisa::ubyte>{}(static_cast<luisa::ubyte>(x), _str, _codegen.opt->emulate_8bit);
     }
     void _decode_short(short x) noexcept override {
         LUISA_NOT_IMPLEMENTED();

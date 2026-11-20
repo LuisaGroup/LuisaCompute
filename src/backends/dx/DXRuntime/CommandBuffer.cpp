@@ -42,30 +42,12 @@ CommandBuffer::CommandBuffer(
 void CommandBufferBuilder::set_compute_resources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
-    LUISA_ASSUME(resources.size() == s->properties().size());
-    for (auto i : vstd::range(static_cast<int64>(resources.size()))) {
-        resources[i].visit(
-            [&](auto &&b) {
-                s->set_compute_resource(
-                    i,
-                    this,
-                    b);
-            });
-    }
+    s->bind_compute_resources(this, resources);
 }
 void CommandBufferBuilder::set_raster_resources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
-    LUISA_ASSUME(resources.size() == s->properties().size());
-    for (auto i : vstd::range(static_cast<int64>(resources.size()))) {
-        resources[i].visit(
-            [&](auto &&b) {
-                s->set_raster_resource(
-                    i,
-                    this,
-                    b);
-            });
-    }
+    s->bind_raster_resources(this, resources);
 }
 void CommandBufferBuilder::dispatch_compute(
     ComputeShader const *cs,

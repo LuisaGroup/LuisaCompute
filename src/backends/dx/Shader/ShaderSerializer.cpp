@@ -56,7 +56,7 @@ std::pair<vstd::string, Type const *> DeserPrinterSize(BinaryStream *streamer) {
 }
 }// namespace detail
 static constexpr size_t kRootSigReserveSize = 16384;
-static constexpr uint64 kHeaderVersion = 5ull;// version 5: add validation count
+static constexpr uint64 kHeaderVersion = 7ull;// version 7: keep uniform t0/space0 direct and skip uniform+bindless prefix in spill layout
 vstd::vector<std::byte>
 ShaderSerializer::Serialize(
     vstd::span<hlsl::Property const> properties,
@@ -411,26 +411,58 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
     // never had it, so the flag can only ever *remove* it (which is what a native
     // raster shader wants - it reserves the dword inside its own block).
     auto raster_object_id = isRasterShader && append_object_id;
+    const bool spill = Shader::needs_descriptor_table_spill(properties, raster_object_id);
     vstd::fixed_vector<CD3DX12_ROOT_PARAMETER, 32> allParameter;
-    allParameter.reserve(properties.size() + (raster_object_id ? 1 : 0));
+    allParameter.reserve(properties.size() + 3u);
     vstd::fixed_vector<CD3DX12_DESCRIPTOR_RANGE, 32> allRange;
-    for (auto &&var : properties) {
-        switch (var.type) {
-            case hlsl::ShaderVariableType::UAVBufferHeap:
-            case hlsl::ShaderVariableType::UAVTextureHeap:
-            case hlsl::ShaderVariableType::CBVBufferHeap:
-            case hlsl::ShaderVariableType::SamplerHeap:
-            case hlsl::ShaderVariableType::SRVBufferHeap:
-            case hlsl::ShaderVariableType::SRVTextureHeap: {
-                allRange.emplace_back();
-            } break;
-            default:
-                break;
+    vstd::vector<CD3DX12_DESCRIPTOR_RANGE> spilledSrvRanges;
+    vstd::vector<CD3DX12_DESCRIPTOR_RANGE> spilledUavRanges;
+    if (!spill) {
+        for (auto &&var : properties) {
+            switch (var.type) {
+                case hlsl::ShaderVariableType::UAVBufferHeap:
+                case hlsl::ShaderVariableType::UAVTextureHeap:
+                case hlsl::ShaderVariableType::CBVBufferHeap:
+                case hlsl::ShaderVariableType::SamplerHeap:
+                case hlsl::ShaderVariableType::SRVBufferHeap:
+                case hlsl::ShaderVariableType::SRVTextureHeap: {
+                    allRange.emplace_back();
+                } break;
+                default:
+                    break;
+            }
+        }
+    } else {
+        for (auto &&var : properties) {
+            if (Shader::is_spilled_srv(var)) {
+                CD3DX12_DESCRIPTOR_RANGE range;
+                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1u, var.register_index, var.space_index, static_cast<UINT>(spilledSrvRanges.size()));
+                spilledSrvRanges.emplace_back(range);
+            } else if (Shader::is_spilled_uav(var)) {
+                CD3DX12_DESCRIPTOR_RANGE range;
+                range.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1u, var.register_index, var.space_index, static_cast<UINT>(spilledUavRanges.size()));
+                spilledUavRanges.emplace_back(range);
+            } else {
+                switch (var.type) {
+                    case hlsl::ShaderVariableType::UAVBufferHeap:
+                    case hlsl::ShaderVariableType::UAVTextureHeap:
+                    case hlsl::ShaderVariableType::CBVBufferHeap:
+                    case hlsl::ShaderVariableType::SamplerHeap:
+                    case hlsl::ShaderVariableType::SRVBufferHeap:
+                    case hlsl::ShaderVariableType::SRVTextureHeap: {
+                        allRange.emplace_back();
+                    } break;
+                    default:
+                        break;
+                }
+            }
         }
     }
     size_t offset = 0;
     for (auto &&var : properties) {
-
+        if (spill && (Shader::is_spilled_srv(var) || Shader::is_spilled_uav(var))) {
+            continue;
+        }
         switch (var.type) {
             case hlsl::ShaderVariableType::SRVTextureHeap:
             case hlsl::ShaderVariableType::SRVBufferHeap: {
@@ -472,6 +504,14 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
                 break;
             default: LUISA_ASSUME(false); break;
         }
+    }
+    if (!spilledSrvRanges.empty()) {
+        allParameter.emplace_back().InitAsDescriptorTable(
+            static_cast<UINT>(spilledSrvRanges.size()), spilledSrvRanges.data());
+    }
+    if (!spilledUavRanges.empty()) {
+        allParameter.emplace_back().InitAsDescriptorTable(
+            static_cast<UINT>(spilledUavRanges.size()), spilledUavRanges.data());
     }
     if (raster_object_id) {
         allParameter.emplace_back().InitAsConstants(1, 0);

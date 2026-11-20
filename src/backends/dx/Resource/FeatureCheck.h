@@ -36,6 +36,7 @@ private:
     uint _wave_lane_count_max{0};
     D3D12_RAYTRACING_TIER _raytracing_tier{D3D12_RAYTRACING_TIER_NOT_SUPPORTED};
     D3D12_WORK_GRAPHS_TIER _work_graphs_tier{D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED};
+    D3D_SHADER_MODEL _highest_shader_model{D3D_SHADER_MODEL_6_5};
 
 public:
     /// Constructor - initializes and queries all feature support from the device
@@ -77,6 +78,16 @@ public:
     /// Check if work graph is supported
     [[nodiscard]] bool work_graph_supported() const noexcept {
         return _flags.work_graph_supported;
+    }
+
+    /// Highest D3D12 shader model supported by the runtime and driver
+    [[nodiscard]] D3D_SHADER_MODEL highest_shader_model() const noexcept {
+        return _highest_shader_model;
+    }
+
+    /// Whether Shader Model 6.9 (native 8-bit integer scalar/buffer types) is supported
+    [[nodiscard]] bool shader_model_6_9_supported() const noexcept {
+        return static_cast<uint>(_highest_shader_model) >= 0x69u;
     }
 
     /// Get minimum wave lane count

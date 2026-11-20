@@ -69,6 +69,7 @@ namespace {
 
 // The kind of a member that can share a packed 32-bit word, if any.
 [[nodiscard]] bool packed_member_kind(Type const *type, bool bf16_fallback,
+                                      bool emulate_8bit,
                                       PackedStructMember::Kind &kind) noexcept {
     if (type == nullptr || !type->is_scalar()) { return false; }
     switch (type->tag()) {
@@ -76,6 +77,14 @@ namespace {
         case Type::Tag::INT16: kind = PackedStructMember::Kind::I16; return true;
         case Type::Tag::UINT16: kind = PackedStructMember::Kind::U16; return true;
         case Type::Tag::BOOL: kind = PackedStructMember::Kind::BOOL; return true;
+        case Type::Tag::INT8:
+            if (!emulate_8bit) { return false; }
+            kind = PackedStructMember::Kind::I8;
+            return true;
+        case Type::Tag::UINT8:
+            if (!emulate_8bit) { return false; }
+            kind = PackedStructMember::Kind::U8;
+            return true;
         case Type::Tag::BFLOAT16:
             // The native HLSL BF16 type cannot be reinterpreted as a 16-bit
             // pattern, so only the software emulation (raw 16-bit storage) can
@@ -94,11 +103,13 @@ namespace {
 }// namespace
 
 StructPacking plan_struct_packing(Type const *structType,
-                                 bool bf16_fallback) {
+                                 bool bf16_fallback,
+                                 bool emulate_8bit) {
     StructPacking packing;
     if (structType == nullptr || !structType->is_structure()) { return packing; }
     auto members = structType->members();
-    if (members.size() < 2u) { return packing; }
+    if (members.empty()) { return packing; }
+    if (!emulate_8bit && members.size() < 2u) { return packing; }
     // Byte offsets of the members in the host (C++) layout, which is what the
     // generated HLSL struct has to reproduce: values are copied verbatim into the
     // argument block and buffer elements are the host structs themselves.
@@ -110,33 +121,38 @@ StructPacking plan_struct_packing(Type const *structType,
         offsets.emplace_back(offset);
         offset += member->size();
     }
-    // Group the members into 32-bit words.  A word needs packing exactly when it
-    // mixes a one-byte bool with a 16-bit scalar: a word of only bools (bitfields
-    // pack bit-wise from the word start) or of only 16-bit scalars (two per word)
-    // is laid out by dxc exactly like the host does.
-    size_t emitted = 0u;// number of members the struct emitter has produced so far
+    // Group the members into 32-bit words.  A word needs packing when it mixes
+    // a one-byte bool with a 16-bit scalar, or when emulate_8bit is enabled and
+    // the word holds an 8-bit integer scalar.  Each packed word is named after
+    // its first AST member index (`uint v<i>`) so every non-packed member keeps
+    // its exact AST `v<member_index>` name for MemberExpr, AccessChain, and
+    // aliased-struct conversions.
     for (auto i = size_t{0u}; i < members.size();) {
         auto kind = PackedStructMember::Kind::BOOL;
-        if (!packed_member_kind(members[i], bf16_fallback, kind)) {
+        if (!packed_member_kind(members[i], bf16_fallback, emulate_8bit, kind)) {
             ++i;
-            ++emitted;
             continue;
         }
         auto word_offset = offsets[i] & ~size_t{3u};
         auto end = i;
         auto has_bool = false;
         auto has_narrow = false;
+        auto has_8bit = false;
         while (end < members.size()) {
             auto other_kind = PackedStructMember::Kind::BOOL;
-            if (!packed_member_kind(members[end], bf16_fallback, other_kind)) { break; }
+            if (!packed_member_kind(members[end], bf16_fallback, emulate_8bit, other_kind)) { break; }
             if ((offsets[end] & ~size_t{3u}) != word_offset) { break; }
             has_bool |= other_kind == PackedStructMember::Kind::BOOL;
-            has_narrow |= other_kind != PackedStructMember::Kind::BOOL;
+            has_8bit |= (other_kind == PackedStructMember::Kind::I8 ||
+                         other_kind == PackedStructMember::Kind::U8);
+            has_narrow |= (other_kind != PackedStructMember::Kind::BOOL &&
+                           other_kind != PackedStructMember::Kind::I8 &&
+                           other_kind != PackedStructMember::Kind::U8);
             ++end;
         }
-        if (!has_bool || !has_narrow) {
+        const bool needs_packing = (has_bool && has_narrow) || has_8bit;
+        if (!needs_packing) {
             // dxc reproduces the host layout of this word; emit it normally.
-            emitted += end - i;
             i = end;
             continue;
         }
@@ -144,28 +160,25 @@ StructPacking plan_struct_packing(Type const *structType,
             // The word starts inside the previous member, so it cannot become one
             // `uint` of its own.
             LUISA_ERROR(
-                "HLSL cannot express the layout of this struct: a 16-bit member "
-                "shares a 32-bit word with a one-byte bool, but the word also holds "
-                "the tail of '{}'. Reorder the members.",
+                "HLSL cannot express the layout of this struct: a narrow member "
+                "shares a 32-bit word with the tail of '{}'. Reorder the members.",
                 members[i - 1u]->description());
         }
         if (end < members.size() && offsets[end] < word_offset + 4u) {
-            // A member that is not a 16-bit scalar or a bool (a bool vector, for
-            // example) starts inside the word; emitting the word as one `uint`
-            // would move that member.
+            // A member that is not a packable scalar starts inside the word;
+            // emitting the word as one `uint` would move that member.
             LUISA_ERROR(
                 "HLSL cannot express the layout of this struct: '{}' starts inside a "
-                "32-bit word that mixes 16-bit scalars with a one-byte bool. Move "
-                "that member out of the word (for example give it 4-byte "
-                "alignment).",
+                "packed 32-bit word. Move that member out of the word (for example "
+                "give it 4-byte alignment).",
                 members[end]->description());
         }
         StructPacking::Word word{.byte_offset = word_offset,
-                                 .word_index = static_cast<uint>(emitted),
+                                 .word_index = static_cast<uint>(i),
                                  .members = {}};
         for (auto j = i; j < end; ++j) {
             auto member_kind = PackedStructMember::Kind::BOOL;
-            packed_member_kind(members[j], bf16_fallback, member_kind);
+            static_cast<void>(packed_member_kind(members[j], bf16_fallback, emulate_8bit, member_kind));
             word.members.emplace_back(static_cast<uint>(j));
             packing.members.try_emplace(
                 static_cast<uint>(j),
@@ -174,7 +187,6 @@ StructPacking plan_struct_packing(Type const *structType,
                                    .kind = member_kind});
         }
         packing.words.emplace_back(std::move(word));
-        ++emitted;// the whole word is one emitted member
         i = end;
     }
     return packing;
@@ -218,7 +230,6 @@ void StructGenerator::InitAsStructAliased(
     auto packing = util->opt->GetStructPacking(originType);
     auto packed_end = size_t{0u};
     auto next_word = size_t{0u};
-    size_t varIdx = 0;
     for (auto i = size_t{0u}; i < vars.size(); ++i) {
         if (i < packed_end) { continue; }
         if (next_word < packing.words.size() &&
@@ -229,7 +240,6 @@ void StructGenerator::InitAsStructAliased(
             Align(4u);
             structDesc << "uint v"sv << vstd::to_string(word.word_index) << ";\n"sv;
             structSize = word.byte_offset + 4u;
-            varIdx = word.word_index + 1u;
             packed_end = word.members.back() + 1u;
             last_type = vars[word.members.back()];
             ++next_word;
@@ -266,8 +276,7 @@ void StructGenerator::InitAsStructAliased(
         } else {
             util->GetTypeName(*member, structDesc, Usage::READ, false);
         }
-        structDesc << " v"sv << vstd::to_string(varIdx);
-        varIdx++;
+        structDesc << " v"sv << vstd::to_string(i);
         if (member->tag() == Type::Tag::BOOL) {
             structDesc << ":8"sv;
         } else if (member->is_bool_vector()) {
@@ -318,7 +327,6 @@ void StructGenerator::InitAsStruct(
     auto packing = util->opt->GetStructPacking(originType);
     auto packed_end = size_t{0u};
     auto next_word = size_t{0u};
-    size_t varIdx = 0;
     for (auto i = size_t{0u}; i < vars.size(); ++i) {
         if (i < packed_end) { continue; }
         if (next_word < packing.words.size() &&
@@ -329,7 +337,6 @@ void StructGenerator::InitAsStruct(
             Align(4u);
             structDesc << "uint v"sv << vstd::to_string(word.word_index) << ";\n"sv;
             structSize = word.byte_offset + 4u;
-            varIdx = word.word_index + 1u;
             packed_end = word.members.back() + 1u;
             last_type = vars[word.members.back()];
             ++next_word;
@@ -367,8 +374,7 @@ void StructGenerator::InitAsStruct(
         } else {
             util->GetTypeName(*member, structDesc, Usage::READ, false);
         }
-        structDesc << " v"sv << vstd::to_string(varIdx);
-        varIdx++;
+        structDesc << " v"sv << vstd::to_string(i);
         if (member->tag() == Type::Tag::BOOL) {
             structDesc << ":8"sv;
         }

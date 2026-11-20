@@ -13,6 +13,96 @@ float _lc_spv_atomic_min([[vk::ext_reference]] float target,uint scope,uint sema
 float _lc_spv_atomic_max([[vk::ext_reference]] float target,uint scope,uint semantics,float value);
 [[vk::ext_instruction(229)]]
 float _lc_spv_atomic_exchange([[vk::ext_reference]] float target,uint scope,uint semantics,float value);
+[[vk::ext_instruction(229)]]
+int _lc_spv_atomic_exchange([[vk::ext_reference]] int target,uint scope,uint semantics,int value);
+[[vk::ext_instruction(229)]]
+uint _lc_spv_atomic_exchange([[vk::ext_reference]] uint target,uint scope,uint semantics,uint value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(229)]]
+int64_t _lc_spv_atomic_exchange([[vk::ext_reference]] int64_t target,uint scope,uint semantics,int64_t value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(229)]]
+uint64_t _lc_spv_atomic_exchange([[vk::ext_reference]] uint64_t target,uint scope,uint semantics,uint64_t value);
+[[vk::ext_instruction(230)]]
+int _lc_spv_atomic_cas([[vk::ext_reference]] int target,uint scope,uint eq_sem,uint uneq_sem,int value,int comparator);
+[[vk::ext_instruction(230)]]
+uint _lc_spv_atomic_cas([[vk::ext_reference]] uint target,uint scope,uint eq_sem,uint uneq_sem,uint value,uint comparator);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(230)]]
+int64_t _lc_spv_atomic_cas([[vk::ext_reference]] int64_t target,uint scope,uint eq_sem,uint uneq_sem,int64_t value,int64_t comparator);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(230)]]
+uint64_t _lc_spv_atomic_cas([[vk::ext_reference]] uint64_t target,uint scope,uint eq_sem,uint uneq_sem,uint64_t value,uint64_t comparator);
+[[vk::ext_instruction(234)]]
+int _lc_spv_atomic_iadd([[vk::ext_reference]] int target,uint scope,uint semantics,int value);
+[[vk::ext_instruction(234)]]
+uint _lc_spv_atomic_iadd([[vk::ext_reference]] uint target,uint scope,uint semantics,uint value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(234)]]
+int64_t _lc_spv_atomic_iadd([[vk::ext_reference]] int64_t target,uint scope,uint semantics,int64_t value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(234)]]
+uint64_t _lc_spv_atomic_iadd([[vk::ext_reference]] uint64_t target,uint scope,uint semantics,uint64_t value);
+[[vk::ext_instruction(235)]]
+int _lc_spv_atomic_isub([[vk::ext_reference]] int target,uint scope,uint semantics,int value);
+[[vk::ext_instruction(235)]]
+uint _lc_spv_atomic_isub([[vk::ext_reference]] uint target,uint scope,uint semantics,uint value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(235)]]
+int64_t _lc_spv_atomic_isub([[vk::ext_reference]] int64_t target,uint scope,uint semantics,int64_t value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(235)]]
+uint64_t _lc_spv_atomic_isub([[vk::ext_reference]] uint64_t target,uint scope,uint semantics,uint64_t value);
+[[vk::ext_instruction(236)]]
+int _lc_spv_atomic_smin([[vk::ext_reference]] int target,uint scope,uint semantics,int value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(236)]]
+int64_t _lc_spv_atomic_smin([[vk::ext_reference]] int64_t target,uint scope,uint semantics,int64_t value);
+[[vk::ext_instruction(237)]]
+uint _lc_spv_atomic_umin([[vk::ext_reference]] uint target,uint scope,uint semantics,uint value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(237)]]
+uint64_t _lc_spv_atomic_umin([[vk::ext_reference]] uint64_t target,uint scope,uint semantics,uint64_t value);
+[[vk::ext_instruction(238)]]
+int _lc_spv_atomic_smax([[vk::ext_reference]] int target,uint scope,uint semantics,int value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(238)]]
+int64_t _lc_spv_atomic_smax([[vk::ext_reference]] int64_t target,uint scope,uint semantics,int64_t value);
+[[vk::ext_instruction(239)]]
+uint _lc_spv_atomic_umax([[vk::ext_reference]] uint target,uint scope,uint semantics,uint value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(239)]]
+uint64_t _lc_spv_atomic_umax([[vk::ext_reference]] uint64_t target,uint scope,uint semantics,uint64_t value);
+[[vk::ext_instruction(240)]]
+int _lc_spv_atomic_and([[vk::ext_reference]] int target,uint scope,uint semantics,int value);
+[[vk::ext_instruction(240)]]
+uint _lc_spv_atomic_and([[vk::ext_reference]] uint target,uint scope,uint semantics,uint value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(240)]]
+int64_t _lc_spv_atomic_and([[vk::ext_reference]] int64_t target,uint scope,uint semantics,int64_t value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(240)]]
+uint64_t _lc_spv_atomic_and([[vk::ext_reference]] uint64_t target,uint scope,uint semantics,uint64_t value);
+[[vk::ext_instruction(241)]]
+int _lc_spv_atomic_or([[vk::ext_reference]] int target,uint scope,uint semantics,int value);
+[[vk::ext_instruction(241)]]
+uint _lc_spv_atomic_or([[vk::ext_reference]] uint target,uint scope,uint semantics,uint value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(241)]]
+int64_t _lc_spv_atomic_or([[vk::ext_reference]] int64_t target,uint scope,uint semantics,int64_t value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(241)]]
+uint64_t _lc_spv_atomic_or([[vk::ext_reference]] uint64_t target,uint scope,uint semantics,uint64_t value);
+[[vk::ext_instruction(242)]]
+int _lc_spv_atomic_xor([[vk::ext_reference]] int target,uint scope,uint semantics,int value);
+[[vk::ext_instruction(242)]]
+uint _lc_spv_atomic_xor([[vk::ext_reference]] uint target,uint scope,uint semantics,uint value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(242)]]
+int64_t _lc_spv_atomic_xor([[vk::ext_reference]] int64_t target,uint scope,uint semantics,int64_t value);
+[[vk::ext_capability(12)]]
+[[vk::ext_instruction(242)]]
+uint64_t _lc_spv_atomic_xor([[vk::ext_reference]] uint64_t target,uint scope,uint semantics,uint64_t value);
 #endif
 #ifdef LUISA_SPV_ABORT
 namespace vk { void Abort(uint message); }
@@ -338,3 +428,57 @@ float16_t _lc_pack_get_f16(uint w,uint byte){return asfloat16((uint16_t)(w>>(byt
 uint _lc_pack_set_f16(uint w,uint byte,float16_t v){uint s=byte*8u;return (w&~(0xffffu<<s))|(((uint)asuint16(v))<<s);}
 bool _lc_pack_get_bool(uint w,uint byte){return ((w>>(byte*8u))&0xffu)!=0u;}
 uint _lc_pack_set_bool(uint w,uint byte,bool v){uint s=byte*8u;return (w&~(0xffu<<s))|(v?(1u<<s):0u);}
+uint _lc_pack_get_u8(uint w,uint byte){return (w>>(byte*8u))&0xffu;}
+uint _lc_pack_set_u8(uint w,uint byte,uint v){uint s=byte*8u;return (w&~(0xffu<<s))|((v&0xffu)<<s);}
+int _lc_pack_get_i8(uint w,uint byte){return ((int)(w<<(24u-byte*8u)))>>24;}
+uint _lc_pack_set_i8(uint w,uint byte,int v){uint s=byte*8u;return (w&~(0xffu<<s))|(((uint)v&0xffu)<<s);}
+template<typename T> T _lc_wrap_u8(T v){return v&(T)0xffu;}
+template<typename T> T _lc_wrap_i8(T v){return (v<<(T)24)>>(T)24;}
+uint _lc_byte_bfread_u8(ByteAddressBuffer b,uint idx){return (b.Load(idx&~3u)>>((idx&3u)*8u))&0xffu;}
+uint _lc_byte_bfread_u8(RWByteAddressBuffer b,uint idx){return (b.Load(idx&~3u)>>((idx&3u)*8u))&0xffu;}
+int _lc_byte_bfread_i8(ByteAddressBuffer b,uint idx){return ((int)(b.Load(idx&~3u)<<(24u-((idx&3u)*8u))))>>24;}
+int _lc_byte_bfread_i8(RWByteAddressBuffer b,uint idx){return ((int)(b.Load(idx&~3u)<<(24u-((idx&3u)*8u))))>>24;}
+uint _lc_volatile_byte_bfread_u8(RWByteAddressBuffer b,uint idx){DeviceMemoryBarrier();return _lc_byte_bfread_u8(b,idx);}
+int _lc_volatile_byte_bfread_i8(RWByteAddressBuffer b,uint idx){DeviceMemoryBarrier();return _lc_byte_bfread_i8(b,idx);}
+void _lc_byte_bfwrite_u8(RWByteAddressBuffer b,uint idx,uint v){uint addr=idx&~3u;uint s=(idx&3u)*8u;uint m=~(0xffu<<s);uint val=(v&0xffu)<<s;uint old=b.Load(addr);while(true){uint cur;b.InterlockedCompareExchange(addr,old,(old&m)|val,cur);if(cur==old)break;old=cur;}}
+void _lc_volatile_byte_bfwrite_u8(RWByteAddressBuffer b,uint idx,uint v){_lc_byte_bfwrite_u8(b,idx,v);DeviceMemoryBarrier();}
+template<typename Src>
+uint _lc_bitcast_b8x4_u32(Src v){return ((uint)v.x&0xffu)|(((uint)v.y&0xffu)<<8u)|(((uint)v.z&0xffu)<<16u)|(((uint)v.w&0xffu)<<24u);}
+template<typename Dst>
+Dst _lc_bitcast_u32_u8x4(uint v){return Dst(v&0xffu,(v>>8u)&0xffu,(v>>16u)&0xffu,(v>>24u)&0xffu);}
+template<typename Dst>
+Dst _lc_bitcast_u32_i8x4(uint v){return Dst(((int)(v<<24u))>>24,((int)(v<<16u))>>24,((int)(v<<8u))>>24,((int)v)>>24);}
+template<typename Src>
+uint16_t _lc_bitcast_b8x2_u16(Src v){return (uint16_t)(((uint)v.x&0xffu)|(((uint)v.y&0xffu)<<8u));}
+template<typename Dst>
+Dst _lc_bitcast_u16_u8x2(uint16_t v){uint u=(uint)v;return Dst(u&0xffu,(u>>8u)&0xffu);}
+template<typename Dst>
+Dst _lc_bitcast_u16_i8x2(uint16_t v){uint u=(uint)v;return Dst(((int)(u<<24u))>>24,((int)(u<<16u))>>24);}
+template<typename Src>
+uint16_t _lc_bitcast_bool2_u16(Src v){return (uint16_t)((v.x?1u:0u)|(v.y?256u:0u));}
+template<typename Src>
+bool2 _lc_bitcast_u16_bool2(Src v){uint u=(uint)v;return bool2((u&0xffu)!=0u,((u>>8u)&0xffu)!=0u);}
+template<typename Src>
+uint _lc_bitcast_i16x2_u32(Src v){return ((uint)(uint16_t)v.x)|(((uint)(uint16_t)v.y)<<16u);}
+template<typename Src>
+uint _lc_bitcast_f16x2_u32(Src v){return ((uint)asuint16(v.x))|(((uint)asuint16(v.y))<<16u);}
+template<typename Dst>
+Dst _lc_bitcast_u32_i16x2(uint v){return Dst((uint16_t)(v&0xffffu),(uint16_t)(v>>16u));}
+template<typename Dst>
+Dst _lc_bitcast_u32_f16x2(uint v){return asfloat16(uint16_t2((uint16_t)(v&0xffffu),(uint16_t)(v>>16u)));}
+template<typename Dst,typename Src>
+Dst _lc_bitcast_u32x2_u64(Src v){uint2 u=asuint(v);return (Dst)(((uint64_t)u.x)|(((uint64_t)u.y)<<32ull));}
+template<typename Src>
+uint2 _lc_bitcast_u64_u32x2(Src v){uint64_t u=(uint64_t)v;return uint2((uint)(u&0xffffffffull),(uint)(u>>32ull));}
+template<typename Dst,typename Src>
+Dst _lc_bitcast_i16x4_u64(Src v){return (Dst)(((uint64_t)(uint16_t)v.x)|(((uint64_t)(uint16_t)v.y)<<16ull)|(((uint64_t)(uint16_t)v.z)<<32ull)|(((uint64_t)(uint16_t)v.w)<<48ull));}
+template<typename Dst,typename Src>
+Dst _lc_bitcast_f16x4_u64(Src v){return (Dst)(((uint64_t)asuint16(v.x))|(((uint64_t)asuint16(v.y))<<16ull)|(((uint64_t)asuint16(v.z))<<32ull)|(((uint64_t)asuint16(v.w))<<48ull));}
+template<typename Dst,typename Src>
+Dst _lc_bitcast_u64_i16x4(Src v){uint64_t u=(uint64_t)v;return Dst((uint16_t)(u&0xffffull),(uint16_t)((u>>16ull)&0xffffull),(uint16_t)((u>>32ull)&0xffffull),(uint16_t)((u>>48ull)&0xffffull));}
+template<typename Dst,typename Src>
+Dst _lc_bitcast_u64_f16x4(Src v){uint64_t u=(uint64_t)v;return asfloat16(uint16_t4((uint16_t)(u&0xffffull),(uint16_t)((u>>16ull)&0xffffull),(uint16_t)((u>>32ull)&0xffffull),(uint16_t)((u>>48ull)&0xffffull)));}
+template<typename Src>
+uint64_t _lc_bitcast_f64_u64(Src v){uint lo,hi;asuint(v,lo,hi);return ((uint64_t)hi<<32ull)|((uint64_t)lo);}
+template<typename Src>
+double _lc_bitcast_u64_f64(Src v){uint64_t u=(uint64_t)v;return asdouble((uint)(u&0xffffffffull),(uint)(u>>32ull));}
