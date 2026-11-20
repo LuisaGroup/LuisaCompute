@@ -286,11 +286,61 @@ LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_texture2d_read_uint(const Tex
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_texture2d_read_float(const TextureView *handle, const uint2 *coord, float4 *out) noexcept {
+    const uint storage = handle->_storage;
+    if ((storage == 2u) | (storage == 14u)) {
+        const uint w = handle->_width;
+        const uint h = handle->_height;
+        const uint x = coord->x;
+        const uint y = coord->y;
+        if ((x >= w) | (y >= h)) {
+            *reinterpret_cast<llvm_float4 *>(out) = {0.0f, 0.0f, 0.0f, 0.0f};
+            return;
+        }
+        const size_t idx = static_cast<size_t>(y) * w + x;
+        if (storage == 2u) {
+            const auto *p = reinterpret_cast<const llvm_uchar4 *>(
+                reinterpret_cast<const uint8_t *>(handle->_data) + (idx << 2u));
+            *reinterpret_cast<llvm_float4 *>(out) =
+                __builtin_convertvector(p[0], llvm_float4) * (1.0f / 255.0f);
+        } else {
+            const auto *p = reinterpret_cast<const llvm_float4 *>(handle->_data);
+            *reinterpret_cast<llvm_float4 *>(out) = p[idx];
+        }
+        return;
+    }
     auto packed_view = reinterpret_cast<const PackedTextureView *>(handle);
     *out = luisa_fallback_texture2d_read_float(packed_view->data, packed_view->extra, coord->x, coord->y);
 }
 
 LUISA_FALLBACK_WRAPPER void luisa_fallback_wrapper_texture2d_write_float(const TextureView *handle, const uint2 *coord, const float4 *value) noexcept {
+    const uint storage = handle->_storage;
+    if ((storage == 2u) | (storage == 14u)) {
+        const uint w = handle->_width;
+        const uint h = handle->_height;
+        const uint x = coord->x;
+        const uint y = coord->y;
+        if ((x >= w) | (y >= h)) { return; }
+        const size_t idx = static_cast<size_t>(y) * w + x;
+        const llvm_float4 v = *reinterpret_cast<const llvm_float4 *>(value);
+        if (storage == 2u) {
+            const bool ordered = (v.x == v.x) & (v.y == v.y) & (v.z == v.z) & (v.w == v.w);
+            if (ordered) {
+                const llvm_float4 zero{0.0f, 0.0f, 0.0f, 0.0f};
+                const llvm_float4 one{1.0f, 1.0f, 1.0f, 1.0f};
+                const llvm_float4 clamped_lo = v > zero ? v : zero;
+                const llvm_float4 clamped = clamped_lo < one ? clamped_lo : one;
+                const llvm_float4 scaled = clamped * 255.0f + 0.5f;
+                auto *p = reinterpret_cast<llvm_uchar4 *>(
+                    reinterpret_cast<uint8_t *>(handle->_data) + (idx << 2u));
+                p[0] = __builtin_convertvector(scaled, llvm_uchar4);
+                return;
+            }
+        } else {
+            auto *p = reinterpret_cast<llvm_float4 *>(handle->_data);
+            p[idx] = v;
+            return;
+        }
+    }
     auto packed_view = reinterpret_cast<const PackedTextureView *>(handle);
     luisa_fallback_texture2d_write_float(packed_view->data, packed_view->extra, coord->x, coord->y, *value);
 }
