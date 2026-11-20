@@ -224,12 +224,13 @@ bool IsCBuffer(Variable::Tag t);
 }// namespace detail
 
 // Main compute kernel codegen
-CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities, bool emulate_8bit) {
+CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info, bool enable_fast_math, bool fallback_rtx, bool bf16_fallback, SpirvShaderCapabilities spirv_capabilities, bool emulate_8bit, luisa::optional<uint8_t> default_warp_size) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->fallback_rtx = fallback_rtx;
     opt->bf16_fallback = bf16_fallback;
     opt->emulate_8bit = emulate_8bit && !isSpirV;
+    opt->default_warp_size = isSpirV ? luisa::nullopt : default_warp_size;
     opt->spirv_capabilities = spirv_capabilities;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
@@ -833,6 +834,9 @@ uint3 grpId = uint3(0,0,0);
             } else {
                 // Compute shader: generate standard entry point
                 auto warp_size = func.allowed_warp_size();
+                if (!warp_size.has_value()) {
+                    warp_size = opt->default_warp_size;
+                }
                 if (warp_size.has_value() && !opt->isSpirv) {
                     result << luisa::format("[WaveSize({})]\n", int(warp_size.value()));
                 }

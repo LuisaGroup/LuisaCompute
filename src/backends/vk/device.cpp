@@ -779,6 +779,9 @@ ResourceCreationInfo Device::create_procedural_primitive(
 }
 
 uint Device::compute_warp_size() const noexcept {
+    if (prefers_default_wave32()) {
+        return 32u;
+    }
     VkPhysicalDeviceSubgroupProperties subgroup_properties{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     VkPhysicalDeviceProperties2 properties2{
@@ -3580,7 +3583,8 @@ namespace vk_device_detail_2 {
 namespace vk_device_detail_2 {
 [[nodiscard]] static vstd::MD5 compute_shader_cache_md5(
     Function kernel, const ShaderOption &option,
-    lc::spirv::SpirvTargetFeatures target_features) noexcept {
+    lc::spirv::SpirvTargetFeatures target_features,
+    luisa::optional<uint8_t> required_subgroup_size) noexcept {
     using namespace std::string_view_literals;
     auto option_flags =
         (static_cast<uint64_t>(option.enable_fast_math) << 0u) |
@@ -3604,7 +3608,7 @@ namespace vk_device_detail_2 {
         static_cast<uint64_t>(
             target_features.buffer_float32_atomic_rmw_policy),
         vk_device_detail_2::xir_spirv_environment_hash(),
-        static_cast<uint64_t>(kernel.allowed_warp_size().value_or(0u)),
+        static_cast<uint64_t>(required_subgroup_size.value_or(0u)),
     };
     return vstd::MD5{vstd::span<const uint8_t>{
         reinterpret_cast<const uint8_t *>(data), sizeof(data)}};
@@ -3638,9 +3642,14 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             kernel.name());
     }
     ShaderCreationInfo info;
+    auto required_subgroup_size =
+        effective_required_subgroup_size(kernel, option.compile_only);
     uint mask = 0u;
     if (option.enable_fast_math) { mask |= 1u; }
     if (option.enable_debug_info) { mask |= 2u; }
+    if (required_subgroup_size) {
+        mask |= (static_cast<uint>(*required_subgroup_size) << 8u);
+    }
 
     // The shader-capability extensions this device negotiated, in the form the HLSL
     // codegen takes them: the generated source only contains an optional
@@ -3743,7 +3752,8 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             {.shader_md5 = check_md5,
              .type_md5 = code.typeMD5,
              .codegen_dialect =
-                 detail::ShaderCodegenDialect::HLSL_SPIRV},
+                 detail::ShaderCodegenDialect::HLSL_SPIRV,
+             .required_subgroup_size = required_subgroup_size},
             hlsl::binding_to_arg(kernel.bound_arguments()),
             option.name,
             SerdeType::kByteCode,
@@ -3793,7 +3803,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
                 code.printers,
                 code.validation_count,
                 {},
-                kernel.allowed_warp_size(),
+                required_subgroup_size,
                 vk_device_detail::conservative_spirv_artifact_requirements(
                     this, requires_sampler_anisotropy));
         }
@@ -3828,7 +3838,7 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             option.enable_fast_math,
             spirv_capabilities,
             validation_count,
-            kernel.allowed_warp_size(),
+            required_subgroup_size,
             requires_sampler_anisotropy,
             push_constant_size,
             detail::ShaderCodegenDialect::HLSL_SPIRV,
@@ -4002,8 +4012,10 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     vstd::optional<lc::spirv::SpirvResult> spv_result;
     auto profile =
         luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+    auto required_subgroup_size =
+        effective_required_subgroup_size(kernel, option.compile_only);
     auto shader_md5 = vk_device_detail_2::compute_shader_cache_md5(
-        kernel, option, target_features);
+        kernel, option, target_features, required_subgroup_size);
     auto require_print_code = print_code();
     auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
     auto uses_user_path = !option.name.empty();
@@ -4032,7 +4044,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             {.shader_md5 = shader_md5,
              .type_md5 = type_md5,
              .codegen_dialect =
-                 detail::ShaderCodegenDialect::XIR_SPIRV},
+                 detail::ShaderCodegenDialect::XIR_SPIRV,
+             .required_subgroup_size = required_subgroup_size},
             serde_type, _binary_io)) {
         spv_result = compile_native_spirv();
     }
@@ -4043,7 +4056,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             {.shader_md5 = shader_md5,
              .type_md5 = type_md5,
              .codegen_dialect =
-                 detail::ShaderCodegenDialect::XIR_SPIRV},
+                 detail::ShaderCodegenDialect::XIR_SPIRV,
+             .required_subgroup_size = required_subgroup_size},
             hlsl::binding_to_arg(kernel.bound_arguments()),
             shader_name,
             serde_type,
@@ -4103,7 +4117,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result->printers,
                 0,
                 spv_result->constant_ubo_data,
-                kernel.allowed_warp_size(),
+                required_subgroup_size,
                 artifact_requirements,
                 detail::ShaderCodegenDialect::XIR_SPIRV);
             if (profile) {
@@ -4135,7 +4149,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             std::move(spv_result->printers),
             {spv_result->constant_ubo_data.data(), spv_result->constant_ubo_data.size()},
             0,
-            kernel.allowed_warp_size(),
+            required_subgroup_size,
             32u,
             detail::ShaderCodegenDialect::XIR_SPIRV,
             option.enable_driver_optimization);

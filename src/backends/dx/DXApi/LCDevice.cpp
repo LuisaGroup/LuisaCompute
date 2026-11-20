@@ -419,7 +419,13 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     if (emulate_8bit) {
         mask |= (1u << 24u);
     }
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx, kEmulateBfloat16, {}, emulate_8bit);
+    const luisa::optional<uint8_t> default_warp_size =
+        (!option.compile_only &&
+         !kernel.allowed_warp_size().has_value() &&
+         native_device.prefers_default_wave32()) ?
+            luisa::optional<uint8_t>{32u} :
+            luisa::nullopt;
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx, kEmulateBfloat16, {}, emulate_8bit, default_warp_size);
     // TODO get result from codegen
     auto choose_shader_model = [&]() -> uint {
         if (kernel.use_cooperative_operations() || (code.use_8bit && !emulate_8bit)) {
@@ -429,7 +435,9 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             // lets callers skip device execution instead of failing here.
             return kTensorShaderModel;
         }
-        return kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel;
+        return (kernel.allowed_warp_size().has_value() || default_warp_size.has_value()) ?
+                   kHighShaderModel :
+                   kShaderModel;
     };
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());

@@ -51,6 +51,7 @@ void CodegenStackData::Clear() {
     enable_fast_math = false;
     use_8bit = false;
     emulate_8bit = false;
+    default_warp_size.reset();
     pixelUseBarycentric = false;
     pixelUseFrontFacing = false;
     internalStruct.clear();

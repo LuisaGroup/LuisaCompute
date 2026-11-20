@@ -497,6 +497,9 @@ LUISA_EXPORT_API void backend_device_names(luisa::vector<luisa::string> &r) {
     }
 }
 uint Device::wave_size() const {
+    if (prefers_default_wave32()) {
+        return 32u;
+    }
     return feature_check.wave_lane_count_max();
 }
 void process_dxgi_error(HRESULT hr) {

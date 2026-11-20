@@ -513,6 +513,36 @@ public:
     auto logic_device() const { return _vk_device->logical_device; }
     auto const &pso_header() const { return _pso_header; }
     auto const &subgroup_size_control_properties() const noexcept { return _subgroup_size_control_properties; }
+    // On variable-subgroup GPUs that support native Wave32 via compute
+    // subgroup-size control (e.g., AMD RDNA reporting min=32, max=64), prefer
+    // Wave32 as the default compute subgroup size so warp-specialized kernels
+    // and small threadgroups execute in full 32-lane waves.
+    [[nodiscard]] bool prefers_default_wave32() const noexcept {
+        return subgroup_size_control_enabled &&
+               (_subgroup_size_control_properties.requiredSubgroupSizeStages &
+                VK_SHADER_STAGE_COMPUTE_BIT) != 0u &&
+               _subgroup_size_control_properties.minSubgroupSize == 32u &&
+               _subgroup_size_control_properties.maxSubgroupSize > 32u;
+    }
+    [[nodiscard]] luisa::optional<uint8_t> effective_required_subgroup_size(
+        Function kernel, bool compile_only) const noexcept {
+        if (auto requested = kernel.allowed_warp_size()) {
+            return requested;
+        }
+        if (!compile_only && prefers_default_wave32()) {
+            const auto block_size = kernel.block_size();
+            const uint64_t invocations =
+                static_cast<uint64_t>(block_size.x) *
+                static_cast<uint64_t>(block_size.y) *
+                static_cast<uint64_t>(block_size.z);
+            const uint64_t needed_subgroups = (invocations + 31u) / 32u;
+            if (needed_subgroups <=
+                _subgroup_size_control_properties.maxComputeWorkgroupSubgroups) {
+                return static_cast<uint8_t>(32u);
+            }
+        }
+        return luisa::nullopt;
+    }
     bool is_pso_same(VkPipelineCacheHeaderVersionOne const &pso);
     auto const &properties() const { return _vk_device->properties; }
     auto const &features() const { return _vk_device->features; }

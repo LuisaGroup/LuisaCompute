@@ -567,5 +567,54 @@ int main(int argc, char **argv) {
         expect(make_hlsl(false) == make_hlsl(true));
     };
 
+    "hlsl_default_warp_size_emits_wavesize_for_dxil_only"_test = [&] {
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
+        Kernel1D k_default = [](BufferUInt out) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            out.write(i, warp_lane_count() + warp_lane_id());
+        };
+        Kernel1D k_explicit64 = [](BufferUInt out) noexcept {
+            set_block_size(64u);
+            set_warp_size(64u);
+            auto i = dispatch_x();
+            out.write(i, warp_lane_count() + warp_lane_id());
+        };
+        auto dx_default32 = lc::hlsl::CodegenUtility{}.Codegen(
+            k_default.function()->function(), {}, 0u, /*isSpirV=*/false,
+            /*noRegister=*/false, /*enable_debug_info=*/false,
+            /*enable_fast_math=*/true, /*fallback_rtx=*/false,
+            /*bf16_fallback=*/false, /*spirv_capabilities=*/{},
+            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{32u});
+        expect(std::string_view{dx_default32.result.view()}.find("[WaveSize(32)]") !=
+               std::string_view::npos);
+        auto dx_compiled = compiler.compile_compute(
+            dx_default32.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/false, /*debug=*/false);
+        expect(dx_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (dx_compiled.is_type_of<vstd::string>() ? dx_compiled.get<1>() : vstd::string{"unexpected DXIL WaveSize(32) result"});
+
+        auto dx_override = lc::hlsl::CodegenUtility{}.Codegen(
+            k_explicit64.function()->function(), {}, 0u, /*isSpirV=*/false,
+            /*noRegister=*/false, /*enable_debug_info=*/false,
+            /*enable_fast_math=*/true, /*fallback_rtx=*/false,
+            /*bf16_fallback=*/false, /*spirv_capabilities=*/{},
+            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{32u});
+        expect(std::string_view{dx_override.result.view()}.find("[WaveSize(64)]") !=
+               std::string_view::npos);
+        expect(std::string_view{dx_override.result.view()}.find("[WaveSize(32)]") ==
+               std::string_view::npos);
+
+        auto spv_default32 = lc::hlsl::CodegenUtility{}.Codegen(
+            k_default.function()->function(), {}, 0u, /*isSpirV=*/true,
+            /*noRegister=*/false, /*enable_debug_info=*/false,
+            /*enable_fast_math=*/true, /*fallback_rtx=*/false,
+            /*bf16_fallback=*/false, /*spirv_capabilities=*/{},
+            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{32u});
+        expect(std::string_view{spv_default32.result.view()}.find("[WaveSize(") ==
+               std::string_view::npos);
+    };
+
     return 0;
 }

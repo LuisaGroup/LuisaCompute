@@ -110,6 +110,15 @@ public:
     ~Device();
     void wait_fence(ID3D12Fence *fence, uint64 fenceIndex);
     static hlsl::ShaderCompiler *compiler();
+    // On variable-wave architectures that support native Wave32 (e.g., AMD RDNA
+    // with WaveLaneCountMin == 32 < WaveLaneCountMax == 64) and SM 6.6+
+    // ([WaveSize(32)]), prefer Wave32 as the default compute warp size so
+    // warp-size-specialized kernels and small threadgroups use full 32-lane waves.
+    [[nodiscard]] bool prefers_default_wave32() const noexcept {
+        return feature_check.wave_lane_count_min() == 32u &&
+               feature_check.wave_lane_count_max() > 32u &&
+               static_cast<uint>(feature_check.highest_shader_model()) >= 0x66u;
+    }
     uint wave_size() const;
     // Command-reorder switch sampled when a batch starts (see
     // CommandReorderSwitch for the precedence of the device settings extension,

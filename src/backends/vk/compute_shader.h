@@ -21,6 +21,7 @@ class ComputeShader : public Shader {
     PipelineRef *_pipeline_ref{};
     uint3 _block_size;
     VkPipelineCreateFlags _pipeline_create_flags{};
+    luisa::optional<uint8_t> _required_subgroup_size;
 public:
     [[nodiscard]] static constexpr VkPipelineCreateFlags
     pipeline_create_flags(bool enable_driver_optimization) noexcept {
@@ -28,12 +29,24 @@ public:
                    VkPipelineCreateFlags{0u} :
                    VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
     }
+    [[nodiscard]] static constexpr uint64_t
+    pipeline_cache_identity_for(
+        bool enable_driver_optimization,
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt) noexcept {
+        return static_cast<uint64_t>(
+                   pipeline_create_flags(enable_driver_optimization)) |
+               (static_cast<uint64_t>(required_subgroup_size.value_or(0u)) << 32u);
+    }
     auto pipeline() const { return _pipeline_ref ? _pipeline_ref->pipeline : VK_NULL_HANDLE; }
     auto pipeline_cache() const { return _pipeline_ref ? _pipeline_ref->pipeline_cache : VK_NULL_HANDLE; }
     PipelineRef *pipeline_ref() const noexcept override { return _pipeline_ref; }
     bool serialize_pso(vstd::vector<std::byte> &result) const override;
     [[nodiscard]] uint64_t pipeline_cache_identity() const noexcept override {
-        return _pipeline_create_flags;
+        return static_cast<uint64_t>(_pipeline_create_flags) |
+               (static_cast<uint64_t>(_required_subgroup_size.value_or(0u)) << 32u);
+    }
+    [[nodiscard]] luisa::optional<uint8_t> required_subgroup_size() const noexcept {
+        return _required_subgroup_size;
     }
     auto block_size() const { return _block_size; }
     ComputeShader(

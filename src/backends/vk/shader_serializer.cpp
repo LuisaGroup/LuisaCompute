@@ -197,9 +197,16 @@ bool ShaderSerializer::require_recompile(
     using namespace detail;
     auto read_stream = read_binary_io(serde_type, bin_io, file_name);
     if (!read_stream) return true;
-    return !decode_compute_shader_artifact(
+    auto decoded = decode_compute_shader_artifact(
         *read_stream, requirements.shader_md5,
         requirements.type_md5, requirements.codegen_dialect);
+    if (!decoded) return true;
+    if (requirements.required_subgroup_size &&
+        decoded.artifact.header.required_subgroup_size !=
+            *requirements.required_subgroup_size) {
+        return true;
+    }
+    return false;
 }
 
 bool ShaderSerializer::require_recompile_raster(
@@ -439,14 +446,18 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         }
         required_subgroup_size = static_cast<uint8_t>(subgroup_size);
     }
+    if (requirements.required_subgroup_size &&
+        header.required_subgroup_size != *requirements.required_subgroup_size) {
+        return result;
+    }
     vstd::vector<std::byte> pso_data;
     vstd::string pso_name;
     {
         PSODataPackage package{
             .header = device->pso_header(),
             .pipeline_cache_identity =
-                ComputeShader::pipeline_create_flags(
-                    enable_driver_optimization),
+                ComputeShader::pipeline_cache_identity_for(
+                    enable_driver_optimization, required_subgroup_size),
             .contract_version =
                 pso_identity_contract_version};
         if (!requirements.shader_md5) {

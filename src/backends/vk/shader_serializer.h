@@ -35,6 +35,7 @@ struct ComputeShaderArtifactLoadRequirements {
     luisa::optional<vstd::MD5> shader_md5;
     luisa::optional<vstd::MD5> type_md5;
     luisa::optional<detail::ShaderCodegenDialect> codegen_dialect;
+    luisa::optional<uint8_t> required_subgroup_size;
 };
 
 class ShaderSerializer {

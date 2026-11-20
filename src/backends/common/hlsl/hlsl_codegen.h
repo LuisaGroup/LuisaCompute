@@ -241,7 +241,7 @@ public:
     // `spirv_capabilities` names the optional shader-capability extensions the
     // SPIR-V target device negotiated (see `SpirvShaderCapabilities`); it is inert
     // unless `isSpirV` is set and every flag defaults to off.
-    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {}, bool emulate_8bit = false);
+    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {}, bool emulate_8bit = false, luisa::optional<uint8_t> default_warp_size = luisa::nullopt);
     CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false, bool enable_fast_math = false, bool fallback_rtx = false, bool bf16_fallback = false, SpirvShaderCapabilities spirv_capabilities = {}, bool emulate_8bit = false);
     CodegenResult RasterCodegen(
         Function vertFunc,

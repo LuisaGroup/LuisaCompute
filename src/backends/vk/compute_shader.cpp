@@ -33,7 +33,8 @@ ComputeShader::ComputeShader(
     : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect},
       _block_size(block_size),
       _pipeline_create_flags{
-          pipeline_create_flags(enable_driver_optimization)} {
+          pipeline_create_flags(enable_driver_optimization)},
+      _required_subgroup_size{required_subgroup_size} {
     auto profile =
         luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     Clock phase_clock;
@@ -165,18 +166,17 @@ ComputeShader *ComputeShader::compile(
     luisa::optional<vstd::MD5> expected_shader_md5;
     if (code_md5) { expected_shader_md5.emplace(*code_md5); }
 
-    auto result = required_subgroup_size ?
-                      ShaderSerializer::DeserResult{} :
-                      ShaderSerializer::try_deser_compute(
-                          device,
-                          {.shader_md5 = expected_shader_md5,
-                           .type_md5 = expected_type_md5,
-                           .codegen_dialect = codegen_dialect},
-                          std::move(bindings), file_name, serde_type, bin_io,
-                          push_constant_size,
-                          enable_driver_optimization);
+    auto result = ShaderSerializer::try_deser_compute(
+        device,
+        {.shader_md5 = expected_shader_md5,
+         .type_md5 = expected_type_md5,
+         .codegen_dialect = codegen_dialect,
+         .required_subgroup_size = required_subgroup_size},
+        std::move(bindings), file_name, serde_type, bin_io,
+        push_constant_size,
+        enable_driver_optimization);
     // cache invalid, need compile
-    bool write_cache = !required_subgroup_size && !file_name.empty();
+    bool write_cache = !file_name.empty();
     if (!result.shader) {
         auto str = codegen();
         if (expected_type_md5) {
