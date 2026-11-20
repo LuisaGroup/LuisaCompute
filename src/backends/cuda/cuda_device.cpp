@@ -1894,8 +1894,11 @@ void CUDADevice::update_sparse_resources(
                     access_desc.location.id = handle().index();
                     access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
                     access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-                    LUISA_CHECK_CUDA(cuMemMap(buffer->device_address(), byte_size, byte_offset,
-                                              heap->handle(), 0));
+                    // cuMemMap's offset is into the physical allocation handle,
+                    // not the destination reservation. Each heap represents one
+                    // tile, so map that heap at the tile's VA with handle offset 0.
+                    LUISA_CHECK_CUDA(cuMemMap(buffer->device_address() + byte_offset,
+                                              byte_size, 0, heap->handle(), 0));
                     LUISA_CHECK_CUDA(cuMemSetAccess(buffer->device_address() + byte_offset, byte_size, &access_desc, 1));
                 } else if constexpr (std::is_same_v<SparseBufferUnMapOperation, T>) {
                     auto buffer = reinterpret_cast<CUDABuffer *>(i.handle);
