@@ -9,6 +9,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/metadata/no_inline.h>
 #include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/lower_ray_query_to_pipeline.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2text.h>
@@ -370,5 +371,62 @@ int main(int argc, char *argv[]) {
                 expect(cached_host[i].w == oracle_host[i].w);
             }
         }
+    };
+    "xir2ast_cache_declines_ray_query_pipeline"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferFloat out) {
+            auto hit_t = def(100.f);
+            auto hit = accel.traverse(make_ray(make_float3(0.f), make_float3(0.f, 0.f, 1.f), 0.f, 100.f), {})
+                           .on_surface_candidate([&](SurfaceCandidate &cand) {
+                               auto h = cand.hit();
+                               $if(h.committed_ray_t < hit_t) {
+                                   hit_t = h.committed_ray_t;
+                                   cand.commit();
+                               };
+                           })
+                           .trace();
+            out.write(dispatch_x(), ite(hit->miss(), hit_t, hit.committed_ray_t));
+        };
+        auto ast = kernel.function()->function();
+
+        auto find_kernel = [](xir::Module *m) -> const xir::KernelFunction * {
+            for (auto *f : m->function_list()) {
+                if (f->isa<xir::KernelFunction>()) {
+                    return static_cast<const xir::KernelFunction *>(f);
+                }
+            }
+            return nullptr;
+        };
+        auto count_tags = [](xir::Module *m, xir::DerivedInstructionTag tag) -> size_t {
+            size_t count = 0u;
+            for (auto *f : m->function_list()) {
+                if (auto *def = f->definition()) {
+                    def->traverse_instructions([&](xir::Instruction *inst) noexcept {
+                        if (inst->derived_instruction_tag() == tag) { count++; }
+                    });
+                }
+            }
+            return count;
+        };
+
+        // Pre-split RayQueryPipelineInst (produced by lower_ray_query_to_pipeline,
+        // e.g. inside coroutine lowering) must NOT be cached across xir_to_ast -> ast_to_xir
+        // so consumers with default preserve_inline_ray_query_loops=true see canonical RayQueryLoopInst.
+        auto pipeline_mod = xir::ast_to_xir_translate(ast, {});
+        expect(xir::xir_verify_module(pipeline_mod.get()).succeeded()) << fatal;
+        expect(xir::lower_ray_query_to_pipeline_pass_run_on_module(pipeline_mod.get()).succeeded()) << fatal;
+        expect(xir::xir_verify_module(pipeline_mod.get()).succeeded()) << fatal;
+        expect(count_tags(pipeline_mod.get(), xir::DerivedInstructionTag::RAY_QUERY_PIPELINE) > 0u);
+        auto *pipeline_root = find_kernel(pipeline_mod.get());
+        expect(pipeline_root != nullptr) << fatal;
+        auto retained_pipeline = xir::xir_to_ast_translate(*pipeline_root, {.cache_transformed_functions = true});
+
+        xir::AST2XIRTranslationStatistics pipeline_stats;
+        auto re_lowered = xir::ast_to_xir_translate(retained_pipeline->function(), {.statistics = &pipeline_stats});
+        expect(xir::xir_verify_module(re_lowered.get()).succeeded());
+        // The root kernel containing RayQueryPipelineInst must re-lower from AST into a
+        // canonical RayQueryLoopInst, while its pure callback callees remain cacheable.
+        expect(pipeline_stats.ast_function_translations == 1u);
+        expect(count_tags(re_lowered.get(), xir::DerivedInstructionTag::RAY_QUERY_PIPELINE) == 0u);
+        expect(count_tags(re_lowered.get(), xir::DerivedInstructionTag::RAY_QUERY_LOOP) > 0u);
     };
 }

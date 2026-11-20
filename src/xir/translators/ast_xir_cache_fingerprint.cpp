@@ -123,8 +123,14 @@ public:
             }
             case IF: case SIMPLE_LOOP: case BRANCH: case CONDITIONAL_BRANCH:
             case BREAK: case CONTINUE: case RETURN: case LOAD: case STORE:
-            case GEP: case CALL: case CLOCK: case RAY_QUERY_PIPELINE:
+            case GEP: case CALL: case CLOCK:
             case RAY_QUERY_LOOP: case RAY_QUERY_DISPATCH: case RASTER_DISCARD: break;
+            // RAY_QUERY_PIPELINE is outside the canonical AST-to-XIR
+            // preserve_inline_ray_query_loops boundary: backends that lower
+            // RayQueryLoopInst (such as native XIR-to-SPIR-V) reject it, and
+            // backends that re-analyze inline ray-query loops after pre-CFG
+            // mem2reg (such as HIP native closest reduction) rely on seeing
+            // canonical RayQueryLoopInst instead of a pre-split pipeline.
             default: return false;
         }
         return true;
