@@ -955,10 +955,31 @@ private:
     void _create_convergences(const xir::PostDomTree &post_dom_tree) {
         _convergences.reserve(_blocks.size());
         _convergence_by_branch.reserve(_blocks.size());
+        auto is_loop_header = [&](const xir::BasicBlock *candidate) noexcept {
+            return std::any_of(
+                _loops.cbegin(), _loops.cend(),
+                [&](const LoopRecord &loop) noexcept {
+                    return loop.source != nullptr &&
+                           loop.source->header == candidate;
+                });
+        };
         for (auto *block : _blocks) {
             auto *terminator = block->terminator();
             auto *selector = _branch_selector(terminator);
             if (selector == nullptr || _uniformity.is_uniform(selector)) {
+                continue;
+            }
+            // Non-header conditional branches proven cohort-uniform at this
+            // block never diverge at runtime and never declare a convergence
+            // frame during LLVM emission. Eliding their convergence point
+            // avoids emitting dead convergence-token checks at their merge
+            // block while keeping loop-header convergences intact for
+            // structured early-exit loop recognition.
+            if (_options.enable_counted_loop_uniformity &&
+                terminator->derived_instruction_tag() ==
+                    xir::DerivedInstructionTag::CONDITIONAL_BRANCH &&
+                !is_loop_header(block) &&
+                _is_cohort_uniform_at_use(selector, block)) {
                 continue;
             }
             auto *target = post_dom_tree.immediate_post_dominator(block);

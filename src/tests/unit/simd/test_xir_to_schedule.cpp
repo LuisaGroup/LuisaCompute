@@ -1585,6 +1585,72 @@ void register_ray_query_pipeline_tests() {
         expect(!invalid_count.succeeded());
         expect(!invalid_count.diagnostics.empty());
     };
+    "simd_xir_elides_convergence_for_non_header_cohort_uniform_branch"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *entry = kernel->create_body_block();
+        auto *header = kernel->create_basic_block();
+        auto *body = kernel->create_basic_block();
+        auto *then_block = kernel->create_basic_block();
+        auto *latch = kernel->create_basic_block();
+        auto *exit = kernel->create_basic_block();
+        auto *u32 = Type::of<uint32_t>();
+        auto *b1 = Type::of<bool>();
+        auto constant = [&](uint32_t value) { return module.create_constant(u32, &value); };
+        auto *lane = module.create_warp_lane_id();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *storage = builder.alloca_local(u32);
+        builder.store(storage, constant(0u));
+        builder.br(header);
+
+        builder.set_insertion_point(header);
+        auto *iv = builder.phi(u32, {{constant(0u), entry}});
+        auto *cond_iv = builder.call(b1, ArithmeticOp::BINARY_LESS, {iv, constant(8u)});
+        auto *cond_lane = builder.call(b1, ArithmeticOp::BINARY_LESS, {lane, constant(4u)});
+        auto *header_cond = builder.call(b1, ArithmeticOp::BINARY_BIT_AND, {cond_iv, cond_lane});
+        builder.cond_br(header_cond, body, exit);
+
+        builder.set_insertion_point(body);
+        auto *parity = builder.call(u32, ArithmeticOp::BINARY_BIT_AND, {iv, constant(1u)});
+        auto *inner_cond = builder.call(b1, ArithmeticOp::BINARY_EQUAL, {parity, constant(0u)});
+        builder.cond_br(inner_cond, then_block, latch);
+
+        builder.set_insertion_point(then_block);
+        auto *cur = builder.load(u32, storage);
+        builder.store(storage, builder.call(u32, ArithmeticOp::BINARY_ADD, {cur, constant(1u)}));
+        builder.br(latch);
+
+        builder.set_insertion_point(latch);
+        auto *next_iv = builder.call(u32, ArithmeticOp::BINARY_ADD, {iv, constant(1u)});
+        iv->add_incoming(next_iv, latch);
+        builder.br(header);
+
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        auto lowered = lower_xir_to_schedule(
+            kernel, {.logical_warp_width = 8u, .enable_counted_loop_uniformity = true});
+        expect(lowered.succeeded()) << diagnostics_text(lowered);
+        if (!lowered.succeeded()) { return; }
+        expect(verify(*lowered.function).succeeded());
+        auto cohort_splits = size_t{0u};
+        auto header_convergences = size_t{0u};
+        for (auto &&block : lowered.function->blocks()) {
+            auto *split = std::get_if<SplitTerminator>(&block.terminator);
+            if (split == nullptr) { continue; }
+            if (split->cohort_uniform_condition) {
+                cohort_splits++;
+                expect(!split->convergence.has_value());
+            } else if (split->convergence.has_value()) {
+                header_convergences++;
+            }
+        }
+        expect(eq(cohort_splits, size_t{1u}));
+        expect(eq(header_convergences, size_t{1u}));
+        expect(eq(lowered.function->convergence_points().size(), size_t{1u}));
+    };
 }
 
 }// namespace
