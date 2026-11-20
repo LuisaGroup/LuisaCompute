@@ -2466,9 +2466,9 @@ collect_loop_boundary_selection_entries(
     auto changed = false;
     for (;;) {
         // The dataflow and all classifications below describe exactly this
-        // immutable CFG version. Applying any loop batch invalidates the
-        // block numbering, reverse edges, and terminal facts, so restart from
-        // a fresh snapshot before inspecting another loop context.
+        // immutable CFG version. Collect rewrites across all mutually disjoint
+        // loops against the same snapshot, then apply them together before
+        // taking a fresh snapshot for any nested/overlapping loops.
         LoopBoundaryPathDataflow dataflow{def};
         luisa::unordered_map<BasicBlock *, size_t>
             structured_merge_owner_counts;
@@ -2484,8 +2484,17 @@ collect_loop_boundary_selection_entries(
                 }
             });
         ++info.boundary_merge_analysis_count;
-        auto applied_batch = false;
+        luisa::vector<Rewrite> batch_rewrites;
+        luisa::unordered_set<BasicBlock *> batch_touched_blocks;
+        auto batch_loop_count = size_t{0u};
         for (auto &&loop : loops) {
+            if (!batch_touched_blocks.empty() &&
+                (batch_touched_blocks.contains(loop.body) ||
+                 batch_touched_blocks.contains(loop.continue_target) ||
+                 batch_touched_blocks.contains(loop.loop_entry) ||
+                 batch_touched_blocks.contains(loop.merge))) {
+                continue;
+            }
             dataflow.evaluate(
                 loop.body,
                 loop.continue_target,
@@ -2493,9 +2502,15 @@ collect_loop_boundary_selection_entries(
                 loop.merge);
             ++info.boundary_merge_dataflow_count;
             luisa::vector<Rewrite> rewrites;
+            auto overlaps_batch = false;
             for (auto index = size_t{0u};
                  index < dataflow.region_size(); ++index) {
                 auto *cur = dataflow.region_block(index);
+                if (!batch_touched_blocks.empty() &&
+                    batch_touched_blocks.contains(cur)) {
+                    overlaps_batch = true;
+                    break;
+                }
                 if (!cur->is_terminated() ||
                     !cur->terminator()->isa<IfInst>()) {
                     continue;
@@ -2560,24 +2575,38 @@ collect_loop_boundary_selection_entries(
                 if (rewrite.true_break_proxy ||
                     rewrite.false_break_proxy ||
                     rewrite.merge_proxy) {
+                    if (!batch_touched_blocks.empty() &&
+                        (batch_touched_blocks.contains(rewrite.true_target) ||
+                         batch_touched_blocks.contains(rewrite.false_target) ||
+                         batch_touched_blocks.contains(rewrite.selection_merge))) {
+                        overlaps_batch = true;
+                        break;
+                    }
                     rewrites.emplace_back(rewrite);
                 }
             }
-            if (rewrites.empty()) { continue; }
+            if (overlaps_batch || rewrites.empty()) { continue; }
 
-            // Within one loop context, a break proxy substitutes the same
-            // BREAK fact. A merge proxy removes only its obsolete declared
-            // successor while retaining both executable arms. Facts can
-            // therefore only stay equal or lose spurious bits; every action
-            // proven on this snapshot remains sound. Newly enabled actions
-            // are found after the mandatory version restart below.
-            apply_rewrites(rewrites);
-            ++info.boundary_merge_rewrite_batch_count;
-            changed = true;
-            applied_batch = true;
-            break;
+            batch_touched_blocks.emplace(loop.body);
+            batch_touched_blocks.emplace(loop.continue_target);
+            batch_touched_blocks.emplace(loop.loop_entry);
+            batch_touched_blocks.emplace(loop.merge);
+            for (auto index = size_t{0u};
+                 index < dataflow.region_size(); ++index) {
+                batch_touched_blocks.emplace(dataflow.region_block(index));
+            }
+            for (auto &&rewrite : rewrites) {
+                batch_touched_blocks.emplace(rewrite.true_target);
+                batch_touched_blocks.emplace(rewrite.false_target);
+                batch_touched_blocks.emplace(rewrite.selection_merge);
+                batch_rewrites.emplace_back(rewrite);
+            }
+            ++batch_loop_count;
         }
-        if (!applied_batch) { break; }
+        if (batch_rewrites.empty()) { break; }
+        apply_rewrites(batch_rewrites);
+        info.boundary_merge_rewrite_batch_count += batch_loop_count;
+        changed = true;
     }
     return changed;
 }
@@ -3448,6 +3477,7 @@ enum class SelectionExitRewriteStatus : uint8_t {
     UNCHANGED,
     MODIFIED,
     STALLED_SITE,
+    DEFERRED_BATCH_CONFLICT,
 };
 
 struct SelectionExitRewriteResult {
@@ -3467,6 +3497,7 @@ struct SelectionExitRewriteResult {
     bool cfg_modified{false};
     luisa::vector<BasicBlock *> mutated_edge_sources;
     luisa::vector<BasicBlock *> bypassed_forwarding_blocks;
+    luisa::vector<BasicBlock *> touched_region_blocks;
 };
 
 using SelectionExitProgress =
@@ -3485,6 +3516,44 @@ struct SelectionExitAnalysis {
     luisa::vector<BasicBlock *> entries;
     luisa::vector<SelectionExitEdge> invalid_exits;
     luisa::vector<SelectionExitEdge> merge_exits;
+    luisa::vector<BasicBlock *> region_blocks;
+    bool batch_conflict{false};
+};
+
+struct StableBlockIndexCache {
+    luisa::unordered_map<BasicBlock *, size_t> indices;
+    size_t next_index{0u};
+    bool initialized{false};
+
+    void reset() noexcept {
+        indices.clear();
+        next_index = 0u;
+        initialized = false;
+    }
+
+    void ensure_initialized(FunctionDefinition *def) noexcept {
+        if (initialized) { return; }
+        indices.reserve(def->basic_blocks().count_size() + 64u);
+        next_index = 0u;
+        for (auto *block : def->basic_blocks()) {
+            indices.emplace(block, next_index++);
+        }
+        initialized = true;
+    }
+
+    void record_created(BasicBlock *block) noexcept {
+        if (initialized && block != nullptr) {
+            indices.emplace(block, next_index++);
+        }
+    }
+
+    [[nodiscard]] size_t index_of(BasicBlock *block) const noexcept {
+        auto iter = indices.find(block);
+        LUISA_DEBUG_ASSERT(
+            iter != indices.end(),
+            "Selection-exit target must belong to its function.");
+        return iter->second;
+    }
 };
 
 [[nodiscard]] size_t selection_context(
@@ -3691,6 +3760,43 @@ void verify_incremental_selection_exit_relations(
         "Incremental selection-exit relation update diverged from a fresh rebuild.");
 }
 
+struct BatchedIfSelectionUpdate {
+    BasicBlock *header{nullptr};
+    BasicBlock *old_merge{nullptr};
+    BasicBlock *new_merge{nullptr};
+    bool cfg_modified{false};
+};
+
+void incrementally_update_if_selection_exit_relations_batch(
+    FunctionDefinition *def,
+    const DomTree &dom,
+    SelectionExitCFGRelations &relations,
+    luisa::span<const BatchedIfSelectionUpdate> updates,
+    RestructureCFGInfo &info) noexcept {
+    if (updates.empty()) { return; }
+    auto any_cfg_modified = false;
+    for (auto &&update : updates) {
+        replace_selection_exit_structured_role(
+            relations.structured_merge_blocks,
+            update.old_merge, update.new_merge);
+        replace_selection_exit_structured_role(
+            relations.structured_exit_boundaries,
+            update.old_merge, update.new_merge);
+        any_cfg_modified |= update.cfg_modified;
+        ++info.selection_exit_relation_incremental_update_count;
+    }
+    if (any_cfg_modified) {
+        rebuild_selection_exit_context_relations(
+            relations, dom, info);
+    }
+    refresh_loop_boundary_selection_entries(
+        relations, info);
+    auto &&last = updates.back();
+    verify_incremental_selection_exit_relations(
+        def, dom, relations, last.header,
+        last.old_merge, last.new_merge, "If");
+}
+
 void incrementally_update_if_selection_exit_relations(
     FunctionDefinition *def,
     const DomTree &dom,
@@ -3700,34 +3806,15 @@ void incrementally_update_if_selection_exit_relations(
     BasicBlock *new_merge,
     bool executable_cfg_modified,
     RestructureCFGInfo &info) noexcept {
-    // The executable-CFG cases accepted here are either metadata-only or a
-    // one-target funnel in the quotient where trivial BranchInst chains are
-    // transparent. Such a funnel can only add its fresh merge and bypass
-    // forwarding blocks. It cannot create or mutate a Loop/Switch descriptor.
-    // Ordinary continuation blocks may nevertheless gain or lose dominance,
-    // so a CFG-changing funnel rebuilds the exact observable
-    // selection/Break context maps from the stable Loop/Switch descriptors.
-    // Structured-role ownership is independent. Loop-region candidate
-    // membership is stable because the rewrite inserts or bypasses only
-    // forwarding blocks; re-evaluating every candidate's physical predicate
-    // therefore gives the exact new boundary set without rerunning loop
-    // reachability dataflow.
-    replace_selection_exit_structured_role(
-        relations.structured_merge_blocks,
-        old_merge, new_merge);
-    replace_selection_exit_structured_role(
-        relations.structured_exit_boundaries,
-        old_merge, new_merge);
-    if (executable_cfg_modified) {
-        rebuild_selection_exit_context_relations(
-            relations, dom, info);
-    }
-    refresh_loop_boundary_selection_entries(
-        relations, info);
-    ++info.selection_exit_relation_incremental_update_count;
-    verify_incremental_selection_exit_relations(
-        def, dom, relations, header,
-        old_merge, new_merge, "If");
+    const BatchedIfSelectionUpdate single{
+        .header = header,
+        .old_merge = old_merge,
+        .new_merge = new_merge,
+        .cfg_modified = executable_cfg_modified};
+    incrementally_update_if_selection_exit_relations_batch(
+        def, dom, relations,
+        luisa::span<const BatchedIfSelectionUpdate>{&single, 1u},
+        info);
 }
 
 void incrementally_update_switch_selection_exit_relations(
@@ -3913,8 +4000,18 @@ void incrementally_update_switch_selection_exit_relations(
     const SelectionExitCFGRelations &cfg_relations,
     RestructureCFGInfo &info,
     const luisa::unordered_set<BasicBlock *> &
-        exit_dispatch_headers) noexcept {
+        exit_dispatch_headers,
+    const luisa::unordered_set<BasicBlock *> *
+        batch_forbidden = nullptr) noexcept {
     SelectionExitAnalysis analysis;
+    auto is_forbidden = [&](BasicBlock *block) noexcept {
+        return batch_forbidden != nullptr && block != nullptr &&
+               batch_forbidden->contains(block);
+    };
+    if (is_forbidden(header) || is_forbidden(merge)) {
+        analysis.batch_conflict = true;
+        return analysis;
+    }
     analysis.entries = selection_entries(term);
     auto enclosing_context =
         selection_context(cfg_relations, header);
@@ -3946,12 +4043,20 @@ void incrementally_update_switch_selection_exit_relations(
         [&](BasicBlock *nested_header,
             Instruction *nested_term,
             BasicBlock *nested_merge) noexcept {
+            if (is_forbidden(nested_header) || is_forbidden(nested_merge)) {
+                analysis.batch_conflict = true;
+                return false;
+            }
             luisa::unordered_set<BasicBlock *> visited;
             auto work = selection_entries(nested_term);
             auto escaped = false;
             while (!work.empty() && !escaped) {
                 auto *block = work.back();
                 work.pop_back();
+                if (is_forbidden(block)) {
+                    analysis.batch_conflict = true;
+                    return false;
+                }
                 if (block == nested_merge) { continue; }
                 if (block == nullptr || !dom.contains(block) ||
                     !dom.dominates(nested_header, block) ||
@@ -3967,6 +4072,11 @@ void incrementally_update_switch_selection_exit_relations(
                 }
                 traverse_executable_successors(
                     block, [&](BasicBlock *successor) noexcept {
+                        if (analysis.batch_conflict) { return; }
+                        if (is_forbidden(successor)) {
+                            analysis.batch_conflict = true;
+                            return;
+                        }
                         if (escaped || successor == nested_merge) {
                             return;
                         }
@@ -3980,10 +4090,15 @@ void incrementally_update_switch_selection_exit_relations(
                         }
                         work.emplace_back(successor);
                     });
+                if (analysis.batch_conflict) { return false; }
             }
             return !escaped;
         };
     for (auto *entry : analysis.entries) {
+        if (is_forbidden(entry)) {
+            analysis.batch_conflict = true;
+            return analysis;
+        }
         if (entry == merge) {
             append_unique_exit_edge(
                 analysis.merge_exits, header, merge);
@@ -4003,12 +4118,17 @@ void incrementally_update_switch_selection_exit_relations(
         while (!work.empty()) {
             auto *bb = work.back();
             work.pop_back();
+            if (is_forbidden(bb)) {
+                analysis.batch_conflict = true;
+                return analysis;
+            }
             if (bb == nullptr || bb == merge) { continue; }
             if (!dom.contains(bb) ||
                 !dom.dominates(header, bb) ||
                 !region.emplace(bb).second) {
                 continue;
             }
+            analysis.region_blocks.emplace_back(bb);
             ++info.selection_exit_region_block_visit_count;
             if (!bb->is_terminated()) { continue; }
             auto *nested_merge =
@@ -4017,20 +4137,10 @@ void incrementally_update_switch_selection_exit_relations(
                 !exit_dispatch_headers.contains(bb) &&
                 !cfg_relations.loop_boundary_selection_entries
                      .contains(bb)) {
-                // Contract a nested construct only when its declared merge
-                // remains in this exact arm interior. If the merge is shared
-                // with another arm, equals this construct's own merge, or is
-                // outside the current header's dominance region, contraction
-                // would replace the child's physical exit cut by a fictitious
-                // header-to-merge edge. The subsequent dominance guard would
-                // then silently discard a real non-local exit, and the
-                // single-exit protocol could move only one arm of a generated
-                // target-state dispatch.
-                //
-                // In the non-contractible case, descend through the child's
-                // executable entries. Inner-to-outer structurization makes
-                // every physical edge found this way retargetable, while each
-                // interior block is still visited at most once by `region`.
+                if (is_forbidden(nested_merge)) {
+                    analysis.batch_conflict = true;
+                    return analysis;
+                }
                 auto merge_is_strictly_inside_arm =
                     nested_merge != merge &&
                     dom.contains(nested_merge) &&
@@ -4039,6 +4149,7 @@ void incrementally_update_switch_selection_exit_relations(
                 auto child_is_closed =
                     nested_construct_is_closed_or_terminal(
                         bb, bb->terminator(), nested_merge);
+                if (analysis.batch_conflict) { return analysis; }
                 if (merge_is_strictly_inside_arm || child_is_closed) {
                     if (nested_merge == merge) {
                         append_unique_exit_edge(
@@ -4051,8 +4162,13 @@ void incrementally_update_switch_selection_exit_relations(
             }
             traverse_executable_successors(
                 bb, [&](BasicBlock *successor) noexcept {
+                    if (analysis.batch_conflict) { return; }
                     ++info.selection_exit_region_edge_visit_count;
                     if (successor == nullptr) { return; }
+                    if (is_forbidden(successor)) {
+                        analysis.batch_conflict = true;
+                        return;
+                    }
                     if (successor == merge) {
                         append_unique_exit_edge(
                             analysis.merge_exits, bb, successor);
@@ -4060,23 +4176,17 @@ void incrementally_update_switch_selection_exit_relations(
                     }
                     auto *canonical_successor =
                         canonical_exit_target(successor);
+                    if (is_forbidden(canonical_successor)) {
+                        analysis.batch_conflict = true;
+                        return;
+                    }
                     if (is_legal_structured_exit(successor)) {
-                        // A selection may leave directly through the nearest
-                        // enclosing loop/switch boundary. An otherwise empty
-                        // branch chain is the same executable edge in the
-                        // quotient CFG; later boundary normalization gives it
-                        // the required Break/Continue spelling.
                         return;
                     }
                     if (successor == header ||
                         canonical_successor == header) {
                         return;
                     }
-                    // A terminal block owned by this arm executes inside the
-                    // arm, including its payload before Return/Unreachable.
-                    // Funneling into it through a selector unnecessarily loses
-                    // initializer dominance for affine state. A terminal shared
-                    // by several arms still fails the entry-dominance check.
                     if (!dom.contains(successor) ||
                         !dom.dominates(entry, successor)) {
                         append_unique_exit_edge(
@@ -4086,6 +4196,7 @@ void incrementally_update_switch_selection_exit_relations(
                     }
                     work.emplace_back(successor);
                 });
+            if (analysis.batch_conflict) { return analysis; }
         }
     }
     return analysis;
@@ -4165,8 +4276,19 @@ void repair_target_state_dispatch_ssa(
     SelectionExitProgress &
         rewritten_site_invalid_exit_counts,
     luisa::unordered_set<BasicBlock *> &
-        exit_dispatch_headers) noexcept {
+        exit_dispatch_headers,
+    StableBlockIndexCache *block_index_cache = nullptr,
+    const luisa::unordered_set<BasicBlock *> *
+        batch_forbidden = nullptr) noexcept {
     if (header == nullptr || term == nullptr || merge == nullptr) { return {}; }
+    auto is_forbidden = [&](BasicBlock *block) noexcept {
+        return batch_forbidden != nullptr && block != nullptr &&
+               batch_forbidden->contains(block);
+    };
+    if (is_forbidden(header) || is_forbidden(merge)) {
+        return {.status = SelectionExitRewriteStatus::DEFERRED_BATCH_CONFLICT,
+                .site = term};
+    }
     // Exit-state dispatches are the continuation *after* a construct's single
     // exit, matching LLVM SPIRVStructurizer::createSingleExitNode. They must
     // remain transparent while an enclosing construct walks through them, but
@@ -4196,7 +4318,11 @@ void repair_target_state_dispatch_ssa(
         };
     auto analysis = analyze_selection_exits(
         header, term, merge, dom, cfg_relations,
-        info, exit_dispatch_headers);
+        info, exit_dispatch_headers, batch_forbidden);
+    if (analysis.batch_conflict) {
+        return {.status = SelectionExitRewriteStatus::DEFERRED_BATCH_CONFLICT,
+                .site = term};
+    }
     auto &entries = analysis.entries;
     auto &invalid_exits = analysis.invalid_exits;
     auto &merge_exits = analysis.merge_exits;
@@ -4283,6 +4409,10 @@ void repair_target_state_dispatch_ssa(
         !is_legal_structured_exit(common_direct_exit) &&
         !cfg_relations.structured_merge_blocks.contains(
             common_direct_exit)) {
+        if (is_forbidden(common_direct_exit)) {
+            return {.status = SelectionExitRewriteStatus::DEFERRED_BATCH_CONFLICT,
+                    .site = term};
+        }
         auto *control_flow_merge = term->control_flow_merge();
         LUISA_ASSERT(
             control_flow_merge != nullptr &&
@@ -4303,7 +4433,8 @@ void repair_target_state_dispatch_ssa(
             .site = term,
             .local_dependency_only = true,
             .requires_ssa_repair = false,
-            .cfg_modified = false};
+            .cfg_modified = false,
+            .touched_region_blocks = std::move(analysis.region_blocks)};
     }
 
     struct RerouteEdge {
@@ -4315,7 +4446,27 @@ void repair_target_state_dispatch_ssa(
     normalized_edges.reserve(reroute_edges.size());
     for (auto edge : reroute_edges) {
         auto *target = canonical_exit_target(edge.dst);
+        if (is_forbidden(edge.src) || is_forbidden(edge.dst) ||
+            is_forbidden(target)) {
+            return {.status = SelectionExitRewriteStatus::DEFERRED_BATCH_CONFLICT,
+                    .site = term};
+        }
         normalized_edges.emplace_back(RerouteEdge{edge.src, edge.dst, target});
+    }
+    // Check early whether batching allows this rewrite before building indices
+    // or mutating anything: multi-target rewrites always invalidate globally.
+    if (batch_forbidden != nullptr) {
+        if (!term->isa<IfInst>() || normalized_edges.empty()) {
+            return {.status = SelectionExitRewriteStatus::DEFERRED_BATCH_CONFLICT,
+                    .site = term};
+        }
+        auto *first_target = normalized_edges.front().target;
+        for (auto edge : normalized_edges) {
+            if (edge.target != first_target) {
+                return {.status = SelectionExitRewriteStatus::DEFERRED_BATCH_CONFLICT,
+                        .site = term};
+            }
+        }
     }
     // The exit analysis stores membership in pointer-keyed sets, and
     // predecessor use-list order reflects mutation history rather than CFG
@@ -4325,20 +4476,12 @@ void repair_target_state_dispatch_ssa(
     // Canonicalize both the edge rewrite order and target order by the
     // function-owned block sequence, which is stable for an identical XIR
     // program.
-    luisa::unordered_map<BasicBlock *, size_t> stable_block_indices;
-    stable_block_indices.reserve(
-        def->basic_blocks().count_size());
-    auto next_block_index = size_t{0u};
-    for (auto *block : def->basic_blocks()) {
-        stable_block_indices.emplace(
-            block, next_block_index++);
-    }
+    StableBlockIndexCache local_block_index_cache;
+    auto *active_index_cache =
+        block_index_cache != nullptr ? block_index_cache : &local_block_index_cache;
+    active_index_cache->ensure_initialized(def);
     auto block_index = [&](BasicBlock *block) noexcept {
-        auto iter = stable_block_indices.find(block);
-        LUISA_DEBUG_ASSERT(
-            iter != stable_block_indices.end(),
-            "Selection-exit target must belong to its function.");
-        return iter->second;
+        return active_index_cache->index_of(block);
     };
     luisa::sort(
         normalized_edges.begin(), normalized_edges.end(),
@@ -4532,6 +4675,10 @@ void repair_target_state_dispatch_ssa(
                    forwarding_path.begin(),
                    forwarding_path.end(),
                    block) == forwarding_path.end()) {
+            if (is_forbidden(block)) {
+                return {.status = SelectionExitRewriteStatus::DEFERRED_BATCH_CONFLICT,
+                        .site = term};
+            }
             forwarding_path.emplace_back(block);
             if (std::find(
                     bypassed_forwarding_blocks.begin(),
@@ -4551,6 +4698,7 @@ void repair_target_state_dispatch_ssa(
     }
     rewrite_iter->second = invalid_exits.size();
     auto *new_merge = def->create_basic_block();
+    active_index_cache->record_created(new_merge);
     XIRBuilder b;
     auto retargeted_any = false;
     if (targets.size() == 1u) {
@@ -4573,6 +4721,7 @@ void repair_target_state_dispatch_ssa(
                 stub->remove_self();
                 continue;
             }
+            active_index_cache->record_created(stub);
             retargeted_any = true;
             fix_degenerate_terminator(edge.src);
             auto id = target_ids[edge.target];
@@ -4584,6 +4733,7 @@ void repair_target_state_dispatch_ssa(
         b.set_insertion_point(new_merge);
         auto *loaded = b.load(Type::of<uint32_t>(), selector);
         auto *dispatch = def->create_basic_block();
+        active_index_cache->record_created(dispatch);
         b.br(dispatch);
         b.set_insertion_point(dispatch);
         auto *dispatch_header = dispatch;
@@ -4596,6 +4746,7 @@ void repair_target_state_dispatch_ssa(
                 Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
                 {loaded, id_const});
             auto *next = def->create_basic_block();
+            active_index_cache->record_created(next);
             b.cond_br(condition, targets[i], next);
             b.set_insertion_point(next);
             dispatch_header = next;
@@ -4636,7 +4787,9 @@ void repair_target_state_dispatch_ssa(
         .mutated_edge_sources =
             std::move(mutated_edge_sources),
         .bypassed_forwarding_blocks =
-            std::move(bypassed_forwarding_blocks)};
+            std::move(bypassed_forwarding_blocks),
+        .touched_region_blocks =
+            std::move(analysis.region_blocks)};
 }
 
 struct SelectionExitDrainResult {
@@ -4709,35 +4862,29 @@ struct SelectionExitDrainResult {
         }
     };
     // A structured selection (H, M) can observe a changed block X exactly in
-    // subtree(H) - subtree(M). This is the same sparse-dominator construct
-    // interior used by construct-exit repair. Checking both the old and new
-    // trees covers dominance gained or lost by the rewrite.
+    // subtree(H) - subtree(M). Walking up the dominator tree from X visits
+    // every dominating selection header H in O(dom_depth) instead of scanning
+    // all selection sites in the function.
     auto mark_enclosing_dependencies =
         [&](const DomTree &snapshot,
             BasicBlock *changed_header) noexcept {
-            if (changed_header == nullptr ||
-                !snapshot.contains(changed_header)) {
-                return;
-            }
-            for (auto index = size_t{0u};
-                 index < sites.size(); ++index) {
-                auto site = sites[index];
-                if (site.header == changed_header) {
+            if (changed_header == nullptr) { return; }
+            for (auto *node = snapshot.node_or_null(changed_header);
+                 node != nullptr; node = node->parent()) {
+                auto *anc = node->block();
+                auto iter = site_index_by_header.find(anc);
+                if (iter == site_index_by_header.end()) { continue; }
+                auto index = iter->second;
+                if (anc == changed_header) {
                     mark_dirty(index);
                     continue;
                 }
-                auto *merge = current_merge(site);
-                if (merge == nullptr ||
-                    !snapshot.contains(site.header) ||
-                    !snapshot.dominates(
-                        site.header, changed_header)) {
-                    continue;
-                }
+                auto *merge = current_merge(sites[index]);
+                if (merge == nullptr) { continue; }
                 auto merge_cuts_interior =
                     snapshot.contains(merge) &&
-                    snapshot.dominates(site.header, merge) &&
-                    snapshot.dominates(
-                        merge, changed_header);
+                    snapshot.dominates(anc, merge) &&
+                    snapshot.dominates(merge, changed_header);
                 if (!merge_cuts_interior) {
                     mark_dirty(index);
                 }
@@ -4747,6 +4894,7 @@ struct SelectionExitDrainResult {
     SelectionExitCFGRelations cfg_relations;
     auto cfg_relations_valid = false;
     auto nonlocal_switch_breaks_canonical = false;
+    StableBlockIndexCache block_index_cache;
     for (;;) {
         if (!cfg_relations_valid) {
             cfg_relations =
@@ -4792,6 +4940,30 @@ struct SelectionExitDrainResult {
         }
 
         auto version_modified = false;
+        luisa::vector<BatchedIfSelectionUpdate> batched_if_updates;
+        luisa::unordered_set<BasicBlock *> batch_forbidden_blocks;
+        luisa::unordered_set<BasicBlock *> batch_enclosing_headers;
+        luisa::unordered_set<BasicBlock *> batch_bypassed_blocks;
+        auto mark_batch_enclosing = [&](BasicBlock *changed_header) noexcept {
+            for (auto *node = dom.node_or_null(changed_header);
+                 node != nullptr; node = node->parent()) {
+                auto *anc = node->block();
+                if (anc == changed_header) { continue; }
+                auto iter = site_index_by_header.find(anc);
+                if (iter == site_index_by_header.end()) { continue; }
+                auto *anc_merge = current_merge(sites[iter->second]);
+                if (anc_merge == nullptr) { continue; }
+                auto merge_cuts_interior =
+                    dom.contains(anc_merge) &&
+                    dom.dominates(anc, anc_merge) &&
+                    dom.dominates(anc_merge, changed_header);
+                if (!merge_cuts_interior) {
+                    if (!batch_enclosing_headers.emplace(anc).second) {
+                        break;
+                    }
+                }
+            }
+        };
         {
             ScopedTimer _timer_selection_exit_scan_sites(
                 "selection_exit_scan_sites");
@@ -4802,16 +4974,35 @@ struct SelectionExitDrainResult {
                 if (dirty[query.site_index] == uint8_t{0u}) {
                     continue;
                 }
-                dirty[query.site_index] = uint8_t{0u};
                 auto site = sites[query.site_index];
                 auto *merge = current_merge(site);
-                if (merge == nullptr) { continue; }
+                if (merge == nullptr) {
+                    dirty[query.site_index] = uint8_t{0u};
+                    continue;
+                }
+                const auto in_if_batch = !batched_if_updates.empty();
+                if (in_if_batch &&
+                    (!site.term->isa<IfInst>() ||
+                     batch_enclosing_headers.contains(site.header) ||
+                     batch_forbidden_blocks.contains(site.header) ||
+                     batch_forbidden_blocks.contains(merge))) {
+                    continue;
+                }
+                dirty[query.site_index] = uint8_t{0u};
                 ++info.selection_exit_site_query_count;
                 auto result = canonicalize_selection_exits(
                     def, site.header, site.term, merge, dom,
                     cfg_relations, info,
                     rewritten_site_invalid_exit_counts,
-                    exit_dispatch_headers);
+                    exit_dispatch_headers,
+                    &block_index_cache,
+                    in_if_batch ? &batch_forbidden_blocks : nullptr);
+                if (result.status ==
+                    SelectionExitRewriteStatus::DEFERRED_BATCH_CONFLICT) {
+                    --info.selection_exit_site_query_count;
+                    dirty[query.site_index] = uint8_t{1u};
+                    continue;
+                }
                 if (result.status ==
                     SelectionExitRewriteStatus::UNCHANGED) {
                     continue;
@@ -4832,6 +5023,11 @@ struct SelectionExitDrainResult {
                 }
                 if (result.status ==
                     SelectionExitRewriteStatus::STALLED_SITE) {
+                    if (in_if_batch) {
+                        --info.selection_exit_site_query_count;
+                        dirty[query.site_index] = uint8_t{1u};
+                        break;
+                    }
                     ++info.selection_exit_round_yield_count;
                     drain.yielded = true;
                     break;
@@ -4839,21 +5035,53 @@ struct SelectionExitDrainResult {
 
                 drain.modified = true;
                 version_modified = true;
+                if (site.term->isa<IfInst>() && result.local_dependency_only) {
+                    auto *new_merge = current_merge(site);
+                    if (!result.cfg_modified) {
+                        ++info.selection_exit_merge_canonicalization_count;
+                    } else {
+                        drain.cfg_modified = true;
+                        ++info.selection_exit_cfg_invalidation_count;
+                        ++info.selection_exit_local_invalidation_count;
+                    }
+                    batched_if_updates.emplace_back(BatchedIfSelectionUpdate{
+                        .header = site.header,
+                        .old_merge = merge,
+                        .new_merge = new_merge,
+                        .cfg_modified = result.cfg_modified});
+                    mark_batch_enclosing(site.header);
+                    batch_forbidden_blocks.emplace(site.header);
+                    if (new_merge != nullptr) {
+                        batch_forbidden_blocks.emplace(new_merge);
+                    }
+                    for (auto *rb : result.touched_region_blocks) {
+                        batch_forbidden_blocks.emplace(rb);
+                    }
+                    for (auto *source : result.mutated_edge_sources) {
+                        batch_forbidden_blocks.emplace(source);
+                        if (auto iter = site_index_by_header.find(source);
+                            iter != site_index_by_header.end()) {
+                            mark_dirty(iter->second);
+                        }
+                    }
+                    for (auto *bypassed : result.bypassed_forwarding_blocks) {
+                        batch_forbidden_blocks.emplace(bypassed);
+                        batch_bypassed_blocks.emplace(bypassed);
+                        if (auto iter = site_index_by_header.find(bypassed);
+                            iter != site_index_by_header.end()) {
+                            mark_dirty(iter->second);
+                        }
+                    }
+                    continue;
+                }
                 if (!result.cfg_modified) {
                     ++info.selection_exit_merge_canonicalization_count;
                     mark_enclosing_dependencies(
                         dom, site.header);
-                    if (site.term->isa<IfInst>()) {
-                        incrementally_update_if_selection_exit_relations(
-                            def, dom, cfg_relations,
-                            site.header,
-                            merge, current_merge(site), false, info);
-                    } else {
-                        incrementally_update_switch_selection_exit_relations(
-                            def, dom, cfg_relations,
-                            site.header,
-                            merge, current_merge(site), info);
-                    }
+                    incrementally_update_switch_selection_exit_relations(
+                        def, dom, cfg_relations,
+                        site.header,
+                        merge, current_merge(site), info);
                     nonlocal_switch_breaks_canonical = false;
                     break;
                 }
@@ -4924,6 +5152,33 @@ struct SelectionExitDrainResult {
                     cfg_relations_valid = false;
                 }
                 break;
+            }
+            if (!batched_if_updates.empty()) {
+                auto any_batch_cfg_modified = false;
+                for (auto &&update : batched_if_updates) {
+                    mark_enclosing_dependencies(dom, update.header);
+                    any_batch_cfg_modified |= update.cfg_modified;
+                }
+                if (!batch_bypassed_blocks.empty()) {
+                    for (auto index = size_t{0u};
+                         index < sites.size(); ++index) {
+                        if (batch_bypassed_blocks.contains(
+                                current_merge(sites[index]))) {
+                            mark_dirty(index);
+                        }
+                    }
+                }
+                if (any_batch_cfg_modified) {
+                    dom = compute_restructure_dom(def);
+                    for (auto &&update : batched_if_updates) {
+                        if (update.cfg_modified) {
+                            mark_enclosing_dependencies(dom, update.header);
+                        }
+                    }
+                }
+                incrementally_update_if_selection_exit_relations_batch(
+                    def, dom, cfg_relations, batched_if_updates, info);
+                nonlocal_switch_breaks_canonical = false;
             }
         }
         if (drain.yielded) { break; }
@@ -5071,19 +5326,19 @@ struct SelectionExitDrainResult {
         BasicBlock *physical_header{nullptr};
         BasicBlock *merge{nullptr};
     };
-    luisa::vector<ExistingLoopScope> existing_loop_scopes;
+    luisa::unordered_map<BasicBlock *, luisa::vector<ExistingLoopScope>> existing_loop_scopes_by_header;
     struct ExistingMergeScope {
         BasicBlock *owner{nullptr};
         ControlFlowMerge *merge{nullptr};
         BasicBlock *target{nullptr};
     };
-    luisa::vector<ExistingMergeScope> existing_merge_scopes;
+    luisa::unordered_map<BasicBlock *, luisa::vector<ExistingMergeScope>> existing_merge_scopes_by_target;
     for (auto *bb : all_blocks) {
         if (!bb->is_terminated()) { continue; }
         auto *term = bb->terminator();
         if (auto *merge = term->control_flow_merge();
             merge != nullptr && merge->merge_block() != nullptr) {
-            existing_merge_scopes.emplace_back(
+            existing_merge_scopes_by_target[merge->merge_block()].emplace_back(
                 ExistingMergeScope{
                     .owner = bb,
                     .merge = merge,
@@ -5092,7 +5347,7 @@ struct SelectionExitDrainResult {
         if (term->isa<LoopInst>()) {
             auto *li = static_cast<LoopInst *>(term);
             if (li->prepare_block()) {
-                existing_loop_scopes.emplace_back(
+                existing_loop_scopes_by_header[li->prepare_block()].emplace_back(
                     ExistingLoopScope{
                         .owner = bb,
                         .physical_header = li->prepare_block(),
@@ -5101,7 +5356,7 @@ struct SelectionExitDrainResult {
         } else if (term->isa<SimpleLoopInst>()) {
             auto *sl = static_cast<SimpleLoopInst *>(term);
             if (sl->body_block()) {
-                existing_loop_scopes.emplace_back(
+                existing_loop_scopes_by_header[sl->body_block()].emplace_back(
                     ExistingLoopScope{
                         .owner = bb,
                         .physical_header = sl->body_block(),
@@ -5112,11 +5367,14 @@ struct SelectionExitDrainResult {
     auto is_owned_existing_loop_backedge =
         [&](BasicBlock *source,
             BasicBlock *target) noexcept {
-            for (auto scope : existing_loop_scopes) {
-                if (scope.physical_header != target ||
-                    scope.owner == nullptr ||
+            auto it = existing_loop_scopes_by_header.find(target);
+            if (it == existing_loop_scopes_by_header.end() ||
+                !dom.contains(source)) {
+                return false;
+            }
+            for (auto scope : it->second) {
+                if (scope.owner == nullptr ||
                     !dom.contains(scope.owner) ||
-                    !dom.contains(source) ||
                     !dom.dominates(scope.owner, source)) {
                     continue;
                 }
@@ -5140,6 +5398,7 @@ struct SelectionExitDrainResult {
     };
 
     luisa::vector<LoopCandidate> candidates;
+    luisa::unordered_map<BasicBlock *, size_t> candidate_index;
 
     for (auto *bb : all_blocks) {
         if (!bb->is_terminated()) { continue; }
@@ -5161,19 +5420,15 @@ struct SelectionExitDrainResult {
             continue;
         }
 
-        bool found = false;
-        for (auto &c : candidates) {
-            if (c.header == back_target) {
-                c.latches.emplace_back(bb);
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
+        if (auto it = candidate_index.find(back_target);
+            it != candidate_index.end()) {
+            candidates[it->second].latches.emplace_back(bb);
+        } else {
             LoopCandidate c;
             c.header = back_target;
             c.latches.emplace_back(bb);
             c.depth = dom_depth(dom, back_target);
+            candidate_index.emplace(back_target, candidates.size());
             candidates.emplace_back(std::move(c));
         }
     }
@@ -5193,6 +5448,15 @@ struct SelectionExitDrainResult {
 
     bool any = false;
     luisa::unordered_set<BasicBlock *> newly_restructured_headers;
+    // Disjoint single-exit sibling loops (including sequential loops inside
+    // the same branch/switch case) can be restructured in one batch without
+    // rebuilding function-wide dominance/post-dominance trees between them.
+    // Track every modified block, exit target, and created block; any candidate
+    // whose backward/forward loop reachability touches a batch-mutated block
+    // (for example, an enclosing outer loop) defers cleanly to the next pass.
+    luisa::unordered_set<BasicBlock *> batch_modified_blocks;
+    luisa::unordered_set<BasicBlock *> batch_exit_targets;
+    luisa::unordered_set<BasicBlock *> batch_created_blocks;
 
     for (auto &cand : candidates) {
         auto *header = cand.header;
@@ -5209,6 +5473,24 @@ struct SelectionExitDrainResult {
         }
         if (all_latches_owned_by_existing_loop) { continue; }
         if (newly_restructured_headers.contains(header)) { continue; }
+        if (any) {
+            if (header == def->body_block() ||
+                batch_modified_blocks.contains(header) ||
+                batch_exit_targets.contains(header) ||
+                batch_created_blocks.contains(header)) {
+                continue;
+            }
+            bool latch_conflict = false;
+            for (auto *latch : latches) {
+                if (batch_modified_blocks.contains(latch) ||
+                    batch_exit_targets.contains(latch) ||
+                    batch_created_blocks.contains(latch)) {
+                    latch_conflict = true;
+                    break;
+                }
+            }
+            if (latch_conflict) { continue; }
+        }
 
         // Re-validate latches: they may have been modified by earlier restructuring.
         luisa::vector<BasicBlock *> valid_latches;
@@ -5246,39 +5528,82 @@ struct SelectionExitDrainResult {
             immediate_postdom != pdom.virtual_exit) {
             loop_scope_boundary = immediate_postdom;
         }
-        luisa::unordered_set<BasicBlock *> loop_blocks;
-        auto loop_scope_boundary_reaches_latch = [&]() noexcept {
-            if (loop_scope_boundary == nullptr || !dom.contains(loop_scope_boundary) ||
-                !dom.dominates(header, loop_scope_boundary)) { return false; }
-            luisa::unordered_set<BasicBlock *> visited;
-            luisa::vector<BasicBlock *> work{loop_scope_boundary};
-            while (!work.empty()) {
+        auto hit_batch_conflict = false;
+        auto touches_batch = [&](BasicBlock *b) noexcept {
+            return any && b != nullptr &&
+                   (batch_modified_blocks.contains(b) ||
+                    batch_created_blocks.contains(b));
+        };
+        if (touches_batch(loop_scope_boundary)) { continue; }
+        // Exact backward reachability within D(header) from valid_latches (and
+        // separately from {header} U valid_latches). Visits only O(|loop|)
+        // blocks instead of scanning the entire downstream dominator subtree.
+        luisa::unordered_set<BasicBlock *> reaches_latch_set;
+        {
+            luisa::vector<BasicBlock *> work;
+            for (auto *latch : valid_latches) {
+                if (reaches_latch_set.emplace(latch).second) {
+                    work.emplace_back(latch);
+                }
+            }
+            while (!work.empty() && !hit_batch_conflict) {
                 auto *cur = work.back();
                 work.pop_back();
-                if (cur == nullptr || !visited.emplace(cur).second) { continue; }
-                for (auto *latch : valid_latches) {
-                    if (cur == latch) { return true; }
-                }
-                if (!cur->is_terminated()) { continue; }
-                cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                    if (succ == header || (dom.contains(succ) && dom.dominates(header, succ))) {
-                        work.emplace_back(succ);
+                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                    if (hit_batch_conflict || pred == nullptr) { return; }
+                    if (touches_batch(pred)) {
+                        hit_batch_conflict = true;
+                        return;
+                    }
+                    if (!dom.contains(pred) || !dom.dominates(header, pred)) { return; }
+                    if (reaches_latch_set.emplace(pred).second) {
+                        work.emplace_back(pred);
                     }
                 });
             }
-            return false;
-        };
-        auto boundary_is_loop_internal = loop_scope_boundary_reaches_latch();
+        }
+        if (hit_batch_conflict) { continue; }
+        auto boundary_is_loop_internal =
+            loop_scope_boundary != nullptr &&
+            reaches_latch_set.contains(loop_scope_boundary);
+
+        luisa::unordered_set<BasicBlock *> reaches_latch_or_header_set = reaches_latch_set;
+        if (reaches_latch_or_header_set.emplace(header).second) {
+            luisa::vector<BasicBlock *> work{header};
+            while (!work.empty() && !hit_batch_conflict) {
+                auto *cur = work.back();
+                work.pop_back();
+                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                    if (hit_batch_conflict || pred == nullptr) { return; }
+                    if (touches_batch(pred)) {
+                        hit_batch_conflict = true;
+                        return;
+                    }
+                    if (!dom.contains(pred) || !dom.dominates(header, pred)) { return; }
+                    if (reaches_latch_or_header_set.emplace(pred).second) {
+                        work.emplace_back(pred);
+                    }
+                });
+            }
+        }
+        if (hit_batch_conflict) { continue; }
+
+        luisa::unordered_set<BasicBlock *> loop_blocks;
         auto collect_forward_loop_blocks = [&]() noexcept {
             loop_blocks.clear();
             loop_blocks.emplace(header);
             luisa::vector<BasicBlock *> fwd_work{header};
-            while (!fwd_work.empty()) {
+            while (!fwd_work.empty() && !hit_batch_conflict) {
                 auto *cur = fwd_work.back();
                 fwd_work.pop_back();
                 if (!cur->is_terminated()) { continue; }
                 cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    if (hit_batch_conflict || succ == nullptr) { return; }
                     if (succ == loop_scope_boundary && !boundary_is_loop_internal) { return; }
+                    if (touches_batch(succ)) {
+                        hit_batch_conflict = true;
+                        return;
+                    }
                     if (!dom.contains(succ)) { return; }
                     if (!dom.strictly_dominates(header, succ)) { return; }
                     if (loop_blocks.emplace(succ).second) {
@@ -5293,39 +5618,13 @@ struct SelectionExitDrainResult {
             }
             return true;
         };
-        auto reaches_latch_or_header = [&](BasicBlock *start) noexcept {
-            // An exit to an enclosing loop header may reach this header again
-            // in the next activation. It is not an internal exit of the current
-            // natural loop. Apply the same dominance boundary to the search
-            // seed as to every subsequent successor.
-            if (start == nullptr || !dom.contains(start) ||
-                !dom.dominates(header, start)) { return false; }
-            luisa::unordered_set<BasicBlock *> visited;
-            luisa::vector<BasicBlock *> work{start};
-            while (!work.empty()) {
-                auto *cur = work.back();
-                work.pop_back();
-                if (cur == nullptr || !visited.emplace(cur).second) { continue; }
-                if (cur == header) { return true; }
-                for (auto *latch : valid_latches) {
-                    if (cur == latch) { return true; }
-                }
-                if (!cur->is_terminated()) { continue; }
-                cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                    if (succ != nullptr && dom.contains(succ) && dom.dominates(header, succ)) {
-                        work.emplace_back(succ);
-                    }
-                });
-            }
-            return false;
-        };
         auto loop_has_internal_exit = [&]() noexcept {
             for (auto *lb : loop_blocks) {
                 if (!lb->is_terminated()) { continue; }
                 bool found = false;
                 lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                    if (found || succ == header || loop_blocks.contains(succ)) { return; }
-                    found = reaches_latch_or_header(succ);
+                    if (found || succ == nullptr || succ == header || loop_blocks.contains(succ)) { return; }
+                    found = reaches_latch_or_header_set.contains(succ);
                 });
                 if (found) { return true; }
             }
@@ -5340,11 +5639,16 @@ struct SelectionExitDrainResult {
                     loop_work.emplace_back(latch);
                 }
             }
-            while (!loop_work.empty()) {
+            while (!loop_work.empty() && !hit_batch_conflict) {
                 auto *cur = loop_work.back();
                 loop_work.pop_back();
                 cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                    if (pred == nullptr || !dom.contains(pred)) { return; }
+                    if (hit_batch_conflict || pred == nullptr) { return; }
+                    if (touches_batch(pred)) {
+                        hit_batch_conflict = true;
+                        return;
+                    }
+                    if (!dom.contains(pred)) { return; }
                     if (pred != header && !dom.dominates(header, pred)) { return; }
                     if (loop_blocks.emplace(pred).second) {
                         loop_work.emplace_back(pred);
@@ -5365,6 +5669,7 @@ struct SelectionExitDrainResult {
             }
         }
         collect_forward_loop_blocks();
+        if (hit_batch_conflict) { continue; }
         if (any_conditional_latch) {
             // Prune blocks that cannot reach the header or a latch; they are
             // outside the natural loop.
@@ -5394,6 +5699,7 @@ struct SelectionExitDrainResult {
         }
         if (!all_latches_in_loop() || loop_has_internal_exit()) {
             collect_natural_loop_blocks();
+            if (hit_batch_conflict) { continue; }
         }
         for (auto *latch : valid_latches) {
             if (!loop_blocks.contains(latch)) {
@@ -5408,9 +5714,19 @@ struct SelectionExitDrainResult {
             continue;
         }
 
+        luisa::vector<BasicBlock *> ordered_loop_blocks;
+        ordered_loop_blocks.reserve(loop_blocks.size() + 1u);
+        for (auto *lb : loop_blocks) {
+            ordered_loop_blocks.emplace_back(lb);
+        }
+        luisa::sort(
+            ordered_loop_blocks.begin(), ordered_loop_blocks.end(),
+            [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
+                return block_indices.at(lhs) < block_indices.at(rhs);
+            });
+
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> pre_exit_edges;
-        for (auto *lb : all_blocks) {
-            if (!loop_blocks.contains(lb)) { continue; }
+        for (auto *lb : ordered_loop_blocks) {
             if (!lb->is_terminated()) { continue; }
             lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
                 if (succ == header) { return; }
@@ -5424,6 +5740,120 @@ struct SelectionExitDrainResult {
             if (pre_exit_targets_set.emplace(tgt).second) {
                 pre_exit_targets.emplace_back(tgt);
             }
+        }
+
+        // A natural-loop header H may also be the merge of the unique active
+        // construct C that immediately precedes the loop. C and the loop are
+        // sequential in the dynamic CFG, but assigning H both roles makes the
+        // loop backedge re-enter C's merge. The correct subdivision is
+        //
+        //   C -> M -> Loop(H ... latch -> H)
+        //
+        // where M is both C's fresh merge and the loop owner/preheader. It is
+        // not `C -> Loop(P -> H)` while C.merge remains H: that spelling puts
+        // the loop inside C and recreates the same post-merge re-entry after
+        // every node split.
+        //
+        // Dominators of one reachable block are totally ordered. Together
+        // with the pass' unique-merge postcondition, this gives at most one
+        // active owner for H. Disconnected descriptors do not participate:
+        // they cannot own a reachable execution epoch and are removed by the
+        // inactive-structure cleanup in the SPIR-V pipeline.
+        ControlFlowMerge *active_header_merge = nullptr;
+        if (auto merge_it = existing_merge_scopes_by_target.find(header);
+            merge_it != existing_merge_scopes_by_target.end()) {
+            for (auto scope : merge_it->second) {
+                if (scope.owner == nullptr ||
+                    !dom.contains(scope.owner) ||
+                    !dom.dominates(scope.owner, header) ||
+                    dom.dominates(header, scope.owner)) {
+                    continue;
+                }
+                if (active_header_merge != nullptr &&
+                    active_header_merge != scope.merge) {
+                    // The transform below is proved for a unique preceding merge
+                    // owner. Shared ownership is already outside the pass'
+                    // structured-output contract; fail closed so the surrounding
+                    // transaction restores the original graph instead of choosing
+                    // an arbitrary owner or creating another shared merge.
+                    ++info.invalid_construct_count;
+                    return false;
+                }
+                active_header_merge = scope.merge;
+            }
+        }
+
+        luisa::vector<BasicBlock *> entry_preds;
+        bool header_has_created_pred = false;
+        header->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            // XIR's Use relation contains encoded executable block operands;
+            // declarative merge/body/update roles are raw structural links.
+            // The exhaustive retargeter below must therefore cover the same
+            // terminator domain as predecessor discovery.
+            if (batch_created_blocks.contains(pred)) {
+                header_has_created_pred = true;
+                return;
+            }
+            if (!dom.contains(pred)) { return; }
+            if (!loop_blocks.contains(pred)) { entry_preds.emplace_back(pred); }
+        });
+
+        // For subsequent loops in the same batch, verify complete disjointness
+        // before performing any CFG mutation; complex/overlapping loops defer
+        // cleanly to the next outer iteration with fresh dom/pdom trees.
+        if (any) {
+            if (pre_exit_targets.size() > 1u ||
+                active_header_merge != nullptr ||
+                header_has_created_pred ||
+                (loop_scope_boundary != nullptr &&
+                 (batch_modified_blocks.contains(loop_scope_boundary) ||
+                  batch_created_blocks.contains(loop_scope_boundary)))) {
+                continue;
+            }
+            bool batch_conflict = false;
+            for (auto *lb : ordered_loop_blocks) {
+                if (batch_modified_blocks.contains(lb) ||
+                    batch_exit_targets.contains(lb) ||
+                    batch_created_blocks.contains(lb)) {
+                    batch_conflict = true;
+                    break;
+                }
+                if (lb->is_terminated()) {
+                    lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                        if (batch_created_blocks.contains(succ)) {
+                            batch_conflict = true;
+                        }
+                    });
+                }
+                if (!batch_conflict) {
+                    lb->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                        if (batch_created_blocks.contains(pred)) {
+                            batch_conflict = true;
+                        }
+                    });
+                }
+                if (batch_conflict) { break; }
+            }
+            if (!batch_conflict) {
+                for (auto *pred : entry_preds) {
+                    if (batch_modified_blocks.contains(pred) ||
+                        batch_exit_targets.contains(pred) ||
+                        batch_created_blocks.contains(pred)) {
+                        batch_conflict = true;
+                        break;
+                    }
+                }
+            }
+            if (!batch_conflict) {
+                for (auto *tgt : pre_exit_targets) {
+                    if (batch_modified_blocks.contains(tgt) ||
+                        batch_created_blocks.contains(tgt)) {
+                        batch_conflict = true;
+                        break;
+                    }
+                }
+            }
+            if (batch_conflict) { continue; }
         }
 
         BasicBlock *dispatch_merge_or_null = nullptr;
@@ -5447,6 +5877,7 @@ struct SelectionExitDrainResult {
         }
 
         BasicBlock *canonical_latch = nullptr;
+        bool created_canonical_latch = false;
         // A structured update block must be an unconditional backedge.
         // Keep a bottom-tested latch in the body and split only its backedge:
         // its other arm may execute exit work before reaching the loop merge.
@@ -5457,6 +5888,7 @@ struct SelectionExitDrainResult {
             canonical_latch = valid_latches[0];
         } else {
             canonical_latch = def->create_basic_block();
+            created_canonical_latch = true;
             for (auto *latch : valid_latches) {
                 if (!latch->is_terminated()) { continue; }
                 retarget_terminator(latch->terminator(), header, canonical_latch);
@@ -5465,45 +5897,9 @@ struct SelectionExitDrainResult {
             b.set_insertion_point(canonical_latch);
             b.br(header);
             loop_blocks.emplace(canonical_latch);
+            ordered_loop_blocks.emplace_back(canonical_latch);
         }
 
-        // A natural-loop header H may also be the merge of the unique active
-        // construct C that immediately precedes the loop. C and the loop are
-        // sequential in the dynamic CFG, but assigning H both roles makes the
-        // loop backedge re-enter C's merge. The correct subdivision is
-        //
-        //   C -> M -> Loop(H ... latch -> H)
-        //
-        // where M is both C's fresh merge and the loop owner/preheader. It is
-        // not `C -> Loop(P -> H)` while C.merge remains H: that spelling puts
-        // the loop inside C and recreates the same post-merge re-entry after
-        // every node split.
-        //
-        // Dominators of one reachable block are totally ordered. Together
-        // with the pass' unique-merge postcondition, this gives at most one
-        // active owner for H. Disconnected descriptors do not participate:
-        // they cannot own a reachable execution epoch and are removed by the
-        // inactive-structure cleanup in the SPIR-V pipeline.
-        ControlFlowMerge *active_header_merge = nullptr;
-        for (auto scope : existing_merge_scopes) {
-            if (scope.target != header || scope.owner == nullptr ||
-                !dom.contains(scope.owner) ||
-                !dom.dominates(scope.owner, header) ||
-                dom.dominates(header, scope.owner)) {
-                continue;
-            }
-            if (active_header_merge != nullptr &&
-                active_header_merge != scope.merge) {
-                // The transform below is proved for a unique preceding merge
-                // owner. Shared ownership is already outside the pass'
-                // structured-output contract; fail closed so the surrounding
-                // transaction restores the original graph instead of choosing
-                // an arbitrary owner or creating another shared merge.
-                ++info.invalid_construct_count;
-                return false;
-            }
-            active_header_merge = scope.merge;
-        }
         auto split_header_role = active_header_merge != nullptr;
         if (restructure_trace_enabled()) {
             LUISA_VERBOSE_WITH_LOCATION(
@@ -5514,15 +5910,6 @@ struct SelectionExitDrainResult {
                 loop_blocks.size(), pre_exit_edges.size(),
                 pre_exit_targets.size(), split_header_role);
         }
-        luisa::vector<BasicBlock *> entry_preds;
-        header->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-            // XIR's Use relation contains encoded executable block operands;
-            // declarative merge/body/update roles are raw structural links.
-            // The exhaustive retargeter below must therefore cover the same
-            // terminator domain as predecessor discovery.
-            if (!dom.contains(pred)) { return; }
-            if (!loop_blocks.contains(pred)) { entry_preds.emplace_back(pred); }
-        });
         luisa::sort(
             entry_preds.begin(), entry_preds.end(),
             [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
@@ -5530,8 +5917,9 @@ struct SelectionExitDrainResult {
                        block_indices.at(rhs);
             });
 
+        const bool header_was_body_block = (def->body_block() == header);
         auto *preheader = def->create_basic_block();
-        if (def->body_block() == header) { def->set_body_block(preheader); }
+        if (header_was_body_block) { def->set_body_block(preheader); }
         for (auto *pred : entry_preds) {
             if (!pred->is_terminated()) { continue; }
             LUISA_ASSERT(
@@ -5551,19 +5939,6 @@ struct SelectionExitDrainResult {
 
         auto *loop_merge = def->create_basic_block();
 
-        luisa::vector<BasicBlock *> ordered_loop_blocks;
-        ordered_loop_blocks.reserve(loop_blocks.size());
-        for (auto *block : all_blocks) {
-            if (loop_blocks.contains(block)) {
-                ordered_loop_blocks.emplace_back(block);
-            }
-        }
-        if (std::find(
-                ordered_loop_blocks.begin(),
-                ordered_loop_blocks.end(),
-                canonical_latch) == ordered_loop_blocks.end()) {
-            ordered_loop_blocks.emplace_back(canonical_latch);
-        }
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> exit_edges;
         for (auto *lb : ordered_loop_blocks) {
             if (!lb->is_terminated()) { continue; }
@@ -5756,7 +6131,26 @@ struct SelectionExitDrainResult {
         newly_restructured_headers.emplace(header);
         info.restructured_loop_count++;
         any = true;
-        return true;
+        if (exit_targets.size() != 1u ||
+            active_header_merge != nullptr ||
+            header_was_body_block) {
+            return true;
+        }
+        batch_modified_blocks.emplace(header);
+        for (auto *lb : ordered_loop_blocks) {
+            batch_modified_blocks.emplace(lb);
+        }
+        for (auto *pred : entry_preds) {
+            batch_modified_blocks.emplace(pred);
+        }
+        for (auto *tgt : exit_targets) {
+            batch_exit_targets.emplace(tgt);
+        }
+        batch_created_blocks.emplace(preheader);
+        batch_created_blocks.emplace(loop_merge);
+        if (created_canonical_latch) {
+            batch_created_blocks.emplace(canonical_latch);
+        }
     }
 
     return any;

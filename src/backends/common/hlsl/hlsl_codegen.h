@@ -374,7 +374,15 @@ struct PrintValue<float> {
         if (luisa::isinf(v)) [[unlikely]] {
             str.append(v < 0.0f ? "(-_INF_f)" : "(_INF_f)");
         } else {
-            vstd::to_string(v, str);
+            switch (luisa::bit_cast<uint32_t>(v)) {
+                case 0x00000000u: str.append("0.f"); break;
+                case 0x80000000u: str.append("-0.f"); break;
+                case 0x3f800000u: str.append("1.f"); break;
+                case 0xbf800000u: str.append("-1.f"); break;
+                case 0x3f000000u: str.append("0.5f"); break;
+                case 0x40000000u: str.append("2.f"); break;
+                default: vstd::to_string(v, str); break;
+            }
         }
     }
 };

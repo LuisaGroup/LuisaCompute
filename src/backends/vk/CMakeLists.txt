@@ -12,6 +12,10 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
       if (TARGET glslang-default-resource-limits)
           target_link_libraries(luisa-compute-backend-vk PRIVATE glslang-default-resource-limits)
       endif ()
+      if (TARGET SPIRV-Tools-opt)
+          target_link_libraries(luisa-compute-backend-vk PRIVATE SPIRV-Tools-opt)
+          target_compile_definitions(luisa-compute-backend-vk PRIVATE LUISA_VK_HAS_SPIRV_TOOLS_OPT=1)
+      endif ()
 
 # The software ray-tracing fallback (src/backends/common/rtx): the library that
 # answers `create_mesh` / `create_accel` when the user asked for the fallback

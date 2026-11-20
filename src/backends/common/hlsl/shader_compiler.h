@@ -63,7 +63,8 @@ class ShaderCompiler final : public vstd::IOperatorNewBase {
         // raw include spelling itself. Empty keeps the historical behaviour:
         // no include handler is registered.
         luisa::span<const luisa::filesystem::path> include_dirs,
-        SpirvShaderCapabilities spirv_capabilities = {}) const;
+        SpirvShaderCapabilities spirv_capabilities = {},
+        bool spirv_fcgl = false) const;
 
 public:
     // Optional include handler for `#include` resolution. nullptr keeps
@@ -94,7 +95,8 @@ public:
         // raw include spelling itself. Empty keeps the historical behaviour:
         // no include handler is registered.
         luisa::span<const luisa::filesystem::path> include_dirs = {},
-        SpirvShaderCapabilities spirv_capabilities = {}) const;
+        SpirvShaderCapabilities spirv_capabilities = {},
+        bool spirv_fcgl = false) const;
     // Compiles *one* stage of a graphics pipeline: profile `vs_<sm>` when
     // `vertex` is true, `ps_<sm>` otherwise. Behaviour is otherwise identical
     // to `compile_compute` (same SPIR-V flags, same entry-point/include
@@ -114,7 +116,8 @@ public:
         bool debug,
         vstd::string_view entry_point = {},
         luisa::span<const luisa::filesystem::path> include_dirs = {},
-        SpirvShaderCapabilities spirv_capabilities = {}) const;
+        SpirvShaderCapabilities spirv_capabilities = {},
+        bool spirv_fcgl = false) const;
     RasterBin compile_raster(
         vstd::string_view code,
         bool optimize,

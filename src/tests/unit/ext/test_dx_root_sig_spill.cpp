@@ -742,5 +742,96 @@ int main(int argc, char **argv) {
             << (spv_compiled.is_type_of<vstd::string>() ? spv_compiled.get<1>() : vstd::string{"unexpected SPIR-V local-opt result"});
     };
 
+    "hlsl_local_opt_prunes_f32_branches_and_elides_ssa_aliases"_test = [&] {
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
+        Kernel1D kernel = [](BufferVar<TestUniformBlob> in_blob,
+                             BufferFloat out_buf) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            auto s0 = in_blob.read(i);
+            auto s1 = s0;
+            Float acc = cast<float>(s1.a);
+            // Constant F32 comparison + short-circuit bool should prune dead BSDF lobes.
+            Float coat = def(0.0f);
+            $if(coat > 0.0f) {
+                acc = acc + 333333.0f;
+            };
+            Float neg_val = def(-1.0f);
+            $if((neg_val >= 0.0f) & (s1.b > 0u)) {
+                acc = acc + 444444.0f;
+            };
+            Float clamped = saturate(def(0.0f) + def(1.0f) - def(1.0f));
+            $if(clamped > 1e-5f) {
+                acc = acc + 555555.0f;
+            };
+            // Multi-use SSA alias of an immutable float local should collapse.
+            Float x = acc * 2.0f;
+            Float alias_x = x;
+            acc = alias_x * alias_x + alias_x;
+            out_buf.write(i, acc);
+        };
+        auto fn = kernel.function()->function();
+        auto dx_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        std::string_view src{dx_code.result.view().data(), dx_code.result.view().size()};
+        expect(src.find("0x1.45854") == std::string_view::npos);// 333333.0f
+        expect(src.find("0x1.b207") == std::string_view::npos);// 444444.0f
+        expect(src.find("0x1.0f446") == std::string_view::npos);// 555555.0f
+
+        auto dx_compiled = compiler.compile_compute(
+            dx_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/false, /*debug=*/false);
+        expect(dx_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (dx_compiled.is_type_of<vstd::string>() ? dx_compiled.get<1>() : vstd::string{"unexpected DXIL f32 local-opt result"});
+
+        auto spv_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/true, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        auto spv_compiled = compiler.compile_compute(
+            spv_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/true, /*debug=*/false);
+        expect(spv_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (spv_compiled.is_type_of<vstd::string>() ? spv_compiled.get<1>() : vstd::string{"unexpected SPIR-V f32 local-opt result"});
+    };
+
+    "hlsl_local_opt_unwraps_pure_vector_lane_and_supports_spirv_fcgl"_test = [&] {
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
+        Kernel1D kernel = [](BufferVar<TestUniformBlob> in_blob,
+                             BufferFloat out_buf) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            auto s = in_blob.read(i);
+            Float a = cast<float>(s.a);
+            Float b = cast<float>(s.b);
+            Float c = s.c.x;
+            // Pure vector constructor immediately indexed/swizzled to one lane
+            // should unwrap directly to the scalar element without emitting float3(...).
+            Float lane_y = make_float3(a, b, c).y;
+            Float lane_z = make_float3(a, b, c)[2u];
+            out_buf.write(i, lane_y + lane_z);
+        };
+        auto fn = kernel.function()->function();
+        auto spv_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/true, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        std::string_view src{spv_code.result.view().data(), spv_code.result.view().size()};
+        auto main_pos = src.find("void main(");
+        expect(main_pos != std::string_view::npos);
+        // Unwrapping pure vector lanes eliminates the dead float3(...) construction in main.
+        expect(src.find("float3(", main_pos) == std::string_view::npos);
+
+        auto fcgl_compiled = compiler.compile_compute(
+            spv_code.result.view(), /*optimize=*/false, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/true, /*debug=*/false,
+            /*entry_point=*/{}, /*include_dirs=*/{}, /*spirv_capabilities=*/{},
+            /*spirv_fcgl=*/true);
+        expect(fcgl_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (fcgl_compiled.is_type_of<vstd::string>() ? fcgl_compiled.get<1>() : vstd::string{"unexpected SPIR-V fcgl result"});
+        expect(fcgl_compiled.get<0>()->GetBufferSize() >= 20u);
+    };
+
     return 0;
 }

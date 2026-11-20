@@ -1,4 +1,5 @@
 #include "shader_compiler.h"
+#include "../env_flag.h"
 #include "../spirv_fma_rewrite.h"
 #include <atomic>
 #include <fstream>
@@ -311,7 +312,8 @@ CompileResult ShaderCompiler::_compile_with_profile(
     bool debug,
     vstd::string_view entry_point,
     luisa::span<const luisa::filesystem::path> include_dirs,
-    SpirvShaderCapabilities spirv_capabilities) const {
+    SpirvShaderCapabilities spirv_capabilities,
+    bool spirv_fcgl) const {
 #ifndef NDEBUG
     if (shaderModel < 10) {
         LUISA_ERROR("Illegal shader model!");
@@ -349,11 +351,16 @@ CompileResult ShaderCompiler::_compile_with_profile(
     if (enableUnsafeMath) {
         AddUnsafeMathFlags(args, spirv);
     }
-    if (optimize) {
+    if (spirv && spirv_fcgl) {
+        // Emit unlegalized SPIR-V directly so the caller can run SPIRV-Tools
+        // legalization and optimization with interleaved compact-ids and
+        // bounded SROA/loop-unroll.
+        args.emplace_back(L"-fcgl");
+    } else if (optimize) {
         args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
     }
     auto postprocess_spirv_fma = [&](CompileResult result) -> CompileResult {
-        if (!spirv || !spirv_capabilities.fma ||
+        if (!spirv || spirv_fcgl || !spirv_capabilities.fma ||
             !result.is_type_of<ComUniquePtr<IDxcBlob>>()) {
             return result;
         }
@@ -393,12 +400,13 @@ CompileResult ShaderCompiler::compile_compute(
     bool debug,
     vstd::string_view entry_point,
     luisa::span<const luisa::filesystem::path> include_dirs,
-    SpirvShaderCapabilities spirv_capabilities) const {
+    SpirvShaderCapabilities spirv_capabilities,
+    bool spirv_fcgl) const {
     vstd::wstring profile;
     profile << L"cs_" << GetSM(shaderModel);
     return _compile_with_profile(
         code, profile, optimize, shaderModel, enableUnsafeMath, spirv, debug,
-        entry_point, include_dirs, spirv_capabilities);
+        entry_point, include_dirs, spirv_capabilities, spirv_fcgl);
 }
 CompileResult ShaderCompiler::compile_graphics_stage(
     vstd::string_view code,
@@ -410,12 +418,13 @@ CompileResult ShaderCompiler::compile_graphics_stage(
     bool debug,
     vstd::string_view entry_point,
     luisa::span<const luisa::filesystem::path> include_dirs,
-    SpirvShaderCapabilities spirv_capabilities) const {
+    SpirvShaderCapabilities spirv_capabilities,
+    bool spirv_fcgl) const {
     vstd::wstring profile;
     profile << (vertex ? L"vs_" : L"ps_") << GetSM(shaderModel);
     return _compile_with_profile(
         code, profile, optimize, shaderModel, enableUnsafeMath, spirv, debug,
-        entry_point, include_dirs, spirv_capabilities);
+        entry_point, include_dirs, spirv_capabilities, spirv_fcgl);
 }
 RasterBin ShaderCompiler::compile_raster(
     vstd::string_view code,

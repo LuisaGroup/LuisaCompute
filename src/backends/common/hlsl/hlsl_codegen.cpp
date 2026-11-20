@@ -3,6 +3,8 @@
 #include "codegen_stack_data.h"
 #include "../env_flag.h"
 #include <luisa/core/stl/format.h>
+#include <algorithm>
+#include <cmath>
 #include <optional>
 namespace lc::hlsl {
 
@@ -19,15 +21,37 @@ struct LocalEmitPlan {
 namespace {
 
 struct ConstScalar {
-    enum class Kind : uint8_t { BOOL, I32, U32 };
+    enum class Kind : uint8_t { BOOL, I32, U32, F32 };
     Kind kind{Kind::BOOL};
     uint32_t bits{0u};
 };
+
+[[nodiscard]] bool is_portable_f32(float v) noexcept {
+    return std::isfinite(v) && std::fpclassify(v) != FP_SUBNORMAL;
+}
+
+[[nodiscard]] std::optional<ConstScalar> make_const_f32(float v) noexcept {
+    if (!is_portable_f32(v)) { return std::nullopt; }
+    return ConstScalar{ConstScalar::Kind::F32, luisa::bit_cast<uint32_t>(v)};
+}
+
+[[nodiscard]] float const_as_f32(ConstScalar c) noexcept {
+    return luisa::bit_cast<float>(c.bits);
+}
 
 [[nodiscard]] bool is_pure_inlineable_call(CallOp op) noexcept {
     if (op >= CallOp::ALL && op <= CallOp::INVERSE) { return true; }
     if (op >= CallOp::MAKE_BOOL2 && op <= CallOp::MAKE_FLOAT4X4) { return true; }
     return op == CallOp::ZERO || op == CallOp::ONE;
+}
+
+[[nodiscard]] bool is_readonly_load_call(CallOp op) noexcept {
+    return op == CallOp::BUFFER_READ || op == CallOp::BYTE_BUFFER_READ ||
+           op == CallOp::TEXTURE_READ ||
+           op == CallOp::BINDLESS_BUFFER_READ || op == CallOp::BINDLESS_BYTE_BUFFER_READ ||
+           op == CallOp::BINDLESS_TEXTURE2D_READ || op == CallOp::BINDLESS_TEXTURE3D_READ ||
+           op == CallOp::TYPED_BINDLESS_BUFFER_READ || op == CallOp::TYPED_BINDLESS_BYTE_BUFFER_READ ||
+           op == CallOp::TYPED_BINDLESS_TEXTURE2D_READ || op == CallOp::TYPED_BINDLESS_TEXTURE3D_READ;
 }
 
 [[nodiscard]] bool call_arg_is_readonly(CallExpr const *call, size_t arg_idx) noexcept {
@@ -51,6 +75,86 @@ struct ConstScalar {
     return false;
 }
 
+[[nodiscard]] bool expr_has_mutating_call(Expression const *expr) noexcept;
+[[nodiscard]] bool expression_has_call(Expression const *expr) noexcept;
+
+[[nodiscard]] std::optional<ConstScalar> eval_const_scalar(
+    Expression const *expr,
+    luisa::unordered_map<uint32_t, ConstScalar> const &env) noexcept;
+
+[[nodiscard]] std::optional<ConstScalar> eval_const_vector_lane(
+    Expression const *vec_expr,
+    uint32_t lane,
+    luisa::unordered_map<uint32_t, ConstScalar> const &env) noexcept {
+    if (vec_expr == nullptr || vec_expr->type() == nullptr || !vec_expr->type()->is_vector() ||
+        lane >= vec_expr->type()->dimension()) {
+        return std::nullopt;
+    }
+    switch (vec_expr->tag()) {
+        case Expression::Tag::LITERAL: {
+            auto *lit = static_cast<LiteralExpr const *>(vec_expr);
+            return luisa::visit(
+                [lane]<typename T>(T const &v) noexcept -> std::optional<ConstScalar> {
+                    if constexpr (is_vector_v<T>) {
+                        using Elem = vector_element_t<T>;
+                        if (lane >= vector_dimension_v<T>) { return std::nullopt; }
+                        auto elem = v[lane];
+                        if constexpr (std::is_same_v<Elem, bool>) {
+                            return ConstScalar{ConstScalar::Kind::BOOL, elem ? 1u : 0u};
+                        } else if constexpr (std::is_same_v<Elem, int32_t>) {
+                            return ConstScalar{ConstScalar::Kind::I32, static_cast<uint32_t>(elem)};
+                        } else if constexpr (std::is_same_v<Elem, uint32_t>) {
+                            return ConstScalar{ConstScalar::Kind::U32, elem};
+                        } else if constexpr (std::is_same_v<Elem, float>) {
+                            return make_const_f32(elem);
+                        }
+                    }
+                    return std::nullopt;
+                },
+                lit->value());
+        }
+        case Expression::Tag::CALL: {
+            auto *c = static_cast<CallExpr const *>(vec_expr);
+            if (!c->is_builtin()) { return std::nullopt; }
+            auto op = c->op();
+            if (op == CallOp::ZERO || op == CallOp::ONE) {
+                auto *elem = vec_expr->type()->element();
+                bool is_one = (op == CallOp::ONE);
+                if (elem->is_bool()) { return ConstScalar{ConstScalar::Kind::BOOL, is_one ? 1u : 0u}; }
+                if (elem->is_int32()) { return ConstScalar{ConstScalar::Kind::I32, is_one ? 1u : 0u}; }
+                if (elem->is_uint32()) { return ConstScalar{ConstScalar::Kind::U32, is_one ? 1u : 0u}; }
+                if (elem->is_float32()) { return make_const_f32(is_one ? 1.0f : 0.0f); }
+                return std::nullopt;
+            }
+            if (op >= CallOp::MAKE_BOOL2 && op <= CallOp::MAKE_FLOAT4) {
+                auto args = c->arguments();
+                if (args.size() == 1u && args[0]->type()->is_scalar()) {
+                    return eval_const_scalar(args[0], env);
+                }
+                uint32_t cursor = 0u;
+                for (auto *arg : args) {
+                    if (arg->type() == nullptr) { return std::nullopt; }
+                    if (arg->type()->is_scalar()) {
+                        if (cursor == lane) { return eval_const_scalar(arg, env); }
+                        ++cursor;
+                    } else if (arg->type()->is_vector()) {
+                        uint32_t d = static_cast<uint32_t>(arg->type()->dimension());
+                        if (lane < cursor + d) {
+                            return eval_const_vector_lane(arg, lane - cursor, env);
+                        }
+                        cursor += d;
+                    } else {
+                        return std::nullopt;
+                    }
+                }
+            }
+            return std::nullopt;
+        }
+        default:
+            return std::nullopt;
+    }
+}
+
 [[nodiscard]] std::optional<ConstScalar> eval_const_scalar(
     Expression const *expr,
     luisa::unordered_map<uint32_t, ConstScalar> const &env) noexcept {
@@ -66,6 +170,8 @@ struct ConstScalar {
                         return ConstScalar{ConstScalar::Kind::I32, static_cast<uint32_t>(v)};
                     } else if constexpr (std::is_same_v<T, uint32_t>) {
                         return ConstScalar{ConstScalar::Kind::U32, v};
+                    } else if constexpr (std::is_same_v<T, float>) {
+                        return make_const_f32(v);
                     } else {
                         return std::nullopt;
                     }
@@ -78,6 +184,24 @@ struct ConstScalar {
             auto it = env.find(v.uid());
             return it != env.end() ? std::optional<ConstScalar>{it->second} : std::nullopt;
         }
+        case Expression::Tag::MEMBER: {
+            auto *m = static_cast<MemberExpr const *>(expr);
+            if (m->is_swizzle() && m->swizzle_size() == 1u) {
+                return eval_const_vector_lane(m->self(), m->swizzle_index(0u), env);
+            }
+            return std::nullopt;
+        }
+        case Expression::Tag::ACCESS: {
+            auto *a = static_cast<AccessExpr const *>(expr);
+            if (a->range()->type() != nullptr && a->range()->type()->is_vector()) {
+                auto idx = eval_const_scalar(a->index(), env);
+                if (idx && (idx->kind == ConstScalar::Kind::U32 ||
+                            (idx->kind == ConstScalar::Kind::I32 && static_cast<int32_t>(idx->bits) >= 0))) {
+                    return eval_const_vector_lane(a->range(), idx->bits, env);
+                }
+            }
+            return std::nullopt;
+        }
         case Expression::Tag::UNARY: {
             auto *u = static_cast<UnaryExpr const *>(expr);
             auto inner = eval_const_scalar(u->operand(), env);
@@ -86,11 +210,15 @@ struct ConstScalar {
                 case UnaryOp::PLUS: return inner;
                 case UnaryOp::MINUS:
                     if (inner->kind == ConstScalar::Kind::BOOL) { return std::nullopt; }
+                    if (inner->kind == ConstScalar::Kind::F32) {
+                        return make_const_f32(-const_as_f32(*inner));
+                    }
                     return ConstScalar{inner->kind, static_cast<uint32_t>(0u - inner->bits)};
                 case UnaryOp::NOT:
                     if (inner->kind != ConstScalar::Kind::BOOL) { return std::nullopt; }
                     return ConstScalar{ConstScalar::Kind::BOOL, inner->bits == 0u ? 1u : 0u};
                 case UnaryOp::BIT_NOT:
+                    if (inner->kind == ConstScalar::Kind::F32) { return std::nullopt; }
                     if (inner->kind == ConstScalar::Kind::BOOL) {
                         return ConstScalar{ConstScalar::Kind::BOOL, inner->bits == 0u ? 1u : 0u};
                     }
@@ -100,44 +228,130 @@ struct ConstScalar {
         }
         case Expression::Tag::CAST: {
             auto *c = static_cast<CastExpr const *>(expr);
-            if (c->op() != CastOp::STATIC) { return std::nullopt; }
             auto inner = eval_const_scalar(c->expression(), env);
             if (!inner) { return std::nullopt; }
             auto *dst = c->type();
+            if (c->op() == CastOp::BITWISE) {
+                if (inner->kind == ConstScalar::Kind::BOOL) { return std::nullopt; }
+                if (dst->is_int32()) { return ConstScalar{ConstScalar::Kind::I32, inner->bits}; }
+                if (dst->is_uint32()) { return ConstScalar{ConstScalar::Kind::U32, inner->bits}; }
+                if (dst->is_float32()) { return make_const_f32(luisa::bit_cast<float>(inner->bits)); }
+                return std::nullopt;
+            }
+            if (c->op() != CastOp::STATIC) { return std::nullopt; }
             if (dst->is_bool()) {
+                if (inner->kind == ConstScalar::Kind::F32) {
+                    return ConstScalar{ConstScalar::Kind::BOOL, const_as_f32(*inner) != 0.0f ? 1u : 0u};
+                }
                 return ConstScalar{ConstScalar::Kind::BOOL, inner->bits != 0u ? 1u : 0u};
             }
             if (dst->is_int32()) {
+                if (inner->kind == ConstScalar::Kind::F32) {
+                    float f = const_as_f32(*inner);
+                    if (f >= -2147483648.0f && f < 2147483648.0f) {
+                        return ConstScalar{ConstScalar::Kind::I32, static_cast<uint32_t>(static_cast<int32_t>(f))};
+                    }
+                    return std::nullopt;
+                }
                 return ConstScalar{ConstScalar::Kind::I32, inner->bits};
             }
             if (dst->is_uint32()) {
+                if (inner->kind == ConstScalar::Kind::F32) {
+                    float f = const_as_f32(*inner);
+                    if (f >= 0.0f && f < 4294967296.0f) {
+                        return ConstScalar{ConstScalar::Kind::U32, static_cast<uint32_t>(f)};
+                    }
+                    return std::nullopt;
+                }
                 return ConstScalar{ConstScalar::Kind::U32, inner->bits};
+            }
+            if (dst->is_float32()) {
+                switch (inner->kind) {
+                    case ConstScalar::Kind::BOOL: return make_const_f32(inner->bits != 0u ? 1.0f : 0.0f);
+                    case ConstScalar::Kind::I32: return make_const_f32(static_cast<float>(static_cast<int32_t>(inner->bits)));
+                    case ConstScalar::Kind::U32: return make_const_f32(static_cast<float>(inner->bits));
+                    case ConstScalar::Kind::F32: return inner;
+                }
             }
             return std::nullopt;
         }
         case Expression::Tag::BINARY: {
             auto *b = static_cast<BinaryExpr const *>(expr);
+            auto op = b->op();
             auto lhs = eval_const_scalar(b->lhs(), env);
+            // Short-circuit / absorbing boolean folding when pure.
+            if (b->type()->is_bool() &&
+                (op == BinaryOp::AND || op == BinaryOp::BIT_AND)) {
+                if (lhs && lhs->kind == ConstScalar::Kind::BOOL && lhs->bits == 0u &&
+                    !expr_has_mutating_call(b->rhs())) {
+                    return ConstScalar{ConstScalar::Kind::BOOL, 0u};
+                }
+                auto rhs = eval_const_scalar(b->rhs(), env);
+                if (rhs && rhs->kind == ConstScalar::Kind::BOOL && rhs->bits == 0u &&
+                    !expr_has_mutating_call(b->lhs())) {
+                    return ConstScalar{ConstScalar::Kind::BOOL, 0u};
+                }
+                if (lhs && rhs && lhs->kind == ConstScalar::Kind::BOOL && rhs->kind == ConstScalar::Kind::BOOL) {
+                    return ConstScalar{ConstScalar::Kind::BOOL, (lhs->bits != 0u && rhs->bits != 0u) ? 1u : 0u};
+                }
+                return std::nullopt;
+            }
+            if (b->type()->is_bool() &&
+                (op == BinaryOp::OR || op == BinaryOp::BIT_OR)) {
+                if (lhs && lhs->kind == ConstScalar::Kind::BOOL && lhs->bits != 0u &&
+                    !expr_has_mutating_call(b->rhs())) {
+                    return ConstScalar{ConstScalar::Kind::BOOL, 1u};
+                }
+                auto rhs = eval_const_scalar(b->rhs(), env);
+                if (rhs && rhs->kind == ConstScalar::Kind::BOOL && rhs->bits != 0u &&
+                    !expr_has_mutating_call(b->lhs())) {
+                    return ConstScalar{ConstScalar::Kind::BOOL, 1u};
+                }
+                if (lhs && rhs && lhs->kind == ConstScalar::Kind::BOOL && rhs->kind == ConstScalar::Kind::BOOL) {
+                    return ConstScalar{ConstScalar::Kind::BOOL, (lhs->bits != 0u || rhs->bits != 0u) ? 1u : 0u};
+                }
+                return std::nullopt;
+            }
             auto rhs = eval_const_scalar(b->rhs(), env);
             if (!lhs || !rhs || lhs->kind != rhs->kind) { return std::nullopt; }
             auto k = lhs->kind;
-            switch (b->op()) {
+            if (k == ConstScalar::Kind::F32) {
+                float fa = const_as_f32(*lhs);
+                float fb = const_as_f32(*rhs);
+                switch (op) {
+                    case BinaryOp::EQUAL: return ConstScalar{ConstScalar::Kind::BOOL, fa == fb ? 1u : 0u};
+                    case BinaryOp::NOT_EQUAL: return ConstScalar{ConstScalar::Kind::BOOL, fa != fb ? 1u : 0u};
+                    case BinaryOp::LESS: return ConstScalar{ConstScalar::Kind::BOOL, fa < fb ? 1u : 0u};
+                    case BinaryOp::LESS_EQUAL: return ConstScalar{ConstScalar::Kind::BOOL, fa <= fb ? 1u : 0u};
+                    case BinaryOp::GREATER: return ConstScalar{ConstScalar::Kind::BOOL, fa > fb ? 1u : 0u};
+                    case BinaryOp::GREATER_EQUAL: return ConstScalar{ConstScalar::Kind::BOOL, fa >= fb ? 1u : 0u};
+                    case BinaryOp::ADD: return make_const_f32(fa + fb);
+                    case BinaryOp::SUB: return make_const_f32(fa - fb);
+                    case BinaryOp::MUL: return make_const_f32(fa * fb);
+                    case BinaryOp::DIV: return fb != 0.0f ? make_const_f32(fa / fb) : std::nullopt;
+                    default: return std::nullopt;
+                }
+            }
+            switch (op) {
                 case BinaryOp::EQUAL:
                     return ConstScalar{ConstScalar::Kind::BOOL, lhs->bits == rhs->bits ? 1u : 0u};
                 case BinaryOp::NOT_EQUAL:
                     return ConstScalar{ConstScalar::Kind::BOOL, lhs->bits != rhs->bits ? 1u : 0u};
-                case BinaryOp::AND:
-                    if (k != ConstScalar::Kind::BOOL) { return std::nullopt; }
-                    return ConstScalar{ConstScalar::Kind::BOOL, (lhs->bits != 0u && rhs->bits != 0u) ? 1u : 0u};
-                case BinaryOp::OR:
-                    if (k != ConstScalar::Kind::BOOL) { return std::nullopt; }
-                    return ConstScalar{ConstScalar::Kind::BOOL, (lhs->bits != 0u || rhs->bits != 0u) ? 1u : 0u};
                 case BinaryOp::BIT_AND:
                     return ConstScalar{k, lhs->bits & rhs->bits};
                 case BinaryOp::BIT_OR:
                     return ConstScalar{k, lhs->bits | rhs->bits};
                 case BinaryOp::BIT_XOR:
                     return ConstScalar{k, lhs->bits ^ rhs->bits};
+                case BinaryOp::SHL:
+                    if (k == ConstScalar::Kind::BOOL || rhs->bits >= 32u) { return std::nullopt; }
+                    return ConstScalar{k, lhs->bits << rhs->bits};
+                case BinaryOp::SHR:
+                    if (k == ConstScalar::Kind::BOOL || rhs->bits >= 32u) { return std::nullopt; }
+                    if (k == ConstScalar::Kind::I32) {
+                        return ConstScalar{k, static_cast<uint32_t>(static_cast<int32_t>(lhs->bits) >> rhs->bits)};
+                    }
+                    return ConstScalar{k, lhs->bits >> rhs->bits};
                 case BinaryOp::LESS:
                     if (k == ConstScalar::Kind::I32) {
                         return ConstScalar{ConstScalar::Kind::BOOL, static_cast<int32_t>(lhs->bits) < static_cast<int32_t>(rhs->bits) ? 1u : 0u};
@@ -179,9 +393,139 @@ struct ConstScalar {
                 case BinaryOp::MUL:
                     if (k == ConstScalar::Kind::BOOL) { return std::nullopt; }
                     return ConstScalar{k, static_cast<uint32_t>(lhs->bits * rhs->bits)};
+                case BinaryOp::DIV:
+                    if (k == ConstScalar::Kind::U32 && rhs->bits != 0u) {
+                        return ConstScalar{k, lhs->bits / rhs->bits};
+                    }
+                    if (k == ConstScalar::Kind::I32) {
+                        auto a = static_cast<int32_t>(lhs->bits);
+                        auto bv = static_cast<int32_t>(rhs->bits);
+                        if (bv != 0 && !(a == INT32_MIN && bv == -1)) {
+                            return ConstScalar{k, static_cast<uint32_t>(a / bv)};
+                        }
+                    }
+                    return std::nullopt;
+                case BinaryOp::MOD:
+                    if (k == ConstScalar::Kind::U32 && rhs->bits != 0u) {
+                        return ConstScalar{k, lhs->bits % rhs->bits};
+                    }
+                    if (k == ConstScalar::Kind::I32) {
+                        auto a = static_cast<int32_t>(lhs->bits);
+                        auto bv = static_cast<int32_t>(rhs->bits);
+                        if (bv != 0 && !(a == INT32_MIN && bv == -1)) {
+                            return ConstScalar{k, static_cast<uint32_t>(a % bv)};
+                        }
+                    }
+                    return std::nullopt;
                 default:
                     return std::nullopt;
             }
+        }
+        case Expression::Tag::CALL: {
+            auto *c = static_cast<CallExpr const *>(expr);
+            if (!c->is_builtin()) { return std::nullopt; }
+            auto args = c->arguments();
+            auto op = c->op();
+            if (op == CallOp::ZERO || op == CallOp::ONE) {
+                bool is_one = (op == CallOp::ONE);
+                if (expr->type()->is_bool()) { return ConstScalar{ConstScalar::Kind::BOOL, is_one ? 1u : 0u}; }
+                if (expr->type()->is_int32()) { return ConstScalar{ConstScalar::Kind::I32, is_one ? 1u : 0u}; }
+                if (expr->type()->is_uint32()) { return ConstScalar{ConstScalar::Kind::U32, is_one ? 1u : 0u}; }
+                if (expr->type()->is_float32()) { return make_const_f32(is_one ? 1.0f : 0.0f); }
+                return std::nullopt;
+            }
+            if (op == CallOp::SELECT && args.size() == 3u) {
+                auto pred = eval_const_scalar(args[2], env);
+                if (pred && pred->kind == ConstScalar::Kind::BOOL) {
+                    auto *taken = pred->bits != 0u ? args[1] : args[0];
+                    auto *discarded = pred->bits != 0u ? args[0] : args[1];
+                    if (!expr_has_mutating_call(discarded)) {
+                        return eval_const_scalar(taken, env);
+                    }
+                }
+                return std::nullopt;
+            }
+            if (op == CallOp::ABS && args.size() == 1u) {
+                auto a = eval_const_scalar(args[0], env);
+                if (!a) { return std::nullopt; }
+                if (a->kind == ConstScalar::Kind::F32) { return make_const_f32(std::abs(const_as_f32(*a))); }
+                if (a->kind == ConstScalar::Kind::I32) {
+                    auto iv = static_cast<int32_t>(a->bits);
+                    if (iv != INT32_MIN) { return ConstScalar{ConstScalar::Kind::I32, static_cast<uint32_t>(iv < 0 ? -iv : iv)}; }
+                }
+                return std::nullopt;
+            }
+            if ((op == CallOp::MIN || op == CallOp::MAX) && args.size() == 2u) {
+                auto a = eval_const_scalar(args[0], env);
+                auto b = eval_const_scalar(args[1], env);
+                if (!a || !b || a->kind != b->kind) { return std::nullopt; }
+                bool is_min = (op == CallOp::MIN);
+                if (a->kind == ConstScalar::Kind::F32) {
+                    float fa = const_as_f32(*a), fb = const_as_f32(*b);
+                    return make_const_f32(is_min ? std::min(fa, fb) : std::max(fa, fb));
+                }
+                if (a->kind == ConstScalar::Kind::I32) {
+                    auto ia = static_cast<int32_t>(a->bits), ib = static_cast<int32_t>(b->bits);
+                    return ConstScalar{ConstScalar::Kind::I32, static_cast<uint32_t>(is_min ? std::min(ia, ib) : std::max(ia, ib))};
+                }
+                if (a->kind == ConstScalar::Kind::U32) {
+                    return ConstScalar{ConstScalar::Kind::U32, is_min ? std::min(a->bits, b->bits) : std::max(a->bits, b->bits)};
+                }
+                return std::nullopt;
+            }
+            if (op == CallOp::CLAMP && args.size() == 3u) {
+                auto v = eval_const_scalar(args[0], env);
+                auto lo = eval_const_scalar(args[1], env);
+                auto hi = eval_const_scalar(args[2], env);
+                if (!v || !lo || !hi || v->kind != lo->kind || v->kind != hi->kind) { return std::nullopt; }
+                if (v->kind == ConstScalar::Kind::F32) {
+                    return make_const_f32(std::min(std::max(const_as_f32(*v), const_as_f32(*lo)), const_as_f32(*hi)));
+                }
+                if (v->kind == ConstScalar::Kind::I32) {
+                    auto iv = static_cast<int32_t>(v->bits), ilo = static_cast<int32_t>(lo->bits), ihi = static_cast<int32_t>(hi->bits);
+                    return ConstScalar{ConstScalar::Kind::I32, static_cast<uint32_t>(std::min(std::max(iv, ilo), ihi))};
+                }
+                if (v->kind == ConstScalar::Kind::U32) {
+                    return ConstScalar{ConstScalar::Kind::U32, std::min(std::max(v->bits, lo->bits), hi->bits)};
+                }
+                return std::nullopt;
+            }
+            if (op == CallOp::SATURATE && args.size() == 1u) {
+                auto v = eval_const_scalar(args[0], env);
+                if (v && v->kind == ConstScalar::Kind::F32) {
+                    return make_const_f32(std::min(std::max(const_as_f32(*v), 0.0f), 1.0f));
+                }
+                return std::nullopt;
+            }
+            if (op == CallOp::FMA && args.size() == 3u) {
+                auto a = eval_const_scalar(args[0], env);
+                auto b = eval_const_scalar(args[1], env);
+                auto cc = eval_const_scalar(args[2], env);
+                if (a && b && cc && a->kind == ConstScalar::Kind::F32 &&
+                    b->kind == ConstScalar::Kind::F32 && cc->kind == ConstScalar::Kind::F32) {
+                    return make_const_f32(std::fma(const_as_f32(*a), const_as_f32(*b), const_as_f32(*cc)));
+                }
+                return std::nullopt;
+            }
+            if ((op == CallOp::FLOOR || op == CallOp::CEIL || op == CallOp::TRUNC) && args.size() == 1u) {
+                auto v = eval_const_scalar(args[0], env);
+                if (v && v->kind == ConstScalar::Kind::F32) {
+                    float fv = const_as_f32(*v);
+                    if (op == CallOp::FLOOR) { return make_const_f32(std::floor(fv)); }
+                    if (op == CallOp::CEIL) { return make_const_f32(std::ceil(fv)); }
+                    return make_const_f32(std::trunc(fv));
+                }
+                return std::nullopt;
+            }
+            if (op == CallOp::COPYSIGN && args.size() == 2u) {
+                auto a = eval_const_scalar(args[0], env);
+                auto b = eval_const_scalar(args[1], env);
+                if (a && b && a->kind == ConstScalar::Kind::F32 && b->kind == ConstScalar::Kind::F32) {
+                    return make_const_f32(std::copysign(const_as_f32(*a), const_as_f32(*b)));
+                }
+                return std::nullopt;
+            }
+            return std::nullopt;
         }
         default:
             return std::nullopt;
@@ -243,6 +587,102 @@ struct ConstScalar {
         }
     }
     return std::nullopt;
+}
+
+[[nodiscard]] bool is_pure_inlineable_expr(Expression const *expr) noexcept;
+
+[[nodiscard]] std::optional<uint32_t> extract_const_uint_literal(Expression const *expr) noexcept {
+    if (expr == nullptr || expr->tag() != Expression::Tag::LITERAL) { return std::nullopt; }
+    auto *lit = static_cast<LiteralExpr const *>(expr);
+    return luisa::visit(
+        []<typename T>(T const &v) noexcept -> std::optional<uint32_t> {
+            if constexpr (std::is_same_v<T, uint32_t>) {
+                return v;
+            } else if constexpr (std::is_same_v<T, int32_t>) {
+                return v >= 0 ? std::optional<uint32_t>{static_cast<uint32_t>(v)} : std::nullopt;
+            }
+            return std::nullopt;
+        },
+        lit->value());
+}
+
+[[nodiscard]] bool is_pure_vector_ctor(Expression const *expr) noexcept {
+    if (expr == nullptr || expr->tag() != Expression::Tag::CALL) { return false; }
+    auto *c = static_cast<CallExpr const *>(expr);
+    return c->is_builtin() && c->op() >= CallOp::MAKE_BOOL2 && c->op() <= CallOp::MAKE_FLOAT4;
+}
+
+[[nodiscard]] Expression const *extract_pure_vector_lane(
+    Expression const *vec_expr, uint32_t lane, Type const *expected_type,
+    luisa::unordered_map<uint32_t, Expression const *> const *inline_exprs = nullptr) noexcept {
+    for (int hop = 0; hop < 8 && vec_expr != nullptr &&
+                      vec_expr->tag() == Expression::Tag::REF && inline_exprs != nullptr;
+         ++hop) {
+        auto v = static_cast<RefExpr const *>(vec_expr)->variable();
+        if (v.tag() != Variable::Tag::LOCAL) { break; }
+        auto it = inline_exprs->find(v.uid());
+        if (it == inline_exprs->end()) { break; }
+        vec_expr = it->second;
+    }
+    if (vec_expr == nullptr || vec_expr->type() == nullptr || expected_type == nullptr ||
+        !vec_expr->type()->is_vector() || lane >= vec_expr->type()->dimension() ||
+        vec_expr->tag() != Expression::Tag::CALL) {
+        return nullptr;
+    }
+    auto *c = static_cast<CallExpr const *>(vec_expr);
+    if (!c->is_builtin()) { return nullptr; }
+    auto op = c->op();
+    if (op < CallOp::MAKE_BOOL2 || op > CallOp::MAKE_FLOAT4) { return nullptr; }
+    auto args = c->arguments();
+    for (auto *arg : args) {
+        if (!is_pure_inlineable_expr(arg)) { return nullptr; }
+    }
+    if (args.size() == 1u && args[0]->type() != nullptr && args[0]->type()->is_scalar()) {
+        return *args[0]->type() == *expected_type ? args[0] : nullptr;
+    }
+    uint32_t cursor = 0u;
+    for (auto *arg : args) {
+        if (arg->type() == nullptr) { return nullptr; }
+        if (arg->type()->is_scalar()) {
+            if (cursor == lane) {
+                return *arg->type() == *expected_type ? arg : nullptr;
+            }
+            ++cursor;
+        } else if (arg->type()->is_vector()) {
+            uint32_t d = static_cast<uint32_t>(arg->type()->dimension());
+            if (lane < cursor + d) {
+                return extract_pure_vector_lane(arg, lane - cursor, expected_type, inline_exprs);
+            }
+            cursor += d;
+        } else {
+            return nullptr;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] Expression const *unwrap_pure_vector_lane(
+    Expression const *expr,
+    luisa::unordered_map<uint32_t, Expression const *> const *inline_exprs = nullptr) noexcept {
+    for (int depth = 0; depth < 8 && expr != nullptr; ++depth) {
+        Expression const *next = nullptr;
+        if (expr->tag() == Expression::Tag::ACCESS) {
+            auto *a = static_cast<AccessExpr const *>(expr);
+            if (a->range()->type() != nullptr && a->range()->type()->is_vector()) {
+                if (auto lane = extract_const_uint_literal(a->index())) {
+                    next = extract_pure_vector_lane(a->range(), *lane, expr->type(), inline_exprs);
+                }
+            }
+        } else if (expr->tag() == Expression::Tag::MEMBER) {
+            auto *m = static_cast<MemberExpr const *>(expr);
+            if (m->is_swizzle() && m->swizzle_size() == 1u) {
+                next = extract_pure_vector_lane(m->self(), m->swizzle_index(0u), expr->type(), inline_exprs);
+            }
+        }
+        if (next == nullptr) { break; }
+        expr = next;
+    }
+    return expr;
 }
 
 [[nodiscard]] bool is_pure_inlineable_expr(Expression const *expr) noexcept {
@@ -335,6 +775,7 @@ struct ConstScalar {
         bool eligible{false};
         bool partial_or_ref{false};
         bool used_as_member_or_access_base{false};
+        bool used_as_non_lane_base{false};
         bool read_before_def{false};
         bool read_in_nested_loop{false};
         uint32_t write_count{0u};
@@ -415,12 +856,15 @@ struct ConstScalar {
         }
     };
 
-    auto mark_read = [&](uint32_t uid, bool direct_top_expr, bool as_base) noexcept {
+    auto mark_read = [&](uint32_t uid, bool direct_top_expr, bool as_base, bool non_lane_base = false) noexcept {
         auto it = vars.find(uid);
         if (it == vars.end()) { return; }
         auto &vi = it->second;
         touch_lca(vi);
-        if (as_base) { vi.used_as_member_or_access_base = true; }
+        if (as_base) {
+            vi.used_as_member_or_access_base = true;
+            if (non_lane_base) { vi.used_as_non_lane_base = true; }
+        }
         if (vi.write_count == 0u) { vi.read_before_def = true; }
         if (vi.write_count == 1u && cur_loop_depth > vi.def_loop_depth) {
             vi.read_in_nested_loop = true;
@@ -446,13 +890,17 @@ struct ConstScalar {
         ++vi.write_count;
     };
 
-    auto scan_expr = [&](auto &&self, Expression const *expr, bool direct_top_expr, bool as_base) noexcept -> void {
+    auto scan_expr = [&](auto &&self, Expression const *expr, bool direct_top_expr, bool as_base, bool non_lane_base = false) noexcept -> void {
         if (expr == nullptr) { return; }
+        if (auto *unwrapped = unwrap_pure_vector_lane(expr); unwrapped != expr) {
+            self(self, unwrapped, direct_top_expr, as_base, non_lane_base);
+            return;
+        }
         switch (expr->tag()) {
             case Expression::Tag::REF: {
                 auto v = static_cast<RefExpr const *>(expr)->variable();
                 if (v.tag() == Variable::Tag::LOCAL) {
-                    mark_read(v.uid(), direct_top_expr, as_base);
+                    mark_read(v.uid(), direct_top_expr, as_base, non_lane_base);
                 }
                 break;
             }
@@ -468,12 +916,20 @@ struct ConstScalar {
             case Expression::Tag::CAST:
                 self(self, static_cast<CastExpr const *>(expr)->expression(), direct_top_expr, false);
                 break;
-            case Expression::Tag::MEMBER:
-                self(self, static_cast<MemberExpr const *>(expr)->self(), direct_top_expr, true);
+            case Expression::Tag::MEMBER: {
+                auto *m = static_cast<MemberExpr const *>(expr);
+                const bool is_const_vec_lane =
+                    m->is_swizzle() && m->swizzle_size() == 1u &&
+                    m->self()->type() != nullptr && m->self()->type()->is_vector();
+                self(self, m->self(), direct_top_expr, true, !is_const_vec_lane);
                 break;
+            }
             case Expression::Tag::ACCESS: {
                 auto *a = static_cast<AccessExpr const *>(expr);
-                self(self, a->range(), direct_top_expr, true);
+                const bool is_const_vec_lane =
+                    a->range()->type() != nullptr && a->range()->type()->is_vector() &&
+                    extract_const_uint_literal(a->index()).has_value();
+                self(self, a->range(), direct_top_expr, true, !is_const_vec_lane);
                 self(self, a->index(), direct_top_expr, false);
                 break;
             }
@@ -740,6 +1196,24 @@ struct ConstScalar {
     // Helper: compute expanded AST node cost and leaf variable dependencies for inlining.
     luisa::unordered_map<uint32_t, uint32_t> inlined_node_cost;
     luisa::unordered_map<uint32_t, luisa::fixed_vector<Variable, 8>> inlined_deps;
+    luisa::unordered_map<uint32_t, const RefExpr *> ssa_alias_root;
+    luisa::unordered_set<uint32_t> param_immutable;
+    for (auto &&arg : func.arguments()) {
+        if (arg.tag() == Variable::Tag::LOCAL &&
+            (static_cast<uint32_t>(func.variable_usage(arg.uid())) &
+             static_cast<uint32_t>(Usage::WRITE)) == 0u) {
+            param_immutable.emplace(arg.uid());
+        }
+    }
+    auto is_scope_ancestor = [&](const ScopeStmt *anc, const ScopeStmt *desc) noexcept -> bool {
+        while (desc != nullptr) {
+            if (desc == anc) { return true; }
+            auto it = scope_meta.find(desc);
+            if (it == scope_meta.end()) { return false; }
+            desc = it->second.parent;
+        }
+        return false;
+    };
     constexpr uint32_t kMaxInlineNodes = 16u;
     constexpr size_t kMaxInlineSpan = 32u;
 
@@ -747,6 +1221,9 @@ struct ConstScalar {
                                           uint32_t &cost,
                                           luisa::fixed_vector<Variable, 8> &deps) noexcept -> bool {
         if (expr == nullptr || cost > kMaxInlineNodes) { return false; }
+        if (auto *unwrapped = unwrap_pure_vector_lane(expr, &plan.inline_exprs); unwrapped != expr) {
+            return self(self, unwrapped, cost, deps);
+        }
         ++cost;
         if (cost > kMaxInlineNodes) { return false; }
         switch (expr->tag()) {
@@ -756,6 +1233,9 @@ struct ConstScalar {
             case Expression::Tag::REF: {
                 auto v = static_cast<RefExpr const *>(expr)->variable();
                 if (v.tag() == Variable::Tag::LOCAL) {
+                    if (auto ait = ssa_alias_root.find(v.uid()); ait != ssa_alias_root.end()) {
+                        v = ait->second->variable();
+                    }
                     if (auto it = inlined_node_cost.find(v.uid()); it != inlined_node_cost.end()) {
                         cost += it->second - 1u;
                         if (cost > kMaxInlineNodes) { return false; }
@@ -764,6 +1244,10 @@ struct ConstScalar {
                             deps.emplace_back(d);
                         }
                         return true;
+                    }
+                    // Never transitively re-inline an adjacent-load temp past its consuming assign.
+                    if (plan.inline_exprs.contains(v.uid())) {
+                        return false;
                     }
                 }
                 if (v.tag() == Variable::Tag::LOCAL || v.tag() == Variable::Tag::REFERENCE) {
@@ -823,6 +1307,95 @@ struct ConstScalar {
             handled_uids.emplace(uid);
             continue;
         }
+        // Case 1a: zero-cost SSA alias (`const T lA = lB;` or `const T lA = float3(lB, ...)[0];`)
+        // when lB is an immutable parameter or dominating single-write local.
+        auto *def_rhs_unwrapped =
+            vi.def_stmt != nullptr ? unwrap_pure_vector_lane(vi.def_stmt->rhs(), &plan.inline_exprs) : nullptr;
+        if (!vi.partial_or_ref && vi.write_count == 1u && !vi.read_before_def &&
+            vi.def_stmt != nullptr && vi.def_scope != nullptr &&
+            vi.lca_scope == vi.def_scope &&
+            def_rhs_unwrapped != nullptr &&
+            def_rhs_unwrapped->tag() == Expression::Tag::REF) {
+            auto *ref_expr = static_cast<RefExpr const *>(def_rhs_unwrapped);
+            auto src_var = ref_expr->variable();
+            if (src_var.tag() == Variable::Tag::LOCAL && src_var.uid() != uid &&
+                *vi.var.type() == *src_var.type()) {
+                if (auto ait = ssa_alias_root.find(src_var.uid()); ait != ssa_alias_root.end()) {
+                    ref_expr = ait->second;
+                    src_var = ref_expr->variable();
+                }
+                if (src_var.uid() != uid && !plan.inline_exprs.contains(src_var.uid())) {
+                    bool src_ok = param_immutable.contains(src_var.uid());
+                    if (!src_ok) {
+                        if (auto sit = vars.find(src_var.uid()); sit != vars.end()) {
+                            auto &svi = sit->second;
+                            src_ok = svi.eligible && !svi.partial_or_ref &&
+                                     svi.write_count == 1u && !svi.read_before_def &&
+                                     svi.def_stmt != nullptr && svi.def_scope != nullptr &&
+                                     svi.def_order_seq < vi.def_order_seq &&
+                                     is_scope_ancestor(svi.def_scope, vi.def_scope);
+                        }
+                    }
+                    if (src_ok) {
+                        plan.inline_exprs.emplace(uid, ref_expr);
+                        ssa_alias_root.emplace(uid, ref_expr);
+                        plan.skip_assigns.emplace(vi.def_stmt);
+                        handled_uids.emplace(uid);
+                        continue;
+                    }
+                }
+            }
+        }
+        // Case 1b: adjacent single-use copy temporary (`T lTmp = _bfread(...); lDst = lTmp;`
+        // or struct/matrix pure copy) with zero non-skipped intervening statements.
+        if (!vi.partial_or_ref && vi.write_count == 1u && vi.read_count == 1u &&
+            !vi.read_before_def && !vi.read_in_nested_loop &&
+            !vi.used_as_member_or_access_base &&
+            vi.def_stmt != nullptr && vi.def_scope != nullptr &&
+            vi.single_read_scope == vi.def_scope && vi.single_read_is_direct_top_expr &&
+            vi.single_read_stmt_idx > vi.def_stmt_idx &&
+            vi.def_stmt->rhs()->type() != nullptr &&
+            *vi.var.type() == *vi.def_stmt->rhs()->type()) {
+            auto *rhs = vi.def_stmt->rhs();
+            bool rhs_ok = is_pure_inlineable_expr(rhs);
+            if (!rhs_ok && rhs->tag() == Expression::Tag::CALL) {
+                auto *c = static_cast<CallExpr const *>(rhs);
+                if (c->is_builtin() && is_readonly_load_call(c->op()) &&
+                    !expr_has_mutating_call(rhs)) {
+                    rhs_ok = true;
+                }
+            }
+            if (rhs_ok) {
+                auto stmts = vi.def_scope->statements();
+                bool adjacent = true;
+                for (size_t k = vi.def_stmt_idx + 1u; k < vi.single_read_stmt_idx; ++k) {
+                    auto *mid = stmts[k];
+                    if (mid->tag() != Statement::Tag::ASSIGN) {
+                        adjacent = false;
+                        break;
+                    }
+                    auto *mid_assign = static_cast<AssignStmt const *>(mid);
+                    if (!plan.skip_assigns.contains(mid_assign) &&
+                        !is_local_undefined_lifetime_seed(mid_assign)) {
+                        adjacent = false;
+                        break;
+                    }
+                }
+                if (adjacent && stmts[vi.single_read_stmt_idx]->tag() == Statement::Tag::ASSIGN) {
+                    auto *next_assign = static_cast<AssignStmt const *>(stmts[vi.single_read_stmt_idx]);
+                    if (next_assign->rhs()->tag() == Expression::Tag::REF &&
+                        static_cast<RefExpr const *>(next_assign->rhs())->variable().uid() == uid &&
+                        next_assign->lhs()->type() != nullptr &&
+                        *next_assign->lhs()->type() == *vi.var.type() &&
+                        !expression_has_call(next_assign->lhs())) {
+                        plan.inline_exprs.emplace(uid, rhs);
+                        plan.skip_assigns.emplace(vi.def_stmt);
+                        handled_uids.emplace(uid);
+                        continue;
+                    }
+                }
+            }
+        }
         // Case 2: pure single-use scalar/vector temp inlined at its unique use in same scope.
         bool inlined = false;
         if (!vi.partial_or_ref && vi.write_count == 1u && vi.read_count == 1u &&
@@ -834,7 +1407,9 @@ struct ConstScalar {
             (vi.var.type()->is_scalar() || vi.var.type()->is_vector()) &&
             vi.def_stmt->rhs()->type() != nullptr &&
             *vi.var.type() == *vi.def_stmt->rhs()->type() &&
-            (!vi.used_as_member_or_access_base || vi.def_stmt->rhs()->tag() == Expression::Tag::REF) &&
+            (!vi.used_as_member_or_access_base ||
+             vi.def_stmt->rhs()->tag() == Expression::Tag::REF ||
+             (!vi.used_as_non_lane_base && is_pure_vector_ctor(vi.def_stmt->rhs()))) &&
             is_pure_inlineable_expr(vi.def_stmt->rhs())) {
             uint32_t cost = 0u;
             luisa::fixed_vector<Variable, 8> deps;
@@ -1182,6 +1757,19 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
 void StringStateVisitor::visit(const MemberExpr *expr) {
     char const *xyzw = "xyzw";
     if (expr->is_swizzle()) {
+        if (emit_plan != nullptr) {
+            if (auto *unwrapped = unwrap_pure_vector_lane(expr, &emit_plan->inline_exprs); unwrapped != expr) {
+                const bool need_parens =
+                    unwrapped->tag() != Expression::Tag::REF &&
+                    unwrapped->tag() != Expression::Tag::CALL &&
+                    unwrapped->tag() != Expression::Tag::CONSTANT &&
+                    unwrapped->tag() != Expression::Tag::LITERAL;
+                if (need_parens) { str << '('; }
+                unwrapped->accept(*this);
+                if (need_parens) { str << ')'; }
+                return;
+            }
+        }
         accessCount++;
         expr->self()->accept(*this);
         accessCount--;
@@ -1219,6 +1807,19 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
     }
 }
 void StringStateVisitor::visit(const AccessExpr *expr) {
+    if (emit_plan != nullptr) {
+        if (auto *unwrapped = unwrap_pure_vector_lane(expr, &emit_plan->inline_exprs); unwrapped != expr) {
+            const bool need_parens =
+                unwrapped->tag() != Expression::Tag::REF &&
+                unwrapped->tag() != Expression::Tag::CALL &&
+                unwrapped->tag() != Expression::Tag::CONSTANT &&
+                unwrapped->tag() != Expression::Tag::LITERAL;
+            if (need_parens) { str << '('; }
+            unwrapped->accept(*this);
+            if (need_parens) { str << ')'; }
+            return;
+        }
+    }
     auto t = expr->range()->type();
     auto basicAccess = [&]() {
         accessCount++;

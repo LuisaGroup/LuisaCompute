@@ -5,6 +5,7 @@
 #include "../common/env_flag.h"
 #include <luisa/core/stl/filesystem.h>
 #include "shader_serializer.h"
+#include "hlsl_spirv_opt.h"
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include "../common/hlsl/shader_compiler.h"
@@ -218,23 +219,24 @@ ComputeShader *ComputeShader::compile(
         }
         auto profile =
             luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+        auto profile_label = dump_name_override.empty() ? file_name : dump_name_override;
         Clock dxc_clock;
-        auto comp_result = Device::compiler()->compile_compute(
+        auto comp_result = compile_hlsl_compute_to_spirv(
+            Device::compiler(),
             str.result.view(),
             true,
             shader_model,
             unsafe_math,
-            true,
             false,
             /*entry_point=*/{},
             /*include_dirs=*/{},
             // The capability set the codegen functor was given: the -fspv-extension
             // flags have to match the instructions the generated source contains.
-            spirv_capabilities);
+            spirv_capabilities,
+            profile_label);
         if (profile) {
             LUISA_INFO("Vulkan HLSL-to-SPIR-V DXC compile '{}' (hlsl={} B): {:.3f} ms",
-                       dump_name_override.empty() ? file_name : dump_name_override,
-                       str.result.size(), dxc_clock.toc());
+                       profile_label, str.result.size(), dxc_clock.toc());
         }
         return comp_result.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},

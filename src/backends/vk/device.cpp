@@ -13,6 +13,7 @@
 #include <luisa/vstl/config.h>
 #include <luisa/core/binary_file_stream.h>
 #include "compute_shader.h"
+#include "hlsl_spirv_opt.h"
 #include "native_shader_ext.h"
 #include "../common/hlsl/hlsl_codegen.h"
 #include "serde_type.h"
@@ -3766,16 +3767,17 @@ ShaderCreationInfo Device::_create_shader_hlsl(
             info.block_size = kernel.block_size();
             return info;
         }
-        auto comp_result = Device::compiler()->compile_compute(
+        auto comp_result = compile_hlsl_compute_to_spirv(
+            Device::compiler(),
             code.result.view(),
             !option.enable_debug_info,
             shader_model,
             option.enable_fast_math,
-            true,
             option.enable_debug_info,
             /*entry_point=*/{},
             /*include_dirs=*/{},
-            /*spirv_capabilities=*/spirv_capabilities);
+            /*spirv_capabilities=*/spirv_capabilities,
+            option.name);
         if (comp_result.is_type_of<vstd::string>()) {
             LUISA_WARNING("DXC compile error for Vulkan shader '{}': {}",
                           option.name, comp_result.get<1>());
