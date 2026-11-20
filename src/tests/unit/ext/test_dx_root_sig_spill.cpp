@@ -616,5 +616,131 @@ int main(int argc, char **argv) {
                std::string_view::npos);
     };
 
+    "hlsl_nested_empty_switch_inside_switch_with_default"_test = [&] {
+        // Regression for HLSL codegen emitting `{ default: break; }` after the
+        // closing `}` of an empty inner switch, which produced a duplicate
+        // `default:` label inside an enclosing switch statement.
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
+        Kernel1D kernel = [](BufferUInt in_a, BufferUInt in_b, BufferUInt out) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            auto a = in_a.read(i);
+            auto b = in_b.read(i);
+            UInt acc = 0u;
+            $switch(a) {
+                $case(1u) {
+                    $switch(b) {
+                        $case(10u) {};
+                        $default {};
+                    };
+                    acc = 11u;
+                };
+                $case(2u) {
+                    $switch(b) {};
+                    acc = 22u;
+                };
+                $default {
+                    acc = 33u;
+                };
+            };
+            out.write(i, acc);
+        };
+        auto fn = kernel.function()->function();
+        auto dx_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        auto dx_compiled = compiler.compile_compute(
+            dx_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/false, /*debug=*/false);
+        expect(dx_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (dx_compiled.is_type_of<vstd::string>() ? dx_compiled.get<1>() : vstd::string{"unexpected DXIL nested switch result"});
+
+        auto spv_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/true, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        auto spv_compiled = compiler.compile_compute(
+            spv_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/true, /*debug=*/false);
+        expect(spv_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (spv_compiled.is_type_of<vstd::string>() ? spv_compiled.get<1>() : vstd::string{"unexpected SPIR-V nested switch result"});
+    };
+
+    "hlsl_local_opt_prunes_const_switch_and_inlines_temps"_test = [&] {
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
+        Kernel1D kernel = [](BufferFloat in_buf, BufferFloat out_buf) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            Float x = in_buf.read(i);
+            // Single-use temp chain should fold without hoisting entry allocas.
+            Float t0 = x * 2.0f;
+            Float t1 = t0 + 3.0f;
+            Float acc = t1;
+            // Constant switch with dead cases should prune dead cases.
+            $switch(def(2u)) {
+                $case(1u) {
+                    acc = acc + 123456.0f;
+                };
+                $case(2u) {
+                    acc = acc + 7.0f;
+                };
+                $case(3u) {
+                    acc = acc + 654321.0f;
+                };
+            };
+            // Constant false branch via SSA bool should be pruned.
+            Bool dead_cond = (def(12u) == def(14u));
+            $if(dead_cond) {
+                acc = acc + 987654.0f;
+            };
+            // Constant switch with internal break inside an enclosing loop must
+            // trap its break without exiting the outer loop.
+            UInt k = 0u;
+            $while(k < 4u) {
+                $switch(def(1u)) {
+                    $case(1u) {
+                        $if(k == 2u) {
+                            $break;
+                        };
+                        acc = acc + 1.0f;
+                    };
+                    $case(2u) {
+                        acc = acc + 777777.0f;
+                    };
+                };
+                k += 1u;
+            };
+            out_buf.write(i, acc);
+        };
+        auto fn = kernel.function()->function();
+        auto dx_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        std::string_view src{dx_code.result.view().data(), dx_code.result.view().size()};
+        // Dead constants from pruned switch cases and pruned if branch must not appear.
+        expect(src.find("0x1.e240") == std::string_view::npos);// 123456.0f
+        expect(src.find("0x1.3f8a") == std::string_view::npos);// 654321.0f
+        expect(src.find("0x1.e240c") == std::string_view::npos);// 987654.0f
+        expect(src.find("0x1.7bc2") == std::string_view::npos);// 777777.0f
+        // Guard wrapper for internal break inside folded switch must be present.
+        expect(src.find("switch(0u)") != std::string_view::npos);
+
+        auto dx_compiled = compiler.compile_compute(
+            dx_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/false, /*debug=*/false);
+        expect(dx_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (dx_compiled.is_type_of<vstd::string>() ? dx_compiled.get<1>() : vstd::string{"unexpected DXIL local-opt result"});
+
+        auto spv_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/true, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        auto spv_compiled = compiler.compile_compute(
+            spv_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/true, /*debug=*/false);
+        expect(spv_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (spv_compiled.is_type_of<vstd::string>() ? spv_compiled.get<1>() : vstd::string{"unexpected SPIR-V local-opt result"});
+    };
+
     return 0;
 }

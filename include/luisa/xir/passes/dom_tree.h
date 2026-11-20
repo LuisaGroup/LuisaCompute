@@ -32,6 +32,8 @@ public:
     [[nodiscard]] auto block() const noexcept { return _block; }
     [[nodiscard]] auto children() const noexcept { return luisa::span{_children}; }
     [[nodiscard]] auto frontiers() const noexcept { return luisa::span{_frontiers}; }
+    [[nodiscard]] auto preorder_index() const noexcept { return _preorder_index; }
+    [[nodiscard]] auto subtree_end_index() const noexcept { return _subtree_end_index; }
     [[nodiscard]] bool dominates(const DomTreeNode *other) const noexcept;
 };
 

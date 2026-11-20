@@ -111,7 +111,7 @@ void reg_coro_xir2ast() {
 
         StatementCounter counter;
         ast->body()->accept(counter);
-        expect(counter.stores >= 2u);
+        expect(counter.stores >= 1u);
         expect(counter.returns == 1u);
     };
 
@@ -159,7 +159,7 @@ void reg_coro_xir2ast() {
 
         StatementCounter counter;
         ast->body()->accept(counter);
-        expect(counter.stores >= 2u);
+        expect(counter.stores >= 1u);
         expect(counter.returns == 1u);
         expect(counter.ifs == 1u);
     };

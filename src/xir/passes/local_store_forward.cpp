@@ -23,10 +23,12 @@ static void run_local_store_forward_on_basic_block(luisa::unordered_set<BasicBlo
 
     auto invalidate_interfering_stores = [&](Value *ptr) noexcept -> AllocaInst * {
         if (auto alloca_inst = trace_pointer_base_local_alloca_inst(ptr)) {
-            auto &interfering_ptrs = variable_pointers[alloca_inst];
-            interfering_ptrs.emplace_back(ptr);
-            for (auto interfering_ptr : interfering_ptrs) {
-                latest_stores.erase(interfering_ptr);
+            if (auto iter = variable_pointers.find(alloca_inst);
+                iter != variable_pointers.end()) {
+                for (auto interfering_ptr : iter->second) {
+                    latest_stores.erase(interfering_ptr);
+                }
+                iter->second.clear();
             }
             return alloca_inst;
         }
@@ -56,8 +58,9 @@ static void run_local_store_forward_on_basic_block(luisa::unordered_set<BasicBlo
                 case DerivedInstructionTag::STORE: {
                     auto store = static_cast<StoreInst *>(inst);
                     // if this is a store to (part of) a local alloca, we might be able to forward it
-                    if (auto pointer = store->variable(); invalidate_interfering_stores(pointer)) {
+                    if (auto pointer = store->variable(); auto alloca_inst = invalidate_interfering_stores(pointer)) {
                         latest_stores[pointer] = store;
+                        variable_pointers[alloca_inst].emplace_back(pointer);
                     }
                     break;
                 }
@@ -148,22 +151,92 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
     luisa::vector<LoadInst *> removable_loads;
     {
         // create a dom tree to check if the use is dominated by the def
-        auto dom_tree = compute_dom_tree(function);
-        auto dominates = [&](StoreInst *store, LoadInst *load) noexcept {
-            auto store_block = store->parent_block();
-            auto load_block = load->parent_block();
-            if (!dom_tree.contains(store_block) || !dom_tree.contains(load_block)) {
+        auto dom_tree = compute_dom_tree(
+            function, {.compute_dominance_frontiers = false});
+        auto dominates_inst = [&](Instruction *a, Instruction *b) noexcept {
+            auto a_block = a->parent_block();
+            auto b_block = b->parent_block();
+            if (a_block == nullptr || b_block == nullptr ||
+                !dom_tree.contains(a_block) || !dom_tree.contains(b_block)) {
                 return false;
             }
-            return store_block == load_block ?
-                       inst_indices.at(store) < inst_indices.at(load) :
-                       dom_tree.dominates(store_block, load_block);
+            return a_block == b_block ?
+                       inst_indices.at(a) < inst_indices.at(b) :
+                       dom_tree.strictly_dominates(a_block, b_block);
+        };
+        auto dominates = [&](StoreInst *store, LoadInst *load) noexcept {
+            return dominates_inst(store, load);
+        };
+        // Memoized proof that every instruction in a value's backward def-use
+        // cone strictly dominates its consumer (no PhiInst or non-SSA edge).
+        // When store dominates load and store->value() dominates store with an
+        // SSA-dominated cone, transitivity proves load cannot appear in the
+        // cone in O(1) amortized time instead of traversing the full DAG per load.
+        luisa::unordered_map<Value *, uint8_t> ssa_cone_state;
+        auto is_ssa_dominated_cone = [&](Value *root) noexcept -> bool {
+            if (root == nullptr || !root->isa<Instruction>()) { return true; }
+            if (auto it = ssa_cone_state.find(root); it != ssa_cone_state.end()) {
+                return it->second == 2u;
+            }
+            struct Frame {
+                Instruction *inst;
+                size_t next_op;
+            };
+            luisa::vector<Frame> stack;
+            ssa_cone_state[root] = 1u;
+            stack.emplace_back(Frame{static_cast<Instruction *>(root), 0u});
+            while (!stack.empty()) {
+                auto &frame = stack.back();
+                auto *inst = frame.inst;
+                if (inst->isa<PhiInst>() ||
+                    !dom_tree.contains(inst->parent_block())) {
+                    ssa_cone_state[inst] = 3u;
+                    stack.pop_back();
+                    continue;
+                }
+                if (frame.next_op < inst->operand_count()) {
+                    auto *op = inst->operand(frame.next_op);
+                    if (op == nullptr || !op->isa<Instruction>()) {
+                        ++frame.next_op;
+                        continue;
+                    }
+                    auto *op_inst = static_cast<Instruction *>(op);
+                    if (!dominates_inst(op_inst, inst)) {
+                        ssa_cone_state[inst] = 3u;
+                        stack.pop_back();
+                        continue;
+                    }
+                    auto &op_state = ssa_cone_state[op_inst];
+                    if (op_state == 2u) {
+                        ++frame.next_op;
+                        continue;
+                    }
+                    if (op_state == 3u || op_state == 1u) {
+                        ssa_cone_state[inst] = 3u;
+                        stack.pop_back();
+                        continue;
+                    }
+                    op_state = 1u;
+                    stack.emplace_back(Frame{op_inst, 0u});
+                } else {
+                    ssa_cone_state[inst] = 2u;
+                    stack.pop_back();
+                }
+            }
+            return ssa_cone_state[root] == 2u;
         };
         // check if replacing 'load' with 'store->value()' would create a cycle
         auto store_value_depends_on_load = [&](StoreInst *store, LoadInst *load) noexcept {
+            auto *val = store->value();
+            if (val == load) { return true; }
+            if (val == nullptr || !val->isa<Instruction>()) { return false; }
+            auto *val_inst = static_cast<Instruction *>(val);
+            if (dominates_inst(val_inst, store) && is_ssa_dominated_cone(val_inst)) {
+                return false;
+            }
             luisa::vector<Value *> worklist;
             luisa::unordered_set<Value *> visited;
-            worklist.push_back(store->value());
+            worklist.push_back(val);
             while (!worklist.empty()) {
                 auto v = worklist.back();
                 worklist.pop_back();
@@ -171,6 +244,9 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
                 if (v == load) { return true; }
                 if (v->isa<Instruction>()) {
                     auto inst = static_cast<Instruction *>(v);
+                    if (dominates_inst(inst, store) && is_ssa_dominated_cone(inst)) {
+                        continue;
+                    }
                     for (auto &&op_use : inst->operand_uses()) {
                         worklist.push_back(op_use->value());
                     }
@@ -193,9 +269,10 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
                 if (!load->metadata_list().empty()) { return; }
                 if (auto base_alloca = trace_pointer_base_local_alloca_inst(load->variable())) {
                     auto iter = single_store.find(base_alloca);
-                    if (iter != single_store.end() && dominates(iter->second, load) &&
-                        !store_value_depends_on_load(iter->second, load) &&
-                        !is_composite_insert_store(iter->second)) {
+                    if (iter != single_store.end() &&
+                        !is_composite_insert_store(iter->second) &&
+                        dominates(iter->second, load) &&
+                        !store_value_depends_on_load(iter->second, load)) {
                         removable_loads.emplace_back(load);
                     }
                 }
@@ -298,7 +375,8 @@ static void forward_uniform_store_to_loads_on_function(FunctionDefinition *funct
     }
     if (uniform_value.empty()) return;
     // build dom tree and instruction indices for dominance checks
-    auto dom_tree = compute_dom_tree(function);
+    auto dom_tree = compute_dom_tree(
+        function, {.compute_dominance_frontiers = false});
     luisa::unordered_map<Instruction *, size_t> inst_indices;
     function->traverse_instructions([&](Instruction *inst) noexcept {
         inst_indices.emplace(inst, inst_indices.size());

@@ -55,6 +55,7 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/memory.h>
 #include <SPIRV/disassemble.h>
+#include "../../backend_print_code.h"
 #include "../../indirect_dispatch_layout.h"
 
 namespace lc::spirv {
@@ -1709,9 +1710,11 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
         "SPIR-V dialect validation failed: {}",
         ext_inst_diagnostic.empty() ? "unknown redundant GLSL.std.450 ExtInst" :
                                       luisa::string_view{ext_inst_diagnostic});
-    std::ostringstream oss;
-    spv::Disassemble(oss, spirv);
-    _scratch << oss.str();
+    if (luisa::compute::backend_print_code_enabled()) {
+        std::ostringstream oss;
+        spv::Disassemble(oss, spirv);
+        _scratch << oss.str();
+    }
 }
 
 SpirvCodegenEntry::InstructionUsageAnalysis SpirvCodegenEntry::_analyze_module_usage(const xir::Module *module) noexcept {

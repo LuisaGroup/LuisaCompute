@@ -311,7 +311,8 @@ static void gvn_pass_on_function(Function *function, GVNInfo &info) noexcept {
     if (function == nullptr || !function->is_definition()) return;
     auto def = static_cast<FunctionDefinition *>(function);
     if (def->body_block() == nullptr) return;
-    auto dom_tree = compute_dom_tree(function);
+    auto dom_tree = compute_dom_tree(
+        function, {.compute_dominance_frontiers = false});
     CoroSemanticGraph coro_graph{def};
     GVNState state;
     state.dom_tree = &dom_tree;

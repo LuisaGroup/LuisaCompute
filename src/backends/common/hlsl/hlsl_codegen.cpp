@@ -1,10 +1,919 @@
 #include "hlsl_codegen.h"
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
+#include "../env_flag.h"
 #include <luisa/core/stl/format.h>
+#include <optional>
 namespace lc::hlsl {
 
+struct LocalEmitPlan {
+    luisa::unordered_map<const IfStmt *, bool> const_if_taken;
+    luisa::unordered_map<const SwitchStmt *, const Statement *> const_switch_branch;
+    luisa::unordered_set<const SwitchStmt *> const_switch_needs_guard;
+    luisa::unordered_set<const AssignStmt *> skip_assigns;
+    luisa::unordered_map<const AssignStmt *, Variable> ssa_decl_assigns;
+    luisa::unordered_map<uint32_t, const Expression *> inline_exprs;
+    luisa::unordered_map<const ScopeStmt *, luisa::vector<Variable>> scoped_decls;
+};
+
 namespace {
+
+struct ConstScalar {
+    enum class Kind : uint8_t { BOOL, I32, U32 };
+    Kind kind{Kind::BOOL};
+    uint32_t bits{0u};
+};
+
+[[nodiscard]] bool is_pure_inlineable_call(CallOp op) noexcept {
+    if (op >= CallOp::ALL && op <= CallOp::INVERSE) { return true; }
+    if (op >= CallOp::MAKE_BOOL2 && op <= CallOp::MAKE_FLOAT4X4) { return true; }
+    return op == CallOp::ZERO || op == CallOp::ONE;
+}
+
+[[nodiscard]] bool call_arg_is_readonly(CallExpr const *call, size_t arg_idx) noexcept {
+    if (call->is_custom()) {
+        auto formal_args = call->custom().arguments();
+        return arg_idx < formal_args.size() &&
+               formal_args[arg_idx].tag() != Variable::Tag::REFERENCE;
+    }
+    if (call->is_external()) { return false; }
+    auto op = call->op();
+    if (is_pure_inlineable_call(op)) { return true; }
+    if (op >= CallOp::BUFFER_READ && op <= CallOp::TYPED_BINDLESS_BUFFER_ADDRESS) { return true; }
+    return op == CallOp::BUFFER_VOLATILE_READ || op == CallOp::BUFFER_VOLATILE_WRITE ||
+           op == CallOp::ASSERT || op == CallOp::ASSUME;
+}
+
+[[nodiscard]] bool call_may_mutate_any_local(CallExpr const *call) noexcept {
+    for (size_t i = 0u; i < call->arguments().size(); ++i) {
+        if (!call_arg_is_readonly(call, i)) { return true; }
+    }
+    return false;
+}
+
+[[nodiscard]] std::optional<ConstScalar> eval_const_scalar(
+    Expression const *expr,
+    luisa::unordered_map<uint32_t, ConstScalar> const &env) noexcept {
+    if (expr == nullptr || expr->type() == nullptr) { return std::nullopt; }
+    switch (expr->tag()) {
+        case Expression::Tag::LITERAL: {
+            auto *lit = static_cast<LiteralExpr const *>(expr);
+            return luisa::visit(
+                []<typename T>(T const &v) noexcept -> std::optional<ConstScalar> {
+                    if constexpr (std::is_same_v<T, bool>) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, v ? 1u : 0u};
+                    } else if constexpr (std::is_same_v<T, int32_t>) {
+                        return ConstScalar{ConstScalar::Kind::I32, static_cast<uint32_t>(v)};
+                    } else if constexpr (std::is_same_v<T, uint32_t>) {
+                        return ConstScalar{ConstScalar::Kind::U32, v};
+                    } else {
+                        return std::nullopt;
+                    }
+                },
+                lit->value());
+        }
+        case Expression::Tag::REF: {
+            auto v = static_cast<RefExpr const *>(expr)->variable();
+            if (v.tag() != Variable::Tag::LOCAL) { return std::nullopt; }
+            auto it = env.find(v.uid());
+            return it != env.end() ? std::optional<ConstScalar>{it->second} : std::nullopt;
+        }
+        case Expression::Tag::UNARY: {
+            auto *u = static_cast<UnaryExpr const *>(expr);
+            auto inner = eval_const_scalar(u->operand(), env);
+            if (!inner) { return std::nullopt; }
+            switch (u->op()) {
+                case UnaryOp::PLUS: return inner;
+                case UnaryOp::MINUS:
+                    if (inner->kind == ConstScalar::Kind::BOOL) { return std::nullopt; }
+                    return ConstScalar{inner->kind, static_cast<uint32_t>(0u - inner->bits)};
+                case UnaryOp::NOT:
+                    if (inner->kind != ConstScalar::Kind::BOOL) { return std::nullopt; }
+                    return ConstScalar{ConstScalar::Kind::BOOL, inner->bits == 0u ? 1u : 0u};
+                case UnaryOp::BIT_NOT:
+                    if (inner->kind == ConstScalar::Kind::BOOL) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, inner->bits == 0u ? 1u : 0u};
+                    }
+                    return ConstScalar{inner->kind, ~inner->bits};
+            }
+            return std::nullopt;
+        }
+        case Expression::Tag::CAST: {
+            auto *c = static_cast<CastExpr const *>(expr);
+            if (c->op() != CastOp::STATIC) { return std::nullopt; }
+            auto inner = eval_const_scalar(c->expression(), env);
+            if (!inner) { return std::nullopt; }
+            auto *dst = c->type();
+            if (dst->is_bool()) {
+                return ConstScalar{ConstScalar::Kind::BOOL, inner->bits != 0u ? 1u : 0u};
+            }
+            if (dst->is_int32()) {
+                return ConstScalar{ConstScalar::Kind::I32, inner->bits};
+            }
+            if (dst->is_uint32()) {
+                return ConstScalar{ConstScalar::Kind::U32, inner->bits};
+            }
+            return std::nullopt;
+        }
+        case Expression::Tag::BINARY: {
+            auto *b = static_cast<BinaryExpr const *>(expr);
+            auto lhs = eval_const_scalar(b->lhs(), env);
+            auto rhs = eval_const_scalar(b->rhs(), env);
+            if (!lhs || !rhs || lhs->kind != rhs->kind) { return std::nullopt; }
+            auto k = lhs->kind;
+            switch (b->op()) {
+                case BinaryOp::EQUAL:
+                    return ConstScalar{ConstScalar::Kind::BOOL, lhs->bits == rhs->bits ? 1u : 0u};
+                case BinaryOp::NOT_EQUAL:
+                    return ConstScalar{ConstScalar::Kind::BOOL, lhs->bits != rhs->bits ? 1u : 0u};
+                case BinaryOp::AND:
+                    if (k != ConstScalar::Kind::BOOL) { return std::nullopt; }
+                    return ConstScalar{ConstScalar::Kind::BOOL, (lhs->bits != 0u && rhs->bits != 0u) ? 1u : 0u};
+                case BinaryOp::OR:
+                    if (k != ConstScalar::Kind::BOOL) { return std::nullopt; }
+                    return ConstScalar{ConstScalar::Kind::BOOL, (lhs->bits != 0u || rhs->bits != 0u) ? 1u : 0u};
+                case BinaryOp::BIT_AND:
+                    return ConstScalar{k, lhs->bits & rhs->bits};
+                case BinaryOp::BIT_OR:
+                    return ConstScalar{k, lhs->bits | rhs->bits};
+                case BinaryOp::BIT_XOR:
+                    return ConstScalar{k, lhs->bits ^ rhs->bits};
+                case BinaryOp::LESS:
+                    if (k == ConstScalar::Kind::I32) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, static_cast<int32_t>(lhs->bits) < static_cast<int32_t>(rhs->bits) ? 1u : 0u};
+                    }
+                    if (k == ConstScalar::Kind::U32) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, lhs->bits < rhs->bits ? 1u : 0u};
+                    }
+                    return std::nullopt;
+                case BinaryOp::LESS_EQUAL:
+                    if (k == ConstScalar::Kind::I32) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, static_cast<int32_t>(lhs->bits) <= static_cast<int32_t>(rhs->bits) ? 1u : 0u};
+                    }
+                    if (k == ConstScalar::Kind::U32) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, lhs->bits <= rhs->bits ? 1u : 0u};
+                    }
+                    return std::nullopt;
+                case BinaryOp::GREATER:
+                    if (k == ConstScalar::Kind::I32) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, static_cast<int32_t>(lhs->bits) > static_cast<int32_t>(rhs->bits) ? 1u : 0u};
+                    }
+                    if (k == ConstScalar::Kind::U32) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, lhs->bits > rhs->bits ? 1u : 0u};
+                    }
+                    return std::nullopt;
+                case BinaryOp::GREATER_EQUAL:
+                    if (k == ConstScalar::Kind::I32) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, static_cast<int32_t>(lhs->bits) >= static_cast<int32_t>(rhs->bits) ? 1u : 0u};
+                    }
+                    if (k == ConstScalar::Kind::U32) {
+                        return ConstScalar{ConstScalar::Kind::BOOL, lhs->bits >= rhs->bits ? 1u : 0u};
+                    }
+                    return std::nullopt;
+                case BinaryOp::ADD:
+                    if (k == ConstScalar::Kind::BOOL) { return std::nullopt; }
+                    return ConstScalar{k, static_cast<uint32_t>(lhs->bits + rhs->bits)};
+                case BinaryOp::SUB:
+                    if (k == ConstScalar::Kind::BOOL) { return std::nullopt; }
+                    return ConstScalar{k, static_cast<uint32_t>(lhs->bits - rhs->bits)};
+                case BinaryOp::MUL:
+                    if (k == ConstScalar::Kind::BOOL) { return std::nullopt; }
+                    return ConstScalar{k, static_cast<uint32_t>(lhs->bits * rhs->bits)};
+                default:
+                    return std::nullopt;
+            }
+        }
+        default:
+            return std::nullopt;
+    }
+}
+
+[[nodiscard]] bool scope_has_non_trailing_break(ScopeStmt const *body, bool allow_trailing_at_top) noexcept {
+    auto stmts = body->statements();
+    for (size_t i = 0u; i < stmts.size(); ++i) {
+        auto *s = stmts[i];
+        switch (s->tag()) {
+            case Statement::Tag::BREAK:
+                if (allow_trailing_at_top && i + 1u == stmts.size()) {
+                    return false;
+                }
+                return true;
+            case Statement::Tag::CONTINUE:
+            case Statement::Tag::RETURN:
+                return false;
+            case Statement::Tag::IF: {
+                auto *ifs = static_cast<IfStmt const *>(s);
+                if (scope_has_non_trailing_break(ifs->true_branch(), false) ||
+                    scope_has_non_trailing_break(ifs->false_branch(), false)) {
+                    return true;
+                }
+                break;
+            }
+            case Statement::Tag::SCOPE:
+                if (scope_has_non_trailing_break(static_cast<ScopeStmt const *>(s), false)) {
+                    return true;
+                }
+                break;
+            case Statement::Tag::AUTO_DIFF:
+                if (scope_has_non_trailing_break(static_cast<AutoDiffStmt const *>(s)->body(), false)) {
+                    return true;
+                }
+                break;
+            default:
+                // Nested LOOP / FOR / SWITCH / RAY_QUERY trap their own breaks.
+                break;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] std::optional<Variable> lvalue_root_variable(Expression const *expr) noexcept {
+    while (expr != nullptr) {
+        switch (expr->tag()) {
+            case Expression::Tag::REF:
+                return static_cast<RefExpr const *>(expr)->variable();
+            case Expression::Tag::MEMBER:
+                expr = static_cast<MemberExpr const *>(expr)->self();
+                break;
+            case Expression::Tag::ACCESS:
+                expr = static_cast<AccessExpr const *>(expr)->range();
+                break;
+            default:
+                return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] bool is_pure_inlineable_expr(Expression const *expr) noexcept {
+    if (expr == nullptr) { return false; }
+    switch (expr->tag()) {
+        case Expression::Tag::LITERAL:
+        case Expression::Tag::CONSTANT:
+            return true;
+        case Expression::Tag::REF: {
+            auto tag = static_cast<RefExpr const *>(expr)->variable().tag();
+            return tag == Variable::Tag::LOCAL || tag == Variable::Tag::REFERENCE ||
+                   tag == Variable::Tag::THREAD_ID || tag == Variable::Tag::BLOCK_ID ||
+                   tag == Variable::Tag::DISPATCH_ID || tag == Variable::Tag::DISPATCH_SIZE ||
+                   tag == Variable::Tag::KERNEL_ID || tag == Variable::Tag::WARP_LANE_COUNT ||
+                   tag == Variable::Tag::WARP_LANE_ID;
+        }
+        case Expression::Tag::UNARY:
+            return is_pure_inlineable_expr(static_cast<UnaryExpr const *>(expr)->operand());
+        case Expression::Tag::BINARY: {
+            auto *b = static_cast<BinaryExpr const *>(expr);
+            return is_pure_inlineable_expr(b->lhs()) && is_pure_inlineable_expr(b->rhs());
+        }
+        case Expression::Tag::CAST:
+            return is_pure_inlineable_expr(static_cast<CastExpr const *>(expr)->expression());
+        case Expression::Tag::MEMBER:
+            return is_pure_inlineable_expr(static_cast<MemberExpr const *>(expr)->self());
+        case Expression::Tag::ACCESS: {
+            auto *a = static_cast<AccessExpr const *>(expr);
+            return is_pure_inlineable_expr(a->range()) && is_pure_inlineable_expr(a->index());
+        }
+        case Expression::Tag::CALL: {
+            auto *c = static_cast<CallExpr const *>(expr);
+            if (!c->is_builtin() || !is_pure_inlineable_call(c->op())) { return false; }
+            for (auto *arg : c->arguments()) {
+                if (!is_pure_inlineable_expr(arg)) { return false; }
+            }
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
+[[nodiscard]] bool expr_has_mutating_call(Expression const *expr) noexcept {
+    if (expr == nullptr) { return false; }
+    switch (expr->tag()) {
+        case Expression::Tag::UNARY:
+            return expr_has_mutating_call(static_cast<UnaryExpr const *>(expr)->operand());
+        case Expression::Tag::BINARY: {
+            auto *b = static_cast<BinaryExpr const *>(expr);
+            return expr_has_mutating_call(b->lhs()) || expr_has_mutating_call(b->rhs());
+        }
+        case Expression::Tag::CAST:
+            return expr_has_mutating_call(static_cast<CastExpr const *>(expr)->expression());
+        case Expression::Tag::MEMBER:
+            return expr_has_mutating_call(static_cast<MemberExpr const *>(expr)->self());
+        case Expression::Tag::ACCESS: {
+            auto *a = static_cast<AccessExpr const *>(expr);
+            return expr_has_mutating_call(a->range()) || expr_has_mutating_call(a->index());
+        }
+        case Expression::Tag::CALL: {
+            auto *c = static_cast<CallExpr const *>(expr);
+            if (call_may_mutate_any_local(c)) { return true; }
+            for (auto *arg : c->arguments()) {
+                if (expr_has_mutating_call(arg)) { return true; }
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
+[[nodiscard]] LocalEmitPlan build_local_emit_plan(
+    Function func,
+    CodegenUtility *util,
+    luisa::unordered_set<uint32_t> const &lazy_decl_uids) noexcept {
+    LocalEmitPlan plan;
+
+    struct ScopeMeta {
+        const ScopeStmt *parent{nullptr};
+        uint32_t depth{0u};
+        uint32_t loop_depth{0u};
+        bool can_declare{true};
+    };
+    luisa::unordered_map<const ScopeStmt *, ScopeMeta> scope_meta;
+
+    struct VarInfo {
+        Variable var;
+        bool eligible{false};
+        bool partial_or_ref{false};
+        bool used_as_member_or_access_base{false};
+        bool read_before_def{false};
+        bool read_in_nested_loop{false};
+        uint32_t write_count{0u};
+        uint32_t read_count{0u};
+        const AssignStmt *def_stmt{nullptr};
+        const ScopeStmt *def_scope{nullptr};
+        size_t def_stmt_idx{0u};
+        size_t def_order_seq{SIZE_MAX};
+        uint32_t def_loop_depth{0u};
+        const ScopeStmt *single_read_scope{nullptr};
+        size_t single_read_stmt_idx{0u};
+        bool single_read_is_direct_top_expr{false};
+        const ScopeStmt *lca_scope{nullptr};
+    };
+    luisa::unordered_map<uint32_t, VarInfo> vars;
+    luisa::vector<uint32_t> local_order;
+    local_order.reserve(func.local_variables().size());
+    vars.reserve(func.local_variables().size());
+    for (auto &&v : func.local_variables()) {
+        if (func.variable_usage(v.uid()) == Usage::NONE) { continue; }
+        bool eligible = !lazy_decl_uids.contains(v.uid()) &&
+                        !(v.type()->is_resource() || v.type()->is_custom() ||
+                          v.type()->is_cooperative_vector());
+        vars.emplace(v.uid(), VarInfo{.var = v, .eligible = eligible});
+        local_order.emplace_back(v.uid());
+    }
+
+    auto compute_lca = [&](const ScopeStmt *a, const ScopeStmt *b) noexcept -> const ScopeStmt * {
+        if (a == nullptr) { return b; }
+        if (b == nullptr) { return a; }
+        auto da = scope_meta.at(a).depth;
+        auto db = scope_meta.at(b).depth;
+        while (da > db) {
+            a = scope_meta.at(a).parent;
+            --da;
+        }
+        while (db > da) {
+            b = scope_meta.at(b).parent;
+            --db;
+        }
+        while (a != b) {
+            a = scope_meta.at(a).parent;
+            b = scope_meta.at(b).parent;
+        }
+        while (a != nullptr && !scope_meta.at(a).can_declare) {
+            a = scope_meta.at(a).parent;
+        }
+        return a != nullptr ? a : func.body();
+    };
+
+    const ScopeStmt *cur_scope = nullptr;
+    size_t cur_stmt_idx = 0u;
+    size_t next_def_order_seq = 0u;
+    uint32_t cur_loop_depth = 0u;
+    luisa::unordered_map<uint32_t, ConstScalar> const_env;
+    luisa::vector<uint32_t> *branch_written_uids = nullptr;
+
+    auto cur_decl_scope = [&]() noexcept -> const ScopeStmt * {
+        auto *s = cur_scope;
+        while (s != nullptr && !scope_meta.at(s).can_declare) {
+            s = scope_meta.at(s).parent;
+        }
+        return s != nullptr ? s : func.body();
+    };
+
+    auto touch_lca = [&](VarInfo &vi) noexcept {
+        vi.lca_scope = compute_lca(vi.lca_scope, cur_decl_scope());
+    };
+
+    auto record_env_write = [&](uint32_t uid, std::optional<ConstScalar> val) noexcept {
+        if (branch_written_uids != nullptr) {
+            branch_written_uids->emplace_back(uid);
+        }
+        if (val) {
+            const_env[uid] = *val;
+        } else {
+            const_env.erase(uid);
+        }
+    };
+
+    auto mark_read = [&](uint32_t uid, bool direct_top_expr, bool as_base) noexcept {
+        auto it = vars.find(uid);
+        if (it == vars.end()) { return; }
+        auto &vi = it->second;
+        touch_lca(vi);
+        if (as_base) { vi.used_as_member_or_access_base = true; }
+        if (vi.write_count == 0u) { vi.read_before_def = true; }
+        if (vi.write_count == 1u && cur_loop_depth > vi.def_loop_depth) {
+            vi.read_in_nested_loop = true;
+        }
+        ++vi.read_count;
+        if (vi.read_count == 1u) {
+            vi.single_read_scope = cur_scope;
+            vi.single_read_stmt_idx = cur_stmt_idx;
+            vi.single_read_is_direct_top_expr = direct_top_expr;
+        } else {
+            vi.single_read_scope = nullptr;
+            vi.single_read_is_direct_top_expr = false;
+        }
+    };
+
+    auto mark_partial_or_ref_write = [&](uint32_t uid) noexcept {
+        record_env_write(uid, std::nullopt);
+        auto it = vars.find(uid);
+        if (it == vars.end()) { return; }
+        auto &vi = it->second;
+        touch_lca(vi);
+        vi.partial_or_ref = true;
+        ++vi.write_count;
+    };
+
+    auto scan_expr = [&](auto &&self, Expression const *expr, bool direct_top_expr, bool as_base) noexcept -> void {
+        if (expr == nullptr) { return; }
+        switch (expr->tag()) {
+            case Expression::Tag::REF: {
+                auto v = static_cast<RefExpr const *>(expr)->variable();
+                if (v.tag() == Variable::Tag::LOCAL) {
+                    mark_read(v.uid(), direct_top_expr, as_base);
+                }
+                break;
+            }
+            case Expression::Tag::UNARY:
+                self(self, static_cast<UnaryExpr const *>(expr)->operand(), direct_top_expr, false);
+                break;
+            case Expression::Tag::BINARY: {
+                auto *b = static_cast<BinaryExpr const *>(expr);
+                self(self, b->lhs(), direct_top_expr, false);
+                self(self, b->rhs(), direct_top_expr, false);
+                break;
+            }
+            case Expression::Tag::CAST:
+                self(self, static_cast<CastExpr const *>(expr)->expression(), direct_top_expr, false);
+                break;
+            case Expression::Tag::MEMBER:
+                self(self, static_cast<MemberExpr const *>(expr)->self(), direct_top_expr, true);
+                break;
+            case Expression::Tag::ACCESS: {
+                auto *a = static_cast<AccessExpr const *>(expr);
+                self(self, a->range(), direct_top_expr, true);
+                self(self, a->index(), direct_top_expr, false);
+                break;
+            }
+            case Expression::Tag::CALL: {
+                auto *c = static_cast<CallExpr const *>(expr);
+                auto args = c->arguments();
+                for (size_t i = 0u; i < args.size(); ++i) {
+                    if (call_arg_is_readonly(c, i)) {
+                        self(self, args[i], direct_top_expr, false);
+                    } else {
+                        if (auto root = lvalue_root_variable(args[i]);
+                            root && root->tag() == Variable::Tag::LOCAL) {
+                            mark_partial_or_ref_write(root->uid());
+                            mark_read(root->uid(), false, false);
+                        }
+                        self(self, args[i], false, false);
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    };
+
+    auto scan_lvalue_indices = [&](auto &&self, Expression const *expr) noexcept -> void {
+        if (expr == nullptr) { return; }
+        switch (expr->tag()) {
+            case Expression::Tag::MEMBER:
+                self(self, static_cast<MemberExpr const *>(expr)->self());
+                break;
+            case Expression::Tag::ACCESS: {
+                auto *a = static_cast<AccessExpr const *>(expr);
+                self(self, a->range());
+                scan_expr(scan_expr, a->index(), true, false);
+                break;
+            }
+            default:
+                break;
+        }
+    };
+
+    auto scan_scope = [&](auto &&self, const ScopeStmt *scope, const ScopeStmt *parent,
+                          uint32_t depth, uint32_t loop_depth, bool can_declare) noexcept -> void {
+        scope_meta.emplace(scope, ScopeMeta{parent, depth, loop_depth, can_declare});
+        auto prev_scope = cur_scope;
+        auto prev_stmt_idx = cur_stmt_idx;
+        auto prev_loop_depth = cur_loop_depth;
+        cur_scope = scope;
+        cur_loop_depth = loop_depth;
+
+        auto stmts = scope->statements();
+        for (size_t idx = 0u; idx < stmts.size(); ++idx) {
+            cur_stmt_idx = idx;
+            auto *s = stmts[idx];
+            switch (s->tag()) {
+                case Statement::Tag::BREAK:
+                case Statement::Tag::CONTINUE:
+                    goto done_scope;
+                case Statement::Tag::RETURN: {
+                    auto *ret = static_cast<ReturnStmt const *>(s);
+                    scan_expr(scan_expr, ret->expression(), true, false);
+                    goto done_scope;
+                }
+                case Statement::Tag::EXPR:
+                    scan_expr(scan_expr, static_cast<ExprStmt const *>(s)->expression(), true, false);
+                    break;
+                case Statement::Tag::PRINT: {
+                    auto *p = static_cast<PrintStmt const *>(s);
+                    for (auto *arg : p->arguments()) {
+                        scan_expr(scan_expr, arg, true, false);
+                    }
+                    break;
+                }
+                case Statement::Tag::ASSIGN: {
+                    auto *assign = static_cast<AssignStmt const *>(s);
+                    if (is_local_undefined_lifetime_seed(assign)) { break; }
+                    // Scan RHS before marking LHS written so `x = x + 1` records read_before_def.
+                    auto rhs_const = eval_const_scalar(assign->rhs(), const_env);
+                    scan_expr(scan_expr, assign->rhs(), true, false);
+                    if (assign->lhs()->tag() == Expression::Tag::REF) {
+                        auto v = static_cast<RefExpr const *>(assign->lhs())->variable();
+                        if (v.tag() == Variable::Tag::LOCAL) {
+                            auto it = vars.find(v.uid());
+                            if (it != vars.end()) {
+                                auto &vi = it->second;
+                                touch_lca(vi);
+                                bool rhs_is_shared = assign->rhs()->tag() == Expression::Tag::REF &&
+                                                     static_cast<RefExpr const *>(assign->rhs())->variable().tag() == Variable::Tag::SHARED;
+                                bool rhs_needs_bf16 = util->opt->bf16_fallback &&
+                                                      CodegenUtility::IsBf16(assign->lhs()->type()) &&
+                                                      !CodegenUtility::IsBf16(assign->rhs()->type());
+                                bool rhs_is_rq = assign->rhs()->tag() == Expression::Tag::CALL &&
+                                                 (static_cast<CallExpr const *>(assign->rhs())->op() == CallOp::RAY_TRACING_QUERY_ANY ||
+                                                  static_cast<CallExpr const *>(assign->rhs())->op() == CallOp::RAY_TRACING_QUERY_ALL);
+                                ++vi.write_count;
+                                if (rhs_is_shared || rhs_needs_bf16 || rhs_is_rq || !can_declare) {
+                                    vi.partial_or_ref = true;
+                                } else if (vi.write_count == 1u && !vi.partial_or_ref) {
+                                    vi.def_stmt = assign;
+                                    vi.def_scope = scope;
+                                    vi.def_stmt_idx = idx;
+                                    vi.def_order_seq = next_def_order_seq++;
+                                    vi.def_loop_depth = loop_depth;
+                                }
+                            }
+                            record_env_write(v.uid(), rhs_const);
+                        }
+                    } else {
+                        scan_lvalue_indices(scan_lvalue_indices, assign->lhs());
+                        if (auto root = lvalue_root_variable(assign->lhs());
+                            root && root->tag() == Variable::Tag::LOCAL) {
+                            mark_partial_or_ref_write(root->uid());
+                        }
+                    }
+                    break;
+                }
+                case Statement::Tag::IF: {
+                    auto *ifs = static_cast<IfStmt const *>(s);
+                    auto cond_val = eval_const_scalar(ifs->condition(), const_env);
+                    if (cond_val && cond_val->kind == ConstScalar::Kind::BOOL) {
+                        bool taken = cond_val->bits != 0u;
+                        plan.const_if_taken.emplace(ifs, taken);
+                        if (taken) {
+                            self(self, ifs->true_branch(), scope, depth + 1u, loop_depth, true);
+                        } else if (!ifs->false_branch()->statements().empty()) {
+                            self(self, ifs->false_branch(), scope, depth + 1u, loop_depth, true);
+                        }
+                    } else {
+                        scan_expr(scan_expr, ifs->condition(), true, false);
+                        auto saved_env = const_env;
+                        luisa::vector<uint32_t> written;
+                        auto *prev_written = branch_written_uids;
+                        branch_written_uids = &written;
+                        self(self, ifs->true_branch(), scope, depth + 1u, loop_depth, true);
+                        const_env = saved_env;
+                        if (!ifs->false_branch()->statements().empty()) {
+                            self(self, ifs->false_branch(), scope, depth + 1u, loop_depth, true);
+                        }
+                        branch_written_uids = prev_written;
+                        const_env = std::move(saved_env);
+                        for (auto uid : written) {
+                            record_env_write(uid, std::nullopt);
+                        }
+                    }
+                    break;
+                }
+                case Statement::Tag::SWITCH: {
+                    auto *sw = static_cast<SwitchStmt const *>(s);
+                    auto sel_val = eval_const_scalar(sw->expression(), const_env);
+                    if (sel_val && (sel_val->kind == ConstScalar::Kind::I32 ||
+                                    sel_val->kind == ConstScalar::Kind::U32)) {
+                        const Statement *matched = nullptr;
+                        const Statement *default_stmt = nullptr;
+                        for (auto *cs : sw->body()->statements()) {
+                            if (cs->tag() == Statement::Tag::SWITCH_CASE ||
+                                cs->tag() == Statement::Tag::SWITCH_CASE_GROUP) {
+                                auto *cstmt = static_cast<SwitchCaseStmt const *>(cs);
+                                for (auto *ce : cstmt->expressions()) {
+                                    auto cv = eval_const_scalar(ce, const_env);
+                                    if (cv && cv->bits == sel_val->bits) {
+                                        matched = cstmt;
+                                        break;
+                                    }
+                                }
+                                if (matched != nullptr) { break; }
+                            } else if (cs->tag() == Statement::Tag::SWITCH_DEFAULT) {
+                                default_stmt = cs;
+                            }
+                        }
+                        const Statement *chosen = matched != nullptr ? matched : default_stmt;
+                        plan.const_switch_branch.emplace(sw, chosen);
+                        if (chosen != nullptr) {
+                            const ScopeStmt *chosen_body =
+                                chosen->tag() == Statement::Tag::SWITCH_DEFAULT ?
+                                    static_cast<SwitchDefaultStmt const *>(chosen)->body() :
+                                    static_cast<SwitchCaseStmt const *>(chosen)->body();
+                            if (!chosen_body->statements().empty()) {
+                                if (scope_has_non_trailing_break(chosen_body, true)) {
+                                    plan.const_switch_needs_guard.emplace(sw);
+                                }
+                                self(self, chosen_body, scope, depth + 1u, loop_depth, true);
+                            }
+                        }
+                    } else {
+                        scan_expr(scan_expr, sw->expression(), true, false);
+                        auto saved_env = const_env;
+                        luisa::vector<uint32_t> written;
+                        auto *prev_written = branch_written_uids;
+                        branch_written_uids = &written;
+                        scope_meta.emplace(sw->body(), ScopeMeta{scope, depth + 1u, loop_depth, false});
+                        for (auto *cs : sw->body()->statements()) {
+                            if (cs->tag() == Statement::Tag::SWITCH_CASE ||
+                                cs->tag() == Statement::Tag::SWITCH_CASE_GROUP) {
+                                auto *cstmt = static_cast<SwitchCaseStmt const *>(cs);
+                                if (!cstmt->body()->statements().empty()) {
+                                    const_env = saved_env;
+                                    self(self, cstmt->body(), sw->body(), depth + 2u, loop_depth, true);
+                                }
+                            } else if (cs->tag() == Statement::Tag::SWITCH_DEFAULT) {
+                                auto *dstmt = static_cast<SwitchDefaultStmt const *>(cs);
+                                if (!dstmt->body()->statements().empty()) {
+                                    const_env = saved_env;
+                                    self(self, dstmt->body(), sw->body(), depth + 2u, loop_depth, true);
+                                }
+                            }
+                        }
+                        branch_written_uids = prev_written;
+                        const_env = std::move(saved_env);
+                        for (auto uid : written) {
+                            record_env_write(uid, std::nullopt);
+                        }
+                    }
+                    break;
+                }
+                case Statement::Tag::LOOP: {
+                    auto *loop = static_cast<LoopStmt const *>(s);
+                    const_env.clear();
+                    self(self, loop->body(), scope, depth + 1u, loop_depth + 1u, true);
+                    const_env.clear();
+                    break;
+                }
+                case Statement::Tag::FOR: {
+                    auto *fs = static_cast<ForStmt const *>(s);
+                    const_env.clear();
+                    if (auto root = lvalue_root_variable(fs->variable());
+                        root && root->tag() == Variable::Tag::LOCAL) {
+                        mark_partial_or_ref_write(root->uid());
+                        mark_read(root->uid(), false, false);
+                    }
+                    scan_expr(scan_expr, fs->condition(), false, false);
+                    scan_expr(scan_expr, fs->step(), false, false);
+                    self(self, fs->body(), scope, depth + 1u, loop_depth + 1u, true);
+                    const_env.clear();
+                    break;
+                }
+                case Statement::Tag::RAY_QUERY: {
+                    auto *rq = static_cast<RayQueryStmt const *>(s);
+                    const_env.clear();
+                    scan_expr(scan_expr, rq->query(), false, false);
+                    self(self, rq->on_triangle_candidate(), scope, depth + 1u, loop_depth + 1u, true);
+                    self(self, rq->on_procedural_candidate(), scope, depth + 1u, loop_depth + 1u, true);
+                    const_env.clear();
+                    break;
+                }
+                case Statement::Tag::SCOPE:
+                    self(self, static_cast<ScopeStmt const *>(s), scope, depth + 1u, loop_depth, false);
+                    break;
+                case Statement::Tag::AUTO_DIFF:
+                    self(self, static_cast<AutoDiffStmt const *>(s)->body(), scope, depth + 1u, loop_depth, false);
+                    break;
+                default:
+                    break;
+            }
+        }
+    done_scope:
+        cur_scope = prev_scope;
+        cur_stmt_idx = prev_stmt_idx;
+        cur_loop_depth = prev_loop_depth;
+    };
+
+    scan_scope(scan_scope, func.body(), nullptr, 0u, 0u, true);
+
+    // Helper: compute expanded AST node cost and leaf variable dependencies for inlining.
+    luisa::unordered_map<uint32_t, uint32_t> inlined_node_cost;
+    luisa::unordered_map<uint32_t, luisa::fixed_vector<Variable, 8>> inlined_deps;
+    constexpr uint32_t kMaxInlineNodes = 16u;
+    constexpr size_t kMaxInlineSpan = 32u;
+
+    auto collect_expr_cost_and_deps = [&](auto &&self, Expression const *expr,
+                                          uint32_t &cost,
+                                          luisa::fixed_vector<Variable, 8> &deps) noexcept -> bool {
+        if (expr == nullptr || cost > kMaxInlineNodes) { return false; }
+        ++cost;
+        if (cost > kMaxInlineNodes) { return false; }
+        switch (expr->tag()) {
+            case Expression::Tag::LITERAL:
+            case Expression::Tag::CONSTANT:
+                return true;
+            case Expression::Tag::REF: {
+                auto v = static_cast<RefExpr const *>(expr)->variable();
+                if (v.tag() == Variable::Tag::LOCAL) {
+                    if (auto it = inlined_node_cost.find(v.uid()); it != inlined_node_cost.end()) {
+                        cost += it->second - 1u;
+                        if (cost > kMaxInlineNodes) { return false; }
+                        for (auto &d : inlined_deps.at(v.uid())) {
+                            if (deps.size() >= 16u) { return false; }
+                            deps.emplace_back(d);
+                        }
+                        return true;
+                    }
+                }
+                if (v.tag() == Variable::Tag::LOCAL || v.tag() == Variable::Tag::REFERENCE) {
+                    if (deps.size() >= 16u) { return false; }
+                    deps.emplace_back(v);
+                }
+                return true;
+            }
+            case Expression::Tag::UNARY:
+                return self(self, static_cast<UnaryExpr const *>(expr)->operand(), cost, deps);
+            case Expression::Tag::BINARY: {
+                auto *b = static_cast<BinaryExpr const *>(expr);
+                return self(self, b->lhs(), cost, deps) && self(self, b->rhs(), cost, deps);
+            }
+            case Expression::Tag::CAST:
+                return self(self, static_cast<CastExpr const *>(expr)->expression(), cost, deps);
+            case Expression::Tag::MEMBER:
+                return self(self, static_cast<MemberExpr const *>(expr)->self(), cost, deps);
+            case Expression::Tag::ACCESS: {
+                auto *a = static_cast<AccessExpr const *>(expr);
+                return self(self, a->range(), cost, deps) && self(self, a->index(), cost, deps);
+            }
+            case Expression::Tag::CALL: {
+                auto *c = static_cast<CallExpr const *>(expr);
+                for (auto *arg : c->arguments()) {
+                    if (!self(self, arg, cost, deps)) { return false; }
+                }
+                return true;
+            }
+            default:
+                return false;
+        }
+    };
+
+    // Process locals in definition order so transitive inlining always sees
+    // expanded dependencies of earlier-defined inlined operands.
+    luisa::vector<uint32_t> eval_order = local_order;
+    std::stable_sort(eval_order.begin(), eval_order.end(),
+                     [&](uint32_t lhs, uint32_t rhs) noexcept {
+                         return vars.at(lhs).def_order_seq < vars.at(rhs).def_order_seq;
+                     });
+    luisa::unordered_set<uint32_t> handled_uids;
+    handled_uids.reserve(eval_order.size());
+
+    for (auto uid : eval_order) {
+        auto &vi = vars.at(uid);
+        if (!vi.eligible) { continue; }
+        // Case 0: completely unused (or only referenced inside pruned dead branches).
+        if (vi.write_count == 0u && vi.read_count == 0u) {
+            handled_uids.emplace(uid);
+            continue;
+        }
+        // Case 1: dead pure single write with zero reads.
+        if (!vi.partial_or_ref && vi.write_count == 1u && vi.read_count == 0u &&
+            vi.def_stmt != nullptr && is_pure_inlineable_expr(vi.def_stmt->rhs())) {
+            plan.skip_assigns.emplace(vi.def_stmt);
+            handled_uids.emplace(uid);
+            continue;
+        }
+        // Case 2: pure single-use scalar/vector temp inlined at its unique use in same scope.
+        bool inlined = false;
+        if (!vi.partial_or_ref && vi.write_count == 1u && vi.read_count == 1u &&
+            !vi.read_before_def && !vi.read_in_nested_loop &&
+            vi.def_stmt != nullptr && vi.def_scope != nullptr &&
+            vi.single_read_scope == vi.def_scope && vi.single_read_is_direct_top_expr &&
+            vi.single_read_stmt_idx > vi.def_stmt_idx &&
+            (vi.single_read_stmt_idx - vi.def_stmt_idx) <= kMaxInlineSpan &&
+            (vi.var.type()->is_scalar() || vi.var.type()->is_vector()) &&
+            vi.def_stmt->rhs()->type() != nullptr &&
+            *vi.var.type() == *vi.def_stmt->rhs()->type() &&
+            (!vi.used_as_member_or_access_base || vi.def_stmt->rhs()->tag() == Expression::Tag::REF) &&
+            is_pure_inlineable_expr(vi.def_stmt->rhs())) {
+            uint32_t cost = 0u;
+            luisa::fixed_vector<Variable, 8> deps;
+            if (collect_expr_cost_and_deps(collect_expr_cost_and_deps, vi.def_stmt->rhs(), cost, deps)) {
+                bool has_ref_dep = false;
+                for (auto &d : deps) {
+                    if (d.tag() == Variable::Tag::REFERENCE) { has_ref_dep = true; }
+                }
+                bool interference = false;
+                auto stmts = vi.def_scope->statements();
+                for (size_t k = vi.def_stmt_idx + 1u; k < vi.single_read_stmt_idx; ++k) {
+                    auto *mid = stmts[k];
+                    if (mid->tag() != Statement::Tag::ASSIGN) {
+                        interference = true;
+                        break;
+                    }
+                    auto *mid_assign = static_cast<AssignStmt const *>(mid);
+                    if (plan.skip_assigns.contains(mid_assign) ||
+                        is_local_undefined_lifetime_seed(mid_assign)) {
+                        continue;
+                    }
+                    if (expr_has_mutating_call(mid_assign->rhs())) {
+                        interference = true;
+                        break;
+                    }
+                    auto root = lvalue_root_variable(mid_assign->lhs());
+                    if (!root) {
+                        interference = true;
+                        break;
+                    }
+                    if (has_ref_dep && root->tag() == Variable::Tag::REFERENCE) {
+                        interference = true;
+                        break;
+                    }
+                    for (auto &d : deps) {
+                        if (d.uid() == root->uid()) {
+                            interference = true;
+                            break;
+                        }
+                    }
+                    if (interference) { break; }
+                }
+                if (!interference) {
+                    plan.inline_exprs.emplace(uid, vi.def_stmt->rhs());
+                    plan.skip_assigns.emplace(vi.def_stmt);
+                    inlined_node_cost.emplace(uid, cost);
+                    inlined_deps.emplace(uid, std::move(deps));
+                    handled_uids.emplace(uid);
+                    inlined = true;
+                }
+            }
+        }
+        if (inlined) { continue; }
+        // Case 3: single-write dominating local -> declare at definition site.
+        if (!vi.partial_or_ref && vi.write_count == 1u && !vi.read_before_def &&
+            vi.def_stmt != nullptr && vi.def_scope != nullptr &&
+            vi.lca_scope == vi.def_scope) {
+            plan.ssa_decl_assigns.emplace(vi.def_stmt, vi.var);
+            handled_uids.emplace(uid);
+            continue;
+        }
+    }
+
+    // Emit Case 4 scoped declarations in deterministic original local_order.
+    for (auto uid : local_order) {
+        auto &vi = vars.at(uid);
+        if (!vi.eligible || handled_uids.contains(uid)) { continue; }
+        auto *decl_scope = vi.lca_scope != nullptr ? vi.lca_scope : func.body();
+        while (decl_scope != nullptr && decl_scope != func.body()) {
+            auto &meta = scope_meta.at(decl_scope);
+            if (meta.can_declare && meta.loop_depth == 0u) { break; }
+            decl_scope = meta.parent;
+        }
+        if (decl_scope == nullptr) { decl_scope = func.body(); }
+        plan.scoped_decls[decl_scope].emplace_back(vi.var);
+    }
+
+    return plan;
+}
 
 // Software BF16 (builtin/bfloat16_fallback.bytes): `bfloat16_t` is a raw 16-bit
 // pattern, so HLSL operators and intrinsics do not apply to it.  Every operator
@@ -284,6 +1193,7 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
     } else {
         vstd::StringBuilder curStr;
         StringStateVisitor vis(f, curStr, util);
+        vis.emit_plan = emit_plan;
         expr->self()->accept(vis);
         // A member of a word that mixes 16-bit scalars with one-byte bools lives
         // in the packed `uint` of that word (see `PackedStructMember`).
@@ -378,6 +1288,20 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
 }
 void StringStateVisitor::visit(const RefExpr *expr) {
     Variable v = expr->variable();
+    if (emit_plan != nullptr && v.tag() == Variable::Tag::LOCAL) {
+        if (auto it = emit_plan->inline_exprs.find(v.uid());
+            it != emit_plan->inline_exprs.end()) {
+            auto *inlined = it->second;
+            const bool need_parens =
+                inlined->tag() != Expression::Tag::REF &&
+                inlined->tag() != Expression::Tag::CALL &&
+                inlined->tag() != Expression::Tag::CONSTANT;
+            if (need_parens) { str << '('; }
+            inlined->accept(*this);
+            if (need_parens) { str << ')'; }
+            return;
+        }
+    }
     vstd::StringBuilder tempStr;
     util->GetVariableName(f, v, tempStr);
     util->RegistStructType(v.type());
@@ -744,7 +1668,67 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
         str << "return;\n";
     }
 }
+void StringStateVisitor::_emit_local_zero_decl(Variable const &v) {
+    Usage usage = f.variable_usage(v.uid());
+    if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) == 0) {
+        str << "const "sv;
+    }
+    vstd::StringBuilder typeName;
+    util->GetTypeName(*v.type(), typeName, usage);
+    vstd::StringBuilder varName;
+    util->GetVariableName(f, v, varName);
+    str << typeName << ' ' << varName;
+    if (!(v.type()->is_resource() || v.type()->is_custom() || v.type()->is_cooperative_vector())) [[likely]] {
+        str << "=("sv << typeName << ")0"sv;
+    }
+    str << ";\n";
+}
+
+void StringStateVisitor::_emit_folded_scope(const ScopeStmt *body, bool wrap_in_switch_guard) {
+    auto emit_body_stmts = [&](bool strip_trailing_break) {
+        if (emit_plan != nullptr) {
+            if (auto it = emit_plan->scoped_decls.find(body);
+                it != emit_plan->scoped_decls.end()) {
+                for (auto &&v : it->second) {
+                    _emit_local_zero_decl(v);
+                }
+            }
+        }
+        auto stmts = body->statements();
+        for (size_t i = 0u; i < stmts.size(); ++i) {
+            auto *s = stmts[i];
+            if (strip_trailing_break && i + 1u == stmts.size() && s->tag() == Statement::Tag::BREAK) {
+                return;
+            }
+            s->accept(*this);
+            switch (s->tag()) {
+                case Statement::Tag::BREAK:
+                case Statement::Tag::CONTINUE:
+                case Statement::Tag::RETURN:
+                    return;
+                default: break;
+            }
+        }
+    };
+    if (wrap_in_switch_guard) {
+        str << "switch(0u){\ndefault:{\n"sv;
+        emit_body_stmts(false);
+        str << "break;\n}\n}\n"sv;
+    } else {
+        Scope scope{this};
+        emit_body_stmts(true);
+    }
+}
+
 void StringStateVisitor::visit(const ScopeStmt *state) {
+    if (emit_plan != nullptr && state != f.body()) {
+        if (auto it = emit_plan->scoped_decls.find(state);
+            it != emit_plan->scoped_decls.end()) {
+            for (auto &&v : it->second) {
+                _emit_local_zero_decl(v);
+            }
+        }
+    }
     for (auto &&i : state->statements()) {
         i->accept(*this);
         switch (i->tag()) {
@@ -811,6 +1795,18 @@ void StringStateVisitor::visit(const CommentStmt *state) {
 #endif
 }
 void StringStateVisitor::visit(const IfStmt *state) {
+    if (emit_plan != nullptr) {
+        if (auto it = emit_plan->const_if_taken.find(state);
+            it != emit_plan->const_if_taken.end()) {
+            util->opt->cond_opt_value = CodegenStackData::CondOptValue::None;
+            const ScopeStmt *taken = it->second ? state->true_branch() : state->false_branch();
+            if (!taken->statements().empty()) {
+                Scope scope{this};
+                taken->accept(*this);
+            }
+            return;
+        }
+    }
     if ((luisa::to_underlying(util->opt->cond_opt_value) & luisa::to_underlying(CodegenStackData::CondOptValue::Branch)) != 0) {
         str << "[[branch]] "sv;
     } else if ((luisa::to_underlying(util->opt->cond_opt_value) & luisa::to_underlying(CodegenStackData::CondOptValue::Flatten)) != 0) {
@@ -844,6 +1840,23 @@ void StringStateVisitor::visit(const ExprStmt *state) {
     str << ";\n";
 }
 void StringStateVisitor::visit(const SwitchStmt *state) {
+    if (emit_plan != nullptr) {
+        if (auto it = emit_plan->const_switch_branch.find(state);
+            it != emit_plan->const_switch_branch.end()) {
+            util->opt->cond_opt_value = CodegenStackData::CondOptValue::None;
+            const Statement *chosen = it->second;
+            if (chosen != nullptr) {
+                const ScopeStmt *chosen_body =
+                    chosen->tag() == Statement::Tag::SWITCH_DEFAULT ?
+                        static_cast<SwitchDefaultStmt const *>(chosen)->body() :
+                        static_cast<SwitchCaseStmt const *>(chosen)->body();
+                if (!chosen_body->statements().empty()) {
+                    _emit_folded_scope(chosen_body, emit_plan->const_switch_needs_guard.contains(state));
+                }
+            }
+            return;
+        }
+    }
     if ((luisa::to_underlying(util->opt->cond_opt_value) & luisa::to_underlying(CodegenStackData::CondOptValue::Branch)) != 0) {
         str << "[[branch]] "sv;
     } else if ((luisa::to_underlying(util->opt->cond_opt_value) & luisa::to_underlying(CodegenStackData::CondOptValue::Flatten)) != 0) {
@@ -863,9 +1876,9 @@ void StringStateVisitor::visit(const SwitchStmt *state) {
     {
         Scope scope{this};
         state->body()->accept(*this);
-    }
-    if (switchCount.back() == 0) {
-        str << "{ default: break; }\n";
+        if (switchCount.back() == 0) {
+            str << "default: break;\n";
+        }
     }
 }
 void StringStateVisitor::visit(const SwitchCaseStmt *state) {
@@ -911,6 +1924,25 @@ void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 
 void StringStateVisitor::visit(const AssignStmt *state) {
     if (is_local_undefined_lifetime_seed(state)) { return; }
+    if (emit_plan != nullptr) {
+        if (emit_plan->skip_assigns.contains(state)) { return; }
+        if (auto it = emit_plan->ssa_decl_assigns.find(state);
+            it != emit_plan->ssa_decl_assigns.end()) {
+            auto const &v = it->second;
+            if (v.type()->is_scalar() || v.type()->is_vector()) {
+                str << "const "sv;
+            }
+            vstd::StringBuilder typeName;
+            util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
+            vstd::StringBuilder varName;
+            util->GetVariableName(f, v, varName);
+            util->RegistStructType(v.type());
+            str << typeName << ' ' << varName << '=';
+            state->rhs()->accept(*this);
+            str << ";\n";
+            return;
+        }
+    }
     // A member that lives in a packed 32-bit word (a 1-byte bool mixed with 16-bit
     // scalars, see `PackedStructMember`) is part of the word's single `uint`
     // member, so writing it is a read-modify-write through the matching
@@ -929,6 +1961,7 @@ void StringStateVisitor::visit(const AssignStmt *state) {
             }
             vstd::StringBuilder owner;
             StringStateVisitor vis(f, owner, util);
+            vis.emit_plan = emit_plan;
             member->self()->accept(vis);
             str << owner << ".v"sv << vstd::to_string(packed->word_index)
                 << "=_lc_pack_set_"sv << packed_kind_suffix(packed->kind) << '('
@@ -1136,6 +2169,7 @@ StringStateVisitor::StringStateVisitor(
 }
 void StringStateVisitor::VisitFunction(Function func) {
     lazyDeclVars.clear();
+    luisa::unordered_set<uint32_t> lazy_decl_uids;
     for (auto &&v : func.local_variables()) {
         Usage usage = func.variable_usage(v.uid());
         if (usage == Usage::NONE) [[unlikely]] {
@@ -1146,23 +2180,45 @@ void StringStateVisitor::VisitFunction(Function func) {
             // rayquery need specialization to workaround DXC's bug
             if (desc == "LC_RayQueryAll"sv || desc == "LC_RayQueryAny"sv) {
                 lazyDeclVars.emplace(v);
+                lazy_decl_uids.emplace(v.uid());
                 continue;
             }
         }
-        if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) == 0) {
-            str << "const "sv;
-        }
-        vstd::StringBuilder typeName;
-        util->GetTypeName(*v.type(), typeName, f.variable_usage(v.uid()));
-        vstd::StringBuilder varName;
-        util->GetVariableName(f, v, varName);
-
-        str << typeName << ' ' << varName;
-        if (!(v.type()->is_resource() || v.type()->is_custom() || v.type()->is_cooperative_vector())) [[likely]] {
-            str << "=("sv << typeName << ")0"sv;
-        }
-        str << ";\n";
     }
+    const bool enable_local_opt =
+        !luisa::compute::detail::env_flag("LUISA_HLSL_DISABLE_LOCAL_OPT");
+    LocalEmitPlan local_plan;
+    if (enable_local_opt) {
+        local_plan = build_local_emit_plan(func, util, lazy_decl_uids);
+        emit_plan = &local_plan;
+        // Emit non-eligible locals (resources, custom types, coop vectors) at function top.
+        for (auto &&v : func.local_variables()) {
+            Usage usage = func.variable_usage(v.uid());
+            if (usage == Usage::NONE || lazy_decl_uids.contains(v.uid())) {
+                continue;
+            }
+            if (v.type()->is_resource() || v.type()->is_custom() || v.type()->is_cooperative_vector()) {
+                _emit_local_zero_decl(v);
+            }
+        }
+        // Emit function-body-scoped mutable locals at function top.
+        if (auto it = local_plan.scoped_decls.find(func.body());
+            it != local_plan.scoped_decls.end()) {
+            for (auto &&v : it->second) {
+                _emit_local_zero_decl(v);
+            }
+        }
+    } else {
+        emit_plan = nullptr;
+        for (auto &&v : func.local_variables()) {
+            Usage usage = func.variable_usage(v.uid());
+            if (usage == Usage::NONE || lazy_decl_uids.contains(v.uid())) {
+                continue;
+            }
+            _emit_local_zero_decl(v);
+        }
+    }
+    auto clear_plan = vstd::scope_exit([this]() { emit_plan = nullptr; });
     if (sharedVariables) {
         size_t shared_size{};
         for (auto &&v : func.shared_variables()) {

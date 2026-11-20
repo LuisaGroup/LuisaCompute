@@ -292,12 +292,34 @@ private:
         const luisa::compute::xir::BasicBlock *,
         luisa::unordered_set<const luisa::compute::xir::BasicBlock *>>
         _wrapped_switch_backedge_sources;
+    struct MergeScope {
+        const luisa::compute::xir::BasicBlock *merge{nullptr};
+        size_t header_preorder{0u};
+        size_t header_subtree_end{0u};
+        bool subtract_merge{false};
+        size_t merge_preorder{0u};
+        size_t merge_subtree_end{0u};
+
+        [[nodiscard]] bool contains_preorder(
+            const luisa::compute::xir::BasicBlock *source,
+            size_t source_preorder) const noexcept {
+            if (source == merge || source_preorder == SIZE_MAX) { return false; }
+            if (source_preorder < header_preorder || source_preorder >= header_subtree_end) {
+                return false;
+            }
+            if (subtract_merge &&
+                source_preorder >= merge_preorder &&
+                source_preorder < merge_subtree_end) {
+                return false;
+            }
+            return true;
+        }
+    };
+
     luisa::unordered_map<const luisa::compute::xir::BasicBlock *, const luisa::compute::xir::Instruction *> _merge_owners;
     luisa::unordered_map<const luisa::compute::xir::BasicBlock *, Target> _merge_targets;
-    luisa::unordered_map<
-        const luisa::compute::xir::BasicBlock *,
-        luisa::unordered_set<const luisa::compute::xir::BasicBlock *>>
-        _merge_scopes;
+    luisa::unordered_map<const luisa::compute::xir::BasicBlock *, size_t> _block_dom_preorder;
+    luisa::unordered_map<const luisa::compute::xir::BasicBlock *, MergeScope> _merge_scopes;
     luisa::unordered_map<const luisa::compute::xir::Instruction *, Target> _edge_targets;
     // Raw conditional branches are either canonical Loop.prepare terminators
     // or direct parent-construct boundary guards. Both have two independently
@@ -324,6 +346,9 @@ private:
                                         const luisa::compute::xir::Instruction *owner,
                                         Target continuation) noexcept;
     [[nodiscard]] Target _resolve_loop_boundary_target(const luisa::compute::xir::BasicBlock *block) const noexcept;
+    [[nodiscard]] bool _in_merge_scope(
+        const luisa::compute::xir::BasicBlock *merge,
+        const luisa::compute::xir::BasicBlock *source) const noexcept;
     [[nodiscard]] Target _resolve_ordinary_target(
         const luisa::compute::xir::BasicBlock *source,
         const luisa::compute::xir::BasicBlock *target) const noexcept;

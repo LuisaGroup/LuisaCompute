@@ -216,6 +216,9 @@ ComputeShader *ComputeShader::compile(
                 fclose(f);
             }
         }
+        auto profile =
+            luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+        Clock dxc_clock;
         auto comp_result = Device::compiler()->compile_compute(
             str.result.view(),
             true,
@@ -228,6 +231,11 @@ ComputeShader *ComputeShader::compile(
             // The capability set the codegen functor was given: the -fspv-extension
             // flags have to match the instructions the generated source contains.
             spirv_capabilities);
+        if (profile) {
+            LUISA_INFO("Vulkan HLSL-to-SPIR-V DXC compile '{}' (hlsl={} B): {:.3f} ms",
+                       dump_name_override.empty() ? file_name : dump_name_override,
+                       str.result.size(), dxc_clock.toc());
+        }
         return comp_result.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {

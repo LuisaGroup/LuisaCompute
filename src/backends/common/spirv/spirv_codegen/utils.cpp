@@ -1077,7 +1077,8 @@ void run_pipeline(xir::Module *module, const xir::PassPipeline &pipeline,
 }// namespace
 
 [[nodiscard]] auto luisa_spirv_backend_translate_ast_to_xir(
-    Function kernel, const ShaderOption &option) noexcept
+    Function kernel, const ShaderOption &option,
+    bool validate_handoff) noexcept
     -> luisa::unique_ptr<xir::Module> {
     Clock translate_clock;
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
@@ -1120,47 +1121,49 @@ void run_pipeline(xir::Module *module, const xir::PassPipeline &pipeline,
     // invalid modules. This makes a fail-closed dialect diagnostic actionable
     // without changing the validation or emission boundary.
     dump_xir_stage(xir_module.get(), kernel.hash(), "norm");
-    auto dialect = lc::spirv::validate_spirv_xir_codegen_dialect(
-        xir_module.get(),
-        {.release_assertions_are_no_op =
-             !option.enable_debug_info});
-    if (!dialect.succeeded()) {
-        for (auto &&diagnostic : dialect.diagnostics) {
-            auto function_index = size_t{0u};
-            auto block_index = size_t{0u};
-            auto found_function = false;
-            auto found_block = false;
-            for (auto *function : xir_module->function_list()) {
-                if (function == diagnostic.function) {
-                    found_function = true;
-                    if (auto *definition = function->definition()) {
-                        for (auto *block : definition->basic_blocks()) {
-                            if (block == diagnostic.block) {
-                                found_block = true;
-                                break;
+    if (validate_handoff) {
+        auto dialect = lc::spirv::validate_spirv_xir_codegen_dialect(
+            xir_module.get(),
+            {.release_assertions_are_no_op =
+                 !option.enable_debug_info});
+        if (!dialect.succeeded()) {
+            for (auto &&diagnostic : dialect.diagnostics) {
+                auto function_index = size_t{0u};
+                auto block_index = size_t{0u};
+                auto found_function = false;
+                auto found_block = false;
+                for (auto *function : xir_module->function_list()) {
+                    if (function == diagnostic.function) {
+                        found_function = true;
+                        if (auto *definition = function->definition()) {
+                            for (auto *block : definition->basic_blocks()) {
+                                if (block == diagnostic.block) {
+                                    found_block = true;
+                                    break;
+                                }
+                                ++block_index;
                             }
-                            ++block_index;
                         }
+                        break;
                     }
-                    break;
+                    ++function_index;
                 }
-                ++function_index;
+                LUISA_WARNING_WITH_LOCATION(
+                    "[native-spirv-dialect] function={}@{}, block={}@{}: {}",
+                    found_function ? luisa::format("{}", function_index) :
+                                     luisa::string{"<module>"},
+                    static_cast<const void *>(diagnostic.function),
+                    found_block ? luisa::format("{}", block_index) :
+                                  luisa::string{"<none>"},
+                    static_cast<const void *>(diagnostic.block),
+                    diagnostic.message);
             }
-            LUISA_WARNING_WITH_LOCATION(
-                "[native-spirv-dialect] function={}@{}, block={}@{}: {}",
-                found_function ? luisa::format("{}", function_index) :
-                                 luisa::string{"<module>"},
-                static_cast<const void *>(diagnostic.function),
-                found_block ? luisa::format("{}", block_index) :
-                              luisa::string{"<none>"},
-                static_cast<const void *>(diagnostic.block),
-                diagnostic.message);
+            LUISA_ERROR_WITH_LOCATION(
+                "Invalid XIR at SPIR-V codegen handoff: {} "
+                "({} diagnostic(s) total).",
+                dialect.diagnostics.front().message,
+                dialect.diagnostics.size());
         }
-        LUISA_ERROR_WITH_LOCATION(
-            "Invalid XIR at SPIR-V codegen handoff: {} "
-            "({} diagnostic(s) total).",
-            dialect.diagnostics.front().message,
-            dialect.diagnostics.size());
     }
     return xir_module;
 }

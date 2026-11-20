@@ -325,7 +325,10 @@ SpirvResult SpirvCodegenEntry::compile_spirv(
             "Vulkan native AST-to-XIR begin for kernel '{}'",
             kernel.name());
     }
-    auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
+    // compile_spirv_xir immediately runs validate_spirv_xir_codegen_dialect on
+    // this module; skip the duplicate handoff validation inside AST-to-XIR.
+    auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(
+        kernel, opt, /*validate_handoff=*/false);
     if (profile) {
         LUISA_INFO(
             "Vulkan native AST-to-XIR finished for kernel '{}'",

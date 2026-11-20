@@ -313,7 +313,8 @@ void reg_xir2ast_direct() {
         expect(block_size.y == 1u);
         expect(block_size.z == 1u);
         expect(ast->arguments().size() == 1u);
-        expect(ast->local_variables().size() == 3u);
+        // `local` + materialized `read`; the directly consumed `load` elides its temp local.
+        expect(ast->local_variables().size() == 2u);
         StatementCounter counter;
         ast->body()->accept(counter);
         expect(counter.stores >= 1u);
@@ -324,6 +325,32 @@ void reg_xir2ast_direct() {
         expect(roundtrip != nullptr);
         auto text = xir_to_text_translate(roundtrip.get(), false);
         expect(text.find("resource_write buffer_write") != string::npos);
+    };
+
+    "xir_to_ast_load_temp_materializes_across_intervening_store"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_block_size(make_uint3(64u, 1u, 1u));
+        auto *buffer = kernel->create_resource_argument(Type::buffer(Type::of<float>()));
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *local = b.alloca_local(Type::of<float>());
+        auto *zero = module.create_constant_zero(Type::of<uint>());
+        float one_val = 1.0f;
+        float two_val = 2.0f;
+        auto *one = module.create_constant(Type::of<float>(), &one_val);
+        auto *two = module.create_constant(Type::of<float>(), &two_val);
+        b.store(local, one);
+        auto *snap = b.load(Type::of<float>(), local);
+        // Overwrite `local` before `snap` is consumed: `snap` must materialize into a temp.
+        b.store(local, two);
+        b.call(ResourceWriteOp::BUFFER_WRITE, {buffer, zero, snap});
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        expect(ast->local_variables().size() == 2u);
     };
 
     "xir_to_ast_direct_preserves_unused_atomic"_test = [] {

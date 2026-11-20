@@ -21,6 +21,7 @@
 #include <luisa/ast/function_builder.h>
 #include <Resource/DepthBuffer.h>
 #include <luisa/core/clock.h>
+#include "../../common/env_flag.h"
 #include <luisa/core/stl/filesystem.h>
 #include <Resource/ExternalBuffer.h>
 #include <luisa/runtime/dispatch_buffer.h>
@@ -425,7 +426,18 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
          native_device.prefers_default_wave32()) ?
             luisa::optional<uint8_t>{32u} :
             luisa::nullopt;
+    const bool profile_compile =
+        luisa::compute::detail::env_flag("LUISA_DX_PROFILE_COMPILATION");
+    Clock codegen_clock;
     auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info, option.enable_fast_math, _use_fallback_rtx, kEmulateBfloat16, {}, emulate_8bit, default_warp_size);
+    if (profile_compile) {
+        LUISA_INFO("DX HLSL codegen '{}' (sm={}, wave32={}): {:.3f} ms, {} bytes",
+                   kernel.name().empty() ? luisa::format("{:x}", kernel.hash()) : luisa::string{kernel.name()},
+                   (kernel.allowed_warp_size().has_value() || default_warp_size.has_value()) ? kHighShaderModel : kShaderModel,
+                   default_warp_size.value_or(kernel.allowed_warp_size().value_or(0u)),
+                   codegen_clock.toc(),
+                   code.result.size());
+    }
     // TODO get result from codegen
     auto choose_shader_model = [&]() -> uint {
         if (kernel.use_cooperative_operations() || (code.use_8bit && !emulate_8bit)) {

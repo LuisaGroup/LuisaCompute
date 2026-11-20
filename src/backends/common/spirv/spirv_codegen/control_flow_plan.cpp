@@ -25,6 +25,122 @@ namespace lc::spirv {
 using namespace luisa;
 using namespace luisa::compute;
 
+namespace {
+
+struct DenseDomTree {
+    luisa::vector<uint8_t> reachable;
+    luisa::vector<size_t> preorder;
+    luisa::vector<size_t> subtree_end;
+    luisa::vector<size_t> depth;
+
+    [[nodiscard]] bool dominates(size_t dom, size_t node) const noexcept {
+        if (reachable[dom] == 0u || reachable[node] == 0u) { return false; }
+        return preorder[dom] <= preorder[node] && preorder[node] < subtree_end[dom];
+    }
+};
+
+[[nodiscard]] DenseDomTree compute_dense_dom_tree(
+    size_t count,
+    size_t entry,
+    const luisa::vector<luisa::vector<size_t>> &successors,
+    const luisa::vector<luisa::vector<size_t>> &predecessors) noexcept {
+    DenseDomTree tree;
+    tree.reachable.assign(count, 0u);
+    tree.preorder.assign(count, SIZE_MAX);
+    tree.subtree_end.assign(count, SIZE_MAX);
+    tree.depth.assign(count, 0u);
+    if (count == 0u || entry >= count) { return tree; }
+
+    luisa::vector<size_t> postorder;
+    postorder.reserve(count);
+    struct DfsFrame {
+        size_t node;
+        size_t next_edge;
+    };
+    luisa::vector<DfsFrame> stack;
+    tree.reachable[entry] = 1u;
+    stack.emplace_back(DfsFrame{entry, 0u});
+    while (!stack.empty()) {
+        auto &frame = stack.back();
+        auto &outs = successors[frame.node];
+        if (frame.next_edge < outs.size()) {
+            auto succ = outs[frame.next_edge++];
+            if (tree.reachable[succ] == 0u) {
+                tree.reachable[succ] = 1u;
+                stack.emplace_back(DfsFrame{succ, 0u});
+            }
+        } else {
+            postorder.emplace_back(frame.node);
+            stack.pop_back();
+        }
+    }
+
+    const auto rpo_count = postorder.size();
+    luisa::vector<size_t> rpo(rpo_count);
+    luisa::vector<size_t> rpo_id(count, SIZE_MAX);
+    for (size_t i = 0u; i < rpo_count; ++i) {
+        auto node = postorder[rpo_count - 1u - i];
+        rpo[i] = node;
+        rpo_id[node] = i;
+    }
+    LUISA_ASSERT(rpo[0u] == entry, "SPIR-V DenseDomTree RPO did not begin at entry.");
+
+    luisa::vector<size_t> idom(rpo_count, SIZE_MAX);
+    idom[0u] = 0u;
+    auto intersect = [&](size_t a, size_t b) noexcept {
+        while (a != b) {
+            while (a > b) { a = idom[a]; }
+            while (b > a) { b = idom[b]; }
+        }
+        return a;
+    };
+    for (;;) {
+        auto changed = false;
+        for (size_t i = 1u; i < rpo_count; ++i) {
+            auto node = rpo[i];
+            auto new_idom = SIZE_MAX;
+            for (auto pred : predecessors[node]) {
+                auto pred_rpo = rpo_id[pred];
+                if (pred_rpo == SIZE_MAX || idom[pred_rpo] == SIZE_MAX) { continue; }
+                new_idom = new_idom == SIZE_MAX ? pred_rpo : intersect(pred_rpo, new_idom);
+            }
+            LUISA_ASSERT(new_idom != SIZE_MAX,
+                         "SPIR-V reachable block has no reachable predecessor.");
+            if (idom[i] != new_idom) {
+                idom[i] = new_idom;
+                changed = true;
+            }
+        }
+        if (!changed) { break; }
+    }
+
+    luisa::vector<luisa::vector<size_t>> children(rpo_count);
+    for (size_t i = 1u; i < rpo_count; ++i) {
+        children[idom[i]].emplace_back(i);
+    }
+    size_t next_pre = 0u;
+    stack.clear();
+    tree.preorder[rpo[0u]] = next_pre++;
+    tree.depth[rpo[0u]] = 1u;
+    stack.emplace_back(DfsFrame{0u, 0u});
+    while (!stack.empty()) {
+        auto &frame = stack.back();
+        auto &kids = children[frame.node];
+        if (frame.next_edge < kids.size()) {
+            auto child = kids[frame.next_edge++];
+            tree.preorder[rpo[child]] = next_pre++;
+            tree.depth[rpo[child]] = tree.depth[rpo[frame.node]] + 1u;
+            stack.emplace_back(DfsFrame{child, 0u});
+        } else {
+            tree.subtree_end[rpo[frame.node]] = next_pre;
+            stack.pop_back();
+        }
+    }
+    return tree;
+}
+
+}// namespace
+
 SpirvLoopPreparePlan plan_spirv_loop_prepare(
     const xir::LoopInst *loop) noexcept {
     if (loop == nullptr) {
@@ -162,6 +278,17 @@ ControlFlowPlan::Target ControlFlowPlan::_resolve_loop_boundary_target(const xir
     return Target::xir(block);
 }
 
+bool ControlFlowPlan::_in_merge_scope(
+    const xir::BasicBlock *merge,
+    const xir::BasicBlock *source) const noexcept {
+    auto scope_iter = _merge_scopes.find(merge);
+    LUISA_ASSERT(scope_iter != _merge_scopes.end(),
+                 "SPIR-V construct merge has no frozen logical scope.");
+    auto pre_iter = _block_dom_preorder.find(source);
+    if (pre_iter == _block_dom_preorder.end()) { return false; }
+    return scope_iter->second.contains_preorder(source, pre_iter->second);
+}
+
 ControlFlowPlan::Target ControlFlowPlan::_resolve_ordinary_target(
     const xir::BasicBlock *source,
     const xir::BasicBlock *target) const noexcept {
@@ -169,10 +296,7 @@ ControlFlowPlan::Target ControlFlowPlan::_resolve_ordinary_target(
                  "SPIR-V control-flow plan: null ordinary edge endpoint.");
     if (auto merge_iter = _merge_targets.find(target);
         merge_iter != _merge_targets.end()) {
-        auto scope_iter = _merge_scopes.find(target);
-        LUISA_ASSERT(scope_iter != _merge_scopes.end(),
-                     "SPIR-V construct merge has no frozen logical scope.");
-        if (scope_iter->second.contains(source)) {
+        if (_in_merge_scope(target, source)) {
             return merge_iter->second;
         }
     }
@@ -300,7 +424,78 @@ ControlFlowPlan ControlFlowPlan::_create(
     // legality must not depend on optional DCE at opt0.
 
     auto dom = xir::compute_dom_tree(
-        const_cast<xir::FunctionDefinition *>(function));
+        const_cast<xir::FunctionDefinition *>(function),
+        {.compute_dominance_frontiers = false});
+    luisa::vector<const xir::BasicBlock *> dom_preorder_blocks(
+        dom.nodes().size(), nullptr);
+    plan._block_dom_preorder.reserve(dom.nodes().size());
+    for (auto &&[block, node] : dom.nodes()) {
+        auto pre = node->preorder_index();
+        plan._block_dom_preorder.emplace(block, pre);
+        dom_preorder_blocks[pre] = block;
+    }
+
+    // Freeze the logical adjacency relation once for merge-proxy checks,
+    // nested-selection rotation, break/continue validation, and Phi planning.
+    luisa::vector<luisa::vector<size_t>> successors(plan._blocks.size());
+    luisa::vector<luisa::vector<size_t>> predecessors(plan._blocks.size());
+    for (size_t source_index = 0u; source_index < plan._blocks.size(); ++source_index) {
+        auto *block = plan._blocks[source_index].block;
+        for (auto *operand_use : block->terminator()->operand_uses()) {
+            auto *value = operand_use->value();
+            if (value == nullptr || !value->isa<xir::BasicBlock>()) { continue; }
+            auto *target = static_cast<const xir::BasicBlock *>(value);
+            auto target_iter = plan._block_indices.find(target);
+            LUISA_ASSERT(target_iter != plan._block_indices.end(),
+                         "SPIR-V control-flow plan found an edge to a foreign block.");
+            auto target_index = target_iter->second;
+            auto &outgoing = successors[source_index];
+            if (std::find(outgoing.begin(), outgoing.end(), target_index) == outgoing.end()) {
+                outgoing.emplace_back(target_index);
+                predecessors[target_index].emplace_back(source_index);
+            }
+        }
+    }
+
+    struct LoopBoundary {
+        const xir::BasicBlock *owner;
+        const xir::BasicBlock *continue_target;
+        const xir::BasicBlock *merge;
+        const xir::DomTreeNode *merge_node;
+        size_t schedule_index;
+    };
+    luisa::unordered_map<const xir::BasicBlock *, LoopBoundary> loop_boundaries_by_owner;
+    for (auto &block_plan : plan._blocks) {
+        auto *block = block_plan.block;
+        auto *term = block->terminator();
+        const xir::BasicBlock *continue_target = nullptr;
+        const xir::BasicBlock *loop_merge = nullptr;
+        if (term->isa<xir::LoopInst>()) {
+            auto *loop = static_cast<const xir::LoopInst *>(term);
+            continue_target = loop->update_block();
+            if (continue_target == nullptr) { continue_target = loop->prepare_block(); }
+            loop_merge = loop->merge_block();
+        } else if (term->isa<xir::SimpleLoopInst>()) {
+            auto *loop = static_cast<const xir::SimpleLoopInst *>(term);
+            continue_target = loop->body_block();
+            loop_merge = loop->merge_block();
+        } else {
+            continue;
+        }
+        if (continue_target == nullptr || loop_merge == nullptr ||
+            !dom.contains(const_cast<xir::BasicBlock *>(block))) {
+            continue;
+        }
+        loop_boundaries_by_owner.emplace(
+            block,
+            LoopBoundary{
+                .owner = block,
+                .continue_target = continue_target,
+                .merge = loop_merge,
+                .merge_node = dom.node_or_null(const_cast<xir::BasicBlock *>(loop_merge)),
+                .schedule_index = block_plan.schedule_index});
+    }
+
     // XIR keeps loop-exit guards as IfInst so every high-level transform sees
     // structured control flow. SPIR-V deliberately has a narrower exception:
     // a conditional branch that selects an enclosing loop break/continue path
@@ -322,49 +517,25 @@ ControlFlowPlan ControlFlowPlan::_create(
         auto *exit_entry =
             true_is_merge ? inst->false_block() :
                             inst->true_block();
+        auto *header_node = dom.node_or_null(const_cast<xir::BasicBlock *>(header));
+        if (header_node == nullptr || loop_boundaries_by_owner.empty()) { return {}; }
 
-        struct LoopBoundary {
-            const xir::BasicBlock *owner;
-            const xir::BasicBlock *continue_target;
-            const xir::BasicBlock *merge;
-        };
         luisa::vector<LoopBoundary> candidates;
-        for (auto &block_plan : plan._blocks) {
-            auto *block = block_plan.block;
-            auto *term = block->terminator();
-            const xir::BasicBlock *continue_target = nullptr;
-            const xir::BasicBlock *loop_merge = nullptr;
-            if (term->isa<xir::LoopInst>()) {
-                auto *loop =
-                    static_cast<const xir::LoopInst *>(term);
-                continue_target = loop->update_block();
-                if (continue_target == nullptr) {
-                    continue_target = loop->prepare_block();
-                }
-                loop_merge = loop->merge_block();
-            } else if (term->isa<xir::SimpleLoopInst>()) {
-                auto *loop = static_cast<
-                    const xir::SimpleLoopInst *>(term);
-                continue_target = loop->body_block();
-                loop_merge = loop->merge_block();
-            } else {
+        for (auto *anc = header_node; anc != nullptr; anc = anc->parent()) {
+            auto iter = loop_boundaries_by_owner.find(anc->block());
+            if (iter == loop_boundaries_by_owner.end()) { continue; }
+            auto &boundary = iter->second;
+            if (boundary.merge_node != nullptr &&
+                boundary.merge_node->dominates(header_node)) {
                 continue;
             }
-            if (continue_target == nullptr || loop_merge == nullptr ||
-                !dom.contains(const_cast<xir::BasicBlock *>(block)) ||
-                !dom.contains(const_cast<xir::BasicBlock *>(header)) ||
-                !dom.dominates(
-                    const_cast<xir::BasicBlock *>(block),
-                    const_cast<xir::BasicBlock *>(header)) ||
-                (dom.contains(
-                     const_cast<xir::BasicBlock *>(loop_merge)) &&
-                 dom.dominates(
-                     const_cast<xir::BasicBlock *>(loop_merge),
-                     const_cast<xir::BasicBlock *>(header)))) {
-                continue;
-            }
-            candidates.emplace_back(LoopBoundary{
-                block, continue_target, loop_merge});
+            candidates.emplace_back(boundary);
+        }
+        if (candidates.size() > 1u) {
+            luisa::sort(candidates.begin(), candidates.end(),
+                        [](const LoopBoundary &lhs, const LoopBoundary &rhs) noexcept {
+                            return lhs.schedule_index < rhs.schedule_index;
+                        });
         }
 
         for (auto boundary : candidates) {
@@ -689,16 +860,15 @@ ControlFlowPlan ControlFlowPlan::_create(
     // entry or continue role: only edges leaving the owning construct may pass
     // through its merge proxy; loop backedges and sibling continues must retain
     // their own structural target.
+    plan._merge_scopes.reserve(plan._merge_owners.size());
     for (auto [merge, owner] : plan._merge_owners) {
         auto *header = owner->parent_block();
-        LUISA_ASSERT(header != nullptr &&
-                         dom.contains(const_cast<xir::BasicBlock *>(header)),
+        auto *header_node = header == nullptr ? nullptr : dom.node_or_null(const_cast<xir::BasicBlock *>(header));
+        LUISA_ASSERT(header_node != nullptr,
                      "SPIR-V construct header is absent from the dominance tree.");
+        auto *merge_node = dom.node_or_null(const_cast<xir::BasicBlock *>(merge));
         auto merge_dominates_header =
-            dom.contains(const_cast<xir::BasicBlock *>(merge)) &&
-            dom.dominates(
-                const_cast<xir::BasicBlock *>(merge),
-                const_cast<xir::BasicBlock *>(header));
+            merge_node != nullptr && merge_node->dominates(header_node);
         if (merge_dominates_header &&
             !plan._loop_prepare_indices.contains(merge) &&
             !plan._simple_loop_body_indices.contains(merge) &&
@@ -712,22 +882,16 @@ ControlFlowPlan ControlFlowPlan::_create(
                 return plan;
             }
         }
-        auto &scope = plan._merge_scopes[merge];
-        for (auto &block_plan : plan._blocks) {
-            auto *source = block_plan.block;
-            if (source != merge &&
-                dom.contains(const_cast<xir::BasicBlock *>(source)) &&
-                dom.dominates(
-                    const_cast<xir::BasicBlock *>(header),
-                    const_cast<xir::BasicBlock *>(source)) &&
-                (merge_dominates_header ||
-                 !dom.contains(const_cast<xir::BasicBlock *>(merge)) ||
-                 !dom.dominates(
-                     const_cast<xir::BasicBlock *>(merge),
-                     const_cast<xir::BasicBlock *>(source)))) {
-                scope.emplace(source);
-            }
-        }
+        plan._merge_scopes.emplace(
+            merge,
+            MergeScope{
+                .merge = merge,
+                .header_preorder = header_node->preorder_index(),
+                .header_subtree_end = header_node->subtree_end_index(),
+                .subtract_merge = !merge_dominates_header && merge_node != nullptr,
+                .merge_preorder = merge_node != nullptr ? merge_node->preorder_index() : 0u,
+                .merge_subtree_end = merge_node != nullptr ? merge_node->subtree_end_index() : 0u,
+            });
     }
 
     // OpSwitch target operands are semantically unordered, but SPIR-V imposes
@@ -746,6 +910,7 @@ ControlFlowPlan ControlFlowPlan::_create(
         auto *merge = inst->merge_block();
         auto *default_block = inst->default_block();
         auto &scope = plan._merge_scopes.at(merge);
+        auto *header_node = dom.node_or_null(const_cast<xir::BasicBlock *>(header));
 
         // Ordinary dominance can extend through an enclosing loop's continue
         // block and into the next iteration. Those blocks are structured exits
@@ -753,47 +918,62 @@ ControlFlowPlan ControlFlowPlan::_create(
         // cycle local to the Switch.
         luisa::unordered_set<const xir::BasicBlock *>
             enclosing_boundary_targets;
-        auto construct_encloses_switch = [&](const xir::BasicBlock *owner,
-                                             const xir::BasicBlock *construct_merge) noexcept {
-            return owner != header &&
-                   dom.contains(const_cast<xir::BasicBlock *>(owner)) &&
-                   dom.dominates(
-                       const_cast<xir::BasicBlock *>(owner),
-                       const_cast<xir::BasicBlock *>(header)) &&
-                   (construct_merge == header ||
-                    !dom.contains(const_cast<xir::BasicBlock *>(construct_merge)) ||
-                    !dom.dominates(
-                        const_cast<xir::BasicBlock *>(construct_merge),
-                        const_cast<xir::BasicBlock *>(header)));
+        auto merge_does_not_dom_header = [&](const xir::BasicBlock *construct_merge) noexcept {
+            if (construct_merge == header) { return true; }
+            auto *cm_node = dom.node_or_null(const_cast<xir::BasicBlock *>(construct_merge));
+            return cm_node == nullptr || header_node == nullptr || !cm_node->dominates(header_node);
         };
-        for (auto [construct_merge, owner] : plan._merge_owners) {
-            if (construct_encloses_switch(
-                    owner->parent_block(), construct_merge)) {
-                enclosing_boundary_targets.emplace(construct_merge);
-            }
-        }
-        for (auto &loop : plan._loop_regions) {
-            if (construct_encloses_switch(loop.owner, loop.merge)) {
-                enclosing_boundary_targets.emplace(loop.prepare);
-                enclosing_boundary_targets.emplace(loop.update);
-                enclosing_boundary_targets.emplace(loop.merge);
-            }
-        }
-        for (auto &loop : plan._simple_loop_regions) {
-            if (construct_encloses_switch(loop.owner, loop.merge)) {
-                enclosing_boundary_targets.emplace(loop.body);
-                enclosing_boundary_targets.emplace(loop.merge);
-            }
-        }
-        for (auto &outer_switch : plan._switch_regions) {
-            if (construct_encloses_switch(
-                    outer_switch.header,
-                    outer_switch.instruction->merge_block())) {
-                // A branch to an enclosing cyclic Switch header resolves to
-                // that Switch's synthetic continue target. Treat the logical
-                // header as a boundary even before loop wrapping is finalized,
-                // so planning is independent of Switch discovery order.
-                enclosing_boundary_targets.emplace(outer_switch.header);
+        if (header_node != nullptr) {
+            for (auto *anc = header_node->parent(); anc != nullptr; anc = anc->parent()) {
+                auto *anc_block = anc->block();
+                if (!plan._block_indices.contains(anc_block)) { continue; }
+                auto *term = anc_block->terminator();
+                switch (term->derived_instruction_tag()) {
+                    case xir::DerivedInstructionTag::IF: {
+                        auto *if_inst = static_cast<const xir::IfInst *>(term);
+                        if (auto it = plan._if_indices.find(if_inst);
+                            it != plan._if_indices.end() &&
+                            plan._if_regions[it->second].emit_selection_merge &&
+                            merge_does_not_dom_header(if_inst->merge_block())) {
+                            enclosing_boundary_targets.emplace(if_inst->merge_block());
+                        }
+                        break;
+                    }
+                    case xir::DerivedInstructionTag::LOOP: {
+                        auto *loop_inst = static_cast<const xir::LoopInst *>(term);
+                        if (auto it = plan._loop_indices.find(loop_inst);
+                            it != plan._loop_indices.end() &&
+                            merge_does_not_dom_header(loop_inst->merge_block())) {
+                            auto &loop = plan._loop_regions[it->second];
+                            enclosing_boundary_targets.emplace(loop.prepare);
+                            enclosing_boundary_targets.emplace(loop.update);
+                            enclosing_boundary_targets.emplace(loop.merge);
+                        }
+                        break;
+                    }
+                    case xir::DerivedInstructionTag::SIMPLE_LOOP: {
+                        auto *loop_inst = static_cast<const xir::SimpleLoopInst *>(term);
+                        if (auto it = plan._simple_loop_indices.find(loop_inst);
+                            it != plan._simple_loop_indices.end() &&
+                            merge_does_not_dom_header(loop_inst->merge_block())) {
+                            auto &loop = plan._simple_loop_regions[it->second];
+                            enclosing_boundary_targets.emplace(loop.body);
+                            enclosing_boundary_targets.emplace(loop.merge);
+                        }
+                        break;
+                    }
+                    case xir::DerivedInstructionTag::SWITCH: {
+                        auto *sw_inst = static_cast<const xir::SwitchInst *>(term);
+                        if (auto it = plan._switch_indices.find(sw_inst);
+                            it != plan._switch_indices.end() &&
+                            merge_does_not_dom_header(sw_inst->merge_block())) {
+                            enclosing_boundary_targets.emplace(sw_inst->merge_block());
+                            enclosing_boundary_targets.emplace(anc_block);
+                        }
+                        break;
+                    }
+                    default: break;
+                }
             }
         }
 
@@ -822,24 +1002,21 @@ ControlFlowPlan ControlFlowPlan::_create(
         auto construct_owner = [&](const xir::BasicBlock *block) noexcept
             -> const xir::BasicBlock * {
             const xir::BasicBlock *owner = nullptr;
-            for (auto *entry : construct_entries) {
-                if (dom.contains(const_cast<xir::BasicBlock *>(entry)) &&
-                    dom.contains(const_cast<xir::BasicBlock *>(block)) &&
-                    dom.dominates(
-                        const_cast<xir::BasicBlock *>(entry),
-                        const_cast<xir::BasicBlock *>(block))) {
-                    if (owner != nullptr && owner != entry) {
-                        if (reject_planning_precondition(luisa::format(
-                                "SPIR-V control-flow plan rejected Switch case "
-                                "block {} dominated by multiple case entries. "
-                                "Case constructs must be disjoint before "
-                                "codegen.",
-                                static_cast<const void *>(block)))) {
-                            return nullptr;
-                        }
+            for (auto *n = dom.node_or_null(const_cast<xir::BasicBlock *>(block));
+                 n != nullptr; n = n->parent()) {
+                auto *anc_block = n->block();
+                if (!construct_entry_indices.contains(anc_block)) { continue; }
+                if (owner != nullptr && owner != anc_block) {
+                    if (reject_planning_precondition(luisa::format(
+                            "SPIR-V control-flow plan rejected Switch case "
+                            "block {} dominated by multiple case entries. "
+                            "Case constructs must be disjoint before "
+                            "codegen.",
+                            static_cast<const void *>(block)))) {
+                        return nullptr;
                     }
-                    owner = entry;
                 }
+                owner = anc_block;
             }
             return owner;
         };
@@ -880,9 +1057,17 @@ ControlFlowPlan ControlFlowPlan::_create(
             backedge_sources.emplace(header);
         }
 
-        for (auto &source_plan : plan._blocks) {
-            auto *source = source_plan.block;
-            if (source == header || !scope.contains(source)) { continue; }
+        for (size_t pre = scope.header_preorder + 1u;
+             pre < scope.header_subtree_end;) {
+            if (scope.subtract_merge && pre == scope.merge_preorder) {
+                pre = scope.merge_subtree_end;
+                continue;
+            }
+            auto *source = dom_preorder_blocks[pre++];
+            if (source == nullptr || source == header || source == merge ||
+                !plan._block_indices.contains(source)) {
+                continue;
+            }
             if (enclosing_boundary_targets.contains(source)) { continue; }
             auto *owner = construct_owner(source);
             if (!plan._planning_diagnostic.empty()) { return plan; }
@@ -909,7 +1094,7 @@ ControlFlowPlan ControlFlowPlan::_create(
                 }
                 if (target == merge ||
                     !construct_entry_indices.contains(target)) {
-                    if (target != merge && !scope.contains(target)) {
+                    if (target != merge && !plan._in_merge_scope(merge, target)) {
                         has_nonlocal_exit = true;
                     }
                     continue;
@@ -1119,30 +1304,25 @@ ControlFlowPlan ControlFlowPlan::_create(
         if (merge_is_wrapped_switch_header) {
             auto &wrapped_region = plan._switch_regions.at(
                 wrapped_header_iter->second);
-            auto &wrapped_scope = plan._merge_scopes.at(
-                wrapped_region.instruction->merge_block());
             // A construct nested in the cyclic Switch exits through the
             // synthetic continue boundary. An enclosing construct whose merge
             // starts the Switch instead converges to the logical header. Both
             // cases require a proxy so the physical loop header still has one
             // non-backedge predecessor.
-            if (wrapped_scope.contains(owner->parent_block())) {
+            if (plan._in_merge_scope(
+                    wrapped_region.instruction->merge_block(),
+                    owner->parent_block())) {
                 continuation = Target::synthetic(
                     wrapped_region.continue_synthetic_index);
             }
         }
         auto target = continuation;
-        auto &scope = plan._merge_scopes.at(merge);
         auto has_bypass_predecessor = false;
-        for (auto &source_plan : plan._blocks) {
-            auto *source = source_plan.block;
-            for (auto *operand_use : source->terminator()->operand_uses()) {
-                if (operand_use->value() == merge && !scope.contains(source)) {
-                    has_bypass_predecessor = true;
-                    break;
-                }
+        for (auto pred_index : predecessors[plan._block_indices.at(merge)]) {
+            if (!plan._in_merge_scope(merge, plan._blocks[pred_index].block)) {
+                has_bypass_predecessor = true;
+                break;
             }
-            if (has_bypass_predecessor) { break; }
         }
         // A merge proxy is required not only for overlapping loop roles, but
         // whenever the logical merge has a predecessor outside this construct.
@@ -1309,8 +1489,8 @@ ControlFlowPlan ControlFlowPlan::_create(
             find_selection_entry_predecessor(
                 inner_instruction, outer_merge);
         if (inner_entry_predecessor == nullptr ||
-            !plan._merge_scopes.at(outer_merge).contains(inner_header) ||
-            !plan._merge_scopes.at(inner_merge).contains(outer_merge)) {
+            !plan._in_merge_scope(outer_merge, inner_header) ||
+            !plan._in_merge_scope(inner_merge, outer_merge)) {
             continue;
         }
 
@@ -1318,18 +1498,9 @@ ControlFlowPlan ControlFlowPlan::_create(
         // merge's sole predecessor. Otherwise an ordinary outer exit would
         // have to execute A's payload before reaching B, which cannot be
         // represented by exchanging the two physical declarations alone.
-        luisa::unordered_set<const xir::BasicBlock *> predecessors_of_outer_merge;
-        for (auto &source_plan : plan._blocks) {
-            for (auto *operand_use :
-                 source_plan.block->terminator()->operand_uses()) {
-                if (operand_use->value() == outer_merge) {
-                    predecessors_of_outer_merge.emplace(source_plan.block);
-                }
-            }
-        }
-        if (predecessors_of_outer_merge.size() != 1u ||
-            !predecessors_of_outer_merge.contains(
-                inner_entry_predecessor)) {
+        auto &outer_preds = predecessors[plan._block_indices.at(outer_merge)];
+        auto inner_entry_pred_index = plan._block_indices.at(inner_entry_predecessor);
+        if (outer_preds.size() != 1u || outer_preds.front() != inner_entry_pred_index) {
             if (reject_planning_precondition(
                     "SPIR-V control-flow plan cannot rotate a nested "
                     "selection merge with additional logical predecessors. "
@@ -1472,43 +1643,42 @@ ControlFlowPlan ControlFlowPlan::_create(
             if (auto owner_iter = plan._merge_owners.find(target);
                 owner_iter != plan._merge_owners.end() &&
                 owner_iter->second != instruction &&
-                plan._merge_scopes.at(target).contains(header)) {
+                plan._in_merge_scope(target, header)) {
                 return true;
             }
+            auto *header_node = dom.node_or_null(const_cast<xir::BasicBlock *>(header));
+            if (header_node == nullptr) { return false; }
             auto construct_encloses_header =
                 [&](const xir::BasicBlock *owner,
                     const xir::BasicBlock *merge) noexcept {
-                    return owner != header &&
-                           dom.contains(
-                               const_cast<xir::BasicBlock *>(owner)) &&
-                           dom.dominates(
-                               const_cast<xir::BasicBlock *>(owner),
-                               const_cast<xir::BasicBlock *>(header)) &&
-                           (merge == header ||
-                            !dom.contains(
-                                const_cast<xir::BasicBlock *>(merge)) ||
-                            !dom.dominates(
-                                const_cast<xir::BasicBlock *>(merge),
-                                const_cast<xir::BasicBlock *>(header)));
+                    if (owner == header) { return false; }
+                    auto *owner_node = dom.node_or_null(const_cast<xir::BasicBlock *>(owner));
+                    if (owner_node == nullptr || !owner_node->dominates(header_node)) {
+                        return false;
+                    }
+                    if (merge == header) { return true; }
+                    auto *merge_node = dom.node_or_null(const_cast<xir::BasicBlock *>(merge));
+                    return merge_node == nullptr || !merge_node->dominates(header_node);
                 };
-            for (auto &loop : plan._loop_regions) {
-                if ((target == loop.prepare || target == loop.update) &&
-                    construct_encloses_header(loop.owner, loop.merge)) {
-                    return true;
-                }
+            if (auto it = plan._loop_prepare_indices.find(target);
+                it != plan._loop_prepare_indices.end()) {
+                auto &loop = plan._loop_regions[it->second];
+                if (construct_encloses_header(loop.owner, loop.merge)) { return true; }
             }
-            for (auto &loop : plan._simple_loop_regions) {
-                if (target == loop.body &&
-                    construct_encloses_header(loop.owner, loop.merge)) {
-                    return true;
-                }
+            if (auto it = plan._loop_update_indices.find(target);
+                it != plan._loop_update_indices.end()) {
+                auto &loop = plan._loop_regions[it->second];
+                if (construct_encloses_header(loop.owner, loop.merge)) { return true; }
             }
-            for (auto &outer_switch : plan._switch_regions) {
-                if (target == outer_switch.header &&
-                    outer_switch.instruction != instruction &&
-                    construct_encloses_header(
-                        outer_switch.header,
-                        outer_switch.instruction->merge_block())) {
+            if (auto it = plan._simple_loop_body_indices.find(target);
+                it != plan._simple_loop_body_indices.end()) {
+                auto &loop = plan._simple_loop_regions[it->second];
+                if (construct_encloses_header(loop.owner, loop.merge)) { return true; }
+            }
+            if (target->is_terminated() && target->terminator()->isa<xir::SwitchInst>()) {
+                auto *sw = static_cast<const xir::SwitchInst *>(target->terminator());
+                if (sw != instruction && plan._switch_indices.contains(sw) &&
+                    construct_encloses_header(target, sw->merge_block())) {
                     return true;
                 }
             }
@@ -1839,67 +2009,12 @@ ControlFlowPlan ControlFlowPlan::_create(
                           synthetic.continuation);
     }
 
-    luisa::vector<uint8_t> physical_reachable(
-        physical_block_count, 0u);
-    luisa::vector<size_t> physical_worklist;
     auto physical_entry =
         plan._block_indices.at(function->body_block());
-    physical_worklist.emplace_back(physical_entry);
-    while (!physical_worklist.empty()) {
-        auto source = physical_worklist.back();
-        physical_worklist.pop_back();
-        if (physical_reachable[source] != 0u) { continue; }
-        physical_reachable[source] = 1u;
-        for (auto destination : physical_successors[source]) {
-            physical_worklist.emplace_back(destination);
-        }
-    }
-    luisa::vector<luisa::vector<uint8_t>> physical_dominators(
-        physical_block_count,
-        luisa::vector<uint8_t>(physical_block_count, 0u));
-    for (size_t block = 0u; block < physical_block_count; ++block) {
-        if (physical_reachable[block] == 0u || block == physical_entry) {
-            continue;
-        }
-        for (size_t candidate = 0u;
-             candidate < physical_block_count; ++candidate) {
-            physical_dominators[block][candidate] =
-                physical_reachable[candidate];
-        }
-    }
-    physical_dominators[physical_entry][physical_entry] = 1u;
-    for (;;) {
-        auto changed = false;
-        for (size_t block = 0u; block < physical_block_count; ++block) {
-            if (block == physical_entry ||
-                physical_reachable[block] == 0u) {
-                continue;
-            }
-            luisa::vector<uint8_t> next(physical_block_count, 1u);
-            auto has_reachable_predecessor = false;
-            for (auto predecessor : physical_predecessors[block]) {
-                if (physical_reachable[predecessor] == 0u) { continue; }
-                if (!has_reachable_predecessor) {
-                    next = physical_dominators[predecessor];
-                    has_reachable_predecessor = true;
-                } else {
-                    for (size_t candidate = 0u;
-                         candidate < physical_block_count; ++candidate) {
-                        next[candidate] &=
-                            physical_dominators[predecessor][candidate];
-                    }
-                }
-            }
-            LUISA_ASSERT(has_reachable_predecessor,
-                         "SPIR-V reachable physical block has no reachable predecessor.");
-            next[block] = 1u;
-            if (next != physical_dominators[block]) {
-                physical_dominators[block] = std::move(next);
-                changed = true;
-            }
-        }
-        if (!changed) { break; }
-    }
+    auto physical_dom = compute_dense_dom_tree(
+        physical_block_count, physical_entry,
+        physical_successors, physical_predecessors);
+    auto &physical_reachable = physical_dom.reachable;
 
     // SPIR-V defines a backedge structurally: for every reachable physical
     // edge S -> H, H dominates S. Such an edge is legal only when H is an
@@ -1929,7 +2044,7 @@ ControlFlowPlan ControlFlowPlan::_create(
         if (physical_reachable[source] == 0u) { continue; }
         for (auto target : physical_successors[source]) {
             if (physical_reachable[target] == 0u ||
-                physical_dominators[source][target] == 0u ||
+                !physical_dom.dominates(target, source) ||
                 physical_loop_headers.contains(target)) {
                 continue;
             }
@@ -1967,11 +2082,11 @@ ControlFlowPlan ControlFlowPlan::_create(
             if (physical_reachable[predecessor] == 0u) { continue; }
             predecessor_facts.emplace_back(PhysicalLoopPredecessorFacts{
                 .dominated_by_header =
-                    physical_dominators[predecessor][header] != 0u,
+                    physical_dom.dominates(header, predecessor),
                 .dominated_by_continue_target =
-                    physical_dominators[predecessor][continue_target] != 0u,
+                    physical_dom.dominates(continue_target, predecessor),
                 .dominated_by_merge_target =
-                    physical_dominators[predecessor][merge_target] != 0u,
+                    physical_dom.dominates(merge_target, predecessor),
             });
         }
         loop.physical_boundary = validate_physical_loop_boundary(
@@ -2022,11 +2137,11 @@ ControlFlowPlan ControlFlowPlan::_create(
             if (physical_reachable[predecessor] == 0u) { continue; }
             predecessor_facts.emplace_back(PhysicalLoopPredecessorFacts{
                 .dominated_by_header =
-                    physical_dominators[predecessor][header] != 0u,
+                    physical_dom.dominates(header, predecessor),
                 .dominated_by_continue_target =
-                    physical_dominators[predecessor][continue_target] != 0u,
+                    physical_dom.dominates(continue_target, predecessor),
                 .dominated_by_merge_target =
-                    physical_dominators[predecessor][merge_target] != 0u,
+                    physical_dom.dominates(merge_target, predecessor),
             });
         }
         loop.physical_boundary = validate_physical_loop_boundary(
@@ -2076,11 +2191,11 @@ ControlFlowPlan ControlFlowPlan::_create(
             if (physical_reachable[predecessor] == 0u) { continue; }
             predecessor_facts.emplace_back(PhysicalLoopPredecessorFacts{
                 .dominated_by_header =
-                    physical_dominators[predecessor][header] != 0u,
+                    physical_dom.dominates(header, predecessor),
                 .dominated_by_continue_target =
-                    physical_dominators[predecessor][continue_target] != 0u,
+                    physical_dom.dominates(continue_target, predecessor),
                 .dominated_by_merge_target =
-                    physical_dominators[predecessor][merge_target] != 0u,
+                    physical_dom.dominates(merge_target, predecessor),
             });
         }
         region.physical_boundary = validate_physical_loop_boundary(
@@ -2129,87 +2244,19 @@ ControlFlowPlan ControlFlowPlan::_create(
         if (!physical_boundaries_succeeded) { return plan; }
     }
 
-    // Freeze the logical predecessor relation. The same relation drives exact
-    // nearest-enclosing break/continue checks and Phi incoming validation.
-    luisa::vector<luisa::vector<size_t>> successors(plan._blocks.size());
-    luisa::vector<luisa::vector<size_t>> predecessors(plan._blocks.size());
-    for (auto &block_plan : plan._blocks) {
-        auto source_index = plan._block_indices.at(block_plan.block);
-        for (auto *operand_use : block_plan.block->terminator()->operand_uses()) {
-            auto *value = operand_use->value();
-            if (value == nullptr || !value->isa<xir::BasicBlock>()) { continue; }
-            auto *target = static_cast<const xir::BasicBlock *>(value);
-            auto target_iter = plan._block_indices.find(target);
-            LUISA_ASSERT(target_iter != plan._block_indices.end(),
-                         "SPIR-V control-flow plan found an edge to a foreign block.");
-            auto target_index = target_iter->second;
-            if (std::find(successors[source_index].begin(), successors[source_index].end(), target_index) ==
-                successors[source_index].end()) {
-                successors[source_index].emplace_back(target_index);
-                predecessors[target_index].emplace_back(source_index);
-            }
-        }
-    }
-    luisa::vector<uint8_t> reachable(plan._blocks.size(), 0u);
-    luisa::vector<size_t> worklist;
+    // Compute ordinary dominators on the frozen logical adjacency relation
+    // using O(N + E) Cooper-Harvey-Kennedy instead of a dense matrix.
     auto entry_index = plan._block_indices.at(function->body_block());
-    worklist.emplace_back(entry_index);
-    while (!worklist.empty()) {
-        auto index = worklist.back();
-        worklist.pop_back();
-        if (reachable[index] != 0u) { continue; }
-        reachable[index] = 1u;
-        for (auto successor : successors[index]) { worklist.emplace_back(successor); }
-    }
-    // Compute ordinary dominators without a post-dominator dependency. This is
-    // used only to identify the exact nearest enclosing structured loop for
-    // BreakInst/ContinueInst; emission itself consumes the frozen edge table.
-    auto block_count = plan._blocks.size();
-    luisa::vector<luisa::vector<uint8_t>> dominators(
-        block_count, luisa::vector<uint8_t>(block_count, 0u));
-    for (size_t block_index = 0u; block_index < block_count; ++block_index) {
-        if (reachable[block_index] == 0u || block_index == entry_index) { continue; }
-        for (size_t candidate = 0u; candidate < block_count; ++candidate) {
-            dominators[block_index][candidate] = reachable[candidate];
-        }
-    }
-    dominators[entry_index][entry_index] = 1u;
-    for (;;) {
-        auto changed = false;
-        for (size_t block_index = 0u; block_index < block_count; ++block_index) {
-            if (block_index == entry_index || reachable[block_index] == 0u) { continue; }
-            luisa::vector<uint8_t> next(block_count, 1u);
-            auto has_predecessor = false;
-            for (auto predecessor_index : predecessors[block_index]) {
-                if (!has_predecessor) {
-                    next = dominators[predecessor_index];
-                    has_predecessor = true;
-                } else {
-                    for (size_t candidate = 0u; candidate < block_count; ++candidate) {
-                        next[candidate] &= dominators[predecessor_index][candidate];
-                    }
-                }
-            }
-            LUISA_ASSERT(has_predecessor,
-                         "SPIR-V reachable block has no logical predecessor.");
-            next[block_index] = 1u;
-            if (next != dominators[block_index]) {
-                dominators[block_index] = std::move(next);
-                changed = true;
-            }
-        }
-        if (!changed) { break; }
-    }
+    auto logical_dom = compute_dense_dom_tree(
+        plan._blocks.size(), entry_index, successors, predecessors);
+    auto &reachable = logical_dom.reachable;
     auto dominates = [&](const xir::BasicBlock *lhs, const xir::BasicBlock *rhs) noexcept {
-        auto lhs_index = plan._block_indices.at(lhs);
-        auto rhs_index = plan._block_indices.at(rhs);
-        return reachable[lhs_index] != 0u && reachable[rhs_index] != 0u &&
-               dominators[rhs_index][lhs_index] != 0u;
+        return logical_dom.dominates(
+            plan._block_indices.at(lhs),
+            plan._block_indices.at(rhs));
     };
     auto dominator_depth = [&](const xir::BasicBlock *block) noexcept {
-        auto depth = size_t{0u};
-        for (auto bit : dominators[plan._block_indices.at(block)]) { depth += bit != 0u; }
-        return depth;
+        return logical_dom.depth[plan._block_indices.at(block)];
     };
     for (auto &block_plan : plan._blocks) {
         auto *terminator = block_plan.block->terminator();
@@ -2363,6 +2410,15 @@ ControlFlowPlan ControlFlowPlan::_create(
     // Phis in forwarding blocks preserve values across continue/trampoline
     // convergence. Result IDs and operands are allocated by the emitter before
     // any ordinary instruction is emitted.
+    luisa::unordered_map<const xir::BasicBlock *, luisa::vector<const IfRegion *>>
+        loop_boundary_guards_by_pred;
+    for (auto &if_region : plan._if_regions) {
+        if (!if_region.emit_selection_merge &&
+            if_region.loop_boundary_exit_predecessor != nullptr) {
+            loop_boundary_guards_by_pred[if_region.loop_boundary_exit_predecessor]
+                .emplace_back(&if_region);
+        }
+    }
     for (auto &block_plan : plan._blocks) {
         auto *block = block_plan.block;
         auto saw_non_phi = false;
@@ -2409,18 +2465,16 @@ ControlFlowPlan ControlFlowPlan::_create(
                     .value = incoming.value,
                     .predecessor = incoming.block};
                 const IfRegion *loop_boundary_guard = nullptr;
-                for (auto &if_region : plan._if_regions) {
-                    if (!if_region.emit_selection_merge &&
-                        if_region.loop_boundary_exit_target ==
-                            block &&
-                        if_region
-                                .loop_boundary_exit_predecessor ==
-                            incoming.block) {
-                        LUISA_ASSERT(
-                            loop_boundary_guard == nullptr,
-                            "SPIR-V Phi incoming is bypassed by multiple "
-                            "loop-boundary guards.");
-                        loop_boundary_guard = &if_region;
+                if (auto guard_iter = loop_boundary_guards_by_pred.find(incoming.block);
+                    guard_iter != loop_boundary_guards_by_pred.end()) {
+                    for (auto *if_region : guard_iter->second) {
+                        if (if_region->loop_boundary_exit_target == block) {
+                            LUISA_ASSERT(
+                                loop_boundary_guard == nullptr,
+                                "SPIR-V Phi incoming is bypassed by multiple "
+                                "loop-boundary guards.");
+                            loop_boundary_guard = if_region;
+                        }
                     }
                 }
                 if (loop_boundary_guard != nullptr) {

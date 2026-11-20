@@ -2,9 +2,11 @@
 #include <Shader/ShaderSerializer.h>
 #include "../../common/hlsl/hlsl_codegen.h"
 #include "../../common/hlsl/shader_compiler.h"
+#include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/vstl/md5.h>
 #include "../../common/backend_print_code.h"
+#include "../../common/env_flag.h"
 namespace lc::dx {
 class StringViewBinaryStream : public BinaryStream {
 
@@ -82,6 +84,8 @@ ComputeShader *ComputeShader::compile_compute(
     bool debug,
     uint validation_count) {
 
+    const bool profile_compile =
+        luisa::compute::detail::env_flag("LUISA_DX_PROFILE_COMPILATION");
     auto compile_new_compute = [&](bool WriteCache, vstd::string_view pso_name) {
         auto str = codegen();
         vstd::MD5 md5;
@@ -108,12 +112,20 @@ ComputeShader *ComputeShader::compile_compute(
         if (profiler) [[unlikely]] {
             profiler->before_compile_shader_bytecode(fileName);
         }
+        Clock phase_clock;
         auto comp_result = Device::compiler()->compile_compute(
             str.result.view(),
             true,
             shaderModel,
             enableUnsafeMath,
             false, debug);
+        if (profile_compile) {
+            auto label = (kernel.builder() != nullptr && !kernel.name().empty()) ?
+                             luisa::string{kernel.name()} :
+                             luisa::string{fileName};
+            LUISA_INFO("DX DXC compile '{}' (sm={}, hlsl={} B): {:.3f} ms",
+                       label, shaderModel, str.result.size(), phase_clock.toc());
+        }
         if (profiler) [[unlikely]] {
             profiler->after_compile_shader_bytecode(fileName);
         }
@@ -145,6 +157,7 @@ ComputeShader *ComputeShader::compile_compute(
                         str.printers);
                     write_binary_io(cacheType, file_io, fileName, {reinterpret_cast<std::byte const *>(ser_data.data()), luisa::size_bytes(ser_data)});
                 }
+                phase_clock.tic();
                 auto cs = new ComputeShader(
                     blockSize,
                     std::move(str.properties),
@@ -155,6 +168,13 @@ ComputeShader *ComputeShader::compile_compute(
                     std::move(str.printers),
                     validation_count,
                     device);
+                if (profile_compile) {
+                    auto label = (kernel.builder() != nullptr && !kernel.name().empty()) ?
+                                     luisa::string{kernel.name()} :
+                                     luisa::string{fileName};
+                    LUISA_INFO("DX CreateComputePipelineState '{}' (dxil={} B): {:.3f} ms",
+                               label, buffer->GetBufferSize(), phase_clock.toc());
+                }
                 cs->_bindless_count = bdls_buffer_count;
                 if (WriteCache) {
                     cs->_save_pso(cs->pso(), pso_name, file_io, device);

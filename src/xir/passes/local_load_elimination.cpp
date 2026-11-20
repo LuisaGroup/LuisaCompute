@@ -27,10 +27,12 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
 
     auto invalidate_interfering_loads = [&](Value *ptr) noexcept -> AllocaInst * {
         if (auto alloca_inst = trace_pointer_base_local_alloca_inst(ptr)) {
-            auto &interfering_ptrs = variable_pointers[alloca_inst];
-            interfering_ptrs.emplace_back(ptr);
-            for (auto interfering_ptr : interfering_ptrs) {
-                already_loaded.erase(interfering_ptr);
+            if (auto iter = variable_pointers.find(alloca_inst);
+                iter != variable_pointers.end()) {
+                for (auto interfering_ptr : iter->second) {
+                    already_loaded.erase(interfering_ptr);
+                }
+                iter->second.clear();
             }
             return alloca_inst;
         }
@@ -156,32 +158,41 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
 
     auto transfer = [](BasicBlock *block, ReachingMap current,
                        luisa::vector<std::pair<LoadInst *, LoadInst *>> *removable) noexcept {
+        luisa::unordered_map<AllocaInst *, luisa::fixed_vector<Value *, 4>> by_base;
+        for (auto &[ptr, _] : current) {
+            if (auto base = trace_pointer_base_local_alloca_inst(ptr)) {
+                by_base[base].emplace_back(ptr);
+            }
+        }
+        auto invalidate_base = [&](AllocaInst *base) noexcept {
+            if (auto iter = by_base.find(base); iter != by_base.end()) {
+                for (auto *p : iter->second) {
+                    current.erase(p);
+                }
+                iter->second.clear();
+            }
+        };
         for (auto inst : block->instructions()) {
             if (inst->isa<LoadInst>()) {
                 auto load = static_cast<LoadInst *>(inst);
                 auto ptr = load->variable();
-                if (trace_pointer_base_local_alloca_inst(ptr) == nullptr) { continue; }
-                auto it = current.find(ptr);
-                if (it != current.end() && it->second != load) {
+                auto base = trace_pointer_base_local_alloca_inst(ptr);
+                if (base == nullptr) { continue; }
+                auto [it, inserted] = current.try_emplace(ptr, load);
+                if (!inserted && it->second != load) {
                     if (removable != nullptr &&
                         load->metadata_list().empty()) {
                         removable->emplace_back(load, it->second);
                     }
-                } else {
-                    current[ptr] = load;
+                } else if (inserted) {
+                    by_base[base].emplace_back(ptr);
                 }
             } else if (inst->isa<StoreInst>()) {
                 auto store = static_cast<StoreInst *>(inst);
                 auto ptr = store->variable();
                 auto base = trace_pointer_base_local_alloca_inst(ptr);
                 if (base) {
-                    for (auto it = current.begin(); it != current.end();) {
-                        if (trace_pointer_base_local_alloca_inst(it->first) == base) {
-                            it = current.erase(it);
-                        } else {
-                            ++it;
-                        }
-                    }
+                    invalidate_base(base);
                 } else {
                     current.erase(ptr);
                     auto value_base = trace_pointer_base_value(ptr);
@@ -192,13 +203,7 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
                     auto val = op_use->value();
                     auto base = trace_pointer_base_local_alloca_inst(val);
                     if (base) {
-                        for (auto it = current.begin(); it != current.end();) {
-                            if (trace_pointer_base_local_alloca_inst(it->first) == base) {
-                                it = current.erase(it);
-                            } else {
-                                ++it;
-                            }
-                        }
+                        invalidate_base(base);
                     } else {
                         current.erase(val);
                         auto value_base = trace_pointer_base_value(val);

@@ -852,6 +852,181 @@ private:
         }
     }
 
+    [[nodiscard]] static const Value *_trace_pointer_root(const Value *ptr) noexcept {
+        auto *cur = ptr;
+        for (size_t depth = 0u; depth < 32u && cur != nullptr; ++depth) {
+            if (cur->isa<GEPInst>()) {
+                cur = static_cast<const GEPInst *>(cur)->base();
+                continue;
+            }
+            return cur;
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] static const Value *_trace_elidable_load_root(const Value *ptr) noexcept {
+        auto *cur = ptr;
+        for (size_t depth = 0u; depth < 32u && cur != nullptr; ++depth) {
+            if (cur->isa<GEPInst>()) {
+                auto *gep = static_cast<const GEPInst *>(cur);
+                for (size_t i = 0u; i < gep->index_count(); ++i) {
+                    auto *idx = gep->index(i);
+                    if (idx == nullptr || !idx->isa<Constant>()) { return nullptr; }
+                }
+                cur = gep->base();
+                continue;
+            }
+            if (cur->isa<AllocaInst>()) {
+                return static_cast<const AllocaInst *>(cur)->is_shared() ? nullptr : cur;
+            }
+            if (cur->isa<Argument>()) {
+                return static_cast<const Argument *>(cur)->is_reference() ? cur : nullptr;
+            }
+            return nullptr;
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] static bool _is_lazy_pure_expr(const Instruction *inst) noexcept {
+        switch (inst->derived_instruction_tag()) {
+            case DerivedInstructionTag::CAST:
+            case DerivedInstructionTag::GEP:
+            case DerivedInstructionTag::RESOURCE_QUERY:
+                return true;
+            case DerivedInstructionTag::ARITHMETIC: {
+                auto *arith = static_cast<const ArithmeticInst *>(inst);
+                if (arith->op() == ArithmeticOp::INSERT) { return false; }
+                if (arith->op() == ArithmeticOp::AGGREGATE &&
+                    arith->type() != nullptr &&
+                    (arith->type()->is_structure() || arith->type()->is_array())) {
+                    return false;
+                }
+                return true;
+            }
+            default: return false;
+        }
+    }
+
+    [[nodiscard]] static bool _is_statement_sink(const Instruction *inst) noexcept {
+        switch (inst->derived_instruction_tag()) {
+            case DerivedInstructionTag::STORE:
+            case DerivedInstructionTag::CALL:
+            case DerivedInstructionTag::RETURN:
+            case DerivedInstructionTag::IF:
+            case DerivedInstructionTag::SWITCH:
+            case DerivedInstructionTag::CONDITIONAL_BRANCH:
+            case DerivedInstructionTag::PRINT:
+            case DerivedInstructionTag::RESOURCE_WRITE:
+            case DerivedInstructionTag::RESOURCE_READ:
+            case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+            case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
+            case DerivedInstructionTag::ATOMIC:
+            case DerivedInstructionTag::THREAD_GROUP:
+            case DerivedInstructionTag::ASSERT:
+            case DerivedInstructionTag::ASSUME:
+                return true;
+            case DerivedInstructionTag::ARITHMETIC: {
+                auto *arith = static_cast<const ArithmeticInst *>(inst);
+                return arith->op() == ArithmeticOp::INSERT ||
+                       (arith->op() == ArithmeticOp::AGGREGATE &&
+                        arith->type() != nullptr &&
+                        (arith->type()->is_structure() || arith->type()->is_array()));
+            }
+            default: return false;
+        }
+    }
+
+    // Elide materializing a LoadInst into a fresh AST local when its value is
+    // consumed at a unique statement sink in the same basic block with no
+    // intervening write that could alias the loaded variable.
+    [[nodiscard]] static bool _can_elide_load_temp(const LoadInst *load) noexcept {
+        auto *bb = load->parent_block();
+        if (bb == nullptr) { return false; }
+        auto *base = _trace_elidable_load_root(load->variable());
+        if (base == nullptr) { return false; }
+        if (load->use_list().empty()) { return true; }
+
+        const Instruction *user = nullptr;
+        for (auto &&use : load->use_list()) {
+            auto *u = use->user();
+            if (u == nullptr || !u->isa<Instruction>()) { return false; }
+            auto *u_inst = static_cast<const Instruction *>(u);
+            if (u_inst->parent_block() != bb) { return false; }
+            if (user != nullptr && user != u_inst) { return false; }
+            user = u_inst;
+        }
+        if (user == nullptr) { return false; }
+
+        const Instruction *cur = user;
+        for (size_t depth = 0u; depth < 32u && _is_lazy_pure_expr(cur); ++depth) {
+            if (cur->use_list().empty()) { return true; }
+            const Instruction *next_user = nullptr;
+            size_t use_count = 0u;
+            for (auto &&use : cur->use_list()) {
+                ++use_count;
+                if (use_count > 1u) { return false; }
+                auto *u = use->user();
+                if (u == nullptr || !u->isa<Instruction>()) { return false; }
+                next_user = static_cast<const Instruction *>(u);
+            }
+            if (next_user == nullptr || next_user->parent_block() != bb) { return false; }
+            cur = next_user;
+        }
+        if (!_is_statement_sink(cur)) { return false; }
+        const Instruction *sink = cur;
+
+        auto call_may_alias_base = [&](const CallInst *call) noexcept -> bool {
+            if (!base->isa<AllocaInst>()) { return true; }
+            for (size_t i = 0u; i < call->argument_count(); ++i) {
+                auto *arg_root = _trace_pointer_root(call->argument(i));
+                if (arg_root == base) { return true; }
+            }
+            return false;
+        };
+        if (sink->isa<CallInst>() && call_may_alias_base(static_cast<const CallInst *>(sink))) {
+            return false;
+        }
+
+        const Instruction *it = load->next();
+        while (it != nullptr && it != sink) {
+            switch (it->derived_instruction_tag()) {
+                case DerivedInstructionTag::STORE: {
+                    auto *store = static_cast<const StoreInst *>(it);
+                    auto *store_root = _trace_pointer_root(store->variable());
+                    // Two distinct local allocas cannot alias, and a local alloca
+                    // cannot alias a caller-passed reference argument.
+                    if (store_root == nullptr || !store_root->isa<AllocaInst>() || store_root == base) {
+                        return false;
+                    }
+                    break;
+                }
+                case DerivedInstructionTag::CALL: {
+                    if (call_may_alias_base(static_cast<const CallInst *>(it))) {
+                        return false;
+                    }
+                    break;
+                }
+                case DerivedInstructionTag::ALLOCA:
+                case DerivedInstructionTag::LOAD:
+                case DerivedInstructionTag::GEP:
+                case DerivedInstructionTag::ARITHMETIC:
+                case DerivedInstructionTag::CAST:
+                case DerivedInstructionTag::RESOURCE_QUERY:
+                case DerivedInstructionTag::RESOURCE_READ:
+                case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+                case DerivedInstructionTag::CLOCK:
+                case DerivedInstructionTag::PRINT:
+                case DerivedInstructionTag::ASSERT:
+                case DerivedInstructionTag::ASSUME:
+                    break;
+                default:
+                    return false;
+            }
+            it = it->next();
+        }
+        return it == sink;
+    }
+
     [[nodiscard]] const Expression *_expr(const Value *value) noexcept {
         if (auto iter = _value_map.find(value); iter != _value_map.end()) { return iter->second; }
         auto expr = [&]() noexcept -> const Expression * {
@@ -871,6 +1046,9 @@ private:
                 }
                 case DerivedInstructionTag::LOAD: {
                     auto load = static_cast<const LoadInst *>(inst);
+                    if (_can_elide_load_temp(load)) {
+                        return _expr(load->variable());
+                    }
                     auto tmp = _current_builder()->local(load->type());
                     _current_builder()->assign(tmp, _expr(load->variable()));
                     return tmp;

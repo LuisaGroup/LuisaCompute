@@ -244,12 +244,12 @@ int main(int argc, char *argv[]) {
                                    .Codegen(function, {}, 0u, /*isSpirV=*/true, false, false);
         auto native = fused_codegen.result.view();
         auto emulated = unfused_codegen.result.view();
-        expect(contains(native, "=mad(l9,l8,l7)"))
+        expect(contains(native, "mad(l9,l8,l7)"))
             << "the 32-bit float fma is not routed to the fused helper";
-        expect(!contains(native, "= _fma(l9,l8,l7)"))
+        expect(!contains(native, "_fma(l9,l8,l7)"))
             << "the fused helper is not selected for a shaderFmaFloat32 device";
         expect(contains(native, "#define LUISA_SPV_FMA 1"));
-        expect(contains(emulated, "=_fma(l9,l8,l7)"))
+        expect(contains(emulated, "_fma(l9,l8,l7)"))
             << "the unfused helper is not selected without the capability";
         expect(contains(emulated, "return a*b+c;"))
             << "the helper must stay unfused without the capability";

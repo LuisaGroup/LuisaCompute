@@ -52,6 +52,8 @@ clear_spirv_codegen_inactive_block_payloads(xir::Module *module) noexcept;
 [[nodiscard]] xir::PassPipeline
 create_spirv_codegen_post_restructure_pipeline() noexcept;
 
-[[nodiscard]] auto luisa_spirv_backend_translate_ast_to_xir(Function kernel, const ShaderOption &option) noexcept -> luisa::unique_ptr<xir::Module>;
+[[nodiscard]] auto luisa_spirv_backend_translate_ast_to_xir(
+    Function kernel, const ShaderOption &option,
+    bool validate_handoff = true) noexcept -> luisa::unique_ptr<xir::Module>;
 
 }// namespace luisa::compute::spirv

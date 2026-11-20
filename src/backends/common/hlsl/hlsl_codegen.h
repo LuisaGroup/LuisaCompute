@@ -18,6 +18,7 @@ class StringStateVisitor;
 class StructVariableTracker;
 class StructGenerator;
 struct CodegenStackData;
+struct LocalEmitPlan;
 struct CodegenResult {
     using Properties = vstd::vector<Property>;
     vstd::StringBuilder result;
@@ -298,6 +299,10 @@ private:
         }
     };
     luisa::unordered_set<Variable, VarHash> lazyDeclVars;
+    const LocalEmitPlan *emit_plan = nullptr;
+
+    void _emit_local_zero_decl(Variable const &v);
+    void _emit_folded_scope(const ScopeStmt *body, bool wrap_in_switch_guard);
 
 public:
     SharedVarSet *sharedVariables = nullptr;

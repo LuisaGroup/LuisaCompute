@@ -334,7 +334,8 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
 
 [[nodiscard]] static bool try_convert_diamond(
     BasicBlock *b, IfConversionInfo &info,
-    const IfConversionOptions &options) noexcept {
+    const IfConversionOptions &options,
+    luisa::unordered_set<BasicBlock *> *removed_blocks = nullptr) noexcept {
     if (!b->is_terminated()) return false;
     auto term = b->terminator();
     // Skip structured terminators; destructure_cfg lowers IF/LOOP into plain
@@ -417,6 +418,10 @@ static size_t rewrite_phis_in_merge(BasicBlock *merge, BasicBlock *parent,
     auto *replacement_branch = builder.br(merge);
     clone_metadata(*removed_parent_term, *replacement_branch);
     // The two sides now have no predecessors and no live uses.
+    if (removed_blocks != nullptr) {
+        removed_blocks->emplace(t_block);
+        removed_blocks->emplace(f_block);
+    }
     t_block->terminator()->remove_self();
     t_block->remove_self();
     f_block->terminator()->remove_self();
@@ -438,18 +443,25 @@ static void run_if_conversion_on_function(
             "IR was left unchanged.");
         return;
     }
-    // A successful conversion deletes the two side blocks, so any snapshot of
-    // the block list would dangle on the next pass. Re-traverse from the top
-    // after each conversion until no eligible diamond remains.
-    while (true) {
-        BasicBlock *converted = nullptr;
+    // Snapshot the block list once per outer pass and track deleted side blocks
+    // so converting independent diamonds runs in O(blocks * nesting_depth)
+    // instead of restarting from block 0 after every single diamond.
+    luisa::vector<BasicBlock *> blocks;
+    luisa::unordered_set<BasicBlock *> removed_blocks;
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        blocks.clear();
+        removed_blocks.clear();
         def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-            if (converted != nullptr) return;
-            if (try_convert_diamond(block, info, options)) {
-                converted = block;
-            }
+            blocks.emplace_back(block);
         });
-        if (converted == nullptr) break;
+        for (auto *block : blocks) {
+            if (removed_blocks.contains(block)) { continue; }
+            if (try_convert_diamond(block, info, options, &removed_blocks)) {
+                changed = true;
+            }
+        }
     }
 }
 

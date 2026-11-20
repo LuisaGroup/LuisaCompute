@@ -1,6 +1,6 @@
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/xir/passes/licm.h>
 #include <luisa/xir/passes/pass_pipeline.h>
-#include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/branch.h>
@@ -16,21 +16,6 @@
 namespace luisa::compute::xir {
 
 namespace {
-
-[[nodiscard]] bool is_operand_invariant(Value *op,
-                                        const luisa::unordered_set<Instruction *> &invariant) noexcept {
-    if (op->isa<Constant>() || op->isa<Argument>()) { return true; }
-    if (op->isa<Instruction>()) { return invariant.contains(static_cast<Instruction *>(op)); }
-    return false;
-}
-
-[[nodiscard]] bool all_operands_invariant(Instruction *inst,
-                                          const luisa::unordered_set<Instruction *> &invariant) noexcept {
-    for (size_t i = 0; i < inst->operand_count(); ++i) {
-        if (!is_operand_invariant(inst->operand(i), invariant)) { return false; }
-    }
-    return true;
-}
 
 [[nodiscard]] bool is_safe_to_speculate(Instruction *inst) noexcept {
     // A bitwise cast is a total, representation-preserving operation. Numeric
@@ -90,37 +75,53 @@ void collect_loop_body_blocks(BasicBlock *body, BasicBlock *update,
     }
 }
 
-void licm_on_loop(LoopInst *loop, LICMInfo &info, DomTree &dom_tree) noexcept {
-    auto *prepare = loop->prepare_block();
-    auto *body = loop->body_block();
-    auto *update = loop->update_block();
-    auto *merge = loop->merge_block();
-    if (!prepare || !body || !update || !merge) { return; }
+struct PreparedLoop {
+    BasicBlock *prepare{nullptr};
+    Instruction *prep_term{nullptr};
+    luisa::unordered_set<BasicBlock *> body_blocks;
+    luisa::vector<BasicBlock *> ordered_body_blocks;
+};
 
-    auto *prep_term = prepare->terminator();
-    if (!prep_term || !prep_term->isa<ConditionalBranchInst>()) { return; }
+void licm_on_loop(const PreparedLoop &loop,
+                  const luisa::unordered_set<BasicBlock *> &reachable_blocks,
+                  LICMInfo &info) noexcept {
+    auto *prepare = loop.prepare;
+    auto *prep_term = loop.prep_term;
+    auto &loop_body_blocks = loop.body_blocks;
+    auto &ordered_body_blocks = loop.ordered_body_blocks;
+    if (ordered_body_blocks.empty()) { return; }
 
-    luisa::unordered_set<BasicBlock *> loop_body_blocks;
-    collect_loop_body_blocks(body, update, prepare, merge, loop_body_blocks);
-    if (loop_body_blocks.empty()) { return; }
-
-    luisa::unordered_set<Instruction *> invariant;
-    loop->parent_function()->definition()->traverse_instructions([&](Instruction *inst) {
-        auto *bb = inst->parent_block();
-        if (loop_body_blocks.contains(bb)) { return; }
-        if (bb == prepare) { return; }
-        invariant.insert(inst);
-    });
+    // Instructions in reachable blocks outside `prepare` and `loop_body_blocks`
+    // are loop-invariant without materializing an O(|function|) set per loop.
+    luisa::unordered_set<Instruction *> local_invariant;
+    auto is_operand_invariant = [&](Value *op) noexcept -> bool {
+        if (op->isa<Constant>() || op->isa<Argument>()) { return true; }
+        if (op->isa<Instruction>()) {
+            auto *op_inst = static_cast<Instruction *>(op);
+            auto *op_bb = op_inst->parent_block();
+            if (op_bb != prepare && !loop_body_blocks.contains(op_bb)) {
+                return op_bb != nullptr && reachable_blocks.contains(op_bb);
+            }
+            return local_invariant.contains(op_inst);
+        }
+        return false;
+    };
+    auto all_operands_invariant = [&](Instruction *inst) noexcept -> bool {
+        for (size_t i = 0u; i < inst->operand_count(); ++i) {
+            if (!is_operand_invariant(inst->operand(i))) { return false; }
+        }
+        return true;
+    };
 
     bool changed = true;
     while (changed) {
         changed = false;
         auto try_mark = [&](Instruction *inst) {
-            if (invariant.contains(inst)) { return; }
+            if (local_invariant.contains(inst)) { return; }
             if (inst->is_terminator()) { return; }
             if (inst->isa<PhiInst>()) { return; }
             if (inst->isa<AllocaInst>()) { return; }
-            if (!all_operands_invariant(inst, invariant)) { return; }
+            if (!all_operands_invariant(inst)) { return; }
             auto *bb = inst->parent_block();
             auto mem = get_memory_info(inst);
             // Moving a memory read from the body into prepare speculates it before
@@ -129,30 +130,29 @@ void licm_on_loop(LoopInst *loop, LICMInfo &info, DomTree &dom_tree) noexcept {
             bool can_hoist = bb == prepare ||
                              (mem.is_pure() && is_safe_to_speculate(inst));
             if (can_hoist) {
-                invariant.insert(inst);
+                local_invariant.insert(inst);
                 changed = true;
             }
         };
         for (auto *inst : prepare->instructions()) { try_mark(inst); }
-        for (auto *bb : loop_body_blocks) {
+        for (auto *bb : ordered_body_blocks) {
             for (auto *inst : bb->instructions()) { try_mark(inst); }
         }
     }
 
+    if (local_invariant.empty()) { return; }
+
     // Collect candidates in the stable function-owned block/instruction order,
-    // then topologically order their intra-set dependencies. Generic CFG
-    // traversal can omit temporarily disconnected or raw structured child
-    // blocks, while iterating loop_body_blocks directly is nondeterministic.
+    // then topologically order their intra-set dependencies.
     luisa::vector<Instruction *> candidates;
-    auto *definition = loop->parent_function()->definition();
-    for (auto *bb : definition->basic_blocks()) {
-        if (!loop_body_blocks.contains(bb)) { continue; }
+    for (auto *bb : ordered_body_blocks) {
         for (auto *inst : bb->instructions()) {
-            if (invariant.contains(inst) && !inst->is_terminator()) {
+            if (local_invariant.contains(inst) && !inst->is_terminator()) {
                 candidates.emplace_back(inst);
             }
         }
     }
+    if (candidates.empty()) { return; }
 
     luisa::unordered_set<Instruction *> remaining;
     remaining.reserve(candidates.size());
@@ -198,20 +198,66 @@ namespace detail {
 
 static void licm_pass_on_function_def(FunctionDefinition *def, LICMInfo &info) noexcept {
     if (def == nullptr || def->body_block() == nullptr) { return; }
+
+    // LICM only hoists non-terminator instructions and never mutates the CFG,
+    // so the reachable block set, stable block order, and loop bodies are
+    // invariant across outer fixed-point iterations.
+    luisa::unordered_set<BasicBlock *> reachable_blocks;
+    luisa::vector<LoopInst *> raw_loops;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        reachable_blocks.emplace(bb);
+        for (auto *inst : bb->instructions()) {
+            if (inst->isa<LoopInst>()) {
+                raw_loops.emplace_back(static_cast<LoopInst *>(inst));
+            }
+        }
+    });
+    if (raw_loops.empty()) { return; }
+
+    luisa::unordered_map<BasicBlock *, size_t> block_order;
+    size_t order_idx = 0u;
+    for (auto *bb : def->basic_blocks()) {
+        block_order.emplace(bb, order_idx++);
+    }
+
+    luisa::vector<PreparedLoop> prepared_loops;
+    prepared_loops.reserve(raw_loops.size());
+    for (auto *loop : raw_loops) {
+        auto *prepare = loop->prepare_block();
+        auto *body = loop->body_block();
+        auto *update = loop->update_block();
+        auto *merge = loop->merge_block();
+        if (!prepare || !body || !update || !merge) { continue; }
+        auto *prep_term = prepare->terminator();
+        if (!prep_term || !prep_term->isa<ConditionalBranchInst>()) { continue; }
+        PreparedLoop prepared;
+        prepared.prepare = prepare;
+        prepared.prep_term = prep_term;
+        collect_loop_body_blocks(body, update, prepare, merge, prepared.body_blocks);
+        if (prepared.body_blocks.empty()) { continue; }
+        prepared.ordered_body_blocks.reserve(prepared.body_blocks.size());
+        for (auto *bb : prepared.body_blocks) {
+            if (block_order.contains(bb)) {
+                prepared.ordered_body_blocks.emplace_back(bb);
+            }
+        }
+        luisa::sort(prepared.ordered_body_blocks.begin(),
+                    prepared.ordered_body_blocks.end(),
+                    [&](BasicBlock *lhs, BasicBlock *rhs) noexcept {
+                        return block_order.at(lhs) < block_order.at(rhs);
+                    });
+        if (!prepared.ordered_body_blocks.empty()) {
+            prepared_loops.emplace_back(std::move(prepared));
+        }
+    }
+    if (prepared_loops.empty()) { return; }
+
     bool changed = true;
     while (changed) {
         changed = false;
-        luisa::vector<LoopInst *> loops;
-        def->traverse_instructions([&](Instruction *inst) {
-            if (inst->isa<LoopInst>()) { loops.push_back(static_cast<LoopInst *>(inst)); }
-        });
-        if (loops.empty()) { return; }
-
-        auto dom_tree = compute_dom_tree(def);
-
-        for (auto *loop : loops) {
+        for (const auto &loop : prepared_loops) {
             auto before = info.hoisted_count;
-            licm_on_loop(loop, info, dom_tree);
+            licm_on_loop(loop, reachable_blocks, info);
             if (info.hoisted_count > before) { changed = true; }
         }
     }
