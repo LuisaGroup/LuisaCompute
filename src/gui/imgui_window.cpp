@@ -298,6 +298,12 @@ private:
     };
 
     static constexpr uint compute_tile_size = 16u;
+    // 8x32 workgroup maps each 16x16 tile so that:
+    //   - SIMD W8 packets cover contiguous 8x1 horizontal spans (native BYTE4 loads/stores),
+    //   - GPU Wave32 covers compact 8x4 sub-tiles within one 8x8 quadrant,
+    //   - GPU Wave64 covers an exact 8x8 quadrant.
+    static constexpr uint compute_block_x = 8u;
+    static constexpr uint compute_block_y = 32u;
 
     // for rendering
     Shader2D<Image<float>, float3> _clear_shader;
@@ -361,23 +367,42 @@ private:
         uint16_t ty0;
         uint16_t tx1;
         uint16_t ty1;
+        // Full-tile opaque coverage [cov_tx0, cov_tx1) x [cov_ty0, cov_ty1)
+        // for opaque untextured axis-aligned rects; empty otherwise.
+        uint16_t cov_tx0;
+        uint16_t cov_ty0;
+        uint16_t cov_tx1;
+        uint16_t cov_ty1;
+        // Clipped screen-space bbox for per-tile 4-bit 8x8 quadrant masks.
+        float bmin_x;
+        float bmin_y;
+        float bmax_x;
+        float bmax_y;
+        // Row-span range in _tile_row_spans for large non-rect triangles
+        // (span_begin == span_end for rects and small triangles).
+        uint32_t span_begin;
+        uint32_t span_end;
     };
     struct TileRowSpan {
-        uint32_t tile_start;
+        uint16_t tx0;
+        uint16_t ty;
         uint32_t count;
     };
-    // 64-byte (single cache line) hot per-triangle record for compute rasterization.
-    // Precomputes canonical signed edge equations (lo.x, lo.y, sx, sy) such that
-    // e(q) = sx * (q.y - lo.y) + sy * (q.x - lo.x) is bit-exact with canonical
-    // endpoint ordering and shared edges evaluate to exact IEEE-754 negatives.
+    // 64-byte (single cache line) hot per-primitive record for compute rasterization.
+    // Supports two primitive encodings selected by flags_tex bit 4 (is_rect):
+    //   - Triangle (is_rect == 0): canonical watertight edge equations (lo.x, lo.y, sx, sy)
+    //     in e0..e2 such that e(q) = sx * (q.y - lo.y) + sy * (q.x - lo.x) is bit-exact
+    //     on shared edges.
+    //   - Pre-clipped axis-aligned rect (is_rect == 1): e0 = clipped (min.x, min.y, max.x, max.y),
+    //     e1 = (u_base, v_base, du_dx, dv_dy) for textured rects (e1/e2 untouched when tex_id == 0).
     struct alignas(16) ComputeTriHot {
         uint clip_idx;
-        uint flags_tex;// bits 0..2: top-left mask (e0..e2), bit 3: flat_color, bits 4..31: tex_id
-        uint col0;     // packed RGBA8 color of vertex 0
-        uint extra_idx;// index into ComputeTriExtra (valid iff !flat_color || tex_id != 0)
-        float4 e0;     // opposite v0 (edge p1 -> p2)
-        float4 e1;     // opposite v1 (edge p2 -> p0)
-        float4 e2;     // opposite v2 (edge p0 -> p1)
+        uint flags_tex;// bits 0..2: top-left mask (e0..e2), bit 3: flat_color, bit 4: is_rect, bits 5..31: tex_id
+        uint col0;     // packed RGBA8 color of vertex 0 (or flat rect color)
+        uint extra_idx;// index into ComputeTriExtra (valid iff !is_rect && (!flat_color || tex_id != 0))
+        float4 e0;     // triangle: edge p1 -> p2; rect: clipped (min_x, min_y, max_x, max_y)
+        float4 e1;     // triangle: edge p2 -> p0; rect: (u_base, v_base, du_dx, dv_dy) if tex_id != 0
+        float4 e2;     // triangle: edge p0 -> p1; rect: unused
     };
     static_assert(sizeof(ComputeTriHot) == 64u);
     static_assert(offsetof(ComputeTriHot, e0) == 16u);
@@ -401,10 +426,11 @@ private:
     luisa::vector<ComputeTriExtra> _tri_extra;
     luisa::vector<TileTriBounds> _tile_tri_bounds;
     luisa::vector<TileRowSpan> _tile_row_spans;
-    luisa::vector<uint> _large_tri_span_ends;
     luisa::vector<uint> _tile_counts;
+    luisa::vector<uint8_t> _tile_occluded;
     luisa::vector<uint2> _active_tiles;
     luisa::vector<uint> _tile_cursors;
+    luisa::vector<uint> _tile_ends;
     luisa::vector<std::byte> _frame_upload_bytes;
 
 private:
@@ -795,7 +821,7 @@ public:
                                      UInt4 section_offsets,
                                      ByteBufferVar frame_buf,
                                      BindlessVar texture_array) noexcept {
-                    set_block_size(compute_tile_size, compute_tile_size, 1u);
+                    set_block_size(compute_block_x, compute_block_y, 1u);
                     auto active_idx = block_id().y * active_grid_x + block_id().x;
                     $if (active_idx >= active_tile_count) { $return(); };
                     auto tile_info = frame_buf.read<uint2>(active_idx * 8u);
@@ -804,8 +830,15 @@ public:
                     auto range_begin = tile_info.y;
                     auto range_end = next_info.y;
                     auto tile_xy = make_uint2(packed_xy & 0xffffu, packed_xy >> 16u);
-                    auto tid = tile_xy * compute_tile_size + thread_id().xy();
+                    // Map (8x32) threads onto the 16x16 tile in 8x4 Wave32 / 8x8 Wave64
+                    // quadrants while keeping thread_id().x contiguous for SIMD W8 packets.
+                    auto ty_raw = thread_id().y;
+                    auto sub_x = ty_raw >> 4u;
+                    auto local_y = ty_raw & 15u;
+                    auto local_x = (sub_x << 3u) + thread_id().x;
+                    auto tid = tile_xy * compute_tile_size + make_uint2(local_x, local_y);
                     $if (any(tid >= fb.size())) { $return(); };
+                    auto my_quad_hi = 1u << (28u + (((local_y >> 3u) << 1u) | sub_x));
 
                     auto off_tile_tris = section_offsets.x;
                     auto off_clips = section_offsets.y;
@@ -835,51 +868,79 @@ public:
                         auto beta = def(1.f);
                         auto idx = def(range_begin);
                         $while (idx < range_end & beta > 1e-3f) {
-                            auto tri_idx = frame_buf.read<uint>(off_tile_tris + idx * 4u);
+                            auto packed_ref = frame_buf.read<uint>(off_tile_tris + idx * 4u);
                             idx += 1u;
-                            auto tri_off = off_tri_hot + tri_idx * 64u;
-                            auto meta = frame_buf.read<uint4>(tri_off);
-                            auto e0 = frame_buf.read<float4>(tri_off + 16u);
-                            auto e1 = frame_buf.read<float4>(tri_off + 32u);
-                            auto e2 = frame_buf.read<float4>(tri_off + 48u);
-                            auto clip = frame_buf.read<float4>(off_clips + meta.x * 16u);
-                            auto flags_tex = meta.y;
-                            auto e0_v = def(0.f);
-                            auto e1_v = def(0.f);
-                            auto e2_v = def(0.f);
-                            auto inside = all(q >= clip.xy()) & all(q < clip.zw()) &
-                                          eval_precomp_edge(e0, q, (flags_tex & 1u) != 0u, e0_v) &
-                                          eval_precomp_edge(e1, q, (flags_tex & 2u) != 0u, e1_v) &
-                                          eval_precomp_edge(e2, q, (flags_tex & 4u) != 0u, e2_v);
-                            $if (inside) {
-                                auto tex_id = flags_tex >> 4u;
-                                auto is_flat = (flags_tex & 8u) != 0u;
-                                auto c = def(make_float4(0.f));
-                                $if (is_flat & (tex_id == 0u)) {
-                                    c = unpack_color(meta.z);
+                            $if ((packed_ref & my_quad_hi) != 0u) {
+                                auto prim_idx = packed_ref & 0x0fffffffu;
+                                auto prim_off = off_tri_hot + prim_idx * 64u;
+                                auto meta = frame_buf.read<uint4>(prim_off);
+                                auto flags_tex = meta.y;
+                                $if (flags_tex == 24u) {
+                                    // Pre-clipped flat untextured axis-aligned rect: 2x s_load_b128,
+                                    // zero clip load, zero extra load, branchless blend so there is
+                                    // no divergent convergence split on partial-tile rect edges.
+                                    auto rect = frame_buf.read<float4>(prim_off + 16u);
+                                    auto inside = all(q >= rect.xy()) & all(q < rect.zw());
+                                    auto c = unpack_color(meta.z);
+                                    auto hit_a = select(0.f, c.w, inside);
+                                    sample_sum += c.xyz() * beta * hit_a;
+                                    beta = select(beta, beta * (1.f - c.w), inside);
                                 } $else {
-                                    auto inv_sum = 1.f / max(e0_v + e1_v + e2_v, 1e-20f);
-                                    auto w0 = e0_v * inv_sum;
-                                    auto w1 = e1_v * inv_sum;
-                                    auto w2 = e2_v * inv_sum;
-                                    auto extra_off = off_tri_extra + meta.w * 32u;
-                                    $if (is_flat) {
-                                        c = unpack_color(meta.z);
+                                    auto tex_id = flags_tex >> 5u;
+                                    $if ((flags_tex & 16u) != 0u) {
+                                        // Pre-clipped textured axis-aligned rect (font glyphs, images);
+                                        // flags_tex != 24u guarantees tex_id != 0u.
+                                        auto rect = frame_buf.read<float4>(prim_off + 16u);
+                                        $if (all(q >= rect.xy()) & all(q < rect.zw())) {
+                                            auto uv_p = frame_buf.read<float4>(prim_off + 32u);
+                                            auto uv = uv_p.xy() + (q - rect.xy()) * uv_p.zw();
+                                            auto c = unpack_color(meta.z) * texture_array->tex2d(tex_id).sample(uv);
+                                            sample_sum += c.xyz() * beta * c.w;
+                                            beta *= 1.f - c.w;
+                                        };
                                     } $else {
-                                        auto cols = frame_buf.read<uint2>(extra_off + 24u);
-                                        c = w0 * unpack_color(meta.z) +
-                                            w1 * unpack_color(cols.x) +
-                                            w2 * unpack_color(cols.y);
-                                    };
-                                    $if (tex_id != 0u) {
-                                        auto uv01 = frame_buf.read<float4>(extra_off);
-                                        auto uv2 = frame_buf.read<float2>(extra_off + 16u);
-                                        auto uv = w0 * uv01.xy() + w1 * uv01.zw() + w2 * uv2;
-                                        c *= texture_array->tex2d(tex_id).sample(uv);
+                                        auto e0 = frame_buf.read<float4>(prim_off + 16u);
+                                        auto e1 = frame_buf.read<float4>(prim_off + 32u);
+                                        auto e2 = frame_buf.read<float4>(prim_off + 48u);
+                                        auto clip = frame_buf.read<float4>(off_clips + meta.x * 16u);
+                                        auto e0_v = def(0.f);
+                                        auto e1_v = def(0.f);
+                                        auto e2_v = def(0.f);
+                                        auto inside = all(q >= clip.xy()) & all(q < clip.zw()) &
+                                                      eval_precomp_edge(e0, q, (flags_tex & 1u) != 0u, e0_v) &
+                                                      eval_precomp_edge(e1, q, (flags_tex & 2u) != 0u, e1_v) &
+                                                      eval_precomp_edge(e2, q, (flags_tex & 4u) != 0u, e2_v);
+                                        $if (inside) {
+                                            auto is_flat = (flags_tex & 8u) != 0u;
+                                            auto c = def(make_float4(0.f));
+                                            $if (is_flat & (tex_id == 0u)) {
+                                                c = unpack_color(meta.z);
+                                            } $else {
+                                                auto inv_sum = 1.f / max(e0_v + e1_v + e2_v, 1e-20f);
+                                                auto w0 = e0_v * inv_sum;
+                                                auto w1 = e1_v * inv_sum;
+                                                auto w2 = e2_v * inv_sum;
+                                                auto extra_off = off_tri_extra + meta.w * 32u;
+                                                $if (is_flat) {
+                                                    c = unpack_color(meta.z);
+                                                } $else {
+                                                    auto cols = frame_buf.read<uint2>(extra_off + 24u);
+                                                    c = w0 * unpack_color(meta.z) +
+                                                        w1 * unpack_color(cols.x) +
+                                                        w2 * unpack_color(cols.y);
+                                                };
+                                                $if (tex_id != 0u) {
+                                                    auto uv01 = frame_buf.read<float4>(extra_off);
+                                                    auto uv2 = frame_buf.read<float2>(extra_off + 16u);
+                                                    auto uv = w0 * uv01.xy() + w1 * uv01.zw() + w2 * uv2;
+                                                    c *= texture_array->tex2d(tex_id).sample(uv);
+                                                };
+                                            };
+                                            sample_sum += c.xyz() * beta * c.w;
+                                            beta *= 1.f - c.w;
+                                        };
                                     };
                                 };
-                                sample_sum += c.xyz() * beta * c.w;
-                                beta *= 1.f - c.w;
                             };
                         };
                         $if (beta > 0.f) {
@@ -887,8 +948,8 @@ public:
                         };
                         fb.write(tid, make_float4(sample_sum, 1.f));
                     } else {
-                        // Single-pass 4x SSAA: traverse each tile's triangle list once
-                        // so scalar triangle/clip/extra loads are shared across all 4 subpixels.
+                        // Single-pass 4x SSAA: traverse each tile's primitive list once
+                        // so scalar primitive/clip/extra loads are shared across all 4 subpixels.
                         const std::array<float2, 4> kOffsets = {
                             make_float2(1.f / 3.f, 1.f / 3.f),
                             make_float2(2.f / 3.f, 1.f / 3.f),
@@ -906,90 +967,128 @@ public:
                         $while (idx < range_end &
                                 (betas[0] > 1e-3f | betas[1] > 1e-3f |
                                  betas[2] > 1e-3f | betas[3] > 1e-3f)) {
-                            auto tri_idx = frame_buf.read<uint>(off_tile_tris + idx * 4u);
+                            auto packed_ref = frame_buf.read<uint>(off_tile_tris + idx * 4u);
                             idx += 1u;
-                            auto tri_off = off_tri_hot + tri_idx * 64u;
-                            auto meta = frame_buf.read<uint4>(tri_off);
-                            auto flags_tex = meta.y;
-                            auto tex_id = flags_tex >> 4u;
-                            auto is_flat = (flags_tex & 8u) != 0u;
-                            $if (is_flat & (tex_id == 0u)) {
-                                auto e0 = frame_buf.read<float4>(tri_off + 16u);
-                                auto e1 = frame_buf.read<float4>(tri_off + 32u);
-                                auto e2 = frame_buf.read<float4>(tri_off + 48u);
-                                auto clip = frame_buf.read<float4>(off_clips + meta.x * 16u);
-                                auto tl0 = (flags_tex & 1u) != 0u;
-                                auto tl1 = (flags_tex & 2u) != 0u;
-                                auto tl2 = (flags_tex & 4u) != 0u;
-                                auto c = unpack_color(meta.z);
-                                auto c_premul = c.xyz() * c.w;
-                                auto one_minus_a = 1.f - c.w;
-                                for (uint s = 0u; s < 4u; s++) {
-                                    auto ev0 = def(0.f);
-                                    auto ev1 = def(0.f);
-                                    auto ev2 = def(0.f);
-                                    auto hit = (betas[s] > 1e-3f) &
-                                               all(qs[s] >= clip.xy()) & all(qs[s] < clip.zw()) &
-                                               eval_precomp_edge(e0, qs[s], tl0, ev0) &
-                                               eval_precomp_edge(e1, qs[s], tl1, ev1) &
-                                               eval_precomp_edge(e2, qs[s], tl2, ev2);
-                                    auto hit_scale = select(0.f, betas[s], hit);
-                                    ssums[s] += c_premul * hit_scale;
-                                    betas[s] = select(betas[s], betas[s] * one_minus_a, hit);
-                                }
-                            } $else {
-                                auto e0 = frame_buf.read<float4>(tri_off + 16u);
-                                auto e1 = frame_buf.read<float4>(tri_off + 32u);
-                                auto e2 = frame_buf.read<float4>(tri_off + 48u);
-                                auto clip = frame_buf.read<float4>(off_clips + meta.x * 16u);
-                                auto tl0 = (flags_tex & 1u) != 0u;
-                                auto tl1 = (flags_tex & 2u) != 0u;
-                                auto tl2 = (flags_tex & 4u) != 0u;
-                                std::array<Float, 4> ev0s = {def(0.f), def(0.f), def(0.f), def(0.f)};
-                                std::array<Float, 4> ev1s = {def(0.f), def(0.f), def(0.f), def(0.f)};
-                                std::array<Float, 4> ev2s = {def(0.f), def(0.f), def(0.f), def(0.f)};
-                                std::array<Bool, 4> hits = {def(false), def(false), def(false), def(false)};
-                                for (uint s = 0u; s < 4u; s++) {
-                                    hits[s] = (betas[s] > 1e-3f) &
-                                              all(qs[s] >= clip.xy()) & all(qs[s] < clip.zw()) &
-                                              eval_precomp_edge(e0, qs[s], tl0, ev0s[s]) &
-                                              eval_precomp_edge(e1, qs[s], tl1, ev1s[s]) &
-                                              eval_precomp_edge(e2, qs[s], tl2, ev2s[s]);
-                                }
-                                $if (hits[0] | hits[1] | hits[2] | hits[3]) {
-                                    auto extra_off = off_tri_extra + meta.w * 32u;
+                            $if ((packed_ref & my_quad_hi) != 0u) {
+                                auto prim_idx = packed_ref & 0x0fffffffu;
+                                auto prim_off = off_tri_hot + prim_idx * 64u;
+                                auto meta = frame_buf.read<uint4>(prim_off);
+                                auto flags_tex = meta.y;
+                                $if (flags_tex == 24u) {
+                                    auto rect = frame_buf.read<float4>(prim_off + 16u);
                                     auto c0 = unpack_color(meta.z);
-                                    auto c1 = def(make_float4(0.f));
-                                    auto c2 = def(make_float4(0.f));
-                                    $if (!is_flat) {
-                                        auto cols = frame_buf.read<uint2>(extra_off + 24u);
-                                        c1 = unpack_color(cols.x);
-                                        c2 = unpack_color(cols.y);
-                                    };
-                                    auto uv01 = def(make_float4(0.f));
-                                    auto uv2 = def(make_float2(0.f));
-                                    $if (tex_id != 0u) {
-                                        uv01 = frame_buf.read<float4>(extra_off);
-                                        uv2 = frame_buf.read<float2>(extra_off + 16u);
-                                    };
+                                    auto c_premul = c0.xyz() * c0.w;
+                                    auto one_minus_a = 1.f - c0.w;
                                     for (uint s = 0u; s < 4u; s++) {
-                                        $if (hits[s]) {
-                                            auto inv_sum = 1.f / max(ev0s[s] + ev1s[s] + ev2s[s], 1e-20f);
-                                            auto w0 = ev0s[s] * inv_sum;
-                                            auto w1 = ev1s[s] * inv_sum;
-                                            auto w2 = ev2s[s] * inv_sum;
-                                            auto c = def(c0);
-                                            $if (!is_flat) {
-                                                c = w0 * c0 + w1 * c1 + w2 * c2;
-                                            };
-                                            $if (tex_id != 0u) {
-                                                auto uv = w0 * uv01.xy() + w1 * uv01.zw() + w2 * uv2;
-                                                c *= texture_array->tex2d(tex_id).sample(uv);
-                                            };
-                                            ssums[s] += c.xyz() * betas[s] * c.w;
-                                            betas[s] *= 1.f - c.w;
-                                        };
+                                        auto hit = (betas[s] > 1e-3f) &
+                                                   all(qs[s] >= rect.xy()) & all(qs[s] < rect.zw());
+                                        auto hit_scale = select(0.f, betas[s], hit);
+                                        ssums[s] += c_premul * hit_scale;
+                                        betas[s] = select(betas[s], betas[s] * one_minus_a, hit);
                                     }
+                                } $else {
+                                    auto tex_id = flags_tex >> 5u;
+                                    $if ((flags_tex & 16u) != 0u) {
+                                        auto rect = frame_buf.read<float4>(prim_off + 16u);
+                                        std::array<Bool, 4> hits = {def(false), def(false), def(false), def(false)};
+                                        for (uint s = 0u; s < 4u; s++) {
+                                            hits[s] = (betas[s] > 1e-3f) &
+                                                      all(qs[s] >= rect.xy()) & all(qs[s] < rect.zw());
+                                        }
+                                        $if (hits[0] | hits[1] | hits[2] | hits[3]) {
+                                            auto c0 = unpack_color(meta.z);
+                                            auto uv_p = frame_buf.read<float4>(prim_off + 32u);
+                                            for (uint s = 0u; s < 4u; s++) {
+                                                $if (hits[s]) {
+                                                    auto uv = uv_p.xy() + (qs[s] - rect.xy()) * uv_p.zw();
+                                                    auto c = c0 * texture_array->tex2d(tex_id).sample(uv);
+                                                    ssums[s] += c.xyz() * betas[s] * c.w;
+                                                    betas[s] *= 1.f - c.w;
+                                                };
+                                            }
+                                        };
+                                    } $else {
+                                        auto is_flat = (flags_tex & 8u) != 0u;
+                                        $if (is_flat & (tex_id == 0u)) {
+                                            auto e0 = frame_buf.read<float4>(prim_off + 16u);
+                                            auto e1 = frame_buf.read<float4>(prim_off + 32u);
+                                            auto e2 = frame_buf.read<float4>(prim_off + 48u);
+                                            auto clip = frame_buf.read<float4>(off_clips + meta.x * 16u);
+                                            auto tl0 = (flags_tex & 1u) != 0u;
+                                            auto tl1 = (flags_tex & 2u) != 0u;
+                                            auto tl2 = (flags_tex & 4u) != 0u;
+                                            auto c = unpack_color(meta.z);
+                                            auto c_premul = c.xyz() * c.w;
+                                            auto one_minus_a = 1.f - c.w;
+                                            for (uint s = 0u; s < 4u; s++) {
+                                                auto ev0 = def(0.f);
+                                                auto ev1 = def(0.f);
+                                                auto ev2 = def(0.f);
+                                                auto hit = (betas[s] > 1e-3f) &
+                                                           all(qs[s] >= clip.xy()) & all(qs[s] < clip.zw()) &
+                                                           eval_precomp_edge(e0, qs[s], tl0, ev0) &
+                                                           eval_precomp_edge(e1, qs[s], tl1, ev1) &
+                                                           eval_precomp_edge(e2, qs[s], tl2, ev2);
+                                                auto hit_scale = select(0.f, betas[s], hit);
+                                                ssums[s] += c_premul * hit_scale;
+                                                betas[s] = select(betas[s], betas[s] * one_minus_a, hit);
+                                            }
+                                        } $else {
+                                            auto e0 = frame_buf.read<float4>(prim_off + 16u);
+                                            auto e1 = frame_buf.read<float4>(prim_off + 32u);
+                                            auto e2 = frame_buf.read<float4>(prim_off + 48u);
+                                            auto clip = frame_buf.read<float4>(off_clips + meta.x * 16u);
+                                            auto tl0 = (flags_tex & 1u) != 0u;
+                                            auto tl1 = (flags_tex & 2u) != 0u;
+                                            auto tl2 = (flags_tex & 4u) != 0u;
+                                            std::array<Float, 4> ev0s = {def(0.f), def(0.f), def(0.f), def(0.f)};
+                                            std::array<Float, 4> ev1s = {def(0.f), def(0.f), def(0.f), def(0.f)};
+                                            std::array<Float, 4> ev2s = {def(0.f), def(0.f), def(0.f), def(0.f)};
+                                            std::array<Bool, 4> hits = {def(false), def(false), def(false), def(false)};
+                                            for (uint s = 0u; s < 4u; s++) {
+                                                hits[s] = (betas[s] > 1e-3f) &
+                                                          all(qs[s] >= clip.xy()) & all(qs[s] < clip.zw()) &
+                                                          eval_precomp_edge(e0, qs[s], tl0, ev0s[s]) &
+                                                          eval_precomp_edge(e1, qs[s], tl1, ev1s[s]) &
+                                                          eval_precomp_edge(e2, qs[s], tl2, ev2s[s]);
+                                            }
+                                            $if (hits[0] | hits[1] | hits[2] | hits[3]) {
+                                                auto extra_off = off_tri_extra + meta.w * 32u;
+                                                auto c0 = unpack_color(meta.z);
+                                                auto c1 = def(make_float4(0.f));
+                                                auto c2 = def(make_float4(0.f));
+                                                $if (!is_flat) {
+                                                    auto cols = frame_buf.read<uint2>(extra_off + 24u);
+                                                    c1 = unpack_color(cols.x);
+                                                    c2 = unpack_color(cols.y);
+                                                };
+                                                auto uv01 = def(make_float4(0.f));
+                                                auto uv2 = def(make_float2(0.f));
+                                                $if (tex_id != 0u) {
+                                                    uv01 = frame_buf.read<float4>(extra_off);
+                                                    uv2 = frame_buf.read<float2>(extra_off + 16u);
+                                                };
+                                                for (uint s = 0u; s < 4u; s++) {
+                                                    $if (hits[s]) {
+                                                        auto inv_sum = 1.f / max(ev0s[s] + ev1s[s] + ev2s[s], 1e-20f);
+                                                        auto w0 = ev0s[s] * inv_sum;
+                                                        auto w1 = ev1s[s] * inv_sum;
+                                                        auto w2 = ev2s[s] * inv_sum;
+                                                        auto c = def(c0);
+                                                        $if (!is_flat) {
+                                                            c = w0 * c0 + w1 * c1 + w2 * c2;
+                                                        };
+                                                        $if (tex_id != 0u) {
+                                                            auto uv = w0 * uv01.xy() + w1 * uv01.zw() + w2 * uv2;
+                                                            c *= texture_array->tex2d(tex_id).sample(uv);
+                                                        };
+                                                        ssums[s] += c.xyz() * betas[s] * c.w;
+                                                        betas[s] *= 1.f - c.w;
+                                                    };
+                                                }
+                                            };
+                                        };
+                                    };
                                 };
                             };
                         };
@@ -1414,9 +1513,10 @@ private:
                              _raster_state(), nullptr, fb);
     }
 
-    /// Tiled compute 2D rasterizer: packs non-degenerate triangles with
-    /// canonicalized winding into a per-tile CSR triangle list in exact
-    /// submission order and dispatches `_compute_render_shader`.
+    /// Tiled compute 2D rasterizer: merges axis-aligned rect pairs into pre-clipped
+    /// fast-path records, culls geometry behind full-tile opaque rects, packs 4-bit
+    /// 8x8 quadrant masks into front-to-back per-tile CSR lists, and dispatches
+    /// `_compute_render_shader` in an 8x32 wave/SIMD-friendly local tile layout.
     void _draw_compute(Image<float> &fb, ImDrawData *draw_data) noexcept {
         auto fb_size = fb.size();
         if (any(fb_size == 0u)) { return; }
@@ -1458,15 +1558,14 @@ private:
         _tile_tri_bounds.resize(max_tris);
         _clip_rects.clear();
         _tile_row_spans.clear();
-        _large_tri_span_ends.clear();
         _clip_rects.reserve(64u);
         _tile_counts.assign(num_tiles, 0u);
 
-        // Analytic O(height) per-row half-space interval clipper for large triangles
-        // (bounding box >= 3x3 tiles). Precomputes linear edge equations in double
-        // precision with a conservative margin matching the legacy SAT test so no
-        // overlapping tile is ever dropped; emitted row spans are recorded once and
-        // replayed directly in Pass 2 without recomputing edge math or reloading vertices.
+        // Analytic O(height) per-row half-space interval clipper for large non-rect
+        // triangles (bounding box >= 3x3 tiles). Precomputes linear edge equations
+        // in double precision with a conservative margin matching the legacy SAT test
+        // so no overlapping tile is ever dropped; emitted row spans are recorded once
+        // and replayed directly in Pass 1 & Pass 2.
         struct EdgeRowClipper {
             double c_y0;
             double c_step_y;
@@ -1493,8 +1592,6 @@ private:
                     dy > 0.0 ? 1 : -1};
             }
 
-            // Intersect [rtx0, rtx1] with this edge's valid tile-x range for row ty.
-            // Returns false if the clipped interval is empty.
             [[nodiscard]] bool clip_row(double c_row, int &rtx0, int &rtx1) const noexcept {
                 if (dy_sign > 0) {
                     double t_max = c_row * inv_tile_dy + 1e-9;
@@ -1534,9 +1631,10 @@ private:
         ComputeTriHot *hot_out = _tri_hot.data();
         ComputeTriExtra *extra_out = _tri_extra.data();
         TileTriBounds *bnd_out = _tile_tri_bounds.data();
-        uint *tile_counts = _tile_counts.data();
         size_t tri_count = 0u;
         size_t extra_count = 0u;
+        bool any_opaque_cover = false;
+        constexpr float inv_tile_f = 1.f / static_cast<float>(compute_tile_size);
 
         for (auto i = 0; i < draw_data->CmdLists.Size; i++) {
             auto cmd_list = draw_data->CmdLists[i];
@@ -1566,20 +1664,179 @@ private:
                     }
                     return static_cast<uint>(t);
                 }();
-                LUISA_ASSERT(tex_id < (1u << 28u), "Texture id {} exceeds 28-bit compute raster limit.", tex_id);
+                LUISA_ASSERT(tex_id < (1u << 27u), "Texture id {} exceeds 27-bit compute raster limit.", tex_id);
                 const bool cmd_is_opaque_white_font = _font_white_uv_opaque && (tex_id == _font_texture_id);
                 const float white_u = _font_white_uv.x;
                 const float white_v = _font_white_uv.y;
                 const ImDrawIdx *cmd_idx = idx_base + cmd->IdxOffset;
                 const ImDrawVert *cmd_vtx = vtx_base + cmd->VtxOffset;
                 const auto elem_count = cmd->ElemCount;
-                for (auto t = 0u; t + 2u < elem_count; t += 3u) {
+                for (auto t = 0u; t + 2u < elem_count;) {
                     auto v0 = cmd_vtx[cmd_idx[t + 0u]];
                     auto v1 = cmd_vtx[cmd_idx[t + 1u]];
                     auto v2 = cmd_vtx[cmd_idx[t + 2u]];
                     auto p0 = transform(v0.pos);
                     auto p1 = transform(v1.pos);
                     auto p2 = transform(v2.pos);
+
+                    // Fast path: merge consecutive triangle pairs forming an axis-aligned
+                    // flat-colored rectangle (window backgrounds, buttons, font glyphs,
+                    // images). The union of two watertight diagonal triangles covering
+                    // [rx0, rx1] x [ry0, ry1] is exact with [rx0, rx1) x [ry0, ry1) under
+                    // the top-left tie-breaking rule on all 4 edges and the shared diagonal.
+                    if (t + 5u < elem_count && v0.col == v1.col && v0.col == v2.col) {
+                        auto v3 = cmd_vtx[cmd_idx[t + 3u]];
+                        auto v4 = cmd_vtx[cmd_idx[t + 4u]];
+                        auto v5 = cmd_vtx[cmd_idx[t + 5u]];
+                        if (v3.col == v0.col && v4.col == v0.col && v5.col == v0.col) {
+                            auto p3 = transform(v3.pos);
+                            auto p4 = transform(v4.pos);
+                            auto p5 = transform(v5.pos);
+                            if (is_finite_f32(p0.x) && is_finite_f32(p0.y) &&
+                                is_finite_f32(p1.x) && is_finite_f32(p1.y) &&
+                                is_finite_f32(p2.x) && is_finite_f32(p2.y) &&
+                                is_finite_f32(p3.x) && is_finite_f32(p3.y) &&
+                                is_finite_f32(p4.x) && is_finite_f32(p4.y) &&
+                                is_finite_f32(p5.x) && is_finite_f32(p5.y)) {
+                                const float2 pts[6] = {p0, p1, p2, p3, p4, p5};
+                                const ImDrawVert verts[6] = {v0, v1, v2, v3, v4, v5};
+                                float rx0 = pts[0].x, rx1 = pts[0].x;
+                                float ry0 = pts[0].y, ry1 = pts[0].y;
+                                for (uint k = 1u; k < 6u; k++) {
+                                    rx0 = std::min(rx0, pts[k].x);
+                                    rx1 = std::max(rx1, pts[k].x);
+                                    ry0 = std::min(ry0, pts[k].y);
+                                    ry1 = std::max(ry1, pts[k].y);
+                                }
+                                if (rx0 < rx1 && ry0 < ry1) {
+                                    bool all_corners = true;
+                                    uint codes[6];
+                                    for (uint k = 0u; k < 6u; k++) {
+                                        bool ox = (pts[k].x == rx0) || (pts[k].x == rx1);
+                                        bool oy = (pts[k].y == ry0) || (pts[k].y == ry1);
+                                        if (!ox || !oy) {
+                                            all_corners = false;
+                                            break;
+                                        }
+                                        codes[k] = (pts[k].x == rx1 ? 1u : 0u) | (pts[k].y == ry1 ? 2u : 0u);
+                                    }
+                                    if (all_corners &&
+                                        codes[0] != codes[1] && codes[1] != codes[2] && codes[0] != codes[2] &&
+                                        codes[3] != codes[4] && codes[4] != codes[5] && codes[3] != codes[5]) {
+                                        uint m0 = (1u << codes[0]) | (1u << codes[1]) | (1u << codes[2]);
+                                        uint m1 = (1u << codes[3]) | (1u << codes[4]) | (1u << codes[5]);
+                                        uint shared = m0 & m1;
+                                        if ((m0 | m1) == 0xfu && (shared == 0x9u || shared == 0x6u)) {
+                                            uint eff_tex_id = tex_id;
+                                            if (cmd_is_opaque_white_font &&
+                                                v0.uv.x == white_u && v0.uv.y == white_v &&
+                                                v1.uv.x == white_u && v1.uv.y == white_v &&
+                                                v2.uv.x == white_u && v2.uv.y == white_v &&
+                                                v3.uv.x == white_u && v3.uv.y == white_v &&
+                                                v4.uv.x == white_u && v4.uv.y == white_v &&
+                                                v5.uv.x == white_u && v5.uv.y == white_v) {
+                                                eff_tex_id = 0u;
+                                            }
+                                            bool uv_ok = true;
+                                            float2 corner_uv[4]{};
+                                            if (eff_tex_id != 0u) {
+                                                uint seen = 0u;
+                                                for (uint k = 0u; k < 6u; k++) {
+                                                    uint c = codes[k];
+                                                    float2 uvk = make_float2(verts[k].uv.x, verts[k].uv.y);
+                                                    if (!is_finite_f32(uvk.x) || !is_finite_f32(uvk.y)) {
+                                                        uv_ok = false;
+                                                        break;
+                                                    }
+                                                    if (seen & (1u << c)) {
+                                                        if (corner_uv[c].x != uvk.x || corner_uv[c].y != uvk.y) {
+                                                            uv_ok = false;
+                                                            break;
+                                                        }
+                                                    } else {
+                                                        corner_uv[c] = uvk;
+                                                        seen |= (1u << c);
+                                                    }
+                                                }
+                                                if (uv_ok &&
+                                                    !(corner_uv[0].x == corner_uv[2].x &&
+                                                      corner_uv[1].x == corner_uv[3].x &&
+                                                      corner_uv[0].y == corner_uv[1].y &&
+                                                      corner_uv[2].y == corner_uv[3].y)) {
+                                                    uv_ok = false;
+                                                }
+                                            }
+                                            if (uv_ok) {
+                                                auto bmin_x = std::max(rx0, clip_min.x);
+                                                auto bmin_y = std::max(ry0, clip_min.y);
+                                                auto bmax_x = std::min(rx1, clip_max.x);
+                                                auto bmax_y = std::min(ry1, clip_max.y);
+                                                if (bmin_x < bmax_x && bmin_y < bmax_y &&
+                                                    !(eff_tex_id == 0u && (v0.col >> 24u) == 0u)) {
+                                                    auto tx0 = static_cast<uint>(bmin_x) / compute_tile_size;
+                                                    auto ty0 = static_cast<uint>(bmin_y) / compute_tile_size;
+                                                    auto bx1_i = static_cast<uint>(bmax_x);
+                                                    auto by1_i = static_cast<uint>(bmax_y);
+                                                    auto px1 = static_cast<float>(bx1_i) < bmax_x ? bx1_i : (bx1_i > 0u ? bx1_i - 1u : 0u);
+                                                    auto py1 = static_cast<float>(by1_i) < bmax_y ? by1_i : (by1_i > 0u ? by1_i - 1u : 0u);
+                                                    auto tx1 = std::min(tiles_x - 1u, px1 / compute_tile_size);
+                                                    auto ty1 = std::min(tiles_y - 1u, py1 / compute_tile_size);
+                                                    if (tx0 <= tx1 && ty0 <= ty1) {
+                                                        float4 uv_affine = make_float4(0.f);
+                                                        if (eff_tex_id != 0u) {
+                                                            double inv_w = 1.0 / (static_cast<double>(rx1) - static_cast<double>(rx0));
+                                                            double inv_h = 1.0 / (static_cast<double>(ry1) - static_cast<double>(ry0));
+                                                            double du_dx = (static_cast<double>(corner_uv[1].x) - static_cast<double>(corner_uv[0].x)) * inv_w;
+                                                            double dv_dy = (static_cast<double>(corner_uv[2].y) - static_cast<double>(corner_uv[0].y)) * inv_h;
+                                                            double u_base = static_cast<double>(corner_uv[0].x) + (static_cast<double>(bmin_x) - static_cast<double>(rx0)) * du_dx;
+                                                            double v_base = static_cast<double>(corner_uv[0].y) + (static_cast<double>(bmin_y) - static_cast<double>(ry0)) * dv_dy;
+                                                            uv_affine = make_float4(static_cast<float>(u_base),
+                                                                                    static_cast<float>(v_base),
+                                                                                    static_cast<float>(du_dx),
+                                                                                    static_cast<float>(dv_dy));
+                                                        }
+                                                        uint16_t cov_tx0 = 0u, cov_ty0 = 0u, cov_tx1 = 0u, cov_ty1 = 0u;
+                                                        if (eff_tex_id == 0u && (v0.col >> 24u) == 255u) {
+                                                            uint cx0 = std::min<uint>(tiles_x, static_cast<uint>(std::ceil(bmin_x * inv_tile_f)));
+                                                            uint cy0 = std::min<uint>(tiles_y, static_cast<uint>(std::ceil(bmin_y * inv_tile_f)));
+                                                            uint cx1 = (bmax_x >= fb_size_f.x) ? tiles_x : std::min<uint>(tiles_x, static_cast<uint>(bmax_x) / compute_tile_size);
+                                                            uint cy1 = (bmax_y >= fb_size_f.y) ? tiles_y : std::min<uint>(tiles_y, static_cast<uint>(bmax_y) / compute_tile_size);
+                                                            if (cx0 < cx1 && cy0 < cy1) {
+                                                                cov_tx0 = static_cast<uint16_t>(cx0);
+                                                                cov_ty0 = static_cast<uint16_t>(cy0);
+                                                                cov_tx1 = static_cast<uint16_t>(cx1);
+                                                                cov_ty1 = static_cast<uint16_t>(cy1);
+                                                                any_opaque_cover = true;
+                                                            }
+                                                        }
+                                                        *hot_out++ = ComputeTriHot{
+                                                            .clip_idx = 0u,
+                                                            .flags_tex = (eff_tex_id << 5u) | 16u | 8u,
+                                                            .col0 = v0.col,
+                                                            .extra_idx = 0u,
+                                                            .e0 = make_float4(bmin_x, bmin_y, bmax_x, bmax_y),
+                                                            .e1 = uv_affine,
+                                                            .e2 = make_float4(0.f)};
+                                                        *bnd_out++ = TileTriBounds{
+                                                            static_cast<uint16_t>(tx0), static_cast<uint16_t>(ty0),
+                                                            static_cast<uint16_t>(tx1), static_cast<uint16_t>(ty1),
+                                                            cov_tx0, cov_ty0, cov_tx1, cov_ty1,
+                                                            bmin_x, bmin_y, bmax_x, bmax_y,
+                                                            0u, 0u};
+                                                        tri_count++;
+                                                    }
+                                                }
+                                                t += 6u;
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    t += 3u;
                     if (!is_finite_f32(p0.x) || !is_finite_f32(p0.y) ||
                         !is_finite_f32(p1.x) || !is_finite_f32(p1.y) ||
                         !is_finite_f32(p2.x) || !is_finite_f32(p2.y)) {
@@ -1617,6 +1874,37 @@ private:
                         eff_tex_id = 0u;
                     }
                     const bool is_flat = (v0.col == v1.col) && (v0.col == v2.col);
+                    if (eff_tex_id == 0u && is_flat && (v0.col >> 24u) == 0u) { continue; }
+
+                    uint32_t span_begin = 0u;
+                    uint32_t span_end = 0u;
+                    if ((tx1 - tx0) >= 2u && (ty1 - ty0) >= 2u) {
+                        span_begin = static_cast<uint32_t>(_tile_row_spans.size());
+                        auto ec0 = EdgeRowClipper::make(p0, p1);
+                        auto ec1 = EdgeRowClipper::make(p1, p2);
+                        auto ec2 = EdgeRowClipper::make(p2, p0);
+                        auto c0 = ec0.c_y0 + static_cast<double>(ty0) * ec0.c_step_y;
+                        auto c1 = ec1.c_y0 + static_cast<double>(ty0) * ec1.c_step_y;
+                        auto c2 = ec2.c_y0 + static_cast<double>(ty0) * ec2.c_step_y;
+                        for (auto ty = ty0; ty <= ty1; ty++) {
+                            int rtx0 = static_cast<int>(tx0);
+                            int rtx1 = static_cast<int>(tx1);
+                            if (ec0.clip_row(c0, rtx0, rtx1) &&
+                                ec1.clip_row(c1, rtx0, rtx1) &&
+                                ec2.clip_row(c2, rtx0, rtx1)) {
+                                _tile_row_spans.emplace_back(TileRowSpan{
+                                    static_cast<uint16_t>(rtx0),
+                                    static_cast<uint16_t>(ty),
+                                    static_cast<uint32_t>(rtx1 - rtx0 + 1)});
+                            }
+                            c0 += ec0.c_step_y;
+                            c1 += ec1.c_step_y;
+                            c2 += ec2.c_step_y;
+                        }
+                        span_end = static_cast<uint32_t>(_tile_row_spans.size());
+                        if (span_begin == span_end) { continue; }
+                    }
+
                     uint tl0 = 0u, tl1 = 0u, tl2 = 0u;
                     auto e0 = make_edge(p1, p2, tl0);
                     auto e1 = make_edge(p2, p0, tl1);
@@ -1633,7 +1921,7 @@ private:
                     }
                     *hot_out++ = ComputeTriHot{
                         .clip_idx = clip_idx,
-                        .flags_tex = (eff_tex_id << 4u) | (is_flat ? 8u : 0u) | (tl2 << 2u) | (tl1 << 1u) | tl0,
+                        .flags_tex = (eff_tex_id << 5u) | (is_flat ? 8u : 0u) | (tl2 << 2u) | (tl1 << 1u) | tl0,
                         .col0 = v0.col,
                         .extra_idx = extra_idx,
                         .e0 = e0,
@@ -1641,45 +1929,11 @@ private:
                         .e2 = e2};
                     *bnd_out++ = TileTriBounds{
                         static_cast<uint16_t>(tx0), static_cast<uint16_t>(ty0),
-                        static_cast<uint16_t>(tx1), static_cast<uint16_t>(ty1)};
+                        static_cast<uint16_t>(tx1), static_cast<uint16_t>(ty1),
+                        0u, 0u, 0u, 0u,
+                        bmin_x, bmin_y, bmax_x, bmax_y,
+                        span_begin, span_end};
                     tri_count++;
-
-                    if (tx0 == tx1 && ty0 == ty1) {
-                        tile_counts[static_cast<size_t>(ty0) * tiles_x + tx0]++;
-                    } else if ((tx1 - tx0) < 2u || (ty1 - ty0) < 2u) {
-                        for (auto ty = ty0; ty <= ty1; ty++) {
-                            auto *row_counts = tile_counts + static_cast<size_t>(ty) * tiles_x;
-                            for (auto tx = tx0; tx <= tx1; tx++) {
-                                row_counts[tx]++;
-                            }
-                        }
-                    } else {
-                        auto e0 = EdgeRowClipper::make(p0, p1);
-                        auto e1 = EdgeRowClipper::make(p1, p2);
-                        auto e2 = EdgeRowClipper::make(p2, p0);
-                        auto c0 = e0.c_y0 + static_cast<double>(ty0) * e0.c_step_y;
-                        auto c1 = e1.c_y0 + static_cast<double>(ty0) * e1.c_step_y;
-                        auto c2 = e2.c_y0 + static_cast<double>(ty0) * e2.c_step_y;
-                        for (auto ty = ty0; ty <= ty1; ty++) {
-                            int rtx0 = static_cast<int>(tx0);
-                            int rtx1 = static_cast<int>(tx1);
-                            if (e0.clip_row(c0, rtx0, rtx1) &&
-                                e1.clip_row(c1, rtx0, rtx1) &&
-                                e2.clip_row(c2, rtx0, rtx1)) {
-                                auto start = static_cast<uint32_t>(static_cast<size_t>(ty) * tiles_x + static_cast<uint>(rtx0));
-                                auto count = static_cast<uint32_t>(rtx1 - rtx0 + 1);
-                                _tile_row_spans.emplace_back(TileRowSpan{start, count});
-                                auto *dst = tile_counts + start;
-                                for (uint32_t k = 0u; k < count; k++) {
-                                    dst[k]++;
-                                }
-                            }
-                            c0 += e0.c_step_y;
-                            c1 += e1.c_step_y;
-                            c2 += e2.c_step_y;
-                        }
-                        _large_tri_span_ends.emplace_back(static_cast<uint>(_tile_row_spans.size()));
-                    }
                 }
             }
         }
@@ -1688,26 +1942,94 @@ private:
         _tri_extra.resize(extra_count);
         _tile_tri_bounds.resize(tri_count);
         if (tri_count == 0u) { return; }
+        LUISA_ASSERT(tri_count < (1u << 28u),
+                     "Compute GUI primitive count ({}) exceeds 28-bit packed tile reference limit.",
+                     tri_count);
+
+        // Pass 1 (front-to-back counting with optional full-tile opaque occlusion culling).
+        uint *tile_counts = _tile_counts.data();
+        const TileTriBounds *bounds = _tile_tri_bounds.data();
+        const TileRowSpan *spans = _tile_row_spans.data();
+        auto prim_count_u = static_cast<uint>(tri_count);
+        if (any_opaque_cover) {
+            _tile_occluded.assign(num_tiles, 0u);
+            uint8_t *tile_occluded = _tile_occluded.data();
+            for (uint p = prim_count_u; p-- > 0u;) {
+                const auto &b = bounds[p];
+                if (b.span_begin != b.span_end) {
+                    for (uint32_t s = b.span_begin; s < b.span_end; s++) {
+                        auto sp = spans[s];
+                        size_t base = static_cast<size_t>(sp.ty) * tiles_x + sp.tx0;
+                        uint *dst = tile_counts + base;
+                        const uint8_t *occ = tile_occluded + base;
+                        for (uint32_t k = 0u; k < sp.count; k++) {
+                            dst[k] += static_cast<uint>(occ[k] == 0u);
+                        }
+                    }
+                } else if (b.tx0 == b.tx1 && b.ty0 == b.ty1) {
+                    size_t tidx = static_cast<size_t>(b.ty0) * tiles_x + b.tx0;
+                    tile_counts[tidx] += static_cast<uint>(tile_occluded[tidx] == 0u);
+                } else {
+                    for (uint ty = b.ty0; ty <= b.ty1; ty++) {
+                        size_t row = static_cast<size_t>(ty) * tiles_x;
+                        uint *dst = tile_counts + row;
+                        const uint8_t *occ = tile_occluded + row;
+                        for (uint tx = b.tx0; tx <= b.tx1; tx++) {
+                            dst[tx] += static_cast<uint>(occ[tx] == 0u);
+                        }
+                    }
+                }
+                if (b.cov_tx0 < b.cov_tx1) {
+                    for (uint ty = b.cov_ty0; ty < b.cov_ty1; ty++) {
+                        std::memset(tile_occluded + static_cast<size_t>(ty) * tiles_x + b.cov_tx0,
+                                    1, static_cast<size_t>(b.cov_tx1 - b.cov_tx0));
+                    }
+                }
+            }
+        } else {
+            for (uint p = prim_count_u; p-- > 0u;) {
+                const auto &b = bounds[p];
+                if (b.span_begin != b.span_end) {
+                    for (uint32_t s = b.span_begin; s < b.span_end; s++) {
+                        auto sp = spans[s];
+                        uint *dst = tile_counts + static_cast<size_t>(sp.ty) * tiles_x + sp.tx0;
+                        for (uint32_t k = 0u; k < sp.count; k++) {
+                            dst[k]++;
+                        }
+                    }
+                } else if (b.tx0 == b.tx1 && b.ty0 == b.ty1) {
+                    tile_counts[static_cast<size_t>(b.ty0) * tiles_x + b.tx0]++;
+                } else {
+                    for (uint ty = b.ty0; ty <= b.ty1; ty++) {
+                        uint *dst = tile_counts + static_cast<size_t>(ty) * tiles_x;
+                        for (uint tx = b.tx0; tx <= b.tx1; tx++) {
+                            dst[tx]++;
+                        }
+                    }
+                }
+            }
+        }
 
         _active_tiles.resize(num_tiles + 1u);
         _tile_cursors.resize(num_tiles);
+        _tile_ends.resize(num_tiles);
         uint total_refs = 0u;
         uint active_tile_count = 0u;
         uint2 *active_out = _active_tiles.data();
         uint *tile_cursors = _tile_cursors.data();
+        uint *tile_ends = _tile_ends.data();
         for (uint ty = 0u; ty < tiles_y; ty++) {
             const uint y_bits = ty << 16u;
             const uint *row_counts = tile_counts + static_cast<size_t>(ty) * tiles_x;
             uint *row_cursors = tile_cursors + static_cast<size_t>(ty) * tiles_x;
+            uint *row_ends = tile_ends + static_cast<size_t>(ty) * tiles_x;
             for (uint tx = 0u; tx < tiles_x; tx++) {
                 auto cnt = row_counts[tx];
                 if (cnt > 0u) {
                     active_out[active_tile_count++] = make_uint2(y_bits | tx, total_refs);
-                    total_refs += cnt;
-                    // Start each tile's Pass 2 cursor at range_end and decrement so
-                    // tile_tri_indices stores triangles front-to-back (topmost first),
-                    // enabling sequential forward shader traversal.
                     row_cursors[tx] = total_refs;
+                    total_refs += cnt;
+                    row_ends[tx] = total_refs;
                 }
             }
         }
@@ -1715,9 +2037,9 @@ private:
         active_out[active_tile_count] = make_uint2(0u, total_refs);
         const size_t active_elems = static_cast<size_t>(active_tile_count) + 1u;
 
-        // Pack active tiles, CSR triangle indices, clip rects, hot triangle
-        // records, and cold extra records into one 16-byte-aligned staging
-        // buffer so the frame requires only a single host-to-device transfer.
+        // Pack active tiles, CSR packed primitive references, clip rects, hot
+        // primitive records, and cold extra records into one 16-byte-aligned
+        // staging buffer so the frame requires only a single host-to-device transfer.
         auto align16 = [](size_t n) noexcept { return (n + 15u) & ~size_t{15u}; };
         const size_t active_bytes = active_elems * sizeof(uint2);
         const size_t off_tile_tris = align16(active_bytes);
@@ -1742,36 +2064,109 @@ private:
             std::memcpy(staging + off_tri_extra, _tri_extra.data(), extra_bytes);
         }
 
-        // Write Pass 2 tile triangle indices directly into the coalesced staging buffer.
+        // Pass 2 (front-to-back filling): writes (quad_mask << 28) | prim_idx into
+        // each tile's CSR range. Because Pass 1 & Pass 2 both traverse front-to-back,
+        // checking cur < end automatically honors full-tile opaque occlusion culling.
         uint *tile_tri_indices = reinterpret_cast<uint *>(staging + off_tile_tris);
-        const TileTriBounds *bounds = _tile_tri_bounds.data();
-        const TileRowSpan *spans = _tile_row_spans.data();
-        const uint *large_ends = _large_tri_span_ends.data();
-        size_t large_idx = 0u;
-        size_t span_cursor = 0u;
-        auto tri_count_u = static_cast<uint>(tri_count);
-        for (auto tri_idx = 0u; tri_idx < tri_count_u; tri_idx++) {
-            auto b = bounds[tri_idx];
-            if (b.tx0 == b.tx1 && b.ty0 == b.ty1) {
-                auto tile_id = static_cast<size_t>(b.ty0) * tiles_x + b.tx0;
-                tile_tri_indices[--tile_cursors[tile_id]] = tri_idx;
-            } else if ((b.tx1 - b.tx0) < 2u || (b.ty1 - b.ty0) < 2u) {
-                for (uint ty = b.ty0; ty <= b.ty1; ty++) {
-                    auto *row_cursors = tile_cursors + static_cast<size_t>(ty) * tiles_x;
-                    for (uint tx = b.tx0; tx <= b.tx1; tx++) {
-                        tile_tri_indices[--row_cursors[tx]] = tri_idx;
+        auto pack_quad = [](uint qx, uint qy, uint prim_idx) noexcept -> uint {
+            uint qm = ((qy & 1u) ? qx : 0u) | ((qy & 2u) ? (qx << 2u) : 0u);
+            return (qm << 28u) | prim_idx;
+        };
+        auto fill_pass2 = [&](auto check_end) noexcept {
+            for (uint prim_idx = prim_count_u; prim_idx-- > 0u;) {
+                const auto &b = bounds[prim_idx];
+                if (b.tx0 == b.tx1 && b.ty0 == b.ty1) {
+                    size_t tidx = static_cast<size_t>(b.ty0) * tiles_x + b.tx0;
+                    uint cur = tile_cursors[tidx];
+                    if (!check_end || cur < tile_ends[tidx]) {
+                        float mx = static_cast<float>(b.tx0 * compute_tile_size + 8u);
+                        float my = static_cast<float>(b.ty0 * compute_tile_size + 8u);
+                        uint qx = (b.bmin_x < mx ? 1u : 0u) | (b.bmax_x > mx ? 2u : 0u);
+                        uint qy = (b.bmin_y < my ? 1u : 0u) | (b.bmax_y > my ? 2u : 0u);
+                        tile_tri_indices[cur] = pack_quad(qx, qy, prim_idx);
+                        tile_cursors[tidx] = cur + 1u;
                     }
+                    continue;
                 }
-            } else {
-                size_t span_end = large_ends[large_idx++];
-                for (; span_cursor < span_end; span_cursor++) {
-                    auto s = spans[span_cursor];
-                    auto *cur = tile_cursors + s.tile_start;
-                    for (uint32_t k = 0u; k < s.count; k++) {
-                        tile_tri_indices[--cur[k]] = tri_idx;
+                float mx_l = static_cast<float>(b.tx0 * compute_tile_size + 8u);
+                float mx_r = static_cast<float>(b.tx1 * compute_tile_size + 8u);
+                uint qx_l = (b.bmin_x < mx_l ? 1u : 0u) | (b.bmax_x > mx_l ? 2u : 0u);
+                uint qx_r = (b.bmin_x < mx_r ? 1u : 0u) | (b.bmax_x > mx_r ? 2u : 0u);
+                if (b.span_begin != b.span_end) {
+                    for (uint32_t s = b.span_begin; s < b.span_end; s++) {
+                        auto sp = spans[s];
+                        uint ty = sp.ty;
+                        uint qy = 3u;
+                        if (ty == b.ty0 || ty == b.ty1) {
+                            float my = static_cast<float>(ty * compute_tile_size + 8u);
+                            qy = (b.bmin_y < my ? 1u : 0u) | (b.bmax_y > my ? 2u : 0u);
+                        }
+                        uint ref_l = pack_quad(qx_l, qy, prim_idx);
+                        uint ref_m = pack_quad(3u, qy, prim_idx);
+                        uint ref_r = pack_quad(qx_r, qy, prim_idx);
+                        size_t base = static_cast<size_t>(ty) * tiles_x + sp.tx0;
+                        uint *row_cur = tile_cursors + base;
+                        const uint *row_end = tile_ends + base;
+                        for (uint32_t k = 0u; k < sp.count; k++) {
+                            uint cur = row_cur[k];
+                            if (!check_end || cur < row_end[k]) {
+                                uint tx = sp.tx0 + k;
+                                uint ref = tx == b.tx0 ? ref_l : (tx == b.tx1 ? ref_r : ref_m);
+                                tile_tri_indices[cur] = ref;
+                                row_cur[k] = cur + 1u;
+                            }
+                        }
+                    }
+                } else {
+                    for (uint ty = b.ty0; ty <= b.ty1; ty++) {
+                        uint qy = 3u;
+                        if (ty == b.ty0 || ty == b.ty1) {
+                            float my = static_cast<float>(ty * compute_tile_size + 8u);
+                            qy = (b.bmin_y < my ? 1u : 0u) | (b.bmax_y > my ? 2u : 0u);
+                        }
+                        uint ref_l = pack_quad(qx_l, qy, prim_idx);
+                        uint ref_m = pack_quad(3u, qy, prim_idx);
+                        uint ref_r = pack_quad(qx_r, qy, prim_idx);
+                        size_t row = static_cast<size_t>(ty) * tiles_x;
+                        uint *row_cur = tile_cursors + row;
+                        const uint *row_end = tile_ends + row;
+                        if (b.tx0 == b.tx1) {
+                            uint cur = row_cur[b.tx0];
+                            if (!check_end || cur < row_end[b.tx0]) {
+                                tile_tri_indices[cur] = ref_l;
+                                row_cur[b.tx0] = cur + 1u;
+                            }
+                        } else {
+                            {
+                                uint cur = row_cur[b.tx0];
+                                if (!check_end || cur < row_end[b.tx0]) {
+                                    tile_tri_indices[cur] = ref_l;
+                                    row_cur[b.tx0] = cur + 1u;
+                                }
+                            }
+                            for (uint tx = b.tx0 + 1u; tx < b.tx1; tx++) {
+                                uint cur = row_cur[tx];
+                                if (!check_end || cur < row_end[tx]) {
+                                    tile_tri_indices[cur] = ref_m;
+                                    row_cur[tx] = cur + 1u;
+                                }
+                            }
+                            {
+                                uint cur = row_cur[b.tx1];
+                                if (!check_end || cur < row_end[b.tx1]) {
+                                    tile_tri_indices[cur] = ref_r;
+                                    row_cur[b.tx1] = cur + 1u;
+                                }
+                            }
+                        }
                     }
                 }
             }
+        };
+        if (any_opaque_cover) {
+            fill_pass2(std::true_type{});
+        } else {
+            fill_pass2(std::false_type{});
         }
 
         if (!_compute_frame_buffer || _compute_frame_buffer.size_bytes() < total_bytes) {
@@ -1783,8 +2178,8 @@ private:
         constexpr uint kMaxActiveGridX = 65535u;
         uint active_grid_y = (active_tile_count + kMaxActiveGridX - 1u) / kMaxActiveGridX;
         uint active_grid_x = (active_tile_count + active_grid_y - 1u) / active_grid_y;
-        auto active_dispatch = make_uint2(active_grid_x * compute_tile_size,
-                                          active_grid_y * compute_tile_size);
+        auto active_dispatch = make_uint2(active_grid_x * compute_block_x,
+                                          active_grid_y * compute_block_y);
         auto section_offsets = make_uint4(
             static_cast<uint>(off_tile_tris),
             static_cast<uint>(off_clips),
