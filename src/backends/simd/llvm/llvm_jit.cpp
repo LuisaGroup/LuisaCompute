@@ -119,8 +119,15 @@ void run_with_compiler_stack(Fn &&fn) noexcept {
 // immediately before LoopVectorize/SLPVectorizer so LLVM SLP can pack
 // independent scalar lanes (e.g. 8-corner 3D Perlin noise, Float3/Float4 math)
 // into native SIMD registers on both x86-64 and AArch64.
-struct ScalarizeW1FunctionPass
-    : ::llvm::PassInfoMixin<ScalarizeW1FunctionPass> {
+struct ScalarizeW1FunctionPass {
+    // The pass-manager interface is stable even when PassInfoMixin is private.
+    static ::llvm::StringRef name() noexcept { return "ScalarizeW1FunctionPass"; }
+    static bool isRequired() noexcept { return false; }
+    void printPipeline(::llvm::raw_ostream &os,
+                       ::llvm::function_ref<::llvm::StringRef(::llvm::StringRef)> map_name) {
+        os << map_name(name());
+    }
+
     ::llvm::PreservedAnalyses run(
         ::llvm::Function &function,
         ::llvm::FunctionAnalysisManager &am) noexcept {
@@ -206,6 +213,8 @@ LLVMJIT::LLVMJIT(bool capture_object) noexcept {
     _target_machine = std::move(*target_machine);
     _target_machine->Options.MCOptions.AsmVerbose = true;
     ::llvm::orc::LLJITBuilder builder;
+    // LLVM < 22 has no SectionMemoryManager reservation mode; keep its default layer.
+#if LLVM_VERSION_MAJOR >= 22
     const auto &triple = host->getTargetTriple();
     if (triple.isOSBinFormatCOFF() && triple.isX86()) {
         // RuntimeDyldCOFFX86_64 requires all sections referenced by 32-bit
@@ -224,6 +233,7 @@ LLVMJIT::LLVMJIT(bool capture_object) noexcept {
                 return layer;
             });
     }
+#endif
     builder.setJITTargetMachineBuilder(std::move(*host));
     auto jit = builder.create();
     if (!jit) {
