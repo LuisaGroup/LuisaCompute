@@ -3764,9 +3764,9 @@ template<size_t Width>
 }
 
 [[nodiscard]] bool run_jit_optimization_policy() {
-    CHECK(!LLVMJIT::selects_size_bounded_pipeline(8191u, 262143u));
-    CHECK(LLVMJIT::selects_size_bounded_pipeline(8192u, 1u));
-    CHECK(LLVMJIT::selects_size_bounded_pipeline(1u, 262144u));
+    CHECK(!LLVMJIT::selects_size_bounded_pipeline(65535u, 1048575u));
+    CHECK(LLVMJIT::selects_size_bounded_pipeline(65536u, 1u));
+    CHECK(LLVMJIT::selects_size_bounded_pipeline(1u, 1048576u));
     return true;
 }
 
@@ -3789,9 +3789,24 @@ template<size_t Width>
     ::llvm::raw_string_ostream stream{ir};
     module->print(stream, nullptr);
     stream.flush();
-    CHECK(ir.find("load volatile") != std::string::npos);
-    CHECK(ir.find("store volatile") != std::string::npos);
+    CHECK(ir.find("load volatile") == std::string::npos);
+    CHECK(ir.find("store volatile") == std::string::npos);
     CHECK(ir.find("cold_0.spill") != std::string::npos);
+    {
+        ScopedEnvironmentVariable pin{"LUISA_SIMD_VOLATILE_STATE_PIN", "1"};
+        auto pin_ctx = luisa::make_unique<::llvm::LLVMContext>();
+        auto pin_mod = luisa::make_unique<::llvm::Module>(
+            "schedule-state-residency-pinned", *pin_ctx);
+        auto pin_cg = lower_schedule_to_llvm(
+            *pin_mod, *schedule_function, width, name);
+        CHECK(pin_cg.succeeded());
+        std::string pin_ir;
+        ::llvm::raw_string_ostream pin_stream{pin_ir};
+        pin_mod->print(pin_stream, nullptr);
+        pin_stream.flush();
+        CHECK(pin_ir.find("load volatile") != std::string::npos);
+        CHECK(pin_ir.find("store volatile") != std::string::npos);
+    }
 
     LLVMJIT jit;
     CHECK(jit.succeeded());
@@ -4913,22 +4928,23 @@ template<size_t Width>
         CHECK(candidate.has_value());
         CHECK(oracle.has_value());
         CHECK(!oracle->scalar_frame_metadata);
-        CHECK(candidate->scalar_frame_metadata == (width == 16u));
+        CHECK(candidate->scalar_frame_metadata == (width >= 8u));
         CHECK(candidate->outputs == oracle->outputs);
-        if (width == 16u) {
+        if (width >= 8u) {
+            auto w_str = std::to_string(width);
             CHECK(candidate->ir != oracle->ir);
             CHECK(candidate->assembly != oracle->assembly);
             CHECK(candidate->ir.find(
-                      "frame.static.id = alloca [16 x i32]") !=
+                      "frame.static.id = alloca [" + w_str + " x i32]") !=
                   std::string::npos);
             CHECK(candidate->ir.find(
-                      "frame.parent.token = alloca [16 x i32]") !=
+                      "frame.parent.token = alloca [" + w_str + " x i32]") !=
                   std::string::npos);
             CHECK(oracle->ir.find(
-                      "frame.static.id = alloca <16 x i32>") !=
+                      "frame.static.id = alloca <" + w_str + " x i32>") !=
                   std::string::npos);
             CHECK(oracle->ir.find(
-                      "frame.parent.token = alloca <16 x i32>") !=
+                      "frame.parent.token = alloca <" + w_str + " x i32>") !=
                   std::string::npos);
         } else {
             CHECK(candidate->ir == oracle->ir);
@@ -5075,9 +5091,21 @@ template<size_t Width>
         CHECK(candidate_ir->find("@llvm.masked.scatter") ==
               std::string::npos);
     }
-    CHECK(count_occurrences(
-              *oracle_ir, "call <" + std::to_string(width) +
-                              " x i32> @llvm.masked.gather") == 8u);
+    if (width == 8u) {
+        CHECK(count_occurrences(
+                  *oracle_ir, "call <8 x i32> @llvm.masked.gather") == 0u);
+        ScopedEnvironmentVariable disable_aos{
+            "LUISA_SIMD_DISABLE_AOS_TRANSPOSE_GATHER", "1"};
+        auto scalar_oracle_ir = make_ir(false);
+        CHECK(scalar_oracle_ir.has_value());
+        CHECK(count_occurrences(
+                  *scalar_oracle_ir, "call <8 x i32> @llvm.masked.gather") ==
+              8u);
+    } else {
+        CHECK(count_occurrences(
+                  *oracle_ir, "call <" + std::to_string(width) +
+                                  " x i32> @llvm.masked.gather") == 8u);
+    }
     CHECK(count_occurrences(
               *oracle_ir, "call void @llvm.masked.scatter") == 4u);
 
@@ -5582,7 +5610,17 @@ template<size_t Width>
     CHECK(count_occurrences(
               *ordinary, "call <8 x i64> @llvm.masked.gather") == 0u);
     CHECK(count_occurrences(
-              *ordinary, "call <8 x i32> @llvm.masked.gather") == 3u);
+              *ordinary, "call <8 x i32> @llvm.masked.gather") == 0u);
+    {
+        ScopedEnvironmentVariable disable_aos{
+            "LUISA_SIMD_DISABLE_AOS_TRANSPOSE_GATHER", "1"};
+        auto scalar_ordinary = make_ir(false);
+        CHECK(scalar_ordinary.has_value());
+        CHECK(count_occurrences(
+                  *scalar_ordinary, "call <8 x i64> @llvm.masked.gather") == 0u);
+        CHECK(count_occurrences(
+                  *scalar_ordinary, "call <8 x i32> @llvm.masked.gather") == 3u);
+    }
     return true;
 }
 
@@ -10224,9 +10262,18 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         }
         return false;
     }
-    CHECK(explicit_compiled.direct_ray_query_pipeline_count == 0u);
+    CHECK(explicit_compiled.direct_ray_query_pipeline_count == 1u);
     CHECK(explicit_compiled.post_reconstruction_ray_query_pipeline_count == 0u);
     CHECK(explicit_compiled.resident_ray_query_pipeline_count == 0u);
+    {
+        ScopedEnvironmentVariable disable_live{
+            "LUISA_SIMD_DISABLE_LIVE_RAY_QUERY_PIPELINE", "1"};
+        auto legacy_w8 = compile_simd_kernel(
+            explicit_proceed.function()->function(), 8u,
+            "simd_ast_explicit_proceed_legacy_w8");
+        CHECK(legacy_w8.succeeded());
+        CHECK(legacy_w8.direct_ray_query_pipeline_count == 0u);
+    }
     auto explicit_compiled_w2 = compile_simd_kernel(
         explicit_proceed.function()->function(), 2u,
         "simd_ast_explicit_proceed_preserved_pipeline_w2");
@@ -11522,7 +11569,16 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
     CHECK(w1_default.resident_ray_query_pipeline_count == 1u);
     CHECK(w4_default.direct_ray_query_pipeline_count == 0u);
     CHECK(w4_default.resident_ray_query_pipeline_count == 0u);
-    CHECK(w8_default.direct_ray_query_pipeline_count == 0u);
+    CHECK(w8_default.direct_ray_query_pipeline_count == 1u);
+    {
+        ScopedEnvironmentVariable disable_live{
+            "LUISA_SIMD_DISABLE_LIVE_RAY_QUERY_PIPELINE", "1"};
+        auto w8_legacy = compile_simd_kernel(
+            kernel.function()->function(), 8u,
+            "simd_ast_captured_direct_ray_query_pipeline_legacy_w8");
+        CHECK(w8_legacy.succeeded());
+        CHECK(w8_legacy.direct_ray_query_pipeline_count == 0u);
+    }
     CHECK(w1_disabled.direct_ray_query_pipeline_count == 0u);
     CHECK(w1_disabled.resident_ray_query_pipeline_count == 0u);
     CHECK(w4_disabled.direct_ray_query_pipeline_count == 0u);
@@ -12711,7 +12767,9 @@ void bindless_texture_sample_probe(
           std::string::npos);
     CHECK(ir.find("bindless.texture.byte1.narrow") != std::string::npos);
     CHECK(ir.find("bindless.texture.byte1.v00") != std::string::npos);
-    CHECK(ir.find("bindless.texture.byte1.callback") != std::string::npos);
+    CHECK(ir.find("bindless.texture.byte4.direct") != std::string::npos);
+    CHECK(ir.find("bindless.texture.float4.direct") != std::string::npos);
+    CHECK(ir.find("bindless.texture.mip0.callback") != std::string::npos);
 
     LLVMJIT jit{true};
     CHECK(jit.succeeded());
@@ -16456,58 +16514,73 @@ make_structured_early_exit_foreign_convergence_fixture() {
     return true;
 }
 
-[[nodiscard]] bool run_ast_assume_and_noinline_legalization() {
-    // Regression for Psycles Coro SIMD blockers:
-    // 1) Uniform and varying XIR ASSUME instructions (including tail packets
-    //    and divergent branches where inactive lanes have condition == false).
-    // 2) NoInline callables that SIMD must legalize away before scheduling.
+[[nodiscard]] bool run_ast_outline_noinline_legalization() {
+    static constexpr auto width = 8u;
     static constexpr auto count = 13u;
-    Callable helper = [](UInt x) noexcept {
-        luisa::compute::detail::FunctionBuilder::current()->mark_noinline();
-        auto result = def(0u);
-        $if ((x & 1u) == 0u) {
-            assume((x & 1u) == 0u);
-            result = x * 3u + 1u;
-        } $else {
-            assume((x & 1u) != 0u);
-            result = x * 5u + 2u;
-        };
-        return result;
-    };
-    Kernel1D kernel = [&](BufferUInt output) noexcept {
-        assume(dispatch_size().x == count);
+    Kernel1D kernel = [](BufferUInt output) noexcept {
         auto index = dispatch_id().x;
-        assume(index < count);
-        output.write(index, helper(index));
+        assume(index < 1024u);
+        UInt acc = 0u;
+        $outline_with_name("outer_outline") {
+            $for (step, 3u) {
+                assume(step < 4u);
+                UInt contribution = 0u;
+                $switch (step & 1u) {
+                    $comment("even_step_case");
+                    $case (0u) {
+                        $outline_with_name("inner_outline_even") {
+                            $if ((index & 1u) != 0u) {
+                                contribution = index + step;
+                            }
+                            $else {
+                                contribution = index * 2u + step;
+                            };
+                        };
+                    };
+                    $comment("odd_step_case");
+                    $default {
+                        $outline_with_name("inner_outline_odd") {
+                            $if ((index & 1u) != 0u) {
+                                contribution = index + step;
+                            }
+                            $else {
+                                contribution = index * 2u + step;
+                            };
+                        };
+                    };
+                };
+                acc += contribution;
+            };
+        };
+        output.write(index, acc);
     };
-    for (auto width : {1u, 4u, 8u}) {
-        auto compiled = compile_simd_kernel(
-            kernel.function()->function(), width,
-            "simd_ast_assume_and_noinline");
-        if (!compiled.succeeded()) {
-            for (auto &&diagnostic : compiled.diagnostics) {
-                std::cerr << diagnostic << '\n';
-            }
-            return false;
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), width,
+        "simd_ast_outline_noinline_legalization");
+    if (!compiled.succeeded()) {
+        for (auto &&diagnostic : compiled.diagnostics) {
+            std::cerr << diagnostic << '\n';
         }
-        std::array<uint32_t, count> output{};
-        alignas(16) SIMDHostBufferView argument{
-            output.data(), sizeof(output)};
-        using Entry = void(
-            const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
-        auto entry = reinterpret_cast<Entry *>(compiled.entry);
-        CHECK(entry != nullptr);
-        auto config = launch_1d(count, 16u);
-        for (auto first = uint32_t{0u}; first < 16u; first += width) {
-            config.thread_index = first;
-            entry(&argument, nullptr, &config, width);
+        return false;
+    }
+    std::array<uint32_t, count> output{};
+    alignas(16) SIMDHostBufferView argument{
+        output.data(), sizeof(output)};
+    using Entry = void(
+        const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(&argument, nullptr, &config, width);
+    }
+    for (auto index = uint32_t{0u}; index < count; index++) {
+        auto expected = 0u;
+        for (auto step = 0u; step < 3u; step++) {
+            expected += ((index & 1u) != 0u) ? (index + step) : (index * 2u + step);
         }
-        for (auto index = uint32_t{0u}; index < count; index++) {
-            auto expected = (index & 1u) == 0u ?
-                                index * 3u + 1u :
-                                index * 5u + 2u;
-            CHECK(output[index] == expected);
-        }
+        CHECK(output[index] == expected);
     }
     return true;
 }
@@ -16565,10 +16638,10 @@ template<typename T>
                     return false;
                 }
                 CHECK(compiled.interleaved_private_arrays == 1u);
-                auto optimized_read = enabled && variant != 1u && variant != 4u;
-                CHECK((compiled.contiguous_private_read_count != 0u) == optimized_read);
-                CHECK((compiled.contiguous_private_write_count != 0u) == (enabled && variant != 1u));
-                CHECK((compiled.llvm_ir.find("private.contiguous.load") != std::string::npos) == optimized_read);
+                auto optimized_access = enabled && variant != 1u && variant != 4u;
+                CHECK((compiled.contiguous_private_read_count != 0u) == optimized_access);
+                CHECK((compiled.contiguous_private_write_count != 0u) == optimized_access);
+                CHECK((compiled.llvm_ir.find("private.contiguous.load") != std::string::npos) == optimized_access);
                 auto bytes = size_t{17u} * width * sizeof(T);
                 CHECK(compiled.private_workspace_size == bytes);
                 struct alignas(64) Chunk {
@@ -16652,8 +16725,8 @@ template<typename T>
             }
         }
     }
-    // An aggregate store observes the array's complete typed representation;
-    // this first interleaving realization deliberately leaves it unchanged.
+    // Whole-array aggregate stores decompose into per-leaf uniform SoA stores,
+    // so the array remains eligible for lane-interleaved SoA lowering.
     xir::Module module;
     auto kernel = module.create_kernel();
     kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
@@ -16665,7 +16738,7 @@ template<typename T>
     builder.return_void();
     auto compiled = compile_simd_kernel(kernel, width, "private_aggregate", false, true, true, false, 1u, false, false, true, budget, true);
     CHECK(compiled.succeeded());
-    CHECK(compiled.interleaved_private_arrays == 0u);
+    CHECK(compiled.interleaved_private_arrays == 1u);
     return true;
 }
 
@@ -18058,6 +18131,347 @@ template<typename T>
     return true;
 }
 
+[[nodiscard]] bool run_ast_assume_and_noinline_legalization() {
+    // Regression for Psycles Coro SIMD blockers:
+    // 1) Uniform and varying XIR ASSUME instructions (including tail packets
+    //    and divergent branches where inactive lanes have condition == false).
+    // 2) NoInline callables that SIMD must legalize away before scheduling.
+    static constexpr auto count = 13u;
+    Callable helper = [](UInt x) noexcept {
+        luisa::compute::detail::FunctionBuilder::current()->mark_noinline();
+        auto result = def(0u);
+        $if ((x & 1u) == 0u) {
+            assume((x & 1u) == 0u);
+            result = x * 3u + 1u;
+        } $else {
+            assume((x & 1u) != 0u);
+            result = x * 5u + 2u;
+        };
+        return result;
+    };
+    Kernel1D kernel = [&](BufferUInt output) noexcept {
+        assume(dispatch_size().x == count);
+        auto index = dispatch_id().x;
+        assume(index < count);
+        output.write(index, helper(index));
+    };
+    for (auto width : {1u, 4u, 8u}) {
+        auto compiled = compile_simd_kernel(
+            kernel.function()->function(), width,
+            "simd_ast_assume_and_noinline");
+        if (!compiled.succeeded()) {
+            for (auto &&diagnostic : compiled.diagnostics) {
+                std::cerr << diagnostic << '\n';
+            }
+            return false;
+        }
+        std::array<uint32_t, count> output{};
+        alignas(16) SIMDHostBufferView argument{
+            output.data(), sizeof(output)};
+        using Entry = void(
+            const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+        auto entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        auto config = launch_1d(count, 16u);
+        for (auto first = uint32_t{0u}; first < 16u; first += width) {
+            config.thread_index = first;
+            entry(&argument, nullptr, &config, width);
+        }
+        for (auto index = uint32_t{0u}; index < count; index++) {
+            auto expected = (index & 1u) == 0u ?
+                                index * 3u + 1u :
+                                index * 5u + 2u;
+            CHECK(output[index] == expected);
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_simd_fmod_f32_regression() {
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("simd_fmod_f32_test");
+    kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+    auto *buf_ty = Type::buffer(Type::of<float>());
+    auto *lhs_arg = kernel->create_resource_argument(buf_ty);
+    auto *rhs_arg = kernel->create_resource_argument(buf_ty);
+    auto *out_arg = kernel->create_resource_argument(buf_ty);
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero_u32 = module.create_constant_zero(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *idx = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero_u32});
+    auto *lv = builder.call(
+        Type::of<float>(), xir::ResourceReadOp::BUFFER_READ, {lhs_arg, idx});
+    auto *rv = builder.call(
+        Type::of<float>(), xir::ResourceReadOp::BUFFER_READ, {rhs_arg, idx});
+    auto *rem = builder.call(
+        Type::of<float>(), xir::ArithmeticOp::BINARY_MOD, {lv, rv});
+    builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {out_arg, idx, rem});
+    builder.return_void();
+
+    const auto inf = std::numeric_limits<float>::infinity();
+    const auto qnan = std::numeric_limits<float>::quiet_NaN();
+    const std::array<float, 16u> lhs_vals{
+        0.25f, -0.25f, -0.0f, 0.0f,
+        7.5f, -7.5f, 7.5f, -7.5f,
+        10.0f, -10.0f, 1.0e12f, -1.0e12f,
+        1.0f, inf, 1.0f, qnan};
+    const std::array<float, 16u> rhs_vals{
+        1.0f, 1.0f, 1.0f, 1.0f,
+        2.0f, 2.0f, -2.0f, -2.0f,
+        5.0f, 5.0f, 1.5f, 1.5f,
+        0.0f, 1.0f, inf, 1.0f};
+    for (auto width : {1u, 4u, 8u, 16u}) {
+        auto compiled = compile_simd_kernel(
+            kernel, width,
+            "simd_fmod_f32_w" + std::to_string(width), false, true, true,
+            false, 1u, false, false, /*capture_ir=*/true);
+        if (!compiled.succeeded()) {
+            for (auto &&d : compiled.diagnostics) { std::cerr << d << '\n'; }
+            return false;
+        }
+        auto helper_name = "luisa.simd.fmod.v" + std::to_string(width) + "f32";
+        CHECK(compiled.llvm_ir.find(helper_name) != std::string::npos);
+        CHECK(compiled.llvm_ir.find("define private fastcc <" +
+                                    std::to_string(width) +
+                                    " x float> @" + helper_name) !=
+              std::string::npos);
+        CHECK(compiled.llvm_ir.find("preserve_allcc <" +
+                                    std::to_string(width) +
+                                    " x float> @" + helper_name) ==
+              std::string::npos);
+        std::array<float, 16u> out_vals{};
+        out_vals.fill(12345.0f);
+        alignas(16) std::array arguments{
+            SIMDHostBufferView{const_cast<float *>(lhs_vals.data()),
+                               sizeof(lhs_vals)},
+            SIMDHostBufferView{const_cast<float *>(rhs_vals.data()),
+                               sizeof(rhs_vals)},
+            SIMDHostBufferView{out_vals.data(), sizeof(out_vals)}};
+        using Entry = void(const void *, void *,
+                           const SIMDPacketLaunchConfig *, uint32_t);
+        auto entry = reinterpret_cast<Entry *>(compiled.entry);
+        CHECK(entry != nullptr);
+        for (uint32_t base = 0u; base < 16u; base += width) {
+            auto config = launch_1d(16u, 32u);
+            config.thread_index = base;
+            entry(arguments.data(), nullptr, &config, width);
+        }
+        for (uint32_t i = 0u; i < 16u; ++i) {
+            auto expected = std::fmod(lhs_vals[i], rhs_vals[i]);
+            if (std::isnan(expected)) {
+                CHECK(std::isnan(out_vals[i]));
+            } else {
+                uint32_t got_bits = 0u;
+                uint32_t exp_bits = 0u;
+                std::memcpy(&got_bits, &out_vals[i], sizeof(got_bits));
+                std::memcpy(&exp_bits, &expected, sizeof(exp_bits));
+                CHECK(got_bits == exp_bits);
+            }
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool run_w1_scalarize_slp_regression() {
+    using namespace luisa::compute;
+    Kernel1D kernel = [](BufferFloat in, BufferFloat out) noexcept {
+        auto i = dispatch_x();
+        Float acc = 0.0f;
+        $outline_with_name("w1_trilinear_slp_probe") {
+            auto base = i * 12u;
+            auto v0 = in.read(base + 0u);
+            auto v1 = in.read(base + 1u);
+            auto v2 = in.read(base + 2u);
+            auto v3 = in.read(base + 3u);
+            auto v4 = in.read(base + 4u);
+            auto v5 = in.read(base + 5u);
+            auto v6 = in.read(base + 6u);
+            auto v7 = in.read(base + 7u);
+            auto x = in.read(base + 8u);
+            auto y = in.read(base + 9u);
+            auto z = in.read(base + 10u);
+            auto ox = 1.0f - x;
+            auto oy = 1.0f - y;
+            auto oz = 1.0f - z;
+            auto w00 = oy * oz;
+            auto w10 = y * oz;
+            auto w01 = oy * z;
+            auto w11 = y * z;
+            auto lo = (v0 * w00 + v2 * w10) + (v4 * w01 + v6 * w11);
+            auto hi = (v1 * w00 + v3 * w10) + (v5 * w01 + v7 * w11);
+            acc = lo * ox + hi * x;
+        };
+        out.write(i, acc);
+    };
+    auto compiled = compile_simd_kernel(
+        kernel.function()->function(), 1u,
+        "simd_w1_scalarize_slp", false, /*capture_assembly=*/true);
+    if (!compiled.succeeded()) {
+        for (auto &&d : compiled.diagnostics) { std::cerr << d << '\n'; }
+        return false;
+    }
+    std::array<float, 12u> in_vals{
+        1.0f, 2.0f, 3.0f, 4.0f,
+        5.0f, 6.0f, 7.0f, 8.0f,
+        0.25f, 0.5f, 0.75f, 0.0f};
+    std::array<float, 1u> out_vals{0.0f};
+    alignas(16) std::array arguments{
+        SIMDHostBufferView{in_vals.data(), sizeof(in_vals)},
+        SIMDHostBufferView{out_vals.data(), sizeof(out_vals)}};
+    using Entry = void(const void *, void *,
+                       const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(1u, 32u);
+    entry(arguments.data(), nullptr, &config, 1u);
+    const float ox = 0.75f, oy = 0.5f, oz = 0.25f;
+    const float w00 = oy * oz, w10 = 0.5f * oz, w01 = oy * 0.75f, w11 = 0.5f * 0.75f;
+    const float expected =
+        ((1.0f * w00 + 3.0f * w10) + (5.0f * w01 + 7.0f * w11)) * ox +
+        ((2.0f * w00 + 4.0f * w10) + (6.0f * w01 + 8.0f * w11)) * 0.25f;
+    CHECK(std::fabs(out_vals[0u] - expected) < 1.0e-5f);
+    return true;
+}
+
+[[nodiscard]] bool run_pure_gpr_sched_helper_regression() {
+    // 14 divergent stages (> 32 Schedule IR blocks) with buffer writes to
+    // prevent if-conversion and force outlined scheduler helpers on W=8.
+    xir::Module xir_mod;
+    auto *kernel = xir_mod.create_kernel();
+    kernel->set_name("simd_pure_gpr_sched_w8");
+    kernel->set_block_size(luisa::make_uint3(32u, 1u, 1u));
+    auto *out_arg = kernel->create_resource_argument(
+        Type::buffer(Type::of<uint32_t>()));
+    auto *dispatch_id = xir_mod.create_dispatch_id();
+    auto *zero_u32 = xir_mod.create_constant_zero(Type::of<uint32_t>());
+    auto make_const = [&](uint32_t v) {
+        return xir_mod.create_constant(Type::of<uint32_t>(), &v);
+    };
+    auto *one_u32 = make_const(1u);
+
+    auto *cur_bb = kernel->create_body_block();
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(cur_bb);
+    auto *lane = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero_u32});
+    auto *acc_slot = builder.alloca_local(Type::of<uint32_t>());
+    builder.store(acc_slot, lane);
+    for (uint32_t s = 0u; s < 10u; ++s) {
+        auto *outer_then = kernel->create_basic_block();
+        auto *inner_then = kernel->create_basic_block();
+        auto *inner_else = kernel->create_basic_block();
+        auto *outer_else = kernel->create_basic_block();
+        auto *merge_bb = kernel->create_basic_block();
+        auto *sum = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {lane, make_const(s)});
+        auto *bit0 = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+            {sum, one_u32});
+        auto *cond0 = builder.call(
+            Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+            {bit0, zero_u32});
+        builder.cond_br(cond0, outer_then, outer_else);
+
+        builder.set_insertion_point(outer_then);
+        auto *bit1 = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_BIT_AND,
+            {sum, make_const(2u)});
+        auto *cond1 = builder.call(
+            Type::of<bool>(), xir::ArithmeticOp::BINARY_EQUAL,
+            {bit1, zero_u32});
+        builder.cond_br(cond1, inner_then, inner_else);
+
+        builder.set_insertion_point(inner_then);
+        auto *it_old = builder.load(Type::of<uint32_t>(), acc_slot);
+        auto *it_new = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {it_old, make_const(s + 1u)});
+        builder.store(acc_slot, it_new);
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {out_arg, lane, it_new});
+        builder.br(merge_bb);
+
+        builder.set_insertion_point(inner_else);
+        auto *ie_old = builder.load(Type::of<uint32_t>(), acc_slot);
+        auto *ie_new = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {ie_old, make_const(s + 10u)});
+        builder.store(acc_slot, ie_new);
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {out_arg, lane, ie_new});
+        builder.br(merge_bb);
+
+        builder.set_insertion_point(outer_else);
+        auto *e_old = builder.load(Type::of<uint32_t>(), acc_slot);
+        auto *e_new = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {e_old, make_const(s + 100u)});
+        builder.store(acc_slot, e_new);
+        builder.call(xir::ResourceWriteOp::BUFFER_WRITE, {out_arg, lane, e_new});
+        builder.br(merge_bb);
+
+        builder.set_insertion_point(merge_bb);
+    }
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = 8u});
+    CHECK(lowered.succeeded());
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>(
+        "pure-gpr-sched-helpers", *context);
+    auto codegen = lower_schedule_to_llvm(
+        *module, *lowered.function, 8u, "schedule_pure_gpr_w8");
+    CHECK(codegen.succeeded());
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    for (const char *helper_name : {
+             "__luisa_simd_sched_declare_w8",
+             "__luisa_simd_sched_resume_w8",
+             "__luisa_simd_sched_cascade_w8"}) {
+        auto *fn = module->getFunction(helper_name);
+        CHECK(fn != nullptr);
+        CHECK(fn->getCallingConv() == ::llvm::CallingConv::PreserveAll);
+        std::string fn_ir;
+        ::llvm::raw_string_ostream fn_stream{fn_ir};
+        fn->print(fn_stream);
+        fn_stream.flush();
+        CHECK(fn_ir.find("<8 x i1>") == std::string::npos);
+        CHECK(fn_ir.find("<8 x ") == std::string::npos);
+    }
+    auto compiled = compile_simd_kernel(
+        kernel, 8u, "simd_pure_gpr_sched_w8");
+    if (!compiled.succeeded()) {
+        for (auto &&d : compiled.diagnostics) { std::cerr << d << '\n'; }
+        return false;
+    }
+    std::array<uint32_t, 8u> out_vals{};
+    out_vals.fill(0u);
+    alignas(16) SIMDHostBufferView arg{out_vals.data(), sizeof(out_vals)};
+    using Entry = void(const void *, void *,
+                       const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(compiled.entry);
+    CHECK(entry != nullptr);
+    auto config = launch_1d(8u, 32u);
+    entry(&arg, nullptr, &config, 8u);
+    for (uint32_t i = 0u; i < 8u; ++i) {
+        uint32_t expected = i;
+        for (uint32_t s = 0u; s < 10u; ++s) {
+            if (((i + s) & 1u) == 0u) {
+                expected += (((i + s) & 2u) == 0u) ? (s + 1u) : (s + 10u);
+            } else {
+                expected += s + 100u;
+            }
+        }
+        CHECK(out_vals[i] == expected);
+    }
+    return true;
+}
+
 }// namespace
 
 int main() {
@@ -18259,6 +18673,14 @@ int main() {
          &run_ast_boolean_vector_reduction},
         {"AST assume and noinline legalization",
          &run_ast_assume_and_noinline_legalization},
+        {"AST $outline_with_name nested multi-block legalization",
+         &run_ast_outline_noinline_legalization},
+        {"SIMD fmod f32 IEEE-exact fast path and fallback",
+         &run_simd_fmod_f32_regression},
+        {"W1 scalarize + SLP vectorization pass",
+         &run_w1_scalarize_slp_regression},
+        {"pure-GPR PreserveAll scheduler helpers",
+         &run_pure_gpr_sched_helper_regression},
     };
     auto failures = 0u;
     for (auto test : tests) {
