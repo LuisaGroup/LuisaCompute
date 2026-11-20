@@ -1207,7 +1207,8 @@ SIMDHostTextureView SIMDTexture::host_view(uint level) noexcept {
             _enable_contiguous_packets &&
                     _enable_direct_native_packets ?
                 (_enable_direct_byte4_packets ?
-                     simd_host_texture_capability_byte4_float_write :
+                     (simd_host_texture_capability_byte4_float_write |
+                      simd_host_texture_capability_byte4_float_read) :
                      0u) |
                     (_enable_gathered_native_reads ?
                          simd_host_texture_capability_gathered_native_read :

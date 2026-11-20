@@ -354,6 +354,7 @@ private:
         _cohort_uniform_header_conditions{};
     WarpUniformityAnalysis _uniformity{};
     const xir::DomTree *_dom_tree{nullptr};
+    bool _function_has_buffer_mutation{true};
     uint32_t _next_collective_id{0u};
     uint32_t _next_external_value_id{0u};
     luisa::optional<ValueId> _active_mask{};
@@ -551,6 +552,36 @@ private:
                     std::move(message), block, instruction);
             }
         }
+
+        _function_has_buffer_mutation = !_source->isa<xir::KernelFunction>();
+        if (!_function_has_buffer_mutation) {
+            for (auto *block : _blocks) {
+                for (auto *inst : block->instructions()) {
+                    using Tag = xir::DerivedInstructionTag;
+                    switch (inst->derived_instruction_tag()) {
+                        case Tag::RESOURCE_WRITE: {
+                            auto op = static_cast<const xir::ResourceWriteInst *>(inst)->op();
+                            if (op != xir::ResourceWriteOp::TEXTURE2D_WRITE &&
+                                op != xir::ResourceWriteOp::TEXTURE3D_WRITE) {
+                                _function_has_buffer_mutation = true;
+                            }
+                            break;
+                        }
+                        case Tag::ATOMIC:
+                        case Tag::CALL:
+                        case Tag::RAY_QUERY_LOOP:
+                        case Tag::RAY_QUERY_DISPATCH:
+                        case Tag::RAY_QUERY_PIPELINE:
+                        case Tag::OUTLINE:
+                            _function_has_buffer_mutation = true;
+                            break;
+                        default: break;
+                    }
+                    if (_function_has_buffer_mutation) { break; }
+                }
+                if (_function_has_buffer_mutation) { break; }
+            }
+        }
     }
 
     void _validate_barrier_phases(
@@ -723,19 +754,26 @@ private:
                 recurrence.value == nullptr || !recurrence.value->isa<xir::ArithmeticInst>()) {
                 continue;
             }
-            auto *add = static_cast<const xir::ArithmeticInst *>(recurrence.value);
-            auto *update_block = const_cast<xir::BasicBlock *>(add->parent_block());
-            if (add->op() != xir::ArithmeticOp::BINARY_ADD || add->operand_count() != 2u || add->type() != type ||
+            auto *step_inst = static_cast<const xir::ArithmeticInst *>(recurrence.value);
+            auto *update_block = const_cast<xir::BasicBlock *>(step_inst->parent_block());
+            auto is_add = step_inst->op() == xir::ArithmeticOp::BINARY_ADD;
+            auto is_sub = step_inst->op() == xir::ArithmeticOp::BINARY_SUB;
+            if ((!is_add && !is_sub) || step_inst->operand_count() != 2u || step_inst->type() != type ||
                 !loop.contains(update_block) || !_dom_tree->dominates(update_block, latch)) {
                 continue;
             }
-            auto *stride = add->operand(0u) == phi ? add->operand(1u) :
-                           add->operand(1u) == phi ? add->operand(0u) :
-                                                     nullptr;
+            const xir::Value *stride = nullptr;
+            if (is_add) {
+                stride = step_inst->operand(0u) == phi ? step_inst->operand(1u) :
+                         step_inst->operand(1u) == phi ? step_inst->operand(0u) :
+                                                         nullptr;
+            } else if (step_inst->operand(0u) == phi) {
+                stride = step_inst->operand(1u);
+            }
             if (stride == nullptr || stride->type() != type || !stride->isa<xir::Constant>()) { continue; }
             // Equality needs a fixed nonzero bit-pattern step, not a positive
             // mathematical stride or a no-wrap trip-count formula. Signed
-            // negative constants are equally valid for this local proof.
+            // negative constants and constant subtraction are equally valid.
             auto stride_bits = uint64_t{0u};
             std::memcpy(&stride_bits, static_cast<const xir::Constant *>(stride)->data(), type->size());
             if (stride_bits == 0u) { continue; }
@@ -1299,6 +1337,81 @@ private:
         return bits == 64u || (bits < 64u && maximum <= (uint64_t{1u} << bits) - 1u);
     }
 
+    [[nodiscard]] bool _is_cohort_uniform_at_use(
+        const xir::Value *value,
+        const xir::BasicBlock *use_block,
+        std::unordered_set<const xir::Value *> &visiting) const noexcept {
+        if (value == nullptr || use_block == nullptr) { return false; }
+        if (_uniformity.is_uniform(value) ||
+            _is_cohort_uniform_induction_use(value, use_block)) {
+            return true;
+        }
+        if (!value->isa<xir::Instruction>() ||
+            !visiting.emplace(value).second) {
+            return false;
+        }
+        auto leave = [&]() noexcept { visiting.erase(value); };
+        auto *instruction = static_cast<const xir::Instruction *>(value);
+        auto result = false;
+        if (instruction->isa<xir::CastInst>()) {
+            result = instruction->operand_count() == 1u &&
+                     _is_cohort_uniform_at_use(
+                         instruction->operand(0u), use_block, visiting);
+        } else if (instruction->isa<xir::ArithmeticInst>()) {
+            auto *arith = static_cast<const xir::ArithmeticInst *>(instruction);
+            if (arith->op() == xir::ArithmeticOp::EXTRACT &&
+                arith->operand_count() == 2u &&
+                _packet_stays_in_x_row()) {
+                uint64_t component = 0u;
+                auto *aggregate = arith->operand(0u);
+                if (xir::try_decode_constant_nonnegative_integer(
+                        arith->operand(1u), component) &&
+                    (component == 1u || component == 2u) &&
+                    aggregate != nullptr &&
+                    aggregate->isa<xir::SpecialRegister>()) {
+                    auto tag = static_cast<const xir::SpecialRegister *>(aggregate)
+                                   ->derived_special_register_tag();
+                    if (tag == xir::DerivedSpecialRegisterTag::DISPATCH_ID ||
+                        tag == xir::DerivedSpecialRegisterTag::THREAD_ID) {
+                        leave();
+                        return true;
+                    }
+                }
+            }
+            if (arith->operand_count() > 0u) {
+                result = true;
+                for (auto i = size_t{0u}; i < arith->operand_count(); i++) {
+                    if (!_is_cohort_uniform_at_use(
+                            arith->operand(i), use_block, visiting)) {
+                        result = false;
+                        break;
+                    }
+                }
+            }
+        } else if (!_function_has_buffer_mutation &&
+                   instruction->isa<xir::ResourceReadInst>()) {
+            auto *read = static_cast<const xir::ResourceReadInst *>(instruction);
+            auto op = read->op();
+            if ((op == xir::ResourceReadOp::BUFFER_READ ||
+                 op == xir::ResourceReadOp::BYTE_BUFFER_READ) &&
+                read->operand_count() == 2u) {
+                result = _is_cohort_uniform_at_use(
+                             read->operand(0u), use_block, visiting) &&
+                         _is_cohort_uniform_at_use(
+                             read->operand(1u), use_block, visiting);
+            }
+        }
+        leave();
+        return result;
+    }
+
+    [[nodiscard]] bool _is_cohort_uniform_at_use(
+        const xir::Value *value,
+        const xir::BasicBlock *use_block) const noexcept {
+        std::unordered_set<const xir::Value *> visiting;
+        return _is_cohort_uniform_at_use(value, use_block, visiting);
+    }
+
     [[nodiscard]] LaneIndexStep _lane_index_step(
         const xir::Value *value,
         const xir::BasicBlock *use_block,
@@ -1309,8 +1422,7 @@ private:
              !value->type()->is_uint())) {
             return LaneIndexStep::unknown;
         }
-        if (_uniformity.is_uniform(value) ||
-            _is_cohort_uniform_induction_use(value, use_block)) {
+        if (_is_cohort_uniform_at_use(value, use_block)) {
             return LaneIndexStep::equal;
         }
         if (value->isa<xir::SpecialRegister>()) {
@@ -1614,17 +1726,21 @@ private:
                 instruction.opcode == Opcode::resource_read &&
                 instruction.source_op == static_cast<uint32_t>(
                                              xir::ResourceReadOp::BUFFER_READ);
+            auto direct_byte_read =
+                instruction.opcode == Opcode::resource_read &&
+                instruction.source_op == static_cast<uint32_t>(
+                                             xir::ResourceReadOp::BYTE_BUFFER_READ);
             auto direct_write =
                 instruction.opcode == Opcode::resource_write &&
                 instruction.source_op == static_cast<uint32_t>(
                                              xir::ResourceWriteOp::BUFFER_WRITE);
-            if (direct_read || direct_write) {
+            if (direct_read || direct_byte_read || direct_write) {
                 auto step = _lane_index_step(
                     source_instruction->operand(1u),
                     source_instruction->parent_block());
-                if (direct_read && step == LaneIndexStep::equal) {
+                if ((direct_read || direct_byte_read) && step == LaneIndexStep::equal) {
                     instruction.cohort_uniform_operand_index = 1u;
-                } else if (step == LaneIndexStep::consecutive) {
+                } else if ((direct_read || direct_write) && step == LaneIndexStep::consecutive) {
                     instruction.lane_consecutive_operand_index = 1u;
                 }
             } else if (instruction.opcode == Opcode::warp_collective &&
@@ -1699,11 +1815,16 @@ private:
                 auto condition = _map_value(
                     branch->condition(), source_block, terminator);
                 auto cohort_uniform_condition =
+                    condition &&
+                    _function->value(*condition)->value_class == ValueClass::varying &&
                     branch->condition() != nullptr &&
-                    branch->condition()->isa<xir::Instruction>() &&
-                    _cohort_uniform_header_conditions.contains(
-                        static_cast<const xir::Instruction *>(
-                            branch->condition()));
+                    ((branch->condition()->isa<xir::Instruction>() &&
+                      _cohort_uniform_header_conditions.contains(
+                          static_cast<const xir::Instruction *>(
+                              branch->condition()))) ||
+                     (_options.enable_counted_loop_uniformity &&
+                      _is_cohort_uniform_at_use(
+                          branch->condition(), source_block)));
                 target_block.strategy =
                     condition && is_uniform(
                                      _function->value(*condition)

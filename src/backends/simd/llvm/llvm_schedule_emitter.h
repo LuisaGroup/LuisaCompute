@@ -415,7 +415,8 @@ private:
     [[nodiscard]] ::llvm::Value *_byte_pointer(
         ::llvm::Value *base, size_t offset);
     [[nodiscard]] ::llvm::Value *_load_uniform_data(
-        ::llvm::Value *base, const Type *type, size_t offset = 0u);
+        ::llvm::Value *base, const Type *type, size_t offset = 0u,
+        bool unaligned = false);
     [[nodiscard]] ::llvm::Value *_load_buffer_view(
         ::llvm::Value *base);
     [[nodiscard]] ::llvm::Value *_load_texture_view(
@@ -530,6 +531,7 @@ private:
         ::llvm::Value *guard{nullptr};
         ::llvm::Value *access_guard{nullptr};
         ::llvm::Value *byte4_guard{nullptr};
+        ::llvm::Value *byte4_access_guard{nullptr};
         ::llvm::Value *int1_guard{nullptr};
         ::llvm::Value *half4_guard{nullptr};
         ::llvm::Value *data{nullptr};
@@ -543,7 +545,8 @@ private:
     _native_texture_packet_info(
         ::llvm::Value *texture,
         const std::array<::llvm::Value *, 3u> &coordinates,
-        bool floating, bool allow_byte4_write);
+        bool floating, bool allow_byte4_write,
+        bool allow_byte4_read = false);
     [[nodiscard]] ::llvm::Value *_texture_read(
         const schedule::Instruction &instruction);
     [[nodiscard]] ::llvm::Value *_direct_texture_sample(

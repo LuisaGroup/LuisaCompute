@@ -749,25 +749,31 @@ void ScheduleEmitter::_store_contiguous_vector_data(
                                  static_cast<uint64_t>(buffer_value->type->element()->size());
     auto *base = _builder.CreateExtractValue(buffer, {0u});
 
-    // A non-volatile typed-buffer read through a warp/cohort-uniform index
-    // observes one address for every executing lane. A canonical induction
-    // can also carry a use-site proof: its state remains varying because loop
-    // exits may merge different epochs, but every lane in this instruction's
-    // in-loop continuation has the same index. Load that address once and
-    // broadcast its Luisa value instead of materializing W identical pointers
-    // and a masked gather. The Schedule block never executes with an empty
-    // active mask, so this does not make a previously inactive access
-    // observable. Volatile and byte-address reads retain their original
-    // per-lane memory operations.
+    // A non-volatile typed or byte-address buffer read through a warp/cohort-
+    // uniform index observes one address for every executing lane. A canonical
+    // induction (or read-only chain derived from it) can also carry a use-site
+    // proof: its state remains varying because loop exits may merge different
+    // epochs, but every lane in this instruction's in-loop continuation has the
+    // same index. Load that address once and broadcast its Luisa value instead
+    // of materializing W identical pointers and a masked gather. The Schedule
+    // block never executes with an empty active mask, so this does not make a
+    // previously inactive access observable. Byte-address uniform loads use
+    // align-1 to avoid assuming element alignment on dynamic byte offsets.
+    // Volatile reads retain their original per-lane memory operations.
     // W2 needs a dynamic first-active-lane extraction but avoids only one
     // additional address/load lane. Repeated n-body A/B measurements show
     // that trade is neutral-to-negative, whereas W4/W8/W16 consistently win.
     // W1 uses the statically known lane zero and retains the scalar form.
+    auto non_volatile_read =
+        op == xir::ResourceReadOp::BUFFER_READ ||
+        op == xir::ResourceReadOp::BYTE_BUFFER_READ;
+    auto uniform_result =
+        schedule::is_uniform(result_value->value_class);
     auto cohort_uniform_at_use =
         instruction.cohort_uniform_operand_index == 1u &&
-        _width != 2u;
-    if (_enable_uniform_buffer_broadcast &&
-        op == xir::ResourceReadOp::BUFFER_READ &&
+        (_width != 2u || uniform_result);
+    if ((_enable_uniform_buffer_broadcast || uniform_result) &&
+        non_volatile_read &&
         (schedule::is_uniform(index_value->value_class) ||
          cohort_uniform_at_use)) {
         if (index->getType()->isVectorTy()) {
@@ -789,10 +795,12 @@ void ScheduleEmitter::_store_contiguous_vector_data(
         auto *address = _builder.CreateGEP(
             _builder.getInt8Ty(), base, offset);
         auto *uniform = _load_uniform_data(
-            address, result_value->type);
+            address, result_value->type, 0u, byte_address);
         if (uniform == nullptr) { return nullptr; }
-        _result.uniform_buffer_broadcast_count++;
-        return schedule::is_uniform(result_value->value_class) ?
+        if (_enable_uniform_buffer_broadcast) {
+            _result.uniform_buffer_broadcast_count++;
+        }
+        return uniform_result ?
                    uniform :
                    _splat_data(uniform, result_value->type);
     }

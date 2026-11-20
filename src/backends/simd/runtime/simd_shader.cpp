@@ -622,6 +622,7 @@ SIMDShader::SIMDShader(
             "interleaved_scalar_buffer_read_alias_guards={}, "
             "guarded_native_texture_reads={}, "
             "guarded_gathered_native_texture_reads={}, "
+            "guarded_byte4_texture_reads={}, "
             "guarded_int1_texture_reads={}, "
             "guarded_half4_texture_reads={}, "
             "guarded_native_texture_writes={}, "
@@ -724,6 +725,7 @@ SIMDShader::SIMDShader(
             _compiled.interleaved_scalar_buffer_read_alias_guard_count,
             _compiled.guarded_native_texture_read_count,
             _compiled.guarded_gathered_native_texture_read_count,
+            _compiled.guarded_byte4_texture_read_count,
             _compiled.guarded_int1_texture_read_count,
             _compiled.guarded_half4_texture_read_count,
             _compiled.guarded_native_texture_write_count,

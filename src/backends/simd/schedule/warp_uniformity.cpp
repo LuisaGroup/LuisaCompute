@@ -290,6 +290,37 @@ void WarpUniformityAnalysis::_analyze(
         dependents;
     dependents.reserve(instructions.size());
 
+    // In a kernel with no buffer mutations, atomics, or opaque calls, buffers
+    // cannot be modified during kernel execution (textures cannot alias buffers
+    // in LuisaCompute), so non-volatile buffer reads with uniform addresses
+    // produce uniform values.
+    auto function_has_buffer_mutation = !function->isa<xir::KernelFunction>();
+    if (!function_has_buffer_mutation) {
+        for (auto *inst : instructions) {
+            using Tag = xir::DerivedInstructionTag;
+            switch (inst->derived_instruction_tag()) {
+                case Tag::RESOURCE_WRITE: {
+                    auto op = static_cast<const xir::ResourceWriteInst *>(inst)->op();
+                    if (op != xir::ResourceWriteOp::TEXTURE2D_WRITE &&
+                        op != xir::ResourceWriteOp::TEXTURE3D_WRITE) {
+                        function_has_buffer_mutation = true;
+                    }
+                    break;
+                }
+                case Tag::ATOMIC:
+                case Tag::CALL:
+                case Tag::RAY_QUERY_LOOP:
+                case Tag::RAY_QUERY_DISPATCH:
+                case Tag::RAY_QUERY_PIPELINE:
+                case Tag::OUTLINE:
+                    function_has_buffer_mutation = true;
+                    break;
+                default: break;
+            }
+            if (function_has_buffer_mutation) { break; }
+        }
+    }
+
     for (auto instruction_index = size_t{0u};
          instruction_index < instructions.size(); instruction_index++) {
         auto *instruction = instructions[instruction_index];
@@ -418,11 +449,22 @@ void WarpUniformityAnalysis::_analyze(
                 break;
             }
 
+            case Tag::RESOURCE_READ: {
+                auto op = static_cast<const xir::ResourceReadInst *>(instruction)->op();
+                if (!function_has_buffer_mutation &&
+                    (op == xir::ResourceReadOp::BUFFER_READ ||
+                     op == xir::ResourceReadOp::BYTE_BUFFER_READ)) {
+                    add_all_operands();
+                } else {
+                    set_immediate(State::varying);
+                }
+                break;
+            }
+
             // Lane-local values and mutable observations are varying.
             case Tag::ALLOCA:
             case Tag::LOAD:
             case Tag::ATOMIC:
-            case Tag::RESOURCE_READ:
             case Tag::RAY_QUERY_LOOP:
             case Tag::RAY_QUERY_DISPATCH:
             case Tag::RAY_QUERY_OBJECT_READ:

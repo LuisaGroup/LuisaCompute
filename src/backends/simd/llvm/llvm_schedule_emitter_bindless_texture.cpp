@@ -1479,10 +1479,12 @@ void emit_byte1_linear_mirror_sample(
     };
 
     auto *slot_value = _source.value(instruction.operands[1u]);
+    auto slot_is_uniform =
+        _width == 1u ||
+        (slot_value != nullptr && schedule::is_uniform(slot_value->value_class));
     auto direct_mip0_candidate =
         dimension == 2u && !has_level && !has_gradient &&
         !explicit_sampler && varying_result && slot_value != nullptr &&
-        (_width == 1u || schedule::is_uniform(slot_value->value_class)) &&
         !luisa::compute::detail::env_flag(
             "LUISA_SIMD_DISABLE_IR_BYTE1_TEXTURE_SAMPLING");
     if (direct_mip0_candidate) {
@@ -1515,6 +1517,18 @@ void emit_byte1_linear_mirror_sample(
         auto *first_active_lane = _safe_first_lane(_active_mask);
         auto *scalar_slot = _builder.CreateExtractElement(
             array.slot_indices, first_active_lane);
+        ::llvm::Value *all_slots_equal = _builder.getTrue();
+        if (!slot_is_uniform) {
+            auto *splat_slot = _builder.CreateVectorSplat(_width, scalar_slot);
+            auto *same_slot = _builder.CreateICmpEQ(
+                array.slot_indices, splat_slot);
+            auto *all_true_lanes = ::llvm::ConstantVector::getSplat(
+                ::llvm::ElementCount::getFixed(_width), _builder.getTrue());
+            auto *active_same = _builder.CreateSelect(
+                _active_mask, same_slot, all_true_lanes,
+                "bindless.texture.mip0.slots.active.same");
+            all_slots_equal = _builder.CreateAndReduce(active_same);
+        }
         auto *slot_base = _builder.CreateGEP(
             _builder.getInt8Ty(), array.slots,
             _builder.CreateMul(
@@ -1561,10 +1575,12 @@ void emit_byte1_linear_mirror_sample(
                 _builder.getInt64(simd_bindless_texture_mip0_format_shift)),
             _builder.getInt32Ty());
         auto *has_valid_mip0 = _builder.CreateAnd(
-            _builder.CreateICmpNE(data, null_pointer),
+            all_slots_equal,
             _builder.CreateAnd(
-                _builder.CreateICmpNE(width, _builder.getInt32(0u)),
-                _builder.CreateICmpNE(height, _builder.getInt32(0u))));
+                _builder.CreateICmpNE(data, null_pointer),
+                _builder.CreateAnd(
+                    _builder.CreateICmpNE(width, _builder.getInt32(0u)),
+                    _builder.CreateICmpNE(height, _builder.getInt32(0u)))));
         auto *address_mode = _builder.CreateAnd(
             sampler_code, _builder.getInt32(0x03u));
         auto *linear_non_zero = _builder.CreateAnd(

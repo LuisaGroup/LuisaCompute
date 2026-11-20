@@ -6818,6 +6818,122 @@ make_uniform_buffer_broadcast_schedule(
     return true;
 }
 
+[[nodiscard]] bool run_byte_buffer_uniform_broadcast_codegen() {
+    static constexpr auto width = 8u;
+    static constexpr auto count = 11u;
+    auto make_schedule = [&](bool volatile_read) -> luisa::optional<schedule::Function> {
+        xir::Module module;
+        auto *kernel = module.create_kernel();
+        kernel->set_name(volatile_read ?
+                             "volatile_uniform_byte_buffer_read" :
+                             "uniform_byte_buffer_broadcast");
+        auto *byte_buf_type = Type::buffer(Type::of<void>());
+        auto *out_buf_type = Type::buffer(Type::of<uint32_t>());
+        auto *input = kernel->create_resource_argument(byte_buf_type);
+        auto *output = kernel->create_resource_argument(out_buf_type);
+        auto *byte_offset = kernel->create_value_argument(Type::of<uint32_t>());
+        auto *entry = kernel->create_body_block();
+        auto *dispatch_id = module.create_dispatch_id();
+        auto *lane = module.create_warp_lane_id();
+        auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+        xir::XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *output_index = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+            {dispatch_id, zero});
+        auto read_op = volatile_read ?
+                           xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ :
+                           xir::ResourceReadOp::BYTE_BUFFER_READ;
+        auto *arg_read = builder.call(
+            Type::of<uint32_t>(), read_op, {input, byte_offset});
+        auto *cohort_offset = builder.call(
+            Type::of<uint32_t>(),
+            xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE,
+            {lane});
+        auto *cohort_read = builder.call(
+            Type::of<uint32_t>(), read_op, {input, cohort_offset});
+        auto *sum = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {arg_read, cohort_read});
+        auto *result = builder.call(
+            Type::of<uint32_t>(), xir::ArithmeticOp::BINARY_ADD,
+            {sum, output_index});
+        builder.call(
+            xir::ResourceWriteOp::BUFFER_WRITE,
+            {output, output_index, result});
+        builder.return_void();
+        auto lowered = schedule::lower_xir_to_schedule(
+            kernel, {.logical_warp_width = width});
+        if (!lowered.succeeded()) {
+            std::cerr << diagnostics_text(lowered);
+            return luisa::nullopt;
+        }
+        return std::move(*lowered.function);
+    };
+
+    auto schedule_fn = make_schedule(false);
+    CHECK(schedule_fn.has_value());
+    auto ctx = luisa::make_unique<::llvm::LLVMContext>();
+    auto mod = luisa::make_unique<::llvm::Module>("simd-byte-buf-broadcast", *ctx);
+    auto codegen = lower_schedule_to_llvm(
+        *mod, *schedule_fn, width, "simd_byte_buf_broadcast", false, {}, true);
+    CHECK(codegen.succeeded());
+    CHECK(codegen.uniform_buffer_broadcast_count == 2u);
+    CHECK(!::llvm::verifyModule(*mod, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream ir_stream{ir};
+    mod->print(ir_stream, nullptr);
+    ir_stream.flush();
+    CHECK(ir.find("llvm.masked.gather") == std::string::npos);
+
+    auto vol_schedule = make_schedule(true);
+    CHECK(vol_schedule.has_value());
+    auto vol_ctx = luisa::make_unique<::llvm::LLVMContext>();
+    auto vol_mod = luisa::make_unique<::llvm::Module>("simd-byte-buf-volatile", *vol_ctx);
+    auto vol_codegen = lower_schedule_to_llvm(
+        *vol_mod, *vol_schedule, width, "simd_byte_buf_volatile", false, {}, true);
+    CHECK(vol_codegen.succeeded());
+    CHECK(vol_codegen.uniform_buffer_broadcast_count == 0u);
+
+    // Execute with an intentionally unaligned byte offset (offset = 1) to verify align-1 safety.
+    struct alignas(16) Args {
+        SIMDHostBufferView input{};
+        SIMDHostBufferView output{};
+        uint32_t byte_offset{0u};
+        std::array<std::byte, 12u> padding{};
+    };
+    std::array<uint8_t, 32u> raw_bytes{};
+    for (auto i = size_t{0u}; i < raw_bytes.size(); i++) {
+        raw_bytes[i] = static_cast<uint8_t>(i + 1u);
+    }
+    uint32_t expected_at_1 = 0u;
+    uint32_t expected_at_0 = 0u;
+    std::memcpy(&expected_at_1, raw_bytes.data() + 1u, sizeof(uint32_t));
+    std::memcpy(&expected_at_0, raw_bytes.data() + 0u, sizeof(uint32_t));
+    std::array<uint32_t, count> output{};
+    output.fill(0xdeadbeefu);
+    Args args{
+        .input = {raw_bytes.data(), sizeof(raw_bytes)},
+        .output = {output.data(), sizeof(output)},
+        .byte_offset = 1u,
+    };
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(mod), std::move(ctx)));
+    using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(jit.lookup("simd_byte_buf_broadcast"));
+    CHECK(entry != nullptr);
+    auto config = launch_1d(count, 16u);
+    for (auto first = uint32_t{0u}; first < 16u; first += width) {
+        config.thread_index = first;
+        entry(&args, nullptr, &config, width);
+    }
+    for (auto i = size_t{0u}; i < count; i++) {
+        CHECK(output[i] == expected_at_1 + expected_at_0 + static_cast<uint32_t>(i));
+    }
+    return true;
+}
+
 struct TexturePacketProbe {
     bool valid{true};
     uint32_t read_calls{0u};
@@ -7690,6 +7806,115 @@ void texture_packet_sample_probe(
                     static_cast<uint32_t>(PixelStorage::BYTE4_SRGB);
             }));
     }
+    return true;
+}
+
+[[nodiscard]] bool run_byte4_texture_read_packet_codegen() {
+    static constexpr auto width = 8u;
+    xir::Module module;
+    auto *kernel = module.create_kernel();
+    kernel->set_name("byte4_texture_read_packet");
+    auto *texture = kernel->create_resource_argument(
+        Type::texture(Type::of<float>(), 2u));
+    auto *output = kernel->create_resource_argument(
+        Type::buffer(Type::of<float4>()));
+    auto *entry_block = kernel->create_body_block();
+    auto *dispatch_id = module.create_dispatch_id();
+    auto *zero = module.create_constant_zero(Type::of<uint32_t>());
+    xir::XIRBuilder builder;
+    builder.set_insertion_point(entry_block);
+    auto *x = builder.call(
+        Type::of<uint32_t>(), xir::ArithmeticOp::EXTRACT,
+        {dispatch_id, zero});
+    auto *coord = builder.call(
+        Type::of<uint2>(), xir::ArithmeticOp::AGGREGATE,
+        {x, zero});
+    auto *px = builder.call(
+        Type::of<float4>(), xir::ResourceReadOp::TEXTURE2D_READ,
+        {texture, coord});
+    builder.call(
+        xir::ResourceWriteOp::BUFFER_WRITE,
+        {output, x, px});
+    builder.return_void();
+
+    auto lowered = schedule::lower_xir_to_schedule(
+        kernel, {.logical_warp_width = width});
+    CHECK(lowered.succeeded());
+    auto ctx = luisa::make_unique<::llvm::LLVMContext>();
+    auto mod = luisa::make_unique<::llvm::Module>("simd-byte4-tex-read", *ctx);
+    auto codegen = lower_schedule_to_llvm(
+        *mod, *lowered.function, width, "simd_byte4_tex_read_w8",
+        false, {}, true, true, false, 1u, true,
+        false, false, false, {}, 0u, false, false, true);
+    CHECK(codegen.succeeded());
+    CHECK(codegen.guarded_byte4_texture_read_count == 1u);
+    CHECK(!::llvm::verifyModule(*mod, &::llvm::errs()));
+    std::string ir;
+    ::llvm::raw_string_ostream ir_stream{ir};
+    mod->print(ir_stream, nullptr);
+    ir_stream.flush();
+    CHECK(ir.find("texture.read.byte4.aos") != std::string::npos);
+
+    LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(mod), std::move(ctx)));
+    using Entry = void(const void *, void *, const SIMDPacketLaunchConfig *, uint32_t);
+    auto entry = reinterpret_cast<Entry *>(jit.lookup("simd_byte4_tex_read_w8"));
+    CHECK(entry != nullptr);
+
+    std::array<std::array<uint8_t, 4u>, width> texels{};
+    for (auto i = 0u; i < width; i++) {
+        texels[i] = {
+            static_cast<uint8_t>(i * 31u),
+            static_cast<uint8_t>(255u - i * 17u),
+            static_cast<uint8_t>(i * 13u + 7u),
+            static_cast<uint8_t>(255u)};
+    }
+    struct alignas(16) Args {
+        SIMDHostTextureView texture{};
+        SIMDHostBufferView output{};
+    };
+    NativeTexturePacketProbe probe{};
+    std::array<float4, width> out{};
+    Args args{
+        .texture = SIMDHostTextureView{
+            .texture = &probe,
+            .read_float = native_texture_packet_read_probe,
+            .level = 0u,
+            .dimension = 2u,
+            .native_data = texels.data(),
+            .native_width = width,
+            .native_height = 1u,
+            .native_depth = 1u,
+            .native_storage = static_cast<uint32_t>(PixelStorage::BYTE4),
+            .native_capabilities = simd_host_texture_capability_byte4_float_read,
+        },
+        .output = {out.data(), sizeof(out)},
+    };
+    // 1. Full contiguous packet hits byte4_block with 0 callback calls.
+    auto config = launch_1d(width, width);
+    entry(&args, nullptr, &config, width);
+    CHECK(probe.read_calls == 0u);
+    for (auto i = 0u; i < width; i++) {
+        CHECK(std::fabs(out[i].x - static_cast<float>(texels[i][0]) * (1.0f / 255.0f)) < 1e-6f);
+        CHECK(std::fabs(out[i].y - static_cast<float>(texels[i][1]) * (1.0f / 255.0f)) < 1e-6f);
+        CHECK(std::fabs(out[i].z - static_cast<float>(texels[i][2]) * (1.0f / 255.0f)) < 1e-6f);
+        CHECK(std::fabs(out[i].w - static_cast<float>(texels[i][3]) * (1.0f / 255.0f)) < 1e-6f);
+    }
+    // 2. Partial active mask (5 of 8 lanes) hits byte4_gather_block with 0 callback calls.
+    out.fill(make_float4(-1.0f));
+    config = launch_1d(5u, width);
+    entry(&args, nullptr, &config, 5u);
+    CHECK(probe.read_calls == 0u);
+    for (auto i = 0u; i < 5u; i++) {
+        CHECK(std::fabs(out[i].x - static_cast<float>(texels[i][0]) * (1.0f / 255.0f)) < 1e-6f);
+        CHECK(std::fabs(out[i].y - static_cast<float>(texels[i][1]) * (1.0f / 255.0f)) < 1e-6f);
+    }
+    // 3. Clearing capability falls back cleanly to callback.
+    args.texture.native_capabilities = 0u;
+    config = launch_1d(width, width);
+    entry(&args, nullptr, &config, width);
+    CHECK(probe.read_calls == 1u);
     return true;
 }
 
@@ -18575,11 +18800,15 @@ int main() {
          &run_flat_packet_buffer_codegen},
         {"uniform buffer read broadcast",
          &run_uniform_buffer_broadcast_codegen},
+        {"uniform byte buffer read broadcast",
+         &run_byte_buffer_uniform_broadcast_codegen},
         {"XIR texture packet callback", &run_texture_packet_codegen},
         {"XIR native texture packet",
          &run_native_texture_packet_codegen},
         {"XIR BYTE4 texture packet",
          &run_byte4_texture_packet_codegen},
+        {"XIR BYTE4 texture read packet",
+         &run_byte4_texture_read_packet_codegen},
         {"XIR HALF4 texture packet",
          &run_half4_texture_packet_codegen},
         {"XIR INT1 texture packet",

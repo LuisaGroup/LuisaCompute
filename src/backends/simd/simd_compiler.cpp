@@ -2835,6 +2835,8 @@ SIMDCompiledKernel compile_simd_kernel(
         llvm_result.guarded_native_texture_read_count;
     result.guarded_gathered_native_texture_read_count =
         llvm_result.guarded_gathered_native_texture_read_count;
+    result.guarded_byte4_texture_read_count =
+        llvm_result.guarded_byte4_texture_read_count;
     result.guarded_int1_texture_read_count =
         llvm_result.guarded_int1_texture_read_count;
     result.guarded_half4_texture_read_count =

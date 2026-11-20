@@ -4,6 +4,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/special_register.h>
@@ -210,6 +211,54 @@ void register_basic_uniformity_tests() {
         expect(analysis.is_cohort_uniform(iteration));
         expect(analysis.is_cohort_uniform(next));
         expect(!analysis.is_warp_uniform(iteration));
+    };
+
+    "simd_warp_uniformity_propagates_readonly_kernel_buffer_reads"_test = [] {
+        // Kernel writing only to a texture (no buffer writes/atomics) can
+        // propagate uniformity through non-volatile BUFFER_READ/BYTE_BUFFER_READ.
+        {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *buf = kernel->create_resource_argument(Type::buffer(Type::of<uint>()));
+            auto *bbuf = kernel->create_resource_argument(Type::buffer(Type::of<void>()));
+            auto *tex = kernel->create_resource_argument(Type::texture(Type::of<float>(), 2u));
+            auto *idx = kernel->create_value_argument(Type::of<uint>());
+            auto *body = kernel->create_body_block();
+            auto *zero = module.create_constant_zero(Type::of<uint>());
+            auto *zero_f4 = module.create_constant_zero(Type::of<float4>());
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *typed_val = builder.call(Type::of<uint>(), ResourceReadOp::BUFFER_READ, {buf, idx});
+            auto *byte_val = builder.call(Type::of<uint>(), ResourceReadOp::BYTE_BUFFER_READ, {bbuf, idx});
+            auto *vol_val = builder.call(Type::of<uint>(), ResourceReadOp::BYTE_BUFFER_VOLATILE_READ, {bbuf, idx});
+            auto *coord = builder.call(Type::of<uint2>(), ArithmeticOp::AGGREGATE, {zero, zero});
+            builder.call(ResourceWriteOp::TEXTURE2D_WRITE, {tex, coord, zero_f4});
+            builder.return_void();
+
+            WarpUniformityAnalysis analysis;
+            analysis.analyze(kernel);
+            expect(analysis.is_warp_uniform(typed_val));
+            expect(analysis.is_warp_uniform(byte_val));
+            expect(!analysis.is_uniform(vol_val));
+        }
+        // Kernel containing a buffer write must keep buffer reads conservative.
+        {
+            Module module;
+            auto *kernel = module.create_kernel();
+            auto *buf = kernel->create_resource_argument(Type::buffer(Type::of<uint>()));
+            auto *bbuf = kernel->create_resource_argument(Type::buffer(Type::of<void>()));
+            auto *idx = kernel->create_value_argument(Type::of<uint>());
+            auto *body = kernel->create_body_block();
+            XIRBuilder builder;
+            builder.set_insertion_point(body);
+            auto *byte_val = builder.call(Type::of<uint>(), ResourceReadOp::BYTE_BUFFER_READ, {bbuf, idx});
+            builder.call(ResourceWriteOp::BUFFER_WRITE, {buf, idx, byte_val});
+            builder.return_void();
+
+            WarpUniformityAnalysis analysis;
+            analysis.analyze(kernel);
+            expect(!analysis.is_uniform(byte_val));
+        }
     };
 }
 

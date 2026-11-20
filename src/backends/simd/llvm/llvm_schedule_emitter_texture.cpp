@@ -12,7 +12,7 @@ namespace luisa::compute::simd::detail {
 ScheduleEmitter::_native_texture_packet_info(
     ::llvm::Value *texture,
     const std::array<::llvm::Value *, 3u> &coordinates,
-    bool floating, bool allow_byte4_write) {
+    bool floating, bool allow_byte4_write, bool allow_byte4_read) {
     NativeTexturePacketInfo info{};
     if ((_width != 4u && _width != 8u && _width != 16u) ||
         texture == nullptr ||
@@ -113,14 +113,16 @@ ScheduleEmitter::_native_texture_packet_info(
             half4_guard, half4_storage,
             "texture.half4.packet.guard");
     }
-    if (allow_byte4_write && floating) {
+    if ((allow_byte4_write || allow_byte4_read) && floating) {
         auto *capabilities = _builder.CreateExtractValue(
             texture, {14u});
+        auto cap_bit = allow_byte4_write ?
+                           simd_host_texture_capability_byte4_float_write :
+                           simd_host_texture_capability_byte4_float_read;
         auto *has_byte4_capability = _builder.CreateICmpNE(
             _builder.CreateAnd(
                 capabilities,
-                _builder.getInt32(
-                    simd_host_texture_capability_byte4_float_write)),
+                _builder.getInt32(cap_bit)),
             _builder.getInt32(0u));
         auto *byte4_storage = _builder.CreateICmpEQ(
             storage,
@@ -131,6 +133,15 @@ ScheduleEmitter::_native_texture_packet_info(
         info.byte4_guard = _builder.CreateAnd(
             byte4_guard, byte4_storage,
             "texture.byte4.packet.guard");
+        if (allow_byte4_read) {
+            auto *byte4_access = _builder.CreateAnd(
+                has_data, dimension_matches);
+            byte4_access = _builder.CreateAnd(
+                byte4_access, has_byte4_capability);
+            info.byte4_access_guard = _builder.CreateAnd(
+                byte4_access, byte4_storage,
+                "texture.byte4.access.guard");
+        }
     }
     info.data = data;
     info.width = width;
@@ -266,7 +277,7 @@ ScheduleEmitter::_native_texture_packet_info(
         return emit_callback();
     }
     auto native = _native_texture_packet_info(
-        texture, coordinates, floating, false);
+        texture, coordinates, floating, false, floating);
     if (native.guard == nullptr) { return emit_callback(); }
     auto &context = _module.getContext();
     auto *fast_block = ::llvm::BasicBlock::Create(
@@ -294,6 +305,27 @@ ScheduleEmitter::_native_texture_packet_info(
                            nullptr :
                            ::llvm::BasicBlock::Create(
                                context, "texture.read.int1", _entry);
+    auto *byte4_route_block = native.byte4_guard == nullptr ?
+                                  nullptr :
+                                  ::llvm::BasicBlock::Create(
+                                      context,
+                                      "texture.read.byte4.route", _entry);
+    auto *byte4_block = native.byte4_guard == nullptr ?
+                            nullptr :
+                            ::llvm::BasicBlock::Create(
+                                context, "texture.read.byte4", _entry);
+    auto enable_byte4_masked_read =
+        native.byte4_access_guard != nullptr &&
+        _module.getDataLayout().isLittleEndian();
+    auto *byte4_masked_route_block = enable_byte4_masked_read ?
+                                         ::llvm::BasicBlock::Create(
+                                             context,
+                                             "texture.read.byte4.masked.route", _entry) :
+                                         nullptr;
+    auto *byte4_masked_block = enable_byte4_masked_read ?
+                                   ::llvm::BasicBlock::Create(
+                                       context, "texture.read.byte4.masked", _entry) :
+                                   nullptr;
     auto *callback_block = ::llvm::BasicBlock::Create(
         context, "texture.read.callback", _entry);
     auto enable_gathered_native_read =
@@ -309,31 +341,77 @@ ScheduleEmitter::_native_texture_packet_info(
                                    nullptr;
     auto *merge_block = ::llvm::BasicBlock::Create(
         context, "texture.read.merge", _entry);
-    auto *non_native_block = half4_route_block != nullptr ?
-                                 half4_route_block :
-                             int1_route_block != nullptr ?
-                                 int1_route_block :
-                             gather_route_block != nullptr ?
-                                 gather_route_block :
-                                 callback_block;
+    auto *after_int1_block = byte4_route_block != nullptr        ? byte4_route_block :
+                             byte4_masked_route_block != nullptr ? byte4_masked_route_block :
+                             gather_route_block != nullptr       ? gather_route_block :
+                                                                   callback_block;
+    auto *after_half4_block = int1_route_block != nullptr ? int1_route_block : after_int1_block;
+    auto *non_native_block = half4_route_block != nullptr ? half4_route_block : after_half4_block;
     _builder.CreateCondBr(
         native.guard, fast_block, non_native_block);
 
     if (half4_route_block != nullptr) {
         _builder.SetInsertPoint(half4_route_block);
         _builder.CreateCondBr(
-            native.half4_guard, half4_value_block,
-            int1_route_block != nullptr   ? int1_route_block :
-            gather_route_block != nullptr ? gather_route_block :
-                                            callback_block);
+            native.half4_guard, half4_value_block, after_half4_block);
     }
 
     if (int1_route_block != nullptr) {
         _builder.SetInsertPoint(int1_route_block);
         _builder.CreateCondBr(
-            native.int1_guard, int1_block,
-            gather_route_block == nullptr ? callback_block :
-                                            gather_route_block);
+            native.int1_guard, int1_block, after_int1_block);
+    }
+
+    if (byte4_route_block != nullptr) {
+        _builder.SetInsertPoint(byte4_route_block);
+        _builder.CreateCondBr(
+            native.byte4_guard, byte4_block,
+            byte4_masked_route_block != nullptr ? byte4_masked_route_block :
+            gather_route_block != nullptr       ? gather_route_block :
+                                                  callback_block);
+    }
+
+    ::llvm::Value *byte4_masked_x0 = nullptr;
+    ::llvm::Value *byte4_masked_y0 = nullptr;
+    if (byte4_masked_route_block != nullptr) {
+        _builder.SetInsertPoint(byte4_masked_route_block);
+        auto *first_lane = _safe_first_lane(_active_mask);
+        auto *first_x = _builder.CreateExtractElement(
+            native.safe_x_lanes, first_lane);
+        auto *first_y = _builder.CreateExtractElement(
+            native.safe_y_lanes, first_lane);
+        byte4_masked_x0 = _builder.CreateSub(first_x, first_lane);
+        byte4_masked_y0 = first_y;
+        auto *no_underflow = _builder.CreateICmpUGE(first_x, first_lane);
+        auto *x0_inside = _builder.CreateICmpULT(byte4_masked_x0, native.width);
+        auto *height = _builder.CreateExtractValue(texture, {11u});
+        auto *y0_inside = _builder.CreateICmpULT(byte4_masked_y0, height);
+        auto *expected_x = _builder.CreateAdd(
+            _builder.CreateVectorSplat(_width, byte4_masked_x0), _lane_ids());
+        auto *expected_y = _builder.CreateVectorSplat(_width, byte4_masked_y0);
+        auto *all_true = ::llvm::ConstantVector::getSplat(
+            ::llvm::ElementCount::getFixed(_width), _builder.getTrue());
+        auto *active_x_ok = _builder.CreateAndReduce(
+            _builder.CreateSelect(
+                _active_mask,
+                _builder.CreateICmpEQ(native.safe_x_lanes, expected_x),
+                all_true));
+        auto *active_y_ok = _builder.CreateAndReduce(
+            _builder.CreateSelect(
+                _active_mask,
+                _builder.CreateICmpEQ(native.safe_y_lanes, expected_y),
+                all_true));
+        auto *masked_guard = _builder.CreateAnd(
+            native.byte4_access_guard,
+            _builder.CreateAnd(
+                _builder.CreateAnd(no_underflow, x0_inside),
+                _builder.CreateAnd(
+                    y0_inside,
+                    _builder.CreateAnd(active_x_ok, active_y_ok))),
+            "texture.read.byte4.masked.guard");
+        _builder.CreateCondBr(
+            masked_guard, byte4_masked_block,
+            gather_route_block != nullptr ? gather_route_block : callback_block);
     }
 
     _builder.SetInsertPoint(fast_block);
@@ -472,6 +550,115 @@ ScheduleEmitter::_native_texture_packet_info(
         _builder.CreateBr(merge_block);
     }
 
+    ::llvm::Value *byte4_pixels = nullptr;
+    ::llvm::BasicBlock *byte4_exit = nullptr;
+    if (byte4_block != nullptr) {
+        _builder.SetInsertPoint(byte4_block);
+        auto *byte4_pixel_index = _builder.CreateAdd(
+            _builder.CreateMul(
+                _builder.CreateZExt(native.y, i64),
+                _builder.CreateZExt(native.width, i64)),
+            _builder.CreateZExt(native.x, i64));
+        auto *byte4_offset = _builder.CreateShl(
+            byte4_pixel_index, _builder.getInt64(2u));
+        auto *byte4_pointer = _builder.CreateGEP(
+            _builder.getInt8Ty(), native.data, byte4_offset,
+            "texture.read.byte4.pointer");
+        auto *byte4_physical_type = ::llvm::FixedVectorType::get(
+            _builder.getInt8Ty(), 4u * _width);
+        auto *byte4_loaded = _builder.CreateAlignedLoad(
+            byte4_physical_type, byte4_pointer, ::llvm::Align{1u},
+            "texture.read.byte4.aos");
+        auto *inv_255 = ::llvm::ConstantVector::getSplat(
+            ::llvm::ElementCount::getFixed(_width),
+            ::llvm::ConstantFP::get(_builder.getFloatTy(), 1.0f / 255.0f));
+        byte4_pixels = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(result_type));
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            std::vector<int> mask;
+            mask.reserve(_width);
+            for (auto lane = uint32_t{0u}; lane < _width; lane++) {
+                mask.emplace_back(static_cast<int>(
+                    4u * lane + component));
+            }
+            auto *byte_lanes = _builder.CreateShuffleVector(
+                byte4_loaded,
+                ::llvm::PoisonValue::get(byte4_physical_type), mask,
+                "texture.read.byte4.soa");
+            auto *float_lanes = _builder.CreateUIToFP(
+                byte_lanes, lane_type,
+                "texture.read.byte4.float");
+            auto *norm_lanes = _builder.CreateFMul(
+                float_lanes, inv_255,
+                "texture.read.byte4.norm");
+            byte4_pixels = _insert_child(
+                byte4_pixels, norm_lanes, result->type,
+                component, true);
+        }
+        byte4_exit = _builder.GetInsertBlock();
+        _builder.CreateBr(merge_block);
+    }
+
+    ::llvm::Value *byte4_masked_pixels = nullptr;
+    ::llvm::BasicBlock *byte4_masked_exit = nullptr;
+    if (byte4_masked_block != nullptr) {
+        _builder.SetInsertPoint(byte4_masked_block);
+        auto *x_inside_lanes = _builder.CreateICmpULT(
+            native.safe_x_lanes,
+            _builder.CreateVectorSplat(_width, native.width));
+        auto *in_bounds = _builder.CreateAnd(
+            _active_mask, x_inside_lanes,
+            "texture.read.byte4.masked.in.bounds");
+        auto *base_pixel_index = _builder.CreateAdd(
+            _builder.CreateMul(
+                _builder.CreateZExt(byte4_masked_y0, i64),
+                _builder.CreateZExt(native.width, i64)),
+            _builder.CreateZExt(byte4_masked_x0, i64));
+        auto *base_offset = _builder.CreateShl(
+            base_pixel_index, _builder.getInt64(2u));
+        auto *base_ptr = _builder.CreateGEP(
+            _builder.getInt8Ty(), native.data, base_offset,
+            "texture.read.byte4.masked.pointer");
+        auto *i32_lanes = ::llvm::FixedVectorType::get(
+            _builder.getInt32Ty(), _width);
+        auto *raw_u32 = _builder.CreateMaskedLoad(
+            i32_lanes, base_ptr, ::llvm::Align{1u}, in_bounds,
+            ::llvm::Constant::getNullValue(i32_lanes),
+            "texture.read.byte4.masked.raw");
+        auto *mask_ff = ::llvm::ConstantVector::getSplat(
+            ::llvm::ElementCount::getFixed(_width),
+            _builder.getInt32(0xffu));
+        auto *inv_255 = ::llvm::ConstantVector::getSplat(
+            ::llvm::ElementCount::getFixed(_width),
+            ::llvm::ConstantFP::get(_builder.getFloatTy(), 1.0f / 255.0f));
+        byte4_masked_pixels = static_cast<::llvm::Value *>(
+            ::llvm::PoisonValue::get(result_type));
+        for (auto component = uint32_t{0u}; component < 4u;
+             component++) {
+            ::llvm::Value *chan = raw_u32;
+            if (component != 0u) {
+                chan = _builder.CreateLShr(
+                    chan,
+                    ::llvm::ConstantVector::getSplat(
+                        ::llvm::ElementCount::getFixed(_width),
+                        _builder.getInt32(component * 8u)));
+            }
+            if (component != 3u) {
+                chan = _builder.CreateAnd(chan, mask_ff);
+            }
+            auto *float_lanes = _builder.CreateUIToFP(
+                chan, lane_type, "texture.read.byte4.masked.float");
+            auto *norm_lanes = _builder.CreateFMul(
+                float_lanes, inv_255, "texture.read.byte4.masked.norm");
+            byte4_masked_pixels = _insert_child(
+                byte4_masked_pixels, norm_lanes, result->type,
+                component, true);
+        }
+        byte4_masked_exit = _builder.GetInsertBlock();
+        _builder.CreateBr(merge_block);
+    }
+
     ::llvm::Value *gathered_pixels = nullptr;
     ::llvm::BasicBlock *gather_exit = nullptr;
     if (gather_route_block != nullptr) {
@@ -540,6 +727,8 @@ ScheduleEmitter::_native_texture_packet_info(
         result_type,
         2u + static_cast<uint32_t>(half4_exit != nullptr) +
             static_cast<uint32_t>(int1_exit != nullptr) +
+            static_cast<uint32_t>(byte4_exit != nullptr) +
+            static_cast<uint32_t>(byte4_masked_exit != nullptr) +
             static_cast<uint32_t>(gather_exit != nullptr),
         "texture.read.packet");
     pixels->addIncoming(native_pixels, fast_exit);
@@ -549,6 +738,12 @@ ScheduleEmitter::_native_texture_packet_info(
     if (int1_exit != nullptr) {
         pixels->addIncoming(int1_pixels, int1_exit);
     }
+    if (byte4_exit != nullptr) {
+        pixels->addIncoming(byte4_pixels, byte4_exit);
+    }
+    if (byte4_masked_exit != nullptr) {
+        pixels->addIncoming(byte4_masked_pixels, byte4_masked_exit);
+    }
     if (gather_exit != nullptr) {
         pixels->addIncoming(gathered_pixels, gather_exit);
     }
@@ -556,6 +751,9 @@ ScheduleEmitter::_native_texture_packet_info(
     _result.guarded_native_texture_read_count++;
     if (gather_exit != nullptr) {
         _result.guarded_gathered_native_texture_read_count++;
+    }
+    if (byte4_exit != nullptr) {
+        _result.guarded_byte4_texture_read_count++;
     }
     if (int1_exit != nullptr) {
         _result.guarded_int1_texture_read_count++;

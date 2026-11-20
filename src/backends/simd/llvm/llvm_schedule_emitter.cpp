@@ -1265,7 +1265,7 @@ void ScheduleEmitter::_preflight() {
 }
 
 [[nodiscard]] ::llvm::Value *ScheduleEmitter::_load_uniform_data(
-    ::llvm::Value *base, const Type *type, size_t offset) {
+    ::llvm::Value *base, const Type *type, size_t offset, bool unaligned) {
     if (_is_scalar_data(type)) {
         auto *pointer = _byte_pointer(base, offset);
         if (type->is_bool()) {
@@ -1276,13 +1276,13 @@ void ScheduleEmitter::_preflight() {
         }
         auto *llvm_type = _data_type(type, false);
         auto *load = _builder.CreateLoad(llvm_type, pointer);
-        load->setAlignment(::llvm::Align{type->alignment()});
+        load->setAlignment(::llvm::Align{unaligned ? size_t{1u} : type->alignment()});
         return load;
     }
     return _assemble(type, false, [&](uint32_t i) {
         return _load_uniform_data(
             base, _child_type(type, i),
-            offset + _child_offset(type, i));
+            offset + _child_offset(type, i), unaligned);
     });
 }
 
