@@ -487,11 +487,20 @@ template<typename Options>
                 if (native) {
                     CHECK(!(flags != original_flags));
                 } else if (fast_math) {
-                    CHECK(flags.isFast());
+                    CHECK(flags.allowReciprocal());
                     CHECK(flags.allowContract());
+                    CHECK(flags.approxFunc());
+                    CHECK(flags.allowReassoc());
+                    CHECK(flags.noSignedZeros());
+                    CHECK(!flags.noNaNs());
+                    CHECK(!flags.noInfs());
                 } else {
                     CHECK(!flags.any());
                 }
+            }
+            if (!native) {
+                CHECK(!function->hasFnAttribute("no-infs-fp-math"));
+                CHECK(!function->hasFnAttribute("no-nans-fp-math"));
             }
             if (!native && !fast_math) {
                 for (auto attribute : inherited_fast_attributes) {
@@ -645,11 +654,85 @@ template<typename Options>
     return true;
 }
 
+[[nodiscard]] bool check_fast_math_exp_overflow_contract() {
+    // Regression test for Beckmann NDF (1 / exp(x) for large x > 88.72):
+    // fast-math must NOT stamp nnan/ninf so exp overflow (+inf) is preserved
+    // rather than folded to poison and replaced with exp(0) = 1.
+    for (auto fast_math : {false, true}) {
+        xir::Module xir_module;
+        auto *f32 = Type::of<float>();
+        auto *f32_2 = Type::vector(f32, 2u);
+        auto *fn = xir_module.create_callable(f32_2);
+        fn->set_name("fallback_exp_overflow_probe");
+        auto *x = fn->create_value_argument(f32);
+        auto *body = fn->create_body_block();
+        xir::XIRBuilder xb;
+        xb.set_insertion_point(body);
+        auto *e = xb.call(f32, xir::ArithmeticOp::EXP, {x});
+        float one_val = 1.0f;
+        auto *one = xir_module.create_constant(f32, &one_val);
+        auto *inv_e = xb.call(f32, xir::ArithmeticOp::BINARY_DIV, {one, e});
+        auto *packed = xb.call(f32_2, xir::ArithmeticOp::AGGREGATE, {e, inv_e});
+        xb.return_(packed);
+
+        auto context = luisa::make_unique<::llvm::LLVMContext>();
+        auto module = luisa::make_unique<::llvm::Module>("fallback-exp-overflow", *context);
+        static_cast<void>(fallback::luisa_fallback_backend_codegen(
+            *context, module.get(), &xir_module, fast_math));
+        for (auto &f : *module) {
+            fallback::apply_fallback_math_function_options(f, fast_math);
+        }
+        auto *native = module->getFunction("fallback_exp_overflow_probe");
+        CHECK(native != nullptr);
+        auto *ptr_ty = ::llvm::PointerType::get(*context, 0u);
+        auto *float_ty = ::llvm::Type::getFloatTy(*context);
+        auto *wrap_ty = ::llvm::FunctionType::get(
+            ::llvm::Type::getVoidTy(*context), {float_ty, ptr_ty}, false);
+        auto *wrapper = ::llvm::Function::Create(
+            wrap_ty, ::llvm::GlobalValue::ExternalLinkage, "exp_overflow_entry", *module);
+        auto *entry = ::llvm::BasicBlock::Create(*context, "entry", wrapper);
+        ::llvm::IRBuilder<> b{entry};
+        ::llvm::SmallVector<::llvm::Value *, 4u> args{wrapper->getArg(0u)};
+        for (auto i = args.size(); i < native->arg_size(); i++) {
+            args.emplace_back(::llvm::Constant::getNullValue(
+                native->getFunctionType()->getParamType(i)));
+        }
+        auto *res = b.CreateCall(native, args);
+        res->setCallingConv(native->getCallingConv());
+        b.CreateAlignedStore(res, wrapper->getArg(1u), ::llvm::Align{4u});
+        b.CreateRetVoid();
+        CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+        simd::LLVMJIT jit;
+        CHECK(jit.succeeded());
+        CHECK(jit.add_module(std::move(module), std::move(context)));
+        using Entry = void(float, float *);
+        auto fp = reinterpret_cast<Entry *>(jit.lookup("exp_overflow_entry"));
+        CHECK(fp != nullptr);
+        std::array<float, 2u> out{};
+        for (float huge : {89.0f, 150.0f, 300.0f, 1000.0f}) {
+            fp(huge, out.data());
+            CHECK(std::isinf(out[0u]) && out[0u] > 0.0f);
+            CHECK(out[1u] == 0.0f);
+        }
+        fp(-300.0f, out.data());
+        CHECK(out[0u] == 0.0f);
+        CHECK(std::isinf(out[1u]) && out[1u] > 0.0f);
+        fp(0.0f, out.data());
+        CHECK(std::fabs(out[0u] - 1.0f) <= 1e-5f);
+        CHECK(std::fabs(out[1u] - 1.0f) <= 1e-5f);
+        fp(2.0f, out.data());
+        CHECK(std::fabs(out[0u] - std::exp(2.0f)) <= 1e-3f);
+        CHECK(std::fabs(out[1u] - std::exp(-2.0f)) <= 1e-3f);
+    }
+    return true;
+}
+
 [[nodiscard]] bool run() {
     CHECK(check_legacy_math_target_options<::llvm::TargetOptions>());
     CHECK(check_math_function_options());
     CHECK(check_common_fusion_options());
     CHECK(check_precise_arithmetic_contract());
+    CHECK(check_fast_math_exp_overflow_contract());
 
     for (auto fast_math : {false, true}) {
         auto shape = make_math_module(fast_math);

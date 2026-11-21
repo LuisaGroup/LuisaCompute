@@ -1321,6 +1321,8 @@ void auto_outline_shared_value_callables(
             min_instructions = static_cast<size_t>(parsed);
         }
     }
+    const bool report_opt =
+        detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
     std::unordered_map<const xir::Function *, size_t> call_counts;
     for (auto *fn : module->function_list()) {
         if (fn->definition() == nullptr) { continue; }
@@ -1332,6 +1334,10 @@ void auto_outline_shared_value_callables(
                 }
             });
     }
+    // Never auto-outline single-call helpers (zero code deduplication) or
+    // pass-by-value callables with huge parameter frames (> 256 bytes/lane,
+    // which would spill > 2 KB per W=8 call into the stack I/O frame).
+    constexpr size_t max_auto_outline_value_param_bytes = 256u;
     for (auto *fn : module->function_list()) {
         if (!fn->isa<xir::CallableFunction>() ||
             fn->definition() == nullptr ||
@@ -1343,10 +1349,20 @@ void auto_outline_shared_value_callables(
         auto it = call_counts.find(fn);
         if (it == call_counts.end()) { continue; }
         bool has_reference_arg = false;
+        size_t value_param_bytes = 0u;
+        size_t resource_param_count = 0u;
         for (const auto *arg : fn->arguments()) {
             if (arg->is_reference()) {
                 has_reference_arg = true;
                 break;
+            }
+            if (auto *t = arg->type(); t != nullptr) {
+                if (t->is_resource()) {
+                    ++resource_param_count;
+                } else if (t->is_scalar() || t->is_vector() || t->is_matrix() ||
+                           t->is_array() || t->is_structure()) {
+                    value_param_bytes += t->size();
+                }
             }
         }
         if (has_reference_arg) { continue; }
@@ -1366,9 +1382,22 @@ void auto_outline_shared_value_callables(
                     has_ray_query = true;
                 }
             });
-        if (!has_ray_query &&
-            ((it->second >= 2u && inst_count >= min_instructions) ||
-             (has_loop && inst_count >= 16u))) {
+        const bool should_outline =
+            !has_ray_query &&
+            it->second >= 2u &&
+            value_param_bytes <= max_auto_outline_value_param_bytes &&
+            (inst_count >= min_instructions ||
+             (has_loop && inst_count >= 16u));
+        if (report_opt) {
+            const auto *name_md = fn->find_metadata<xir::NameMD>();
+            LUISA_INFO(
+                "SIMD auto-outline candidate '{}': calls={}, insns={}, loop={}, "
+                "ray_query={}, param_bytes={}, res_args={}, outlined={}",
+                name_md != nullptr ? name_md->name() : luisa::string_view{"<unnamed>"},
+                it->second, inst_count, has_loop, has_ray_query,
+                value_param_bytes, resource_param_count, should_outline);
+        }
+        if (should_outline) {
             static_cast<void>(fn->find_or_create_metadata<xir::NoInlineMD>());
         }
     }

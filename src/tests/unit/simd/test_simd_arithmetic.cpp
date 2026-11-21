@@ -592,5 +592,127 @@ int main(int argc, char *argv[]) {
                        expected_signed_reductions))
                 << "SIMD signed vector reductions mismatch";
         }
+
+        // Fast-math overflow/special-value contract + multi-case varying switch
+        // (coherent, 2-way divergent, all-default divergent, and mixed case+default).
+        auto fm_out = device.create_buffer<float4>(64u);
+        auto sw_out = device.create_buffer<uint>(64u);
+        Kernel1D fast_math_and_switch = [width](BufferVar<float4> fm_result,
+                                                BufferVar<uint> sw_result) noexcept {
+            set_block_size(32u, 1u, 1u);
+            set_warp_size(static_cast<uint8_t>(width));
+            auto gid = dispatch_x();
+            Float x = select(
+                select(2.0f, -300.0f, (gid & 3u) == 1u),
+                select(89.0f, 300.0f, (gid & 3u) == 3u),
+                (gid & 2u) != 0u);
+            auto e = exp(x);
+            auto inv_e = 1.0f / e;
+            auto n = normalize(make_float3(
+                cast<float>(gid + 1u),
+                cast<float>((gid & 7u) + 2u),
+                3.0f));
+            auto inf_flag = ite(luisa::compute::isinf(e), 1.0f, 0.0f);
+            fm_result.write(gid, make_float4(inv_e, inf_flag, n.x, copysign(0.0f, -1.0f)));
+
+            // Block 0 (0..7): coherent case 11
+            // Block 1 (8..15): 2-way divergent cases 3 and 14
+            // Block 2 (16..23): all-default divergent (100 + lane)
+            // Block 3 (24..31): mixed cases (0, 5, 15) + default (200 + lane)
+            // Block 4..7 (32..63): coherent default (99) or dense divergent (0..15)
+            auto group = gid / 8u;
+            auto lane = gid % 8u;
+            UInt sel = 99u;
+            $if (group == 0u) {
+                sel = 11u;
+            }
+            $elif (group == 1u) {
+                sel = select(3u, 14u, (lane & 1u) != 0u);
+            }
+            $elif (group == 2u) {
+                sel = 100u + lane;
+            }
+            $elif (group == 3u) {
+                sel = select(
+                    select(0u, 5u, lane == 1u),
+                    select(15u, 200u + lane, lane >= 3u),
+                    lane >= 2u);
+            }
+            $elif (group == 4u) {
+                sel = 99u;
+            }
+            $else {
+                sel = (gid * 3u) % 18u;
+            };
+            UInt acc = 0u;
+            $switch (sel) {
+                $case (0u) { acc = 1000u + gid; };
+                $case (1u) { acc = 1001u + gid; };
+                $case (2u) { acc = 1002u + gid; };
+                $case (3u) { acc = 1003u + gid; };
+                $case (4u) { acc = 1004u + gid; };
+                $case (5u) { acc = 1005u + gid; };
+                $case (6u) { acc = 1006u + gid; };
+                $case (7u) { acc = 1007u + gid; };
+                $case (8u) { acc = 1008u + gid; };
+                $case (9u) { acc = 1009u + gid; };
+                $case (10u) { acc = 1010u + gid; };
+                $case (11u) { acc = 1011u + gid; };
+                $case (12u) { acc = 1012u + gid; };
+                $case (13u) { acc = 1013u + gid; };
+                $case (14u) { acc = 1014u + gid; };
+                $case (15u) { acc = 1015u + gid; };
+                $default { acc = 5000u + sel; };
+            };
+            sw_result.write(gid, acc);
+        };
+        auto fm_shader = device.compile(
+            fast_math_and_switch, {.enable_cache = false, .enable_fast_math = true});
+        luisa::vector<float4> fm_host(64u);
+        luisa::vector<uint> sw_host(64u);
+        stream << fm_shader(fm_out, sw_out).dispatch(64u)
+               << fm_out.copy_to(fm_host.data())
+               << sw_out.copy_to(sw_host.data())
+               << synchronize();
+        for (auto gid = 0u; gid < 64u; gid++) {
+            auto r = fm_host[gid];
+            auto mode = gid & 3u;
+            if (mode == 2u || mode == 3u) {
+                expect(r.x == 0.0f) << "SIMD fast-math 1/exp(huge) must underflow to 0";
+                expect(r.y == 1.0f) << "SIMD fast-math exp(huge) must remain +inf";
+            } else if (mode == 1u) {
+                expect(std::isinf(r.x) && r.x > 0.0f) << "SIMD fast-math 1/exp(-300) must be +inf";
+                expect(r.y == 0.0f) << "SIMD fast-math exp(-300) must not be inf";
+            } else {
+                expect(std::fabs(r.x - std::exp(-2.0f)) <= 1e-3f) << "SIMD fast-math 1/exp(2) mismatch";
+                expect(r.y == 0.0f) << "SIMD fast-math exp(2) must not be inf";
+            }
+            float vx = static_cast<float>(gid + 1u);
+            float vy = static_cast<float>((gid & 7u) + 2u);
+            float vz = 3.0f;
+            float expected_nx = vx / std::sqrt(vx * vx + vy * vy + vz * vz);
+            expect(std::fabs(r.z - expected_nx) <= 2e-6f) << "SIMD fast-math normalize mismatch";
+            expect(r.w == 0.0f && std::signbit(r.w)) << "SIMD copysign(0, -1) sign bit mismatch";
+
+            auto group = gid / 8u;
+            auto lane = gid % 8u;
+            uint sel = 99u;
+            if (group == 0u) {
+                sel = 11u;
+            } else if (group == 1u) {
+                sel = (lane & 1u) != 0u ? 14u : 3u;
+            } else if (group == 2u) {
+                sel = 100u + lane;
+            } else if (group == 3u) {
+                sel = lane == 0u ? 0u : lane == 1u ? 5u : lane == 2u ? 15u : 200u + lane;
+            } else if (group == 4u) {
+                sel = 99u;
+            } else {
+                sel = (gid * 3u) % 18u;
+            }
+            uint expected_sw = sel < 16u ? (1000u + sel + gid) : (5000u + sel);
+            expect(sw_host[gid] == expected_sw)
+                << "SIMD varying switch mismatch at gid=" << gid << " width=" << width;
+        }
     }
 }

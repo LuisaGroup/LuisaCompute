@@ -354,7 +354,7 @@ SIMDShader::SIMDShader(
     auto report_optimizations =
         detail::env_flag("LUISA_SIMD_REPORT_OPTIMIZATIONS");
 
-    static constexpr uint32_t simd_shader_cache_abi = 12u;
+    static constexpr uint32_t simd_shader_cache_abi = 13u;
     const auto cache_enabled =
         binary_io != nullptr &&
         option.enable_cache &&

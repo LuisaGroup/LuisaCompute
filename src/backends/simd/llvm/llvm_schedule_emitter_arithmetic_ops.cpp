@@ -384,7 +384,12 @@ namespace luisa::compute::simd::detail {
             ::llvm::LLVMContext::MD_prof,
             ::llvm::MDBuilder{context}.createBranchWeights(1000u, 10u));
         _builder.SetInsertPoint(slow_call_bb);
-        auto *call = _builder.CreateCall(fast_helper, {lhs, rhs, _active_mask});
+        ::llvm::CallInst *call = nullptr;
+        {
+            ::llvm::IRBuilder<>::FastMathFlagGuard strict_guard{_builder};
+            _builder.clearFastMathFlags();
+            call = _builder.CreateCall(fast_helper, {lhs, rhs, _active_mask});
+        }
         call->setCallingConv(::llvm::CallingConv::Fast);
         _builder.CreateBr(done_bb);
         _builder.SetInsertPoint(done_bb);
@@ -475,7 +480,12 @@ namespace luisa::compute::simd::detail {
             ::llvm::LLVMContext::MD_prof,
             ::llvm::MDBuilder{context}.createBranchWeights(1000u, 10u));
         _builder.SetInsertPoint(slow_call_bb);
-        auto *call = _builder.CreateCall(fast_helper, {lhs, rhs});
+        ::llvm::CallInst *call = nullptr;
+        {
+            ::llvm::IRBuilder<>::FastMathFlagGuard strict_guard{_builder};
+            _builder.clearFastMathFlags();
+            call = _builder.CreateCall(fast_helper, {lhs, rhs});
+        }
         call->setCallingConv(::llvm::CallingConv::Fast);
         _builder.CreateBr(done_bb);
         _builder.SetInsertPoint(done_bb);
@@ -484,6 +494,8 @@ namespace luisa::compute::simd::detail {
         phi->addIncoming(call, slow_call_bb);
         return phi;
     }
+    ::llvm::IRBuilder<>::FastMathFlagGuard strict_guard{_builder};
+    _builder.clearFastMathFlags();
     return _builder.CreateFRem(lhs, rhs);
 }
 

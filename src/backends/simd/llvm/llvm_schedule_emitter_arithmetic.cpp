@@ -596,10 +596,14 @@ namespace luisa::compute::simd::detail {
             });
         case xir::ArithmeticOp::ISNAN:
             return unary([&](::llvm::Value *value, const Type *) {
+                ::llvm::IRBuilder<>::FastMathFlagGuard strict_guard{_builder};
+                _builder.clearFastMathFlags();
                 return _builder.CreateFCmpUNO(value, value);
             });
         case xir::ArithmeticOp::ISINF:
             return unary([&](::llvm::Value *value, const Type *) {
+                ::llvm::IRBuilder<>::FastMathFlagGuard strict_guard{_builder};
+                _builder.clearFastMathFlags();
                 auto *absolute = intrinsic(
                     ::llvm::Intrinsic::fabs, {value});
                 ::llvm::Constant *infinity = ::llvm::ConstantFP::getInfinity(
@@ -1284,7 +1288,13 @@ namespace luisa::compute::simd::detail {
                         ::llvm::Intrinsic::fma, {a, b, c});
                 });
         case xir::ArithmeticOp::COPYSIGN:
-            return binary_intrinsic(::llvm::Intrinsic::copysign);
+            return binary([&](::llvm::Value *lhs, ::llvm::Value *rhs,
+                              const Type *, const Type *) {
+                // Preserve exact signed-zero sign bit for copysign even under nsz.
+                ::llvm::IRBuilder<>::FastMathFlagGuard strict_guard{_builder};
+                _builder.clearFastMathFlags();
+                return intrinsic(::llvm::Intrinsic::copysign, {lhs, rhs});
+            });
         case xir::ArithmeticOp::REDUCE_SUM:
         case xir::ArithmeticOp::REDUCE_PRODUCT:
         case xir::ArithmeticOp::REDUCE_MIN:
@@ -1592,6 +1602,16 @@ namespace luisa::compute::simd::detail {
             if (squared == nullptr) { return nullptr; }
             auto *length = intrinsic(
                 ::llvm::Intrinsic::sqrt, {squared});
+            if (_enable_fast_math) {
+                auto *inv_length = _builder.CreateFDiv(
+                    float_constant_like(squared, 1.0), length);
+                return _componentwise_unary(
+                    result->type, operands[0u], operand_types[0u],
+                    varying,
+                    [&](::llvm::Value *value, const Type *) {
+                        return _builder.CreateFMul(value, inv_length);
+                    });
+            }
             return _componentwise_unary(
                 result->type, operands[0u], operand_types[0u],
                 varying,

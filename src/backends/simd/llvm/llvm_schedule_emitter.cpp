@@ -103,7 +103,21 @@ ScheduleEmitter::ScheduleEmitter(
       _print_format_id_base{print_format_id_base},
       _layout{module.getContext(), width},
       _collectives{width},
-      _builder{module.getContext()} {}
+      _builder{module.getContext()} {
+    if (_enable_fast_math) {
+        ::llvm::FastMathFlags fast_math_flags;
+        // Enable fast reciprocal, contraction, approximate intrinsics,
+        // reassociation, and signed-zero elision without `nnan`/`ninf` poison.
+        // Native math helpers (e.g. exp overflow -> +inf) and shader guards
+        // (e.g. 1 / exp(x) -> 0, isnan, isinf) legitimately observe inf/NaN.
+        fast_math_flags.setAllowReciprocal(true);
+        fast_math_flags.setAllowContract(true);
+        fast_math_flags.setApproxFunc(true);
+        fast_math_flags.setAllowReassoc(true);
+        fast_math_flags.setNoSignedZeros(true);
+        _builder.setFastMathFlags(fast_math_flags);
+    }
+}
 
 void ScheduleEmitter::_fail(std::string message) {
     if (_result.error.empty()) { _result.error = std::move(message); }

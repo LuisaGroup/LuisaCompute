@@ -42,19 +42,42 @@ inline void apply_fallback_math_function_options(::llvm::Function &function, boo
 #endif
     }
     if (function.hasFnAttribute("luisa.cpu.native_math")) { return; }
+    // Never retain `no-infs-fp-math` / `no-nans-fp-math` even in fast-math
+    // mode: native math overflow (+inf) and shader guards legitimately produce
+    // inf/NaN and must not fold to poison.
+    function.removeFnAttr("no-infs-fp-math");
+    function.removeFnAttr("no-nans-fp-math");
     if (!enable_fast_math) {
         // Imported builtins may carry these legacy fast-math attributes.
         // Clearing instruction FMF alone does not restore precise semantics.
-        for (auto name : {"unsafe-fp-math", "no-infs-fp-math", "no-nans-fp-math",
-                          "no-signed-zeros-fp-math", "approx-func-fp-math"}) {
+        for (auto name : {"unsafe-fp-math", "no-signed-zeros-fp-math", "approx-func-fp-math"}) {
             function.removeFnAttr(name);
         }
     }
+    ::llvm::FastMathFlags fast_math_flags;
+    if (enable_fast_math) {
+        // Enable fast reciprocal, contraction, approximate intrinsics,
+        // reassociation, and signed-zero elision without `nnan`/`ninf` poison.
+        // Native math helpers (e.g. exp overflow -> +inf) and shader guards
+        // (e.g. 1 / exp(x) -> 0, 1/0, 0/0) legitimately produce inf/NaN;
+        // stamping `nnan`/`ninf` lets LLVM fold overflow selects to poison
+        // and silently replace exp(x > 88.72) with exp(0) = 1.0.
+        fast_math_flags.setAllowReciprocal(true);
+        fast_math_flags.setAllowContract(true);
+        fast_math_flags.setApproxFunc(true);
+        fast_math_flags.setAllowReassoc(true);
+        fast_math_flags.setNoSignedZeros(true);
+    }
     for (auto &block : function) {
         for (auto &instruction : block) {
-            if (::llvm::isa<::llvm::FPMathOperator>(instruction) &&
-                !::llvm::isa<::llvm::FCmpInst>(instruction)) {
-                instruction.setFast(enable_fast_math);
+            if (::llvm::isa<::llvm::FPMathOperator>(instruction)) {
+                if (enable_fast_math &&
+                    instruction.getOpcode() != ::llvm::Instruction::FRem &&
+                    !::llvm::isa<::llvm::FCmpInst>(instruction)) {
+                    instruction.copyFastMathFlags(fast_math_flags);
+                } else {
+                    instruction.copyFastMathFlags(::llvm::FastMathFlags{});
+                }
             }
         }
     }

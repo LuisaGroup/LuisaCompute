@@ -443,17 +443,23 @@ bool LLVMJIT::_prepare_module(
             block_count, instruction_count,
             max_function_blocks, max_function_instructions);
     }
-    // In large kernels (e.g. multi-hundred-material path tracers), force-inlining
-    // heavy transcendental math helpers (pow/exp/log/atan2/sin/cos) at hundreds of
-    // sites causes massive code-size explosion, I-cache thrashing, and quadratic
-    // register-allocation compile time. Outline heavily reused pure-IR native math
-    // helpers with FastCC (never PreserveAll on AVX-512, since ymm saves zero the
-    // upper 256 bits of live caller zmm registers).
+    // Outlining pure-IR native math helpers with FastCC avoids code duplication
+    // in extreme cases, but on x86-64 FastCC clobbers all live ymm/zmm vector
+    // registers across hot exp/log/pow/sin/cos calls (3-7% render regression).
+    // Keep normal native math helpers inlined by default (matching the fallback
+    // backend), and only force-outline when explicitly requested or when a
+    // very large helper (>= 512 IR instructions) is heavily reused (>= 32 sites).
+    const bool force_outline_native_math =
+        luisa::compute::detail::env_flag("LUISA_SIMD_OUTLINE_NATIVE_MATH");
     if (instruction_count >= size_t{32768u} &&
         !luisa::compute::detail::env_flag("LUISA_SIMD_KEEP_INLINE_NATIVE_MATH")) {
         for (auto &&function : module) {
             if (function.isDeclaration() ||
                 !function.hasFnAttribute("luisa.cpu.native_math")) {
+                continue;
+            }
+            const auto fn_insns = function.getInstructionCount();
+            if (!force_outline_native_math && fn_insns < size_t{512u}) {
                 continue;
             }
             size_t call_count = 0u;
@@ -466,7 +472,8 @@ bool LLVMJIT::_prepare_module(
                 }
                 ++call_count;
             }
-            if (all_direct_calls && call_count >= size_t{8u}) {
+            const size_t min_calls = force_outline_native_math ? size_t{8u} : size_t{32u};
+            if (all_direct_calls && call_count >= min_calls) {
                 function.removeFnAttr(::llvm::Attribute::AlwaysInline);
                 function.addFnAttr(::llvm::Attribute::NoInline);
                 function.setCallingConv(::llvm::CallingConv::Fast);
