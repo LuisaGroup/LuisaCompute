@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <exception>
 #include <fstream>
 #include <iterator>
 #include <system_error>
@@ -108,16 +107,28 @@ public:
 
 [[nodiscard]] bool encode_tile_path(const luisa::filesystem::path &path,
                                     luisa::string &text, luisa::string &diagnostic) noexcept {
-    // reproc consumes UTF-8 on all platforms. luisa::to_string(path) preserves
-    // the Windows ANSI code page for legacy consumers, so it is unsuitable here.
-    try {
-        auto utf8 = path.u8string();
-        text.assign(reinterpret_cast<const char *>(utf8.data()), utf8.size());
-        return true;
-    } catch (const std::exception &error) {
-        diagnostic = luisa::format("CUDA Tile IR cannot encode a process path as UTF-8: {}", error.what());
-        return false;
+    // Keep the native path bytes on POSIX. On Windows reproc consumes UTF-8,
+    // not the ANSI code page used by luisa::to_string(path).
+#ifdef LUISA_PLATFORM_WINDOWS
+    auto bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (bytes != 0) {
+        text.resize(static_cast<size_t>(bytes));
+        auto converted = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path.c_str(), -1, text.data(), bytes, nullptr, nullptr);
+        if (converted == bytes) {
+            text.pop_back(); // The returned count includes the terminator.
+            return true;
+        }
     }
+    auto error = GetLastError();
+    text.clear();
+    diagnostic = luisa::format("CUDA Tile IR cannot encode a process path as UTF-8 (Windows error {})", error);
+    return false;
+#else
+    static_cast<void>(diagnostic);
+    const auto &native = path.native();
+    text.assign(native.data(), native.size());
+    return true;
+#endif
 }
 
 #ifdef LUISA_PLATFORM_WINDOWS

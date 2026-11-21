@@ -12,9 +12,6 @@
 #include <luisa/core/logging.h>
 #include <luisa/vstl/spin_mutex.h>
 #include <luisa/core/stl/filesystem.h>
-#ifndef _WIN32
-#define WINAPI
-#endif
 namespace lc::hlsl {
 #ifndef LC_DXC_THROW_IF_FAILED
 #define LC_DXC_THROW_IF_FAILED(x)                  \

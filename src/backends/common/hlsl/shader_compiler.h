@@ -23,7 +23,7 @@ struct ComDeleter {
 };
 class ShaderCompilerModule : public vstd::IOperatorNewBase {
 public:
-    using CreateInstanceFn = HRESULT(WINAPI *)(const IID &, const IID &, LPVOID *);
+    using CreateInstanceFn = DxcCreateInstanceProc;
     luisa::DynamicModule dxil;
     luisa::DynamicModule dxcCompiler;
     CreateInstanceFn dxc_create_instance{nullptr};

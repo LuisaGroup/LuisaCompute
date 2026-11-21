@@ -500,7 +500,7 @@ int main(int argc, char **argv) {
             auto u2 = as<uint2>(q);
             auto f2 = as<float2>(q);
             auto w_back = as<uint>(ub4) ^ as<uint>(sb4) ^ as<uint>(h2);
-            auto q_back = as<ulong>(u2) ^ as<ulong>(f2);
+            auto q_back = as<luisa::ulong>(u2) ^ as<luisa::ulong>(f2);
             out_u32.write(i, w_back);
             out_u64.write(i, q_back);
         };
@@ -586,7 +586,7 @@ int main(int argc, char **argv) {
             /*noRegister=*/false, /*enable_debug_info=*/false,
             /*enable_fast_math=*/true, /*fallback_rtx=*/false,
             /*bf16_fallback=*/false, /*spirv_capabilities=*/{},
-            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{32u});
+            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{uint8_t{32u}});
         expect(std::string_view{dx_default32.result.view()}.find("[WaveSize(32)]") !=
                std::string_view::npos);
         auto dx_compiled = compiler.compile_compute(
@@ -600,7 +600,7 @@ int main(int argc, char **argv) {
             /*noRegister=*/false, /*enable_debug_info=*/false,
             /*enable_fast_math=*/true, /*fallback_rtx=*/false,
             /*bf16_fallback=*/false, /*spirv_capabilities=*/{},
-            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{32u});
+            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{uint8_t{32u}});
         expect(std::string_view{dx_override.result.view()}.find("[WaveSize(64)]") !=
                std::string_view::npos);
         expect(std::string_view{dx_override.result.view()}.find("[WaveSize(32)]") ==
@@ -611,7 +611,7 @@ int main(int argc, char **argv) {
             /*noRegister=*/false, /*enable_debug_info=*/false,
             /*enable_fast_math=*/true, /*fallback_rtx=*/false,
             /*bf16_fallback=*/false, /*spirv_capabilities=*/{},
-            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{32u});
+            /*emulate_8bit=*/false, /*default_warp_size=*/luisa::optional<uint8_t>{uint8_t{32u}});
         expect(std::string_view{spv_default32.result.view()}.find("[WaveSize(") ==
                std::string_view::npos);
     };
@@ -1026,7 +1026,7 @@ int main(int argc, char **argv) {
                 /*noRegister=*/false, /*enable_debug_info=*/false,
                 /*enable_fast_math=*/true, /*fallback_rtx=*/false,
                 /*bf16_fallback=*/false, {}, /*emulate_8bit=*/false,
-                /*default_warp_size=*/luisa::optional<uint8_t>{32u});
+                /*default_warp_size=*/luisa::optional<uint8_t>{uint8_t{32u}});
             expect(std::string_view{dx_code.result.view()}.find("[WaveSize(32)]") !=
                    std::string_view::npos);
 
