@@ -613,7 +613,8 @@ int main(int argc, char *argv[]) {
                 cast<float>((gid & 7u) + 2u),
                 3.0f));
             auto inf_flag = ite(luisa::compute::isinf(e), 1.0f, 0.0f);
-            fm_result.write(gid, make_float4(inv_e, inf_flag, n.x, copysign(0.0f, -1.0f)));
+            auto negative_zero = luisa::compute::copysign(0.0f, -cast<float>(gid + 1u));
+            fm_result.write(gid, make_float4(inv_e, inf_flag, n.x, negative_zero));
 
             // Block 0 (0..7): coherent case 11
             // Block 1 (8..15): 2-way divergent cases 3 and 14
@@ -692,7 +693,7 @@ int main(int argc, char *argv[]) {
             float vz = 3.0f;
             float expected_nx = vx / std::sqrt(vx * vx + vy * vy + vz * vz);
             expect(std::fabs(r.z - expected_nx) <= 2e-6f) << "SIMD fast-math normalize mismatch";
-            expect(r.w == 0.0f && std::signbit(r.w)) << "SIMD copysign(0, -1) sign bit mismatch";
+            expect(r.w == 0.0f && std::signbit(r.w)) << "SIMD copysign negative zero sign bit mismatch";
 
             auto group = gid / 8u;
             auto lane = gid % 8u;
