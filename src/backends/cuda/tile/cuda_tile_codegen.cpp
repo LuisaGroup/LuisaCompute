@@ -126,6 +126,13 @@ private:
             case ScalarType::UINT64: return "unsigned long long";
             case ScalarType::FLOAT16: return "__half";
             case ScalarType::BFLOAT16: return "__nv_bfloat16";
+            // FP8 is a STORAGE element only: the Tile type system lets a load
+            // produce it and a cast/select/MMA consume it, while narrow
+            // arithmetic stays rejected (see _elementwise/_mma). The CUDA Tile
+            // runtime header forward declares these structs; the compiled
+            // prologue includes <cuda_fp8.h> for their definitions.
+            case ScalarType::FLOAT8_E4M3FN: return "__nv_fp8_e4m3";
+            case ScalarType::FLOAT8_E5M2: return "__nv_fp8_e5m2";
             case ScalarType::FLOAT32: return "float";
             case ScalarType::FLOAT64: return "double";
             default: return {};
@@ -167,11 +174,11 @@ private:
     [[nodiscard]] bool _type(const tile::Type &type, const Operation *op) noexcept {
         if (type.kind() == TypeKind::INDEX) { return true; }
         if (type.scalar_type() == ScalarType::FLOAT64) {
-            _fail(op, "this native runtime slice supports FP32 arithmetic and explicit FP16/BF16 storage/conversion/MMA");
+            _fail(op, "this native runtime slice supports FP32 arithmetic and explicit FP16/BF16/FP8 storage/conversion/MMA");
             return false;
         }
         if ((type.kind() != TypeKind::SCALAR && !type.is_tile()) || _scalar(type.scalar_type()).empty()) {
-            _fail(op, "unsupported value type (index, bool, i32/u32/i64/u64, f16/bf16/f32 scalars/Tiles)");
+            _fail(op, "unsupported value type (index, bool, i32/u32/i64/u64, f16/bf16/f8/f32 scalars/Tiles)");
             return false;
         }
         return !type.is_tile() || _space(*type.index_space(), true, op);
@@ -301,10 +308,12 @@ private:
         auto a = _elementwise_value(op.operand(0u), result_type, op);
         auto b = op.operand_count() > 1u ? _elementwise_value(op.operand(1u), result_type, op) : luisa::string{};
         auto element = op.result(0u)->type().scalar_type();
-        auto narrow = element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16;
+        auto narrow = element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16 ||
+                      element == ScalarType::FLOAT8_E4M3FN || element == ScalarType::FLOAT8_E5M2;
         for (auto i = 0u; i < op.operand_count(); i++) {
             auto type = op.operand(i)->type().scalar_type();
-            narrow |= type == ScalarType::FLOAT16 || type == ScalarType::BFLOAT16;
+            narrow |= type == ScalarType::FLOAT16 || type == ScalarType::BFLOAT16 ||
+                      type == ScalarType::FLOAT8_E4M3FN || type == ScalarType::FLOAT8_E5M2;
         }
         if (narrow &&
             op.elementwise_op() != ElementwiseOp::CAST && op.elementwise_op() != ElementwiseOp::SELECT) {
@@ -1326,12 +1335,16 @@ public:
             _artifact.scan_chunk_extent = _scan_chunk_extent;
             _artifact.independent_axis_extent = _independent_axis_extent;
         }
+        // CUDA 13.5 widened num_worker_warps_per_cta from {4, 8} to every power
+        // of two in [1, 32]. The SM89 calibration boundary is unchanged, and a
+        // value the installed toolkit does not understand still fails closed in
+        // NVRTC/tileiras instead of being dropped before the compiler sees it.
         if (_worker_warps != 0u &&
-            ((_worker_warps != 4u && _worker_warps != 8u) || _target_sm != 89u)) {
-            _fail(nullptr, "worker-warp calibration requires SM89 and 4 or 8 worker warps");
+            (!std::has_single_bit(_worker_warps) || _worker_warps > 32u || _target_sm != 89u)) {
+            _fail(nullptr, "worker-warp calibration requires SM89 and a power-of-two worker count in [1, 32] (values above 8 need CUDA 13.5)");
             return std::move(_artifact);
         }
-        _artifact.source = "#include <cuda_tile.h>\n#include <cuda_fp16.h>\n#include <cuda_bf16.h>\nnamespace ct = cuda::tiles;\n";
+        _artifact.source = "#include <cuda_tile.h>\n#include <cuda_fp16.h>\n#include <cuda_bf16.h>\n#include <cuda_fp8.h>\nnamespace ct = cuda::tiles;\n";
         _artifact.source += _worker_warps == 0u ? "extern \"C\" __tile_global__ void luisa_tile_main(" :
                                                   luisa::format("extern \"C\" {{\n[[cutile::hint({}, num_worker_warps_per_cta = {})]]\n__tile_global__ void luisa_tile_main(", _target_sm * 10u, _worker_warps);
         if (body->argument_count() > 31u) { _fail(nullptr, "buffer argument count exceeds existing CUDAShaderTile ABI"); }
@@ -1341,9 +1354,10 @@ public:
             auto element = type.scalar_type();
             auto supported_element = element == ScalarType::BOOL || element == ScalarType::INT32 || element == ScalarType::UINT32 ||
                                      element == ScalarType::INT64 || element == ScalarType::UINT64 || element == ScalarType::FLOAT32 ||
-                                     element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16;
+                                     element == ScalarType::FLOAT16 || element == ScalarType::BFLOAT16 ||
+                                     element == ScalarType::FLOAT8_E4M3FN || element == ScalarType::FLOAT8_E5M2;
             if (!type.is_view() || !supported_element || !_space(*type.index_space(), false, nullptr)) {
-                _fail(nullptr, "kernel parameters must be statically sized contiguous bool/integer/FP32/FP16/BF16 buffer views");
+                _fail(nullptr, "kernel parameters must be statically sized contiguous bool/integer/FP32/FP16/BF16/FP8 buffer views");
                 break;
             }
             auto volume = *type.index_space()->static_volume();

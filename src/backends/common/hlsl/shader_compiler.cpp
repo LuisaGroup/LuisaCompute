@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <span>
 #include <unordered_map>
 #include <luisa/core/dynamic_module.h>
 #include <luisa/vstl/string_utility.h>

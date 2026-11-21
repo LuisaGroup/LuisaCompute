@@ -57,7 +57,11 @@ option("lc_vk_min_api_version", {default = "auto",
     description = "Minimum Vulkan API version for the Vulkan backend (auto, 1.2 or 1.3).",
     showmenu = true})
 
-option("lc_vk_backend_use_xir_spirv", {default = false})
+-- Vulkan compute shader codegen: the native XIR → SPIR-V route is the default
+-- (mirrors LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV, which is ON in the CMake build).
+-- The runtime DXC/HLSL route below is then only the compatibility fallback for
+-- shader features the native codegen cannot express.
+option("lc_vk_backend_use_xir_spirv", {default = true})
 -- Keep the legacy runtime DXC route available for unsupported Vulkan shader
 -- features. Projects that require a native-only Vulkan build can disable it;
 -- the backend then fails at configuration time unless a native SPIR-V route
@@ -187,11 +191,12 @@ if lc_options then
         set_config(k, v)
     end
 end
-if has_config("lc_vk_backend_use_xir_spirv") and has_config("lc_vk_backend_use_ast_llvm_spirv") then
-    raise("Vulkan compute shader codegen options are mutually exclusive. " ..
-          "Use lc_vk_backend_use_xir_spirv for the default native SPIR-V path, " ..
-          "or lc_vk_backend_use_ast_llvm_spirv for the experimental LLVM SPIR-V path.")
-end
+
+-- The two Vulkan codegen routes are mutually exclusive, but the check lives
+-- in scripts/xmake_func.lua: it runs after the option defaults are resolved,
+-- so an explicitly requested AST->LLVM->SPIR-V route replaces the default
+-- XIR->SPIR-V route instead of colliding with it. (raise() is only available
+-- in the option/target script scopes, not in this project script.)
 includes("scripts/xmake_func.lua")
 
 if has_config('_lc_check_env') then

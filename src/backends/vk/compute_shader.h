@@ -29,7 +29,7 @@ public:
                    VkPipelineCreateFlags{0u} :
                    VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
     }
-    [[nodiscard]] static constexpr uint64_t
+    [[nodiscard]] static uint64_t
     pipeline_cache_identity_for(
         bool enable_driver_optimization,
         luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt) noexcept {

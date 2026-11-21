@@ -424,7 +424,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         (!option.compile_only &&
          !kernel.allowed_warp_size().has_value() &&
          native_device.prefers_default_wave32()) ?
-            luisa::optional<uint8_t>{32u} :
+            luisa::optional<uint8_t>{static_cast<uint8_t>(32u)} :
             luisa::nullopt;
     const bool profile_compile =
         luisa::compute::detail::env_flag("LUISA_DX_PROFILE_COMPILATION");

@@ -239,11 +239,15 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
 
     public:
         explicit VulkanExtensionStatusExtImpl(Device *device) noexcept : _device{device} {}
-        [[nodiscard]] luisa::span<const VulkanExtensionStatus> extensions() const noexcept override;
-        [[nodiscard]] bool is_supported(luisa::string_view extension) const noexcept override;
-        [[nodiscard]] bool is_enabled(luisa::string_view extension) const noexcept override;
-        [[nodiscard]] bool is_active(luisa::string_view extension) const noexcept override;
-    };
+          [[nodiscard]] luisa::span<const VulkanExtensionStatus> extensions() const noexcept override;
+          [[nodiscard]] bool is_supported(luisa::string_view extension) const noexcept override;
+          [[nodiscard]] bool is_enabled(luisa::string_view extension) const noexcept override;
+          [[nodiscard]] bool is_active(luisa::string_view extension) const noexcept override;
+          // Cooperative matrix/vector state: negotiated outside the registry, so
+          // it reads the Device members recorded during negotiation instead of the
+          // optional-extension table.
+          [[nodiscard]] VulkanCooperativeStatus cooperative_status() const noexcept override;
+      };
     VulkanExtensionStatusExtImpl _optional_extension_status{this};
 
 public:
@@ -370,6 +374,26 @@ public:
     bool subgroup_extended_types_enabled : 1 {false};
     bool cooperative_vector_enabled : 1 {false};
     bool cooperative_vector_fp32_enabled : 1 {false};
+    // VK_NV_cooperative_vector negotiation details. `cooperative_vector_enabled`
+    // alone cannot answer "will a cooperative-vector instruction actually run":
+    // SPV_NV_cooperative_vector has two prerequisites (the Vulkan memory model and
+    // SPV_EXT_replicated_composites), and the single configuration the codegen can
+    // emit is FLOAT32/FLOAT32/FLOAT32/FLOAT32 with transpose = false. These bits
+    // record each of those, so VulkanExtensionStatusExt::cooperative_status() can
+    // distinguish "enabled" from "usable" instead of collapsing both into one bool.
+    bool cooperative_vector_physical_support : 1 {false};
+    bool cooperative_vector_memory_model : 1 {false};
+    bool cooperative_vector_replicated_composites : 1 {false};
+    // Number of VkCooperativeVectorPropertiesNV entries the driver enumerated,
+    // including the packed/quantized ones the Info log's sanity guard hides.
+    uint32_t cooperative_vector_config_count{0u};
+    // Cooperative matrix: the extension name the backend passed to vkCreateDevice
+    // (nullptr when none was enabled) and whether VK_NV_cooperative_matrix2's
+    // workgroup scope feature was enabled on top of VK_KHR_cooperative_matrix.
+    // "Enabled" never implies "emitted": nothing in this tree lowers to a
+    // cooperative-matrix instruction yet.
+    const char *cooperative_matrix_extension{nullptr};
+    bool cooperative_matrix_workgroup_scope : 1 {false};
     bool shader_untyped_pointers_enabled : 1 {false};
     bool async_copy_enabled : 1 {false};
     bool sampler_anisotropy_enabled : 1 {false};

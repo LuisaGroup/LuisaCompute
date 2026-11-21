@@ -19,9 +19,11 @@ are mutually exclusive, and enabling both fails at configure time:
   `src/backends/CMakeLists.txt` and `src/backends/vk/CMakeLists.txt`.
 - XMake: `lc_vk_backend_use_ast_llvm_spirv=true` (default `false`), with
   `lc_llvm_path` pointing to an LLVM installation/build prefix or its
-  `llvm-config`. Root `xmake.lua` `raise()`s on the conflict and
-  `scripts/xmake_func.lua` `raise()`s when `lc_llvm_path` is unset. Both xmake
-  route options default to `false`, so there the native route is opt-in too.
+  `llvm-config`. `scripts/xmake_func.lua` `raise()`s when `lc_llvm_path` is
+  unset, and it enforces the conflict: the native `lc_vk_backend_use_xir_spirv`
+  option defaults to `true` (mirroring CMake), so selecting the AST route first
+  disables that default non-forced - only an explicit
+  `--lc_vk_backend_use_xir_spirv=true` alongside it raises.
 
 The selected route arrives as a compile definition on the Vulkan plugin:
 `LUISA_XIR_TO_SPIRV` or `LUISA_AST_LLVM_TO_SPIRV`
@@ -202,11 +204,11 @@ for a link failure.
 ## XMake integration
 
 The target is `lc-spirv-llvm`. Configuration requires an explicit
-`lc_llvm_path`. Keep `lc_vk_backend_use_xir_spirv=false` when selecting it:
-the top-level configuration rejects an explicit conflict, while the option
-hook forces `lc_enable_xir` on and normalizes the native option off. The
-SPIR-V targets and tests are created only when the Vulkan backend itself is
-enabled.
+`lc_llvm_path`. Selecting it replaces the default `lc_vk_backend_use_xir_spirv`
+route: the option hook forces `lc_enable_xir` on and disables the native option
+non-forced, so an explicit `--lc_vk_backend_use_xir_spirv=true` is still
+rejected as a conflict. The SPIR-V targets and tests are created only when the
+Vulkan backend itself is enabled.
 
 Treat the selected `llvm-config` as the source of truth:
 

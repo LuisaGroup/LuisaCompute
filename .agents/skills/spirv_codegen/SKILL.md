@@ -9,12 +9,13 @@ The native code generator lives in
 `src/backends/common/spirv/spirv_codegen/` and lowers XIR to SPIR-V 1.5 with
 glslang's `spv::Builder`. Vulkan enables it with
 `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` (CMake, default ON) or
-`lc_vk_backend_use_xir_spirv` (xmake, default false). The two Vulkan codegen
+`lc_vk_backend_use_xir_spirv` (xmake, default true). The two Vulkan codegen
 routes are mutually exclusive: enabling this route together with
 `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV` (CMake, default OFF) /
 `lc_vk_backend_use_ast_llvm_spirv` (xmake, default false) fails at configure
 time (`FATAL_ERROR` in `src/backends/CMakeLists.txt` and the root
-`CMakeLists.txt`; `raise()` in the root `xmake.lua`). The selected route
+`CMakeLists.txt`; `raise()` in `scripts/xmake_func.lua`, which also drops the
+default XIR value when only the AST route was requested). The selected route
 defines `LUISA_XIR_TO_SPIRV` or `LUISA_AST_LLVM_TO_SPIRV` on the Vulkan
 backend target.
 

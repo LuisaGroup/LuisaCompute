@@ -122,10 +122,12 @@ public:
 
 #ifdef LUISA_PLATFORM_WINDOWS
 [[nodiscard]] bool assembler_environment(const luisa::filesystem::path &directory,
+                                          const luisa::filesystem::path &toolkit_root,
                                           luisa::vector<luisa::string> &environment,
                                           luisa::string &diagnostic) noexcept {
-    luisa::string temporary;
-    if (!encode_tile_path(directory, temporary, diagnostic)) { return false; }
+    luisa::string temporary, toolkit;
+    if (!encode_tile_path(directory, temporary, diagnostic) ||
+        !encode_tile_path(toolkit_root, toolkit, diagnostic)) { return false; }
     auto ascii = [](luisa::string_view text) noexcept {
         return std::all_of(text.begin(), text.end(), [](unsigned char c) noexcept { return c < 128u; });
     };
@@ -148,7 +150,12 @@ public:
     }
     for (auto entry = block; *entry != L'\0'; entry += std::wcslen(entry) + 1u) {
         if (_wcsnicmp(entry, L"TEMP=", 5u) == 0 || _wcsnicmp(entry, L"TMP=", 4u) == 0 ||
-            _wcsnicmp(entry, L"TMPDIR=", 7u) == 0) { continue; }
+            _wcsnicmp(entry, L"TMPDIR=", 7u) == 0 ||
+            // The configured tileiras and its nvJitLink must come from ONE
+            // toolkit, even when the parent process points CUDA_PATH at an
+            // older CUDA installation. Replace these in the child only.
+            _wcsnicmp(entry, L"CUDA_PATH=", 10u) == 0 ||
+            _wcsnicmp(entry, L"CUDA_HOME=", 10u) == 0) { continue; }
         auto bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, entry, -1, nullptr, 0, nullptr, nullptr);
         if (bytes == 0) {
             FreeEnvironmentStringsW(block);
@@ -167,6 +174,7 @@ public:
     }
     FreeEnvironmentStringsW(block);
     for (auto key : {"TEMP=", "TMP=", "TMPDIR="}) { environment.emplace_back(luisa::format("{}{}", key, temporary)); }
+    for (auto key : {"CUDA_PATH=", "CUDA_HOME="}) { environment.emplace_back(luisa::format("{}{}", key, toolkit)); }
     return true;
 }
 #endif
@@ -184,7 +192,11 @@ public:
     luisa::vector<luisa::string> environment;
     luisa::vector<const char *> environment_pointers;
     if (assembler) {
-        if (!assembler_environment(log_path.parent_path(), environment, diagnostic)) { return false; }
+        // argv[0] is the configured <toolkit>/bin/tileiras executable. Pin its
+        // child CUDA_PATH/CUDA_HOME to that toolkit root instead of inheriting
+        // a potentially different installation from the caller.
+        auto toolkit_root = luisa::filesystem::u8path(arguments[0]).parent_path().parent_path();
+        if (!assembler_environment(log_path.parent_path(), toolkit_root, environment, diagnostic)) { return false; }
         for (auto &&entry : environment) { environment_pointers.emplace_back(entry.c_str()); }
         environment_pointers.emplace_back(nullptr);
         options.env.behavior = reproc::env::empty;

@@ -112,8 +112,8 @@ before_check(function(option)
         })
     end
 
-    -- AST LLVM codegen requires an explicit LLVM installation and XIR, and
-    -- disables XIR→SPIR-V.
+    -- AST LLVM codegen requires an explicit LLVM installation and XIR, and it
+    -- replaces the XIR→SPIR-V route, which is the default Vulkan codegen path.
     if lc_vk_backend_use_ast_llvm_spirv:enabled() then
         local configured_llvm_path = get_config("lc_llvm_path")
         if type(configured_llvm_path) ~= "string" or
@@ -123,7 +123,16 @@ before_check(function(option)
                   "the native SPIR-V target.")
         end
         lc_enable_xir:enable(true, {force = true})
-        lc_vk_backend_use_xir_spirv:enable(false, {force = true})
+        -- A non-forced disable drops the default (or a previously configured)
+        -- XIR→SPIR-V value, but keeps an explicit command-line request, which
+        -- is then a real conflict between the two routes.
+        lc_vk_backend_use_xir_spirv:enable(false)
+        if lc_vk_backend_use_xir_spirv:enabled() then
+            raise("Vulkan compute shader codegen options are mutually " ..
+                  "exclusive. Use lc_vk_backend_use_xir_spirv for the default " ..
+                  "native SPIR-V path, or lc_vk_backend_use_ast_llvm_spirv for " ..
+                  "the experimental LLVM SPIR-V path.")
+        end
     end
 
     -- Disable XIR→SPIR-V if XIR not enabled

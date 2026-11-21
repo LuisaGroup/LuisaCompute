@@ -750,10 +750,19 @@ ShaderCreationInfo CUDADevice::create_tile_kernel(const ShaderOption &option,
     auto worker_warps = 0u;
     if (auto workers = luisa::get_environment_variable("LUISA_CUDA_TILE_WORKER_WARPS")) {
         auto value = luisa::string_view{*workers};
-        if (value == "4" || value == "8") {
+        // CUDA 13.5 widened num_worker_warps_per_cta from {4, 8} to every
+        // power of two in [1, 32]. The original values keep their exact
+        // meaning; 1/2/16/32 are accepted here and then fail closed inside
+        // NVRTC/tileiras on an older toolkit (13.4 knows only 4 and 8), so a
+        // hint this toolkit cannot honour is never silently dropped.
+        if (value == "1" || value == "2" || value == "4" || value == "8") {
             worker_warps = static_cast<uint32_t>(value.front() - '0');
+        } else if (value == "16") {
+            worker_warps = 16u;
+        } else if (value == "32") {
+            worker_warps = 32u;
         } else if (value != "0") {
-            return fail("LUISA_CUDA_TILE_WORKER_WARPS requires 0, 4 or 8");
+            return fail("LUISA_CUDA_TILE_WORKER_WARPS requires 0, 1, 2, 4, 8, 16 or 32 (values above 8 need CUDA 13.5)");
         }
     }
     auto scan_chunk_extent = 0u;

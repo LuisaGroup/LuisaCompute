@@ -1833,6 +1833,11 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                     // any value that is not an obviously corrupted pointer.
                     constexpr uint32_t max_reasonable = 0x20000000u;
                     auto actual_count = query_count;
+                  // Reported verbatim through cooperative_status(): the corruption
+                  // guard below hides the packed/quantized entries from the log, so
+                  // the count is the only evidence of how many the driver really
+                  // enumerated.
+                  cooperative_vector_config_count = actual_count;
                     for (uint32_t i = 0; i < actual_count; ++i) {
                         auto const &p = cv_props[i];
                         if (static_cast<uint32_t>(p.inputType) >= max_reasonable ||
@@ -1876,15 +1881,21 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                     }
                 }
             }
-            // Enable the extension if the hardware supports it.
-            cooperative_vector_enabled = enable_vulkan_memory_model && enable_replicated_composites;
-            if (cooperative_vector_enabled) {
-                enable_device_extension(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
-                enable_device_extension(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME);
-                LUISA_INFO("VK_NV_cooperative_vector extension enabled on device.");
-            } else {
-                LUISA_INFO("VK_NV_cooperative_vector disabled: vulkanMemoryModel or shaderReplicatedComposites is unavailable.");
-            }
+          // Enable the extension if the hardware supports it.
+          cooperative_vector_enabled = enable_vulkan_memory_model && enable_replicated_composites;
+          // Recorded for VulkanExtensionStatusExt::cooperative_status(): the
+          // feature bit and compute-stage support already passed above, and the
+          // two SPIR-V prerequisites are exactly the values just probed.
+          cooperative_vector_physical_support = true;
+          cooperative_vector_memory_model = enable_vulkan_memory_model;
+          cooperative_vector_replicated_composites = enable_replicated_composites;
+          if (cooperative_vector_enabled) {
+              enable_device_extension(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
+              enable_device_extension(VK_EXT_SHADER_REPLICATED_COMPOSITES_EXTENSION_NAME);
+              LUISA_INFO("VK_NV_cooperative_vector extension enabled on device.");
+          } else {
+              LUISA_INFO("VK_NV_cooperative_vector disabled: vulkanMemoryModel or shaderReplicatedComposites is unavailable.");
+          }
         }
     }
     {
@@ -2241,17 +2252,49 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
 #ifndef NDEBUG
         enable_shader_device_clock = false;
 #endif
-        enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
-        cooperative_vector_enabled = false;
-        cooperative_vector_fp32_enabled = false;
-        shader_untyped_pointers_enabled = false;
+          enabled_cooperative_matrix_ext = CooperativeMatrixExt::None;
+          cooperative_vector_enabled = false;
+          cooperative_vector_fp32_enabled = false;
+          // Physical support and the two SPIR-V prerequisites are physical-device
+          // facts, but an imported VkDevice's enabled feature chain is
+          // unattestable, so every cooperative answer is cleared here (an
+          // imported device must not claim a capability it cannot prove) and the
+          // configuration count goes with them.
+          cooperative_vector_physical_support = false;
+          cooperative_vector_memory_model = false;
+          cooperative_vector_replicated_composites = false;
+          cooperative_vector_config_count = 0u;
+          shader_untyped_pointers_enabled = false;
 #if ENABLE_HIDDEN_FEATURES
         async_copy_enabled = false;
 #endif
         interop_enabled = false;
         device_address_enabled = false;
         surface_enabled = false;
-        _enable_device_exts.clear();
+          _enable_device_exts.clear();
+      }
+      // Record which cooperative-matrix twin was enabled (if any), for
+      // VulkanExtensionStatusExt::cooperative_status(). Done after the
+      // imported-device reset above so an imported VkDevice reports none: its
+      // enabled feature chain cannot be attested. "Enabled" is all this says --
+      // nothing in this tree lowers to a cooperative-matrix instruction yet.
+      switch (enabled_cooperative_matrix_ext) {
+          case CooperativeMatrixExt::None:
+              cooperative_matrix_extension = nullptr;
+              cooperative_matrix_workgroup_scope = false;
+              break;
+          case CooperativeMatrixExt::KHR:
+              cooperative_matrix_extension = VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME;
+              cooperative_matrix_workgroup_scope = false;
+              break;
+          case CooperativeMatrixExt::KHRAndNV2:
+              cooperative_matrix_extension = VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME;
+              cooperative_matrix_workgroup_scope = true;
+              break;
+          case CooperativeMatrixExt::NV:
+              cooperative_matrix_extension = VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME;
+              cooperative_matrix_workgroup_scope = false;
+              break;
     }
     // Cluster (mega-geometry) acceleration structures: decided here, next to
     // the ray-query decision they depend on (the extension's only dependency is
@@ -4620,6 +4663,66 @@ void Device::set_stream_log_callback(uint64_t stream_handle,
     }
     reinterpret_cast<Stream *>(stream_handle)->logger = callback;
 }
+namespace {
+// Per-name answer for the two cooperative families, which the backend negotiates
+// outside the optional-extension registry (see VulkanCooperativeStatus).
+// `known == false` means the name is neither of them and the caller must fall
+// back to the registry lookup.
+//
+// Semantics, deliberately narrower than the registry's:
+//   supported/enabled -> this exact extension name is the one the backend
+//                        enabled, i.e. one the physical device attested. A twin
+//                        the backend did not pick reports false (not attested),
+//                        never "the device lacks it" -- cooperative_status()
+//                        reports which twin was picked.
+//   active            -> the backend routes work through it. False for every
+//                        cooperative-matrix name on purpose: nothing in this tree
+//                        lowers to a cooperative-matrix instruction.
+struct CooperativeNameAnswer {
+    bool known{false};
+    bool supported{false};
+    bool enabled{false};
+    bool active{false};
+};
+
+[[nodiscard]] CooperativeNameAnswer cooperative_name_answer(
+    luisa::string_view name,
+    const char *matrix_extension /* nullptr = none */,
+    bool matrix_workgroup_scope,
+    bool vector_physical_support,
+    bool vector_enabled) noexcept {
+    CooperativeNameAnswer answer{.known = true};
+    if (name == luisa::string_view{"VK_NV_cooperative_vector"}) {
+        answer.supported = vector_physical_support;
+        answer.enabled = vector_enabled;
+        // The SPIR-V target feature is enabled exactly when the extension is,
+        // so the codegen does route cooperative-vector operations to it.
+        answer.active = vector_enabled;
+        return answer;
+    }
+    if (name == luisa::string_view{"VK_NV_cooperative_matrix"}) {
+        answer.supported = matrix_extension != nullptr &&
+                           luisa::string_view{matrix_extension} ==
+                               luisa::string_view{"VK_NV_cooperative_matrix"};
+        answer.enabled = answer.supported;
+        return answer;
+    }
+    if (name == luisa::string_view{"VK_KHR_cooperative_matrix"}) {
+        // The KHR spelling is also what carries the NV2 workgroup-scope feature.
+        answer.supported = matrix_extension != nullptr;
+        answer.enabled = answer.supported;
+        return answer;
+    }
+    if (name == luisa::string_view{"VK_NV_cooperative_matrix2"}) {
+        answer.supported = matrix_extension != nullptr && matrix_workgroup_scope;
+        answer.enabled = answer.supported;
+        return answer;
+    }
+    answer.known = false;
+    return answer;
+}
+}// namespace
+
 void Device::VulkanExtensionStatusExtImpl::build() noexcept {
     if (!_cache.empty()) { return; }
     auto states = _device->optional_extensions();
@@ -4647,6 +4750,14 @@ Device::VulkanExtensionStatusExtImpl::extensions() const noexcept {
 
 bool Device::VulkanExtensionStatusExtImpl::is_supported(
     luisa::string_view extension) const noexcept {
+    // The cooperative families are negotiated outside the registry; answer for
+    // them from the recorded negotiation instead of reporting "unknown name".
+    auto cooperative = cooperative_name_answer(
+        extension, _device->cooperative_matrix_extension,
+        _device->cooperative_matrix_workgroup_scope,
+        _device->cooperative_vector_physical_support,
+        _device->cooperative_vector_enabled);
+    if (cooperative.known) { return cooperative.supported; }
     auto id = detail::optional_extension_from_name(extension);
     return id != detail::OptionalExtension::COUNT &&
            _device->_optional_extensions.supported(id);
@@ -4654,6 +4765,12 @@ bool Device::VulkanExtensionStatusExtImpl::is_supported(
 
 bool Device::VulkanExtensionStatusExtImpl::is_enabled(
     luisa::string_view extension) const noexcept {
+    auto cooperative = cooperative_name_answer(
+        extension, _device->cooperative_matrix_extension,
+        _device->cooperative_matrix_workgroup_scope,
+        _device->cooperative_vector_physical_support,
+        _device->cooperative_vector_enabled);
+    if (cooperative.known) { return cooperative.enabled; }
     auto id = detail::optional_extension_from_name(extension);
     return id != detail::OptionalExtension::COUNT &&
            _device->_optional_extensions.enabled(id);
@@ -4661,10 +4778,35 @@ bool Device::VulkanExtensionStatusExtImpl::is_enabled(
 
 bool Device::VulkanExtensionStatusExtImpl::is_active(
     luisa::string_view extension) const noexcept {
+    auto cooperative = cooperative_name_answer(
+        extension, _device->cooperative_matrix_extension,
+        _device->cooperative_matrix_workgroup_scope,
+        _device->cooperative_vector_physical_support,
+        _device->cooperative_vector_enabled);
+    if (cooperative.known) { return cooperative.active; }
     auto id = detail::optional_extension_from_name(extension);
     return id != detail::OptionalExtension::COUNT &&
            _device->_optional_extensions.enabled(id) &&
            _device->optional_extension_active(id);
+}
+
+VulkanCooperativeStatus
+Device::VulkanExtensionStatusExtImpl::cooperative_status() const noexcept {
+    VulkanCooperativeStatus status{};
+    auto const &device = *_device;
+    if (device.cooperative_matrix_extension != nullptr) {
+        status.matrix_extension = luisa::string{device.cooperative_matrix_extension};
+        status.matrix_enabled = true;
+        status.matrix_workgroup_scope = device.cooperative_matrix_workgroup_scope;
+    }
+    status.vector_physical_support = device.cooperative_vector_physical_support;
+    status.vector_memory_model = device.cooperative_vector_memory_model;
+    status.vector_replicated_composites =
+        device.cooperative_vector_replicated_composites;
+    status.vector_enabled = device.cooperative_vector_enabled;
+    status.vector_fp32_config = device.cooperative_vector_fp32_enabled;
+    status.vector_config_count = device.cooperative_vector_config_count;
+    return status;
 }
 
 }// namespace lc::vk

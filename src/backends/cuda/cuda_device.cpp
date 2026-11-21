@@ -1609,6 +1609,26 @@ string CUDADevice::query(luisa::string_view property) noexcept {
             return luisa::string{};
         });
     }
+    if (property == "multi_processor_count") {
+        // Execution-unit count of the device this DeviceInterface is bound to
+        // (CUDA: streaming multiprocessors). It is the ONE quantity that turns a
+        // kernel's block count into "blocks per SM" evidence, so it is answered
+        // from the driver attribute instead of being guessed from the device
+        // name, the tier or the compute capability. The driver query runs in this
+        // device's context (with_handle), and a failure is an EMPTY answer, not a
+        // warning: "this device cannot tell you" is a normal capability result and
+        // must not be mistaken for an error (see also the other numeric keys
+        // above, which answer an empty string the same way).
+        return with_handle([this] {
+            int count = 0;
+            if (cuDeviceGetAttribute(&count, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                                     _handle.device()) == CUDA_SUCCESS &&
+                count > 0) {
+                return luisa::format("{}", count);
+            }
+            return luisa::string{};
+        });
+    }
     LUISA_WARNING_WITH_LOCATION("Unknown device property '{}'.", property);
     return {};
 }
