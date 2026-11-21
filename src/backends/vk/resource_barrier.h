@@ -79,11 +79,29 @@ private:
         SET_BEFORE,
         SET_RESTORE,
     };
+    struct BindlessMemoryState {
+        bool active_in_frame{false};
+        bool require_update{false};
+        VkPipelineStageFlagBits2 before_stage{VK_PIPELINE_STAGE_2_NONE};
+        VkPipelineStageFlagBits2 after_stage{VK_PIPELINE_STAGE_2_NONE};
+        VkAccessFlagBits2 before_access{VK_ACCESS_2_NONE};
+        VkAccessFlagBits2 after_access{VK_ACCESS_2_NONE};
+    };
+    struct LayerBindlessAccess {
+        BindlessArray const *bdls_arr{nullptr};
+        VkPipelineStageFlagBits2 buffer_stage{VK_PIPELINE_STAGE_2_NONE};
+        VkAccessFlagBits2 buffer_access{VK_ACCESS_2_NONE};
+        VkPipelineStageFlagBits2 texture_stage{VK_PIPELINE_STAGE_2_NONE};
+        VkAccessFlagBits2 texture_access{VK_ACCESS_2_NONE};
+    };
     vstd::HashMap<detail::NativeBufferIdentity, BufferStates> _buffer_frame_states;
     vstd::vector<std::pair<detail::NativeBufferIdentity, BufferStates *>> _current_buffer_update_states;
     vstd::HashMap<detail::NativeImageIdentity, TextureStates> _texture_frame_states;
     vstd::vector<std::pair<detail::NativeImageIdentity, TextureStates *>> _current_texture_update_states;
     vstd::vector<TextureDescriptorView> _current_texture_descriptor_views;
+    BindlessMemoryState _bindless_memory_state;
+    vstd::fixed_vector<LayerBindlessAccess, 4> _layer_bindless_accesses;
+    vstd::vector<VkMemoryBarrier2> _memory_barriers;
     vstd::vector<VkImageMemoryBarrier2> _tex_barriers;
     vstd::vector<VkBufferMemoryBarrier2> _buffer_barriers;
     TextureStates &_texture_state(Texture const *texture);
@@ -210,6 +228,7 @@ public:
     void update_states(
         VkCommandBuffer cmd_buffer);
     void restore_states(VkCommandBuffer cmd_buffer);
+    void barrier_filter(VkMemoryBarrier2 &barrier) const;
     void barrier_filter(VkBufferMemoryBarrier2 &barrier) const;
     void barrier_filter(VkImageMemoryBarrier2 &barrier) const;
     VkImageLayout get_layout(Resource const *res, uint level);

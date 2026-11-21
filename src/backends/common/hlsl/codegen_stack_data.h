@@ -91,6 +91,27 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
         }
     };
     luisa::unordered_map<ValidateKey, uint32_t, ValidateKeyHash> validate_index_map;
+    // Formal buffer/bindless-array parameters of custom callables that are
+    // bound to a single unique kernel resource across all call sites.
+    // Promoting them directly to the global kernel variable removes opaque
+    // resource template parameters from callables (enabling SPIR-V outlining
+    // and reducing HLSL/DXC template bloat).
+    luisa::unordered_map<ValidateKey, Variable, ValidateKeyHash> promoted_resource_args;
+    [[nodiscard]] Variable const *FindPromotedResourceArg(
+        Function func, Variable const &v) const noexcept {
+        if (promoted_resource_args.empty() || !func ||
+            func.tag() == Function::Tag::KERNEL ||
+            (v.tag() != Variable::Tag::BUFFER &&
+             v.tag() != Variable::Tag::BINDLESS_ARRAY)) {
+            return nullptr;
+        }
+        auto it = promoted_resource_args.find(ValidateKey{func.hash(), v.uid()});
+        return it != promoted_resource_args.end() ? &it->second : nullptr;
+    }
+    [[nodiscard]] bool IsPromotedResourceArg(
+        Function func, Variable const &v) const noexcept {
+        return FindPromotedResourceArg(func, v) != nullptr;
+    }
     uint64 count = 0;
     uint64 constCount = 0;
     uint64 funcCount = 0;

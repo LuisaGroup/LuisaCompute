@@ -715,7 +715,7 @@ void test_whole_range_write_merges_sub_ranges() {
 
 }// namespace
 
-static auto test_command_reorder_ranges_registration = [] {
+int main() {
     "disjoint ascending ranges stay one layer"_test = [] { test_disjoint_ascending_ranges_stay_one_layer(); };
     "same range writes serialize"_test = [] { test_same_range_writes_serialize(); };
     "hazards on shared range"_test = [] { test_hazards_on_shared_range(); };
@@ -724,7 +724,7 @@ static auto test_command_reorder_ranges_registration = [] {
     "cold range keeps its own layer"_test = [] { test_cold_range_keeps_its_own_layer(); };
     "disjoint after merge keeps precision"_test = [] { test_disjoint_after_merge_keeps_precision(); };
     "dispatch commands use same tracking"_test = [] { test_dispatch_commands_use_same_tracking(); };
- "custom dispatch declared usages"_test = [] { test_custom_dispatch_declared_usages(); };
+    "custom dispatch declared usages"_test = [] { test_custom_dispatch_declared_usages(); };
     "disabled switch keeps submission order"_test = [] { test_disabled_switch_keeps_submission_order(); };
     "oracle random sequences"_test = [] { test_oracle_random_sequences(); };
     "double clear and reuse"_test = [] { test_double_clear_and_reuse(); };
@@ -732,7 +732,4 @@ static auto test_command_reorder_ranges_registration = [] {
     "empty range semantics"_test = [] { test_empty_range_semantics(); };
     "whole range write merges sub ranges"_test = [] { test_whole_range_write_merges_sub_ranges(); };
     "cluster build is an ordering point"_test = [] { test_cluster_build_is_an_ordering_point(); };
-    return 0;
-}();
-
-int main() {}
+}

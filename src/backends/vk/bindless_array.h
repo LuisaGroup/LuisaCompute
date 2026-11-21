@@ -11,7 +11,15 @@ class Texture;
 class ResourceBarrier;
 class BindlessArray : public Resource {
 public:
-    using Map = vstd::HashMap<size_t, size_t>;
+    struct TrackedEntry {
+        size_t ref_count{0u};
+        uint64_t canonical{0u};
+        bool is_buffer{false};
+        bool non_bda_buffer{false};
+    };
+    using Map = vstd::HashMap<size_t, TrackedEntry>;
+    using CanonicalMap = vstd::HashMap<uint64_t, size_t>;
+    using TexturePtrMap = vstd::HashMap<size_t, size_t>;
     using MapIndex = typename Map::Index;
     struct BindlessStruct {
         static constexpr auto kInvalidPos = std::numeric_limits<uint>::max();
@@ -63,11 +71,21 @@ private:
         _encoded_binded;
     Map _ptr_map;
     Map _encoded_ptr_map;
-    static void _return_value(
+    CanonicalMap _pending_canonical_buffers;
+    CanonicalMap _pending_canonical_textures;
+    CanonicalMap _encoded_canonical_buffers;
+    CanonicalMap _encoded_canonical_textures;
+    TexturePtrMap _encoded_texture_ptrs;
+    size_t _encoded_non_bda_buffer_count{0u};
+    static void _track_canonical_add(CanonicalMap &map, uint64_t canonical) noexcept;
+    static void _track_canonical_remove(CanonicalMap &map, uint64_t canonical) noexcept;
+    void _on_resource_added(Map &resource_map, size_t ptr, TrackedEntry &entry) noexcept;
+    void _on_resource_removed(Map &resource_map, size_t ptr, TrackedEntry const &entry) noexcept;
+    void _return_value(
         Map &resource_map, vstd::vector<FreeValue> &retired_slots,
         MapIndex &index, uint type, uint &origin_value);
-    static void _deref(Map &resource_map, Map::Index &index);
-    static Map::Index _add_index(Map &resource_map, size_t ptr);
+    void _deref(Map &resource_map, Map::Index &index);
+    Map::Index _add_index(Map &resource_map, size_t ptr);
     void _emplace_tex(
         VkImageView &img_view,
         CommandBuffer *cmdbuffer,
@@ -94,6 +112,40 @@ public:
     }
     bool is_ptr_in_encoded_bindless(size_t ptr) const {
         return _encoded_ptr_map.find(ptr);
+    }
+    // Caller must hold mtx.
+    [[nodiscard]] bool contains_pending_canonical(
+        uint64_t canonical, bool is_buffer) const noexcept {
+        return is_buffer ?
+                   static_cast<bool>(_pending_canonical_buffers.find(canonical)) :
+                   static_cast<bool>(_pending_canonical_textures.find(canonical));
+    }
+    [[nodiscard]] size_t pending_resource_count() const noexcept {
+        return _ptr_map.size();
+    }
+    [[nodiscard]] bool has_pending_buffers() const noexcept {
+        return !_pending_canonical_buffers.empty();
+    }
+    [[nodiscard]] bool has_encoded_buffers() const noexcept {
+        return !_encoded_canonical_buffers.empty();
+    }
+    [[nodiscard]] bool has_encoded_textures() const noexcept {
+        return !_encoded_canonical_textures.empty();
+    }
+    [[nodiscard]] bool contains_encoded_canonical_buffer(
+        uint64_t identity) const noexcept {
+        return static_cast<bool>(_encoded_canonical_buffers.find(identity));
+    }
+    [[nodiscard]] bool contains_encoded_canonical_texture(
+        uint64_t identity) const noexcept {
+        return static_cast<bool>(_encoded_canonical_textures.find(identity));
+    }
+    template<typename F>
+    void traverse_encoded_textures(F &&visitor) const noexcept {
+        for (auto iter = _encoded_texture_ptrs.begin();
+             iter != _encoded_texture_ptrs.end(); ++iter) {
+            visitor(reinterpret_cast<Texture const *>(iter->first));
+        }
     }
     // Caller must hold mtx. The pending map is updated in command-recording
     // order and therefore forms the exact resource snapshot seen by the

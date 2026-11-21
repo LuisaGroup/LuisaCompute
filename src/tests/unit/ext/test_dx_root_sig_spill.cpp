@@ -833,5 +833,340 @@ int main(int argc, char **argv) {
         expect(fcgl_compiled.get<0>()->GetBufferSize() >= 20u);
     };
 
+    "hlsl_promotes_unique_kernel_buffer_args_and_preserves_coherence"_test = [&] {
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
+        Callable leaf_lookup = [](BufferUInt table, UInt start, UInt target) noexcept {
+            UInt cur = start;
+            UInt v = table.read(cur);
+            $while(v != target & cur < 16u) {
+                cur += 1u;
+                v = table.read(cur);
+            };
+            return cur;
+        };
+        Callable wrapper_lookup = [&](BufferUInt table, UInt start, UInt target) noexcept {
+            return leaf_lookup(table, start + 1u, target);
+        };
+        Callable mixed_reader = [](BufferUInt varying_buf, BufferUInt unique_table, UInt idx) noexcept {
+            return varying_buf.read(idx) + unique_table.read(idx);
+        };
+        Callable atomic_writer = [](BufferUInt accum, UInt idx, UInt delta) noexcept {
+            return accum.atomic(idx).compare_exchange(0u, delta);
+        };
+        Kernel1D kernel = [&](BufferUInt buf_a, BufferUInt buf_b,
+                              BufferUInt attr_table, BufferUInt accum_buf,
+                              BufferUInt out_buf) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            UInt r0 = leaf_lookup(attr_table, i, 7u);
+            UInt r1 = wrapper_lookup(attr_table, r0, 11u);
+            UInt r2 = wrapper_lookup(attr_table, r1, 13u);
+            UInt m0 = mixed_reader(buf_a, attr_table, i);
+            UInt m1 = mixed_reader(buf_b, attr_table, i);
+            UInt prev0 = atomic_writer(accum_buf, i, r2 + m0 + m1);
+            UInt prev1 = atomic_writer(accum_buf, i, prev0 + 1u);
+            out_buf.write(i, prev1 + r2 + m0 + m1);
+        };
+        auto fn = kernel.function()->function();
+
+        auto dx_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        std::string_view dx_src{dx_code.result.view().data(), dx_code.result.view().size()};
+        // Only mixed_reader still needs a template parameter (for varying_buf);
+        // leaf_lookup, wrapper_lookup, and atomic_writer must have their unique
+        // buffer parameters promoted to globals (so exactly one `template<` in
+        // the user-callable section after `void main`? Callables precede `main`).
+        auto custom_pos = dx_src.find("custom_");
+        expect(custom_pos != std::string_view::npos);
+        size_t template_before_main = 0u;
+        auto main_pos = dx_src.find("void main(");
+        expect(main_pos != std::string_view::npos);
+        for (size_t p = dx_src.find("template<", 0u);
+             p != std::string_view::npos && p < main_pos;
+             p = dx_src.find("template<", p + 9u)) {
+            if (p + 200u > custom_pos) {
+                // Count only callable templates emitted near/after the first custom callable.
+                if (dx_src.find("custom_", p) < dx_src.find('{', p)) {
+                    ++template_before_main;
+                }
+            }
+        }
+        expect(template_before_main == 1u);
+        // Compare-exchange inside promoted atomic_writer must propagate globallycoherent.
+        expect(dx_src.find("globallycoherent RWStructuredBuffer<uint>") != std::string_view::npos);
+
+        auto dx_compiled = compiler.compile_compute(
+            dx_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/false, /*debug=*/false);
+        expect(dx_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (dx_compiled.is_type_of<vstd::string>() ? dx_compiled.get<1>() : vstd::string{"unexpected DXIL promoted-buffer result"});
+
+        auto spv_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/true, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        auto spv_compiled = compiler.compile_compute(
+            spv_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/true, /*debug=*/false);
+        expect(spv_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (spv_compiled.is_type_of<vstd::string>() ? spv_compiled.get<1>() : vstd::string{"unexpected SPIR-V promoted-buffer result"});
+    };
+
+    "hlsl_codegen_propagates_scalar_literal_locals"_test = [&] {
+        // Multi-use scalar literal locals used across nested branches must be
+        // propagated directly to uses rather than materialized as `const uint lN=(...)`.
+        Kernel1D k = [](BufferUInt in_buf, BufferUInt out_buf) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            auto v = in_buf.read(i);
+            UInt magic = 13579246u;
+            UInt acc = 0u;
+            $if(v > 10u) {
+                acc = v + magic;
+            }
+            $else {
+                acc = v ^ magic;
+            };
+            out_buf.write(i, acc + magic);
+        };
+        auto dx_code = lc::hlsl::CodegenUtility{}.Codegen(
+            k.function()->function(), {}, 0u, /*isSpirV=*/false,
+            /*noRegister=*/false, /*enable_debug_info=*/false,
+            /*enable_fast_math=*/true);
+        std::string_view src{dx_code.result.view().data(), dx_code.result.view().size()};
+        expect(src.find("13579246u") != std::string_view::npos);
+        expect(src.find("=(13579246u);") == std::string_view::npos);
+        expect(src.find("=13579246u;") == std::string_view::npos);
+    };
+
+    "function_builder_current_scope_tracks_nested_scopes"_test = [&] {
+        const luisa::compute::ScopeStmt *root_scope = nullptr;
+        const luisa::compute::ScopeStmt *inner_scope = nullptr;
+        const luisa::compute::ScopeStmt *after_scope = nullptr;
+        Kernel1D k = [&](BufferUInt out_buf) noexcept {
+            auto *fb = luisa::compute::detail::FunctionBuilder::current();
+            root_scope = fb != nullptr ? fb->current_scope() : nullptr;
+            auto i = dispatch_x();
+            $if(i > 0u) {
+                inner_scope = fb != nullptr ? fb->current_scope() : nullptr;
+                out_buf.write(i, 1u);
+            };
+            after_scope = fb != nullptr ? fb->current_scope() : nullptr;
+        };
+        expect(root_scope != nullptr);
+        expect(inner_scope != nullptr);
+        expect(inner_scope != root_scope);
+        expect(after_scope == root_scope);
+    };
+
+#ifdef _WIN32
+    "dxil_fast_optimizer_pipeline_produces_validated_dxbc"_test = [&] {
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        if (!luisa::filesystem::exists(runtime_directory / "dxil.dll")) {
+            return;
+        }
+        Callable helper = [](UInt x, UInt y) noexcept {
+            UInt acc = x;
+            $for(k, 0u, 4u) {
+                $if(((x + k) & 1u) != 0u) {
+                    acc = acc + y * (k + 1u);
+                }
+                $else {
+                    acc = acc ^ (y + k);
+                };
+            };
+            return acc;
+        };
+        Kernel1D k = [&](BufferUInt in_buf, BufferUInt out_buf) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            auto v = in_buf.read(i);
+            UInt res = 0u;
+            $switch(v & 3u) {
+                $case(0u) { res = helper(v, 3u); };
+                $case(1u) { res = helper(v, 7u); };
+                $case(2u) { res = helper(v, 11u); };
+                $default { res = helper(v, 13u); };
+            };
+            out_buf.write(i, res);
+        };
+        auto dx_code = lc::hlsl::CodegenUtility{}.Codegen(
+            k.function()->function(), {}, 0u, /*isSpirV=*/false,
+            /*noRegister=*/false, /*enable_debug_info=*/false,
+            /*enable_fast_math=*/true);
+
+        _putenv_s("LUISA_DX_FAST_OPT_THRESHOLD", "0");
+        auto restore_env = vstd::scope_exit([] {
+            _putenv_s("LUISA_DX_FAST_OPT_THRESHOLD", "");
+        });
+        lc::hlsl::ShaderCompiler compiler{runtime_directory, /*is_spirv=*/false};
+        auto compiled = compiler.compile_compute(
+            dx_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/false, /*debug=*/false);
+        expect(compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (compiled.is_type_of<vstd::string>() ? compiled.get<1>() : vstd::string{"unexpected fast DXIL result"});
+        auto &blob = compiled.get<0>();
+        const auto *bytes = reinterpret_cast<const char *>(blob->GetBufferPointer());
+        const size_t sz = blob->GetBufferSize();
+        expect(sz >= 32u);
+        expect(std::string_view{bytes, 4u} == "DXBC");
+        std::string_view raw{bytes, sz};
+        expect(raw.find("DXIL") != std::string_view::npos);
+        expect(raw.find("HASH") != std::string_view::npos);
+    };
+
+    "large_dxil_fast_opt_preserves_wavesize_32"_test = [&] {
+        // Regression: DXC's `-fcgl` drops `[WaveSize(N)]` from `!dx.fnprops`,
+        // causing `_try_compile_large_dxil_fast` to emit Wave64 DXIL on AMD RDNA.
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        auto check_wavesize32 = [&](Function fn) {
+            auto dx_code = lc::hlsl::CodegenUtility{}.Codegen(
+                fn, {}, 0u, /*isSpirV=*/false,
+                /*noRegister=*/false, /*enable_debug_info=*/false,
+                /*enable_fast_math=*/true, /*fallback_rtx=*/false,
+                /*bf16_fallback=*/false, {}, /*emulate_8bit=*/false,
+                /*default_warp_size=*/luisa::optional<uint8_t>{32u});
+            expect(std::string_view{dx_code.result.view()}.find("[WaveSize(32)]") !=
+                   std::string_view::npos);
+
+            lc::hlsl::ShaderCompiler compiler{runtime_directory, /*is_spirv=*/false};
+            auto compiled = compiler.compile_compute(
+                dx_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+                /*enableUnsafeMath=*/true, /*spirv=*/false, /*debug=*/false);
+            expect(compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+                << (compiled.is_type_of<vstd::string>() ? compiled.get<1>() : vstd::string{"unexpected fast DXIL wave32 result"});
+            auto &blob = compiled.get<0>();
+            DxcBuffer buf{blob->GetBufferPointer(), blob->GetBufferSize(), 0};
+            IDxcResult *dis_raw{nullptr};
+            expect(SUCCEEDED(compiler.compiler()->Disassemble(&buf, IID_PPV_ARGS(&dis_raw))) && dis_raw != nullptr);
+            lc::hlsl::ComUniquePtr<IDxcResult> dis{dis_raw};
+            IDxcBlobUtf8 *dis_txt_raw{nullptr};
+            expect(SUCCEEDED(dis->GetOutput(DXC_OUT_DISASSEMBLY, IID_PPV_ARGS(&dis_txt_raw), nullptr)) && dis_txt_raw != nullptr);
+            lc::hlsl::ComUniquePtr<IDxcBlobUtf8> dis_txt{dis_txt_raw};
+            std::string_view dis_view{
+                static_cast<char const *>(dis_txt->GetBufferPointer()),
+                dis_txt->GetBufferSize()};
+            expect(dis_view.find("WaveSize=32") != std::string_view::npos)
+                << "fast DXIL optimizer path must preserve [WaveSize(32)]";
+        };
+
+        _putenv_s("LUISA_DX_FAST_OPT_THRESHOLD", "0");
+        auto restore_env = vstd::scope_exit([] {
+            _putenv_s("LUISA_DX_FAST_OPT_THRESHOLD", "");
+        });
+
+        // Case 1: block_size=64, no i32 32 in CONSTANTS_BLOCK (exercises text fallback).
+        Kernel1D k64 = [&](BufferUInt in_buf, BufferUInt out_buf) noexcept {
+            set_block_size(64u);
+            auto i = dispatch_x();
+            out_buf.write(i, in_buf.read(i) + warp_lane_count());
+        };
+        check_wavesize32(k64.function()->function());
+
+        // Case 2: block_size=32 with i32 11 & i32 32 in CONSTANTS_BLOCK
+        // (exercises O(|METADATA_BLOCK|) binary LLVM 3.7 bitcode patcher).
+        Kernel1D k32 = [&](BufferUInt in_buf, BufferUInt out_buf) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            auto v = in_buf.read(i);
+            out_buf.write(i, (v * 11u) + (warp_lane_count() ^ 32u));
+        };
+        check_wavesize32(k32.function()->function());
+    };
+#endif
+
+    "hlsl_ray_query_commit_procedural_takes_inout_query"_test = [&] {
+        auto const runtime_directory = luisa::filesystem::path{argv[0]}.parent_path();
+        lc::hlsl::ShaderCompiler compiler{runtime_directory, true};
+        Kernel1D k = [](AccelVar accel, BufferFloat out) noexcept {
+            set_block_size(32u);
+            auto i = dispatch_x();
+            auto ray = make_ray(make_float3(0.0f, 0.0f, -2.0f),
+                                make_float3(0.0f, 0.0f, 1.0f), 1.1f, 10.0f);
+            Float acc = 0.0f;
+            auto hit = accel.traverse(ray, {})
+                           .on_surface_candidate([&](SurfaceCandidate &c) noexcept {
+                               acc += c.hit()->committed_ray_t;
+                               c.commit();
+                           })
+                           .on_procedural_candidate([&](ProceduralCandidate &c) noexcept {
+                               auto w = c.ray();
+                               auto o = c.object_ray();
+                               acc += w->origin().x + o->origin().x;
+                               c.commit(2.5f);
+                           })
+                           .trace();
+            out.write(i, hit->committed_ray_t + acc);
+        };
+        auto fn = k.function()->function();
+        auto dx_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        std::string_view dx_hlsl{dx_code.result.view()};
+        expect(dx_hlsl.find("void _CommitProcedural(inout Q q,float dist)") !=
+               std::string_view::npos);
+        expect(dx_hlsl.find("void _CommitProceduralT(inout Q q,float dist,float tmin)") !=
+               std::string_view::npos);
+        const auto dx_main_pos = dx_hlsl.find("void main(");
+        expect(dx_main_pos != std::string_view::npos);
+        const auto dx_main = dx_hlsl.substr(dx_main_pos);
+        expect(dx_main.find("_QueryAllT(") != std::string_view::npos);
+        expect(dx_main.find("_RayQueryGetWorldRayT<") != std::string_view::npos);
+        expect(dx_main.find("_RayQueryGetObjectRayT<") != std::string_view::npos);
+        expect(dx_main.find("_GetTriangleCandidateHitT(") != std::string_view::npos);
+        expect(dx_main.find("_GetCommitedHitT(") != std::string_view::npos);
+        expect(dx_main.find("_CommitProceduralT(") != std::string_view::npos);
+        auto dx_compiled = compiler.compile_compute(
+            dx_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/false, /*debug=*/false);
+        expect(dx_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (dx_compiled.is_type_of<vstd::string>() ? dx_compiled.get<1>() : vstd::string{"unexpected DXIL RayQuery commit_procedural result"});
+
+        auto spv_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/true, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        std::string_view spv_hlsl{spv_code.result.view()};
+        expect(spv_hlsl.find("void _CommitProcedural(inout Q q,float dist)") !=
+               std::string_view::npos);
+        const auto spv_main_pos = spv_hlsl.find("void main(");
+        expect(spv_main_pos != std::string_view::npos);
+        const auto spv_main = spv_hlsl.substr(spv_main_pos);
+        expect(spv_main.find("_QueryAll(") != std::string_view::npos);
+        expect(spv_main.find("_QueryAllT(") == std::string_view::npos);
+        auto spv_compiled = compiler.compile_compute(
+            spv_code.result.view(), /*optimize=*/true, /*shaderModel=*/66u,
+            /*enableUnsafeMath=*/true, /*spirv=*/true, /*debug=*/false);
+        expect(spv_compiled.is_type_of<lc::hlsl::ComUniquePtr<IDxcBlob>>())
+            << (spv_compiled.is_type_of<vstd::string>() ? spv_compiled.get<1>() : vstd::string{"unexpected SPIR-V RayQuery commit_procedural result"});
+    };
+
+    "hlsl_fmod_uses_native_under_fast_math_and_strict_otherwise"_test = [&] {
+        Kernel1D k = [&](BufferFloat in_a, BufferFloat in_b, BufferFloat out_buf) noexcept {
+            auto i = dispatch_x();
+            out_buf.write(i, fmod(in_a.read(i), in_b.read(i)));
+        };
+        auto fn = k.function()->function();
+
+        auto fast_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/true);
+        std::string_view fast_hlsl{fast_code.result.view()};
+        const auto fast_main_pos = fast_hlsl.find("void main(");
+        expect(fast_main_pos != std::string_view::npos);
+        const auto fast_main = fast_hlsl.substr(fast_main_pos);
+        expect(fast_main.find("fmod(") != std::string_view::npos);
+        expect(fast_main.find("_lc_fmod(") == std::string_view::npos);
+
+        auto strict_code = lc::hlsl::CodegenUtility{}.Codegen(
+            fn, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
+            /*enable_debug_info=*/false, /*enable_fast_math=*/false);
+        std::string_view strict_hlsl{strict_code.result.view()};
+        const auto strict_main_pos = strict_hlsl.find("void main(");
+        expect(strict_main_pos != std::string_view::npos);
+        const auto strict_main = strict_hlsl.substr(strict_main_pos);
+        expect(strict_main.find("_lc_fmod(") != std::string_view::npos);
+    };
+
     return 0;
 }

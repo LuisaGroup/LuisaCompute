@@ -95,12 +95,32 @@ BindlessArray::~BindlessArray() {
         device->global_heap->ReturnIndex(i);
     }
 }
+void BindlessArray::_track_canonical_add(uint64_t canonical, bool is_buffer) noexcept {
+    auto &canon_map = is_buffer ? _canonical_buffer_map : _canonical_texture_map;
+    auto ite = canon_map.emplace(canonical, 0u);
+    ite.value()++;
+}
+void BindlessArray::_track_canonical_remove(uint64_t canonical, bool is_buffer) noexcept {
+    auto &canon_map = is_buffer ? _canonical_buffer_map : _canonical_texture_map;
+    if (auto ite = canon_map.find(canonical)) {
+        auto &&v = ite.value();
+        LUISA_ASSERT(v > 0u, "DirectX bindless canonical reference count underflow.");
+        v--;
+        if (v == 0u) {
+            canon_map.remove(ite);
+        }
+    }
+}
 void BindlessArray::Deref(MapIndex &index) {
     if (!index) return;
-    auto &&v = index.value();
-    v--;
-    if (v == 0) {
+    auto &entry = index.value();
+    LUISA_ASSERT(entry.ref_count > 0u, "DirectX bindless resource reference count underflow.");
+    entry.ref_count--;
+    if (entry.ref_count == 0u) {
+        auto canonical = entry.canonical;
+        auto is_buffer = entry.is_buffer;
         ptrMap.remove(index);
+        _track_canonical_remove(canonical, is_buffer);
     }
     index = {};
 }
@@ -109,10 +129,14 @@ void BindlessArray::TryReturnIndexTex(MapIndex &index, uint &originValue) {
         freeQueue.push_back(originValue & BindlessStruct::mask);
         originValue = BindlessStruct::n_pos;
         // device->global_heap->ReturnIndex(originValue);
-        auto &&v = index.value();
-        v--;
-        if (v == 0) {
+        auto &entry = index.value();
+        LUISA_ASSERT(entry.ref_count > 0u, "DirectX bindless resource reference count underflow.");
+        entry.ref_count--;
+        if (entry.ref_count == 0u) {
+            auto canonical = entry.canonical;
+            auto is_buffer = entry.is_buffer;
             ptrMap.remove(index);
+            _track_canonical_remove(canonical, is_buffer);
         }
     }
     index = {};
@@ -122,17 +146,48 @@ void BindlessArray::TryReturnIndex(MapIndex &index, uint &originValue) {
         freeQueue.push_back(originValue);
         originValue = BindlessStruct::n_pos;
         // device->global_heap->ReturnIndex(originValue);
-        auto &&v = index.value();
-        v--;
-        if (v == 0) {
+        auto &entry = index.value();
+        LUISA_ASSERT(entry.ref_count > 0u, "DirectX bindless resource reference count underflow.");
+        entry.ref_count--;
+        if (entry.ref_count == 0u) {
+            auto canonical = entry.canonical;
+            auto is_buffer = entry.is_buffer;
             ptrMap.remove(index);
+            _track_canonical_remove(canonical, is_buffer);
         }
     }
     index = {};
 }
 BindlessArray::MapIndex BindlessArray::AddIndex(size_t ptr) {
-    auto ite = ptrMap.emplace(ptr, 0);
-    ite.value()++;
+    auto ite = ptrMap.emplace(ptr, TrackedEntry{});
+    auto &entry = ite.value();
+    if (entry.ref_count == 0u) {
+        auto resource = reinterpret_cast<Resource const *>(ptr);
+        auto tag = resource->get_tag();
+        auto is_buffer =
+            tag == Resource::Tag::UploadBuffer ||
+            tag == Resource::Tag::ReadbackBuffer ||
+            tag == Resource::Tag::DefaultBuffer ||
+            tag == Resource::Tag::SparseBuffer ||
+            tag == Resource::Tag::ExternalBuffer;
+        auto is_texture =
+            tag == Resource::Tag::RenderTexture ||
+            tag == Resource::Tag::SparseTexture ||
+            tag == Resource::Tag::DepthBuffer ||
+            tag == Resource::Tag::ExternalTexture ||
+            tag == Resource::Tag::ExternalDepth;
+        LUISA_ASSERT(
+            is_buffer || is_texture,
+            "DirectX bindless canonical tracking received an invalid resource.");
+        auto native_resource = resource->GetResource();
+        LUISA_ASSERT(
+            native_resource != nullptr,
+            "DirectX bindless resource has no underlying ID3D12Resource.");
+        entry.canonical = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(native_resource));
+        entry.is_buffer = is_buffer;
+        _track_canonical_add(entry.canonical, entry.is_buffer);
+    }
+    entry.ref_count++;
     return ite;
 }
 void BindlessArray::Bind(vstd::span<const BindlessArrayUpdateCommand::BufferModification> mods) {

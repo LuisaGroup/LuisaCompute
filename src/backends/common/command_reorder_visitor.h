@@ -76,6 +76,25 @@ concept ReorderFuncTable =
         requires(std::is_same_v<luisa::span<const Argument>, decltype(t.raster_shader_bindings(uint64_v))>);
     };
 
+// Optional fast-path interface for backends whose BindlessArray maintains an
+// O(1) canonical pending-resource set. When satisfied, CommandReorderVisitor
+// avoids traversing the full bindless array (potentially 10k+ resources) on
+// every shader dispatch and instead checks only the resources actively tracked
+// in this command batch, materializing lazily only when a mid-batch update
+// mutates a previously-dispatched bindless array.
+template<typename T>
+concept ReorderFastBindlessFuncTable =
+    ReorderFuncTable<T> &&
+    requires(const T t, uint64_t bindless_handle) {
+        requires(std::is_same_v<size_t, decltype(t.bindless_pending_count(bindless_handle))>);
+        requires(std::is_same_v<bool, decltype(t.bindless_has_pending_buffers(bindless_handle))>);
+        t.with_bindless_pending_lookup(
+            bindless_handle,
+            [](auto &&contains) noexcept {
+                [[maybe_unused]] bool found = contains(uint64_t{0u}, true);
+            });
+    };
+
 template<ReorderFuncTable FuncTable, bool supportConcurrentCopy, size_t fixedVectorSize = 2>
 class CommandReorderVisitor : public CommandVisitor {
 
@@ -337,6 +356,17 @@ private:
     vstd::vector<CommandLink *> _cmd_list_tails;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_read_handle;
     vstd::vector<std::pair<Range, ResourceHandle *>> _dispatch_write_handle;
+    struct ActiveBindlessState {
+        uint64_t bindless_handle;
+        int64_t read_layer = -1;
+        int64_t write_layer = -1;
+    };
+    struct DispatchBindlessAccess {
+        uint64_t bindless_handle;
+        bool is_write;
+    };
+    vstd::vector<ActiveBindlessState> _active_bindless_states;
+    vstd::vector<DispatchBindlessAccess> _dispatch_bindless_accesses;
     // Reordering switch (see set_enabled()). When it is off, add_command()
     // ignores the hazard-derived layer and appends the command to a fresh
     // layer of its own, so the emitted layer lists degenerate into the
@@ -373,6 +403,31 @@ private:
                 new (value) RangeHandle{};
                 value->handle = canonical_handle;
                 value->type = target_type;
+                if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+                    if (!_active_bindless_states.empty()) {
+                        auto is_buffer = target_type == ResourceType::Buffer;
+                        int64_t max_read_layer = -1;
+                        int64_t max_write_layer = -1;
+                        for (auto const &state : _active_bindless_states) {
+                            auto matched = false;
+                            _func_table.with_bindless_pending_lookup(
+                                state.bindless_handle,
+                                [&](auto &&contains) noexcept {
+                                    matched = contains(canonical_handle, is_buffer);
+                                });
+                            if (matched) {
+                                max_read_layer = std::max<int64_t>(max_read_layer, state.read_layer);
+                                max_write_layer = std::max<int64_t>(max_write_layer, state.write_layer);
+                            }
+                        }
+                        if (max_write_layer >= 0) {
+                            value->emplace_write_layer(whole_range(), max_write_layer);
+                        }
+                        if (max_read_layer >= 0) {
+                            value->emplace_read_layer(whole_range(), max_read_layer);
+                        }
+                    }
+                }
             }
             return value;
         };
@@ -810,37 +865,209 @@ private:
         }
     }
 
+    void materialize_bindless_state(uint64_t bindless_handle) noexcept {
+        if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+            for (size_t idx = 0u; idx < _active_bindless_states.size(); ++idx) {
+                if (_active_bindless_states[idx].bindless_handle != bindless_handle) {
+                    continue;
+                }
+                auto state = _active_bindless_states[idx];
+                _active_bindless_states.erase(_active_bindless_states.begin() + idx);
+                vstd::vector<std::pair<uint64_t, bool>> snapshot;
+                _func_table.traverse_bindless_resources(
+                    bindless_handle,
+                    ReorderBindlessResourceVisitor{
+                        .context = &snapshot,
+                        .callback = [](void *opaque, uint64_t resource_handle,
+                                       bool is_buffer) noexcept {
+                            static_cast<vstd::vector<std::pair<uint64_t, bool>> *>(opaque)
+                                ->emplace_back(resource_handle, is_buffer);
+                        }});
+                for (auto [resource_handle, is_buffer] : snapshot) {
+                    auto *handle = static_cast<RangeHandle *>(get_handle(
+                        resource_handle,
+                        is_buffer ? ResourceType::Buffer : ResourceType::Texture));
+                    if (state.write_layer >= 0) {
+                        handle->emplace_write_layer(whole_range(), state.write_layer);
+                    }
+                    if (state.read_layer >= 0) {
+                        handle->emplace_read_layer(whole_range(), state.read_layer);
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    [[nodiscard]] bool bindless_arrays_overlap(
+        uint64_t lhs, uint64_t rhs) const noexcept {
+        if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+            if (lhs == rhs) { return true; }
+            auto lhs_count = _func_table.bindless_pending_count(lhs);
+            auto rhs_count = _func_table.bindless_pending_count(rhs);
+            if (lhs_count == 0u || rhs_count == 0u) { return false; }
+            auto small_handle = lhs_count <= rhs_count ? lhs : rhs;
+            auto large_handle = lhs_count <= rhs_count ? rhs : lhs;
+            struct CollectCtx {
+                FuncTable const *func_table;
+                vstd::vector<std::pair<uint64_t, bool>> items;
+            } ctx{&_func_table, {}};
+            ctx.items.reserve(std::min(lhs_count, rhs_count));
+            _func_table.traverse_bindless_resources(
+                small_handle,
+                ReorderBindlessResourceVisitor{
+                    .context = &ctx,
+                    .callback = [](void *opaque, uint64_t resource_handle,
+                                   bool is_buffer) noexcept {
+                        auto &c = *static_cast<CollectCtx *>(opaque);
+                        auto canonical = is_buffer ?
+                                             c.func_table->canonical_buffer_handle(resource_handle) :
+                                             c.func_table->canonical_texture_handle(resource_handle);
+                        c.items.emplace_back(canonical, is_buffer);
+                    }});
+            auto overlaps = false;
+            _func_table.with_bindless_pending_lookup(
+                large_handle,
+                [&](auto &&contains) noexcept {
+                    for (auto [canonical, is_buffer] : ctx.items) {
+                        if (contains(canonical, is_buffer)) {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+                });
+            return overlaps;
+        } else {
+            return false;
+        }
+    }
+
+    void finalize_dispatch_bindless_accesses() noexcept {
+        if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+            for (auto const &access : _dispatch_bindless_accesses) {
+                if (!_buffer_map.empty() || !_texture_map.empty()) {
+                    _func_table.with_bindless_pending_lookup(
+                        access.bindless_handle,
+                        [&](auto &&contains) noexcept {
+                            for (auto &&[canonical, handle] : _buffer_map) {
+                                if (contains(canonical, true)) {
+                                    if (access.is_write) {
+                                        handle->emplace_write_layer(whole_range(), _dispatch_layer);
+                                    } else {
+                                        handle->emplace_read_layer(whole_range(), _dispatch_layer);
+                                    }
+                                }
+                            }
+                            for (auto &&[canonical, handle] : _texture_map) {
+                                if (contains(canonical, false)) {
+                                    if (access.is_write) {
+                                        handle->emplace_write_layer(whole_range(), _dispatch_layer);
+                                    } else {
+                                        handle->emplace_read_layer(whole_range(), _dispatch_layer);
+                                    }
+                                }
+                            }
+                        });
+                }
+                ActiveBindlessState *found = nullptr;
+                for (auto &state : _active_bindless_states) {
+                    if (state.bindless_handle == access.bindless_handle) {
+                        found = &state;
+                        break;
+                    }
+                }
+                if (found == nullptr) {
+                    _active_bindless_states.emplace_back(ActiveBindlessState{
+                        .bindless_handle = access.bindless_handle,
+                        .read_layer = _dispatch_layer,
+                        .write_layer = access.is_write ? _dispatch_layer : -1});
+                } else {
+                    found->read_layer = std::max<int64_t>(found->read_layer, _dispatch_layer);
+                    if (access.is_write) {
+                        found->write_layer = std::max<int64_t>(found->write_layer, _dispatch_layer);
+                    }
+                }
+            }
+        }
+    }
+
     void add_bindless_dispatch_handles(
         uint64_t bindless_handle,
         bool may_write,
         bool isolate_resource_states = false) {
-        struct TraversalContext {
-            CommandReorderVisitor *reorder;
-            bool may_write;
-            bool isolate_resource_states;
-        } context{this, may_write, isolate_resource_states};
-        _func_table.traverse_bindless_resources(
-            bindless_handle,
-            ReorderBindlessResourceVisitor{
-                .context = &context,
-                .callback = [](void *opaque, uint64_t resource_handle,
-                               bool is_buffer) noexcept {
-                    auto &state = *static_cast<TraversalContext *>(opaque);
-                    // A WRITE bindless argument may write ANY snapshot
-                    // resource: the DSL marks the whole array variable as
-                    // WRITE when the shader writes through any slot, and
-                    // tex2d()/tex3d() views support write(). Restricting
-                    // the write mark to buffers (is_buffer && may_write)
-                    // left bindless texture writes unordered, so a later
-                    // direct read could share the dispatch's layer (RAW)
-                    // and repeated write dispatches could share one layer
-                    // (WAW).
-                    state.reorder->add_dispatch_handle(
-                        resource_handle,
-                        is_buffer ? ResourceType::Buffer : ResourceType::Texture,
-                        whole_range(),
-                        state.isolate_resource_states || state.may_write);
-                }});
+        if constexpr (ReorderFastBindlessFuncTable<FuncTable>) {
+            auto is_write = isolate_resource_states || may_write;
+            auto pending_count = _func_table.bindless_pending_count(bindless_handle);
+            if (pending_count > 0u) {
+                if (is_write) {
+                    _dispatch_layer = std::max<int64_t>(
+                        _dispatch_layer, _cluster_build_read_level + 1);
+                }
+                if (!_buffer_map.empty() || !_texture_map.empty()) {
+                    _func_table.with_bindless_pending_lookup(
+                        bindless_handle,
+                        [&](auto &&contains) noexcept {
+                            for (auto &&[canonical, handle] : _buffer_map) {
+                                if (contains(canonical, true)) {
+                                    auto layer = is_write ?
+                                                     get_last_layer_write(handle, whole_range()) :
+                                                     get_last_layer_read(handle, whole_range());
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
+                                }
+                            }
+                            for (auto &&[canonical, handle] : _texture_map) {
+                                if (contains(canonical, false)) {
+                                    auto layer = is_write ?
+                                                     get_last_layer_write(handle, whole_range()) :
+                                                     get_last_layer_read(handle, whole_range());
+                                    _dispatch_layer = std::max<int64_t>(_dispatch_layer, layer);
+                                }
+                            }
+                        });
+                }
+                for (auto const &state : _active_bindless_states) {
+                    auto candidate_layer = is_write ?
+                                               std::max<int64_t>(state.read_layer, state.write_layer) + 1 :
+                                               (state.write_layer >= 0 ? state.write_layer + 1 : -1);
+                    if (candidate_layer <= _dispatch_layer) {
+                        continue;
+                    }
+                    if (bindless_arrays_overlap(state.bindless_handle, bindless_handle)) {
+                        _dispatch_layer = candidate_layer;
+                    }
+                }
+                _dispatch_bindless_accesses.emplace_back(
+                    DispatchBindlessAccess{bindless_handle, is_write});
+            }
+        } else {
+            struct TraversalContext {
+                CommandReorderVisitor *reorder;
+                bool may_write;
+                bool isolate_resource_states;
+            } context{this, may_write, isolate_resource_states};
+            _func_table.traverse_bindless_resources(
+                bindless_handle,
+                ReorderBindlessResourceVisitor{
+                    .context = &context,
+                    .callback = [](void *opaque, uint64_t resource_handle,
+                                   bool is_buffer) noexcept {
+                        auto &state = *static_cast<TraversalContext *>(opaque);
+                        // A WRITE bindless argument may write ANY snapshot
+                        // resource: the DSL marks the whole array variable as
+                        // WRITE when the shader writes through any slot, and
+                        // tex2d()/tex3d() views support write(). Restricting
+                        // the write mark to buffers (is_buffer && may_write)
+                        // left bindless texture writes unordered, so a later
+                        // direct read could share the dispatch's layer (RAW)
+                        // and repeated write dispatches could share one layer
+                        // (WAW).
+                        state.reorder->add_dispatch_handle(
+                            resource_handle,
+                            is_buffer ? ResourceType::Buffer : ResourceType::Texture,
+                            whole_range(),
+                            state.isolate_resource_states || state.may_write);
+                    }});
+        }
         // Shader access reads the bindless index/descriptor object itself;
         // resource writes are tracked on the snapshotted resources above.
         // A native state contract also serializes the descriptor
@@ -856,6 +1083,7 @@ private:
     void visit(const CustomDispatchCommand *command) noexcept {
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
+        _dispatch_bindless_accesses.clear();
         _use_accel_in_pass = false;
         _write_accel_in_pass = false;
         _dispatch_layer = 0;
@@ -920,6 +1148,7 @@ private:
         for (auto &&i : _dispatch_write_handle) {
             set_write_layer(i.second, i.first, _dispatch_layer);
         }
+        finalize_dispatch_bindless_accesses();
         add_command(command, _dispatch_layer);
         if (_use_accel_in_pass) {
             if (_write_accel_in_pass) {
@@ -940,6 +1169,7 @@ private:
                Callback callback) noexcept {
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
+        _dispatch_bindless_accesses.clear();
         _use_accel_in_pass = false;
         _write_accel_in_pass = false;
         _dispatch_layer = 0;
@@ -1029,6 +1259,7 @@ private:
         for (auto &&i : _dispatch_write_handle) {
             set_write_layer(i.second, i.first, _dispatch_layer);
         }
+        finalize_dispatch_bindless_accesses();
         add_command(cmd_base, _dispatch_layer);
         if (_use_accel_in_pass) {
             if (_write_accel_in_pass) {
@@ -1072,6 +1303,8 @@ public:
         _max_dispatch_blocks.clear();
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
+        _active_bindless_states.clear();
+        _dispatch_bindless_accesses.clear();
         destroy_map(_buffer_map);
         destroy_map(_texture_map);
         destroy_map(_no_range_resmap);
@@ -1195,6 +1428,7 @@ public:
 
     // BindlessArray : read multi resources
     void visit(const BindlessArrayUpdateCommand *command) noexcept override {
+        materialize_bindless_state(command->handle());
         command->visit_modifications([&](auto &&mods) {
             _func_table.update_bindless(command->handle(), luisa::span{mods});
         });

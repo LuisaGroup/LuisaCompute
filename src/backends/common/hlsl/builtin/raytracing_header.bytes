@@ -107,9 +107,98 @@ pl.v1=q.CandidatePrimitiveIndex();
 return pl;
 }
 template<typename Q>
-void _CommitProcedural(Q q,float dist){
-if(dist<q.CommittedRayT())
+void _CommitProcedural(inout Q q,float dist){
+if(dist>=q.RayTMin()&&dist<q.CommittedRayT())
 q.CommitProceduralPrimitiveHit(dist);
+}
+template<typename T>
+RayDesc _toRayShifted(T rayDesc,out float tmin_out){
+RayDesc ray;
+float3 o=float3(rayDesc.v0.v[0],rayDesc.v0.v[1],rayDesc.v0.v[2]);
+float3 d=float3(rayDesc.v2.v[0],rayDesc.v2.v[1],rayDesc.v2.v[2]);
+float tmin=rayDesc.v1;
+tmin_out=tmin;
+ray.Origin=o+d*tmin;
+ray.Direction=d;
+ray.TMin=0.0f;
+ray.TMax=rayDesc.v3-tmin;
+return ray;
+}
+#define _QueryAllT(accel,rayDesc,mask,q,tmin_out)\
+{RayDesc ray=_toRayShifted(rayDesc,tmin_out);\
+q.TraceRayInline(accel,RAY_FLAG_NONE,mask,ray);}
+#define _QueryAnyT(accel,rayDesc,mask,q,tmin_out)\
+{RayDesc ray=_toRayShifted(rayDesc,tmin_out);\
+q.TraceRayInline(accel,RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,mask,ray);}
+template<typename T, typename Q>
+T _RayQueryGetWorldRayT(Q q,float tmin) {
+float3 d=q.WorldRayDirection();
+float3 o=q.WorldRayOrigin()-d*tmin;
+T ray;
+ray.v0.v[0]=o.x;
+ray.v0.v[1]=o.y;
+ray.v0.v[2]=o.z;
+ray.v1=tmin;
+ray.v2.v[0]=d.x;
+ray.v2.v[1]=d.y;
+ray.v2.v[2]=d.z;
+ray.v3=q.CommittedRayT()+tmin;
+return ray;
+}
+template<typename T, typename Q>
+T _RayQueryGetObjectRayT(Q q,float tmin) {
+float3 d=q.CandidateObjectRayDirection();
+float3 o=q.CandidateObjectRayOrigin()-d*tmin;
+T ray;
+ray.v0.v[0]=o.x;
+ray.v0.v[1]=o.y;
+ray.v0.v[2]=o.z;
+ray.v1=tmin;
+ray.v2.v[0]=d.x;
+ray.v2.v[1]=d.y;
+ray.v2.v[2]=d.z;
+ray.v3=q.CommittedRayT()+tmin;
+return ray;
+}
+template<typename Q>
+_Hit0 _GetCommitedHitT(Q q,float tmin){
+_Hit0 pl=(_Hit0)0;
+switch(q.CommittedStatus()){
+case COMMITTED_TRIANGLE_HIT:
+pl.v0=q.CommittedInstanceIndex();
+pl.v1=q.CommittedPrimitiveIndex();
+pl.v2=q.CommittedTriangleBarycentrics();
+pl.v3=1;
+pl.v4=q.CommittedRayT()+tmin;
+break;
+case COMMITTED_PROCEDURAL_PRIMITIVE_HIT:
+pl.v0=q.CommittedInstanceIndex();
+pl.v1=q.CommittedPrimitiveIndex();
+pl.v2=0;
+pl.v3=2;
+pl.v4=q.CommittedRayT()+tmin;
+break;
+default:
+pl.v0=~0u;
+pl.v3=0;
+break;
+}
+return pl;
+}
+template<typename Q>
+_Hit1 _GetTriangleCandidateHitT(Q q,float tmin){
+_Hit1 pl=(_Hit1)0;
+pl.v0=q.CandidateInstanceIndex();
+pl.v1=q.CandidatePrimitiveIndex();
+pl.v2=q.CandidateTriangleBarycentrics();
+pl.v3=q.CandidateTriangleRayT()+tmin;
+return pl;
+}
+template<typename Q>
+void _CommitProceduralT(inout Q q,float dist,float tmin){
+float local_t=dist-tmin;
+if(local_t>=0.0f&&local_t<q.CommittedRayT())
+q.CommitProceduralPrimitiveHit(local_t);
 }
 template<typename T>
 bool _TraceAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){

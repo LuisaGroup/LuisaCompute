@@ -349,6 +349,84 @@ void BindlessArray::pre_update(ResourceBarrier *barrier) {
             ResourceBarrier::Usage::kCopyDest);
     }
 }
+void BindlessArray::_track_canonical_add(
+    CanonicalMap &map, uint64_t canonical) noexcept {
+    auto ite = map.emplace(canonical, 0u);
+    ite.value()++;
+}
+void BindlessArray::_track_canonical_remove(
+    CanonicalMap &map, uint64_t canonical) noexcept {
+    if (auto ite = map.find(canonical)) {
+        auto &&v = ite.value();
+        LUISA_ASSERT(v > 0u,
+                     "Vulkan bindless canonical reference count underflow.");
+        v--;
+        if (v == 0u) {
+            map.remove(ite);
+        }
+    }
+}
+void BindlessArray::_on_resource_added(
+    Map &resource_map, size_t ptr, TrackedEntry &entry) noexcept {
+    auto *resource = reinterpret_cast<const Resource *>(ptr);
+    LUISA_ASSERT(
+        resource != nullptr &&
+            (resource->tag() == Resource::Tag::kBuffer ||
+             resource->tag() == Resource::Tag::kTexture),
+        "Vulkan bindless resource tracking encountered an invalid resource.");
+    if (resource->tag() == Resource::Tag::kBuffer) {
+        auto *buffer = static_cast<const Buffer *>(resource);
+        entry.canonical = detail::native_buffer_identity(buffer->vk_buffer());
+        entry.is_buffer = true;
+        entry.non_bda_buffer = !buffer->device_address_capable();
+        if (&resource_map == &_ptr_map) {
+            _track_canonical_add(_pending_canonical_buffers, entry.canonical);
+        } else {
+            LUISA_DEBUG_ASSERT(&resource_map == &_encoded_ptr_map);
+            _track_canonical_add(_encoded_canonical_buffers, entry.canonical);
+            if (entry.non_bda_buffer) {
+                ++_encoded_non_bda_buffer_count;
+            }
+        }
+    } else {
+        auto *texture = static_cast<const Texture *>(resource);
+        entry.canonical = detail::native_image_identity(texture->vk_image());
+        entry.is_buffer = false;
+        entry.non_bda_buffer = false;
+        if (&resource_map == &_ptr_map) {
+            _track_canonical_add(_pending_canonical_textures, entry.canonical);
+        } else {
+            LUISA_DEBUG_ASSERT(&resource_map == &_encoded_ptr_map);
+            _track_canonical_add(_encoded_canonical_textures, entry.canonical);
+            _encoded_texture_ptrs.emplace(ptr, 1u);
+        }
+    }
+}
+void BindlessArray::_on_resource_removed(
+    Map &resource_map, size_t ptr, TrackedEntry const &entry) noexcept {
+    if (entry.is_buffer) {
+        if (&resource_map == &_ptr_map) {
+            _track_canonical_remove(_pending_canonical_buffers, entry.canonical);
+        } else {
+            LUISA_DEBUG_ASSERT(&resource_map == &_encoded_ptr_map);
+            _track_canonical_remove(_encoded_canonical_buffers, entry.canonical);
+            if (entry.non_bda_buffer) {
+                LUISA_ASSERT(
+                    _encoded_non_bda_buffer_count > 0u,
+                    "Vulkan bindless non-BDA buffer reference count underflow.");
+                --_encoded_non_bda_buffer_count;
+            }
+        }
+    } else {
+        if (&resource_map == &_ptr_map) {
+            _track_canonical_remove(_pending_canonical_textures, entry.canonical);
+        } else {
+            LUISA_DEBUG_ASSERT(&resource_map == &_encoded_ptr_map);
+            _track_canonical_remove(_encoded_canonical_textures, entry.canonical);
+            _encoded_texture_ptrs.remove(ptr);
+        }
+    }
+}
 void BindlessArray::_return_value(
     Map &resource_map, vstd::vector<FreeValue> &retired_slots,
     MapIndex &index, uint type, uint &origin_value) {
@@ -365,24 +443,30 @@ void BindlessArray::_return_value(
                           origin_value :
                           origin_value & BindlessStruct::kMask});
         origin_value = BindlessStruct::kInvalidPos;
-        auto &&v = index.value();
-        LUISA_ASSERT(v > 0u,
+        auto &entry = index.value();
+        LUISA_ASSERT(entry.ref_count > 0u,
                      "Vulkan bindless resource reference count underflow.");
-        v--;
-        if (v == 0) {
+        entry.ref_count--;
+        if (entry.ref_count == 0u) {
+            auto ptr = index.key();
+            auto saved_entry = entry;
             resource_map.remove(index);
+            _on_resource_removed(resource_map, ptr, saved_entry);
         }
     }
     index = {};
 }
 void BindlessArray::_deref(Map &resource_map, Map::Index &index) {
     if (!index) return;
-    auto &&v = index.value();
-    LUISA_ASSERT(v > 0u,
+    auto &entry = index.value();
+    LUISA_ASSERT(entry.ref_count > 0u,
                  "Vulkan bindless resource reference count underflow.");
-    v--;
-    if (v == 0) {
+    entry.ref_count--;
+    if (entry.ref_count == 0u) {
+        auto ptr = index.key();
+        auto saved_entry = entry;
         resource_map.remove(index);
+        _on_resource_removed(resource_map, ptr, saved_entry);
     }
     index = {};
 }
@@ -455,8 +539,12 @@ void BindlessArray::bind(vstd::span<const BindlessArrayUpdateCommand::BufferModi
     }
 }
 auto BindlessArray::_add_index(Map &resource_map, size_t ptr) -> Map::Index {
-    auto ite = resource_map.emplace(ptr, 0);
-    ite.value()++;
+    auto ite = resource_map.emplace(ptr, TrackedEntry{});
+    auto &entry = ite.value();
+    if (entry.ref_count == 0u) {
+        _on_resource_added(resource_map, ptr, entry);
+    }
+    entry.ref_count++;
     return ite;
 }
 
@@ -465,37 +553,13 @@ bool BindlessArray::contains_buffer_alias(
     LUISA_ASSERT(source != nullptr,
                  "Cannot query a null Vulkan bindless buffer alias.");
     std::lock_guard lock{mtx};
-    for (auto iter = _ptr_map.begin(); iter != _ptr_map.end(); ++iter) {
-        auto *resource = reinterpret_cast<const Resource *>(iter->first);
-        if (resource != nullptr &&
-            resource->tag() == Resource::Tag::kBuffer) {
-            auto *buffer = static_cast<const Buffer *>(resource);
-            if (buffer == source ||
-                buffer->vk_buffer() == source->vk_buffer()) {
-                return true;
-            }
-        }
-    }
-    return false;
+    return static_cast<bool>(_pending_canonical_buffers.find(
+        detail::native_buffer_identity(source->vk_buffer())));
 }
 
 bool BindlessArray::encoded_buffers_support_device_address() const noexcept {
     std::lock_guard lock{mtx};
-    auto supported = true;
-    traverse_encoded_resources([&](uint64_t handle) noexcept {
-        auto *resource = reinterpret_cast<const Resource *>(handle);
-        LUISA_ASSERT(
-            resource != nullptr &&
-                (resource->tag() == Resource::Tag::kBuffer ||
-                 resource->tag() == Resource::Tag::kTexture),
-            "Vulkan bindless device-address validation encountered an "
-            "invalid encoded resource.");
-        if (resource->tag() == Resource::Tag::kBuffer) {
-            supported &= static_cast<const Buffer *>(resource)
-                             ->device_address_capable();
-        }
-    });
-    return supported;
+    return _encoded_non_bda_buffer_count == 0u;
 }
 
 void BindlessArray::bind(luisa::span<BindlessArrayUpdateCommand::Modification const> mods) {

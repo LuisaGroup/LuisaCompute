@@ -203,6 +203,7 @@ public:
         vstd::StringBuilder &result,
         bool cBufferNonEmpty,
         bool codegen_self);
+    void AnalyzePromotedResourceArgs(Function kernel);
     void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty);
     void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
     bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);

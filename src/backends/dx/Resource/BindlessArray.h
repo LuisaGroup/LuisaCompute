@@ -12,7 +12,13 @@ class CommandBufferBuilder;
 class EnhancedBarrierTracker;
 class BindlessArray final : public Resource {
 public:
-    using Map = vstd::HashMap<size_t, size_t>;
+    struct TrackedEntry {
+        size_t ref_count{0u};
+        uint64_t canonical{0u};
+        bool is_buffer{false};
+    };
+    using Map = vstd::HashMap<size_t, TrackedEntry>;
+    using CanonicalMap = vstd::HashMap<uint64_t, size_t>;
     using MapIndex = typename Map::Index;
     struct BindlessStruct {
         static constexpr auto n_pos = std::numeric_limits<uint>::max();
@@ -40,9 +46,13 @@ private:
         vstd::vector<MapIndex>>
         typed_binded;
     Map ptrMap;
+    CanonicalMap _canonical_buffer_map;
+    CanonicalMap _canonical_texture_map;
     mutable std::mutex mtx;
     DefaultBuffer buffer;
     luisa::FirstFit::Node *_buffer_node = nullptr;
+    void _track_canonical_add(uint64_t canonical, bool is_buffer) noexcept;
+    void _track_canonical_remove(uint64_t canonical, bool is_buffer) noexcept;
     void Deref(MapIndex &index);
     void TryReturnIndex(MapIndex &index, uint &originValue);
     void TryReturnIndexTex(MapIndex &index, uint &originValue);
@@ -61,6 +71,18 @@ public:
     }
     bool IsPtrInBindless(size_t ptr) const {
         return ptrMap.find(ptr);
+    }
+    // Caller must hold the bindless lock.
+    [[nodiscard]] bool ContainsPendingCanonical(uint64_t canonical_handle, bool is_buffer) const noexcept {
+        return is_buffer ?
+                   static_cast<bool>(_canonical_buffer_map.find(canonical_handle)) :
+                   static_cast<bool>(_canonical_texture_map.find(canonical_handle));
+    }
+    [[nodiscard]] size_t PendingResourceCount() const noexcept {
+        return ptrMap.size();
+    }
+    [[nodiscard]] bool HasPendingBuffers() const noexcept {
+        return !_canonical_buffer_map.empty();
     }
     // Caller must hold the bindless lock. Bind() updates this map in command
     // order, so it is the dispatch-time resource snapshot for reordering.

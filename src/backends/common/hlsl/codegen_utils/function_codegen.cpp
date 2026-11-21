@@ -129,14 +129,18 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
             data += "()"sv;
         } else {
             data += '(';
+            bool has_emitted_arg = false;
             for (auto &&i : func.arguments()) {
+                RegistStructType(i.type());
+                if (opt->IsPromotedResourceArg(func, i)) {
+                    continue;
+                }
                 Usage usage = func.variable_usage(i.uid());
                 if (i.tag() == Variable::Tag::REFERENCE) {
                     if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) != 0) {
                         data += opt->isSpirv ? "[[vk::ext_reference]] inout "sv : "inout "sv;
                     }
                 }
-                RegistStructType(i.type());
 
                 vstd::StringBuilder varName;
                 CodegenUtility::GetVariableName(func, i, varName);
@@ -172,6 +176,12 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
                     GetTypeName(i.type(), usage);
                     data << ' ';
                     data << varName;
+                    if (!opt->isSpirv && i.type()->tag() == Type::Tag::CUSTOM &&
+                        (i.type()->description() == "LC_RayQueryAll"sv ||
+                         i.type()->description() == "LC_RayQueryAny"sv)) {
+                        data << (i.tag() == Variable::Tag::REFERENCE ? ",inout float "sv : ",float "sv)
+                             << varName << "_tmin"sv;
+                    }
                     if (opt->enable_debug_info &&
                         is_validation_resource(i.type())) {
                         data << ",uint "sv;
@@ -179,8 +189,13 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
                     }
                     data << ',';
                 }
+                has_emitted_arg = true;
             }
-            data[data.size() - 1] = ')';
+            if (has_emitted_arg) {
+                data[data.size() - 1] = ')';
+            } else {
+                data += ')';
+            }
         }
     }
     if (tempIdx > 0) {
@@ -354,6 +369,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         LUISA_DEBUG_ASSERT(expr->tag() == Expression::Tag::REF);
         auto buffer_expr = static_cast<RefExpr const *>(expr);
         opt->globallyCoherentBuffers.emplace(vis.f.builder()).value().emplace(buffer_expr->variable().uid());
+        if (auto const *promoted = opt->FindPromotedResourceArg(vis.f, buffer_expr->variable())) {
+            opt->globallyCoherentBuffers.emplace(opt->kernel.builder()).value().emplace(promoted->uid());
+        }
     };
     // Software BF16: emit the `_lc_bf16_*` helper of builtin/bfloat16_fallback.bytes
     // instead of the native HLSL spelling whenever a BF16 value takes part in the
@@ -396,8 +414,27 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     "HLSL custom-call argument count mismatch: expected {}, got {}.",
                     custom_arguments.size(), args.size());
                 auto iter = opt->globallyCoherentBuffers.find(expr->custom().builder());
+                bool first_emitted = true;
                 for (auto &&i : args) {
                     auto formal = custom_arguments[sz];
+                    // globallycoherent propagated even when formal is promoted to kernel global
+                    if (i->type()->is_buffer() && i->tag() == Expression::Tag::REF && iter) {
+                        if (iter.value().contains(formal.uid())) {
+                            auto actual_var = static_cast<RefExpr const *>(i)->variable();
+                            opt->globallyCoherentBuffers.emplace(vis.f.builder()).value().emplace(actual_var.uid());
+                            if (auto const *promoted = opt->FindPromotedResourceArg(vis.f, actual_var)) {
+                                opt->globallyCoherentBuffers.emplace(opt->kernel.builder()).value().emplace(promoted->uid());
+                            }
+                        }
+                    }
+                    if (opt->IsPromotedResourceArg(expr->custom(), formal)) {
+                        ++sz;
+                        continue;
+                    }
+                    if (!first_emitted) {
+                        str << ',';
+                    }
+                    first_emitted = false;
                     if (i->type()->is_accel()) {
                         if ((static_cast<uint>(expr->custom().variable_usage(formal.uid())) & static_cast<uint>(Usage::WRITE)) == 0) {
                             i->accept(vis);
@@ -412,12 +449,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                             PrintFallbackAccelBase(i);
                         }
                     } else {
-                        // globallycoherent propagated
-                        if (i->type()->is_buffer() && i->tag() == Expression::Tag::REF && iter) {
-                            if (iter.value().contains(formal.uid())) {
-                                opt->globallyCoherentBuffers.emplace(vis.f.builder()).value().emplace(static_cast<RefExpr const *>(i)->variable().uid());
-                            }
-                        }
                         if (opt->isSpirv && formal.type()->is_texture()) {
                             auto formal_usage =
                                 expr->custom().variable_usage(formal.uid());
@@ -436,6 +467,13 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                             }
                         } else {
                             i->accept(vis);
+                            if (!opt->isSpirv && formal.type()->tag() == Type::Tag::CUSTOM &&
+                                (formal.type()->description() == "LC_RayQueryAll"sv ||
+                                 formal.type()->description() == "LC_RayQueryAny"sv)) {
+                                str << ',';
+                                i->accept(vis);
+                                str << "_tmin"sv;
+                            }
                         }
                         if (opt->enable_debug_info &&
                             is_validation_resource(formal.type())) {
@@ -444,9 +482,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                         }
                     }
                     ++sz;
-                    if (sz != args.size()) {
-                        str << ',';
-                    }
                 }
             }
             str << ')';
@@ -1403,14 +1438,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             if (opt->fallback_rtx) {
                 ReportFallbackUnsupported("RAY_TRACING_QUERY_ALL"sv);
             }
-            str << "_QueryAll("sv;
+            str << (opt->isSpirv ? "_QueryAll("sv : "_QueryAllT("sv);
             PrintArgs();
             return;
         case CallOp::RAY_TRACING_QUERY_ANY:
             if (opt->fallback_rtx) {
                 ReportFallbackUnsupported("RAY_TRACING_QUERY_ANY"sv);
             }
-            str << "_QueryAny("sv;
+            str << (opt->isSpirv ? "_QueryAny("sv : "_QueryAnyT("sv);
             PrintArgs();
             return;
         case CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
@@ -2175,6 +2210,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_SetDispInd"sv;
         } break;
         case CallOp::RAY_QUERY_WORLD_SPACE_RAY:
+            if (!opt->isSpirv) {
+                str << "_RayQueryGetWorldRayT<"sv;
+                GetTypeName(*expr->type(), str, Usage::NONE, false);
+                str << ',';
+                GetTypeName(*args[0]->type(), str, Usage::NONE, false);
+                str << ">("sv;
+                args[0]->accept(vis);
+                str << ',';
+                args[0]->accept(vis);
+                str << "_tmin)"sv;
+                return;
+            }
             str << "_RayQueryGetWorldRay<"sv;
             GetTypeName(*expr->type(), str, Usage::NONE, false);
             str << ',';
@@ -2182,6 +2229,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << '>';
             break;
         case CallOp::RAY_QUERY_OBJECT_SPACE_RAY:
+            if (!opt->isSpirv) {
+                str << "_RayQueryGetObjectRayT<"sv;
+                GetTypeName(*expr->type(), str, Usage::NONE, false);
+                str << ',';
+                GetTypeName(*args[0]->type(), str, Usage::NONE, false);
+                str << ">("sv;
+                args[0]->accept(vis);
+                str << ',';
+                args[0]->accept(vis);
+                str << "_tmin)"sv;
+                return;
+            }
             str << "_RayQueryGetObjectRay<"sv;
             GetTypeName(*expr->type(), str, Usage::NONE, false);
             str << ',';
@@ -2189,12 +2248,28 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << '>';
             break;
         case CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT:
+            if (!opt->isSpirv) {
+                str << "_GetTriangleCandidateHitT("sv;
+                args[0]->accept(vis);
+                str << ',';
+                args[0]->accept(vis);
+                str << "_tmin)"sv;
+                return;
+            }
             str << "_GetTriangleCandidateHit"sv;
             break;
         case CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT:
             str << "_GetProceduralCandidateHit"sv;
             break;
         case CallOp::RAY_QUERY_COMMITTED_HIT:
+            if (!opt->isSpirv) {
+                str << "_GetCommitedHitT("sv;
+                args[0]->accept(vis);
+                str << ',';
+                args[0]->accept(vis);
+                str << "_tmin)"sv;
+                return;
+            }
             str << "_GetCommitedHit"sv;
             break;
         case CallOp::RAY_QUERY_COMMIT_TRIANGLE:
@@ -2202,6 +2277,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ".CommitNonOpaqueTriangleHit()"sv;
             return;
         case CallOp::RAY_QUERY_COMMIT_PROCEDURAL:
+            if (!opt->isSpirv) {
+                str << "_CommitProceduralT("sv;
+                args[0]->accept(vis);
+                str << ',';
+                args[1]->accept(vis);
+                str << ',';
+                args[0]->accept(vis);
+                str << "_tmin)"sv;
+                return;
+            }
             str << "_CommitProcedural"sv;
             break;
         case CallOp::RAY_QUERY_TERMINATE:

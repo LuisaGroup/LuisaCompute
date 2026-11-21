@@ -29,6 +29,7 @@ private:
     luisa::shared_ptr<std::atomic_size_t> _expiration_counter;
     mutable luisa::spin_mutex _layout_mtx;
     mutable vstd::fixed_vector<VkImageLayout, 1> _layouts;
+    mutable std::atomic<uint32_t> _non_general_mips{0u};
 
 public:
     NativeImageState(
@@ -38,6 +39,9 @@ public:
     ~NativeImageState() noexcept;
     [[nodiscard]] VkImageLayout layout(uint level) const;
     void set_layout(uint level, VkImageLayout layout) const;
+    [[nodiscard]] bool all_mips_general() const noexcept {
+        return _non_general_mips.load(std::memory_order_acquire) == 0u;
+    }
 };
 
 class Texture : public Resource {

@@ -270,6 +270,14 @@ public:
     [[nodiscard]] auto body() noexcept { return &_body; }
     /// Return const pointer to body.
     [[nodiscard]] auto body() const noexcept { return &_body; }
+    /// Return pointer to the active lexical scope being constructed.
+    [[nodiscard]] ScopeStmt *current_scope() noexcept {
+        return _scope_stack.empty() ? &_body : _scope_stack.back();
+    }
+    /// Return const pointer to the active lexical scope being constructed.
+    [[nodiscard]] const ScopeStmt *current_scope() const noexcept {
+        return _scope_stack.empty() ? &_body : _scope_stack.back();
+    }
     /// Return const pointer to return type.
     [[nodiscard]] auto return_type() const noexcept { return _return_type.value_or(nullptr); }
     /// Return variable usage of given uid.

@@ -83,6 +83,15 @@ static constexpr VkImageLayout kBarrierLayoutMap[] = {
 // when the recorded access no longer fits. Both decisions are pure functions in
 // resource_barrier_contract.h, so the enabled and the disabled path stay
 // separately testable.
+static constexpr VkAccessFlags2 kWriteAccessMask =
+    VK_ACCESS_2_SHADER_WRITE_BIT |
+    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+    VK_ACCESS_2_TRANSFER_WRITE_BIT |
+    VK_ACCESS_2_HOST_WRITE_BIT |
+    VK_ACCESS_2_MEMORY_WRITE_BIT |
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
 }// namespace detail
 ResourceBarrier::ResourceBarrier() {}
 
@@ -247,11 +256,34 @@ void ResourceBarrier::_record(
         if (buffer_view.buffer->flush_host()) { return; }
         auto buffer = buffer_view.buffer->vk_buffer();
         auto identity = detail::native_buffer_identity(buffer);
-        auto &state = _buffer_frame_states.emplace(identity, buffer).value();
+        auto try_res = _buffer_frame_states.try_emplace(identity, buffer);
+        auto &state = try_res.first.value();
         LUISA_DEBUG_ASSERT(state.buffer == buffer);
+        if (try_res.second &&
+            _bindless_memory_state.before_stage != VK_PIPELINE_STAGE_2_NONE) {
+            state.range.before_stage = _bindless_memory_state.before_stage;
+            state.range.before_access = _bindless_memory_state.before_access;
+        }
         if (!state.require_update) {
             _current_buffer_update_states.emplace_back(identity, &state);
             state.require_update = true;
+        }
+        if (!_layer_bindless_accesses.empty()) {
+            for (auto const &la : _layer_bindless_accesses) {
+                if (la.buffer_stage == VK_PIPELINE_STAGE_2_NONE) { continue; }
+                bool contains = false;
+                {
+                    std::lock_guard lock{la.bdls_arr->mtx};
+                    contains = la.bdls_arr->contains_encoded_canonical_buffer(identity);
+                }
+                if (contains) {
+                    auto merged = detail::combine_texture_access_layout(
+                        {state.range.after_access, VK_IMAGE_LAYOUT_GENERAL},
+                        {la.buffer_access, VK_IMAGE_LAYOUT_GENERAL});
+                    state.range.after_access = merged.access;
+                    state.range.after_stage |= la.buffer_stage;
+                }
+            }
         }
         auto result = detail::combine_texture_access_layout(
             {state.range.after_access, VK_IMAGE_LAYOUT_GENERAL},
@@ -276,8 +308,38 @@ void ResourceBarrier::_record(
     if (!tex_range.level_inited) {
         tex_range.level_inited = true;
         tex_range.before_layout = tex->layout(tex_view.level);
+        if (_bindless_memory_state.before_stage != VK_PIPELINE_STAGE_2_NONE) {
+            tex_range.before_stage = _bindless_memory_state.before_stage;
+            tex_range.before_access = _bindless_memory_state.before_access;
+        }
     }
     tex_range.level_require_update = true;
+    auto layout_policy = _layout_policy(state.native_state->simultaneous_access);
+    if (!_layer_bindless_accesses.empty()) {
+        for (auto const &la : _layer_bindless_accesses) {
+            if (la.texture_stage == VK_PIPELINE_STAGE_2_NONE) { continue; }
+            bool contains = false;
+            {
+                std::lock_guard lock{la.bdls_arr->mtx};
+                contains = la.bdls_arr->contains_encoded_canonical_texture(identity);
+            }
+            if (contains) {
+                auto bdls_layout = detail::resolve_texture_barrier_layout(
+                    layout_policy, la.texture_access, VK_IMAGE_LAYOUT_GENERAL,
+                    detail::TextureLayoutContract::GENERIC_USAGE);
+                if (layout_policy.uses_unified_image_layouts &&
+                    bdls_layout == VK_IMAGE_LAYOUT_GENERAL) {
+                    _mark_unified_image_layouts_active();
+                }
+                tex_range.after_stage |= la.texture_stage;
+                auto merged = detail::combine_texture_access_layout(
+                    {tex_range.after_access, tex_range.after_layout},
+                    {la.texture_access, bdls_layout});
+                tex_range.after_access = merged.access;
+                tex_range.after_layout = merged.layout;
+            }
+        }
+    }
     tex_range.after_stage |= stage;
     // VK_KHR_unified_image_layouts: a *backend-owned* (`GENERIC_USAGE`) access
     // may keep every mip in VK_IMAGE_LAYOUT_GENERAL, so the tracker stops
@@ -286,7 +348,6 @@ void ResourceBarrier::_record(
     // after this decision and are identical on both paths; only the layout
     // changes. Native contracts (`EXPLICIT_NATIVE`) and attachment writes keep
     // the exact VkImageLayout they published.
-    auto layout_policy = _layout_policy(state.native_state->simultaneous_access);
     auto resolved_layout = detail::resolve_texture_barrier_layout(
         layout_policy, access, layout, layout_contract);
     if (layout_contract == detail::TextureLayoutContract::GENERIC_USAGE &&
@@ -553,11 +614,17 @@ void ResourceBarrier::_process_bindless_members(
     BindlessStateOperation operation) {
     LUISA_ASSERT(bdls_arr != nullptr,
                  "Vulkan bindless barrier traversal received a null array.");
-    std::lock_guard lock{bdls_arr->mtx};
-    // A bindless access can name any currently encoded resource. Record every
-    // unique one. The encoded map, rather than the pending host update map, is
-    // the descriptor state observed by this dispatch.
-    bdls_arr->traverse_encoded_resources([&](uint64_t handle) noexcept {
+    // Snapshot the encoded handles under the lock and release it before
+    // invoking `_apply_state` so `_record` never acquires a nested lock when
+    // consulting `_layer_bindless_accesses`.
+    vstd::vector<uint64_t> encoded_handles;
+    {
+        std::lock_guard lock{bdls_arr->mtx};
+        bdls_arr->traverse_encoded_resources([&](uint64_t handle) noexcept {
+            encoded_handles.emplace_back(handle);
+        });
+    }
+    for (auto handle : encoded_handles) {
         auto res = reinterpret_cast<Resource const *>(handle);
         LUISA_ASSERT(
             res != nullptr &&
@@ -583,7 +650,7 @@ void ResourceBarrier::_process_bindless_members(
                     layout_contract, operation);
             }
         }
-    });
+    }
 }
 
 void ResourceBarrier::_apply_bindless_state(
@@ -612,22 +679,138 @@ void ResourceBarrier::process_bindless(
     BindlessArray const *bdls_arr,
     Usage buffer_dst_usage,
     Usage texture_dst_usage) {
-    // Bindless textures are sampled-only in the shader ABI. Keep their
-    // barrier usage separate from writable bindless buffers even when both
-    // are reached through the same array argument.
-    _process_bindless_members(
-        bdls_arr,
-        detail::kBarrierSyncMap[luisa::to_underlying(buffer_dst_usage)],
-        detail::kBarrierAccessMap[luisa::to_underlying(buffer_dst_usage)],
-        detail::kBarrierSyncMap[luisa::to_underlying(texture_dst_usage)],
-        detail::kBarrierAccessMap[luisa::to_underlying(texture_dst_usage)],
-        VK_IMAGE_LAYOUT_GENERAL,
-        // The bindless descriptor fixes the image layout to GENERAL, but this
-        // remains backend-owned shader usage. Let it conservatively promote
-        // an overlapping direct sampled descriptor to GENERAL instead of
-        // treating the overlap as two conflicting native command contracts.
-        detail::TextureLayoutContract::GENERIC_USAGE,
-        BindlessStateOperation::RECORD);
+    LUISA_ASSERT(bdls_arr != nullptr,
+                 "Vulkan bindless barrier traversal received a null array.");
+    auto buf_stage = detail::kBarrierSyncMap[luisa::to_underlying(buffer_dst_usage)];
+    auto buf_access = detail::kBarrierAccessMap[luisa::to_underlying(buffer_dst_usage)];
+    auto tex_stage = detail::kBarrierSyncMap[luisa::to_underlying(texture_dst_usage)];
+    auto tex_access = detail::kBarrierAccessMap[luisa::to_underlying(texture_dst_usage)];
+    if (!_saved_buffer_restore_states.empty() ||
+        !_saved_texture_restore_states.empty()) {
+        // Bindless textures are sampled-only in the shader ABI. Keep their
+        // barrier usage separate from writable bindless buffers even when both
+        // are reached through the same array argument.
+        _process_bindless_members(
+            bdls_arr,
+            buf_stage, buf_access,
+            tex_stage, tex_access,
+            VK_IMAGE_LAYOUT_GENERAL,
+            detail::TextureLayoutContract::GENERIC_USAGE,
+            BindlessStateOperation::RECORD);
+        return;
+    }
+
+    bool has_buffers = false;
+    bool has_textures = false;
+    vstd::fixed_vector<std::pair<detail::NativeBufferIdentity, BufferStates *>, 16> matched_buffers;
+    vstd::fixed_vector<TextureStates *, 8> matched_tracked_textures;
+    vstd::fixed_vector<Texture const *, 8> non_general_textures;
+
+    {
+        std::lock_guard lock{bdls_arr->mtx};
+        has_buffers = bdls_arr->has_encoded_buffers();
+        has_textures = bdls_arr->has_encoded_textures();
+        if (has_buffers) {
+            for (auto &entry : _buffer_frame_states) {
+                if (bdls_arr->contains_encoded_canonical_buffer(entry.first)) {
+                    matched_buffers.emplace_back(entry.first, &entry.second);
+                }
+            }
+        }
+        if (has_textures) {
+            for (auto &entry : _texture_frame_states) {
+                if (bdls_arr->contains_encoded_canonical_texture(entry.first)) {
+                    matched_tracked_textures.emplace_back(&entry.second);
+                }
+            }
+            bdls_arr->traverse_encoded_textures([&](Texture const *tex) noexcept {
+                if (!tex->native_state()->all_mips_general()) {
+                    auto identity = detail::native_image_identity(tex->vk_image());
+                    if (!_texture_frame_states.find(identity)) {
+                        non_general_textures.emplace_back(tex);
+                    }
+                }
+            });
+        }
+    }
+
+    if (!has_buffers && !has_textures) {
+        return;
+    }
+
+    for (auto &[identity, state] : matched_buffers) {
+        if (!state->require_update) {
+            _current_buffer_update_states.emplace_back(identity, state);
+            state->require_update = true;
+        }
+        auto result = detail::combine_texture_access_layout(
+            {state->range.after_access, VK_IMAGE_LAYOUT_GENERAL},
+            {buf_access, VK_IMAGE_LAYOUT_GENERAL});
+        state->range.after_access = result.access;
+        state->range.after_stage |= buf_stage;
+    }
+
+    for (auto *state : matched_tracked_textures) {
+        auto identity = detail::native_image_identity(state->native_state->image);
+        if (!state->require_update) {
+            _current_texture_update_states.emplace_back(identity, state);
+            state->require_update = true;
+        }
+        auto layout_policy = _layout_policy(state->native_state->simultaneous_access);
+        auto resolved_layout = detail::resolve_texture_barrier_layout(
+            layout_policy, tex_access, VK_IMAGE_LAYOUT_GENERAL,
+            detail::TextureLayoutContract::GENERIC_USAGE);
+        if (layout_policy.uses_unified_image_layouts &&
+            resolved_layout == VK_IMAGE_LAYOUT_GENERAL) {
+            _mark_unified_image_layouts_active();
+        }
+        for (uint level = 0u; level < state->native_state->mip_levels; ++level) {
+            auto &tex_range = state->ranges[level];
+            if (!tex_range.level_inited) {
+                tex_range.level_inited = true;
+                tex_range.before_layout = state->native_state->layout(level);
+                if (_bindless_memory_state.before_stage != VK_PIPELINE_STAGE_2_NONE) {
+                    tex_range.before_stage = _bindless_memory_state.before_stage;
+                    tex_range.before_access = _bindless_memory_state.before_access;
+                }
+            }
+            tex_range.level_require_update = true;
+            tex_range.after_stage |= tex_stage;
+            auto result = detail::combine_texture_access_layout(
+                {tex_range.after_access, tex_range.after_layout},
+                {tex_access, resolved_layout});
+            tex_range.after_access = result.access;
+            tex_range.after_layout = result.layout;
+        }
+    }
+
+    for (auto const *tex : non_general_textures) {
+        for (auto level : vstd::range(tex->mip())) {
+            _record(
+                TexView(tex, level),
+                tex_stage, tex_access, VK_IMAGE_LAYOUT_GENERAL,
+                detail::TextureLayoutContract::GENERIC_USAGE);
+        }
+    }
+
+    _bindless_memory_state.active_in_frame = true;
+    _bindless_memory_state.require_update = true;
+    if (has_buffers) {
+        _bindless_memory_state.after_stage |= buf_stage;
+        _bindless_memory_state.after_access |= buf_access;
+    }
+    if (has_textures) {
+        _bindless_memory_state.after_stage |= tex_stage;
+        _bindless_memory_state.after_access |= tex_access;
+    }
+
+    _layer_bindless_accesses.emplace_back(LayerBindlessAccess{
+        .bdls_arr = bdls_arr,
+        .buffer_stage = has_buffers ? buf_stage : VkPipelineStageFlagBits2{0},
+        .buffer_access = has_buffers ? buf_access : VkAccessFlagBits2{0},
+        .texture_stage = has_textures ? tex_stage : VkPipelineStageFlagBits2{0},
+        .texture_access = has_textures ? tex_access : VkAccessFlagBits2{0},
+    });
 }
 
 void ResourceBarrier::process_bindless(
@@ -735,8 +918,10 @@ void ResourceBarrier::set_restore_state(
 }
 
 void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
+    _memory_barriers.clear();
     _buffer_barriers.clear();
     _tex_barriers.clear();
+    _layer_bindless_accesses.clear();
     _resolve_texture_descriptor_layouts();
     for (auto &i : _current_buffer_update_states) {
         _update_state(*i.second);
@@ -747,14 +932,50 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
     }
     _current_texture_update_states.clear();
     _current_texture_descriptor_views.clear();
+    if (_bindless_memory_state.require_update) {
+        _bindless_memory_state.require_update = false;
+        auto after_stage = _bindless_memory_state.after_stage;
+        auto after_access = _bindless_memory_state.after_access;
+        _bindless_memory_state.after_stage = VK_PIPELINE_STAGE_2_NONE;
+        _bindless_memory_state.after_access = VK_ACCESS_2_NONE;
+        if (_bindless_memory_state.before_stage != VK_PIPELINE_STAGE_2_NONE) {
+            auto needs_barrier =
+                ((_bindless_memory_state.before_access | after_access) &
+                 detail::kWriteAccessMask) != 0u;
+            if (needs_barrier) {
+                auto &barrier = _memory_barriers.emplace_back();
+                barrier.srcStageMask = _bindless_memory_state.before_stage;
+                barrier.dstStageMask = after_stage;
+                barrier.srcAccessMask = _bindless_memory_state.before_access;
+                barrier.dstAccessMask = after_access;
+                barrier_filter(barrier);
+                _bindless_memory_state.before_stage = barrier.dstStageMask;
+                _bindless_memory_state.before_access = barrier.dstAccessMask;
+            } else {
+                auto dst = detail::normalize_queue_scope(
+                    queue_type, after_stage, after_access);
+                _bindless_memory_state.before_stage |= dst.stages;
+                _bindless_memory_state.before_access |= dst.access;
+            }
+        } else {
+            auto dst = detail::normalize_queue_scope(
+                queue_type, after_stage, after_access);
+            _bindless_memory_state.before_stage = dst.stages;
+            _bindless_memory_state.before_access = dst.access;
+        }
+    }
     // A dependency with zero barriers orders nothing, so skip the driver call
     // entirely; the DirectX enhanced-barrier tracker already skips this case.
     // Layers that record no state changes no longer cost a pipeline barrier.
-    if (_buffer_barriers.empty() && _tex_barriers.empty()) {
+    if (_memory_barriers.empty() && _buffer_barriers.empty() && _tex_barriers.empty()) {
         return;
     }
     VkDependencyInfo info{
         VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    if (!_memory_barriers.empty()) {
+        info.memoryBarrierCount = static_cast<uint32_t>(_memory_barriers.size());
+        info.pMemoryBarriers = _memory_barriers.data();
+    }
     if (!_tex_barriers.empty()) {
         info.imageMemoryBarrierCount = _tex_barriers.size();
         info.pImageMemoryBarriers = _tex_barriers.data();
@@ -773,6 +994,8 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
     _current_buffer_update_states.clear();
     _current_texture_update_states.clear();
     _current_texture_descriptor_views.clear();
+    _layer_bindless_accesses.clear();
+    _memory_barriers.clear();
     _buffer_barriers.clear();
     _tex_barriers.clear();
     for (auto &entry : _buffer_frame_states) {
@@ -805,7 +1028,14 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
         auto restore_iter = _saved_texture_restore_states.find(identity);
         for (auto idx : vstd::range((int64_t)state.ranges.size())) {
             auto &range = state.ranges[idx];
-            if (!range.level_inited) continue;
+            if (!range.level_inited) {
+                if (!restore_iter || !restore_iter.value().ranges[idx].valid ||
+                    !_bindless_memory_state.active_in_frame) {
+                    continue;
+                }
+                range.before_layout = state.native_state->layout(static_cast<uint>(idx));
+                range.before_access = _bindless_memory_state.before_access;
+            }
             auto &barrier = _tex_barriers.emplace_back();
             barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
             barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -834,23 +1064,50 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
                 static_cast<uint>(idx), barrier.newLayout);
         }
     }
-    VkDependencyInfo info{
-        VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    if (!_tex_barriers.empty()) {
-        info.imageMemoryBarrierCount = _tex_barriers.size();
-        info.pImageMemoryBarriers = _tex_barriers.data();
+    if (_bindless_memory_state.active_in_frame) {
+        auto &barrier = _memory_barriers.emplace_back();
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        barrier.srcAccessMask = _bindless_memory_state.before_access;
+        barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+        barrier_filter(barrier);
+        _bindless_memory_state = {};
     }
-    if (!_buffer_barriers.empty()) {
-        for (auto &i : _buffer_barriers) {
-            barrier_filter(i);
+    if (!_memory_barriers.empty() || !_buffer_barriers.empty() || !_tex_barriers.empty()) {
+        VkDependencyInfo info{
+            VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        if (!_memory_barriers.empty()) {
+            info.memoryBarrierCount = static_cast<uint32_t>(_memory_barriers.size());
+            info.pMemoryBarriers = _memory_barriers.data();
         }
-        info.bufferMemoryBarrierCount = _buffer_barriers.size();
-        info.pBufferMemoryBarriers = _buffer_barriers.data();
+        if (!_tex_barriers.empty()) {
+            info.imageMemoryBarrierCount = _tex_barriers.size();
+            info.pImageMemoryBarriers = _tex_barriers.data();
+        }
+        if (!_buffer_barriers.empty()) {
+            for (auto &i : _buffer_barriers) {
+                barrier_filter(i);
+            }
+            info.bufferMemoryBarrierCount = _buffer_barriers.size();
+            info.pBufferMemoryBarriers = _buffer_barriers.data();
+        }
+        detail::cmd_pipeline_barrier(cmd_buffer, device, &info);
     }
-    detail::cmd_pipeline_barrier(cmd_buffer, device, &info);
     _buffer_frame_states.clear();
     _texture_frame_states.clear();
     clear_restore_states();
+}
+void ResourceBarrier::barrier_filter(VkMemoryBarrier2 &barrier) const {
+    auto src = detail::normalize_queue_scope(
+        queue_type, barrier.srcStageMask, barrier.srcAccessMask);
+    auto dst = detail::normalize_queue_scope(
+        queue_type, barrier.dstStageMask, barrier.dstAccessMask);
+    barrier.srcStageMask = src.stages;
+    barrier.srcAccessMask = src.access;
+    barrier.dstStageMask = dst.stages;
+    barrier.dstAccessMask = dst.access;
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    barrier.pNext = nullptr;
 }
 void ResourceBarrier::barrier_filter(VkBufferMemoryBarrier2 &barrier) const {
     auto src = detail::normalize_queue_scope(

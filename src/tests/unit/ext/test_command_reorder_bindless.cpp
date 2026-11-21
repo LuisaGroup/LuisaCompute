@@ -16,6 +16,7 @@
 #include <map>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace luisa;
@@ -179,9 +180,86 @@ struct IncompleteBindlessUpdateFuncTable : FakeReorderFuncTable {
 };
 
 static_assert(ReorderFuncTable<FakeReorderFuncTable>);
+static_assert(!ReorderFastBindlessFuncTable<FakeReorderFuncTable>);
 static_assert(!ReorderFuncTable<IncompleteBindlessUpdateFuncTable>);
 
+struct FastFakeReorderFuncTable : FakeReorderFuncTable {
+    std::shared_ptr<size_t> traverse_count;
+
+    void traverse_bindless_resources(
+        uint64_t bindless_handle,
+        ReorderBindlessResourceVisitor visitor) const noexcept {
+        if (traverse_count != nullptr) {
+            ++(*traverse_count);
+        }
+        FakeReorderFuncTable::traverse_bindless_resources(bindless_handle, visitor);
+    }
+
+    [[nodiscard]] size_t bindless_pending_count(
+        uint64_t bindless_handle) const noexcept {
+        size_t count = 0u;
+        if (auto iter = state->bindless_resources.find(bindless_handle);
+            iter != state->bindless_resources.end()) {
+            count += iter->second.size();
+        }
+        if (auto iter = state->bindless_slot_resources.find(bindless_handle);
+            iter != state->bindless_slot_resources.end()) {
+            count += iter->second.size();
+        }
+        return count;
+    }
+
+    [[nodiscard]] bool bindless_has_pending_buffers(
+        uint64_t bindless_handle) const noexcept {
+        if (auto iter = state->bindless_resources.find(bindless_handle);
+            iter != state->bindless_resources.end()) {
+            for (auto const &r : iter->second) {
+                if (r.is_buffer) { return true; }
+            }
+        }
+        if (auto iter = state->bindless_slot_resources.find(bindless_handle);
+            iter != state->bindless_slot_resources.end()) {
+            for (auto const &[slot, r] : iter->second) {
+                static_cast<void>(slot);
+                if (r.is_buffer) { return true; }
+            }
+        }
+        return false;
+    }
+
+    template<typename F>
+    void with_bindless_pending_lookup(
+        uint64_t bindless_handle, F &&fn) const noexcept {
+        std::unordered_set<uint64_t> buffers;
+        std::unordered_set<uint64_t> textures;
+        auto add = [&](FakeReorderState::Resource const &r) {
+            if (r.is_buffer) {
+                buffers.emplace(canonical_buffer_handle(r.handle));
+            } else {
+                textures.emplace(canonical_texture_handle(r.handle));
+            }
+        };
+        if (auto iter = state->bindless_resources.find(bindless_handle);
+            iter != state->bindless_resources.end()) {
+            for (auto const &r : iter->second) { add(r); }
+        }
+        if (auto iter = state->bindless_slot_resources.find(bindless_handle);
+            iter != state->bindless_slot_resources.end()) {
+            for (auto const &[slot, r] : iter->second) {
+                static_cast<void>(slot);
+                add(r);
+            }
+        }
+        fn([&](uint64_t canonical, bool is_buffer) noexcept {
+            return is_buffer ? buffers.contains(canonical) : textures.contains(canonical);
+        });
+    }
+};
+
+static_assert(ReorderFastBindlessFuncTable<FastFakeReorderFuncTable>);
+
 using Reorder = CommandReorderVisitor<FakeReorderFuncTable, true>;
+using FastReorder = CommandReorderVisitor<FastFakeReorderFuncTable, true>;
 
 [[nodiscard]] ShaderDispatchCommand make_bindless_dispatch(
     uint64_t shader_handle, uint64_t bindless_handle) {
@@ -298,8 +376,9 @@ using Reorder = CommandReorderVisitor<FakeReorderFuncTable, true>;
     return reorder.command_lists().size();
 }
 
+template<typename R>
 [[nodiscard]] size_t command_layer(
-    Reorder const &reorder, Command const *command) noexcept {
+    R const &reorder, Command const *command) noexcept {
     auto layers = reorder.command_lists();
     for (auto layer = 0u; layer < layers.size(); ++layer) {
         for (auto link = layers[layer]; link != nullptr;
@@ -1104,5 +1183,151 @@ int main() {
         reorder.visit(&direct_read);
         expect(reorder.command_lists().size() == 1u)
             << "READ-usage bindless snapshots must not force extra layers";
+    };
+
+    "fast_bindless_path_matches_eager_across_hazards_and_updates"_test = [] {
+        using Update = BindlessArrayUpdateCommand;
+        constexpr auto heap1 = 301u;
+        constexpr auto heap2 = 302u;
+        constexpr auto empty_heap = 303u;
+        constexpr auto read_shader = 311u;
+        constexpr auto write_shader = 312u;
+        constexpr auto direct_read_write_shader = 313u;
+        constexpr auto buf_a = 401u;
+        constexpr auto buf_a_alias = 402u;
+        constexpr auto buf_b = 403u;
+        constexpr auto buf_c = 404u;
+        constexpr auto tex_a = 501u;
+        constexpr auto tex_a_alias = 502u;
+
+        auto make_state = [=] {
+            auto s = std::make_shared<FakeReorderState>();
+            s->buffer_aliases.emplace(buf_a_alias, buf_a);
+            s->texture_aliases.emplace(tex_a_alias, tex_a);
+            s->shader_usages.emplace(read_shader, Usage::READ);
+            s->shader_usages.emplace(write_shader, Usage::WRITE);
+            s->indexed_shader_usages.emplace(
+                direct_read_write_shader,
+                std::vector{Usage::READ, Usage::WRITE});
+            s->bindless_resources.emplace(
+                heap1, std::vector{
+                           FakeReorderState::Resource{.handle = buf_a, .is_buffer = true},
+                           FakeReorderState::Resource{.handle = tex_a, .is_buffer = false}});
+            s->bindless_resources.emplace(
+                heap2, std::vector{
+                           FakeReorderState::Resource{.handle = buf_a_alias, .is_buffer = true},
+                           FakeReorderState::Resource{.handle = buf_b, .is_buffer = true}});
+            s->bindless_resources.emplace(empty_heap, std::vector<FakeReorderState::Resource>{});
+            return s;
+        };
+
+        auto run_sequence = [&](auto &reorder, std::vector<Command const *> &ordered_cmds) {
+            std::array<std::byte, 4u> data{};
+            // 1. Direct write -> bindless read -> direct write (RAW + WAR via alias)
+            BufferUploadCommand upload_a{buf_a, 0u, 4u, data.data()};
+            auto bdls_read_1 = make_bindless_dispatch(read_shader, heap1);
+            auto bdls_read_2 = make_bindless_dispatch(read_shader, heap1);
+            BufferUploadCommand upload_a_alias{buf_a_alias, 0u, 4u, data.data()};
+            // 2. Bindless write on heap1 -> bindless read on heap2 (overlapping canonical alias)
+            auto bdls_write_1 = make_bindless_dispatch(write_shader, heap1);
+            auto bdls_read_heap2 = make_bindless_dispatch(read_shader, heap2);
+            // 3. Direct read of texture alias after bindless write on heap1 (RAW)
+            TextureDownloadCommand read_tex_alias{
+                tex_a_alias, PixelStorage::BYTE4, 0u, uint3{1u, 1u, 1u}, data.data()};
+            // 4. Empty bindless write must not falsely serialize with heap1
+            auto empty_write = make_bindless_dispatch(write_shader, empty_heap);
+            // 5. Mid-batch BindlessArrayUpdateCommand replacing slot on heap1
+            luisa::vector<Update::BufferModification> mods_add;
+            mods_add.emplace_back(0u, Update::ModifiedBuffer::emplace(buf_c, 0u, 4u));
+            Update update_add{heap1, std::move(mods_add)};
+            auto bdls_write_after_update = make_bindless_dispatch(write_shader, heap1);
+            luisa::vector<Update::BufferModification> mods_rem;
+            mods_rem.emplace_back(0u, Update::ModifiedBuffer::remove());
+            Update update_rem{heap1, std::move(mods_rem)};
+            auto bdls_write_after_remove = make_bindless_dispatch(write_shader, heap1);
+            BufferDownloadCommand read_c{buf_c, 0u, 4u, data.data()};
+
+            // Same-dispatch direct + bindless argument
+            std::array<Argument, 2u> combo_args{
+                Argument{.tag = Argument::Tag::BINDLESS_ARRAY, .bindless_array = {heap2}},
+                Argument{.tag = Argument::Tag::BUFFER, .buffer = {buf_b, 0u, 4u}}};
+            luisa::vector<std::byte> combo_buf(sizeof(combo_args));
+            std::memcpy(combo_buf.data(), combo_args.data(), sizeof(combo_args));
+            ShaderDispatchCommand combo_dispatch{
+                direct_read_write_shader, std::move(combo_buf), 2u, uint3{1u, 1u, 1u}};
+            BufferDownloadCommand read_b_after_combo{buf_b, 0u, 4u, data.data()};
+
+            ordered_cmds = {
+                &upload_a, &bdls_read_1, &bdls_read_2, &upload_a_alias,
+                &bdls_write_1, &bdls_read_heap2, &read_tex_alias, &empty_write,
+                &update_add, &bdls_write_after_update, &update_rem,
+                &bdls_write_after_remove, &read_c, &combo_dispatch, &read_b_after_combo};
+            for (auto const *cmd : ordered_cmds) {
+                cmd->accept(reorder);
+            }
+            std::vector<size_t> layers;
+            layers.reserve(ordered_cmds.size());
+            for (auto const *cmd : ordered_cmds) {
+                layers.emplace_back(command_layer(reorder, cmd));
+            }
+            return layers;
+        };
+
+        auto eager_state = make_state();
+        auto fast_state = make_state();
+        Reorder eager_reorder{FakeReorderFuncTable{eager_state}};
+        FastReorder fast_reorder{FastFakeReorderFuncTable{{fast_state}, nullptr}};
+        std::vector<Command const *> eager_cmds;
+        std::vector<Command const *> fast_cmds;
+        auto eager_layers = run_sequence(eager_reorder, eager_cmds);
+        auto fast_layers = run_sequence(fast_reorder, fast_cmds);
+
+        expect(eager_layers.size() == fast_layers.size());
+        for (size_t i = 0u; i < eager_layers.size(); ++i) {
+            expect(fast_layers[i] == eager_layers[i])
+                << "command " << i << " layer mismatch: fast=" << fast_layers[i]
+                << " eager=" << eager_layers[i];
+        }
+    };
+
+    "fast_bindless_path_avoids_traversing_large_read_only_heaps"_test = [] {
+        constexpr auto heap = 601u;
+        constexpr auto shader = 602u;
+        auto state = std::make_shared<FakeReorderState>();
+        state->shader_usages.emplace(shader, Usage::READ);
+        std::vector<FakeReorderState::Resource> resources;
+        resources.reserve(10'000u);
+        for (uint64_t i = 0u; i < 10'000u; ++i) {
+            resources.emplace_back(FakeReorderState::Resource{
+                .handle = 10'000u + i, .is_buffer = (i % 10u != 0u)});
+        }
+        state->bindless_resources.emplace(heap, std::move(resources));
+
+        auto traverse_count = std::make_shared<size_t>(0u);
+        FastFakeReorderFuncTable table{{state}, traverse_count};
+        FastReorder reorder{std::move(table)};
+        std::vector<ShaderDispatchCommand> dispatches;
+        dispatches.reserve(32u);
+        for (size_t i = 0u; i < 32u; ++i) {
+            dispatches.emplace_back(make_bindless_dispatch(shader, heap));
+        }
+        for (auto const &d : dispatches) {
+            reorder.visit(&d);
+        }
+        expect(*traverse_count == 0u)
+            << "fast bindless reorder must never traverse the full heap for read-only dispatches";
+        expect(reorder.command_lists().size() == 1u)
+            << "concurrent read-only dispatches over a 10k-resource heap must share one layer";
+
+        std::array<std::byte, 4u> data{};
+        BufferUploadCommand write_hit{10'001u, 0u, 4u, data.data()};
+        BufferUploadCommand write_miss{999'999u, 0u, 4u, data.data()};
+        reorder.visit(&write_hit);
+        reorder.visit(&write_miss);
+        expect(*traverse_count == 0u);
+        expect(command_layer(reorder, &write_hit) == 1u)
+            << "writing a buffer inside the 10k heap must wait for prior bindless reads (WAR)";
+        expect(command_layer(reorder, &write_miss) == 0u)
+            << "writing an unrelated buffer must not be delayed by the bindless heap";
     };
 }

@@ -14,6 +14,7 @@
 #include <luisa/vstl/stack_allocator.h>
 #include <luisa/vstl/functional.h>
 #include "../common/command_reorder_visitor.h"
+#include "bindless_array.h"
 #include "shader.h"
 #include "resource_barrier.h"
 #include "command_buffer_ownership.h"
@@ -138,6 +139,27 @@ struct ReorderFuncTable {
     void traverse_bindless_resources(
         uint64_t bindless_handle,
         ReorderBindlessResourceVisitor visitor) const noexcept;
+    [[nodiscard]] size_t bindless_pending_count(
+        uint64_t bindless_handle) const noexcept {
+        auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+        std::lock_guard lock{bindless->mtx};
+        return bindless->pending_resource_count();
+    }
+    [[nodiscard]] bool bindless_has_pending_buffers(
+        uint64_t bindless_handle) const noexcept {
+        auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+        std::lock_guard lock{bindless->mtx};
+        return bindless->has_pending_buffers();
+    }
+    template<typename F>
+    void with_bindless_pending_lookup(
+        uint64_t bindless_handle, F &&fn) const noexcept {
+        auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+        std::lock_guard lock{bindless->mtx};
+        fn([bindless](uint64_t canonical_handle, bool is_buffer) noexcept {
+            return bindless->contains_pending_canonical(canonical_handle, is_buffer);
+        });
+    }
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {
         auto cs = reinterpret_cast<Shader *>(shader_handle);
         auto arguments = cs->saved_arguments();

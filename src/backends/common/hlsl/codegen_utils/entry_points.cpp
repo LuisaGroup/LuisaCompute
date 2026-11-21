@@ -290,6 +290,9 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
         uint64_t hashes[] = {func_hash};
         GenerateCBuffer({&argRange}, varData, enable_debug_info, validation_count, hashes);
     }
+    // Promote unique kernel buffer/bindless-array formal parameters directly to
+    // the kernel's global declarations before emitting callables and main.
+    AnalyzePromotedResourceArgs(kernel);
     // Generate the compute-shader entry point and every callable it depends on.
     // CodegenFunction emits literal constants, the HLSL entry function signature
     // ([numthreads], dispatch-bounds check against dsp_c, thread-id loading),
@@ -802,6 +805,351 @@ uint obj_id:register(b0);
         validation_count,
         immutableHeaderSize,
         GetTypeMD5(funcs3)};
+}
+
+void CodegenUtility::AnalyzePromotedResourceArgs(Function kernel) {
+    opt->promoted_resource_args.clear();
+    if (!kernel || opt->enable_debug_info || opt->isRaster || opt->isRayTracing) {
+        return;
+    }
+    auto is_promotable_resource = [](Variable const &v) noexcept {
+        return v.tag() == Variable::Tag::BUFFER ||
+               v.tag() == Variable::Tag::BINDLESS_ARRAY;
+    };
+    auto usage_writes = [](Usage u) noexcept {
+        return (luisa::to_underlying(u) & luisa::to_underlying(Usage::WRITE)) != 0u;
+    };
+
+    luisa::unordered_map<uint32_t, Variable> kernel_res_args;
+    for (auto &&arg : kernel.arguments()) {
+        if (is_promotable_resource(arg)) {
+            kernel_res_args.emplace(arg.uid(), arg);
+        }
+    }
+    if (kernel_res_args.empty()) {
+        return;
+    }
+
+    // Collect every function that CodegenFunction(kernel, ..., true) will emit.
+    luisa::vector<Function> all_funcs;
+    luisa::unordered_set<uint64_t> seen_funcs;
+    auto collect_funcs = [&](auto &&self, Function f) -> void {
+        if (!seen_funcs.emplace(f.hash()).second) { return; }
+        all_funcs.emplace_back(f);
+        for (auto &&c : f.custom_callables()) {
+            self(self, c->function());
+        }
+    };
+    collect_funcs(collect_funcs, kernel);
+    if (all_funcs.size() <= 1u) {
+        return;
+    }
+
+    struct CallSite {
+        Function caller;
+        CallExpr const *call;
+    };
+    luisa::vector<CallSite> call_sites;
+    luisa::unordered_map<uint64_t, luisa::vector<uint64_t>> call_adj;
+
+    struct CustomCallCollector final : public StmtVisitor, public ExprVisitor {
+        Function caller;
+        luisa::vector<CallSite> &sites;
+        luisa::unordered_map<uint64_t, luisa::vector<uint64_t>> &adj;
+        CustomCallCollector(Function c,
+                            luisa::vector<CallSite> &s,
+                            luisa::unordered_map<uint64_t, luisa::vector<uint64_t>> &a) noexcept
+            : caller{c}, sites{s}, adj{a} {}
+
+        void visit(const UnaryExpr *e) override {
+            if (e->operand()) { e->operand()->accept(*this); }
+        }
+        void visit(const BinaryExpr *e) override {
+            if (e->lhs()) { e->lhs()->accept(*this); }
+            if (e->rhs()) { e->rhs()->accept(*this); }
+        }
+        void visit(const MemberExpr *e) override {
+            if (e->self()) { e->self()->accept(*this); }
+        }
+        void visit(const AccessExpr *e) override {
+            if (e->range()) { e->range()->accept(*this); }
+            if (e->index()) { e->index()->accept(*this); }
+        }
+        void visit(const LiteralExpr *) override {}
+        void visit(const RefExpr *) override {}
+        void visit(const ConstantExpr *) override {}
+        void visit(const TypeIDExpr *) override {}
+        void visit(const StringIDExpr *) override {}
+        void visit(const FuncRefExpr *) override {}
+        void visit(const CpuCustomOpExpr *) override {}
+        void visit(const GpuCustomOpExpr *) override {}
+        void visit(const CastExpr *e) override {
+            if (e->expression()) { e->expression()->accept(*this); }
+        }
+        void visit(const CallExpr *e) override {
+            if (e->op() == CallOp::CUSTOM) {
+                sites.emplace_back(CallSite{caller, e});
+                adj[caller.hash()].emplace_back(e->custom().hash());
+            }
+            for (auto *a : e->arguments()) {
+                if (a) { a->accept(*this); }
+            }
+        }
+        void visit(const BreakStmt *) override {}
+        void visit(const ContinueStmt *) override {}
+        void visit(const CommentStmt *) override {}
+        void visit(const SuspendStmt *) override {}
+        void visit(const DebugBreakStmt *) override {}
+        void visit(const ReturnStmt *s) override {
+            if (s->expression()) { s->expression()->accept(*this); }
+        }
+        void visit(const ScopeStmt *s) override {
+            for (auto *sub : s->statements()) {
+                if (sub) { sub->accept(*this); }
+            }
+        }
+        void visit(const IfStmt *s) override {
+            if (s->condition()) { s->condition()->accept(*this); }
+            if (s->true_branch()) { s->true_branch()->accept(*this); }
+            if (s->false_branch()) { s->false_branch()->accept(*this); }
+        }
+        void visit(const LoopStmt *s) override {
+            if (s->body()) { s->body()->accept(*this); }
+        }
+        void visit(const ForStmt *s) override {
+            if (s->variable()) { s->variable()->accept(*this); }
+            if (s->condition()) { s->condition()->accept(*this); }
+            if (s->step()) { s->step()->accept(*this); }
+            if (s->body()) { s->body()->accept(*this); }
+        }
+        void visit(const ExprStmt *s) override {
+            if (s->expression()) { s->expression()->accept(*this); }
+        }
+        void visit(const SwitchStmt *s) override {
+            if (s->expression()) { s->expression()->accept(*this); }
+            if (s->body()) { s->body()->accept(*this); }
+        }
+        void visit(const SwitchCaseStmt *s) override {
+            for (auto *e : s->expressions()) {
+                if (e) { e->accept(*this); }
+            }
+            if (s->body()) { s->body()->accept(*this); }
+        }
+        void visit(const SwitchDefaultStmt *s) override {
+            if (s->body()) { s->body()->accept(*this); }
+        }
+        void visit(const AssignStmt *s) override {
+            if (s->lhs()) { s->lhs()->accept(*this); }
+            if (s->rhs()) { s->rhs()->accept(*this); }
+        }
+        void visit(const RayQueryStmt *s) override {
+            if (s->query()) { s->query()->accept(*this); }
+            if (s->on_triangle_candidate()) { s->on_triangle_candidate()->accept(*this); }
+            if (s->on_procedural_candidate()) { s->on_procedural_candidate()->accept(*this); }
+        }
+        void visit(const AutoDiffStmt *s) override {
+            if (s->body()) { s->body()->accept(*this); }
+        }
+        void visit(const PrintStmt *s) override {
+            for (auto *a : s->arguments()) {
+                if (a) { a->accept(*this); }
+            }
+        }
+    };
+
+    for (auto &&f : all_funcs) {
+        if (f.body() != nullptr) {
+            CustomCallCollector collector{f, call_sites, call_adj};
+            f.body()->accept(collector);
+        }
+    }
+    if (call_sites.empty()) {
+        return;
+    }
+
+    // Mark functions actually reachable from kernel via direct custom calls.
+    luisa::unordered_set<uint64_t> reachable;
+    luisa::vector<uint64_t> worklist;
+    reachable.emplace(kernel.hash());
+    worklist.emplace_back(kernel.hash());
+    while (!worklist.empty()) {
+        auto h = worklist.back();
+        worklist.pop_back();
+        if (auto it = call_adj.find(h); it != call_adj.end()) {
+            for (auto callee_h : it->second) {
+                if (reachable.emplace(callee_h).second) {
+                    worklist.emplace_back(callee_h);
+                }
+            }
+        }
+    }
+
+    struct LatticeVal {
+        enum class Kind : uint8_t { UNSEEN, UNIQUE, CONFLICT };
+        Kind kind{Kind::UNSEEN};
+        Variable var{};
+    };
+    luisa::unordered_map<CodegenStackData::ValidateKey, LatticeVal, CodegenStackData::ValidateKeyHash> state;
+    for (auto &&f : all_funcs) {
+        if (f.tag() == Function::Tag::KERNEL) { continue; }
+        auto init_kind = reachable.contains(f.hash()) ? LatticeVal::Kind::UNSEEN : LatticeVal::Kind::CONFLICT;
+        for (auto &&arg : f.arguments()) {
+            if (is_promotable_resource(arg)) {
+                state.emplace(CodegenStackData::ValidateKey{f.hash(), arg.uid()}, LatticeVal{init_kind, {}});
+            }
+        }
+    }
+    if (state.empty()) {
+        return;
+    }
+
+    auto compatible = [&](Variable const &kernel_var, Function callee, Variable const &formal) noexcept {
+        if (kernel_var.tag() != formal.tag()) { return false; }
+        if (formal.tag() == Variable::Tag::BUFFER &&
+            kernel_var.type()->element() != formal.type()->element()) {
+            return false;
+        }
+        if (usage_writes(callee.variable_usage(formal.uid())) &&
+            !usage_writes(kernel.variable_usage(kernel_var.uid()))) {
+            return false;
+        }
+        return true;
+    };
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto &&site : call_sites) {
+            auto callee = site.call->custom();
+            auto formal_args = callee.arguments();
+            auto actual_args = site.call->arguments();
+            if (formal_args.size() != actual_args.size()) { continue; }
+            for (size_t i = 0u; i < formal_args.size(); ++i) {
+                auto const &formal = formal_args[i];
+                if (!is_promotable_resource(formal)) { continue; }
+                auto &cur = state[CodegenStackData::ValidateKey{callee.hash(), formal.uid()}];
+                if (cur.kind == LatticeVal::Kind::CONFLICT) { continue; }
+
+                LatticeVal incoming{LatticeVal::Kind::CONFLICT, {}};
+                if (actual_args[i] != nullptr &&
+                    actual_args[i]->tag() == Expression::Tag::REF) {
+                    auto actual_var = static_cast<RefExpr const *>(actual_args[i])->variable();
+                    if (site.caller.tag() == Function::Tag::KERNEL) {
+                        if (auto kit = kernel_res_args.find(actual_var.uid());
+                            kit != kernel_res_args.end() &&
+                            compatible(kit->second, callee, formal)) {
+                            incoming = LatticeVal{LatticeVal::Kind::UNIQUE, kit->second};
+                        }
+                    } else {
+                        if (auto sit = state.find(CodegenStackData::ValidateKey{site.caller.hash(), actual_var.uid()});
+                            sit != state.end()) {
+                            if (sit->second.kind == LatticeVal::Kind::UNSEEN) {
+                                incoming = LatticeVal{LatticeVal::Kind::UNSEEN, {}};
+                            } else if (sit->second.kind == LatticeVal::Kind::UNIQUE &&
+                                       compatible(sit->second.var, callee, formal)) {
+                                incoming = sit->second;
+                            }
+                        }
+                    }
+                }
+
+                if (incoming.kind == LatticeVal::Kind::UNSEEN) {
+                    continue;
+                }
+                if (cur.kind == LatticeVal::Kind::UNSEEN) {
+                    cur = incoming;
+                    changed = true;
+                } else if (incoming.kind == LatticeVal::Kind::CONFLICT ||
+                           cur.var.uid() != incoming.var.uid() ||
+                           cur.var.tag() != incoming.var.tag()) {
+                    cur.kind = LatticeVal::Kind::CONFLICT;
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    // Compute saturating dynamic call-site multiplicity (0, 1, or >=2) from
+    // kernel along the custom call graph. Only multi-call callables (>=2) are
+    // promoted; single-use callables are already inlined and keep their
+    // explicit parameter ABI unchanged.
+    luisa::unordered_map<uint64_t, luisa::unordered_map<uint64_t, uint32_t>> edge_mult;
+    for (auto &&site : call_sites) {
+        auto &cnt = edge_mult[site.caller.hash()][site.call->custom().hash()];
+        if (cnt < 2u) { ++cnt; }
+    }
+    luisa::unordered_map<uint64_t, uint32_t> dyn_calls;
+    dyn_calls[kernel.hash()] = 1u;
+    bool count_changed = true;
+    while (count_changed) {
+        count_changed = false;
+        luisa::unordered_map<uint64_t, uint32_t> next_calls;
+        next_calls[kernel.hash()] = 1u;
+        for (auto &&[caller_h, callees] : edge_mult) {
+            auto cit = dyn_calls.find(caller_h);
+            if (cit == dyn_calls.end() || cit->second == 0u) { continue; }
+            for (auto &&[callee_h, mult] : callees) {
+                uint32_t contrib = std::min<uint32_t>(2u, cit->second * mult);
+                auto &dst = next_calls[callee_h];
+                dst = std::min<uint32_t>(2u, dst + contrib);
+            }
+        }
+        for (auto &&[h, c] : next_calls) {
+            if (dyn_calls[h] != c) {
+                dyn_calls[h] = c;
+                count_changed = true;
+            }
+        }
+    }
+
+    for (auto &&[key, val] : state) {
+        if (val.kind == LatticeVal::Kind::UNIQUE) {
+            auto dit = dyn_calls.find(key.func_hash);
+            if (dit != dyn_calls.end() && dit->second >= 2u) {
+                opt->promoted_resource_args.emplace(key, val.var);
+            }
+        }
+    }
+    if (opt->promoted_resource_args.empty()) {
+        return;
+    }
+
+    // Prevent any HLSL lexical shadowing where a non-promoted parameter or local
+    // of a callable happens to have the exact same emitted identifier as the
+    // promoted global kernel resource.
+    auto saved_func_type = opt->funcType;
+    opt->funcType = CodegenStackData::FuncType::Callable;
+    auto restore_func_type = vstd::scope_exit([&] { opt->funcType = saved_func_type; });
+    for (auto &&f : all_funcs) {
+        if (f.tag() == Function::Tag::KERNEL) { continue; }
+        bool removed = true;
+        while (removed) {
+            removed = false;
+            luisa::unordered_set<luisa::string> local_names;
+            for (auto &&arg : f.arguments()) {
+                if (opt->IsPromotedResourceArg(f, arg)) { continue; }
+                vstd::StringBuilder sb;
+                GetVariableName(f, arg, sb);
+                local_names.emplace(sb.view());
+            }
+            for (auto &&loc : f.local_variables()) {
+                vstd::StringBuilder sb;
+                GetVariableName(f, loc, sb);
+                local_names.emplace(sb.view());
+            }
+            for (auto &&arg : f.arguments()) {
+                auto const *promoted = opt->FindPromotedResourceArg(f, arg);
+                if (promoted == nullptr) { continue; }
+                vstd::StringBuilder global_sb;
+                GetVariableName(kernel, *promoted, global_sb);
+                if (local_names.contains(luisa::string{global_sb.view()})) {
+                    opt->promoted_resource_args.erase(
+                        CodegenStackData::ValidateKey{f.hash(), arg.uid()});
+                    removed = true;
+                }
+            }
+        }
+    }
 }
 
 void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty, bool codegen_self) {

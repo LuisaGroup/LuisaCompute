@@ -1,6 +1,10 @@
 #pragma once
 
 #include <filesystem>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/vstl/common.h>
@@ -19,8 +23,11 @@ struct ComDeleter {
 };
 class ShaderCompilerModule : public vstd::IOperatorNewBase {
 public:
+    using CreateInstanceFn = HRESULT(WINAPI *)(const IID &, const IID &, LPVOID *);
     luisa::DynamicModule dxil;
     luisa::DynamicModule dxcCompiler;
+    CreateInstanceFn dxc_create_instance{nullptr};
+    CreateInstanceFn dxil_create_instance{nullptr};
     IDxcCompiler3 *comp{nullptr};
     IDxcLibrary *library{nullptr};
     IDxcUtils *utils{nullptr};
@@ -39,6 +46,20 @@ struct RasterBin {
 };
 class ShaderCompiler final : public vstd::IOperatorNewBase {
     ShaderCompilerModule compiler_module;
+    mutable std::mutex _dxil_pass_cache_mutex;
+    mutable std::unordered_map<std::wstring, std::vector<std::wstring>> _dxil_fast_pass_cache;
+    // Compile large DXIL shaders through DXC's official `-fcgl` ->
+    // `IDxcOptimizer` -> `IDxcAssembler` -> `IDxcValidator` pipeline so we can
+    // promote callees to SSA before always-inline and replace DXC's superlinear
+    // `-jump-threading` / redundant `-loop-unroll` passes with linear-time
+    // `-sccp` + `-simplifycfg` + `-dce` while preserving full `-O3` codegen
+    // quality. Returns std::nullopt on any setup/pass failure so the caller can
+    // fall back to standard single-call `IDxcCompiler3::Compile`.
+    std::optional<CompileResult> _try_compile_large_dxil_fast(
+        vstd::string_view code,
+        vstd::wstring_view profile,
+        vstd::span<LPCWSTR> base_args,
+        IDxcIncludeHandler *include_handler) const;
     // Shared body of `compile_compute` and `compile_graphics_stage`: the two
     // differ only in the profile (target) string, so every HLSL stage flag
     // (`-spirv`, `/DSPV`, `-fspv-target-env`, `-HV 2021`, ...) lives in exactly

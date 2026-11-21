@@ -806,7 +806,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             }
             break;
         case xir::ArithmeticOp::BINARY_MOD:
-            if (elem->is_float32())
+            if (!_enable_fast_math && elem->is_float32())
                 id = exact_float32_fmod(operand(0), operand(1));
             else if (is_float)
                 id = binary(spv::Op::OpFRem);

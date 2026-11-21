@@ -1346,6 +1346,25 @@ struct ConstScalar {
                 }
             }
         }
+        // Case 1a2: zero-cost scalar literal propagation (`const uint lX = 9u;`)
+        // across any read count or nested scope dominated by def_scope.
+        if (!vi.partial_or_ref && vi.write_count == 1u && !vi.read_before_def &&
+            !vi.used_as_member_or_access_base &&
+            vi.def_stmt != nullptr && vi.def_scope != nullptr &&
+            vi.lca_scope == vi.def_scope &&
+            vi.var.type()->is_scalar() &&
+            !CodegenUtility::IsBf16(vi.var.type()) &&
+            def_rhs_unwrapped != nullptr &&
+            def_rhs_unwrapped->tag() == Expression::Tag::LITERAL &&
+            def_rhs_unwrapped->type() != nullptr &&
+            *vi.var.type() == *def_rhs_unwrapped->type()) {
+            plan.inline_exprs.emplace(uid, def_rhs_unwrapped);
+            plan.skip_assigns.emplace(vi.def_stmt);
+            inlined_node_cost.emplace(uid, 1u);
+            inlined_deps.emplace(uid, luisa::fixed_vector<Variable, 8>{});
+            handled_uids.emplace(uid);
+            continue;
+        }
         // Case 1b: adjacent single-use copy temporary (`T lTmp = _bfread(...); lDst = lTmp;`
         // or struct/matrix pure copy) with zero non-skipped intervening statements.
         if (!vi.partial_or_ref && vi.write_count == 1u && vi.read_count == 1u &&
@@ -1644,7 +1663,7 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         auto element = expr->type()->is_vector() ?
                            expr->type()->element() :
                            expr->type();
-        str << (element->is_float32() ?
+        str << ((!util->opt->enable_fast_math && element->is_float32()) ?
                     "_lc_fmod("sv :
                     "fmod("sv);
         expr->lhs()->accept(*this);
@@ -1904,6 +1923,14 @@ void StringStateVisitor::visit(const RefExpr *expr) {
         }
     }
     vstd::StringBuilder tempStr;
+    if (util->opt->funcType == CodegenStackData::FuncType::Callable) {
+        if (auto const *promoted = util->opt->FindPromotedResourceArg(f, v)) {
+            util->GetVariableName(util->opt->kernel, *promoted, tempStr);
+            util->RegistStructType(promoted->type());
+            str << tempStr;
+            return;
+        }
+    }
     util->GetVariableName(f, v, tempStr);
     util->RegistStructType(v.type());
     str << tempStr;
@@ -2613,10 +2640,20 @@ void StringStateVisitor::visit(const AssignStmt *state) {
             isLazyDecl = true;
         }
         if (is_rayquery()) {
-            str << ";\n";
+            if (isLazyDecl) {
+                str << ";\n";
+                if (!util->opt->isSpirv) {
+                    str << "float "sv << var_name << "_tmin=0.0;\n"sv;
+                }
+            }
             state->rhs()->accept(*this);
             str << ',';
             state->lhs()->accept(*this);
+            if (!util->opt->isSpirv) {
+                str << ',';
+                state->lhs()->accept(*this);
+                str << "_tmin"sv;
+            }
             str << ");\n";
             return;
         }

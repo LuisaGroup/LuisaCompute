@@ -78,6 +78,29 @@ struct ReorderFuncTable {
                 visitor(resource_handle, is_buffer);
             });
     }
+    [[nodiscard]] size_t bindless_pending_count(uint64_t bindless_handle) const noexcept {
+        auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+        bindless->Lock();
+        auto count = bindless->PendingResourceCount();
+        bindless->Unlock();
+        return count;
+    }
+    [[nodiscard]] bool bindless_has_pending_buffers(uint64_t bindless_handle) const noexcept {
+        auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+        bindless->Lock();
+        auto has = bindless->HasPendingBuffers();
+        bindless->Unlock();
+        return has;
+    }
+    template<typename F>
+    void with_bindless_pending_lookup(uint64_t bindless_handle, F &&fn) const noexcept {
+        auto bindless = reinterpret_cast<BindlessArray *>(bindless_handle);
+        bindless->Lock();
+        auto unlocker = vstd::scope_exit([bindless]() noexcept { bindless->Unlock(); });
+        fn([bindless](uint64_t canonical_handle, bool is_buffer) noexcept {
+            return bindless->ContainsPendingCanonical(canonical_handle, is_buffer);
+        });
+    }
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {
         if (shader_handle == 0u) {
             // Raster draw commands may not carry a shader handle through the

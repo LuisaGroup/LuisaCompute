@@ -72,7 +72,8 @@ NativeImageState::NativeImageState(
       mip_levels{mip_levels},
       dimension{dimension},
       simultaneous_access{simultaneous_access},
-      _expiration_counter{std::move(expiration_counter)} {
+      _expiration_counter{std::move(expiration_counter)},
+      _non_general_mips{mip_levels} {
     LUISA_ASSERT(image != VK_NULL_HANDLE,
                  "Cannot track a null Vulkan image.");
     LUISA_ASSERT(mip_levels > 0u,
@@ -101,7 +102,15 @@ void NativeImageState::set_layout(
     LUISA_ASSERT(level < _layouts.size(),
                  "Vulkan image mip {} is outside [0, {}).",
                  level, _layouts.size());
-    _layouts[level] = layout;
+    auto old_layout = _layouts[level];
+    if (old_layout != layout) {
+        _layouts[level] = layout;
+        if (old_layout == VK_IMAGE_LAYOUT_GENERAL) {
+            _non_general_mips.fetch_add(1u, std::memory_order_release);
+        } else if (layout == VK_IMAGE_LAYOUT_GENERAL) {
+            _non_general_mips.fetch_sub(1u, std::memory_order_release);
+        }
+    }
 }
 
 Texture::Texture(Device *device)
