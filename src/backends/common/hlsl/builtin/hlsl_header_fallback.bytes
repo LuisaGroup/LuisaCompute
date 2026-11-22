@@ -182,6 +182,8 @@ float3x4 m;
 struct _WrappedFloat4x4 {
 float4x4 m;
 };
+template<typename BufferType,typename T>
+void _lc_bytebfwrite_val(BufferType b,uint idx,T v){b.Store(idx,v);}
 #ifdef LUISA_DEBUG_INFO
 #define _bfread(bf,idx,bound) (((idx) < (bound)) ? bf[idx] : (bf[0] * 0) - 1)
 #define _bfreadVec3(bf,idx,bound) (((idx) < (bound)) ? bf[idx].xyz : (bf[0].xyz * 0) - 1)
@@ -192,7 +194,7 @@ float4x4 m;
 #define _bytebfread(bf,type,idx,bound) (((idx) < (bound)) ? bf.template Load<type>(idx) : (bf.template Load<type>(0) * 0) - 1)
 #define _bytebfreadVec3(bf,type,idx,bound) (((idx) < (bound)) ? bf.template Load<type##4>(idx).xyz : (bf.template Load<type##4>(0).xyz * 0) - 1)
 #define _bytebfreadMat(bf,type,idx,bound) (((idx) < (bound)) ? bf.template Load<type>(idx).m : (bf.template Load<type>(0).m * 0) - 1)
-#define _bytebfwrite(bf,idx,value,bound) { if ((idx) < (bound)) { bf.Store(idx, value); } }
+#define _bytebfwrite(bf,idx,value,bound) { if ((idx) < (bound)) { _lc_bytebfwrite_val(bf, idx, value); } }
 #define _bytebfwriteVec3(bf,type,idx,value,bound) { if ((idx) < (bound)) { bf.template Store<type##4>(idx, type##4(value, 0)); } }
 #define _bytebfwriteMat(bf,type,idx,value,bound) { if ((idx) < (bound)) { type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm); } }
 #else
@@ -205,7 +207,7 @@ float4x4 m;
 #define _bytebfread(bf,type,idx) bf.template Load<type>(idx)
 #define _bytebfreadVec3(bf,type,idx) bf.template Load<type##4>(idx).xyz
 #define _bytebfreadMat(bf,type,idx) bf.template Load<type>(idx).m
-#define _bytebfwrite(bf,idx,value) bf.Store(idx,value)
+#define _bytebfwrite(bf,idx,value) _lc_bytebfwrite_val(bf,idx,value)
 #define _bytebfwriteVec3(bf,type,idx,value) bf.template Store<type##4>(idx,type##4(value,0))
 #define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}
 #endif

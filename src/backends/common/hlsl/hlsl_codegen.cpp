@@ -1776,7 +1776,59 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         if (wrap_i8 || wrap_u8) { str << ')'; }
     }
 }
+
+namespace {
+
+[[nodiscard]] bool is_zero_or_undefined_rvalue(
+    Expression const *expr,
+    LocalEmitPlan const *emit_plan) noexcept {
+    while (expr != nullptr) {
+        switch (expr->tag()) {
+            case Expression::Tag::REF: {
+                auto v = static_cast<RefExpr const *>(expr)->variable();
+                if (emit_plan != nullptr && v.tag() == Variable::Tag::LOCAL) {
+                    if (auto it = emit_plan->inline_exprs.find(v.uid());
+                        it != emit_plan->inline_exprs.end()) {
+                        expr = it->second;
+                        continue;
+                    }
+                }
+                return false;
+            }
+            case Expression::Tag::CALL: {
+                auto *c = static_cast<CallExpr const *>(expr);
+                return c->is_builtin() &&
+                       (c->op() == CallOp::ZERO || c->op() == CallOp::UNDEFINED);
+            }
+            case Expression::Tag::MEMBER:
+                expr = static_cast<MemberExpr const *>(expr)->self();
+                continue;
+            case Expression::Tag::ACCESS: {
+                auto *a = static_cast<AccessExpr const *>(expr);
+                auto *rt = a->range()->type();
+                if (rt != nullptr && !rt->is_buffer() &&
+                    !expr_has_mutating_call(a->index())) {
+                    expr = a->range();
+                    continue;
+                }
+                return false;
+            }
+            default:
+                return false;
+        }
+    }
+    return false;
+}
+
+}// namespace
+
 void StringStateVisitor::visit(const MemberExpr *expr) {
+    if (is_zero_or_undefined_rvalue(expr->self(), emit_plan)) {
+        str << "_zero("sv;
+        util->GetTypeName(*expr->type(), str, Usage::READ, true);
+        str << ')';
+        return;
+    }
     char const *xyzw = "xyzw";
     if (expr->is_swizzle()) {
         if (emit_plan != nullptr) {
@@ -1843,6 +1895,14 @@ void StringStateVisitor::visit(const AccessExpr *expr) {
         }
     }
     auto t = expr->range()->type();
+    if (t != nullptr && !t->is_buffer() &&
+        !expr_has_mutating_call(expr->index()) &&
+        is_zero_or_undefined_rvalue(expr->range(), emit_plan)) {
+        str << "_zero("sv;
+        util->GetTypeName(*expr->type(), str, Usage::READ, true);
+        str << ')';
+        return;
+    }
     auto basicAccess = [&]() {
         accessCount++;
         expr->range()->accept(*this);

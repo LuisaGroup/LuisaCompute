@@ -30,6 +30,15 @@ struct HalfBoolWord {
 };
 LUISA_STRUCT(HalfBoolWord, i32, h_adjacent, b_adjacent) {};
 
+struct NestedCopyElem {
+    uint a;
+    uint b;
+    uint c;
+    float d;
+    float2 e;
+};
+LUISA_STRUCT(NestedCopyElem, a, b, c, d, e) {};
+
 struct RasterCodegenVarying {
     float4 position;
     float4 color;
@@ -861,5 +870,67 @@ int main(int argc, char *argv[]) {
             function, {}, 0u, false, true, true);
         expect(eq(fallback_debug.validation_count, 3u));
         expect(check_debug(generated_program(fallback_debug)));
+    };
+
+    "hlsl_undefined_and_zero_aggregate_access_folds_to_zero"_test = [] {
+        Kernel1D kernel = [](BufferUInt4 out_vec, BufferUInt out_scalar) noexcept {
+            auto idx = dispatch_id().x;
+            auto *fb = luisa::compute::detail::FunctionBuilder::current();
+            using Array3U4 = std::array<uint4, 3u>;
+            const auto *undef_arr = fb->call(Type::of<Array3U4>(), CallOp::UNDEFINED, {});
+            const auto *zero_arr = fb->call(Type::of<Array3U4>(), CallOp::ZERO, {});
+            const auto *undef_struct = fb->call(Type::of<HalfBoolWord>(), CallOp::UNDEFINED, {});
+            const auto *idx_zero = fb->literal(Type::of<uint>(), 0u);
+            const auto *elem0 = fb->access(Type::of<uint4>(), undef_arr, idx_zero);
+            const auto *elem_dyn = fb->access(Type::of<uint4>(), zero_arr, idx.expression());
+            const auto *member_i32 = fb->member(Type::of<uint>(), undef_struct, 0u);
+            out_vec.write(0u, Expr<uint4>{elem0});
+            out_vec.write(1u, Expr<uint4>{elem_dyn});
+            out_scalar.write(0u, Expr<uint>{member_i32});
+        };
+        auto function = kernel.function()->function();
+        auto codegen = lc::hlsl::CodegenUtility{}.Codegen(
+            function, {}, 0u, false, false, false);
+        auto program = codegen.result.view();
+        expect(contains(program, "_zero(uint4)"));
+        expect(contains(program, "_zero(uint)"));
+        expect(!contains(program, "_zero(_A"));
+        expect(!contains(program, "_zero(_S"));
+        expect(!contains(program, ".v["));
+    };
+
+    "hlsl_nested_byte_buffer_aggregate_copy_compiles_with_dxc"_test = [argv] {
+        using ElemArray = std::array<NestedCopyElem, 4u>;
+        Kernel1D kernel = [](ByteBufferVar buf, UInt src, UInt dst) noexcept {
+            buf.write(dst, buf.read<ElemArray>(src));
+        };
+        auto function = kernel.function()->function();
+        auto dxil_codegen = lc::hlsl::CodegenUtility{}.Codegen(
+            function, {}, 0u, /*isSpirV=*/false, false, false);
+        auto dxil_program = dxil_codegen.result.view();
+        expect(contains(dxil_program, "_lc_bytebfwrite_val("));
+
+        lc::hlsl::ShaderCompiler compiler{
+            luisa::filesystem::path{argv[0]}.parent_path(), true};
+        auto dxil_compiled = false;
+        auto dxil_error = luisa::string{};
+        compiler.compile_compute(dxil_program, true, 65u, true,
+                                 /*spirv=*/false, false)
+            .multi_visit(
+                [&](const lc::hlsl::ComUniquePtr<IDxcBlob> &) noexcept {
+                    dxil_compiled = true;
+                },
+                [&](const vstd::string &message) noexcept {
+                    dxil_error = luisa::string{message.data(), message.size()};
+                });
+        expect(dxil_compiled) << dxil_error;
+
+        auto spirv_codegen = lc::hlsl::CodegenUtility{}.Codegen(
+            function, {}, 0u, /*isSpirV=*/true, false, false);
+        auto spirv_facts = compile_and_inspect_dxc_spirv(
+            spirv_codegen.result.view(),
+            luisa::filesystem::path{argv[0]}.parent_path());
+        expect(spirv_facts.compiled && spirv_facts.validated)
+            << spirv_facts.error.c_str();
     };
 }

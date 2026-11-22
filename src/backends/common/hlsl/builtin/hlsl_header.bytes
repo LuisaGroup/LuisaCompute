@@ -335,22 +335,24 @@ return b.template Load<BufferElem>(idx).xyz;
 
 #define _volatile_bfwrite(bf,idx,value) {bf[idx]=value; DeviceMemoryBarrier();}
 #define _volatile_bfwriteVec3(bf,idx,value,type) {bf[idx]=type##4(value,0); DeviceMemoryBarrier();}
+template<typename BufferType,typename T>
+void _lc_bytebfwrite_val(BufferType b,uint idx,T v){b.Store(idx,v);}
 #ifdef LUISA_DEBUG_INFO
 	#define _bytebfread(bf,type,idx,bound) \
 	    (((idx) < (bound)) ? bf.template Load<type>(idx) : (bf.template Load<type>(0) * 0) - 1)
 	#define _bytebfreadVec3(bf,type,idx,bound) \
 	    (((idx) < (bound)) ? bf.template Load<type##4>(idx).xyz : (bf.template Load<type##4>(0).xyz * 0) - 1)
 	#define _bytebfwrite(bf,idx,value,bound) \
-	    { if ((idx) < (bound)) { bf.Store(idx, value); } }
+	    { if ((idx) < (bound)) { _lc_bytebfwrite_val(bf, idx, value); } }
 	#define _bytebfwriteVec3(bf,type,idx,value,bound) \
 	    { if ((idx) < (bound)) { bf.template Store<type##4>(idx, type##4(value, 0)); } }
 #else
 	#define _bytebfread(bf,type,idx) bf.template Load<type>(idx)
 	#define _bytebfreadVec3(bf,type,idx) bf.template Load<type##4>(idx).xyz
-	#define _bytebfwrite(bf,idx,value) bf.Store(idx,value)
+	#define _bytebfwrite(bf,idx,value) _lc_bytebfwrite_val(bf,idx,value)
 	#define _bytebfwriteVec3(bf,type,idx,value) bf.template Store<type##4>(idx,type##4(value,0))
 #endif
-#define _volatile_bytebfwrite(bf,idx,value) {bf.Store(idx,value); DeviceMemoryBarrier();}
+#define _volatile_bytebfwrite(bf,idx,value) {_lc_bytebfwrite_val(bf,idx,value); DeviceMemoryBarrier();}
 #define _volatile_bytebfwriteVec3(bf,type,idx,value) {bf.template Store<type##4>(idx,type##4(value,0)); DeviceMemoryBarrier();}
 #define _Readtx(tex,uv) tex[uv]
 #define _Writetx(tex,uv,value) tex[uv]=value
