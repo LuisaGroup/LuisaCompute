@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 
 #include <luisa/core/logging.h>
 #include <luisa/xir/module.h>
@@ -83,88 +84,175 @@ namespace detail {
 
 struct AllocaAnalysis {
 
+    static constexpr uint32_t invalid_block_id = std::numeric_limits<uint32_t>::max();
+
     const DomTree &dom;
     const luisa::unordered_map<Instruction *, uint32_t> &inst_indices;
     const luisa::unordered_map<BasicBlock *, uint32_t> &block_indices;
     const luisa::unordered_set<BasicBlock *> &reachable_blocks;
+    luisa::span<BasicBlock *const> rpo_blocks;
+    luisa::span<const uint32_t> dom_parent;
+    luisa::span<const uint32_t> df_offsets;
+    luisa::span<const uint32_t> df_ids;
+    luisa::span<const uint32_t> reach_pred_offsets;
+    luisa::span<const uint32_t> reach_pred_ids;
+    luisa::span<const uint32_t> all_pred_offsets;
+    luisa::span<BasicBlock *const> all_pred_blocks;
+    luisa::span<const uint32_t> all_pred_ids;
 
-    luisa::unordered_map<BasicBlock *, StoreInst *> def_blocks;
-    luisa::unordered_map<BasicBlock *, luisa::vector<LoadInst *>> use_blocks;
-    luisa::vector<uint32_t> live_in_epoch;
-    uint32_t current_live_in_epoch{0u};
+    luisa::vector<uint32_t> def_epoch;
+    luisa::vector<StoreInst *> def_stores;
+    luisa::vector<uint32_t> def_block_ids;
 
-    [[nodiscard]] bool is_live_in(BasicBlock *block) const noexcept {
-        if (current_live_in_epoch == 0u) { return false; }
-        auto iter = block_indices.find(block);
-        if (iter == block_indices.end() || iter->second >= live_in_epoch.size()) {
-            return false;
-        }
-        return live_in_epoch[iter->second] == current_live_in_epoch;
+    luisa::vector<uint32_t> use_slot_epoch;
+    luisa::vector<uint32_t> use_slot_index;
+    luisa::vector<uint32_t> use_block_ids;
+    luisa::vector<luisa::vector<LoadInst *>> use_loads;
+
+    luisa::vector<uint32_t> cand_idf_epoch;
+    luisa::vector<uint32_t> live_epoch;
+    luisa::vector<uint32_t> phi_block_ids;
+    luisa::vector<uint32_t> work_list;
+    uint32_t current_epoch{0u};
+
+    void ensure_initialized() noexcept {
+        if (def_epoch.size() == rpo_blocks.size()) { return; }
+        const auto n = rpo_blocks.size();
+        def_epoch.assign(n, 0u);
+        def_stores.assign(n, nullptr);
+        use_slot_epoch.assign(n, 0u);
+        use_slot_index.assign(n, 0u);
+        cand_idf_epoch.assign(n, 0u);
+        live_epoch.assign(n, 0u);
+        current_epoch = 0u;
     }
 
-    [[nodiscard]] bool mark_live_in(BasicBlock *block) noexcept {
-        auto iter = block_indices.find(block);
-        if (iter == block_indices.end()) { return false; }
-        auto idx = iter->second;
-        if (idx >= live_in_epoch.size()) { return false; }
-        if (live_in_epoch[idx] == current_live_in_epoch) { return false; }
-        live_in_epoch[idx] = current_live_in_epoch;
-        return true;
+    [[nodiscard]] size_t all_in_degree(uint32_t bid) const noexcept {
+        return static_cast<size_t>(all_pred_offsets[bid + 1u] - all_pred_offsets[bid]);
     }
 
-    void analyze(AllocaInst *inst) noexcept {
-        def_blocks.clear();
-        use_blocks.clear();
-        if (live_in_epoch.size() != block_indices.size()) {
-            live_in_epoch.assign(block_indices.size(), 0u);
-            current_live_in_epoch = 1u;
-        } else if (++current_live_in_epoch == 0u) {
-            std::fill(live_in_epoch.begin(), live_in_epoch.end(), 0u);
-            current_live_in_epoch = 1u;
+    [[nodiscard]] bool prepare_and_check_budget(
+        AllocaInst *inst, bool is_reg2mem_spill) noexcept {
+        ensure_initialized();
+        def_block_ids.clear();
+        use_block_ids.clear();
+        phi_block_ids.clear();
+        if (++current_epoch == 0u) {
+            std::fill(def_epoch.begin(), def_epoch.end(), 0u);
+            std::fill(use_slot_epoch.begin(), use_slot_epoch.end(), 0u);
+            std::fill(cand_idf_epoch.begin(), cand_idf_epoch.end(), 0u);
+            std::fill(live_epoch.begin(), live_epoch.end(), 0u);
+            current_epoch = 1u;
         }
-        // find def and use blocks
+
+        size_t total_load_count = 0u;
+        // Find def and use blocks over dense block indices.
         for (auto &&use : inst->use_list()) {
-            if (auto user = use->user()) {
+            if (auto *user = use->user()) {
                 LUISA_DEBUG_ASSERT(user->isa<Instruction>(), "Invalid user.");
-                switch (auto user_inst = static_cast<Instruction *>(user); user_inst->derived_instruction_tag()) {
+                auto *user_inst = static_cast<Instruction *>(user);
+                switch (user_inst->derived_instruction_tag()) {
                     case DerivedInstructionTag::LOAD: {
-                        LUISA_DEBUG_ASSERT(user_inst->parent_block() != nullptr, "Invalid parent.");
-                        if (!reachable_blocks.contains(user_inst->parent_block())) { break; }
-                        use_blocks[user_inst->parent_block()].emplace_back(static_cast<LoadInst *>(user_inst));
+                        auto *parent = user_inst->parent_block();
+                        LUISA_DEBUG_ASSERT(parent != nullptr, "Invalid parent.");
+                        auto iter = block_indices.find(parent);
+                        if (iter == block_indices.end()) { break; }
+                        auto bid = iter->second;
+                        if (use_slot_epoch[bid] != current_epoch) {
+                            auto slot = static_cast<uint32_t>(use_block_ids.size());
+                            use_block_ids.emplace_back(bid);
+                            use_slot_epoch[bid] = current_epoch;
+                            use_slot_index[bid] = slot;
+                            if (slot >= use_loads.size()) {
+                                use_loads.resize(static_cast<size_t>(slot) + 1u);
+                            }
+                            use_loads[slot].clear();
+                        }
+                        use_loads[use_slot_index[bid]].emplace_back(static_cast<LoadInst *>(user_inst));
+                        ++total_load_count;
                         break;
                     }
                     case DerivedInstructionTag::STORE: {
-                        LUISA_DEBUG_ASSERT(user_inst->parent_block() != nullptr, "Invalid parent.");
-                        if (!reachable_blocks.contains(user_inst->parent_block())) { break; }
-                        auto [_, success] = def_blocks.try_emplace(user_inst->parent_block(), static_cast<StoreInst *>(user_inst));
-                        LUISA_DEBUG_ASSERT(success, "Invalid state.");
+                        auto *parent = user_inst->parent_block();
+                        LUISA_DEBUG_ASSERT(parent != nullptr, "Invalid parent.");
+                        auto iter = block_indices.find(parent);
+                        if (iter == block_indices.end()) { break; }
+                        auto bid = iter->second;
+                        LUISA_DEBUG_ASSERT(def_epoch[bid] != current_epoch, "Invalid state.");
+                        def_epoch[bid] = current_epoch;
+                        def_stores[bid] = static_cast<StoreInst *>(user_inst);
+                        def_block_ids.emplace_back(bid);
                         break;
                     }
                     default: break;
                 }
             }
         }
-        // compute live-in blocks
-        luisa::fixed_vector<BasicBlock *, 64> work_list;
-        work_list.reserve(use_blocks.size());
-        for (auto &[use_block, loads] : use_blocks) {
-            // For loads before the store, the store must come after.
-            // Loads after the store read the store's value directly and
-            // are handled in place_phi_nodes.
-            work_list.emplace_back(use_block);
-        }
-        // extend the live-in block set by adding all non-defining predecessors of the known live-in blocks
+
+        // Compute unpruned candidate IDF(Def) over precomputed CSR dominance frontiers.
+        work_list.assign(def_block_ids.begin(), def_block_ids.end());
+        bool any_cand_idf = false;
         while (!work_list.empty()) {
-            auto block = work_list.back();
+            auto bid = work_list.back();
             work_list.pop_back();
-            if (mark_live_in(block)) {
-                block->traverse_predecessors(true, [&](BasicBlock *pred) noexcept {
-                    if (!def_blocks.contains(pred) && !is_live_in(pred)) {
-                        work_list.emplace_back(pred);
-                    }
-                });
+            for (uint32_t e = df_offsets[bid], end = df_offsets[bid + 1u]; e < end; ++e) {
+                auto f = df_ids[e];
+                if (cand_idf_epoch[f] != current_epoch) {
+                    cand_idf_epoch[f] = current_epoch;
+                    work_list.emplace_back(f);
+                    any_cand_idf = true;
+                }
             }
         }
+        // Empty IDF guarantees zero Phi placements regardless of live-in blocks.
+        if (!any_cand_idf) {
+            return true;
+        }
+
+        // Ordinary allocas must not explode IR size by placing massive Phis on
+        // flattened state-machine dispatchers; retain sparse high-fanin allocas
+        // as explicit memory. Reg2MemSpillMD must always round-trip to SSA.
+        constexpr size_t kMinPhiOperandAllowance = 256u;
+        constexpr size_t kPhiOperandsPerAccess = 16u;
+        constexpr size_t kMaxPhiOperandsPerOrdinaryAlloca = 4096u;
+        const auto access_count = def_block_ids.size() + total_load_count;
+        const auto phi_operand_budget = std::min(
+            kMaxPhiOperandsPerOrdinaryAlloca,
+            std::max(kMinPhiOperandAllowance,
+                     kPhiOperandsPerAccess * access_count));
+
+        // Backward live-in BFS with pruned-SSA IDF intersection and early abort.
+        work_list.clear();
+        size_t live_phi_operands = 0u;
+        auto visit_live_in = [&](uint32_t bid) noexcept -> bool {
+            live_epoch[bid] = current_epoch;
+            if (cand_idf_epoch[bid] == current_epoch) {
+                phi_block_ids.emplace_back(bid);
+                live_phi_operands += all_in_degree(bid);
+                if (!is_reg2mem_spill && live_phi_operands > phi_operand_budget) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        for (uint32_t ub : use_block_ids) {
+            if (live_epoch[ub] != current_epoch) {
+                if (!visit_live_in(ub)) { return false; }
+                work_list.emplace_back(ub);
+            }
+        }
+        while (!work_list.empty()) {
+            auto bid = work_list.back();
+            work_list.pop_back();
+            for (uint32_t e = reach_pred_offsets[bid], end = reach_pred_offsets[bid + 1u]; e < end; ++e) {
+                auto pred = reach_pred_ids[e];
+                if (def_epoch[pred] != current_epoch && live_epoch[pred] != current_epoch) {
+                    if (!visit_live_in(pred)) { return false; }
+                    work_list.emplace_back(pred);
+                }
+            }
+        }
+        return true;
     }
 };
 
@@ -201,38 +289,53 @@ struct PhiInsertionAndRenaming {
 
     Mem2RegPassContext &ctx;
 
-    luisa::unordered_map<BasicBlock *, PhiInst *> block_to_phi;
+    luisa::vector<uint32_t> phi_inst_epoch;
+    luisa::vector<PhiInst *> phi_insts;
+    uint32_t current_phi_epoch{0u};
 
     // the following fields are used across the processing of different alloca's
     luisa::vector<PhiInst *> inserted;
 
-    [[nodiscard]] Value *find_dom_value_from_block(BasicBlock *block, const Type *type,
-                                                   const AllocaAnalysis &analysis) noexcept {
-        for (auto node = analysis.dom.node_or_null(block); node != nullptr; node = node->parent()) {
+    void ensure_initialized(size_t block_count) noexcept {
+        if (phi_inst_epoch.size() == block_count) { return; }
+        phi_inst_epoch.assign(block_count, 0u);
+        phi_insts.assign(block_count, nullptr);
+        current_phi_epoch = 0u;
+    }
+
+    [[nodiscard]] Value *find_dom_value_from_block(uint32_t bid, const Type *type,
+                                                   Module *module,
+                                                   const AllocaAnalysis &analysis) const noexcept {
+        for (uint32_t cur = bid; cur != AllocaAnalysis::invalid_block_id; cur = analysis.dom_parent[cur]) {
             // store must have higher priority than phi nodes as it's closer to the use block
-            if (auto iter = analysis.def_blocks.find(node->block()); iter != analysis.def_blocks.end()) {
-                return iter->second->value();
+            if (analysis.def_epoch[cur] == analysis.current_epoch) {
+                return analysis.def_stores[cur]->value();
             }
             // check phi nodes if no store is found
-            if (auto iter = block_to_phi.find(node->block()); iter != block_to_phi.end()) {
-                return iter->second;
+            if (phi_inst_epoch[cur] == current_phi_epoch) {
+                return phi_insts[cur];
             }
         }
         // if no dominant value found, get an undef value
-        return block->parent_module()->create_undefined(type);
+        return module->create_undefined(type);
     }
 
     void place_phi_nodes(AllocaInst *inst, const AllocaAnalysis &analysis, Mem2RegInfo &info) noexcept {
-        // insert new phi nodes by traversing the closure of dominance frontiers of the def blocks
-        block_to_phi.clear();
-        auto type = inst->type();
+        ensure_initialized(analysis.rpo_blocks.size());
+        if (++current_phi_epoch == 0u) {
+            std::fill(phi_inst_epoch.begin(), phi_inst_epoch.end(), 0u);
+            current_phi_epoch = 1u;
+        }
+        auto *type = inst->type();
+        auto *module = inst->parent_module();
         const NameMD *logical_name = nullptr;
         if (inst->find_metadata<Reg2MemSpillMD>() ==
             nullptr) {
             logical_name = inst->find_metadata<NameMD>();
         } else {
-            for (auto &[_, loads] : analysis.use_blocks) {
-                for (auto *load : loads) {
+            for (uint32_t ub : analysis.use_block_ids) {
+                const auto slot = analysis.use_slot_index[ub];
+                for (auto *load : analysis.use_loads[slot]) {
                     if (auto *name =
                             load->find_metadata<NameMD>()) {
                         logical_name = name;
@@ -242,54 +345,40 @@ struct PhiInsertionAndRenaming {
                 if (logical_name != nullptr) { break; }
             }
         }
+        // Insert new Phi nodes at precomputed IDF(Def) ∩ LiveIn blocks.
         {
-            luisa::fixed_vector<BasicBlock *, 64> work_list;
-            work_list.reserve(analysis.def_blocks.size());
-            for (auto [def_block, _] : analysis.def_blocks) {
-                work_list.emplace_back(def_block);
-            }
-            while (!work_list.empty()) {
-                auto block = work_list.back();
-                work_list.pop_back();
-                auto block_node = analysis.dom.node_or_null(block);
-                if (block_node == nullptr) { continue; }
-                for (auto frontier : block_node->frontiers()) {
-                    if (auto fb = frontier->block(); analysis.is_live_in(fb)) {
-                        if (auto iter = block_to_phi.try_emplace(fb, nullptr).first; iter->second == nullptr) {
-                            // insert the phi node
-                            XIRBuilder b;
-                            b.set_insertion_point(fb->instructions().head_sentinel());
-                            auto phi = b.phi(type);
-                            if (logical_name != nullptr) {
-                                phi->metadata_list().push_front(
-                                    logical_name->clone());
-                            }
-                            iter->second = phi;
-                            inserted.emplace_back(phi);
-                            // add the block to the work list to compute the closure
-                            work_list.emplace_back(fb);
-                        }
-                    }
+            XIRBuilder b;
+            for (uint32_t fb_id : analysis.phi_block_ids) {
+                auto *fb = analysis.rpo_blocks[fb_id];
+                b.set_insertion_point(fb->instructions().head_sentinel());
+                auto *phi = b.phi(type);
+                if (logical_name != nullptr) {
+                    phi->metadata_list().push_front(
+                        logical_name->clone());
                 }
+                phi_inst_epoch[fb_id] = current_phi_epoch;
+                phi_insts[fb_id] = phi;
+                inserted.emplace_back(phi);
             }
         }
         // other loads must be dominated by some def/phi block, or it must contain undefined value
-        for (auto &[use_block, loads] : analysis.use_blocks) {
-            for (auto load_inst : loads) {
+        for (uint32_t ub : analysis.use_block_ids) {
+            const auto slot = analysis.use_slot_index[ub];
+            for (auto *load_inst : analysis.use_loads[slot]) {
                 LUISA_DEBUG_ASSERT(!ctx.removed.contains(load_inst), "Invalid state.");
                 Value *replacement = nullptr;
                 // Check if there is a store in this block that comes before this load.
                 // If so, this load reads the store's value directly.
-                if (auto def_iter = analysis.def_blocks.find(use_block);
-                    def_iter != analysis.def_blocks.end() &&
-                    analysis.inst_indices.at(def_iter->second) < analysis.inst_indices.at(load_inst)) {
-                    replacement = def_iter->second->value();
-                } else if (auto phi_iter = block_to_phi.find(use_block); phi_iter != block_to_phi.end()) {
-                    replacement = phi_iter->second;
-                } else if (auto parent = analysis.dom.immediate_dominator(use_block)) {
-                    replacement = find_dom_value_from_block(parent, type, analysis);
+                if (analysis.def_epoch[ub] == analysis.current_epoch &&
+                    analysis.inst_indices.at(analysis.def_stores[ub]) < analysis.inst_indices.at(load_inst)) {
+                    replacement = analysis.def_stores[ub]->value();
+                } else if (phi_inst_epoch[ub] == current_phi_epoch) {
+                    replacement = phi_insts[ub];
+                } else if (auto parent_id = analysis.dom_parent[ub];
+                           parent_id != AllocaAnalysis::invalid_block_id) {
+                    replacement = find_dom_value_from_block(parent_id, type, module, analysis);
                 } else {
-                    replacement = use_block->parent_module()->create_undefined(type);
+                    replacement = module->create_undefined(type);
                 }
                 replace_load_with_value(load_inst, replacement, ctx, info);
             }
@@ -305,18 +394,22 @@ struct PhiInsertionAndRenaming {
             }
         }
         // now we fill the incoming values of the phi nodes
-        for (auto mapping : block_to_phi) {
-            // earlier clang compilers have trouble with structural binding in lambda capture, so we manually unpack here
-            auto phi_block = mapping.first;
-            auto phi_inst = mapping.second;
-            phi_block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                auto dom_value = find_dom_value_from_block(pred, type, analysis);
+        for (uint32_t phi_bid : analysis.phi_block_ids) {
+            auto *phi_inst = phi_insts[phi_bid];
+            for (uint32_t e = analysis.all_pred_offsets[phi_bid],
+                          end = analysis.all_pred_offsets[phi_bid + 1u];
+                 e < end; ++e) {
+                auto *pred = analysis.all_pred_blocks[e];
+                auto pred_bid = analysis.all_pred_ids[e];
+                auto *dom_value = pred_bid != AllocaAnalysis::invalid_block_id ?
+                                      find_dom_value_from_block(pred_bid, type, module, analysis) :
+                                      module->create_undefined(type);
                 phi_inst->add_incoming(dom_value, pred);
-            });
+            }
         }
         // remove the stores
-        for (auto [def_block, store_inst] : analysis.def_blocks) {
-            remove_store(store_inst, ctx, info);
+        for (uint32_t db : analysis.def_block_ids) {
+            remove_store(analysis.def_stores[db], ctx, info);
         }
         // remove the local variable (which should have no uses now) and record the promotion
         LUISA_ASSERT(inst->use_list().empty(), "Invalid state.");
@@ -428,12 +521,14 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
         // collect local alloca instructions that can be promoted
         luisa::vector<AllocaInst *> local_allocas;
         luisa::vector<AllocaInst *> promotable;
+        luisa::vector<BasicBlock *> rpo_blocks;
         luisa::unordered_map<Instruction *, uint32_t> inst_indices;
         luisa::unordered_map<BasicBlock *, uint32_t> block_indices;
         luisa::unordered_set<BasicBlock *> reachable_blocks;
         def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
             reachable_blocks.emplace(block);
-            block_indices.emplace(block, static_cast<uint32_t>(block_indices.size()));
+            block_indices.emplace(block, static_cast<uint32_t>(rpo_blocks.size()));
+            rpo_blocks.emplace_back(block);
             block->traverse_instructions([&](Instruction *inst) noexcept {
                 switch (inst->derived_instruction_tag()) {
                     case DerivedInstructionTag::ALLOCA: {
@@ -471,10 +566,60 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
         // perform the SSA rewrite pass for the remaining alloca instructions
         if (!promotable.empty()) {
             auto dom = compute_dom_tree(def);
+            const auto block_count = rpo_blocks.size();
+            luisa::vector<uint32_t> dom_parent(block_count, AllocaAnalysis::invalid_block_id);
+            luisa::vector<uint32_t> df_offsets(block_count + 1u, 0u);
+            luisa::vector<uint32_t> df_ids;
+            luisa::vector<uint32_t> reach_pred_offsets(block_count + 1u, 0u);
+            luisa::vector<uint32_t> reach_pred_ids;
+            luisa::vector<uint32_t> all_pred_offsets(block_count + 1u, 0u);
+            luisa::vector<BasicBlock *> all_pred_blocks;
+            luisa::vector<uint32_t> all_pred_ids;
+            for (size_t bid = 0u; bid < block_count; ++bid) {
+                auto *bb = rpo_blocks[bid];
+                if (auto *node = dom.node_or_null(bb)) {
+                    if (auto *parent = node->parent()) {
+                        if (auto it = block_indices.find(parent->block());
+                            it != block_indices.end()) {
+                            dom_parent[bid] = it->second;
+                        }
+                    }
+                    for (auto *frontier : node->frontiers()) {
+                        if (auto it = block_indices.find(frontier->block());
+                            it != block_indices.end()) {
+                            df_ids.emplace_back(it->second);
+                        }
+                    }
+                }
+                df_offsets[bid + 1u] = static_cast<uint32_t>(df_ids.size());
+                bb->traverse_predecessors(true, [&](BasicBlock *pred) noexcept {
+                    if (auto it = block_indices.find(pred); it != block_indices.end()) {
+                        reach_pred_ids.emplace_back(it->second);
+                    }
+                });
+                reach_pred_offsets[bid + 1u] = static_cast<uint32_t>(reach_pred_ids.size());
+                bb->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                    all_pred_blocks.emplace_back(pred);
+                    auto it = block_indices.find(pred);
+                    all_pred_ids.emplace_back(it != block_indices.end() ?
+                                                  it->second :
+                                                  AllocaAnalysis::invalid_block_id);
+                });
+                all_pred_offsets[bid + 1u] = static_cast<uint32_t>(all_pred_blocks.size());
+            }
             AllocaAnalysis analysis{.dom = dom,
                                     .inst_indices = inst_indices,
                                     .block_indices = block_indices,
-                                    .reachable_blocks = reachable_blocks};
+                                    .reachable_blocks = reachable_blocks,
+                                    .rpo_blocks = rpo_blocks,
+                                    .dom_parent = dom_parent,
+                                    .df_offsets = df_offsets,
+                                    .df_ids = df_ids,
+                                    .reach_pred_offsets = reach_pred_offsets,
+                                    .reach_pred_ids = reach_pred_ids,
+                                    .all_pred_offsets = all_pred_offsets,
+                                    .all_pred_blocks = all_pred_blocks,
+                                    .all_pred_ids = all_pred_ids};
             PhiInsertionAndRenaming insertion{.ctx = ctx};
             luisa::vector<LoadInst *> loads;
             luisa::unordered_set<BasicBlock *> seen_store_blocks;
@@ -558,8 +703,13 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
                         continue;
                     }
                 }
-                // analyze and insert phi nodes
-                analysis.analyze(inst);
+                // Analyze pruned-SSA Phi placements and enforce ordinary-alloca
+                // Phi-operand budget before mutating the IR.
+                const auto is_reg2mem_spill =
+                    inst->find_metadata<Reg2MemSpillMD>() != nullptr;
+                if (!analysis.prepare_and_check_budget(inst, is_reg2mem_spill)) {
+                    continue;
+                }
                 insertion.place_phi_nodes(inst, analysis, info);
             }
             insertion.simplify_phi_nodes(info);

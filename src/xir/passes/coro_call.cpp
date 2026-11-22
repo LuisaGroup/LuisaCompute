@@ -1,18 +1,27 @@
 #include <luisa/xir/passes/coro_call.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/dom_tree.h>
+#include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
+#include <luisa/xir/instructions/switch.h>
+#include <luisa/xir/instructions/unreachable.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <utility>
 #include "coro_call_alias.h"
 #include "helpers.h"
@@ -442,109 +451,647 @@ void coro_call_demote_cross_block_values(Function *root) {
 }
 
 void coro_call_structure_continuation(Function *function) {
+    if (function == nullptr) { return; }
     auto *definition = function->definition();
+    if (definition == nullptr || definition->body_block() == nullptr) { return; }
     auto *module = function->parent_module();
-    luisa::vector<BasicBlock *> blocks;
-    definition->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER,
-                                      [&](BasicBlock *block) { blocks.emplace_back(block); });
+
     // Each dispatcher arm is a distinct lexical region. References cannot be
     // spilled as values: rebuild each cross-block address at its use first,
     // then transport its captured scalar indices with the other live values.
     // This happens after frame materialization and creates no frame state.
     rematerialize_cross_block_addresses(function);
     coro_call_demote_cross_block_values(function);
-    luisa::unordered_map<BasicBlock *, uint32_t> ids;
-    for (auto *block : blocks) { ids.emplace(block, static_cast<uint32_t>(ids.size())); }
+
+    luisa::vector<BasicBlock *> blocks;
+    luisa::unordered_map<BasicBlock *, uint32_t> raw_ids;
+    definition->traverse_basic_blocks(
+        BasicBlockTraversalOrder::REVERSE_POST_ORDER,
+        [&](BasicBlock *block) noexcept {
+            raw_ids.emplace(block, static_cast<uint32_t>(blocks.size()));
+            blocks.emplace_back(block);
+        });
+    if (blocks.empty()) { return; }
+
+    const size_t nblocks = blocks.size();
+    constexpr uint32_t invalid_id = std::numeric_limits<uint32_t>::max();
+    luisa::vector<luisa::vector<uint32_t>> succs(nblocks);
+    luisa::vector<luisa::vector<uint32_t>> preds(nblocks);
+    for (size_t i = 0u; i < nblocks; ++i) {
+        blocks[i]->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+            if (auto it = raw_ids.find(succ); it != raw_ids.end()) {
+                succs[i].emplace_back(it->second);
+            }
+        });
+        blocks[i]->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            if (auto it = raw_ids.find(pred); it != raw_ids.end()) {
+                preds[i].emplace_back(it->second);
+            }
+        });
+    }
+
+    auto dom = compute_dom_tree(definition, {.compute_dominance_frontiers = false});
+    auto pdom = compute_post_dom_tree(
+        definition, {.account_for_infinite_paths = true, .ignore_unreachable = true});
+
+    luisa::vector<uint8_t> must_dispatch(nblocks, 0u);
     auto *old_entry = definition->body_block();
-    auto *entry = definition->create_basic_block();
-    definition->set_body_block(entry);
-    XIRBuilder b;
-    b.set_insertion_point(entry);
+    must_dispatch[raw_ids.at(old_entry)] = 1u;
+
+    for (size_t u = 0u; u < nblocks; ++u) {
+        for (uint32_t p : preds[u]) {
+            if (p == u || dom.dominates(blocks[u], blocks[p])) {
+                must_dispatch[u] = 1u;
+                break;
+            }
+        }
+        auto *term = blocks[u]->terminator();
+        if (term != nullptr && term->isa<IndexedBranchInst>()) {
+            auto *branch = static_cast<IndexedBranchInst *>(term);
+            auto *def_bb = branch->default_block();
+            for (size_t ci = 0u; ci < branch->case_count(); ++ci) {
+                if (branch->case_block(ci) == def_bb) {
+                    if (auto it = raw_ids.find(def_bb); it != raw_ids.end()) {
+                        must_dispatch[it->second] = 1u;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Detect pure single-entry single-exit (SESE) selections bottom-up in
+    // dominator post-order so linear chains and structured diamonds stay inline
+    // rather than flattening onto the top-level dispatcher switch.
+    luisa::vector<uint32_t> dom_postorder;
+    dom_postorder.reserve(nblocks);
+    if (auto *root_node = dom.root()) {
+        struct DomFrame {
+            const DomTreeNode *node;
+            size_t next_child;
+        };
+        luisa::vector<DomFrame> stack;
+        stack.emplace_back(DomFrame{root_node, 0u});
+        while (!stack.empty()) {
+            auto &frame = stack.back();
+            if (frame.next_child < frame.node->children().size()) {
+                auto *child = frame.node->children()[frame.next_child++];
+                stack.emplace_back(DomFrame{child, 0u});
+            } else {
+                if (auto it = raw_ids.find(frame.node->block()); it != raw_ids.end()) {
+                    dom_postorder.emplace_back(it->second);
+                }
+                stack.pop_back();
+            }
+        }
+    }
+
+    luisa::vector<uint32_t> sese_merge(nblocks, invalid_id);
+    luisa::vector<uint32_t> claimed_owner(nblocks, invalid_id);
+    luisa::vector<uint32_t> dfs_active_epoch(nblocks, 0u);
+    luisa::vector<uint32_t> dfs_done_epoch(nblocks, 0u);
+    luisa::vector<uint32_t> m_edge_epoch(nblocks, 0u);
+    uint32_t check_epoch = 0u;
+    luisa::vector<uint32_t> cand_interior;
+    struct SeseDfsFrame {
+        uint32_t u;
+        size_t succ_idx;
+        bool pushed_active;
+    };
+    luisa::vector<SeseDfsFrame> sese_stack;
+
+    for (uint32_t h : dom_postorder) {
+        auto *h_bb = blocks[h];
+        auto *term = h_bb->terminator();
+        if (term == nullptr) { continue; }
+        if (term->isa<ConditionalBranchInst>()) {
+            auto *cbr = static_cast<ConditionalBranchInst *>(term);
+            if (cbr->true_block() == cbr->false_block()) { continue; }
+        } else if (!term->isa<IndexedBranchInst>()) {
+            continue;
+        }
+        auto *m_bb = pdom.immediate_post_dominator(h_bb);
+        if (m_bb == nullptr) { continue; }
+        auto m_it = raw_ids.find(m_bb);
+        if (m_it == raw_ids.end()) { continue; }
+        const uint32_t m = m_it->second;
+        if (m == h || must_dispatch[m] != 0u || claimed_owner[m] != invalid_id ||
+            !dom.strictly_dominates(h_bb, m_bb)) {
+            continue;
+        }
+
+        if (++check_epoch == 0u) {
+            std::fill(dfs_active_epoch.begin(), dfs_active_epoch.end(), 0u);
+            std::fill(dfs_done_epoch.begin(), dfs_done_epoch.end(), 0u);
+            std::fill(m_edge_epoch.begin(), m_edge_epoch.end(), 0u);
+            check_epoch = 1u;
+        }
+        cand_interior.clear();
+        sese_stack.clear();
+        size_t reached_preds_of_m = 0u;
+        auto record_edge_to_m = [&](uint32_t src) noexcept {
+            if (m_edge_epoch[src] != check_epoch) {
+                m_edge_epoch[src] = check_epoch;
+                ++reached_preds_of_m;
+            }
+        };
+
+        auto push_step = [&](uint32_t target, uint32_t src) noexcept -> bool {
+            if (target == m) {
+                record_edge_to_m(src);
+                return true;
+            }
+            if (target == h || !dom.strictly_dominates(h_bb, blocks[target]) ||
+                must_dispatch[target] != 0u) {
+                return false;
+            }
+            if (dfs_active_epoch[target] == check_epoch) {
+                return false;
+            }
+            if (dfs_done_epoch[target] == check_epoch) {
+                return true;
+            }
+            if (claimed_owner[target] != invalid_id || preds[target].size() != 1u) {
+                return false;
+            }
+            cand_interior.emplace_back(target);
+            // If `target` heads an already-verified sub-SESE region, teleport
+            // directly to its merge node(s) instead of re-walking its interior.
+            uint32_t cur = target;
+            dfs_done_epoch[cur] = check_epoch;
+            while (sese_merge[cur] != invalid_id) {
+                uint32_t next_m = sese_merge[cur];
+                if (next_m == h || next_m == m || must_dispatch[next_m] != 0u ||
+                    !dom.strictly_dominates(h_bb, blocks[next_m]) ||
+                    dfs_active_epoch[next_m] == check_epoch) {
+                    return false;
+                }
+                if (dfs_done_epoch[next_m] == check_epoch) {
+                    return true;
+                }
+                dfs_done_epoch[next_m] = check_epoch;
+                cur = next_m;
+            }
+            dfs_active_epoch[cur] = check_epoch;
+            sese_stack.emplace_back(SeseDfsFrame{cur, 0u, true});
+            return true;
+        };
+
+        bool ok = true;
+        for (uint32_t s : succs[h]) {
+            if (!push_step(s, h)) {
+                ok = false;
+                break;
+            }
+        }
+        while (ok && !sese_stack.empty()) {
+            auto &frame = sese_stack.back();
+            const uint32_t u = frame.u;
+            if (frame.succ_idx < succs[u].size()) {
+                uint32_t s = succs[u][frame.succ_idx++];
+                if (!push_step(s, u)) {
+                    ok = false;
+                    break;
+                }
+            } else {
+                if (frame.pushed_active) {
+                    dfs_active_epoch[u] = 0u;
+                }
+                sese_stack.pop_back();
+            }
+        }
+
+        if (!ok || reached_preds_of_m != preds[m].size()) { continue; }
+        sese_merge[h] = m;
+        claimed_owner[m] = h;
+        for (uint32_t interior : cand_interior) {
+            claimed_owner[interior] = h;
+        }
+    }
+
+    luisa::vector<uint8_t> is_dispatch(nblocks, 0u);
+    for (size_t u = 0u; u < nblocks; ++u) {
+        if (must_dispatch[u] != 0u ||
+            (claimed_owner[u] == invalid_id && preds[u].size() >= 2u)) {
+            is_dispatch[u] = 1u;
+        }
+    }
+
+    bool needs_dispatcher = false;
+    for (size_t u = 0u; u < nblocks && !needs_dispatcher; ++u) {
+        for (uint32_t v : succs[u]) {
+            if (is_dispatch[v] != 0u) {
+                needs_dispatcher = true;
+                break;
+            }
+        }
+    }
+
     luisa::vector<AllocaInst *> allocas;
     for (auto *block : blocks) {
         for (auto *inst : block->instructions()) {
             if (inst->isa<AllocaInst>()) { allocas.emplace_back(static_cast<AllocaInst *>(inst)); }
         }
     }
-    for (auto *alloca : allocas) { b.append(alloca->remove_self()); }
-    auto *pc = b.alloca_local(Type::of<uint32_t>());
-    pc->add_comment("continuation-local block selector; not a suspend token");
-    auto constant = [&](BasicBlock *target) {
-        auto id = ids.at(target);
+
+    XIRBuilder b;
+    AllocaInst *pc = nullptr;
+    BasicBlock *next = nullptr;
+    luisa::vector<BasicBlock *> dispatch_blocks;
+    luisa::unordered_map<BasicBlock *, uint32_t> dispatch_ids;
+
+    if (!needs_dispatcher) {
+        b.set_insertion_point(old_entry->instructions().head_sentinel());
+        for (auto *alloca : allocas) { b.append(alloca->remove_self()); }
+    } else {
+        for (size_t u = 0u; u < nblocks; ++u) {
+            if (is_dispatch[u] != 0u) {
+                dispatch_ids.emplace(blocks[u], static_cast<uint32_t>(dispatch_blocks.size()));
+                dispatch_blocks.emplace_back(blocks[u]);
+            }
+        }
+        auto *entry = definition->create_basic_block();
+        definition->set_body_block(entry);
+        b.set_insertion_point(entry);
+        for (auto *alloca : allocas) { b.append(alloca->remove_self()); }
+        pc = b.alloca_local(Type::of<uint32_t>());
+        pc->add_comment("continuation-local block selector; not a suspend token");
+        auto constant_id = [&](uint32_t id) noexcept {
+            return module->create_constant(Type::of<uint32_t>(), &id);
+        };
+        b.store(pc, constant_id(dispatch_ids.at(old_entry)));
+        auto *loop = b.simple_loop();
+        auto *dispatch = definition->create_basic_block();
+        auto *loop_exit = definition->create_basic_block();
+        next = definition->create_basic_block();
+        auto *invalid = definition->create_basic_block();
+        loop->set_body_block(dispatch);
+        loop->set_merge_block(loop_exit);
+        b.set_insertion_point(dispatch);
+        auto *choice = b.switch_(b.load(Type::of<uint32_t>(), pc));
+        choice->set_merge_block(next);
+        choice->set_default_block(invalid);
+        for (auto *block : dispatch_blocks) { choice->add_case(dispatch_ids.at(block), block); }
+        b.set_insertion_point(invalid);
+        b.unreachable_("Invalid continuation block selector.");
+        b.set_insertion_point(loop_exit);
+        b.unreachable_();
+        b.set_insertion_point(next);
+        b.continue_(dispatch);
+    }
+
+    auto constant_bb = [&](BasicBlock *target) noexcept -> Value * {
+        auto id = dispatch_ids.at(target);
         return module->create_constant(Type::of<uint32_t>(), &id);
     };
-    b.store(pc, constant(old_entry));
-    auto *loop = b.simple_loop();
-    auto *dispatch = definition->create_basic_block();
-    auto *loop_exit = definition->create_basic_block();
-    auto *next = definition->create_basic_block();
-    auto *invalid = definition->create_basic_block();
-    loop->set_body_block(dispatch);
-    loop->set_merge_block(loop_exit);
-    b.set_insertion_point(dispatch);
-    auto *choice = b.switch_(b.load(Type::of<uint32_t>(), pc));
-    choice->set_merge_block(next);
-    choice->set_default_block(invalid);
-    for (auto *block : blocks) { choice->add_case(ids.at(block), block); }
-    b.set_insertion_point(invalid);
-    b.unreachable_("Invalid continuation block selector.");
-    b.set_insertion_point(loop_exit);
-    b.unreachable_();
-    b.set_insertion_point(next);
-    b.continue_(dispatch);
-    for (auto *block : blocks) {
-        auto *term = block->terminator();
-        if (term->isa<BranchInst>()) {
-            auto *target = static_cast<BranchInst *>(term)->target_block();
-            auto removed = term->remove_self();
-            b.set_insertion_point(block);
-            b.store(pc, constant(target));
-            b.break_(next);
-        } else if (term->isa<ConditionalBranchInst>()) {
-            auto *branch = static_cast<ConditionalBranchInst *>(term);
-            auto *condition = branch->condition();
-            auto *true_target = branch->true_block();
-            auto *false_target = branch->false_block();
-            auto removed = term->remove_self();
-            b.set_insertion_point(block);
-            auto *selection = b.if_(condition);
-            auto *yes = definition->create_basic_block();
-            auto *no = definition->create_basic_block();
-            auto *merge = definition->create_basic_block();
-            selection->set_true_target(yes);
-            selection->set_false_target(no);
-            selection->set_merge_block(merge);
-            b.set_insertion_point(yes);
-            b.store(pc, constant(true_target));
-            b.br(merge);
-            b.set_insertion_point(no);
-            b.store(pc, constant(false_target));
-            b.br(merge);
-            b.set_insertion_point(merge);
-            b.break_(next);
-        } else if (term->isa<IndexedBranchInst>()) {
-            auto *branch = static_cast<IndexedBranchInst *>(term);
-            auto removed = term->remove_self();
-            b.set_insertion_point(block);
-            auto *selection = b.switch_(branch->value());
-            auto *merge = definition->create_basic_block();
-            selection->set_merge_block(merge);
-            auto target_arm = [&](BasicBlock *target) {
-                auto *arm = definition->create_basic_block();
-                b.set_insertion_point(arm);
-                b.store(pc, constant(target));
-                b.break_(merge);
-                return arm;
-            };
-            selection->set_default_block(target_arm(branch->default_block()));
-            for (size_t i = 0; i < branch->case_count(); ++i) {
-                selection->add_case(branch->case_value(i), target_arm(branch->case_block(i)));
-            }
-            b.set_insertion_point(merge);
-            b.break_(next);
+    auto is_dispatch_block = [&](BasicBlock *bb) noexcept -> bool {
+        if (!needs_dispatcher) { return false; }
+        auto it = raw_ids.find(bb);
+        return it != raw_ids.end() && is_dispatch[it->second] != 0u;
+    };
+    auto get_sese_merge = [&](BasicBlock *bb) noexcept -> BasicBlock * {
+        auto it = raw_ids.find(bb);
+        if (it == raw_ids.end()) { return nullptr; }
+        uint32_t mid = sese_merge[it->second];
+        return mid == invalid_id ? nullptr : blocks[mid];
+    };
+
+    enum class ExitKind : uint8_t {
+        BranchToMerge,
+        BreakToMerge,
+    };
+    struct EmitTask {
+        enum class Kind : uint8_t {
+            RunLinear,
+            FinalizeSynthMerge,
+        };
+        Kind kind{Kind::RunLinear};
+        BasicBlock *cur{nullptr};
+        BasicBlock *stop{nullptr};
+        ExitKind exit_kind{ExitKind::BranchToMerge};
+        BasicBlock *exit_target{nullptr};
+        uint32_t reached_id{invalid_id};
+        uint32_t flag_id{invalid_id};
+    };
+
+    auto emit_exit_at = [&](BasicBlock *block, ExitKind ek, BasicBlock *target) noexcept {
+        b.set_insertion_point(block);
+        if (ek == ExitKind::BranchToMerge) {
+            b.br(target);
         } else {
-            LUISA_ASSERT(term->isa<ReturnInst>() || term->isa<UnreachableInst>(),
-                         "Expected a raw materialized coroutine continuation.");
+            b.break_(target);
+        }
+    };
+
+    luisa::vector<EmitTask> emit_stack;
+    luisa::vector<uint8_t> reached_flags;
+    auto run_emitter = [&](BasicBlock *root_block, ExitKind top_kind, BasicBlock *top_target) noexcept {
+        emit_stack.clear();
+        reached_flags.clear();
+        emit_stack.emplace_back(EmitTask{
+            EmitTask::Kind::RunLinear, root_block, nullptr, top_kind, top_target, invalid_id, invalid_id});
+        while (!emit_stack.empty()) {
+            auto task = emit_stack.back();
+            emit_stack.pop_back();
+            if (task.kind == EmitTask::Kind::FinalizeSynthMerge) {
+                if (reached_flags[task.flag_id] != 0u) {
+                    emit_exit_at(task.cur, task.exit_kind, task.exit_target);
+                    if (task.reached_id != invalid_id) { reached_flags[task.reached_id] = 1u; }
+                } else {
+                    b.set_insertion_point(task.cur);
+                    b.unreachable_();
+                }
+                continue;
+            }
+
+            BasicBlock *cur = task.cur;
+            while (cur != nullptr) {
+                auto *term = cur->terminator();
+                if (term->isa<ReturnInst>() || term->isa<UnreachableInst>()) {
+                    break;
+                }
+                if (term->isa<BranchInst>() ||
+                    (term->isa<ConditionalBranchInst>() &&
+                     static_cast<ConditionalBranchInst *>(term)->true_block() ==
+                         static_cast<ConditionalBranchInst *>(term)->false_block())) {
+                    BasicBlock *target = term->isa<BranchInst>() ?
+                                             static_cast<BranchInst *>(term)->target_block() :
+                                             static_cast<ConditionalBranchInst *>(term)->true_block();
+                    if (task.stop != nullptr && target == task.stop) {
+                        if (!term->isa<BranchInst>() ||
+                            task.exit_kind != ExitKind::BranchToMerge ||
+                            target != task.exit_target) {
+                            auto removed = term->remove_self();
+                            emit_exit_at(cur, task.exit_kind, task.exit_target);
+                        }
+                        if (task.reached_id != invalid_id) { reached_flags[task.reached_id] = 1u; }
+                        break;
+                    }
+                    if (!is_dispatch_block(target)) {
+                        if (!term->isa<BranchInst>()) {
+                            auto removed = term->remove_self();
+                            b.set_insertion_point(cur);
+                            b.br(target);
+                        }
+                        cur = target;
+                        continue;
+                    }
+                    auto removed = term->remove_self();
+                    b.set_insertion_point(cur);
+                    b.store(pc, constant_bb(target));
+                    emit_exit_at(cur, task.exit_kind, task.exit_target);
+                    if (task.reached_id != invalid_id) { reached_flags[task.reached_id] = 1u; }
+                    break;
+                }
+                if (term->isa<ConditionalBranchInst>()) {
+                    auto *cbr = static_cast<ConditionalBranchInst *>(term);
+                    auto *cond = cbr->condition();
+                    auto *t_bb = cbr->true_block();
+                    auto *f_bb = cbr->false_block();
+                    auto *merge_bb = get_sese_merge(cur);
+                    if (merge_bb != nullptr) {
+                        auto removed = term->remove_self();
+                        b.set_insertion_point(cur);
+                        auto *if_inst = b.if_(cond);
+                        if_inst->set_true_target(t_bb);
+                        if_inst->set_false_target(f_bb);
+                        if_inst->set_merge_block(merge_bb);
+                        emit_stack.emplace_back(EmitTask{
+                            EmitTask::Kind::RunLinear,
+                            merge_bb,
+                            task.stop,
+                            task.exit_kind,
+                            task.exit_target,
+                            task.reached_id,
+                            invalid_id});
+                        if (f_bb != merge_bb) {
+                            emit_stack.emplace_back(EmitTask{
+                                EmitTask::Kind::RunLinear,
+                                f_bb,
+                                merge_bb,
+                                ExitKind::BranchToMerge,
+                                merge_bb,
+                                invalid_id,
+                                invalid_id});
+                        }
+                        if (t_bb != merge_bb) {
+                            emit_stack.emplace_back(EmitTask{
+                                EmitTask::Kind::RunLinear,
+                                t_bb,
+                                merge_bb,
+                                ExitKind::BranchToMerge,
+                                merge_bb,
+                                invalid_id,
+                                invalid_id});
+                        }
+                        break;
+                    }
+                    auto *synth_merge = definition->create_basic_block();
+                    auto removed = term->remove_self();
+                    b.set_insertion_point(cur);
+                    auto *if_inst = b.if_(cond);
+                    if_inst->set_merge_block(synth_merge);
+
+                    const uint32_t my_flag_id = static_cast<uint32_t>(reached_flags.size());
+                    reached_flags.emplace_back(0u);
+                    emit_stack.emplace_back(EmitTask{
+                        EmitTask::Kind::FinalizeSynthMerge,
+                        synth_merge,
+                        nullptr,
+                        task.exit_kind,
+                        task.exit_target,
+                        task.reached_id,
+                        my_flag_id});
+
+                    auto prepare_arm = [&](BasicBlock *arm_target, bool is_true) noexcept {
+                        if (task.stop != nullptr && arm_target == task.stop) {
+                            auto *tramp = definition->create_basic_block();
+                            b.set_insertion_point(tramp);
+                            b.br(synth_merge);
+                            if (is_true) {
+                                if_inst->set_true_target(tramp);
+                            } else {
+                                if_inst->set_false_target(tramp);
+                            }
+                            reached_flags[my_flag_id] = 1u;
+                        } else if (is_dispatch_block(arm_target)) {
+                            auto *tramp = definition->create_basic_block();
+                            b.set_insertion_point(tramp);
+                            b.store(pc, constant_bb(arm_target));
+                            b.br(synth_merge);
+                            if (is_true) {
+                                if_inst->set_true_target(tramp);
+                            } else {
+                                if_inst->set_false_target(tramp);
+                            }
+                            reached_flags[my_flag_id] = 1u;
+                        } else {
+                            if (is_true) {
+                                if_inst->set_true_target(arm_target);
+                            } else {
+                                if_inst->set_false_target(arm_target);
+                            }
+                            emit_stack.emplace_back(EmitTask{
+                                EmitTask::Kind::RunLinear,
+                                arm_target,
+                                task.stop,
+                                ExitKind::BranchToMerge,
+                                synth_merge,
+                                my_flag_id,
+                                invalid_id});
+                        }
+                    };
+                    prepare_arm(f_bb, false);
+                    prepare_arm(t_bb, true);
+                    break;
+                }
+                if (term->isa<IndexedBranchInst>()) {
+                    auto *ibr = static_cast<IndexedBranchInst *>(term);
+                    auto *sel_val = ibr->value();
+                    auto *def_bb = ibr->default_block();
+                    luisa::vector<std::pair<IndexedBranchInst::case_value_type, BasicBlock *>> cases;
+                    cases.reserve(ibr->case_count());
+                    for (size_t ci = 0u; ci < ibr->case_count(); ++ci) {
+                        cases.emplace_back(ibr->case_value(ci), ibr->case_block(ci));
+                    }
+                    auto *merge_bb = get_sese_merge(cur);
+                    auto removed = term->remove_self();
+                    b.set_insertion_point(cur);
+                    auto *sw = b.switch_(sel_val);
+
+                    if (merge_bb != nullptr) {
+                        sw->set_merge_block(merge_bb);
+                        emit_stack.emplace_back(EmitTask{
+                            EmitTask::Kind::RunLinear,
+                            merge_bb,
+                            task.stop,
+                            task.exit_kind,
+                            task.exit_target,
+                            task.reached_id,
+                            invalid_id});
+                        luisa::unordered_set<BasicBlock *> emitted_arms;
+                        if (def_bb == merge_bb) {
+                            auto *tramp = definition->create_basic_block();
+                            b.set_insertion_point(tramp);
+                            b.break_(merge_bb);
+                            sw->set_default_block(tramp);
+                        } else {
+                            sw->set_default_block(def_bb);
+                            if (emitted_arms.emplace(def_bb).second) {
+                                emit_stack.emplace_back(EmitTask{
+                                    EmitTask::Kind::RunLinear,
+                                    def_bb,
+                                    merge_bb,
+                                    ExitKind::BreakToMerge,
+                                    merge_bb,
+                                    invalid_id,
+                                    invalid_id});
+                            }
+                        }
+                        BasicBlock *case_merge_tramp = nullptr;
+                        for (auto &[cval, cbb] : cases) {
+                            if (cbb == merge_bb) {
+                                if (case_merge_tramp == nullptr) {
+                                    case_merge_tramp = definition->create_basic_block();
+                                    b.set_insertion_point(case_merge_tramp);
+                                    b.break_(merge_bb);
+                                }
+                                sw->add_case(cval, case_merge_tramp);
+                            } else {
+                                sw->add_case(cval, cbb);
+                                if (emitted_arms.emplace(cbb).second) {
+                                    emit_stack.emplace_back(EmitTask{
+                                        EmitTask::Kind::RunLinear,
+                                        cbb,
+                                        merge_bb,
+                                        ExitKind::BreakToMerge,
+                                        merge_bb,
+                                        invalid_id,
+                                        invalid_id});
+                                }
+                            }
+                        }
+                        break;
+                    }
+
+                    auto *synth_merge = definition->create_basic_block();
+                    sw->set_merge_block(synth_merge);
+                    const uint32_t my_flag_id = static_cast<uint32_t>(reached_flags.size());
+                    reached_flags.emplace_back(0u);
+                    emit_stack.emplace_back(EmitTask{
+                        EmitTask::Kind::FinalizeSynthMerge,
+                        synth_merge,
+                        nullptr,
+                        task.exit_kind,
+                        task.exit_target,
+                        task.reached_id,
+                        my_flag_id});
+
+                    auto make_dispatch_tramp = [&](BasicBlock *target) noexcept {
+                        auto *tramp = definition->create_basic_block();
+                        b.set_insertion_point(tramp);
+                        if (is_dispatch_block(target)) {
+                            b.store(pc, constant_bb(target));
+                        }
+                        b.break_(synth_merge);
+                        reached_flags[my_flag_id] = 1u;
+                        return tramp;
+                    };
+
+                    luisa::unordered_set<BasicBlock *> emitted_arms;
+                    if ((task.stop != nullptr && def_bb == task.stop) ||
+                        is_dispatch_block(def_bb)) {
+                        // Keep default block distinct from case arms.
+                        sw->set_default_block(make_dispatch_tramp(def_bb));
+                    } else {
+                        sw->set_default_block(def_bb);
+                        if (emitted_arms.emplace(def_bb).second) {
+                            emit_stack.emplace_back(EmitTask{
+                                EmitTask::Kind::RunLinear,
+                                def_bb,
+                                task.stop,
+                                ExitKind::BreakToMerge,
+                                synth_merge,
+                                my_flag_id,
+                                invalid_id});
+                        }
+                    }
+
+                    luisa::unordered_map<BasicBlock *, BasicBlock *> case_tramps;
+                    for (auto &[cval, cbb] : cases) {
+                        if ((task.stop != nullptr && cbb == task.stop) ||
+                            is_dispatch_block(cbb)) {
+                            auto [it, ins] = case_tramps.try_emplace(cbb, nullptr);
+                            if (ins) { it->second = make_dispatch_tramp(cbb); }
+                            sw->add_case(cval, it->second);
+                        } else {
+                            sw->add_case(cval, cbb);
+                            if (emitted_arms.emplace(cbb).second) {
+                                emit_stack.emplace_back(EmitTask{
+                                    EmitTask::Kind::RunLinear,
+                                    cbb,
+                                    task.stop,
+                                    ExitKind::BreakToMerge,
+                                    synth_merge,
+                                    my_flag_id,
+                                    invalid_id});
+                            }
+                        }
+                    }
+                    break;
+                }
+                LUISA_ASSERT(term->isa<ReturnInst>() || term->isa<UnreachableInst>(),
+                             "Expected a raw materialized coroutine continuation.");
+                break;
+            }
+        }
+    };
+
+    if (!needs_dispatcher) {
+        run_emitter(old_entry, ExitKind::BranchToMerge, nullptr);
+    } else {
+        for (auto *arm : dispatch_blocks) {
+            run_emitter(arm, ExitKind::BreakToMerge, next);
         }
     }
 }

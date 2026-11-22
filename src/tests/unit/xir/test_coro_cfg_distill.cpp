@@ -18,6 +18,8 @@
 #include <luisa/xir/passes/coro_call.h>
 #include <luisa/xir/passes/coro_reg2mem.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/mem2reg.h>
+#include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/xir/special_register.h>
@@ -3050,6 +3052,148 @@ void reg_coro_cfg_distill() {
             expect(result.frame_values.front().access_chain ==
                    luisa::vector<uint32_t>{1u});
         }
+    };
+
+    "coro_call_structure_continuation_inlines_sese_and_bounds_next_fanin"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *kernel = make_kernel_with_body(m, entry);
+        auto *cond0 = kernel->create_value_argument(Type::of<bool>());
+        auto *cond1 = kernel->create_value_argument(Type::of<bool>());
+        auto *cond2 = kernel->create_value_argument(Type::of<bool>());
+        auto *idx1 = kernel->create_value_argument(Type::of<uint32_t>());
+        auto *idx2 = kernel->create_value_argument(Type::of<uint32_t>());
+        auto *out = kernel->create_reference_argument(Type::of<uint32_t>());
+
+        auto *loop_header = kernel->create_basic_block();
+        auto *diamond_hdr = kernel->create_basic_block();
+        auto *arm_t = kernel->create_basic_block();
+        auto *linear_a = kernel->create_basic_block();
+        auto *inner_if = kernel->create_basic_block();
+        auto *inner_arm = kernel->create_basic_block();
+        auto *arm_f = kernel->create_basic_block();
+        auto *diamond_join = kernel->create_basic_block();
+        auto *sw_hdr = kernel->create_basic_block();
+        auto *sw_a = kernel->create_basic_block();
+        auto *sw_b = kernel->create_basic_block();
+        auto *sw_c = kernel->create_basic_block();
+        auto *sw_join = kernel->create_basic_block();
+        auto *dup_sw = kernel->create_basic_block();
+        auto *dup_arm = kernel->create_basic_block();
+        auto *exit_blk = kernel->create_basic_block();
+
+        XIRBuilder b;
+        uint32_t c1 = 1u, c2 = 2u, c3 = 3u, c4 = 4u, c5 = 5u;
+        auto *v1 = m.create_constant(Type::of<uint32_t>(), &c1);
+        auto *v2 = m.create_constant(Type::of<uint32_t>(), &c2);
+        auto *v3 = m.create_constant(Type::of<uint32_t>(), &c3);
+        auto *v4 = m.create_constant(Type::of<uint32_t>(), &c4);
+        auto *v5 = m.create_constant(Type::of<uint32_t>(), &c5);
+
+        b.set_insertion_point(entry);
+        auto *intra_arm_slot = b.alloca_local(Type::of<uint32_t>());
+        intra_arm_slot->set_name("intra_arm_slot");
+        b.br(loop_header);
+
+        b.set_insertion_point(loop_header);
+        b.cond_br(cond0, diamond_hdr, exit_blk);
+
+        b.set_insertion_point(diamond_hdr);
+        b.cond_br(cond1, arm_t, arm_f);
+
+        b.set_insertion_point(arm_t);
+        b.store(intra_arm_slot, v1);
+        b.br(linear_a);
+
+        b.set_insertion_point(linear_a);
+        b.store(out, b.load(Type::of<uint32_t>(), intra_arm_slot));
+        b.br(inner_if);
+
+        b.set_insertion_point(inner_if);
+        b.cond_br(cond2, inner_arm, diamond_join);
+
+        b.set_insertion_point(inner_arm);
+        b.store(out, v2);
+        b.br(diamond_join);
+
+        b.set_insertion_point(arm_f);
+        b.store(out, v3);
+        b.br(diamond_join);
+
+        b.set_insertion_point(diamond_join);
+        b.br(sw_hdr);
+
+        b.set_insertion_point(sw_hdr);
+        auto *ib1 = b.indexed_branch(idx1);
+        ib1->set_default_block(sw_c);
+        ib1->add_case(0u, sw_a);
+        ib1->add_case(1u, sw_a);
+        ib1->add_case(2u, sw_b);
+
+        b.set_insertion_point(sw_a);
+        b.store(out, v1);
+        b.br(sw_join);
+
+        b.set_insertion_point(sw_b);
+        b.store(out, v2);
+        b.br(sw_join);
+
+        b.set_insertion_point(sw_c);
+        b.store(out, v4);
+        b.br(sw_join);
+
+        b.set_insertion_point(sw_join);
+        b.br(dup_sw);
+
+        b.set_insertion_point(dup_sw);
+        auto *ib2 = b.indexed_branch(idx2);
+        ib2->set_default_block(dup_arm);
+        ib2->add_case(0u, dup_arm);
+
+        b.set_insertion_point(dup_arm);
+        b.store(out, v5);
+        b.br(loop_header);
+
+        b.set_insertion_point(exit_blk);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        coro_call_structure_continuation(kernel);
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_phi = true,
+                    .require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        SwitchInst *top_switch = nullptr;
+        for (auto *blk : kernel->basic_blocks()) {
+            auto *t = blk->terminator();
+            if (t != nullptr && t->isa<SimpleLoopInst>()) {
+                auto *disp = static_cast<SimpleLoopInst *>(t)->body_block();
+                if (disp != nullptr && disp->is_terminated() &&
+                    disp->terminator()->isa<SwitchInst>()) {
+                    top_switch = static_cast<SwitchInst *>(disp->terminator());
+                }
+                break;
+            }
+        }
+        expect(top_switch != nullptr);
+        if (top_switch != nullptr) {
+            expect(top_switch->case_count() <= 4u)
+                << "SESE chains/diamonds/switches must stay inline instead of expanding dispatcher cases";
+            size_t next_preds = 0u;
+            top_switch->merge_block()->traverse_predecessors(
+                false, [&](BasicBlock *) noexcept { ++next_preds; });
+            expect(next_preds <= 4u);
+        }
+
+        expect(xir_to_ast_translate(*kernel->definition(), {.strict = true}) != nullptr);
+        auto m2r = mem2reg_pass_run_on_function(kernel);
+        expect(m2r.promoted_alloca_count >= 1u);
+        expect(m2r.inserted_phi_count == 0u);
+        expect(xir_verify_module(&m).succeeded());
     };
 }
 
