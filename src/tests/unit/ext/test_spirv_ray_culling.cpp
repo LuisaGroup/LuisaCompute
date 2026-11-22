@@ -209,4 +209,73 @@ int main(int argc, char *argv[]) {
         expect(tools.Validate(
             result.spv_bin.data(), result.spv_bin.size()));
     };
+
+    "spirv_ray_query_committed_hit_miss_initializes_invalid_ids"_test = [] {
+        Kernel1D kernel = [](AccelVar accel, BufferUInt output) noexcept {
+            auto ray = make_ray(
+                make_float3(0.0f, 0.0f, 1.0f),
+                make_float3(0.0f, 0.0f, -1.0f));
+            auto hit = accel.traverse(ray, {})
+                           .on_surface_candidate(
+                               [](SurfaceCandidate &candidate) noexcept {
+                                   candidate.commit();
+                               })
+                           .on_procedural_candidate(
+                               [](ProceduralCandidate &) noexcept {})
+                           .trace();
+            output.write(0u, hit->inst);
+            output.write(1u, hit->prim);
+            output.write(2u, hit->hit_type);
+        };
+        auto words = compile_spirv(kernel);
+        std::vector<uint32_t> invalid_const_ids;
+        for (size_t offset = 5u; offset < words.size();) {
+            auto instruction = words[offset];
+            auto word_count = static_cast<size_t>(instruction >> 16u);
+            auto opcode = static_cast<spv::Op>(instruction & 0xffffu);
+            if (word_count == 0u || offset + word_count > words.size()) {
+                break;
+            }
+            if (opcode == spv::Op::OpConstant && word_count == 4u &&
+                words[offset + 3u] == 0xFFFFFFFFu) {
+                invalid_const_ids.emplace_back(words[offset + 2u]);
+            }
+            offset += word_count;
+        }
+        expect(!invalid_const_ids.empty())
+            << "RAY_QUERY_OBJECT_COMMITTED_HIT miss path must materialize 0xFFFFFFFFu constants";
+        size_t invalid_ref_count = 0u;
+        for (size_t offset = 5u; offset < words.size();) {
+            auto instruction = words[offset];
+            auto word_count = static_cast<size_t>(instruction >> 16u);
+            auto opcode = static_cast<spv::Op>(instruction & 0xffffu);
+            if (word_count == 0u || offset + word_count > words.size()) {
+                break;
+            }
+            size_t first_operand = 0u;
+            switch (opcode) {
+                case spv::Op::OpPhi:
+                case spv::Op::OpSelect:
+                case spv::Op::OpCompositeConstruct:
+                case spv::Op::OpConstantComposite:
+                    first_operand = 3u;
+                    break;
+                case spv::Op::OpStore:
+                    first_operand = 2u;
+                    break;
+                default:
+                    first_operand = word_count;
+                    break;
+            }
+            for (size_t i = first_operand; i < word_count; ++i) {
+                if (std::find(invalid_const_ids.cbegin(), invalid_const_ids.cend(),
+                              words[offset + i]) != invalid_const_ids.cend()) {
+                    ++invalid_ref_count;
+                }
+            }
+            offset += word_count;
+        }
+        expect(invalid_ref_count >= 2u)
+            << "CommittedHit miss path must initialize both inst and prim to ~0u";
+    };
 }

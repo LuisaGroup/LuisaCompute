@@ -6301,8 +6301,17 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             auto *proc_block = _create_physical_block();
             auto *merge_block = _create_physical_block();
             auto result_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "committed_hit");
-            auto zero_result = _builder.makeNullConstant(type);
-            _builder.createStore(zero_result, result_var);
+            auto miss_bary = _builder.createCompositeConstruct(
+                vec2_type,
+                {_builder.makeFloatConstant(0.0f), _builder.makeFloatConstant(0.0f)});
+            auto miss_result = _builder.createCompositeConstruct(
+                type,
+                {_builder.makeUintConstant(0xFFFFFFFFu),
+                 _builder.makeUintConstant(0xFFFFFFFFu),
+                 miss_bary,
+                 _builder.makeUintConstant(0u),
+                 _builder.makeFloatConstant(0.0f)});
+            _builder.createStore(miss_result, result_var);
             auto selection_merge = luisa::make_unique<spv::Instruction>(spv::Op::OpSelectionMerge);
             selection_merge->reserveOperands(2);
             selection_merge->addIdOperand(merge_block->getId());
