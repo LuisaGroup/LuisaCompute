@@ -1141,7 +1141,7 @@ int main(int argc, char **argv) {
             << (spv_compiled.is_type_of<vstd::string>() ? spv_compiled.get<1>() : vstd::string{"unexpected SPIR-V RayQuery commit_procedural result"});
     };
 
-    "hlsl_fmod_uses_native_under_fast_math_and_strict_otherwise"_test = [&] {
+    "hlsl_fmod_uses_strict_helper_regardless_of_fast_math"_test = [&] {
         Kernel1D k = [&](BufferFloat in_a, BufferFloat in_b, BufferFloat out_buf) noexcept {
             auto i = dispatch_x();
             out_buf.write(i, fmod(in_a.read(i), in_b.read(i)));
@@ -1155,8 +1155,7 @@ int main(int argc, char **argv) {
         const auto fast_main_pos = fast_hlsl.find("void main(");
         expect(fast_main_pos != std::string_view::npos);
         const auto fast_main = fast_hlsl.substr(fast_main_pos);
-        expect(fast_main.find("fmod(") != std::string_view::npos);
-        expect(fast_main.find("_lc_fmod(") == std::string_view::npos);
+        expect(fast_main.find("_lc_fmod(") != std::string_view::npos);
 
         auto strict_code = lc::hlsl::CodegenUtility{}.Codegen(
             fn, {}, 0u, /*isSpirV=*/false, /*noRegister=*/false,
