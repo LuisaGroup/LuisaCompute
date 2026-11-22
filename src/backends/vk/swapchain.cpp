@@ -685,20 +685,6 @@ void _record_command_buffer(
     vkCmdEndRenderPass(command_buffer);
 }
 
-void _create_descriptor_sets(
-    VkDevice device,
-    luisa::vector<VkImage> &swapchain_images,
-    VkDescriptorSet &descriptor_set,
-    VkDescriptorSetLayout descriptor_set_layout,
-    VkDescriptorPool desc_pool) noexcept {
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = desc_pool;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &descriptor_set_layout;
-    VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &alloc_info, &descriptor_set));
-}
-
 void _create_pipeline(
     VkDevice device,
     VkPipelineLayout &pipeline_layout,
@@ -1413,13 +1399,8 @@ void Swapchain::present(
     if (!_vertex_buffer) {
         _create_vertex_buffer(cmdbuffer, cmdbuffer.states()->callbacks, device()->physical_device(), device()->logic_device(), device(), _vertex_buffer, _vertex_buffer_memory);
     }
-    VkDescriptorSet descriptor_set;
-    _create_descriptor_sets(
-        device()->logic_device(),
-        _swapchain_images,
-        descriptor_set,
-        _descriptor_set_layout,
-        cmdbuffer.states()->desc_pool);
+    VkDescriptorSet descriptor_set =
+        cmdbuffer.states()->allocate_descriptor_set(_descriptor_set_layout);
     auto image = tex->vk_image();
     auto image_format = Texture::to_vk_format(tex->format());
     cmdbuffer.resource_barrier->record(

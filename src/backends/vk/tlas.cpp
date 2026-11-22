@@ -463,17 +463,8 @@ void Tlas::pre_build(
             ResourceBarrier::Usage::kComputeUAV);
         auto shader = device()->set_accel_kernel.get(device());
         resource_barrier->update_states(cmdbuffer.cmdbuffer());
-        VkDescriptorSet desc_set;
-        VkDescriptorSetAllocateInfo alloc_info{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool = cmdbuffer.states()->desc_pool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = shader->desc_set_layout().data()};
-        VK_CHECK_RESULT(
-            vkAllocateDescriptorSets(
-                device()->logic_device(),
-                &alloc_info,
-                &desc_set));
+        VkDescriptorSet desc_set = cmdbuffer.states()->allocate_descriptor_set(
+            shader->desc_set_layout()[0]);
         const uint modification_size = static_cast<uint>(modifications.size() + _pending_refresh_count);
         uint2 value = {
             modification_size,

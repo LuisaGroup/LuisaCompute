@@ -1356,7 +1356,7 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.
     luisa_compute_add_test(test_vk_shader_cache unit/runtime/test_vk_shader_cache.cpp)
-    luisa_compute_add_test(test_vk_optional_extensions unit/runtime/test_vk_optional_extensions.cpp LABELS "unit;unit_runtime;vk")
+    luisa_compute_add_test(test_vk_optional_extensions unit/runtime/test_vk_optional_extensions.cpp LABELS "unit;unit_runtime;vk" ARGS vk)
     # VulkanDeviceConfigExt exposes VkDeviceCreateInfo feature-chain types, so
     # this test needs the vendored Vulkan headers from Volk (no system SDK).
     target_link_libraries(test_vk_optional_extensions PRIVATE luisa-compute-ext-volk)

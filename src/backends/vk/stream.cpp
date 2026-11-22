@@ -36,9 +36,11 @@
 #include "raster_shader.h"
 #include "native_shader_ext.h"
 #include "native_raster_shader.h"
+#include <algorithm>
 #include <bit>
 #include <limits>
 namespace lc::vk {
+
 struct PresentCommand {
     luisa::fixed_vector<VkFence, 1> submit_fences;
     luisa::fixed_vector<VkSemaphore, 1> submit_wait_semaphores;
@@ -1548,18 +1550,36 @@ uint64 Visitor<Pack>::allocate(uint64 size) {
 }
 template<typename Pack>
 void Visitor<Pack>::deallocate(uint64 handle) {
-    delete reinterpret_cast<Pack *>(handle);
+    auto *ptr = reinterpret_cast<Pack *>(handle);
+    if (deferred_frees != nullptr) {
+        deferred_frees->emplace_back(ptr);
+        return;
+    }
+    delete ptr;
 }
 template<typename Pack>
 auto Visitor<Pack>::create(uint64 size) -> Pack * {
     return new Pack{device, size};
 }
+[[nodiscard]] size_t round_up_large_buffer_size(size_t size) noexcept {
+    constexpr size_t kMinSize = 128ull * 1024ull;
+    constexpr size_t kOneMiB = 1024ull * 1024ull;
+    constexpr size_t kEightMiB = 8ull * 1024ull * 1024ull;
+    constexpr size_t kFourMiB = 4ull * 1024ull * 1024ull;
+    if (size <= kOneMiB) {
+        return std::max(kMinSize, std::bit_ceil(size));
+    }
+    size_t step = (size <= kEightMiB) ? kOneMiB : kFourMiB;
+    if (size > std::numeric_limits<size_t>::max() - (step - 1u)) {
+        return size;
+    }
+    return ((size + step - 1u) / step) * step;
+}
 template<typename T>
-void BufferAllocator<T>::clear() {
+void BufferAllocator<T>::clear(vstd::vector<vstd::unique_ptr<T>> *deferred_frees) {
     // Soft clear: reset positions without freeing buffers
     // to keep staging buffers warm across dispatches.
-    // Cap total warm capacity to 4MB to avoid unbounded growth.
-    static constexpr size_t kMaxWarmCapacity = 4ull * 1024ull * 1024ull;
+    static constexpr size_t kMaxWarmCapacity = 8ull * 1024ull * 1024ull;
     size_t total_size = 0;
     for (auto &buf : alloc.allocated_buffer()) {
         total_size += buf.fullSize;
@@ -1567,11 +1587,80 @@ void BufferAllocator<T>::clear() {
     if (total_size <= kMaxWarmCapacity) {
         alloc.soft_clear();
     } else {
+        visitor.deferred_frees = deferred_frees;
+        auto reset_visitor = vstd::scope_exit([&]() {
+            visitor.deferred_frees = nullptr;
+        });
         alloc.dispose();
     }
-    // Keep large_buffers for reuse, but limit count.
-    if (large_buffers.size() > 8) {
-        large_buffers.clear();
+    ++clear_epoch;
+    for (auto &lb : active_large_buffers) {
+        lb.used_offset = 0u;
+        lb.last_used_epoch = clear_epoch;
+        free_large_buffers.emplace_back(std::move(lb));
+    }
+    active_large_buffers.clear();
+
+    static constexpr size_t kMaxWarmLargeBytes = 64ull * 1024ull * 1024ull;
+    static constexpr size_t kMaxSingleWarmLargeBytes = 256ull * 1024ull * 1024ull;
+    static constexpr size_t kHardMaxLargeBytes = 256ull * 1024ull * 1024ull;
+    static constexpr size_t kMaxFreeLargeBuffers = 16u;
+    static constexpr uint64_t kSoftEvictIdleEpochs = 8u;
+    static constexpr uint64_t kSingleLargeIdleEpochs = 64u;
+    static constexpr uint64_t kIdleEvictEpochs = 256u;
+
+    size_t total_free_bytes = 0u;
+    for (auto const &lb : free_large_buffers) {
+        total_free_bytes += lb.capacity;
+    }
+    auto evict_at = [&](size_t idx) {
+        total_free_bytes -= free_large_buffers[idx].capacity;
+        if (deferred_frees != nullptr) {
+            deferred_frees->emplace_back(std::move(free_large_buffers[idx].buffer));
+        }
+        if (idx + 1u < free_large_buffers.size()) {
+            free_large_buffers[idx] = std::move(free_large_buffers.back());
+        }
+        free_large_buffers.pop_back();
+    };
+
+    while (free_large_buffers.size() > 1u && total_free_bytes > kHardMaxLargeBytes) {
+        size_t victim = 0u;
+        for (size_t i = 1u; i < free_large_buffers.size(); ++i) {
+            if (free_large_buffers[i].last_used_epoch < free_large_buffers[victim].last_used_epoch ||
+                (free_large_buffers[i].last_used_epoch == free_large_buffers[victim].last_used_epoch &&
+                 free_large_buffers[i].capacity > free_large_buffers[victim].capacity)) {
+                victim = i;
+            }
+        }
+        evict_at(victim);
+    }
+
+    if (free_large_buffers.size() == 1u) {
+        uint64_t idle = clear_epoch - free_large_buffers[0].last_used_epoch;
+        if ((free_large_buffers[0].capacity > kMaxSingleWarmLargeBytes && idle >= 4u) ||
+            (free_large_buffers[0].capacity > kMaxWarmLargeBytes && idle >= kSingleLargeIdleEpochs) ||
+            idle >= kIdleEvictEpochs) {
+            evict_at(0u);
+        }
+    } else if (free_large_buffers.size() > 1u) {
+        bool over_soft = total_free_bytes > kMaxWarmLargeBytes || free_large_buffers.size() > kMaxFreeLargeBuffers;
+        uint64_t min_idle = over_soft ? kSoftEvictIdleEpochs : kIdleEvictEpochs;
+        size_t victim = free_large_buffers.size();
+        for (size_t i = 0u; i < free_large_buffers.size(); ++i) {
+            uint64_t idle = clear_epoch - free_large_buffers[i].last_used_epoch;
+            if (idle >= min_idle) {
+                if (victim == free_large_buffers.size() ||
+                    free_large_buffers[i].last_used_epoch < free_large_buffers[victim].last_used_epoch ||
+                    (free_large_buffers[i].last_used_epoch == free_large_buffers[victim].last_used_epoch &&
+                     free_large_buffers[i].capacity > free_large_buffers[victim].capacity)) {
+                    victim = i;
+                }
+            }
+        }
+        if (victim < free_large_buffers.size()) {
+            evict_at(victim);
+        }
     }
 }
 template<typename T>
@@ -1582,13 +1671,105 @@ template<typename T>
 BufferAllocator<T>::~BufferAllocator() {
 }
 template<typename T>
+void BufferAllocator<T>::flush_host() {
+    for (auto &b : alloc.allocated_buffer()) {
+        if (b.position > 0u) {
+            reinterpret_cast<T *>(b.handle)->flush_host();
+        }
+    }
+    for (auto &lb : active_large_buffers) {
+        lb.buffer->flush_host();
+    }
+}
+template<typename T>
+BufferView BufferAllocator<T>::_allocate_large(size_t size, size_t align) {
+    align = std::max<size_t>(align, 16u);
+    auto align_up = [](size_t offset, size_t alignment, size_t &out) noexcept -> bool {
+        if (alignment <= 1u) {
+            out = offset;
+            return true;
+        }
+        auto rem = offset % alignment;
+        if (rem == 0u) {
+            out = offset;
+            return true;
+        }
+        auto add = alignment - rem;
+        if (offset > std::numeric_limits<size_t>::max() - add) {
+            return false;
+        }
+        out = offset + add;
+        return true;
+    };
+
+    // Pass 1: sub-allocate from an already active large buffer.
+    size_t best_active = active_large_buffers.size();
+    size_t best_offset = 0u;
+    size_t best_slack = std::numeric_limits<size_t>::max();
+    for (size_t i = 0u; i < active_large_buffers.size(); ++i) {
+        auto const &entry = active_large_buffers[i];
+        size_t aligned_offset = 0u;
+        if (!align_up(entry.used_offset, align, aligned_offset)) {
+            continue;
+        }
+        if (aligned_offset <= entry.capacity &&
+            size <= entry.capacity - aligned_offset) {
+            size_t slack = entry.capacity - (aligned_offset + size);
+            if (slack < best_slack) {
+                best_slack = slack;
+                best_active = i;
+                best_offset = aligned_offset;
+            }
+        }
+    }
+    if (best_active < active_large_buffers.size()) {
+        auto &entry = active_large_buffers[best_active];
+        entry.used_offset = best_offset + size;
+        entry.last_used_epoch = clear_epoch;
+        return BufferView(entry.buffer.get(), best_offset, size);
+    }
+
+    // Pass 2: best-fit reuse from free_large_buffers.
+    size_t best_free = free_large_buffers.size();
+    size_t best_capacity = std::numeric_limits<size_t>::max();
+    for (size_t i = 0u; i < free_large_buffers.size(); ++i) {
+        auto const &entry = free_large_buffers[i];
+        if (entry.capacity >= size && entry.capacity < best_capacity) {
+            best_capacity = entry.capacity;
+            best_free = i;
+        }
+    }
+    if (best_free < free_large_buffers.size()) {
+        auto reused = std::move(free_large_buffers[best_free]);
+        if (best_free + 1u < free_large_buffers.size()) {
+            free_large_buffers[best_free] = std::move(free_large_buffers.back());
+        }
+        free_large_buffers.pop_back();
+        reused.used_offset = size;
+        reused.last_used_epoch = clear_epoch;
+        auto *raw_ptr = reused.buffer.get();
+        active_large_buffers.emplace_back(std::move(reused));
+        return BufferView(raw_ptr, 0u, size);
+    }
+
+    // Pass 3: allocate a new rounded large buffer.
+    size_t alloc_size = round_up_large_buffer_size(size);
+    vstd::unique_ptr<T> new_buf{visitor.create(alloc_size)};
+    auto *raw_ptr = new_buf.get();
+    active_large_buffers.emplace_back(LargeBuffer{
+        .buffer = std::move(new_buf),
+        .capacity = alloc_size,
+        .used_offset = size,
+        .last_used_epoch = clear_epoch});
+    return BufferView(raw_ptr, 0u, size);
+}
+template<typename T>
 BufferView BufferAllocator<T>::allocate(size_t size) {
     if (size <= kLargeBufferSize) [[likely]] {
         auto chunk = alloc.allocate(size);
         return BufferView(reinterpret_cast<T const *>(chunk.handle), chunk.offset, size);
     } else {
-        auto &v = large_buffers.emplace_back(visitor.create(size));
-        return BufferView(v.get(), 0, size);
+        return _allocate_large(size, 16u);
     }
 }
 
@@ -1598,11 +1779,63 @@ BufferView BufferAllocator<T>::allocate(size_t size, size_t align) {
         auto chunk = alloc.allocate(size, align);
         return BufferView(reinterpret_cast<T const *>(chunk.handle), chunk.offset, size);
     } else {
-        auto &v = large_buffers.emplace_back(visitor.create(size));
-        return BufferView(v.get(), 0, size);
+        return _allocate_large(size, align);
     }
 }
 }// namespace temp_buffer
+
+namespace stream_state_detail {
+
+[[nodiscard]] VkDescriptorPool create_descriptor_pool_with_sizes(
+    Device &device,
+    uint32_t requested_max_sets,
+    uint32_t requested_per_type) {
+    auto const &limits = device.properties().limits;
+    auto pool_plan = detail::plan_descriptor_pool_sizes(
+        limits.maxPerStageDescriptorStorageBuffers,
+        limits.maxPerStageDescriptorStorageImages,
+        limits.maxPerStageDescriptorSampledImages,
+        limits.maxPerStageDescriptorSamplers,
+        limits.maxPerStageDescriptorUniformBuffers,
+        limits.maxDescriptorSetStorageBuffers,
+        limits.maxDescriptorSetStorageImages,
+        limits.maxDescriptorSetSampledImages,
+        limits.maxDescriptorSetSamplers,
+        limits.maxDescriptorSetUniformBuffers,
+        device.enable_raytracing(),
+        requested_max_sets,
+        requested_per_type);
+    VkDescriptorPoolSize pool_sizes[6];
+    pool_sizes[0].descriptorCount = pool_plan.storage_buffers;
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    pool_sizes[1].descriptorCount = pool_plan.storage_images;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    pool_sizes[2].descriptorCount = pool_plan.sampled_images;
+    pool_sizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    pool_sizes[3].descriptorCount = pool_plan.samplers;
+    pool_sizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+    pool_sizes[4].descriptorCount = pool_plan.uniform_buffers;
+    pool_sizes[4].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    auto pool_size_count = 5u;
+    if (device.enable_raytracing()) {
+        pool_sizes[pool_size_count].descriptorCount =
+            pool_plan.acceleration_structures;
+        pool_sizes[pool_size_count].type =
+            VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        ++pool_size_count;
+    }
+    VkDescriptorPoolCreateInfo createInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .flags = 0,
+        .maxSets = pool_plan.max_sets,
+        .poolSizeCount = pool_size_count,
+        .pPoolSizes = pool_sizes};
+    VkDescriptorPool created{};
+    VK_CHECK_RESULT(vkCreateDescriptorPool(device.logic_device(), &createInfo, Device::alloc_callbacks(), &created));
+    return created;
+}
+
+}// namespace stream_state_detail
 
 namespace vk_ext_copy_detail {
 
@@ -1656,51 +1889,11 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
     this->device = &device;
     upload_alloc.visitor.device = &device;
     readback_alloc.visitor.device = &device;
-    {
-        // Size the per-stream descriptor pool from the physical-device limits.
-        // Desktop defaults (maxSets=262144, 65536 per type) are preserved when
-        // the device allows them; mobile/low-end devices get clamped pools to
-        // avoid large host-side reservations.
-        auto const &limits = device.properties().limits;
-        auto pool_plan = detail::plan_descriptor_pool_sizes(
-            limits.maxPerStageDescriptorStorageBuffers,
-            limits.maxPerStageDescriptorStorageImages,
-            limits.maxPerStageDescriptorSampledImages,
-            limits.maxPerStageDescriptorSamplers,
-            limits.maxPerStageDescriptorUniformBuffers,
-            limits.maxDescriptorSetStorageBuffers,
-            limits.maxDescriptorSetStorageImages,
-            limits.maxDescriptorSetSampledImages,
-            limits.maxDescriptorSetSamplers,
-            limits.maxDescriptorSetUniformBuffers,
-            device.enable_raytracing());
-        VkDescriptorPoolSize pool_sizes[6];
-        pool_sizes[0].descriptorCount = pool_plan.storage_buffers;
-        pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_sizes[1].descriptorCount = pool_plan.storage_images;
-        pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        pool_sizes[2].descriptorCount = pool_plan.sampled_images;
-        pool_sizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        pool_sizes[3].descriptorCount = pool_plan.samplers;
-        pool_sizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
-        pool_sizes[4].descriptorCount = pool_plan.uniform_buffers;
-        pool_sizes[4].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        auto pool_size_count = 5u;
-        if (device.enable_raytracing()) {
-            pool_sizes[pool_size_count].descriptorCount =
-                pool_plan.acceleration_structures;
-            pool_sizes[pool_size_count].type =
-                VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-            ++pool_size_count;
-        }
-        VkDescriptorPoolCreateInfo createInfo{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .flags = 0,
-            .maxSets = pool_plan.max_sets,
-            .poolSizeCount = pool_size_count,
-            .pPoolSizes = pool_sizes};
-        VK_CHECK_RESULT(vkCreateDescriptorPool(device.logic_device(), &createInfo, Device::alloc_callbacks(), &desc_pool));
-    }
+    active_desc_pool_index = 0u;
+    next_overflow_max_sets = 8192u;
+    next_overflow_per_type = 8192u;
+    desc_pool = stream_state_detail::create_descriptor_pool_with_sizes(
+        device, 4096u, 4096u);
     if (!pool) {
         VkCommandPoolCreateInfo pool_ci{
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -1748,16 +1941,77 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
     }
 }
 CommandBufferState::~CommandBufferState() {
-    vkDestroyCommandPool(device->logic_device(), pool, Device::alloc_callbacks());
-    vkDestroyDescriptorPool(device->logic_device(), desc_pool, Device::alloc_callbacks());
+    for (auto *r : retained_pipelines) {
+        r->release();
+    }
+    retained_pipelines.clear();
+    if (device != nullptr) {
+        auto vk_dev = device->logic_device();
+        if (pool) {
+            vkDestroyCommandPool(vk_dev, pool, Device::alloc_callbacks());
+        }
+        if (desc_pool) {
+            vkDestroyDescriptorPool(vk_dev, desc_pool, Device::alloc_callbacks());
+        }
+        for (auto p : overflow_desc_pools) {
+            if (p) {
+                vkDestroyDescriptorPool(vk_dev, p, Device::alloc_callbacks());
+            }
+        }
+    }
 }
-void CommandBufferState::reset(Stream *stream, Device &device) {
+VkDescriptorSet CommandBufferState::allocate_descriptor_set(VkDescriptorSetLayout layout) {
+    VkDescriptorSet set{};
+    while (true) {
+        VkDescriptorPool current_pool =
+            active_desc_pool_index == 0u ? desc_pool : overflow_desc_pools[active_desc_pool_index - 1u];
+        VkDescriptorSetAllocateInfo alloc_info{
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+            .descriptorPool = current_pool,
+            .descriptorSetCount = 1u,
+            .pSetLayouts = &layout};
+        VkResult res = vkAllocateDescriptorSets(device->logic_device(), &alloc_info, &set);
+        if (res == VK_SUCCESS) {
+            return set;
+        }
+        if (res == VK_ERROR_OUT_OF_POOL_MEMORY || res == VK_ERROR_FRAGMENTED_POOL) {
+            if (active_desc_pool_index >= 32u) {
+                VK_CHECK_RESULT(res);
+            }
+            ++active_desc_pool_index;
+            if (active_desc_pool_index > overflow_desc_pools.size()) {
+                overflow_desc_pools.emplace_back(
+                    stream_state_detail::create_descriptor_pool_with_sizes(
+                        *device, next_overflow_max_sets, next_overflow_per_type));
+                next_overflow_max_sets = std::min<uint32_t>(262144u, next_overflow_max_sets * 2u);
+                next_overflow_per_type = std::min<uint32_t>(65536u, next_overflow_per_type * 2u);
+            }
+            continue;
+        }
+        VK_CHECK_RESULT(res);
+    }
+}
+void CommandBufferState::retain_pipeline(PipelineRef *ref) {
+    if (ref == nullptr) { return; }
+    for (auto *existing : retained_pipelines) {
+        if (existing == ref) { return; }
+    }
+    ref->retain();
+    retained_pipelines.emplace_back(ref);
+}
+void CommandBufferState::reset(
+    Stream *stream,
+    Device &device,
+    temp_buffer::DeferredStagingFrees *deferred_frees) {
     // The command buffer that consumed the indirect copy records has completed
     // on the device (or was never submitted), so the record namespace of the
     // command array can start over.
     if (indirect_copy_commands) {
         indirect_copy_commands->reset_record_cursor();
     }
+    auto *deferred_upload = deferred_frees ? &deferred_frees->upload_buffers : nullptr;
+    auto *deferred_readback = deferred_frees ? &deferred_frees->readback_buffers : nullptr;
+    size_t touched_overflow = std::min(active_desc_pool_index, overflow_desc_pools.size());
     for (auto &i : callbacks) {
         i();
     }
@@ -1766,20 +2020,28 @@ void CommandBufferState::reset(Stream *stream, Device &device) {
         i.second(stream, this, i.first);
     }
     dispose_pool.clear();
-    upload_alloc.clear();
-    readback_alloc.clear();
+    for (auto *r : retained_pipelines) {
+        r->release();
+    }
+    retained_pipelines.clear();
+    upload_alloc.clear(deferred_upload);
+    readback_alloc.clear(deferred_readback);
     for (auto i : img_views) {
         vkDestroyImageView(device.logic_device(), i, Device::alloc_callbacks());
     }
     img_views.clear();
     VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), desc_pool, 0));
+    for (size_t i = 0u; i < touched_overflow; ++i) {
+        VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), overflow_desc_pools[i], 0));
+    }
+    active_desc_pool_index = 0u;
 }
-bool CommandBuffer::retire_and_recycle() {
+bool CommandBuffer::retire_and_recycle(temp_buffer::DeferredStagingFrees *deferred_frees) {
     auto retirement = detail::plan_command_buffer_retirement(_ownership);
     if (retirement.reset_native_buffer) {
         VK_CHECK_RESULT(vkResetCommandBuffer(_cmdbuffer, 0));
     }
-    _state->reset(&_stream, *device());
+    _state->reset(&_stream, *device(), deferred_frees);
     return retirement.recycle_native_buffer;
 }
 
@@ -1791,6 +2053,7 @@ Stream::Stream(Device *device, StreamTag tag)
       }),
       reorder({}),
       _thd([this]() {
+          temp_buffer::DeferredStagingFrees deferred_staging_frees;
           auto loop_cmd = [&]() {
               while (true) {
                   _mtx.lock();
@@ -1809,8 +2072,11 @@ Stream::Stream(Device *device, StreamTag tag)
                               t.evt->_host_wait(t.value);
                           } else if constexpr (std::is_same_v<T, NotifyEvt>) {
                               t.evt->_notify(t.value);
+                              if (!deferred_staging_frees.empty()) {
+                                  deferred_staging_frees.clear();
+                              }
                           } else if constexpr (std::is_same_v<T, CommandBuffer>) {
-                              if (t.retire_and_recycle()) {
+                              if (t.retire_and_recycle(&deferred_staging_frees)) {
                                   _cmdbuffers.enqueue(std::move(t));
                               }
                           }
@@ -1824,6 +2090,7 @@ Stream::Stream(Device *device, StreamTag tag)
               }
           }
           loop_cmd();
+          deferred_staging_frees.clear();
       }),
       _temp_desc(65536, &_temp_desc_visitor, 2),
       _scratch_buffer_alloc(kTempSize, &_scratch_buffer_alloc_visitor),
@@ -2980,19 +3247,17 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     auto cmd_lists = _stream.reorder.command_lists();
     // Layer accounting is what decides how many barrier boundaries the batch is
     // recorded with, so make it visible when debugging reorder behaviour.
-    size_t used_layers = 0u;
-    for (auto *head : cmd_lists) {
-        if (head != nullptr) used_layers++;
-    }
     auto clear_reorder = vstd::scope_exit([&] {
         _stream.reorder.clear();
     });
-    uniform_data->clear();
-    uniform_data->reserve(uniform_buffer_size);
     BufferView arg_buffer;
-    if (uniform_buffer_size > 0) {
-        arg_buffer = _state->upload_alloc.allocate(
-            uniform_buffer_size, argument_buffer_alignment);
+    {
+        uniform_data->clear();
+        uniform_data->reserve(uniform_buffer_size);
+        if (uniform_buffer_size > 0) {
+            arg_buffer = _state->upload_alloc.allocate(
+                uniform_buffer_size, argument_buffer_alignment);
+        }
     }
     ArgumentBlockLayout preprocessed_argument_buffer_layout;
     auto preprocess_arguments = [this, argument_buffer_alignment,
@@ -3154,7 +3419,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     for (auto &&lst : cmd_lists) {
         dispatch_offsets->clear();
         auto delay_clear = vstd::scope_exit([&]() {
-            scratch_buffer_alloc->clear();
+            scratch_buffer_alloc->soft_clear();
         });
         // Preprocess: record resources' states
         for (auto i = lst; i != nullptr; i = i->p_next) {
@@ -3438,16 +3703,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 arg_buffer.size_bytes);
             uint desc_index = 0;
             visitor.cmdbuffer = this;
-            VkDescriptorSetAllocateInfo alloc_info{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                .descriptorPool = _state->desc_pool,
-                .descriptorSetCount = 1,
-                .pSetLayouts = shader->desc_set_layout().data()};
-            VK_CHECK_RESULT(
-                vkAllocateDescriptorSets(
-                    device()->logic_device(),
-                    &alloc_info,
-                    &visitor.desc_set));
+            visitor.desc_set = _state->allocate_descriptor_set(
+                shader->desc_set_layout()[0]);
             if (descriptor_range > 0u) {
                 LUISA_ASSERT(
                     arg_buffer.buffer != nullptr,
@@ -3670,15 +3927,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
 
             auto prepare_shader =
                 device()->prepare_indirect_kernel.get(device());
-            VkDescriptorSet prepare_set{};
-            VkDescriptorSetAllocateInfo alloc_info{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                .descriptorPool = _state->desc_pool,
-                .descriptorSetCount = 1u,
-                .pSetLayouts =
-                    prepare_shader->desc_set_layout().data()};
-            VK_CHECK_RESULT(vkAllocateDescriptorSets(
-                device()->logic_device(), &alloc_info, &prepare_set));
+            VkDescriptorSet prepare_set = _state->allocate_descriptor_set(
+                prepare_shader->desc_set_layout()[0]);
             std::array descriptor_infos{
                 VkDescriptorBufferInfo{
                     source->vk_buffer(), 0u, source->byte_size()},
@@ -4198,7 +4448,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     }
                     // Keep the shader's pipeline alive until this command buffer completes.
                     if (auto *ref = shader->pipeline_ref()) {
-                        _state->dispose_after_flush(PipelineRefHolder{ref});
+                        _state->retain_pipeline(ref);
                     }
                     bool is_rt_shader = (shader->shader_tag() == Shader::ShaderTag::kRayTracingShader);
                     BindPropVisitor visitor{};
@@ -5146,6 +5396,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             dispatch_offset_index, dispatch_offsets->size());
         flush_all_pending();
     }
+    if (scratch_buffer_alloc->allocated_buffer().size() > 4u) {
+        scratch_buffer_alloc->clear();
+    }
     LUISA_ASSERT(
         preprocessed_argument_buffer_layout.size() ==
                 planned_argument_buffer_layout.size() &&
@@ -5158,18 +5411,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     if (uniform_buffer_size > 0) {
         static_cast<UploadBuffer const *>(arg_buffer.buffer)->copy_from(uniform_data->data(), arg_buffer.offset, uniform_data->size());
     }
-    for (auto &i : _state->upload_alloc.alloc.allocated_buffer()) {
-        reinterpret_cast<UploadBuffer *>(i.handle)->flush_host();
-    }
-    for (auto &i : _state->readback_alloc.alloc.allocated_buffer()) {
-        reinterpret_cast<ReadbackBuffer *>(i.handle)->flush_host();
-    }
-    for (auto &i : _state->upload_alloc.large_buffers) {
-        i->flush_host();
-    }
-    for (auto &i : _state->readback_alloc.large_buffers) {
-        i->flush_host();
-    }
+    _state->upload_alloc.flush_host();
+    _state->readback_alloc.flush_host();
 }
 
 }// namespace lc::vk

@@ -1021,17 +1021,8 @@ void BindlessArray::update(
         static_assert(sizeof(BindlessStruct) == 12);
     }
     //
-    VkDescriptorSet desc_set;
-    VkDescriptorSetAllocateInfo alloc_info{
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .descriptorPool = cmdbuffer->states()->desc_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = shader->desc_set_layout().data()};
-    VK_CHECK_RESULT(
-        vkAllocateDescriptorSets(
-            device()->logic_device(),
-            &alloc_info,
-            &desc_set));
+    VkDescriptorSet desc_set = cmdbuffer->states()->allocate_descriptor_set(
+        shader->desc_set_layout()[0]);
     uint value = mods.size();
     vkCmdPushConstants(
         cmdbuffer->cmdbuffer(),

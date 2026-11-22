@@ -25,11 +25,24 @@ class Stream;
 class Swapchain;
 using namespace luisa::compute;
 class CommandBuffer;
+struct PipelineRef;
 namespace temp_buffer {
+struct DeferredStagingFrees {
+    vstd::vector<vstd::unique_ptr<UploadBuffer>> upload_buffers;
+    vstd::vector<vstd::unique_ptr<ReadbackBuffer>> readback_buffers;
+    void clear() noexcept {
+        upload_buffers.clear();
+        readback_buffers.clear();
+    }
+    [[nodiscard]] bool empty() const noexcept {
+        return upload_buffers.empty() && readback_buffers.empty();
+    }
+};
 template<typename Pack>
 class Visitor : public vstd::StackAllocatorVisitor {
 public:
     Device *device;
+    vstd::vector<vstd::unique_ptr<Pack>> *deferred_frees{nullptr};
     uint64 allocate(uint64 size) override;
     void deallocate(uint64 handle) override;
     Pack *create(uint64_t size);
@@ -53,15 +66,26 @@ template<typename T>
 class BufferAllocator : public BufferAllocatorBase {
 public:
     static constexpr size_t kLargeBufferSize = 65536ull;
+    struct LargeBuffer {
+        vstd::unique_ptr<T> buffer;
+        size_t capacity{0u};
+        size_t used_offset{0u};
+        uint64_t last_used_epoch{0u};
+    };
     vstd::StackAllocator alloc;
-    vstd::vector<vstd::unique_ptr<T>> large_buffers;
+    vstd::vector<LargeBuffer> active_large_buffers;
+    vstd::vector<LargeBuffer> free_large_buffers;
+    uint64_t clear_epoch{0u};
 
     Visitor<T> visitor;
     BufferView allocate(size_t size) override;
     BufferView allocate(size_t size, size_t align) override;
-    void clear();
+    void clear(vstd::vector<vstd::unique_ptr<T>> *deferred_frees = nullptr);
+    void flush_host();
     BufferAllocator(size_t init_capacity);
     ~BufferAllocator();
+private:
+    BufferView _allocate_large(size_t size, size_t align);
 };
 }// namespace temp_buffer
 struct CommandBufferState {
@@ -70,6 +94,11 @@ struct CommandBufferState {
     temp_buffer::BufferAllocator<UploadBuffer> upload_alloc;
     temp_buffer::BufferAllocator<ReadbackBuffer> readback_alloc;
     VkDescriptorPool desc_pool{};
+    vstd::vector<VkDescriptorPool> overflow_desc_pools;
+    size_t active_desc_pool_index{0u};
+    uint32_t next_overflow_max_sets{8192u};
+    uint32_t next_overflow_per_type{8192u};
+    vstd::vector<PipelineRef *> retained_pipelines;
     // VK_KHR_copy_memory_indirect negotiation data of this state
     // (copy_command_plan.h decides with them, this struct only carries them):
     // VkPhysicalDeviceCopyMemoryIndirectPropertiesKHR::supportedQueues and the
@@ -87,7 +116,12 @@ struct CommandBufferState {
     CommandBufferState();
     ~CommandBufferState();
     void init(Device &device, StreamTag tag);
-    void reset(Stream *stream, Device &device);
+    [[nodiscard]] VkDescriptorSet allocate_descriptor_set(VkDescriptorSetLayout layout);
+    void retain_pipeline(PipelineRef *ref);
+    void reset(
+        Stream *stream,
+        Device &device,
+        temp_buffer::DeferredStagingFrees *deferred_frees = nullptr);
     template<typename TT>
         requires(!std::is_trivially_destructible_v<TT> && !std::is_reference_v<TT>)
     void dispose_after_flush(TT &&value) {
@@ -125,7 +159,7 @@ public:
     CommandBuffer(CommandBuffer &&) noexcept;
     ~CommandBuffer();
     [[nodiscard]] auto cmdbuffer() const { return _cmdbuffer; }
-    [[nodiscard]] bool retire_and_recycle();
+    [[nodiscard]] bool retire_and_recycle(temp_buffer::DeferredStagingFrees *deferred_frees = nullptr);
     void begin();
     void end();
     auto states() const { return _state.get(); }
