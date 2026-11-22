@@ -468,6 +468,7 @@ private:
     luisa::vector<size_t> _region;
     luisa::vector<size_t> _active;
     size_t _edge_visit_count{0u};
+    bool _reverse_graph_built{false};
 
 private:
     void _begin_visit() noexcept {
@@ -487,14 +488,9 @@ private:
         _edge_visit_count = 0u;
     }
 
-public:
-    explicit Impl(FunctionDefinition *definition) noexcept {
-        if (definition == nullptr) { return; }
-        for (auto *block : definition->basic_blocks()) {
-            auto id = _blocks.size();
-            _blocks.emplace_back(block);
-            _block_ids.emplace(block, id);
-        }
+    void _ensure_reverse_graph() noexcept {
+        if (_reverse_graph_built) { return; }
+        _reverse_graph_built = true;
         _canonical_targets.reserve(_blocks.size());
         for (auto *block : _blocks) {
             _canonical_targets.emplace_back(
@@ -555,17 +551,13 @@ public:
         }
         _facts.resize(_blocks.size(), uint8_t{0u});
         _terminal.resize(_blocks.size(), uint8_t{0u});
-        _visit_epochs.resize(_blocks.size(), 0u);
         _fact_epochs.resize(_blocks.size(), 0u);
-        _work.reserve(_blocks.size());
-        _region.reserve(_blocks.size());
         _active.reserve(_blocks.size());
     }
 
-    void evaluate(BasicBlock *body,
-                  BasicBlock *continue_target,
-                  BasicBlock *loop_entry,
-                  BasicBlock *merge) noexcept {
+    void _discover_region(BasicBlock *body,
+                          BasicBlock *loop_entry,
+                          BasicBlock *merge) noexcept {
         _begin_visit();
         auto enqueue_region = [&](BasicBlock *block,
                                   bool allow_loop_entry) noexcept {
@@ -590,6 +582,33 @@ public:
                     enqueue_region(successor, false);
                 });
         }
+    }
+
+public:
+    explicit Impl(FunctionDefinition *definition) noexcept {
+        if (definition == nullptr) { return; }
+        for (auto *block : definition->basic_blocks()) {
+            auto id = _blocks.size();
+            _blocks.emplace_back(block);
+            _block_ids.emplace(block, id);
+        }
+        _visit_epochs.resize(_blocks.size(), 0u);
+        _work.reserve(_blocks.size());
+        _region.reserve(_blocks.size());
+    }
+
+    void evaluate_region_only(BasicBlock *body,
+                              BasicBlock *loop_entry,
+                              BasicBlock *merge) noexcept {
+        _discover_region(body, loop_entry, merge);
+    }
+
+    void evaluate(BasicBlock *body,
+                  BasicBlock *continue_target,
+                  BasicBlock *loop_entry,
+                  BasicBlock *merge) noexcept {
+        _ensure_reverse_graph();
+        _discover_region(body, loop_entry, merge);
 
         auto activate_id = [&](size_t id) noexcept {
             if (_fact_epochs[id] == _visit_epoch) { return; }
@@ -683,6 +702,13 @@ public:
         }
     }
 
+    [[nodiscard]] bool is_active(
+        BasicBlock *target) const noexcept {
+        auto iter = _block_ids.find(target);
+        return iter != _block_ids.end() &&
+               _fact_epochs[iter->second] == _visit_epoch;
+    }
+
     [[nodiscard]] LoopBoundaryTargetKind classify(
         BasicBlock *target) const noexcept {
         auto iter = _block_ids.find(target);
@@ -744,6 +770,19 @@ void LoopBoundaryPathDataflow::evaluate(
     BasicBlock *merge) noexcept {
     _impl->evaluate(
         body, continue_target, loop_entry, merge);
+}
+
+void LoopBoundaryPathDataflow::evaluate_region_only(
+    BasicBlock *body,
+    BasicBlock *loop_entry,
+    BasicBlock *merge) noexcept {
+    _impl->evaluate_region_only(
+        body, loop_entry, merge);
+}
+
+bool LoopBoundaryPathDataflow::is_active(
+    BasicBlock *target) const noexcept {
+    return _impl->is_active(target);
 }
 
 LoopBoundaryTargetKind LoopBoundaryPathDataflow::classify(

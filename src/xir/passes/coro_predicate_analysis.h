@@ -32,6 +32,12 @@ struct CoroPredicateLiteral {
     bool value;
 };
 
+struct CoroBlockPredicateKill {
+    Instruction *instruction{nullptr};
+    size_t ordinal{0u};
+    luisa::span<const size_t> predicates;
+};
+
 // Non-mutating predicate value numbering for sparse conditional dataflow.
 //
 // Pure total arithmetic is numbered structurally, with an exact descriptor
@@ -56,6 +62,14 @@ private:
         luisa::vector<Instruction *> dynamic_dependencies;
     };
 
+    struct BlockBranchPredicate {
+        size_t predicate{~size_t{0u}};
+        size_t true_block_id{~size_t{0u}};
+        size_t false_block_id{~size_t{0u}};
+        bool true_value{true};
+        bool self_killed{false};
+    };
+
     luisa::vector<Term> _terms;
     luisa::unordered_map<Value *, size_t> _leaf_terms;
     luisa::unordered_map<uint64_t, luisa::vector<size_t>> _term_buckets;
@@ -63,6 +77,8 @@ private:
         _condition_literals;
     luisa::unordered_map<Instruction *, luisa::vector<size_t>>
         _predicate_kills;
+    luisa::vector<luisa::vector<CoroBlockPredicateKill>> _block_kills;
+    luisa::vector<BlockBranchPredicate> _block_predicates;
     luisa::unordered_set<size_t> _registered_predicates;
 
 private:
@@ -75,6 +91,10 @@ private:
 public:
     explicit CoroPredicateAnalysis(
         const CoroSemanticGraph &graph) noexcept;
+    CoroPredicateAnalysis(const CoroPredicateAnalysis &) = delete;
+    CoroPredicateAnalysis &operator=(const CoroPredicateAnalysis &) = delete;
+    CoroPredicateAnalysis(CoroPredicateAnalysis &&) = delete;
+    CoroPredicateAnalysis &operator=(CoroPredicateAnalysis &&) = delete;
 
     [[nodiscard]] luisa::optional<CoroPredicateLiteral>
     literal_on_edge(BasicBlock *predecessor,
@@ -83,8 +103,52 @@ public:
     [[nodiscard]] luisa::span<const size_t>
     killed_predicates(Instruction *instruction) const noexcept;
 
+    [[nodiscard]] luisa::span<const CoroBlockPredicateKill>
+    block_kills(size_t block_id) const noexcept {
+        return block_id < _block_kills.size() ?
+                   luisa::span<const CoroBlockPredicateKill>{
+                       _block_kills[block_id]} :
+                   luisa::span<const CoroBlockPredicateKill>{};
+    }
+
     [[nodiscard]] size_t predicate_count() const noexcept {
         return _registered_predicates.size();
+    }
+
+    [[nodiscard]] size_t term_count() const noexcept {
+        return _terms.size();
+    }
+
+    [[nodiscard]] size_t block_predicate(size_t block_id) const noexcept {
+        return block_id < _block_predicates.size() ?
+                   _block_predicates[block_id].predicate :
+                   ~size_t{0u};
+    }
+
+    [[nodiscard]] bool block_predicate_self_killed(size_t block_id) const noexcept {
+        return block_id < _block_predicates.size() &&
+               _block_predicates[block_id].self_killed;
+    }
+
+    [[nodiscard]] luisa::optional<CoroPredicateLiteral>
+    literal_on_edge_by_id(size_t pred_block_id,
+                          size_t succ_block_id) const noexcept {
+        if (pred_block_id >= _block_predicates.size()) {
+            return luisa::nullopt;
+        }
+        const auto &bp = _block_predicates[pred_block_id];
+        if (bp.predicate == ~size_t{0u}) {
+            return luisa::nullopt;
+        }
+        if (succ_block_id == bp.true_block_id &&
+            succ_block_id != bp.false_block_id) {
+            return CoroPredicateLiteral{bp.predicate, bp.true_value};
+        }
+        if (succ_block_id == bp.false_block_id &&
+            succ_block_id != bp.true_block_id) {
+            return CoroPredicateLiteral{bp.predicate, !bp.true_value};
+        }
+        return luisa::nullopt;
     }
 };
 

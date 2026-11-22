@@ -4,11 +4,13 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/indexed_branch.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/switch.h>
+#include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -76,9 +78,13 @@ namespace detail {
     return changed;
 }
 
+[[nodiscard]] static luisa::vector<BasicBlock *> collect_structurally_reachable_order(
+    FunctionDefinition *def) noexcept;
+
 static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
+    auto blocks = collect_structurally_reachable_order(def);
     luisa::unordered_map<BasicBlock *, LoopInst *> loop_prepares;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+    for (auto *block : blocks) {
         if (block != nullptr && block->is_terminated() &&
             block->terminator()->isa<LoopInst>()) {
             auto *loop = static_cast<LoopInst *>(block->terminator());
@@ -86,10 +92,10 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
                 loop_prepares.emplace(loop->prepare_block(), loop);
             }
         }
-    });
+    }
     luisa::vector<ConditionalBranchInst *> targets;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (bb == nullptr) { return; }
+    for (auto *bb : blocks) {
+        if (bb == nullptr) { continue; }
         auto t = bb->terminator();
         if (t != nullptr && t->isa<ConditionalBranchInst>()) {
             auto cb = static_cast<ConditionalBranchInst *>(t);
@@ -110,13 +116,13 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
                             prepare->second->body_block() &&
                         cb->false_block() ==
                             prepare->second->merge_block()) {
-                        return;
+                        continue;
                     }
                     targets.push_back(cb);
                 }
             }
         }
-    });
+    }
     if (targets.empty()) return false;
     auto any = false;
     for (auto cb : targets) {
@@ -182,34 +188,89 @@ evaluate_constant_indexed_branch(Value *value) noexcept {
     }
 }
 
+[[nodiscard]] static bool is_pure_unreachable_block(const BasicBlock *bb) noexcept {
+    return bb != nullptr && !bb->instructions().empty() &&
+           bb->instructions().front() == bb->terminator() &&
+           bb->terminator()->isa<UnreachableInst>();
+}
+
+[[nodiscard]] static BasicBlock *degenerate_indexed_branch_target(
+    IndexedBranchInst *indexed_branch) noexcept {
+    if (indexed_branch == nullptr) { return nullptr; }
+    auto *default_bb = indexed_branch->default_block();
+    if (default_bb == nullptr) { return nullptr; }
+    if (indexed_branch->case_count() == 0u) {
+        return default_bb;
+    }
+    auto has_unreachable_target = is_pure_unreachable_block(default_bb);
+    BasicBlock *unique_live = has_unreachable_target ? nullptr : default_bb;
+    auto live_ambiguous = false;
+    for (auto i = 0u; i < indexed_branch->case_count(); ++i) {
+        auto *target = indexed_branch->case_block(i);
+        if (target == nullptr) { return nullptr; }
+        if (is_pure_unreachable_block(target)) {
+            has_unreachable_target = true;
+        } else if (unique_live == nullptr) {
+            unique_live = target;
+        } else if (unique_live != target) {
+            live_ambiguous = true;
+        }
+    }
+    if (has_unreachable_target && !live_ambiguous) {
+        return unique_live != nullptr ? unique_live : default_bb;
+    }
+    return nullptr;
+}
+
 static bool fold_constant_indexed_branch(
     FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
-    luisa::vector<IndexedBranchInst *> candidates;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+    struct Candidate {
+        IndexedBranchInst *inst{nullptr};
+        bool is_constant{false};
+        IndexedBranchTerminatorInstruction::case_value_type constant_selector{0u};
+        BasicBlock *degenerate_target{nullptr};
+    };
+    luisa::vector<Candidate> candidates;
+    for (auto *block : collect_structurally_reachable_order(def)) {
         if (block != nullptr && block->is_terminated() &&
             block->terminator()->isa<IndexedBranchInst>()) {
             auto *indexed_branch =
                 static_cast<IndexedBranchInst *>(block->terminator());
-            if (evaluate_constant_indexed_branch(
+            if (auto selector = evaluate_constant_indexed_branch(
                     indexed_branch->value())) {
-                candidates.emplace_back(indexed_branch);
+                candidates.emplace_back(Candidate{
+                    .inst = indexed_branch,
+                    .is_constant = true,
+                    .constant_selector = *selector});
+            } else if (auto *target = degenerate_indexed_branch_target(
+                           indexed_branch)) {
+                candidates.emplace_back(Candidate{
+                    .inst = indexed_branch,
+                    .is_constant = false,
+                    .degenerate_target = target});
             }
         }
-    });
+    }
     auto any = false;
-    for (auto *indexed_branch : candidates) {
+    for (auto &candidate : candidates) {
+        auto *indexed_branch = candidate.inst;
         auto *block = indexed_branch->parent_block();
-        auto selector =
-            evaluate_constant_indexed_branch(indexed_branch->value());
-        if (!selector) { continue; }
-        auto *taken = indexed_branch->default_block();
+        BasicBlock *taken = nullptr;
         luisa::unordered_set<BasicBlock *> dropped;
         dropped.emplace(indexed_branch->default_block());
-        for (auto i = 0u; i < indexed_branch->case_count(); i++) {
-            auto *target = indexed_branch->case_block(i);
-            dropped.emplace(target);
-            if (indexed_branch->case_value(i) == *selector) {
-                taken = target;
+        if (candidate.is_constant) {
+            taken = indexed_branch->default_block();
+            for (auto i = 0u; i < indexed_branch->case_count(); i++) {
+                auto *target = indexed_branch->case_block(i);
+                dropped.emplace(target);
+                if (indexed_branch->case_value(i) == candidate.constant_selector) {
+                    taken = target;
+                }
+            }
+        } else {
+            taken = candidate.degenerate_target;
+            for (auto i = 0u; i < indexed_branch->case_count(); i++) {
+                dropped.emplace(indexed_branch->case_block(i));
             }
         }
         // A malformed raw branch may have no default or a null selected case.
@@ -278,32 +339,82 @@ static luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(
     return reachable;
 }
 
+static luisa::vector<BasicBlock *> collect_structurally_reachable_order(
+    FunctionDefinition *def) noexcept {
+    auto reachable = collect_structurally_reachable_blocks(def);
+    luisa::vector<BasicBlock *> order;
+    order.reserve(reachable.size());
+    for (auto *bb : def->basic_blocks()) {
+        if (reachable.contains(bb)) {
+            order.emplace_back(bb);
+        }
+    }
+    return order;
+}
+
 static luisa::unordered_set<BasicBlock *> collect_loop_headers(FunctionDefinition *def) noexcept {
     luisa::unordered_set<BasicBlock *> headers;
+    if (def == nullptr || def->body_block() == nullptr) { return headers; }
+    CoroTransferGraph coro_transfers{def};
     luisa::unordered_set<BasicBlock *> visiting;
     luisa::unordered_set<BasicBlock *> visited;
-    auto visit = [&](auto &&self, BasicBlock *block) noexcept -> void {
-        if (block == nullptr || visited.contains(block)) { return; }
-        visiting.emplace(block);
-        traverse_structural_successors(block, [&](BasicBlock *succ) noexcept {
+    luisa::vector<BasicBlock *> all_succs;
+    struct DfsFrame {
+        BasicBlock *block{nullptr};
+        size_t succ_begin{0u};
+        size_t succ_end{0u};
+        size_t next_idx{0u};
+    };
+    luisa::vector<DfsFrame> stack;
+    auto push = [&](BasicBlock *block) noexcept {
+        if (block == nullptr || visited.contains(block) || !visiting.emplace(block).second) {
+            return;
+        }
+        auto begin = all_succs.size();
+        auto append = [&](BasicBlock *succ) noexcept {
+            if (succ != nullptr) { all_succs.emplace_back(succ); }
+        };
+        traverse_structural_successors(block, append);
+        coro_transfers.traverse_successors(block, append);
+        auto end = all_succs.size();
+        stack.emplace_back(DfsFrame{block, begin, end, begin});
+    };
+    push(def->body_block());
+    while (!stack.empty()) {
+        auto &frame = stack.back();
+        if (frame.next_idx < frame.succ_end) {
+            auto *succ = all_succs[frame.next_idx++];
             if (visiting.contains(succ)) {
                 headers.emplace(succ);
             } else if (!visited.contains(succ)) {
-                self(self, succ);
+                push(succ);
             }
-        });
-        visiting.erase(block);
-        visited.emplace(block);
-    };
-    visit(visit, def->body_block());
+        } else {
+            visiting.erase(frame.block);
+            visited.emplace(frame.block);
+            stack.pop_back();
+        }
+    }
     return headers;
 }
 
-static luisa::unordered_set<BasicBlock *> collect_structural_targets(FunctionDefinition *def) noexcept {
+static luisa::unordered_set<BasicBlock *> collect_structural_targets(
+    FunctionDefinition *def,
+    luisa::span<BasicBlock *const> blocks) noexcept {
     luisa::unordered_set<BasicBlock *> targets;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+    CoroTransferGraph coro_transfers{def};
+    for (auto *bb : blocks) {
+        coro_transfers.traverse_successors(bb, [&](BasicBlock *target) noexcept {
+            if (target != nullptr) { targets.emplace(target); }
+        });
+        for (auto *inst : bb->instructions()) {
+            if (inst->isa<CoroResumeInst>()) {
+                targets.emplace(bb);
+                break;
+            }
+        }
         auto term = bb->terminator();
-        if (term == nullptr) return;
+        if (term == nullptr) continue;
         if (auto merge = term->control_flow_merge()) {
             if (auto merge_block = merge->merge_block()) targets.emplace(merge_block);
         }
@@ -316,28 +427,29 @@ static luisa::unordered_set<BasicBlock *> collect_structural_targets(FunctionDef
             auto loop = static_cast<SimpleLoopInst *>(term);
             if (auto body = loop->body_block()) { targets.emplace(body); }
         }
-    });
+    }
     return targets;
 }
 
 static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
+    auto blocks = collect_structurally_reachable_order(def);
     auto loop_headers = collect_loop_headers(def);
-    auto structural_targets = collect_structural_targets(def);
+    auto structural_targets = collect_structural_targets(def, blocks);
     luisa::vector<BasicBlock *> candidates;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (bb == entry) return;
+    for (auto *bb : blocks) {
+        if (bb == entry) continue;
         auto &insts = bb->instructions();
-        if (insts.empty()) return;
-        if (insts.front() != bb->terminator()) return;
+        if (insts.empty()) continue;
+        if (insts.front() != bb->terminator()) continue;
         auto t = bb->terminator();
-        if (t == nullptr || !t->isa<BranchInst>()) return;
+        if (t == nullptr || !t->isa<BranchInst>()) continue;
         auto br = static_cast<BranchInst *>(t);
-        if (br->target_block() == bb) return;
-        if (br->target_block() != nullptr && loop_headers.contains(br->target_block())) return;
-        if (structural_targets.contains(bb)) return;
+        if (br->target_block() == bb) continue;
+        if (br->target_block() != nullptr && loop_headers.contains(br->target_block())) continue;
+        if (structural_targets.contains(bb)) continue;
         candidates.push_back(bb);
-    });
+    }
     if (candidates.empty()) return false;
     bool any = false;
     for (auto bb : candidates) {
@@ -430,12 +542,9 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
 
 static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
-    auto structural_targets = collect_structural_targets(def);
+    auto blocks = collect_structurally_reachable_order(def);
+    auto structural_targets = collect_structural_targets(def, blocks);
     ++info.straight_line_scan_count;
-    luisa::vector<BasicBlock *> blocks;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        blocks.emplace_back(bb);
-    });
     auto changed = false;
     luisa::unordered_set<BasicBlock *> removed;
     // Snapshot entries are raw pointers. Retain detached blocks until every

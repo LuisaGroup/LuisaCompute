@@ -97,6 +97,12 @@ public:
                   BasicBlock *loop_entry,
                   BasicBlock *merge) noexcept;
 
+    void evaluate_region_only(BasicBlock *body,
+                              BasicBlock *loop_entry,
+                              BasicBlock *merge) noexcept;
+
+    [[nodiscard]] bool is_active(
+        BasicBlock *target) const noexcept;
     [[nodiscard]] LoopBoundaryTargetKind classify(
         BasicBlock *target) const noexcept;
     [[nodiscard]] size_t region_size() const noexcept;

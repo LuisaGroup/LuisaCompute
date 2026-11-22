@@ -2,10 +2,13 @@
 
 #include <cstddef>
 
+#include <luisa/core/stl/memory.h>
+
 namespace luisa::compute::xir {
 
 class AllocaInst;
 class BasicBlock;
+class FunctionDefinition;
 class Instruction;
 
 namespace detail {
@@ -19,6 +22,36 @@ struct CoroInitializedPrefixProofResult {
     BasicBlock *placement_block{nullptr};
     Instruction *placement_instruction{nullptr};
     size_t block_evaluation_count{0u};
+};
+
+class CoroInitializedPrefixAnalysis final {
+private:
+    class Impl;
+    luisa::unique_ptr<Impl> _impl;
+
+public:
+    CoroInitializedPrefixAnalysis(
+        FunctionDefinition *definition,
+        const CoroSemanticGraph &graph,
+        const CoroFrameAtomDomain &domain) noexcept;
+    ~CoroInitializedPrefixAnalysis() noexcept;
+    CoroInitializedPrefixAnalysis(
+        CoroInitializedPrefixAnalysis &&) noexcept;
+    CoroInitializedPrefixAnalysis &operator=(
+        CoroInitializedPrefixAnalysis &&) noexcept;
+    CoroInitializedPrefixAnalysis(
+        const CoroInitializedPrefixAnalysis &) = delete;
+    CoroInitializedPrefixAnalysis &operator=(
+        const CoroInitializedPrefixAnalysis &) = delete;
+
+    [[nodiscard]] CoroInitializedPrefixProofResult prove(
+        AllocaInst *array,
+        BasicBlock *target,
+        Instruction *insertion_instruction) noexcept;
+
+    void notify_target_mutated(
+        BasicBlock *target,
+        bool moved_store, bool moved_bool_store) noexcept;
 };
 
 // Proves a counted-array initialization invariant in the coroutine semantic

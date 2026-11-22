@@ -2,6 +2,7 @@
 #include <type_traits>
 
 #include <luisa/ast/type_registry.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/argument.h>
@@ -1550,35 +1551,262 @@ public:
             }
         }
 
-        auto nearest_break_continue_target =
-            [&](const BasicBlock *block, bool is_continue) noexcept {
-                struct Result {
-                    const BasicBlock *target{nullptr};
-                    bool found{false};
-                    bool ambiguous{false};
-                } result;
-                size_t best_depth = 0u;
-                for (auto &&scope : break_continue_scopes) {
-                    if (is_continue && scope.continue_target == nullptr) { continue; }
-                    if (scope.parent == block || !reachable.contains(scope.parent) ||
-                        !block_dominates(scope.parent, block)) {
-                        continue;
+        struct BreakContinueTargetResult {
+            const BasicBlock *target{nullptr};
+            bool found{false};
+            bool ambiguous{false};
+        };
+        luisa::vector<BreakContinueTargetResult> nearest_break_targets;
+        luisa::vector<BreakContinueTargetResult> nearest_continue_targets;
+        if (_options.require_canonical_break_continue_targets &&
+            !break_continue_scopes.empty() && dominators.size() > 0u) {
+            static constexpr auto kInvalid = VerifierSparseDomTree::invalid_index;
+            const auto node_count = dominators.size();
+            nearest_break_targets.resize(node_count);
+            nearest_continue_targets.resize(node_count);
+
+            struct ActiveScopeNode {
+                const BasicBlock *target{nullptr};
+                size_t depth{0u};
+                size_t prev{kInvalid};
+                size_t next{kInvalid};
+                bool active{false};
+            };
+            struct ActiveScopeChain {
+                luisa::vector<ActiveScopeNode> nodes;
+                size_t head{kInvalid};
+                size_t tail{kInvalid};
+
+                void push_back(size_t id) noexcept {
+                    auto &node = nodes[id];
+                    node.prev = tail;
+                    node.next = kInvalid;
+                    node.active = true;
+                    if (tail != kInvalid) {
+                        nodes[tail].next = id;
+                    } else {
+                        head = id;
                     }
-                    if (scope.merge == block ||
-                        (scope.merge != nullptr && reachable.contains(scope.merge) &&
-                         block_dominates(scope.merge, block))) {
-                        continue;
+                    tail = id;
+                }
+                void pop_back(size_t id) noexcept {
+                    auto &node = nodes[id];
+                    LUISA_DEBUG_ASSERT(tail == id && node.active);
+                    tail = node.prev;
+                    if (tail != kInvalid) {
+                        nodes[tail].next = kInvalid;
+                    } else {
+                        head = kInvalid;
                     }
-                    auto depth = dominators.depth(scope.parent);
-                    auto *target = is_continue ? scope.continue_target : scope.merge;
-                    if (!result.found || depth > best_depth) {
-                        result = {.target = target, .found = true, .ambiguous = false};
-                        best_depth = depth;
-                    } else if (depth == best_depth && result.target != target) {
-                        result.ambiguous = true;
+                    node.prev = kInvalid;
+                    node.next = kInvalid;
+                    node.active = false;
+                }
+                void unlink(size_t id) noexcept {
+                    auto &node = nodes[id];
+                    LUISA_DEBUG_ASSERT(node.active);
+                    if (node.prev != kInvalid) {
+                        nodes[node.prev].next = node.next;
+                    } else {
+                        head = node.next;
+                    }
+                    if (node.next != kInvalid) {
+                        nodes[node.next].prev = node.prev;
+                    } else {
+                        tail = node.prev;
+                    }
+                    node.active = false;
+                }
+                void relink(size_t id) noexcept {
+                    auto &node = nodes[id];
+                    LUISA_DEBUG_ASSERT(!node.active);
+                    if (node.prev != kInvalid) {
+                        nodes[node.prev].next = id;
+                    } else {
+                        head = id;
+                    }
+                    if (node.next != kInvalid) {
+                        nodes[node.next].prev = id;
+                    } else {
+                        tail = id;
+                    }
+                    node.active = true;
+                }
+                [[nodiscard]] BreakContinueTargetResult current_target() const noexcept {
+                    if (tail == kInvalid) { return {}; }
+                    const auto &top = nodes[tail];
+                    bool ambiguous = false;
+                    for (auto cur = top.prev;
+                         cur != kInvalid && nodes[cur].depth == top.depth;
+                         cur = nodes[cur].prev) {
+                        if (nodes[cur].target != top.target) {
+                            ambiguous = true;
+                            break;
+                        }
+                    }
+                    return BreakContinueTargetResult{
+                        .target = top.target,
+                        .found = true,
+                        .ambiguous = ambiguous,
+                    };
+                }
+            };
+
+            ActiveScopeChain break_chain;
+            ActiveScopeChain continue_chain;
+            break_chain.nodes.reserve(break_continue_scopes.size());
+            continue_chain.nodes.reserve(break_continue_scopes.size());
+
+            // Linked lists of scope activation/deactivation events keyed by dom-tree node index.
+            luisa::vector<size_t> act_break_head(node_count, kInvalid);
+            luisa::vector<size_t> act_break_next;
+            luisa::vector<size_t> deact_break_head(node_count, kInvalid);
+            luisa::vector<size_t> deact_break_scope;
+            luisa::vector<size_t> deact_break_next;
+
+            luisa::vector<size_t> act_cont_head(node_count, kInvalid);
+            luisa::vector<size_t> act_cont_next;
+            luisa::vector<size_t> deact_cont_head(node_count, kInvalid);
+            luisa::vector<size_t> deact_cont_scope;
+            luisa::vector<size_t> deact_cont_next;
+
+            for (const auto &scope : break_continue_scopes) {
+                auto parent_idx = dominators.block_index(scope.parent);
+                if (parent_idx == kInvalid) { continue; }
+                auto merge_idx = scope.merge != nullptr ?
+                                     dominators.block_index(scope.merge) :
+                                     kInvalid;
+                if (merge_idx != kInvalid &&
+                    dominators.dominates_index(merge_idx, parent_idx)) {
+                    // Merge dominates (or equals) parent, so it dominates every descendant too.
+                    continue;
+                }
+                bool proper_merge_descendant =
+                    merge_idx != kInvalid &&
+                    merge_idx != parent_idx &&
+                    dominators.dominates_index(parent_idx, merge_idx);
+                auto depth = dominators.depth_by_index(parent_idx);
+
+                auto b_id = break_chain.nodes.size();
+                break_chain.nodes.push_back(ActiveScopeNode{
+                    .target = scope.merge,
+                    .depth = depth,
+                });
+                act_break_next.push_back(act_break_head[parent_idx]);
+                act_break_head[parent_idx] = b_id;
+                if (proper_merge_descendant) {
+                    auto ev = deact_break_scope.size();
+                    deact_break_scope.push_back(b_id);
+                    deact_break_next.push_back(deact_break_head[merge_idx]);
+                    deact_break_head[merge_idx] = ev;
+                }
+
+                if (scope.continue_target != nullptr) {
+                    auto c_id = continue_chain.nodes.size();
+                    continue_chain.nodes.push_back(ActiveScopeNode{
+                        .target = scope.continue_target,
+                        .depth = depth,
+                    });
+                    act_cont_next.push_back(act_cont_head[parent_idx]);
+                    act_cont_head[parent_idx] = c_id;
+                    if (proper_merge_descendant) {
+                        auto ev = deact_cont_scope.size();
+                        deact_cont_scope.push_back(c_id);
+                        deact_cont_next.push_back(deact_cont_head[merge_idx]);
+                        deact_cont_head[merge_idx] = ev;
                     }
                 }
-                return result;
+            }
+
+            luisa::vector<size_t> first_children(node_count, kInvalid);
+            luisa::vector<size_t> next_siblings(node_count, kInvalid);
+            for (size_t node = 1u; node < node_count; ++node) {
+                auto parent = dominators.immediate_dominator_index(node);
+                next_siblings[node] = first_children[parent];
+                first_children[parent] = node;
+            }
+
+            luisa::vector<size_t> undo_break;
+            luisa::vector<size_t> undo_cont;
+            struct DfsFrame {
+                size_t node;
+                size_t next_child;
+                size_t undo_break_begin;
+                size_t undo_cont_begin;
+            };
+            luisa::vector<DfsFrame> dfs_stack;
+            auto enter_node = [&](size_t u) noexcept {
+                auto ub = undo_break.size();
+                for (auto ev = deact_break_head[u]; ev != kInvalid; ev = deact_break_next[ev]) {
+                    auto id = deact_break_scope[ev];
+                    break_chain.unlink(id);
+                    undo_break.push_back(id);
+                }
+                auto uc = undo_cont.size();
+                for (auto ev = deact_cont_head[u]; ev != kInvalid; ev = deact_cont_next[ev]) {
+                    auto id = deact_cont_scope[ev];
+                    continue_chain.unlink(id);
+                    undo_cont.push_back(id);
+                }
+                nearest_break_targets[u] = break_chain.current_target();
+                nearest_continue_targets[u] = continue_chain.current_target();
+                for (auto id = act_break_head[u]; id != kInvalid; id = act_break_next[id]) {
+                    break_chain.push_back(id);
+                }
+                for (auto id = act_cont_head[u]; id != kInvalid; id = act_cont_next[id]) {
+                    continue_chain.push_back(id);
+                }
+                dfs_stack.push_back(DfsFrame{u, first_children[u], ub, uc});
+            };
+            enter_node(0u);
+            luisa::vector<size_t> pop_ids;
+            while (!dfs_stack.empty()) {
+                auto &top = dfs_stack.back();
+                if (top.next_child != kInvalid) {
+                    auto child = top.next_child;
+                    top.next_child = next_siblings[child];
+                    enter_node(child);
+                } else {
+                    auto u = top.node;
+                    pop_ids.clear();
+                    for (auto id = act_cont_head[u]; id != kInvalid; id = act_cont_next[id]) {
+                        pop_ids.push_back(id);
+                    }
+                    for (auto it = pop_ids.rbegin(); it != pop_ids.rend(); ++it) {
+                        continue_chain.pop_back(*it);
+                    }
+                    pop_ids.clear();
+                    for (auto id = act_break_head[u]; id != kInvalid; id = act_break_next[id]) {
+                        pop_ids.push_back(id);
+                    }
+                    for (auto it = pop_ids.rbegin(); it != pop_ids.rend(); ++it) {
+                        break_chain.pop_back(*it);
+                    }
+                    for (auto i = undo_cont.size(); i > top.undo_cont_begin; --i) {
+                        continue_chain.relink(undo_cont[i - 1u]);
+                    }
+                    undo_cont.resize(top.undo_cont_begin);
+                    for (auto i = undo_break.size(); i > top.undo_break_begin; --i) {
+                        break_chain.relink(undo_break[i - 1u]);
+                    }
+                    undo_break.resize(top.undo_break_begin);
+                    dfs_stack.pop_back();
+                }
+            }
+        }
+
+        auto nearest_break_continue_target =
+            [&](const BasicBlock *block, bool is_continue) noexcept {
+                auto idx = dominators.block_index(block);
+                if (idx == VerifierSparseDomTree::invalid_index) {
+                    return BreakContinueTargetResult{};
+                }
+                const auto &table = is_continue ? nearest_continue_targets :
+                                                  nearest_break_targets;
+                if (idx >= table.size()) {
+                    return BreakContinueTargetResult{};
+                }
+                return table[idx];
             };
 
         for (auto *block : blocks) {

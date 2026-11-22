@@ -1,3 +1,5 @@
+#include <utility>
+
 #include <luisa/core/logging.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
@@ -14,24 +16,20 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+using LastStoreMap = luisa::unordered_map<AllocaInst *, luisa::vector<std::pair<Value *, StoreInst *>>>;
+
 // Erase all tracked stores whose pointer traces to the given base alloca.
 static void erase_stores_with_base_alloca(
-    luisa::unordered_map<Value *, StoreInst *> &last_store,
+    LastStoreMap &last_store,
     AllocaInst *base) noexcept {
-    for (auto it = last_store.begin(); it != last_store.end();) {
-        if (trace_pointer_base_local_alloca_inst(it->first) == base) {
-            it = last_store.erase(it);
-        } else {
-            ++it;
-        }
-    }
+    last_store.erase(base);
 }
 
 // Process a single block for dead stores. Mutates last_store in place.
 // Returns dead stores found in this block alone.
 static luisa::vector<StoreInst *> process_block_dse(
     BasicBlock *block,
-    luisa::unordered_map<Value *, StoreInst *> &last_store) noexcept {
+    LastStoreMap &last_store) noexcept {
 
     luisa::vector<StoreInst *> dead_stores;
 
@@ -40,19 +38,32 @@ static luisa::vector<StoreInst *> process_block_dse(
             case DerivedInstructionTag::STORE: {
                 auto store = static_cast<StoreInst *>(inst);
                 auto ptr = store->variable();
-                if (!trace_pointer_base_local_alloca_inst(ptr)) break;
+                auto *base = trace_pointer_base_local_alloca_inst(ptr);
+                if (!base) break;
 
-                auto it = last_store.find(ptr);
+                auto &entries = last_store[base];
+                StoreInst *prev_store = nullptr;
+                auto updated = false;
+                for (auto &[tracked_ptr, tracked_store] : entries) {
+                    if (tracked_ptr == ptr) {
+                        prev_store = tracked_store;
+                        tracked_store = store;
+                        updated = true;
+                        break;
+                    }
+                }
                 // The newer store proves the previous value dead, but it is
                 // not a unique replacement owner for instruction-local
                 // metadata: several annotated stores may be overwritten by
                 // the same write, and merging their metadata can itself be
                 // verifier-invalid. Retain annotated stores conservatively.
-                if (it != last_store.end() &&
-                    it->second->metadata_list().empty()) {
-                    dead_stores.push_back(it->second);
+                if (prev_store != nullptr &&
+                    prev_store->metadata_list().empty()) {
+                    dead_stores.push_back(prev_store);
                 }
-                last_store[ptr] = store;
+                if (!updated) {
+                    entries.emplace_back(ptr, store);
+                }
                 break;
             }
             case DerivedInstructionTag::LOAD: {
@@ -83,7 +94,7 @@ static luisa::vector<StoreInst *> process_block_dse(
 static size_t run_intra_block_dse(FunctionDefinition *function) noexcept {
     size_t count = 0u;
     function->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        luisa::unordered_map<Value *, StoreInst *> last_store;
+        LastStoreMap last_store;
         auto dead = process_block_dse(block, last_store);
         for (auto store : dead) {
             store->remove_self();
@@ -100,7 +111,7 @@ static size_t run_straight_line_dse(FunctionDefinition *function) noexcept {
     luisa::unordered_set<BasicBlock *> visited;
     function->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
         if (visited.contains(block)) return;
-        luisa::unordered_map<Value *, StoreInst *> last_store;
+        LastStoreMap last_store;
         luisa::vector<StoreInst *> dead_stores;
         BasicBlock *current = block;
         while (visited.emplace(current).second) {

@@ -333,56 +333,62 @@ struct ReachingValueWorkspace {
     luisa::vector<luisa::vector<ReachingEvent>> block_events;
     luisa::vector<StoreInst *> last_stores;
     luisa::vector<ReachingValue> block_inputs;
-    luisa::vector<ReachingValue> block_outputs;
-    luisa::vector<uint8_t> event_block_touched;
-    luisa::vector<uint8_t> active;
-    luisa::vector<uint8_t> queued;
+    luisa::vector<uint64_t> last_store_epoch;
+    luisa::vector<uint64_t> event_block_epoch;
+    luisa::vector<uint64_t> resolved_epoch;
+    luisa::vector<uint64_t> unresolved_epoch;
+    luisa::vector<uint64_t> bfs_visit_epoch;
+    uint64_t candidate_epoch{0u};
+    uint64_t query_epoch{0u};
     luisa::vector<size_t> touched_event_blocks;
-    luisa::vector<size_t> active_blocks;
-    luisa::vector<size_t> reverse_worklist;
-    luisa::vector<size_t> forward_worklist;
+    luisa::vector<size_t> store_block_ids;
+    luisa::vector<size_t> landmark_preorders;
+    luisa::vector<size_t> demand_blocks;
+    luisa::vector<size_t> bfs_worklist;
 
     explicit ReachingValueWorkspace(size_t block_count) noexcept
         : block_events{block_count},
           last_stores(block_count, nullptr),
           block_inputs(block_count),
-          block_outputs(block_count),
-          event_block_touched(block_count, 0u),
-          active(block_count, 0u),
-          queued(block_count, 0u) {}
+          last_store_epoch(block_count, 0u),
+          event_block_epoch(block_count, 0u),
+          resolved_epoch(block_count, 0u),
+          unresolved_epoch(block_count, 0u),
+          bfs_visit_epoch(block_count, 0u) {}
 
     void reset() noexcept {
         for (auto block_id : touched_event_blocks) {
             block_events[block_id].clear();
-            last_stores[block_id] = nullptr;
-            event_block_touched[block_id] = 0u;
-        }
-        for (auto block_id : active_blocks) {
-            block_inputs[block_id] = ReachingValue{};
-            block_outputs[block_id] = ReachingValue{};
-            active[block_id] = 0u;
-            queued[block_id] = 0u;
         }
         touched_event_blocks.clear();
-        active_blocks.clear();
-        reverse_worklist.clear();
-        forward_worklist.clear();
+        store_block_ids.clear();
+        landmark_preorders.clear();
+        demand_blocks.clear();
+        ++candidate_epoch;
+    }
+
+    void begin_query() noexcept {
+        bfs_worklist.clear();
+        ++query_epoch;
     }
 
     void add_event(size_t block_id, ReachingEvent event) noexcept {
-        if (event_block_touched[block_id] == 0u) {
-            event_block_touched[block_id] = 1u;
+        if (event_block_epoch[block_id] != candidate_epoch) {
+            event_block_epoch[block_id] = candidate_epoch;
             touched_event_blocks.emplace_back(block_id);
         }
         block_events[block_id].emplace_back(event);
     }
 
-    [[nodiscard]] bool mark_active(size_t block_id) noexcept {
-        if (active[block_id] != 0u) { return false; }
-        active[block_id] = 1u;
-        active_blocks.emplace_back(block_id);
-        reverse_worklist.emplace_back(block_id);
-        return true;
+    [[nodiscard]] StoreInst *last_store(size_t block_id) const noexcept {
+        return last_store_epoch[block_id] == candidate_epoch ?
+                   last_stores[block_id] :
+                   nullptr;
+    }
+
+    void set_last_store(size_t block_id, StoreInst *store) noexcept {
+        last_store_epoch[block_id] = candidate_epoch;
+        last_stores[block_id] = store;
     }
 };
 
@@ -391,6 +397,7 @@ struct ReachingValueWorkspace {
     const luisa::unordered_map<Instruction *, size_t> &instruction_indices,
     ReachingValueWorkspace &workspace,
     LocalStateCandidate &candidate,
+    bool need_cross_suspend,
     size_t &active_block_count,
     size_t &block_evaluation_count) noexcept {
     workspace.reset();
@@ -415,7 +422,7 @@ struct ReachingValueWorkspace {
     // A load after a store in the same block is resolved locally. Only loads
     // before the first store demand the block input. A predecessor containing
     // a store is a boundary: its output is the last stored value, independent
-    // of its input, so the backward projection stops there.
+    // of its input, so the demand-driven backward query stops there.
     for (auto block_id : workspace.touched_event_blocks) {
         auto &events = workspace.block_events[block_id];
         luisa::sort(
@@ -426,100 +433,252 @@ struct ReachingValueWorkspace {
                        instruction_indices.at(rhs.instruction);
             });
         auto seen_store = false;
+        auto needs_demand = false;
         for (auto event : events) {
             if (event.load == nullptr) {
                 auto *store = static_cast<StoreInst *>(event.instruction);
-                workspace.last_stores[block_id] = store;
+                workspace.set_last_store(block_id, store);
                 seen_store = true;
             } else if (!seen_store) {
-                static_cast<void>(workspace.mark_active(block_id));
+                needs_demand = true;
             }
         }
-    }
-    for (size_t cursor = 0u;
-         cursor < workspace.reverse_worklist.size(); ++cursor) {
-        auto block_id = workspace.reverse_worklist[cursor];
-        // Match the original boundary condition exactly: entry is undefined
-        // even if malformed input manufactures a predecessor edge to it.
-        if (block_id == 0u) { continue; }
-        for (auto predecessor : graph.predecessors(block_id)) {
-            if (workspace.last_stores[predecessor] != nullptr) {
-                continue;
-            }
-            static_cast<void>(workspace.mark_active(predecessor));
+        if (seen_store) {
+            workspace.store_block_ids.emplace_back(block_id);
+        }
+        if (needs_demand) {
+            workspace.demand_blocks.emplace_back(block_id);
         }
     }
-    active_block_count += workspace.active_blocks.size();
 
-    // Semantic graph IDs are reverse postorder. Sorting the projected subset
-    // preserves that order: every acyclic predecessor is evaluated before its
-    // consumer, while ordinary worklist revisits retain exact loop semantics.
-    luisa::sort(
-        workspace.active_blocks.begin(),
-        workspace.active_blocks.end());
-    workspace.forward_worklist = workspace.active_blocks;
-    for (auto block_id : workspace.active_blocks) {
-        workspace.queued[block_id] = 1u;
-        if (auto *store = workspace.last_stores[block_id]) {
-            workspace.block_outputs[block_id] =
-                ReachingValue::unique(store->value());
-        }
-    }
-    for (size_t cursor = 0u;
-         cursor < workspace.forward_worklist.size(); ++cursor) {
-        auto block_id = workspace.forward_worklist[cursor];
-        workspace.queued[block_id] = 0u;
-        ++block_evaluation_count;
-        auto incoming = block_id == 0u ?
-                            ReachingValue::undefined() :
-                            ReachingValue{};
-        if (block_id != 0u) {
-            for (auto predecessor : graph.predecessors(block_id)) {
-                auto predecessor_output = ReachingValue{};
-                if (auto *store = workspace.last_stores[predecessor]) {
-                    predecessor_output =
-                        ReachingValue::unique(store->value());
-                } else {
-                    LUISA_DEBUG_ASSERT(
-                        workspace.active[predecessor] != 0u,
-                        "Store-free predecessor must belong to the "
-                        "backward-closed reaching-value projection.");
-                    predecessor_output =
-                        workspace.block_outputs[predecessor];
+    if (workspace.demand_blocks.empty()) {
+        for (auto block_id : workspace.touched_event_blocks) {
+            auto state = ReachingValue{};
+            for (auto event : workspace.block_events[block_id]) {
+                if (event.load == nullptr) {
+                    auto *store = static_cast<StoreInst *>(event.instruction);
+                    state = ReachingValue::unique(store->value());
+                } else if (state.tag == ReachingValueTag::UNIQUE) {
+                    event.load->reaching_value = state.value;
+                    event.load->reaches_across_suspend = state.crossed_suspend;
                 }
-                if (predecessor_output.tag ==
-                        ReachingValueTag::UNIQUE &&
-                    graph.is_suspend_edge(
-                        predecessor, block_id)) {
-                    predecessor_output.crossed_suspend = true;
-                }
-                incoming = meet_reaching_values(
-                    incoming, predecessor_output);
             }
         }
-        workspace.block_inputs[block_id] = incoming;
-        auto outgoing = workspace.last_stores[block_id] == nullptr ?
-                            incoming :
-                            ReachingValue::unique(
-                                workspace.last_stores[block_id]->value());
-        if (outgoing == workspace.block_outputs[block_id]) {
+        auto unresolved = size_t{0u};
+        for (auto &projection : candidate.loads) {
+            if (projection.reaching_value == nullptr) { ++unresolved; }
+        }
+        return unresolved;
+    }
+
+    auto has_duplicate_store_value = false;
+    {
+        auto &store_ids = workspace.store_block_ids;
+        for (size_t i = 0u; i < store_ids.size() && !has_duplicate_store_value; ++i) {
+            auto *vi = workspace.last_store(store_ids[i])->value();
+            for (size_t j = i + 1u; j < store_ids.size(); ++j) {
+                if (workspace.last_store(store_ids[j])->value() == vi) {
+                    has_duplicate_store_value = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    bool landmarks_built = false;
+    auto ensure_landmarks = [&]() noexcept {
+        if (landmarks_built) { return; }
+        landmarks_built = true;
+        auto &lm = workspace.landmark_preorders;
+        lm.emplace_back(graph.preorder_index(0u));
+        for (auto s : workspace.store_block_ids) {
+            lm.emplace_back(graph.preorder_index(s));
+        }
+        for (auto [_, resume] : graph.suspend_edges()) {
+            lm.emplace_back(graph.preorder_index(resume));
+        }
+        std::sort(lm.begin(), lm.end());
+        lm.erase(std::unique(lm.begin(), lm.end()), lm.end());
+    };
+    auto has_landmark = [&](size_t x) noexcept {
+        const auto &lm = workspace.landmark_preorders;
+        auto pre = graph.preorder_index(x);
+        auto end = graph.subtree_end_index(x);
+        auto it = std::lower_bound(lm.begin(), lm.end(), pre);
+        return it != lm.end() && *it < end;
+    };
+
+    const auto epoch = workspace.candidate_epoch;
+    for (auto load_block : workspace.demand_blocks) {
+        if (workspace.resolved_epoch[load_block] == epoch ||
+            workspace.unresolved_epoch[load_block] == epoch) {
             continue;
         }
-        workspace.block_outputs[block_id] = outgoing;
-        for (auto successor : graph.successors(block_id)) {
-            if (workspace.active[successor] != 0u &&
-                workspace.queued[successor] == 0u) {
-                workspace.queued[successor] = 1u;
-                workspace.forward_worklist.emplace_back(successor);
+        if (load_block == 0u) {
+            workspace.unresolved_epoch[load_block] = epoch;
+            workspace.block_inputs[load_block] = ReachingValue::conflict();
+            ++active_block_count;
+            ++block_evaluation_count;
+            continue;
+        }
+
+        // O(k) fast path via deepest strictly dominating store block S.
+        size_t best_dom_store = block_count;
+        size_t best_dom_pre = 0u;
+        for (auto s : workspace.store_block_ids) {
+            if (s == load_block || !graph.dominates_id(s, load_block)) { continue; }
+            auto pre = graph.preorder_index(s);
+            if (best_dom_store == block_count || pre > best_dom_pre) {
+                best_dom_store = s;
+                best_dom_pre = pre;
+            }
+        }
+        if (best_dom_store == block_count) {
+            if (!has_duplicate_store_value) {
+                workspace.unresolved_epoch[load_block] = epoch;
+                workspace.block_inputs[load_block] = ReachingValue::conflict();
+                ++active_block_count;
+                ++block_evaluation_count;
+                continue;
+            }
+        } else {
+            auto dominates_another_store = false;
+            for (auto s2 : workspace.store_block_ids) {
+                if (s2 != best_dom_store && graph.dominates_id(best_dom_store, s2)) {
+                    dominates_another_store = true;
+                    break;
+                }
+            }
+            if (!dominates_another_store) {
+                auto crossed =
+                    need_cross_suspend ?
+                        graph.crosses_suspend_without_reentering(
+                            graph.block(best_dom_store), graph.block(load_block)) :
+                        false;
+                workspace.resolved_epoch[load_block] = epoch;
+                workspace.block_inputs[load_block] = ReachingValue::unique(
+                    workspace.last_store(best_dom_store)->value(), crossed);
+                ++active_block_count;
+                ++block_evaluation_count;
+                continue;
+            }
+        }
+
+        ensure_landmarks();
+        auto start = graph.shallowest_dominator_avoiding_preorders(
+            load_block, workspace.landmark_preorders);
+        if (workspace.unresolved_epoch[start] == epoch) {
+            workspace.unresolved_epoch[load_block] = epoch;
+            workspace.block_inputs[load_block] = ReachingValue::conflict();
+            ++active_block_count;
+            ++block_evaluation_count;
+            continue;
+        }
+        if (workspace.resolved_epoch[start] == epoch) {
+            workspace.resolved_epoch[load_block] = epoch;
+            workspace.block_inputs[load_block] = workspace.block_inputs[start];
+            ++active_block_count;
+            ++block_evaluation_count;
+            continue;
+        }
+
+        workspace.begin_query();
+        const auto q_epoch = workspace.query_epoch;
+        workspace.bfs_visit_epoch[start] = q_epoch;
+        workspace.bfs_worklist.emplace_back(start);
+        Value *unique_val = nullptr;
+        auto crossed_suspend = false;
+        auto failed = false;
+        for (size_t cursor = 0u;
+             cursor < workspace.bfs_worklist.size() && !failed; ++cursor) {
+            auto cur = workspace.bfs_worklist[cursor];
+            const auto cur_is_clean = !has_landmark(cur);
+            for (auto predecessor : graph.predecessors(cur)) {
+                if (cur_is_clean && graph.dominates_id(cur, predecessor)) {
+                    continue;
+                }
+                auto is_suspend = graph.is_suspend_edge(predecessor, cur);
+                if (auto *store = workspace.last_store(predecessor)) {
+                    auto *v = store->value();
+                    if (unique_val == nullptr) {
+                        unique_val = v;
+                    } else if (unique_val != v) {
+                        failed = true;
+                        break;
+                    }
+                    crossed_suspend |= is_suspend;
+                    continue;
+                }
+                if (workspace.unresolved_epoch[predecessor] == epoch) {
+                    failed = true;
+                    break;
+                }
+                if (workspace.resolved_epoch[predecessor] == epoch) {
+                    auto &cached = workspace.block_inputs[predecessor];
+                    auto *v = cached.value;
+                    if (unique_val == nullptr) {
+                        unique_val = v;
+                    } else if (unique_val != v) {
+                        failed = true;
+                        break;
+                    }
+                    crossed_suspend |= cached.crossed_suspend || is_suspend;
+                    continue;
+                }
+                if (predecessor == 0u) {
+                    failed = true;
+                    break;
+                }
+                crossed_suspend |= is_suspend;
+                auto target = graph.shallowest_dominator_avoiding_preorders(
+                    predecessor, workspace.landmark_preorders);
+                if (workspace.unresolved_epoch[target] == epoch) {
+                    failed = true;
+                    break;
+                }
+                if (workspace.resolved_epoch[target] == epoch) {
+                    auto &cached = workspace.block_inputs[target];
+                    auto *v = cached.value;
+                    if (unique_val == nullptr) {
+                        unique_val = v;
+                    } else if (unique_val != v) {
+                        failed = true;
+                        break;
+                    }
+                    crossed_suspend |= cached.crossed_suspend;
+                    continue;
+                }
+                if (workspace.bfs_visit_epoch[target] != q_epoch) {
+                    workspace.bfs_visit_epoch[target] = q_epoch;
+                    workspace.bfs_worklist.emplace_back(target);
+                }
+            }
+        }
+        active_block_count += workspace.bfs_worklist.size();
+        block_evaluation_count += workspace.bfs_worklist.size();
+        if (!failed && unique_val != nullptr) {
+            auto val = ReachingValue::unique(unique_val, crossed_suspend);
+            workspace.resolved_epoch[load_block] = epoch;
+            workspace.block_inputs[load_block] = val;
+            if (start != load_block) {
+                workspace.resolved_epoch[start] = epoch;
+                workspace.block_inputs[start] = val;
+            }
+        } else {
+            workspace.unresolved_epoch[load_block] = epoch;
+            workspace.block_inputs[load_block] = ReachingValue::conflict();
+            if (start != load_block) {
+                workspace.unresolved_epoch[start] = epoch;
+                workspace.block_inputs[start] = ReachingValue::conflict();
             }
         }
     }
 
-    // Replay only sparse event blocks after convergence. A non-active event
-    // block has no pre-store load by construction, so its initial pending
-    // state is unobservable before the first overwriting store.
+    // Replay only sparse event blocks after resolution. A non-demanded event
+    // block has no pre-store load, so its initial pending state is
+    // unobservable before the first overwriting store.
     for (auto block_id : workspace.touched_event_blocks) {
-        auto state = workspace.active[block_id] != 0u ?
+        auto state = workspace.resolved_epoch[block_id] == epoch ?
                          workspace.block_inputs[block_id] :
                          ReachingValue{};
         for (auto event : workspace.block_events[block_id]) {
@@ -548,6 +707,7 @@ struct ReachingValueWorkspace {
     ReachingValueWorkspace &workspace,
     LocalStateCandidate &candidate,
     bool verify_dense_oracle,
+    bool need_cross_suspend,
     size_t &active_block_count,
     size_t &block_evaluation_count) noexcept {
     LocalStateCandidate oracle_candidate;
@@ -561,6 +721,7 @@ struct ReachingValueWorkspace {
     }
     auto unresolved = resolve_reaching_values_projected(
         graph, instruction_indices, workspace, candidate,
+        verify_dense_oracle || need_cross_suspend,
         active_block_count, block_evaluation_count);
     if (verify_dense_oracle) {
         LUISA_ASSERT(
@@ -587,7 +748,8 @@ struct ReachingValueWorkspace {
 [[nodiscard]] size_t resolve_single_store_loads(
     const CoroSemanticGraph &graph,
     const luisa::unordered_map<Instruction *, size_t> &instruction_indices,
-    LocalStateCandidate &candidate) noexcept {
+    LocalStateCandidate &candidate,
+    bool need_cross_suspend) noexcept {
     LUISA_DEBUG_ASSERT(candidate.stores.size() == 1u,
                        "Single-store resolver requires one store.");
     auto *store = candidate.stores.front();
@@ -607,8 +769,10 @@ struct ReachingValueWorkspace {
         if (resolved) {
             projection.reaching_value = store->value();
             projection.reaches_across_suspend =
-                graph.crosses_suspend_without_reentering(
-                    store_block, load_block);
+                need_cross_suspend ?
+                    graph.crosses_suspend_without_reentering(
+                        store_block, load_block) :
+                    false;
         } else {
             ++unresolved;
         }
@@ -725,12 +889,14 @@ coro_rematerialize_local_state_pass_run_on_function(
         auto unresolved = size_t{0u};
         if (candidate.stores.size() == 1u) {
             unresolved = detail::resolve_single_store_loads(
-                graph, instruction_indices, candidate);
+                graph, instruction_indices, candidate,
+                !candidate.replay_stored_values);
         } else {
             ++info.reaching_dataflow_alloca_count;
             unresolved = detail::resolve_reaching_values(
                 graph, instruction_indices, reaching_workspace,
                 candidate, options.verify_dense_reaching_values,
+                !candidate.replay_stored_values,
                 info.reaching_dataflow_active_block_count,
                 info.reaching_dataflow_block_evaluation_count);
         }

@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <cstdint>
+
 #include <luisa/core/logging.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
@@ -87,12 +90,38 @@ struct AllocaAnalysis {
 
     luisa::unordered_map<BasicBlock *, StoreInst *> def_blocks;
     luisa::unordered_map<BasicBlock *, luisa::vector<LoadInst *>> use_blocks;
-    luisa::unordered_set<BasicBlock *> live_in_blocks;
+    luisa::vector<uint32_t> live_in_epoch;
+    uint32_t current_live_in_epoch{0u};
+
+    [[nodiscard]] bool is_live_in(BasicBlock *block) const noexcept {
+        if (current_live_in_epoch == 0u) { return false; }
+        auto iter = block_indices.find(block);
+        if (iter == block_indices.end() || iter->second >= live_in_epoch.size()) {
+            return false;
+        }
+        return live_in_epoch[iter->second] == current_live_in_epoch;
+    }
+
+    [[nodiscard]] bool mark_live_in(BasicBlock *block) noexcept {
+        auto iter = block_indices.find(block);
+        if (iter == block_indices.end()) { return false; }
+        auto idx = iter->second;
+        if (idx >= live_in_epoch.size()) { return false; }
+        if (live_in_epoch[idx] == current_live_in_epoch) { return false; }
+        live_in_epoch[idx] = current_live_in_epoch;
+        return true;
+    }
 
     void analyze(AllocaInst *inst) noexcept {
         def_blocks.clear();
         use_blocks.clear();
-        live_in_blocks.clear();
+        if (live_in_epoch.size() != block_indices.size()) {
+            live_in_epoch.assign(block_indices.size(), 0u);
+            current_live_in_epoch = 1u;
+        } else if (++current_live_in_epoch == 0u) {
+            std::fill(live_in_epoch.begin(), live_in_epoch.end(), 0u);
+            current_live_in_epoch = 1u;
+        }
         // find def and use blocks
         for (auto &&use : inst->use_list()) {
             if (auto user = use->user()) {
@@ -128,9 +157,9 @@ struct AllocaAnalysis {
         while (!work_list.empty()) {
             auto block = work_list.back();
             work_list.pop_back();
-            if (live_in_blocks.emplace(block).second) {
+            if (mark_live_in(block)) {
                 block->traverse_predecessors(true, [&](BasicBlock *pred) noexcept {
-                    if (!def_blocks.contains(pred) && !live_in_blocks.contains(pred)) {
+                    if (!def_blocks.contains(pred) && !is_live_in(pred)) {
                         work_list.emplace_back(pred);
                     }
                 });
@@ -225,7 +254,7 @@ struct PhiInsertionAndRenaming {
                 auto block_node = analysis.dom.node_or_null(block);
                 if (block_node == nullptr) { continue; }
                 for (auto frontier : block_node->frontiers()) {
-                    if (auto fb = frontier->block(); analysis.live_in_blocks.contains(fb)) {
+                    if (auto fb = frontier->block(); analysis.is_live_in(fb)) {
                         if (auto iter = block_to_phi.try_emplace(fb, nullptr).first; iter->second == nullptr) {
                             // insert the phi node
                             XIRBuilder b;
@@ -447,24 +476,87 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
                                     .block_indices = block_indices,
                                     .reachable_blocks = reachable_blocks};
             PhiInsertionAndRenaming insertion{.ctx = ctx};
+            luisa::vector<LoadInst *> loads;
+            luisa::unordered_set<BasicBlock *> seen_store_blocks;
             for (auto inst : promotable) {
                 // The local simplifier above must leave at most one direct store
                 // per block. Keep this defensive boundary check: the SSA rewrite's
                 // per-block definition map cannot represent more than one.
-                luisa::unordered_map<BasicBlock *, uint32_t> block_store_count;
+                loads.clear();
+                size_t store_count = 0u;
+                StoreInst *single_store = nullptr;
+                BasicBlock *first_store_block = nullptr;
                 bool has_multiple_stores = false;
                 for (auto &&use : inst->use_list()) {
-                    if (auto user = use->user(); user != nullptr && user->isa<StoreInst>()) {
-                        auto block = static_cast<Instruction *>(user)->parent_block();
-                        auto [_, inserted] = block_store_count.try_emplace(block, 1u);
-                        if (!inserted) {
-                            has_multiple_stores = true;
-                            break;
+                    auto *user = use->user();
+                    if (user == nullptr || !user->isa<Instruction>()) { continue; }
+                    auto *user_inst = static_cast<Instruction *>(user);
+                    if (user_inst->isa<LoadInst>()) {
+                        loads.emplace_back(static_cast<LoadInst *>(user_inst));
+                    } else if (user_inst->isa<StoreInst>()) {
+                        auto *store = static_cast<StoreInst *>(user_inst);
+                        auto *block = store->parent_block();
+                        if (store_count == 0u) {
+                            single_store = store;
+                            first_store_block = block;
+                            store_count = 1u;
+                        } else {
+                            if (store_count == 1u) {
+                                if (block == first_store_block) {
+                                    has_multiple_stores = true;
+                                    break;
+                                }
+                                seen_store_blocks.clear();
+                                seen_store_blocks.emplace(first_store_block);
+                            }
+                            if (!seen_store_blocks.emplace(block).second) {
+                                has_multiple_stores = true;
+                                break;
+                            }
+                            ++store_count;
                         }
                     }
                 }
                 if (has_multiple_stores) {
                     continue;
+                }
+                if (store_count == 0u) {
+                    auto *undef = loads.empty() ?
+                                      nullptr :
+                                      def->parent_module()->create_undefined(inst->type());
+                    for (auto *load : loads) {
+                        replace_load_with_value(load, undef, ctx, info);
+                    }
+                    LUISA_ASSERT(inst->use_list().empty(), "Invalid state.");
+                    remove_alloca(inst, ctx, info);
+                    continue;
+                }
+                if (store_count == 1u) {
+                    auto *def_block = single_store->parent_block();
+                    auto def_idx = inst_indices.at(single_store);
+                    auto all_loads_dominated = true;
+                    for (auto *load : loads) {
+                        auto *load_block = load->parent_block();
+                        if (load_block == def_block) {
+                            if (def_idx >= inst_indices.at(load)) {
+                                all_loads_dominated = false;
+                                break;
+                            }
+                        } else if (!dom.dominates(def_block, load_block)) {
+                            all_loads_dominated = false;
+                            break;
+                        }
+                    }
+                    if (all_loads_dominated) {
+                        auto *stored_value = single_store->value();
+                        for (auto *load : loads) {
+                            replace_load_with_value(load, stored_value, ctx, info);
+                        }
+                        remove_store(single_store, ctx, info);
+                        LUISA_ASSERT(inst->use_list().empty(), "Invalid state.");
+                        remove_alloca(inst, ctx, info);
+                        continue;
+                    }
                 }
                 // analyze and insert phi nodes
                 analysis.analyze(inst);

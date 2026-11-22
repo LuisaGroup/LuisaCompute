@@ -65,6 +65,10 @@ public:
         AllocaInst *payload,
         BasicBlock *target,
         Instruction *insertion_instruction) noexcept;
+
+    void notify_target_mutated(
+        BasicBlock *target,
+        bool moved_store, bool moved_bool_store) noexcept;
 };
 
 }// namespace detail

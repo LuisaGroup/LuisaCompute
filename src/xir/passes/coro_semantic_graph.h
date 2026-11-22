@@ -34,6 +34,18 @@ private:
     luisa::vector<size_t> _immediate_dominators;
     luisa::vector<size_t> _preorder_indices;
     luisa::vector<size_t> _subtree_end_indices;
+    mutable luisa::vector<uint32_t> _bfs_visit_epochs;
+    mutable uint32_t _bfs_epoch{0u};
+    mutable luisa::vector<size_t> _bfs_worklist;
+    mutable luisa::unordered_map<size_t, luisa::vector<uint64_t>>
+        _crossed_from_def_cache;
+    mutable luisa::vector<uint32_t> _dom_lift;
+    mutable uint32_t _dom_lift_levels{0u};
+
+    void _ensure_dom_lift() const noexcept;
+
+    [[nodiscard]] bool _dominates_id(
+        size_t definition_id, size_t use_id) const noexcept;
 
 public:
     explicit CoroSemanticGraph(
@@ -74,6 +86,23 @@ public:
     [[nodiscard]] bool dominates(
         BasicBlock *definition,
         BasicBlock *use) const noexcept;
+    [[nodiscard]] bool dominates_id(
+        size_t definition_id, size_t use_id) const noexcept {
+        return _dominates_id(definition_id, use_id);
+    }
+    [[nodiscard]] size_t preorder_index(size_t block_id) const noexcept {
+        return _preorder_indices[block_id];
+    }
+    [[nodiscard]] size_t subtree_end_index(size_t block_id) const noexcept {
+        return _subtree_end_indices[block_id];
+    }
+    [[nodiscard]] luisa::span<const std::pair<size_t, size_t>>
+    suspend_edges() const noexcept {
+        return _suspend_edges;
+    }
+    [[nodiscard]] size_t shallowest_dominator_avoiding_preorders(
+        size_t block_id,
+        luisa::span<const size_t> sorted_landmark_preorders) const noexcept;
     // Returns the deepest block that dominates every input in the augmented
     // coroutine CFG. Suspend(token) -> resume(token) edges participate in the
     // same dominance relation, so the result is suitable for state whose

@@ -350,6 +350,11 @@ public:
     [[nodiscard]] bool snapshot_reaches_unchanged(
         LoadInst *load, AllocaInst *slot,
         Instruction *use) const noexcept;
+
+    void clear_cache() noexcept {
+        _slots.clear();
+        _snapshot_flows.clear();
+    }
 };
 
 bool ScalarResolver::snapshot_reaches_unchanged(
@@ -4286,13 +4291,37 @@ private:
     const CoroSemanticGraph &_graph;
     InstructionLocationMap _locations;
     ScalarResolver _resolver;
-    luisa::unordered_set<Value *> _boolean_guards;
+    mutable luisa::unordered_set<Value *> _boolean_guards;
+    mutable bool _boolean_guards_dirty{true};
     luisa::vector<AllocaInst *> _arrays;
     mutable luisa::unordered_map<
         AllocaInst *, CounterTransitionSummary>
         _counter_transitions;
+    luisa::unordered_set<BasicBlock *> _dirty_blocks;
+    bool _store_dirty{false};
 
 private:
+    void _flush_dirty() noexcept {
+        if (!_dirty_blocks.empty()) {
+            for (auto *block : _dirty_blocks) {
+                if (block == nullptr) { continue; }
+                if (auto id = _graph.block_id(block); id < _graph.block_count()) {
+                    auto ordinal = size_t{0u};
+                    for (auto *inst : block->instructions()) {
+                        _locations[inst] =
+                            coro_discriminated_prefix_detail::InstructionLocation{
+                                id, ordinal++};
+                    }
+                }
+            }
+            _dirty_blocks.clear();
+        }
+        if (_store_dirty) {
+            _resolver.clear_cache();
+            _counter_transitions.clear();
+            _store_dirty = false;
+        }
+    }
     [[nodiscard]] luisa::vector<uint64_t> _tag_constants(
         AllocaInst *tag, const ActiveSlice &slice) const noexcept {
         luisa::vector<uint64_t> constants;
@@ -4468,6 +4497,11 @@ private:
                 return value != nullptr &&
                        luisa::string_view{value} == "1";
             }()};
+        if (_boolean_guards_dirty) {
+            _boolean_guards = collect_boolean_guard_values(
+                _graph, _resolver, _locations);
+            _boolean_guards_dirty = false;
+        }
         CandidateContext context{
             .payload = payload,
             .tag = tag,
@@ -4617,9 +4651,7 @@ public:
          const CoroSemanticGraph &graph) noexcept
         : _definition{definition}, _graph{graph},
           _locations{make_instruction_locations(definition, graph)},
-          _resolver{_locations, graph},
-          _boolean_guards{collect_boolean_guard_values(
-              graph, _resolver, _locations)} {
+          _resolver{_locations, graph} {
         for (auto *block : definition->basic_blocks()) {
             for (auto *instruction : block->instructions()) {
                 if (instruction->isa<AllocaInst>()) {
@@ -4635,7 +4667,7 @@ public:
 
     [[nodiscard]] CoroDiscriminatedPrefixProofResult prove(
         AllocaInst *payload, BasicBlock *target,
-        Instruction *insertion) const noexcept {
+        Instruction *insertion) noexcept {
         CoroDiscriminatedPrefixProofResult result;
         if (payload == nullptr || payload->type() == nullptr ||
             payload->type()->tag() != Type::Tag::ARRAY ||
@@ -4643,6 +4675,7 @@ public:
             insertion == nullptr) {
             return result;
         }
+        _flush_dirty();
         auto payload_region = collect_array_use_region(
             payload, _definition, _graph);
         if (!supported_array_region(payload, payload_region)) { return result; }
@@ -4742,6 +4775,20 @@ public:
         }
         return result;
     }
+
+    void notify_target_mutated(
+        BasicBlock *target,
+        bool moved_store, bool moved_bool_store) noexcept {
+        if (target != nullptr) {
+            _dirty_blocks.emplace(target);
+        }
+        if (moved_store) {
+            _store_dirty = true;
+        }
+        if (moved_bool_store) {
+            _boolean_guards_dirty = true;
+        }
+    }
 };
 
 
@@ -4763,6 +4810,12 @@ CoroDiscriminatedPrefixAnalysis::prove(
     AllocaInst *payload, BasicBlock *target,
     Instruction *insertion_instruction) noexcept {
     return _impl->prove(payload, target, insertion_instruction);
+}
+
+void CoroDiscriminatedPrefixAnalysis::notify_target_mutated(
+    BasicBlock *target,
+    bool moved_store, bool moved_bool_store) noexcept {
+    _impl->notify_target_mutated(target, moved_store, moved_bool_store);
 }
 
 }// namespace luisa::compute::xir::detail

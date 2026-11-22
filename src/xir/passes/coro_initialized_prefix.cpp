@@ -108,30 +108,51 @@ struct ArrayUseRegion {
 struct ActiveSlice {
     bool valid{false};
     size_t target_id{0u};
-    luisa::vector<uint8_t> active;
+    luisa::span<const uint8_t> active;
     luisa::vector<size_t> blocks;
+};
+
+struct ActiveSliceWorkspace {
+    luisa::vector<uint8_t> active_mask;
+    luisa::vector<size_t> active_index;
+
+    explicit ActiveSliceWorkspace(size_t block_count = 0u) noexcept
+        : active_mask(block_count, uint8_t{0u}),
+          active_index(block_count, size_t{0u}) {}
+
+    void clear(luisa::span<const size_t> blocks) noexcept {
+        for (auto id : blocks) {
+            active_mask[id] = uint8_t{0u};
+        }
+    }
 };
 
 [[nodiscard]] ActiveSlice make_active_slice(
     BasicBlock *target, const ArrayUseRegion &region,
-    const CoroSemanticGraph &graph) noexcept {
+    const CoroSemanticGraph &graph,
+    ActiveSliceWorkspace &workspace) noexcept {
     ActiveSlice slice;
     if (target == nullptr || !region.valid) { return slice; }
     slice.target_id = graph.block_id(target);
     if (slice.target_id >= graph.block_count()) { return slice; }
-    slice.active.assign(graph.block_count(), 0u);
     luisa::vector<size_t> worklist;
     for (auto *block : region.blocks) {
-        if (!graph.dominates(target, block)) { return slice; }
+        if (!graph.dominates(target, block)) {
+            workspace.clear(worklist);
+            return slice;
+        }
         auto id = graph.block_id(block);
-        if (id >= graph.block_count()) { return slice; }
-        if (slice.active[id] == 0u) {
-            slice.active[id] = 1u;
+        if (id >= graph.block_count()) {
+            workspace.clear(worklist);
+            return slice;
+        }
+        if (workspace.active_mask[id] == 0u) {
+            workspace.active_mask[id] = 1u;
             worklist.emplace_back(id);
         }
     }
-    if (slice.active[slice.target_id] == 0u) {
-        slice.active[slice.target_id] = 1u;
+    if (workspace.active_mask[slice.target_id] == 0u) {
+        workspace.active_mask[slice.target_id] = 1u;
         worklist.emplace_back(slice.target_id);
     }
     for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
@@ -139,15 +160,20 @@ struct ActiveSlice {
         if (id == slice.target_id) { continue; }
         for (auto predecessor : graph.predecessors(id)) {
             if (!graph.dominates(target, graph.block(predecessor))) {
+                workspace.clear(worklist);
                 return slice;
             }
-            if (slice.active[predecessor] == 0u) {
-                slice.active[predecessor] = 1u;
+            if (workspace.active_mask[predecessor] == 0u) {
+                workspace.active_mask[predecessor] = 1u;
                 worklist.emplace_back(predecessor);
             }
         }
     }
     luisa::sort(worklist.begin(), worklist.end());
+    for (size_t i = 0u; i < worklist.size(); ++i) {
+        workspace.active_index[worklist[i]] = i;
+    }
+    slice.active = workspace.active_mask;
     slice.blocks = std::move(worklist);
     slice.valid = true;
     return slice;
@@ -457,6 +483,11 @@ public:
         LoadInst *load, AllocaInst *slot,
         Instruction *use) const noexcept {
         return _snapshot_reaches_use_unchanged(load, slot, use);
+    }
+
+    void clear_cache() noexcept {
+        _slots.clear();
+        _snapshot_flows.clear();
     }
 };
 
@@ -975,6 +1006,7 @@ struct MaskedScalarWitnessSet {
 collect_masked_scalar_witnesses(
     const CoroSemanticGraph &graph,
     luisa::span<const uint8_t> active_blocks,
+    luisa::span<const size_t> slice_blocks,
     const ScalarCopyResolver &resolver,
     const PrefixInstructionLocationMap &locations) noexcept {
     MaskedScalarWitnessSet result;
@@ -1004,17 +1036,12 @@ collect_masked_scalar_witnesses(
         }
         static_cast<void>(insert_tracked(test.scalar, test.mask));
     };
-    for (size_t block_id = 0u;
-         block_id < graph.block_count(); ++block_id) {
+    for (auto block_id : slice_blocks) {
         // Only conditions in the backward slice from the candidate's array
         // uses to its proposed declaration can affect this proof. Tracking a
         // masked scalar outside that closed CFG slice cannot refine any state
         // reaching a relevant use, while adding it would multiply the BDD
         // product by an observationally irrelevant component.
-        if (block_id >= active_blocks.size() ||
-            active_blocks[block_id] == 0u) {
-            continue;
-        }
         for (auto *instruction : graph.block(block_id)->instructions()) {
             Value *condition = nullptr;
             if (instruction->isa<ConditionalBranchInst>()) {
@@ -3086,11 +3113,13 @@ void transfer_counter_availability_store(
     AllocaInst *array, AllocaInst *counter,
     BasicBlock *target, Instruction *insertion,
     const ArrayUseRegion &region, const ActiveSlice &slice,
+    const ActiveSliceWorkspace &slice_workspace,
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain,
     const ScalarCopyResolver &resolver,
     const PrefixInstructionLocationMap &locations,
-    const luisa::unordered_set<Value *> &boolean_guards) noexcept {
+    const luisa::unordered_set<Value *> &boolean_guards,
+    const BooleanPredicateFlow &boolean_flow) noexcept {
     CoroInitializedPrefixProofResult result;
     if (!resolver.scalar_slot_has_only_direct_accesses(counter)) {
         return result;
@@ -3135,14 +3164,12 @@ void transfer_counter_availability_store(
     CoroScalarRelationLiveness relation_liveness{
         graph, slice.active, slice.target_id,
         relation_slots.slots, relation_slots.semantic_uses};
-    auto boolean_flow = collect_boolean_predicate_flow(
-        graph, resolver, locations, boolean_guards);
     CoroBooleanPredicateLiveness boolean_liveness{
         graph, slice.active, slice.target_id,
         boolean_flow.predicates, boolean_flow.uses,
         boolean_flow.definitions};
     auto masked_scalar_witnesses = collect_masked_scalar_witnesses(
-        graph, slice.active, resolver, locations);
+        graph, slice.active, slice.blocks, resolver, locations);
     auto counter_availability_witnesses =
         collect_counter_availability_witnesses(
             array, counter, region, graph, slice.active,
@@ -3180,11 +3207,11 @@ void transfer_counter_availability_store(
     // product and only merging weaker products therefore yields a monotone,
     // terminating fixed point independent of predecessor arrival order.
     CoroBooleanSetManager boolean_sets;
-    luisa::vector<luisa::optional<PrefixState>> in_states(
-        graph.block_count());
-    luisa::vector<luisa::optional<PrefixState>> out_states(
-        graph.block_count());
-    in_states[slice.target_id].emplace(
+    const auto slice_count = slice.blocks.size();
+    const auto target_slice_idx = slice_workspace.active_index[slice.target_id];
+    luisa::vector<luisa::optional<PrefixState>> in_states(slice_count);
+    luisa::vector<luisa::optional<PrefixState>> out_states(slice_count);
+    in_states[target_slice_idx].emplace(
         FactState(layout.count, uint8_t{0u}), boolean_sets,
         masked_scalar_witnesses.tracked,
         counter_availability_witnesses,
@@ -3200,7 +3227,7 @@ void transfer_counter_availability_store(
     for (auto witness : masked_scalar_witnesses.tracked) {
         if (initially_known_zero.proves_zero(
                 witness.scalar, witness.mask)) {
-            in_states[slice.target_id]
+            in_states[target_slice_idx]
                 ->relations.assume_masked_scalar_zero(
                     witness.scalar, witness.mask);
         }
@@ -3209,19 +3236,20 @@ void transfer_counter_availability_store(
         if (scalar_zero_class_at_instruction(
                 witness.scalar, target, insertion, graph,
                 resolver, locations) == ScalarZeroClass::nonzero) {
-            in_states[slice.target_id]
+            in_states[target_slice_idx]
                 ->relations.assume_scalar_nonzero(witness.scalar);
         }
     }
     luisa::vector<size_t> worklist{slice.target_id};
-    luisa::vector<uint8_t> queued(graph.block_count(), 0u);
-    queued[slice.target_id] = 1u;
+    luisa::vector<uint8_t> queued(slice_count, 0u);
+    queued[target_slice_idx] = 1u;
     auto used_prefix_read = false;
     for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
         auto block_id = worklist[cursor];
-        queued[block_id] = 0u;
+        const auto block_slice_idx = slice_workspace.active_index[block_id];
+        queued[block_slice_idx] = 0u;
         ++result.block_evaluation_count;
-        auto state = *in_states[block_id];
+        auto state = *in_states[block_slice_idx];
         for (auto *instruction : graph.block(block_id)->instructions()) {
             auto iter = locations.find(instruction);
             if (block_id == slice.target_id &&
@@ -3234,13 +3262,14 @@ void transfer_counter_availability_store(
                 result.failing_read, false));
         }
         if (!state.relations.feasible()) {
-            out_states[block_id] = state;
+            out_states[block_slice_idx] = state;
             continue;
         }
-        if (out_states[block_id] && *out_states[block_id] == state) {
+        if (out_states[block_slice_idx] &&
+            *out_states[block_slice_idx] == state) {
             continue;
         }
-        out_states[block_id] = state;
+        out_states[block_slice_idx] = state;
         for (auto successor : graph.successors(block_id)) {
             if (successor == slice.target_id ||
                 slice.active[successor] == 0u) {
@@ -3262,16 +3291,17 @@ void transfer_counter_availability_store(
                 relation_liveness.live_in(successor));
             edge_state.relations.retain_booleans(
                 boolean_liveness.live_in(successor));
+            const auto succ_slice_idx = slice_workspace.active_index[successor];
             auto changed = false;
-            if (!in_states[successor]) {
-                in_states[successor] = std::move(edge_state);
+            if (!in_states[succ_slice_idx]) {
+                in_states[succ_slice_idx] = std::move(edge_state);
                 changed = true;
             } else {
                 changed = merge_state(
-                    *in_states[successor], edge_state);
+                    *in_states[succ_slice_idx], edge_state);
             }
-            if (changed && queued[successor] == 0u) {
-                queued[successor] = 1u;
+            if (changed && queued[succ_slice_idx] == 0u) {
+                queued[succ_slice_idx] = 1u;
                 worklist.emplace_back(successor);
             }
         }
@@ -3284,12 +3314,13 @@ void transfer_counter_availability_store(
     // have no input state and impose no obligation.
     used_prefix_read = false;
     result.failing_read = nullptr;
-    for (auto block_id : slice.blocks) {
-        if (!in_states[block_id] ||
-            !in_states[block_id]->relations.feasible()) {
+    for (size_t slice_idx = 0u; slice_idx < slice_count; ++slice_idx) {
+        auto block_id = slice.blocks[slice_idx];
+        if (!in_states[slice_idx] ||
+            !in_states[slice_idx]->relations.feasible()) {
             continue;
         }
-        auto state = *in_states[block_id];
+        auto state = *in_states[slice_idx];
         for (auto *instruction : graph.block(block_id)->instructions()) {
             // An assume may make the remainder of this block unreachable. Such
             // a path has no concrete initialized-read obligation.
@@ -3375,209 +3406,328 @@ void transfer_counter_availability_store(
 
 }// namespace
 
+class CoroInitializedPrefixAnalysis::Impl {
+private:
+    FunctionDefinition *_definition{nullptr};
+    const CoroSemanticGraph &_graph;
+    const CoroFrameAtomDomain &_domain;
+    coro_initialized_prefix_detail::PrefixInstructionLocationMap _locations;
+    coro_initialized_prefix_detail::ScalarCopyResolver _resolver;
+    luisa::unordered_set<Value *> _boolean_guards;
+    bool _boolean_guards_dirty{true};
+    coro_initialized_prefix_detail::BooleanPredicateFlow _boolean_flow;
+    bool _boolean_flow_built{false};
+    coro_initialized_prefix_detail::ActiveSliceWorkspace _slice_workspace;
+    luisa::unordered_set<BasicBlock *> _dirty_blocks;
+    bool _store_dirty{false};
+    bool _dump_scope{false};
+
+private:
+    void _flush_dirty() noexcept {
+        if (!_dirty_blocks.empty()) {
+            for (auto *block : _dirty_blocks) {
+                if (block == nullptr) { continue; }
+                if (auto id = _graph.block_id(block); id < _graph.block_count()) {
+                    auto ordinal = size_t{0u};
+                    for (auto *inst : block->instructions()) {
+                        _locations[inst] =
+                            coro_initialized_prefix_detail::PrefixInstructionLocation{
+                                id, ordinal++};
+                    }
+                }
+            }
+            _dirty_blocks.clear();
+        }
+        if (_store_dirty) {
+            _resolver.clear_cache();
+            _store_dirty = false;
+        }
+    }
+
+public:
+    Impl(FunctionDefinition *definition,
+         const CoroSemanticGraph &graph,
+         const CoroFrameAtomDomain &domain) noexcept
+        : _definition{definition},
+          _graph{graph},
+          _domain{domain},
+          _locations{definition == nullptr ?
+                         coro_initialized_prefix_detail::PrefixInstructionLocationMap{} :
+                         coro_initialized_prefix_detail::make_prefix_instruction_locations(definition, graph)},
+          _resolver{_locations, graph},
+          _slice_workspace{graph.block_count()},
+          _dump_scope{[]() noexcept {
+              if (auto *value = std::getenv("LUISA_CORO_DUMP_ALLOCA_SCOPE")) {
+                  return luisa::string_view{value} == "1";
+              }
+              return false;
+          }()} {}
+
+    [[nodiscard]] CoroInitializedPrefixProofResult prove(
+        AllocaInst *array,
+        BasicBlock *target,
+        Instruction *insertion_instruction) noexcept {
+        using namespace coro_initialized_prefix_detail;
+        CoroInitializedPrefixProofResult result;
+        if (_definition == nullptr || array == nullptr || array->type() == nullptr ||
+            array->type()->tag() != Type::Tag::ARRAY ||
+            array->type()->dimension() == 0u || target == nullptr ||
+            insertion_instruction == nullptr) {
+            return result;
+        }
+        _flush_dirty();
+        auto region = coro_initialized_prefix_detail::collect_array_use_region(
+            array, _definition, _graph);
+
+        struct CounterCandidate {
+            AllocaInst *counter;
+            luisa::vector<StoreInst *> zero_stores;
+        };
+        luisa::vector<CounterCandidate> counters;
+        struct RawCounterCandidate {
+            AllocaInst *counter;
+            size_t store_count;
+            size_t zero_store_count;
+            size_t dominating_zero_store_count;
+        };
+        luisa::vector<RawCounterCandidate> raw_counters;
+        auto store_count = size_t{0u};
+        auto counted_store_count = size_t{0u};
+        for (auto *instruction : region.users) {
+            if (!instruction->isa<StoreInst>()) { continue; }
+            ++store_count;
+            auto *counter = counter_from_full_element_store(
+                static_cast<StoreInst *>(instruction), array,
+                _resolver, _locations);
+            counted_store_count += counter != nullptr ? 1u : 0u;
+            if (counter != nullptr) {
+                auto raw = std::find_if(
+                    raw_counters.begin(), raw_counters.end(),
+                    [counter](auto &&candidate) noexcept {
+                        return candidate.counter == counter;
+                    });
+                if (raw == raw_counters.end()) {
+                    auto zero_stores = collect_zero_stores(counter, _resolver);
+                    auto dominating_zero_store_count = static_cast<size_t>(
+                        std::count_if(
+                            zero_stores.begin(), zero_stores.end(),
+                            [&](StoreInst *store) noexcept {
+                                return block_dominates_array_region(
+                                    store->parent_block(), region, _graph);
+                            }));
+                    raw_counters.emplace_back(RawCounterCandidate{
+                        counter, 1u, zero_stores.size(),
+                        dominating_zero_store_count});
+                } else {
+                    ++raw->store_count;
+                }
+            }
+            if (counter != nullptr &&
+                std::none_of(
+                    counters.begin(), counters.end(),
+                    [counter](auto &&candidate) noexcept {
+                        return candidate.counter == counter;
+                    })) {
+                auto zero_stores = collect_zero_stores(counter, _resolver);
+                zero_stores.erase(
+                    std::remove_if(
+                        zero_stores.begin(), zero_stores.end(),
+                        [&](StoreInst *store) noexcept {
+                            return !block_dominates_array_region(
+                                store->parent_block(), region, _graph);
+                        }),
+                    zero_stores.end());
+                // Prefix(A, C) can only be established by C = 0. Rejecting a
+                // candidate with no dominating exact reset avoids both false
+                // counter identities and needless whole-CFG fixed points. This
+                // deliberately rejects branch-distributed resets: they require a
+                // separate relational proof rather than multiplying candidates.
+                if (!zero_stores.empty()) {
+                    counters.emplace_back(CounterCandidate{
+                        counter, std::move(zero_stores)});
+                }
+            }
+        }
+        if (_dump_scope) {
+            luisa::string candidate_description;
+            for (auto &&candidate : counters) {
+                if (!candidate_description.empty()) {
+                    candidate_description.append(", ");
+                }
+                candidate_description.append(
+                    candidate.counter->name().value_or("<unnamed>"));
+                candidate_description.append(":");
+                candidate_description.append(
+                    std::to_string(candidate.zero_stores.size()));
+            }
+            luisa::string raw_description;
+            for (auto &&candidate : raw_counters) {
+                if (!raw_description.empty()) {
+                    raw_description.append(", ");
+                }
+                raw_description.append(
+                    candidate.counter->name().value_or("<unnamed>"));
+                raw_description.append(":stores=");
+                raw_description.append(std::to_string(candidate.store_count));
+                raw_description.append(":zeros=");
+                raw_description.append(std::to_string(candidate.zero_store_count));
+                raw_description.append(":dominating_zeros=");
+                raw_description.append(
+                    std::to_string(candidate.dominating_zero_store_count));
+            }
+            LUISA_INFO(
+                "Coroutine initialized-prefix candidates: array='{}' "
+                "stores={} counted_stores={} counters={} [{}] raw=[{}].",
+                array->name().value_or("<unnamed>"), store_count,
+                counted_store_count, counters.size(),
+                candidate_description, raw_description);
+        }
+        if (counters.empty()) { return result; }
+        if (_boolean_guards_dirty) {
+            _boolean_guards = collect_boolean_guard_slots(
+                _graph, _resolver, _locations);
+            _boolean_guards_dirty = false;
+        }
+        if (!_boolean_flow_built) {
+            _boolean_flow = collect_boolean_predicate_flow(
+                _graph, _resolver, _locations, _boolean_guards);
+            _boolean_flow_built = true;
+        }
+        auto slice = coro_initialized_prefix_detail::make_active_slice(
+            target, region, _graph, _slice_workspace);
+        if (!slice.valid) { return result; }
+        for (auto &&counter : counters) {
+            auto candidate = prove_candidate(
+                array, counter.counter, target, insertion_instruction,
+                region, slice, _slice_workspace, _graph, _domain, _resolver, _locations,
+                _boolean_guards, _boolean_flow);
+            result.block_evaluation_count +=
+                candidate.block_evaluation_count;
+            if (candidate.succeeded) {
+                _slice_workspace.clear(slice.blocks);
+                candidate.block_evaluation_count =
+                    result.block_evaluation_count;
+                return candidate;
+            }
+            if (candidate.failing_read != nullptr) {
+                result.failing_read = candidate.failing_read;
+            }
+        }
+        _slice_workspace.clear(slice.blocks);
+
+        // The deepest use dominator may be an inner loop header that carries the
+        // counted array between iterations. In that case, place the lifetime at
+        // the deepest dominating C = 0 store instead. This is not an inferred
+        // initialization: the chosen reset is an exact store, it textually
+        // precedes the insertion point, its block dominates every array use, and
+        // the complete prefix proof is rerun from that outer boundary.
+        auto *source = array->parent_block();
+        for (auto &&counter : counters) {
+            StoreInst *deepest_reset = nullptr;
+            for (auto *reset : counter.zero_stores) {
+                auto *block = reset->parent_block();
+                if (block == source ||
+                    !block_dominates_array_region(block, region, _graph)) {
+                    continue;
+                }
+                if (deepest_reset == nullptr ||
+                    _graph.dominates(
+                        deepest_reset->parent_block(), block)) {
+                    deepest_reset = reset;
+                }
+            }
+            if (deepest_reset == nullptr) { continue; }
+            auto *outer_target = deepest_reset->parent_block();
+            auto *outer_insertion = find_prefix_lifetime_insertion(
+                outer_target, deepest_reset);
+            if (outer_insertion == nullptr ||
+                (outer_target == target &&
+                 outer_insertion == insertion_instruction)) {
+                continue;
+            }
+            auto outer_slice = coro_initialized_prefix_detail::make_active_slice(
+                outer_target, region, _graph, _slice_workspace);
+            if (!outer_slice.valid) { continue; }
+            auto candidate = prove_candidate(
+                array, counter.counter, outer_target, outer_insertion,
+                region, outer_slice, _slice_workspace, _graph, _domain, _resolver, _locations,
+                _boolean_guards, _boolean_flow);
+            result.block_evaluation_count +=
+                candidate.block_evaluation_count;
+            if (candidate.succeeded) {
+                _slice_workspace.clear(outer_slice.blocks);
+                candidate.block_evaluation_count =
+                    result.block_evaluation_count;
+                return candidate;
+            }
+            if (candidate.failing_read != nullptr) {
+                result.failing_read = candidate.failing_read;
+            }
+            _slice_workspace.clear(outer_slice.blocks);
+        }
+        return result;
+    }
+
+    void notify_target_mutated(
+        BasicBlock *target,
+        bool moved_store, bool moved_bool_store) noexcept {
+        if (target != nullptr) {
+            _dirty_blocks.emplace(target);
+        }
+        if (moved_store) {
+            _store_dirty = true;
+        }
+        if (moved_bool_store) {
+            _boolean_guards_dirty = true;
+            _boolean_flow_built = false;
+        }
+    }
+};
+
+CoroInitializedPrefixAnalysis::CoroInitializedPrefixAnalysis(
+    FunctionDefinition *definition,
+    const CoroSemanticGraph &graph,
+    const CoroFrameAtomDomain &domain) noexcept
+    : _impl{luisa::make_unique<Impl>(definition, graph, domain)} {}
+
+CoroInitializedPrefixAnalysis::~CoroInitializedPrefixAnalysis() noexcept = default;
+CoroInitializedPrefixAnalysis::CoroInitializedPrefixAnalysis(
+    CoroInitializedPrefixAnalysis &&) noexcept = default;
+CoroInitializedPrefixAnalysis &CoroInitializedPrefixAnalysis::operator=(
+    CoroInitializedPrefixAnalysis &&) noexcept = default;
+
+CoroInitializedPrefixProofResult CoroInitializedPrefixAnalysis::prove(
+    AllocaInst *array,
+    BasicBlock *target,
+    Instruction *insertion_instruction) noexcept {
+    return _impl->prove(array, target, insertion_instruction);
+}
+
+void CoroInitializedPrefixAnalysis::notify_target_mutated(
+    BasicBlock *target,
+    bool moved_store, bool moved_bool_store) noexcept {
+    _impl->notify_target_mutated(target, moved_store, moved_bool_store);
+}
+
 CoroInitializedPrefixProofResult
 prove_initialized_prefix_fresh_lifetime(
     AllocaInst *array, BasicBlock *target,
     Instruction *insertion_instruction,
     const CoroSemanticGraph &graph,
     const CoroFrameAtomDomain &domain) noexcept {
-    using namespace coro_initialized_prefix_detail;
-    CoroInitializedPrefixProofResult result;
     if (array == nullptr || array->type() == nullptr ||
         array->type()->tag() != Type::Tag::ARRAY ||
         array->type()->dimension() == 0u || target == nullptr ||
         insertion_instruction == nullptr) {
-        return result;
+        return {};
     }
     auto *parent_function = array->parent_function();
     auto *definition = parent_function == nullptr ?
                            nullptr :
                            parent_function->definition();
-    if (definition == nullptr) { return result; }
-    auto locations = make_prefix_instruction_locations(definition, graph);
-    auto region = coro_initialized_prefix_detail::collect_array_use_region(array, definition, graph);
-    ScalarCopyResolver resolver{locations, graph};
-    auto boolean_guards = collect_boolean_guard_slots(
-        graph, resolver, locations);
-    const auto dump_scope = []() noexcept {
-        if (auto *value = std::getenv(
-                "LUISA_CORO_DUMP_ALLOCA_SCOPE")) {
-            return luisa::string_view{value} == "1";
-        }
-        return false;
-    }();
-
-    struct CounterCandidate {
-        AllocaInst *counter;
-        luisa::vector<StoreInst *> zero_stores;
-    };
-    luisa::vector<CounterCandidate> counters;
-    struct RawCounterCandidate {
-        AllocaInst *counter;
-        size_t store_count;
-        size_t zero_store_count;
-        size_t dominating_zero_store_count;
-    };
-    luisa::vector<RawCounterCandidate> raw_counters;
-    auto store_count = size_t{0u};
-    auto counted_store_count = size_t{0u};
-    for (auto *instruction : region.users) {
-        if (!instruction->isa<StoreInst>()) { continue; }
-        ++store_count;
-        auto *counter = counter_from_full_element_store(
-            static_cast<StoreInst *>(instruction), array,
-            resolver, locations);
-        counted_store_count += counter != nullptr ? 1u : 0u;
-        if (counter != nullptr) {
-            auto raw = std::find_if(
-                raw_counters.begin(), raw_counters.end(),
-                [counter](auto &&candidate) noexcept {
-                    return candidate.counter == counter;
-                });
-            if (raw == raw_counters.end()) {
-                auto zero_stores = collect_zero_stores(counter, resolver);
-                auto dominating_zero_store_count = static_cast<size_t>(
-                    std::count_if(
-                        zero_stores.begin(), zero_stores.end(),
-                        [&](StoreInst *store) noexcept {
-                            return block_dominates_array_region(
-                                store->parent_block(), region, graph);
-                        }));
-                raw_counters.emplace_back(RawCounterCandidate{
-                    counter, 1u, zero_stores.size(),
-                    dominating_zero_store_count});
-            } else {
-                ++raw->store_count;
-            }
-        }
-        if (counter != nullptr &&
-            std::none_of(
-                counters.begin(), counters.end(),
-                [counter](auto &&candidate) noexcept {
-                    return candidate.counter == counter;
-                })) {
-            auto zero_stores = collect_zero_stores(counter, resolver);
-            zero_stores.erase(
-                std::remove_if(
-                    zero_stores.begin(), zero_stores.end(),
-                    [&](StoreInst *store) noexcept {
-                        return !block_dominates_array_region(
-                            store->parent_block(), region, graph);
-                    }),
-                zero_stores.end());
-            // Prefix(A, C) can only be established by C = 0. Rejecting a
-            // candidate with no dominating exact reset avoids both false
-            // counter identities and needless whole-CFG fixed points. This
-            // deliberately rejects branch-distributed resets: they require a
-            // separate relational proof rather than multiplying candidates.
-            if (!zero_stores.empty()) {
-                counters.emplace_back(CounterCandidate{
-                    counter, std::move(zero_stores)});
-            }
-        }
-    }
-    if (dump_scope) {
-        luisa::string candidate_description;
-        for (auto &&candidate : counters) {
-            if (!candidate_description.empty()) {
-                candidate_description.append(", ");
-            }
-            candidate_description.append(
-                candidate.counter->name().value_or("<unnamed>"));
-            candidate_description.append(":");
-            candidate_description.append(
-                std::to_string(candidate.zero_stores.size()));
-        }
-        luisa::string raw_description;
-        for (auto &&candidate : raw_counters) {
-            if (!raw_description.empty()) {
-                raw_description.append(", ");
-            }
-            raw_description.append(
-                candidate.counter->name().value_or("<unnamed>"));
-            raw_description.append(":stores=");
-            raw_description.append(std::to_string(candidate.store_count));
-            raw_description.append(":zeros=");
-            raw_description.append(std::to_string(candidate.zero_store_count));
-            raw_description.append(":dominating_zeros=");
-            raw_description.append(
-                std::to_string(candidate.dominating_zero_store_count));
-        }
-        LUISA_INFO(
-            "Coroutine initialized-prefix candidates: array='{}' "
-            "stores={} counted_stores={} counters={} [{}] raw=[{}].",
-            array->name().value_or("<unnamed>"), store_count,
-            counted_store_count, counters.size(),
-            candidate_description, raw_description);
-    }
-    auto slice = coro_initialized_prefix_detail::make_active_slice(target, region, graph);
-    if (!slice.valid) { return result; }
-    for (auto &&counter : counters) {
-        auto candidate = prove_candidate(
-            array, counter.counter, target, insertion_instruction,
-            region, slice, graph, domain, resolver, locations,
-            boolean_guards);
-        result.block_evaluation_count +=
-            candidate.block_evaluation_count;
-        if (candidate.succeeded) {
-            candidate.block_evaluation_count =
-                result.block_evaluation_count;
-            return candidate;
-        }
-        if (candidate.failing_read != nullptr) {
-            result.failing_read = candidate.failing_read;
-        }
-    }
-
-    // The deepest use dominator may be an inner loop header that carries the
-    // counted array between iterations. In that case, place the lifetime at
-    // the deepest dominating C = 0 store instead. This is not an inferred
-    // initialization: the chosen reset is an exact store, it textually
-    // precedes the insertion point, its block dominates every array use, and
-    // the complete prefix proof is rerun from that outer boundary.
-    auto *source = array->parent_block();
-    for (auto &&counter : counters) {
-        StoreInst *deepest_reset = nullptr;
-        for (auto *reset : counter.zero_stores) {
-            auto *block = reset->parent_block();
-            if (block == source ||
-                !block_dominates_array_region(block, region, graph)) {
-                continue;
-            }
-            if (deepest_reset == nullptr ||
-                graph.dominates(
-                    deepest_reset->parent_block(), block)) {
-                deepest_reset = reset;
-            }
-        }
-        if (deepest_reset == nullptr) { continue; }
-        auto *outer_target = deepest_reset->parent_block();
-        auto *outer_insertion = find_prefix_lifetime_insertion(
-            outer_target, deepest_reset);
-        if (outer_insertion == nullptr ||
-            (outer_target == target &&
-             outer_insertion == insertion_instruction)) {
-            continue;
-        }
-        auto outer_slice = coro_initialized_prefix_detail::make_active_slice(
-            outer_target, region, graph);
-        if (!outer_slice.valid) { continue; }
-        auto candidate = prove_candidate(
-            array, counter.counter, outer_target, outer_insertion,
-            region, outer_slice, graph, domain, resolver, locations,
-            boolean_guards);
-        result.block_evaluation_count +=
-            candidate.block_evaluation_count;
-        if (candidate.succeeded) {
-            candidate.block_evaluation_count =
-                result.block_evaluation_count;
-            return candidate;
-        }
-        if (candidate.failing_read != nullptr) {
-            result.failing_read = candidate.failing_read;
-        }
-    }
-    return result;
+    if (definition == nullptr) { return {}; }
+    CoroInitializedPrefixAnalysis analysis{definition, graph, domain};
+    return analysis.prove(array, target, insertion_instruction);
 }
 
 }// namespace luisa::compute::xir::detail

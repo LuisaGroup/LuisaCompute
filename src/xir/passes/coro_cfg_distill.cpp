@@ -691,15 +691,16 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
         interference.emplace_back(value_count);
     }
     auto add_clique = [&](luisa::span<const size_t> values) noexcept {
-        for (size_t i = 0u; i < values.size(); ++i) {
-            LUISA_DEBUG_ASSERT(values[i] < value_count,
+        if (values.size() <= 1u) { return; }
+        DenseValueSet clique{value_count};
+        for (auto v : values) {
+            LUISA_DEBUG_ASSERT(v < value_count,
                                "Coroutine frame value index is out of range.");
-            for (size_t j = i + 1u; j < values.size(); ++j) {
-                LUISA_DEBUG_ASSERT(values[j] < value_count,
-                                   "Coroutine frame value index is out of range.");
-                interference[values[i]].set(values[j]);
-                interference[values[j]].set(values[i]);
-            }
+            clique.set(v);
+        }
+        for (auto v : values) {
+            interference[v].union_with(clique);
+            interference[v].clear(v);
         }
     };
     // All continuation inputs are loaded before the cloned body executes, so
@@ -715,6 +716,11 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
     }
     for (auto &edge : result.transition_edges) {
         add_clique(edge.live_frame_value_indices);
+    }
+
+    luisa::vector<size_t> degrees(value_count);
+    for (size_t i = 0u; i < value_count; ++i) {
+        degrees[i] = interference[i].count_size();
     }
 
     luisa::vector<const Type *> type_order;
@@ -747,8 +753,7 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
         std::stable_sort(
             values.begin(), values.end(),
             [&](size_t lhs, size_t rhs) noexcept {
-                return interference[lhs].count_size() >
-                       interference[rhs].count_size();
+                return degrees[lhs] > degrees[rhs];
             });
         for (auto value_index : values) {
             auto &value = result.frame_values[value_index];
@@ -787,8 +792,7 @@ static void color_frame_slots(CoroCfgDistillResult &result) noexcept {
     std::stable_sort(
         bool_values.begin(), bool_values.end(),
         [&](size_t lhs, size_t rhs) noexcept {
-            return interference[lhs].count_size() >
-                   interference[rhs].count_size();
+            return degrees[lhs] > degrees[rhs];
         });
     luisa::vector<luisa::vector<size_t>> bool_lane_occupants;
     luisa::vector<size_t> bool_lane_slots;

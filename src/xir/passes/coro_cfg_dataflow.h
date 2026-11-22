@@ -1,10 +1,12 @@
 #pragma once
 
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
 
+#include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
@@ -23,18 +25,34 @@ class CoroReplayableValueAnalysis;
 
 class DenseValueSet {
 
+public:
+    static constexpr size_t words_per_page = 64u;
+    static constexpr size_t bits_per_page = words_per_page * 64u;
+
+    struct Page {
+        std::array<uint64_t, words_per_page> words{};
+    };
+
+    struct PageEntry {
+        uint32_t page_index{0u};
+        luisa::shared_ptr<Page> page;
+    };
+
 private:
     size_t _bit_count{0u};
-    luisa::vector<uint64_t> _words;
+    luisa::vector<PageEntry> _pages;
 
 public:
     explicit DenseValueSet(size_t bit_count = 0u) noexcept;
 
     [[nodiscard]] static DenseValueSet full(size_t bit_count) noexcept;
     [[nodiscard]] size_t bit_count() const noexcept { return _bit_count; }
-    [[nodiscard]] size_t word_count() const noexcept { return _words.size(); }
+    [[nodiscard]] size_t word_count() const noexcept {
+        return (_bit_count + 63u) / 64u;
+    }
 
     void set(size_t index) noexcept;
+    void clear(size_t index) noexcept;
     [[nodiscard]] bool test(size_t index) const noexcept;
     void union_with(const DenseValueSet &other) noexcept;
     void intersect_with(const DenseValueSet &other) noexcept;
@@ -44,13 +62,19 @@ public:
 
     template<typename F>
     void for_each_set_bit(F &&visit) const noexcept {
-        for (size_t word_index = 0u;
-             word_index < _words.size(); ++word_index) {
-            auto word = _words[word_index];
-            while (word != 0u) {
-                auto bit = static_cast<size_t>(std::countr_zero(word));
-                visit(word_index * 64u + bit);
-                word &= word - 1u;
+        for (const auto &entry : _pages) {
+            const auto base =
+                static_cast<size_t>(entry.page_index) * bits_per_page;
+            const auto &words = entry.page->words;
+            for (size_t word_index = 0u;
+                 word_index < words_per_page; ++word_index) {
+                auto word = words[word_index];
+                const auto word_base = base + word_index * 64u;
+                while (word != 0u) {
+                    auto bit = static_cast<size_t>(std::countr_zero(word));
+                    visit(word_base + bit);
+                    word &= word - 1u;
+                }
             }
         }
     }

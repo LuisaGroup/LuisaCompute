@@ -1,10 +1,13 @@
 #include "coro_call_alias.h"
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 
 #include <luisa/xir/builder.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/constant.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -105,7 +108,7 @@ class CoroCallAliasLowering::Impl {
 
     template<typename Emit>
     void _dispatch(XIRBuilder &b, const Choices &choices, Emit &&emit) {
-        if (choices.selector == nullptr) {
+        if (choices.selector == nullptr || choices.paths.size() == 1u) {
             emit(choices.paths.front(), 0u);
             return;
         }
@@ -155,7 +158,9 @@ class CoroCallAliasLowering::Impl {
                 auto &projection = projections.emplace_back();
                 projection.binding = binding;
                 auto choices = _choices(value);
-                auto *selector = choices.selector == nullptr ? nullptr : b.load(Type::of<uint32_t>(), choices.selector);
+                auto *selector = (choices.selector == nullptr || choices.paths.size() == 1u) ?
+                                     nullptr :
+                                     b.load(Type::of<uint32_t>(), choices.selector);
                 for (uint32_t tag = 0; tag < choices.paths.size(); ++tag) {
                     auto &path = choices.paths[tag];
                     // The normalized stage preserves every inactive carrier.
@@ -300,6 +305,32 @@ public:
                 continue;
             }
             LUISA_ASSERT(!inst->is_terminator(), "Unsupported coroutine alias terminator.");
+            auto single_path_only = true;
+            for (size_t i = 0u; i < inst->operand_count(); ++i) {
+                auto *operand = inst->operand(i);
+                if (_has_alias(operand) && _choices(operand).paths.size() != 1u) {
+                    single_path_only = false;
+                    break;
+                }
+            }
+            if (single_path_only) {
+                XIRBuilder b;
+                b.set_insertion_point(inst->prev());
+                Resolver resolver;
+                for (size_t i = 0u; i < inst->operand_count(); ++i) {
+                    auto *operand = inst->operand(i);
+                    if (_has_alias(operand) && !resolver.values.contains(operand)) {
+                        resolver.values.emplace(
+                            operand, _materialize(b, _choices(operand).paths.front()));
+                    }
+                }
+                auto *clone = inst->clone_with_metadata(b, resolver);
+                if (inst->type() != nullptr) {
+                    inst->replace_all_uses_with(clone);
+                }
+                inst->remove_self();
+                continue;
+            }
             auto *block = inst->parent_block();
             auto *merge = _root->create_basic_block();
             luisa::vector<Instruction *> tail;
@@ -332,6 +363,30 @@ public:
         // Dependencies between access chains are broken before releasing them.
         for (auto *gep : symbolic_geps) { gep->set_operands({}); }
         for (auto *gep : symbolic_geps) { gep->remove_self(); }
+        // Single-path alias families never read their selector at runtime; remove
+        // their dead selector stores and allocas immediately so later passes do
+        // not carry unused state.
+        luisa::vector<ManagedPtr<Instruction>> removed_selector_insts;
+        for (auto &[arg, family] : _families) {
+            if (family.selector == nullptr || family.paths.size() > 1u) { continue; }
+            luisa::vector<StoreInst *> stores;
+            auto only_stores = true;
+            for (auto *use : family.selector->use_list()) {
+                auto *user = use == nullptr ? nullptr : use->user();
+                if (user == nullptr || !user->isa<StoreInst>() ||
+                    static_cast<StoreInst *>(user)->variable() != family.selector) {
+                    only_stores = false;
+                    break;
+                }
+                stores.emplace_back(static_cast<StoreInst *>(user));
+            }
+            if (!only_stores) { continue; }
+            for (auto *store : stores) {
+                removed_selector_insts.emplace_back(store->remove_self());
+            }
+            removed_selector_insts.emplace_back(family.selector->remove_self());
+            family.selector = nullptr;
+        }
     }
 };
 

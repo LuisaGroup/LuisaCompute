@@ -5869,6 +5869,55 @@ void reg_restructure_cfg() {
                     .require_canonical_break_continue_targets = true})
                    .succeeded());
     };
+
+    "batched_loop_boundary_conditional_normalization_preserves_semantics"_test = [] {
+        Module module;
+        BasicBlock *body;
+        auto *kernel = make_kernel_with_body(module, body);
+        auto *definition = kernel->definition();
+        auto *c0 = kernel->create_value_argument(Type::of<bool>());
+        auto *c1 = kernel->create_value_argument(Type::of<bool>());
+        auto *c2 = kernel->create_value_argument(Type::of<bool>());
+        auto *b0 = definition->create_basic_block();
+        auto *b1 = definition->create_basic_block();
+        auto *b2 = definition->create_basic_block();
+        auto *latch = definition->create_basic_block();
+        auto *exit = definition->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(body);
+        auto *sl = builder.simple_loop();
+        sl->set_body_block(b0);
+        sl->set_merge_block(exit);
+        builder.set_insertion_point(b0);
+        builder.cond_br(c0, exit, b1);
+        builder.set_insertion_point(b1);
+        builder.cond_br(c1, latch, b2);
+        builder.set_insertion_point(b2);
+        builder.cond_br(c2, exit, latch);
+        builder.set_insertion_point(latch);
+        builder.br(b0);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = restructure_cfg_pass_run_on_function(kernel);
+        expect(info.succeeded());
+        expect(info.iteration_limit_count == 0u);
+        expect(b0->is_terminated() && b0->terminator()->isa<IfInst>());
+        expect(b1->is_terminated() && b1->terminator()->isa<IfInst>());
+        expect(b2->is_terminated() && b2->terminator()->isa<IfInst>());
+        expect(xir_verify_module(
+                   &module,
+                   {.require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+
+        auto rerun = restructure_cfg_pass_run_on_function(kernel);
+        expect(rerun.succeeded());
+        expect(!rerun.changed());
+    };
 }
 
 int main(int argc, char *argv[]) {

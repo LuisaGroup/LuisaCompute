@@ -11,6 +11,7 @@
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/switch.h>
+#include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
@@ -628,6 +629,97 @@ void reg_simplify_cfg() {
             << "straight-line work must remain linear in the physical "
                "input blocks plus contracted edges";
         expect(count_blocks(definition) == 1u);
+    };
+
+    "fold_indexed_branch_with_unreachable_default_to_single_live_case"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *tag = k->create_value_argument(Type::of<uint>());
+        auto *dead_default = def->create_basic_block();
+        auto *live_target = def->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *br = b.indexed_branch(tag);
+        br->set_default_block(dead_default);
+        br->add_case(0u, live_target);
+        b.set_insertion_point(dead_default);
+        b.unreachable_();
+        b.set_insertion_point(live_target);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.folded_switch_count >= 1u);
+        expect(info.removed_unreachable_block_count >= 1u);
+        expect(count_blocks(def) == 1u);
+        expect(body->is_terminated() && body->terminator()->isa<ReturnInst>());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fold_indexed_branch_with_all_unreachable_arms_to_unreachable"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *tag = k->create_value_argument(Type::of<uint>());
+        auto *dead_def = def->create_basic_block();
+        auto *dead_c0 = def->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *br = b.indexed_branch(tag);
+        br->set_default_block(dead_def);
+        br->add_case(0u, dead_c0);
+        b.set_insertion_point(dead_def);
+        b.unreachable_();
+        b.set_insertion_point(dead_c0);
+        b.unreachable_();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.folded_switch_count >= 1u);
+        expect(count_blocks(def) == 1u);
+        expect(body->is_terminated() && body->terminator()->isa<UnreachableInst>());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "fold_indexed_branch_preserves_distinct_live_cases"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *tag = k->create_value_argument(Type::of<uint>());
+        auto *out = k->create_reference_argument(Type::of<uint>());
+        auto *dead_def = def->create_basic_block();
+        auto *c0 = def->create_basic_block();
+        auto *c1 = def->create_basic_block();
+        auto *join = def->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *br = b.indexed_branch(tag);
+        br->set_default_block(dead_def);
+        br->add_case(0u, c0);
+        br->add_case(1u, c1);
+        b.set_insertion_point(dead_def);
+        b.unreachable_();
+        b.set_insertion_point(c0);
+        b.store(out, m.create_constant_one(Type::of<uint>()));
+        b.br(join);
+        b.set_insertion_point(c1);
+        b.store(out, m.create_constant_zero(Type::of<uint>()));
+        b.br(join);
+        b.set_insertion_point(join);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto info = simplify_cfg_pass_run_on_function(k);
+        static_cast<void>(info);
+        expect(body->is_terminated() && body->terminator()->isa<IndexedBranchInst>());
+        expect(xir_verify_module(&m).succeeded());
     };
 }
 

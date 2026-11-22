@@ -143,6 +143,10 @@ CoroSemanticGraph::CoroSemanticGraph(
             _suspend_edges.emplace_back(from, to);
         }
     }
+    std::sort(_suspend_edges.begin(), _suspend_edges.end());
+    _suspend_edges.erase(
+        std::unique(_suspend_edges.begin(), _suspend_edges.end()),
+        _suspend_edges.end());
     _can_reach_suspend.reserve(_suspend_edges.size());
     _reachable_from_resume.reserve(_suspend_edges.size());
     for (auto [suspend, resume] : _suspend_edges) {
@@ -248,6 +252,12 @@ CoroSemanticGraph::CoroSemanticGraph(
     _valid = true;
 }
 
+bool CoroSemanticGraph::_dominates_id(
+    size_t definition_id, size_t use_id) const noexcept {
+    return _preorder_indices[definition_id] <= _preorder_indices[use_id] &&
+           _preorder_indices[use_id] < _subtree_end_indices[definition_id];
+}
+
 bool CoroSemanticGraph::dominates(
     BasicBlock *definition, BasicBlock *use) const noexcept {
     if (!_valid || definition == nullptr || use == nullptr) {
@@ -258,10 +268,7 @@ bool CoroSemanticGraph::dominates(
     if (def_iter == _block_ids.end() || use_iter == _block_ids.end()) {
         return false;
     }
-    auto def = def_iter->second;
-    auto observed = use_iter->second;
-    return _preorder_indices[def] <= _preorder_indices[observed] &&
-           _preorder_indices[observed] < _subtree_end_indices[def];
+    return _dominates_id(def_iter->second, use_iter->second);
 }
 
 BasicBlock *CoroSemanticGraph::nearest_common_dominator(
@@ -311,7 +318,8 @@ bool CoroSemanticGraph::may_cross_suspend_between(
 
 bool CoroSemanticGraph::crosses_suspend_without_reentering(
     BasicBlock *definition, BasicBlock *use) const noexcept {
-    if (!_valid || definition == nullptr || use == nullptr) {
+    if (!_valid || definition == nullptr || use == nullptr ||
+        _suspend_edges.empty()) {
         return false;
     }
     auto definition_id = block_id(definition);
@@ -320,17 +328,50 @@ bool CoroSemanticGraph::crosses_suspend_without_reentering(
         use_id >= _blocks.size() || definition_id == use_id) {
         return false;
     }
+    // Necessary condition over suspend->resume edges:
+    // - suspend edge i must lie between definition and use;
+    // - its resume target must not re-enter definition itself;
+    // - when definition dominates use, any path resume ->* use avoiding
+    //   definition requires definition to strictly dominate resume.
+    auto def_dom_use = _dominates_id(definition_id, use_id);
+    auto possible = false;
+    for (size_t i = 0u; i < _suspend_edges.size(); ++i) {
+        auto resume = _suspend_edges[i].second;
+        if (resume == definition_id) { continue; }
+        if (def_dom_use && !_dominates_id(definition_id, resume)) { continue; }
+        if (_can_reach_suspend[i][definition_id] != 0u &&
+            _reachable_from_resume[i][use_id] != 0u) {
+            possible = true;
+            break;
+        }
+    }
+    if (!possible) { return false; }
+    if (auto cached = _crossed_from_def_cache.find(definition_id);
+        cached != _crossed_from_def_cache.end()) {
+        return (cached->second[use_id / 64u] &
+                (uint64_t{1u} << (use_id % 64u))) != 0u;
+    }
+
     // State is (block, crossed_suspend). The definition block is excluded
     // after the initial store occurrence because re-entering it executes that
     // same static store before any dominated load and starts a new version.
-    luisa::vector<uint8_t> visited(_blocks.size() * 2u, 0u);
-    luisa::vector<size_t> worklist;
+    constexpr size_t max_cached_sources = 256u;
+    const auto cache_result = _crossed_from_def_cache.size() < max_cached_sources;
+    if (_bfs_visit_epochs.size() != _blocks.size() * 2u) {
+        _bfs_visit_epochs.assign(_blocks.size() * 2u, 0u);
+        _bfs_epoch = 1u;
+    } else if (++_bfs_epoch == 0u) {
+        std::fill(_bfs_visit_epochs.begin(), _bfs_visit_epochs.end(), 0u);
+        _bfs_epoch = 1u;
+    }
+    const auto epoch = _bfs_epoch;
+    _bfs_worklist.clear();
     auto enqueue = [&](size_t block, bool crossed) noexcept {
         if (block == definition_id) { return; }
         auto state = block * 2u + static_cast<size_t>(crossed);
-        if (visited[state] == 0u) {
-            visited[state] = 1u;
-            worklist.emplace_back(state);
+        if (_bfs_visit_epochs[state] != epoch) {
+            _bfs_visit_epochs[state] = epoch;
+            _bfs_worklist.emplace_back(state);
         }
     };
     for (auto successor : _successors[definition_id]) {
@@ -338,26 +379,91 @@ bool CoroSemanticGraph::crosses_suspend_without_reentering(
             successor,
             is_suspend_edge(definition_id, successor));
     }
-    for (size_t cursor = 0u; cursor < worklist.size(); ++cursor) {
-        auto state = worklist[cursor];
+    luisa::vector<uint64_t> crossed_bits;
+    if (cache_result) {
+        crossed_bits.assign((_blocks.size() + 63u) / 64u, 0u);
+    }
+    for (size_t cursor = 0u; cursor < _bfs_worklist.size(); ++cursor) {
+        auto state = _bfs_worklist[cursor];
         auto block = state / 2u;
         auto crossed = (state & 1u) != 0u;
-        if (block == use_id && crossed) { return true; }
+        if (crossed) {
+            if (cache_result) {
+                crossed_bits[block / 64u] |= uint64_t{1u} << (block % 64u);
+            } else if (block == use_id) {
+                return true;
+            }
+        }
         for (auto successor : _successors[block]) {
             enqueue(
                 successor,
                 crossed || is_suspend_edge(block, successor));
         }
     }
-    return false;
+    if (!cache_result) { return false; }
+    auto result = (crossed_bits[use_id / 64u] &
+                   (uint64_t{1u} << (use_id % 64u))) != 0u;
+    _crossed_from_def_cache.emplace(definition_id, std::move(crossed_bits));
+    return result;
 }
 
 bool CoroSemanticGraph::is_suspend_edge(
     size_t predecessor, size_t successor) const noexcept {
-    return std::find(
-               _suspend_edges.begin(), _suspend_edges.end(),
-               std::pair{predecessor, successor}) !=
-           _suspend_edges.end();
+    return std::binary_search(
+        _suspend_edges.begin(), _suspend_edges.end(),
+        std::pair{predecessor, successor});
+}
+
+void CoroSemanticGraph::_ensure_dom_lift() const noexcept {
+    if (_dom_lift_levels != 0u) { return; }
+    const auto n = _blocks.size();
+    if (n <= 1u) {
+        _dom_lift_levels = 1u;
+        return;
+    }
+    uint32_t levels = 1u;
+    while ((size_t{1u} << (levels - 1u)) < n) {
+        ++levels;
+    }
+    _dom_lift_levels = levels;
+    _dom_lift.resize(static_cast<size_t>(levels) * n);
+    _dom_lift[0u] = 0u;
+    for (size_t i = 1u; i < n; ++i) {
+        _dom_lift[i] = static_cast<uint32_t>(_immediate_dominators[i]);
+    }
+    for (uint32_t k = 1u; k < levels; ++k) {
+        const auto prev_base = static_cast<size_t>(k - 1u) * n;
+        const auto cur_base = static_cast<size_t>(k) * n;
+        for (size_t i = 0u; i < n; ++i) {
+            _dom_lift[cur_base + i] = _dom_lift[prev_base + _dom_lift[prev_base + i]];
+        }
+    }
+}
+
+size_t CoroSemanticGraph::shallowest_dominator_avoiding_preorders(
+    size_t block_id,
+    luisa::span<const size_t> sorted_landmark_preorders) const noexcept {
+    const auto n = _blocks.size();
+    if (block_id == 0u || block_id >= n) { return block_id; }
+    auto has_landmark = [&](size_t x) noexcept {
+        auto pre = _preorder_indices[x];
+        auto end = _subtree_end_indices[x];
+        auto it = std::lower_bound(
+            sorted_landmark_preorders.begin(),
+            sorted_landmark_preorders.end(),
+            pre);
+        return it != sorted_landmark_preorders.end() && *it < end;
+    };
+    if (has_landmark(block_id)) { return block_id; }
+    _ensure_dom_lift();
+    size_t cur = block_id;
+    for (uint32_t k = _dom_lift_levels; k > 0u; --k) {
+        auto anc = static_cast<size_t>(_dom_lift[static_cast<size_t>(k - 1u) * n + cur]);
+        if (!has_landmark(anc)) {
+            cur = anc;
+        }
+    }
+    return cur;
 }
 
 }// namespace luisa::compute::xir::detail

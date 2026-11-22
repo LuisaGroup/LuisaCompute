@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
@@ -3247,6 +3248,138 @@ void register_coro_alloca_scope_tests() {
         Module module;
         auto *callable = module.create_callable(nullptr);
         expect(!coro_alloca_scope_pass_run_on_function(callable).changed());
+    };
+
+    "locally_self_contained_multi_block_alloca_contracts_without_full_slice"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *cond = kernel->create_value_argument(Type::of<bool>());
+        auto *out = kernel->create_reference_argument(Type::of<uint>());
+        auto *dispatch = kernel->create_basic_block();
+        auto *arm_a = kernel->create_basic_block();
+        auto *cursor = kernel->create_basic_block();
+        auto *chain_entry = cursor;
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(dispatch);
+
+        builder.set_insertion_point(dispatch);
+        builder.cond_br(cond, arm_a, chain_entry);
+
+        for (uint32_t i = 0u; i < 64u; ++i) {
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *join = kernel->create_basic_block();
+            builder.set_insertion_point(cursor);
+            builder.cond_br(cond, left, right);
+            builder.set_insertion_point(left);
+            builder.br(join);
+            builder.set_insertion_point(right);
+            builder.br(join);
+            cursor = join;
+        }
+        auto *arm_b = cursor;
+        auto *exit = kernel->create_basic_block();
+
+        builder.set_insertion_point(arm_a);
+        builder.store(scratch, module.create_constant_one(Type::of<uint>()));
+        auto *val_a = builder.load(Type::of<uint>(), scratch);
+        builder.store(out, val_a);
+        builder.br(exit);
+
+        uint32_t two = 2u;
+        builder.set_insertion_point(arm_b);
+        builder.store(scratch, module.create_constant(Type::of<uint>(), &two));
+        auto *val_b = builder.load(Type::of<uint>(), scratch);
+        builder.store(out, val_b);
+        builder.br(exit);
+
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.contracted_alloca_count == 1u);
+        expect(info.definite_initialization_proof_count == 1u);
+        expect(info.definite_initialization_block_evaluation_count <= 4u);
+        expect(scratch->parent_block() == dispatch);
+        expect(xir_verify_module(&module).succeeded());
+    };
+
+    "guarded_proof_ignores_self_killed_unrelated_loop_predicates"_test = [] {
+        Module module;
+        BasicBlock *entry;
+        auto *kernel = make_kernel(module, entry);
+        auto *guard = kernel->create_value_argument(Type::of<bool>());
+        auto *loop_cond = kernel->create_value_argument(Type::of<bool>());
+        auto *noise = kernel->create_reference_argument(Type::of<uint>());
+        auto *out = kernel->create_reference_argument(Type::of<uint>());
+        auto *loop_header = kernel->create_basic_block();
+        auto *init_then = kernel->create_basic_block();
+        auto *init_join = kernel->create_basic_block();
+
+        XIRBuilder builder;
+        builder.set_insertion_point(entry);
+        auto *scratch = builder.alloca_local(Type::of<uint>());
+        builder.br(loop_header);
+
+        builder.set_insertion_point(loop_header);
+        builder.cond_br(guard, init_then, init_join);
+        builder.set_insertion_point(init_then);
+        builder.store(scratch, module.create_constant_one(Type::of<uint>()));
+        builder.br(init_join);
+
+        auto *inner_header = kernel->create_basic_block();
+        auto *obs_check = kernel->create_basic_block();
+        builder.set_insertion_point(init_join);
+        builder.br(inner_header);
+
+        auto *d0 = kernel->create_basic_block();
+        builder.set_insertion_point(inner_header);
+        builder.cond_br(loop_cond, d0, obs_check);
+
+        auto *cursor = d0;
+        for (uint32_t i = 0u; i < 24u; ++i) {
+            auto *left = kernel->create_basic_block();
+            auto *right = kernel->create_basic_block();
+            auto *join = kernel->create_basic_block();
+            builder.set_insertion_point(cursor);
+            auto *loaded = builder.load(Type::of<uint>(), noise);
+            auto *cmp = builder.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                {loaded, module.create_constant(Type::of<uint>(), &i)});
+            builder.cond_br(cmp, left, right);
+            builder.set_insertion_point(left);
+            builder.br(join);
+            builder.set_insertion_point(right);
+            builder.br(join);
+            cursor = join;
+        }
+        builder.set_insertion_point(cursor);
+        builder.br(inner_header);
+
+        auto *obs_then = kernel->create_basic_block();
+        auto *exit = kernel->create_basic_block();
+
+        builder.set_insertion_point(obs_check);
+        builder.cond_br(guard, obs_then, exit);
+        builder.set_insertion_point(obs_then);
+        auto *val = builder.load(Type::of<uint>(), scratch);
+        builder.store(out, val);
+        builder.br(exit);
+        builder.set_insertion_point(exit);
+        builder.return_void();
+
+        expect(xir_verify_module(&module).succeeded());
+        auto info = coro_alloca_scope_pass_run_on_function(kernel);
+        expect(info.guarded_initialization_proof_count == 1u);
+        expect(info.guarded_initialization_budget_exhausted_count == 0u);
+        expect(info.contracted_alloca_count == 1u);
+        expect(scratch->parent_block() == loop_header);
+        expect(xir_verify_module(&module).succeeded());
     };
 }
 

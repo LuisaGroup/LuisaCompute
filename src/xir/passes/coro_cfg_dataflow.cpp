@@ -546,17 +546,58 @@ struct ProjectedBlockEffects {
 
 }// namespace
 
+namespace {
+
+[[nodiscard]] const luisa::shared_ptr<DenseValueSet::Page> &
+shared_all_ones_page() noexcept {
+    static const auto page = []() noexcept {
+        auto p = luisa::make_shared<DenseValueSet::Page>();
+        p->words.fill(~uint64_t{0u});
+        return p;
+    }();
+    return page;
+}
+
+[[nodiscard]] luisa::shared_ptr<DenseValueSet::Page>
+ensure_unique_page(luisa::shared_ptr<DenseValueSet::Page> &page) noexcept {
+    if (page.use_count() != 1) {
+        page = luisa::make_shared<DenseValueSet::Page>(*page);
+    }
+    return page;
+}
+
+}// namespace
+
 DenseValueSet::DenseValueSet(size_t bit_count) noexcept
-    : _bit_count{bit_count},
-      _words((bit_count + 63u) / 64u, 0u) {}
+    : _bit_count{bit_count} {}
 
 DenseValueSet DenseValueSet::full(size_t bit_count) noexcept {
     DenseValueSet result{bit_count};
-    std::fill(result._words.begin(), result._words.end(), ~uint64_t{0u});
-    if (auto tail_bit_count = bit_count % 64u;
-        tail_bit_count != 0u) {
-        result._words.back() &=
-            (uint64_t{1u} << tail_bit_count) - uint64_t{1u};
+    if (bit_count == 0u) { return result; }
+    const auto page_count = (bit_count + bits_per_page - 1u) / bits_per_page;
+    result._pages.reserve(page_count);
+    const auto &ones = shared_all_ones_page();
+    for (size_t p = 0u; p + 1u < page_count; ++p) {
+        result._pages.emplace_back(
+            PageEntry{static_cast<uint32_t>(p), ones});
+    }
+    const auto last_page = page_count - 1u;
+    const auto rem_bits = bit_count - last_page * bits_per_page;
+    if (rem_bits == bits_per_page) {
+        result._pages.emplace_back(
+            PageEntry{static_cast<uint32_t>(last_page), ones});
+    } else {
+        auto tail = luisa::make_shared<Page>();
+        const auto full_words = rem_bits / 64u;
+        for (size_t w = 0u; w < full_words; ++w) {
+            tail->words[w] = ~uint64_t{0u};
+        }
+        if (const auto tail_bits = rem_bits % 64u; tail_bits != 0u) {
+            tail->words[full_words] =
+                (uint64_t{1u} << tail_bits) - uint64_t{1u};
+        }
+        result._pages.emplace_back(
+            PageEntry{static_cast<uint32_t>(last_page), std::move(tail)});
     }
     return result;
 }
@@ -564,48 +605,272 @@ DenseValueSet DenseValueSet::full(size_t bit_count) noexcept {
 void DenseValueSet::set(size_t index) noexcept {
     LUISA_DEBUG_ASSERT(index < _bit_count,
                        "Dense value index is out of range.");
-    _words[index / 64u] |= uint64_t{1u} << (index % 64u);
+    const auto pi = static_cast<uint32_t>(index / bits_per_page);
+    const auto wi = (index % bits_per_page) / 64u;
+    const auto mask = uint64_t{1u} << (index % 64u);
+    auto it = std::lower_bound(
+        _pages.begin(), _pages.end(), pi,
+        [](const PageEntry &e, uint32_t key) noexcept {
+            return e.page_index < key;
+        });
+    if (it != _pages.end() && it->page_index == pi) {
+        if ((it->page->words[wi] & mask) != 0u) { return; }
+        auto p = ensure_unique_page(it->page);
+        p->words[wi] |= mask;
+    } else {
+        auto p = luisa::make_shared<Page>();
+        p->words[wi] = mask;
+        _pages.emplace(it, PageEntry{pi, std::move(p)});
+    }
+}
+
+void DenseValueSet::clear(size_t index) noexcept {
+    LUISA_DEBUG_ASSERT(index < _bit_count,
+                       "Dense value index is out of range.");
+    const auto pi = static_cast<uint32_t>(index / bits_per_page);
+    const auto wi = (index % bits_per_page) / 64u;
+    const auto mask = uint64_t{1u} << (index % 64u);
+    auto it = std::lower_bound(
+        _pages.begin(), _pages.end(), pi,
+        [](const PageEntry &e, uint32_t key) noexcept {
+            return e.page_index < key;
+        });
+    if (it == _pages.end() || it->page_index != pi ||
+        (it->page->words[wi] & mask) == 0u) {
+        return;
+    }
+    auto remaining_any = (it->page->words[wi] & ~mask) != 0u;
+    if (!remaining_any) {
+        for (size_t w = 0u; w < words_per_page; ++w) {
+            if (w != wi && it->page->words[w] != 0u) {
+                remaining_any = true;
+                break;
+            }
+        }
+    }
+    if (!remaining_any) {
+        _pages.erase(it);
+    } else {
+        auto p = ensure_unique_page(it->page);
+        p->words[wi] &= ~mask;
+    }
 }
 
 bool DenseValueSet::test(size_t index) const noexcept {
     LUISA_DEBUG_ASSERT(index < _bit_count,
                        "Dense value index is out of range.");
-    return (_words[index / 64u] &
-            (uint64_t{1u} << (index % 64u))) != 0u;
+    const auto pi = static_cast<uint32_t>(index / bits_per_page);
+    const auto wi = (index % bits_per_page) / 64u;
+    const auto mask = uint64_t{1u} << (index % 64u);
+    auto it = std::lower_bound(
+        _pages.begin(), _pages.end(), pi,
+        [](const PageEntry &e, uint32_t key) noexcept {
+            return e.page_index < key;
+        });
+    return it != _pages.end() && it->page_index == pi &&
+           (it->page->words[wi] & mask) != 0u;
 }
 
 void DenseValueSet::union_with(const DenseValueSet &other) noexcept {
     LUISA_DEBUG_ASSERT(_bit_count == other._bit_count,
                        "Dense value domains do not match.");
-    for (size_t i = 0u; i < _words.size(); ++i) {
-        _words[i] |= other._words[i];
+    if (this == &other || other._pages.empty()) { return; }
+    if (_pages.empty()) {
+        _pages = other._pages;
+        return;
     }
+    // Fast scan when no new page_index entries need to be inserted.
+    size_t i = 0u;
+    size_t j = 0u;
+    auto missing_page = false;
+    while (i < _pages.size() && j < other._pages.size()) {
+        const auto a_idx = _pages[i].page_index;
+        const auto b_idx = other._pages[j].page_index;
+        if (a_idx < b_idx) {
+            ++i;
+        } else if (b_idx < a_idx) {
+            missing_page = true;
+            break;
+        } else {
+            if (_pages[i].page != other._pages[j].page) {
+                const auto &bw = other._pages[j].page->words;
+                const auto &aw = _pages[i].page->words;
+                uint64_t diff = 0u;
+                for (size_t w = 0u; w < words_per_page; ++w) {
+                    diff |= bw[w] & ~aw[w];
+                }
+                if (diff != 0u) {
+                    auto p = ensure_unique_page(_pages[i].page);
+                    for (size_t w = 0u; w < words_per_page; ++w) {
+                        p->words[w] |= bw[w];
+                    }
+                }
+            }
+            ++i;
+            ++j;
+        }
+    }
+    if (!missing_page && j == other._pages.size()) { return; }
+
+    luisa::vector<PageEntry> merged;
+    merged.reserve(_pages.size() + other._pages.size());
+    i = 0u;
+    j = 0u;
+    while (i < _pages.size() && j < other._pages.size()) {
+        const auto a_idx = _pages[i].page_index;
+        const auto b_idx = other._pages[j].page_index;
+        if (a_idx < b_idx) {
+            merged.emplace_back(std::move(_pages[i++]));
+        } else if (b_idx < a_idx) {
+            merged.emplace_back(other._pages[j++]);
+        } else {
+            if (_pages[i].page != other._pages[j].page) {
+                const auto &bw = other._pages[j].page->words;
+                const auto &aw = _pages[i].page->words;
+                uint64_t diff = 0u;
+                for (size_t w = 0u; w < words_per_page; ++w) {
+                    diff |= bw[w] & ~aw[w];
+                }
+                if (diff != 0u) {
+                    auto p = ensure_unique_page(_pages[i].page);
+                    for (size_t w = 0u; w < words_per_page; ++w) {
+                        p->words[w] |= bw[w];
+                    }
+                }
+            }
+            merged.emplace_back(std::move(_pages[i++]));
+            ++j;
+        }
+    }
+    while (i < _pages.size()) { merged.emplace_back(std::move(_pages[i++])); }
+    while (j < other._pages.size()) { merged.emplace_back(other._pages[j++]); }
+    _pages = std::move(merged);
 }
 
 void DenseValueSet::intersect_with(const DenseValueSet &other) noexcept {
     LUISA_DEBUG_ASSERT(_bit_count == other._bit_count,
                        "Dense value domains do not match.");
-    for (size_t i = 0u; i < _words.size(); ++i) {
-        _words[i] &= other._words[i];
+    if (this == &other || _pages.empty()) { return; }
+    if (other._pages.empty()) {
+        _pages.clear();
+        return;
     }
+    size_t write = 0u;
+    size_t i = 0u;
+    size_t j = 0u;
+    while (i < _pages.size() && j < other._pages.size()) {
+        const auto a_idx = _pages[i].page_index;
+        const auto b_idx = other._pages[j].page_index;
+        if (a_idx < b_idx) {
+            ++i;
+        } else if (b_idx < a_idx) {
+            ++j;
+        } else {
+            if (_pages[i].page == other._pages[j].page) {
+                if (write != i) { _pages[write] = std::move(_pages[i]); }
+                ++write;
+            } else {
+                const auto &aw = _pages[i].page->words;
+                const auto &bw = other._pages[j].page->words;
+                uint64_t any = 0u;
+                uint64_t diff = 0u;
+                for (size_t w = 0u; w < words_per_page; ++w) {
+                    const auto nw = aw[w] & bw[w];
+                    any |= nw;
+                    diff |= nw ^ aw[w];
+                }
+                if (any != 0u) {
+                    if (diff != 0u) {
+                        auto p = ensure_unique_page(_pages[i].page);
+                        for (size_t w = 0u; w < words_per_page; ++w) {
+                            p->words[w] &= bw[w];
+                        }
+                    }
+                    if (write != i) { _pages[write] = std::move(_pages[i]); }
+                    ++write;
+                }
+            }
+            ++i;
+            ++j;
+        }
+    }
+    _pages.resize(write);
 }
 
 void DenseValueSet::subtract(const DenseValueSet &other) noexcept {
     LUISA_DEBUG_ASSERT(_bit_count == other._bit_count,
                        "Dense value domains do not match.");
-    for (size_t i = 0u; i < _words.size(); ++i) {
-        _words[i] &= ~other._words[i];
+    if (_pages.empty() || other._pages.empty()) { return; }
+    if (this == &other) {
+        _pages.clear();
+        return;
     }
+    size_t write = 0u;
+    size_t i = 0u;
+    size_t j = 0u;
+    while (i < _pages.size() && j < other._pages.size()) {
+        const auto a_idx = _pages[i].page_index;
+        const auto b_idx = other._pages[j].page_index;
+        if (a_idx < b_idx) {
+            if (write != i) { _pages[write] = std::move(_pages[i]); }
+            ++write;
+            ++i;
+        } else if (b_idx < a_idx) {
+            ++j;
+        } else {
+            if (_pages[i].page != other._pages[j].page) {
+                const auto &aw = _pages[i].page->words;
+                const auto &bw = other._pages[j].page->words;
+                uint64_t any = 0u;
+                uint64_t diff = 0u;
+                for (size_t w = 0u; w < words_per_page; ++w) {
+                    const auto nw = aw[w] & ~bw[w];
+                    any |= nw;
+                    diff |= nw ^ aw[w];
+                }
+                if (any != 0u) {
+                    if (diff != 0u) {
+                        auto p = ensure_unique_page(_pages[i].page);
+                        for (size_t w = 0u; w < words_per_page; ++w) {
+                            p->words[w] &= ~bw[w];
+                        }
+                    }
+                    if (write != i) { _pages[write] = std::move(_pages[i]); }
+                    ++write;
+                }
+            }
+            ++i;
+            ++j;
+        }
+    }
+    while (i < _pages.size()) {
+        if (write != i) { _pages[write] = std::move(_pages[i]); }
+        ++write;
+        ++i;
+    }
+    _pages.resize(write);
 }
 
 bool DenseValueSet::operator==(const DenseValueSet &other) const noexcept {
-    return _bit_count == other._bit_count && _words == other._words;
+    if (_bit_count != other._bit_count || _pages.size() != other._pages.size()) {
+        return false;
+    }
+    for (size_t i = 0u; i < _pages.size(); ++i) {
+        if (_pages[i].page_index != other._pages[i].page_index) { return false; }
+        if (_pages[i].page != other._pages[i].page &&
+            _pages[i].page->words != other._pages[i].page->words) {
+            return false;
+        }
+    }
+    return true;
 }
 
 size_t DenseValueSet::count_size() const noexcept {
     auto count = size_t{0u};
-    for (auto word : _words) {
-        count += static_cast<size_t>(std::popcount(word));
+    for (const auto &entry : _pages) {
+        for (auto word : entry.page->words) {
+            count += static_cast<size_t>(std::popcount(word));
+        }
     }
     return count;
 }
@@ -827,36 +1092,96 @@ DenseScopeDataflowResult analyze_scope_use_def(
                        return true;
                    });
 
-    luisa::vector<DenseValueSet> external_out(
-        block_count, DenseValueSet{value_count});
-    luisa::vector<DenseValueSet> touched_out(
-        block_count, DenseValueSet{value_count});
-    solve_worklist(result.may_block_evaluations,
-                   [&](size_t block) noexcept {
-                       DenseValueSet next_external{value_count};
-                       DenseValueSet next_touched{value_count};
-                       for (auto predecessor : predecessors[block]) {
-                           next_external.union_with(external_out[predecessor]);
-                           next_touched.union_with(touched_out[predecessor]);
-                       }
-                       auto local_external = local_transfers[block].external;
-                       local_external.subtract(killed_in[block]);
-                       next_external.union_with(local_external);
-                       next_touched.union_with(local_transfers[block].touched);
-                       if (next_external == external_out[block] &&
-                           next_touched == touched_out[block]) {
-                           return false;
-                       }
-                       external_out[block] = std::move(next_external);
-                       touched_out[block] = std::move(next_touched);
-                       return true;
-                   });
+    // Direct exact external union over all blocks (killed_in kills local
+    // exposed uses) plus one linear Tarjan SCC pass for touched reachability.
+    for (size_t i = 0u; i < block_count; ++i) {
+        auto local_external = local_transfers[i].external;
+        local_external.subtract(killed_in[i]);
+        result.external.union_with(local_external);
+    }
+
+    constexpr auto invalid_scc = static_cast<size_t>(-1);
+    luisa::vector<size_t> tarjan_index(block_count, invalid_scc);
+    luisa::vector<size_t> lowlink(block_count, 0u);
+    luisa::vector<uint8_t> on_stack(block_count, 0u);
+    luisa::vector<size_t> tarjan_stack;
+    tarjan_stack.reserve(block_count);
+    luisa::vector<size_t> scc_id(block_count, invalid_scc);
+    luisa::vector<luisa::vector<size_t>> sccs;
+    size_t next_tarjan_index = 0u;
+
+    struct TarjanFrame {
+        size_t u;
+        size_t next_edge;
+    };
+    luisa::vector<TarjanFrame> dfs_stack;
+    for (size_t root = 0u; root < block_count; ++root) {
+        if (tarjan_index[root] != invalid_scc) { continue; }
+        tarjan_index[root] = lowlink[root] = next_tarjan_index++;
+        tarjan_stack.emplace_back(root);
+        on_stack[root] = 1u;
+        dfs_stack.emplace_back(TarjanFrame{root, 0u});
+        while (!dfs_stack.empty()) {
+            auto &frame = dfs_stack.back();
+            auto u = frame.u;
+            const auto &succs = successors[u];
+            if (frame.next_edge < succs.size()) {
+                auto v = succs[frame.next_edge++];
+                if (tarjan_index[v] == invalid_scc) {
+                    tarjan_index[v] = lowlink[v] = next_tarjan_index++;
+                    tarjan_stack.emplace_back(v);
+                    on_stack[v] = 1u;
+                    dfs_stack.emplace_back(TarjanFrame{v, 0u});
+                } else if (on_stack[v] != 0u) {
+                    lowlink[u] = std::min(lowlink[u], tarjan_index[v]);
+                }
+            } else {
+                if (lowlink[u] == tarjan_index[u]) {
+                    auto sid = sccs.size();
+                    auto &members = sccs.emplace_back();
+                    for (;;) {
+                        auto w = tarjan_stack.back();
+                        tarjan_stack.pop_back();
+                        on_stack[w] = 0u;
+                        scc_id[w] = sid;
+                        members.emplace_back(w);
+                        if (w == u) { break; }
+                    }
+                }
+                auto completed = u;
+                dfs_stack.pop_back();
+                if (!dfs_stack.empty()) {
+                    auto parent = dfs_stack.back().u;
+                    lowlink[parent] = std::min(lowlink[parent], lowlink[completed]);
+                }
+            }
+        }
+    }
+
+    luisa::vector<DenseValueSet> scc_touched(
+        sccs.size(), DenseValueSet{value_count});
+    luisa::vector<uint32_t> pred_scc_epoch(sccs.size(), 0u);
+    uint32_t scc_epoch = 0u;
+    for (size_t s = sccs.size(); s-- > 0u;) {
+        ++scc_epoch;
+        auto &acc = scc_touched[s];
+        for (auto u : sccs[s]) {
+            acc.union_with(local_transfers[u].touched);
+            for (auto p : predecessors[u]) {
+                auto ps = scc_id[p];
+                if (ps != s && pred_scc_epoch[ps] != scc_epoch) {
+                    pred_scc_epoch[ps] = scc_epoch;
+                    acc.union_with(scc_touched[ps]);
+                }
+            }
+        }
+        result.touched.union_with(acc);
+    }
+    result.may_block_evaluations += block_count;
 
     for (size_t i = 0u; i < block_count; ++i) {
-        result.external.union_with(external_out[i]);
-        result.touched.union_with(touched_out[i]);
         result.killed_at_exit[i] = killed_out[i];
-        result.touched_at_exit[i] = touched_out[i];
+        result.touched_at_exit[i] = scc_touched[scc_id[i]];
     }
 
     if (auto *flag = std::getenv("LUISA_CORO_VERIFY_DENSE_DATAFLOW");
@@ -973,29 +1298,107 @@ CoroCallContextDataflow analyze_coro_call_contexts(
     luisa::unordered_map<Value *, size_t> selectors;
     for (auto *block : definition->basic_blocks()) {
         for (auto *inst : block->instructions()) {
-            if (inst->isa<AllocaInst>() && static_cast<AllocaInst *>(inst)->coro_return_selector() != 0u) {
-                selectors.emplace(inst, selectors.size());
+            if (inst->isa<AllocaInst>() &&
+                static_cast<AllocaInst *>(inst)->coro_return_selector() != 0u) {
+                auto active_selector = false;
+                for (auto *use : inst->use_list()) {
+                    auto *user = use == nullptr ? nullptr : use->user();
+                    if (user != nullptr && user->isa<LoadInst>()) {
+                        for (auto *lu : static_cast<LoadInst *>(user)->use_list()) {
+                            auto *luser = lu == nullptr ? nullptr : lu->user();
+                            if (luser != nullptr && luser->isa<IndexedBranchInst>() &&
+                                static_cast<IndexedBranchInst *>(luser)->value() == user) {
+                                active_selector = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (active_selector) { break; }
+                }
+                if (active_selector) {
+                    selectors.emplace(inst, selectors.size());
+                }
             }
         }
     }
     if (selectors.empty()) { return result; }
     CoroSemanticGraph graph{definition};
     LUISA_ASSERT(graph.valid(), "Invalid shared-callable semantic CFG.");
+
+    // Intern sparse non-zero selector assignments instead of storing full
+    // selector vectors in an ordered map on every CFG state.
+    using SparseCtx = luisa::vector<std::pair<uint32_t, uint32_t>>;
+    struct SparseCtxHash {
+        [[nodiscard]] size_t operator()(const SparseCtx &ctx) const noexcept {
+            auto h = luisa::hash64_default_seed;
+            auto sz = ctx.size();
+            h = luisa::hash64(&sz, sizeof(sz), h);
+            if (!ctx.empty()) {
+                h = luisa::hash64(ctx.data(), ctx.size() * sizeof(ctx[0]), h);
+            }
+            return static_cast<size_t>(h);
+        }
+    };
+    luisa::vector<SparseCtx> contexts;
+    luisa::unordered_map<SparseCtx, uint32_t, SparseCtxHash> context_ids;
+    auto intern_context = [&](SparseCtx ctx) noexcept -> uint32_t {
+        if (auto it = context_ids.find(ctx); it != context_ids.end()) {
+            return it->second;
+        }
+        auto id = static_cast<uint32_t>(contexts.size());
+        context_ids.emplace(ctx, id);
+        contexts.emplace_back(std::move(ctx));
+        return id;
+    };
+    auto update_context = [&](uint32_t ctx_id, uint32_t sel_idx, uint32_t val) noexcept -> uint32_t {
+        const auto &cur = contexts[ctx_id];
+        auto it = std::lower_bound(
+            cur.begin(), cur.end(), sel_idx,
+            [](const auto &entry, uint32_t key) noexcept { return entry.first < key; });
+        if (it != cur.end() && it->first == sel_idx) {
+            if (it->second == val) { return ctx_id; }
+        } else if (val == 0u) {
+            return ctx_id;
+        }
+        SparseCtx next;
+        next.reserve(cur.size() + 1u);
+        for (auto pos = cur.begin(); pos != it; ++pos) { next.emplace_back(*pos); }
+        if (val != 0u) { next.emplace_back(sel_idx, val); }
+        for (auto pos = (it != cur.end() && it->first == sel_idx) ? std::next(it) : it;
+             pos != cur.end(); ++pos) {
+            next.emplace_back(*pos);
+        }
+        return intern_context(std::move(next));
+    };
+    auto lookup_context = [&](uint32_t ctx_id, uint32_t sel_idx) noexcept -> uint32_t {
+        const auto &cur = contexts[ctx_id];
+        auto it = std::lower_bound(
+            cur.begin(), cur.end(), sel_idx,
+            [](const auto &entry, uint32_t key) noexcept { return entry.first < key; });
+        return (it != cur.end() && it->first == sel_idx) ? it->second : 0u;
+    };
+
     struct State {
         size_t block;
-        luisa::vector<uint32_t> context;
+        uint32_t context;
         luisa::vector<size_t> successors;
         luisa::vector<size_t> predecessors;
     };
     luisa::vector<State> states;
-    using Key = std::pair<size_t, luisa::vector<uint32_t>>;
-    luisa::map<Key, size_t> state_ids;
-    auto intern = [&](size_t block, const luisa::vector<uint32_t> &context) {
+    using Key = std::pair<size_t, uint32_t>;
+    struct KeyHash {
+        [[nodiscard]] size_t operator()(const Key &k) const noexcept {
+            return static_cast<size_t>(luisa::hash64(&k, sizeof(k), luisa::hash64_default_seed));
+        }
+    };
+    luisa::unordered_map<Key, size_t, KeyHash> state_ids;
+    auto intern = [&](size_t block, uint32_t context) noexcept {
         auto [i, added] = state_ids.emplace(Key{block, context}, states.size());
         if (added) { states.push_back({block, context, {}, {}}); }
         return i->second;
     };
-    intern(graph.block_id(definition->body_block()), luisa::vector<uint32_t>(selectors.size(), 0u));
+    auto initial_ctx = intern_context({});
+    intern(graph.block_id(definition->body_block()), initial_ctx);
     for (size_t id = 0; id < states.size(); ++id) {
         auto context = states[id].context;
         auto block_id = states[id].block;
@@ -1007,7 +1410,9 @@ CoroCallContextDataflow analyze_coro_call_contexts(
             if (inst->isa<LoadInst>()) {
                 auto *load = static_cast<LoadInst *>(inst);
                 if (auto i = selectors.find(load->variable()); i != selectors.end()) {
-                    if (dispatch != nullptr && dispatch->value() == load) { return_site = context[i->second]; }
+                    if (dispatch != nullptr && dispatch->value() == load) {
+                        return_site = lookup_context(context, static_cast<uint32_t>(i->second));
+                    }
                 }
             } else if (inst->isa<StoreInst>()) {
                 auto *store = static_cast<StoreInst *>(inst);
@@ -1015,7 +1420,9 @@ CoroCallContextDataflow analyze_coro_call_contexts(
                     uint64_t site = 0;
                     LUISA_ASSERT(try_decode_constant_nonnegative_integer(store->value(), site) && site <= UINT32_MAX,
                                  "Coroutine return selector requires a constant call site.");
-                    context[i->second] = static_cast<uint32_t>(site);
+                    context = update_context(
+                        context, static_cast<uint32_t>(i->second),
+                        static_cast<uint32_t>(site));
                 }
             }
         }
@@ -1040,13 +1447,23 @@ CoroCallContextDataflow analyze_coro_call_contexts(
     result.state_count = states.size();
     auto count = domain.size();
     luisa::vector<DenseBlockEffect> effects;
+    effects.reserve(graph.block_count());
+    luisa::vector<uint8_t> transfer_marks(count, 0u);
     for (size_t i = 0; i < graph.block_count(); ++i) {
-        PointerScopeDataflowState transfer{domain, replayable};
-        for (auto *inst : graph.block(i)->instructions()) { transfer_instruction(inst, transfer); }
+        SparseBlockEffect sparse;
+        SparseBlockTransferState transfer{
+            .domain = &domain,
+            .replayable = &replayable,
+            .marks = transfer_marks,
+            .effect = &sparse};
+        for (auto *inst : graph.block(i)->instructions()) {
+            transfer_instruction(inst, transfer);
+        }
         auto &effect = effects.emplace_back(count);
-        for (auto atom : transfer.killed) { effect.killed.set(atom); }
-        for (auto atom : transfer.external) { effect.external.set(atom); }
-        for (auto atom : transfer.touched) { effect.touched.set(atom); }
+        for (auto atom : sparse.killed) { effect.killed.set(atom); }
+        for (auto atom : sparse.external) { effect.external.set(atom); }
+        for (auto atom : sparse.touched) { effect.touched.set(atom); }
+        transfer.reset_marks();
     }
     auto transfer_extensions = [&](BasicBlock *block, DenseValueSet live) {
         auto *term = block->terminator();
@@ -1095,8 +1512,35 @@ CoroCallContextDataflow analyze_coro_call_contexts(
         luisa::vector<DenseValueSet> live(states.size(), DenseValueSet{count});
         luisa::deque<size_t> work;
         luisa::vector<uint8_t> queued = active;
-        for (size_t i = 0; i < states.size(); ++i) {
-            if (active[i]) { work.emplace_back(i); }
+        // Initialize in DFS postorder (successors before predecessors) so
+        // backward liveness converges along acyclic call chains in one sweep.
+        luisa::vector<uint8_t> post_visited(states.size(), 0u);
+        struct PostFrame {
+            size_t id;
+            size_t next_succ;
+        };
+        luisa::vector<PostFrame> post_stack;
+        for (size_t root = 0u; root < states.size(); ++root) {
+            if (!active[root] || post_visited[root] != 0u) { continue; }
+            post_visited[root] = 1u;
+            post_stack.emplace_back(PostFrame{root, 0u});
+            while (!post_stack.empty()) {
+                auto &frame = post_stack.back();
+                auto id = frame.id;
+                const auto &succs = states[id].successors;
+                auto is_cut = cut_suspend &&
+                              graph.block(states[id].block)->terminator()->isa<CoroSuspendInst>();
+                if (!is_cut && frame.next_succ < succs.size()) {
+                    auto next_id = succs[frame.next_succ++];
+                    if (active[next_id] && post_visited[next_id] == 0u) {
+                        post_visited[next_id] = 1u;
+                        post_stack.emplace_back(PostFrame{next_id, 0u});
+                    }
+                } else {
+                    work.emplace_back(id);
+                    post_stack.pop_back();
+                }
+            }
         }
         while (!work.empty()) {
             auto id = work.front();

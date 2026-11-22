@@ -5,10 +5,15 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/argument.h>
 #include <luisa/xir/constant.h>
+#include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/indexed_branch.h>
+#include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
 #include <algorithm>
+#include <utility>
 #include "coro_call_alias.h"
 #include "helpers.h"
 
@@ -277,6 +282,58 @@ public:
             _info.graph.edges.push_back({owner == _call_owners.end() ? 0u : owner->second,
                                          static_cast<uint32_t>(r.id), site});
         }
+        // Single-call-site suspending callables always return to one fixed
+        // continuation block, so collapse their return_dispatch directly to a
+        // branch and remove the unused return_site selector and unreachable block.
+        luisa::vector<ManagedPtr<Instruction>> removed_insts;
+        luisa::vector<ManagedPtr<BasicBlock>> removed_blocks;
+        for (auto &[f, region_ptr] : _regions) {
+            auto &r = *region_ptr;
+            if (r.return_dispatch == nullptr || r.return_dispatch->case_count() != 1u) {
+                continue;
+            }
+            auto *single_after = r.return_dispatch->case_block(0u);
+            auto *invalid = r.return_dispatch->default_block();
+            auto *exit_bb = r.return_dispatch->parent_block();
+            auto *return_tag = r.return_dispatch->value();
+            removed_insts.emplace_back(r.return_dispatch->remove_self());
+            r.return_dispatch = nullptr;
+            {
+                XIRBuilder exit_builder;
+                exit_builder.set_insertion_point(exit_bb);
+                exit_builder.br(single_after);
+            }
+            if (invalid != nullptr) {
+                while (!invalid->instructions().empty()) {
+                    removed_insts.emplace_back(invalid->instructions().front()->remove_self());
+                }
+                removed_blocks.emplace_back(invalid->remove_self());
+            }
+            if (return_tag != nullptr && return_tag->isa<LoadInst>() &&
+                return_tag->use_list().empty()) {
+                removed_insts.emplace_back(static_cast<LoadInst *>(return_tag)->remove_self());
+            }
+            if (r.return_site != nullptr) {
+                luisa::vector<StoreInst *> stores;
+                auto only_stores = true;
+                for (auto *use : r.return_site->use_list()) {
+                    auto *user = use == nullptr ? nullptr : use->user();
+                    if (user == nullptr || !user->isa<StoreInst>() ||
+                        static_cast<StoreInst *>(user)->variable() != r.return_site) {
+                        only_stores = false;
+                        break;
+                    }
+                    stores.emplace_back(static_cast<StoreInst *>(user));
+                }
+                if (only_stores) {
+                    for (auto *store : stores) {
+                        removed_insts.emplace_back(store->remove_self());
+                    }
+                    removed_insts.emplace_back(r.return_site->remove_self());
+                    r.return_site = nullptr;
+                }
+            }
+        }
         aliases.lower_uses(prologue);
         // The original definitions are private to this compilation module;
         // erase only after every shared region and call operand was resolved.
@@ -331,9 +388,13 @@ void rematerialize_cross_block_addresses(Function *function) {
 }// namespace
 
 void coro_call_demote_cross_block_values(Function *root) {
+    auto *def = root->definition();
     luisa::vector<Instruction *> values;
-    for (auto *block : root->definition()->basic_blocks()) {
+    luisa::unordered_map<Instruction *, size_t> ordinals;
+    for (auto *block : def->basic_blocks()) {
+        auto ordinal = size_t{0u};
         for (auto *inst : block->instructions()) {
+            ordinals.emplace(inst, ordinal++);
             if (inst->type() != nullptr && !inst->is_lvalue() && !inst->type()->is_resource()) {
                 values.emplace_back(inst);
             }
@@ -341,23 +402,41 @@ void coro_call_demote_cross_block_values(Function *root) {
     }
     XIRBuilder b;
     for (auto *value : values) {
-        luisa::vector<Use *> uses;
+        auto *def_block = value->parent_block();
+        luisa::vector<BasicBlock *> user_block_order;
+        luisa::unordered_map<BasicBlock *, luisa::vector<Use *>> uses_by_block;
+        luisa::unordered_map<BasicBlock *, std::pair<size_t, Instruction *>> earliest_user;
         for (auto *use : value->use_list()) {
             auto *user = use->user();
-            if (user != nullptr && user->isa<Instruction>() &&
-                static_cast<Instruction *>(user)->parent_block() != value->parent_block()) {
-                uses.emplace_back(use);
+            if (user == nullptr || !user->isa<Instruction>()) { continue; }
+            auto *user_inst = static_cast<Instruction *>(user);
+            auto *user_block = user_inst->parent_block();
+            if (user_block == def_block) { continue; }
+            auto ord = ordinals.at(user_inst);
+            auto [it, inserted] = uses_by_block.try_emplace(user_block);
+            if (inserted) {
+                user_block_order.emplace_back(user_block);
+                earliest_user.emplace(user_block, std::pair{ord, user_inst});
+            } else {
+                auto &best = earliest_user.at(user_block);
+                if (ord < best.first) {
+                    best = {ord, user_inst};
+                }
             }
+            it->second.emplace_back(use);
         }
-        if (uses.empty()) { continue; }
-        b.set_insertion_point(root->definition()->body_block()->instructions().head_sentinel());
+        if (user_block_order.empty()) { continue; }
+        b.set_insertion_point(def->body_block()->instructions().head_sentinel());
         auto *slot = b.alloca_local(value->type());
         b.set_insertion_point(value);
         b.store(slot, value);
-        for (auto *use : uses) {
-            auto *user = static_cast<Instruction *>(use->user());
-            b.set_insertion_point(user->prev());
-            User::set_operand_use_value(use, b.load(value->type(), slot));
+        for (auto *user_block : user_block_order) {
+            auto *anchor = earliest_user.at(user_block).second;
+            b.set_insertion_point(anchor->prev());
+            auto *loaded = b.load(value->type(), slot);
+            for (auto *use : uses_by_block.at(user_block)) {
+                User::set_operand_use_value(use, loaded);
+            }
         }
     }
 }

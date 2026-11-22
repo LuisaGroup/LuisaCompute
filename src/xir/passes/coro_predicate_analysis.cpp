@@ -221,6 +221,7 @@ void CoroPredicateAnalysis::_register_predicate(
 
 CoroPredicateAnalysis::CoroPredicateAnalysis(
     const CoroSemanticGraph &graph) noexcept {
+    _block_predicates.resize(graph.block_count());
     for (size_t block_id = 0u;
          block_id < graph.block_count(); ++block_id) {
         auto *block = graph.block(block_id);
@@ -241,6 +242,11 @@ CoroPredicateAnalysis::CoroPredicateAnalysis(
         if (auto literal =
                 _literal_for_condition(branch->condition())) {
             _condition_literals.emplace(terminator, *literal);
+            _block_predicates[block_id] = BlockBranchPredicate{
+                .predicate = literal->predicate,
+                .true_block_id = graph.block_id(branch->true_block()),
+                .false_block_id = graph.block_id(branch->false_block()),
+                .true_value = literal->value};
             _register_predicate(literal->predicate);
         }
     }
@@ -249,6 +255,42 @@ CoroPredicateAnalysis::CoroPredicateAnalysis(
         predicates.erase(
             std::unique(predicates.begin(), predicates.end()),
             predicates.end());
+    }
+    _block_kills.resize(graph.block_count());
+    luisa::unordered_set<size_t> blocks_with_kills;
+    blocks_with_kills.reserve(_predicate_kills.size());
+    for (auto &[inst, _] : _predicate_kills) {
+        if (inst == nullptr || inst->parent_block() == nullptr) { continue; }
+        if (auto id = graph.block_id(inst->parent_block());
+            id < graph.block_count()) {
+            blocks_with_kills.emplace(id);
+        }
+    }
+    for (auto block_id : blocks_with_kills) {
+        auto *block = graph.block(block_id);
+        if (block == nullptr) { continue; }
+        auto &kills = _block_kills[block_id];
+        auto ordinal = size_t{0u};
+        for (auto *inst : block->instructions()) {
+            if (auto iter = _predicate_kills.find(inst);
+                iter != _predicate_kills.end() && !iter->second.empty()) {
+                kills.emplace_back(CoroBlockPredicateKill{
+                    inst, ordinal,
+                    luisa::span<const size_t>{iter->second}});
+            }
+            ++ordinal;
+        }
+        auto &bp = _block_predicates[block_id];
+        if (bp.predicate != ~size_t{0u}) {
+            for (const auto &k : kills) {
+                if (luisa::binary_search(
+                        k.predicates.begin(), k.predicates.end(),
+                        bp.predicate)) {
+                    bp.self_killed = true;
+                    break;
+                }
+            }
+        }
     }
 }
 

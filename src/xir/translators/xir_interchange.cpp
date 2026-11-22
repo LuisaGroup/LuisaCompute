@@ -2,6 +2,7 @@
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <type_traits>
@@ -39,9 +40,18 @@ constexpr std::array<std::byte, 8u> bitcode_magic{
 constexpr uint32_t interchange_version = 1u;
 constexpr uint32_t bitcode_version = 2u;
 constexpr size_t bitcode_header_size = 32u;
-constexpr size_t max_payload_size = 256u * 1024u * 1024u;
-constexpr size_t max_record_count = 1u << 20u;
-constexpr size_t max_type_description_size = 16u * 1024u;
+// Explicit diagnostic opt-in for trusted large XIR compiler captures.
+// Keep the ordinary reader/writer resource limits for every normal invocation.
+const bool diagnostic_large_interchange = []() noexcept {
+    auto *value = std::getenv("LUISA_XIR_DIAGNOSTIC_LARGE_INTERCHANGE");
+    return value != nullptr && luisa::string_view{value} == "1";
+}();
+const size_t max_payload_size = diagnostic_large_interchange ?
+    size_t{4u} * 1024u * 1024u * 1024u : 256u * 1024u * 1024u;
+const size_t max_record_count = diagnostic_large_interchange ?
+    size_t{1u} << 26u : size_t{1u} << 20u;
+const size_t max_type_description_size = diagnostic_large_interchange ?
+    4u * 1024u * 1024u : 16u * 1024u;
 constexpr size_t max_string_payload_size = 1u * 1024u * 1024u;
 
 [[nodiscard]] bool canonical_constant_size(

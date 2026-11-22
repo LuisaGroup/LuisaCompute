@@ -25,8 +25,10 @@ using VerifierBlockAdjacency =
 // resulting tree stores one immediate-dominator parent per reachable block.
 class VerifierSparseDomTree {
 
-private:
+public:
     static constexpr auto invalid_index = ~size_t{0u};
+
+private:
     DensePointerMap<const BasicBlock *, size_t> _block_indices;
     luisa::vector<size_t> _immediate_dominators;
     luisa::vector<size_t> _depths;
@@ -57,6 +59,25 @@ public:
     }
     [[nodiscard]] size_t fixed_point_iteration_count() const noexcept {
         return _fixed_point_iteration_count;
+    }
+    [[nodiscard]] size_t block_index(const BasicBlock *block) const noexcept {
+        if (auto iter = _block_indices.find(block); iter != _block_indices.end()) {
+            return iter->second;
+        }
+        return invalid_index;
+    }
+    [[nodiscard]] size_t immediate_dominator_index(size_t index) const noexcept {
+        return _immediate_dominators[index];
+    }
+    [[nodiscard]] size_t depth_by_index(size_t index) const noexcept {
+        return _depths[index];
+    }
+    [[nodiscard]] bool dominates_index(size_t dominator_index,
+                                         size_t block_index) const noexcept {
+        return _preorder_indices[dominator_index] <=
+                   _preorder_indices[block_index] &&
+               _preorder_indices[block_index] <
+                   _subtree_end_indices[dominator_index];
     }
     [[nodiscard]] bool dominates(
         const BasicBlock *dominator,

@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
+#include <utility>
 
 #include "helpers.h"
 #include "coro_frame_abi.h"
@@ -70,6 +72,9 @@ private:
     luisa::unordered_map<const BasicBlock *, BasicBlock *> _block_map;
     luisa::unordered_map<const Argument *, Argument *> _arg_map;
     luisa::unordered_set<const BasicBlock *> _scope_blocks;
+    luisa::unordered_map<const BasicBlock *, uint32_t> _scope_rpo_id;
+    luisa::vector<uint32_t> _scope_preorder;
+    luisa::vector<uint32_t> _scope_subtree_end;
     XIRBuilder *_builder{nullptr};
     BasicBlock *_alloca_bb{nullptr};
     Instruction *_alloca_insertion_point{nullptr};
@@ -87,24 +92,19 @@ private:
         if (!_scope_blocks.contains(def) || !_scope_blocks.contains(use)) { return false; }
         if (use == _scope_root) { return false; }
         if (def == _scope_root) { return true; }
-        luisa::unordered_set<const BasicBlock *> visited;
-        luisa::vector<const BasicBlock *> work;
-        visited.emplace(_scope_root);
-        work.emplace_back(_scope_root);
-        while (!work.empty()) {
-            auto *bb = work.back();
-            work.pop_back();
-            auto *mut_bb = const_cast<BasicBlock *>(bb);
-            mut_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                if (_scope != nullptr && !_scope->allows_successor(bb, succ)) { return; }
-                if (!_scope_blocks.contains(succ) || succ == def) { return; }
-                if (visited.emplace(succ).second) {
-                    work.emplace_back(succ);
-                }
-            });
-            if (visited.contains(use)) { return false; }
+        auto use_it = _scope_rpo_id.find(use);
+        if (use_it == _scope_rpo_id.end()) {
+            // Unreachable from _scope_root in this scope (matches legacy BFS returning true).
+            return true;
         }
-        return true;
+        auto def_it = _scope_rpo_id.find(def);
+        if (def_it == _scope_rpo_id.end()) {
+            return false;
+        }
+        auto def_id = def_it->second;
+        auto use_id = use_it->second;
+        return _scope_preorder[def_id] <= _scope_preorder[use_id] &&
+               _scope_preorder[use_id] <= _scope_subtree_end[def_id];
     }
 
 public:
@@ -127,6 +127,142 @@ public:
         _scope = &scope;
         _scope_root = scope.blocks.front();
         _scope_blocks = std::move(blocks);
+        _scope_rpo_id.clear();
+        _scope_preorder.clear();
+        _scope_subtree_end.clear();
+
+        if (_scope_root == nullptr || !_scope_blocks.contains(_scope_root)) {
+            return;
+        }
+
+        // Build RPO over reachable scope blocks respecting scope successor constraints.
+        luisa::vector<const BasicBlock *> postorder;
+        postorder.reserve(_scope_blocks.size());
+        luisa::vector<const BasicBlock *> flat_succs;
+        luisa::vector<std::pair<const BasicBlock *, const BasicBlock *>> raw_edges;
+        luisa::unordered_set<const BasicBlock *> dfs_seen;
+        dfs_seen.reserve(_scope_blocks.size());
+
+        struct DfsFrame {
+            const BasicBlock *bb;
+            uint32_t succ_begin;
+            uint32_t succ_end;
+            uint32_t next_idx;
+        };
+        luisa::vector<DfsFrame> dfs_stack;
+        auto push_dfs_node = [&](const BasicBlock *bb) noexcept {
+            auto begin = static_cast<uint32_t>(flat_succs.size());
+            auto *mut_bb = const_cast<BasicBlock *>(bb);
+            mut_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (_scope != nullptr && !_scope->allows_successor(bb, succ)) { return; }
+                if (!_scope_blocks.contains(succ)) { return; }
+                flat_succs.emplace_back(succ);
+                raw_edges.emplace_back(bb, succ);
+            });
+            auto end = static_cast<uint32_t>(flat_succs.size());
+            dfs_stack.push_back(DfsFrame{bb, begin, end, begin});
+        };
+
+        dfs_seen.emplace(_scope_root);
+        push_dfs_node(_scope_root);
+        while (!dfs_stack.empty()) {
+            auto &top = dfs_stack.back();
+            if (top.next_idx < top.succ_end) {
+                auto *succ = flat_succs[top.next_idx++];
+                if (dfs_seen.emplace(succ).second) {
+                    push_dfs_node(succ);
+                }
+            } else {
+                postorder.emplace_back(top.bb);
+                dfs_stack.pop_back();
+            }
+        }
+
+        const auto n = static_cast<uint32_t>(postorder.size());
+        if (n == 0u) { return; }
+        _scope_rpo_id.reserve(n);
+        for (uint32_t i = 0u; i < n; ++i) {
+            _scope_rpo_id.emplace(postorder[n - 1u - i], i);
+        }
+
+        static constexpr uint32_t kInvalid = ~0u;
+        luisa::vector<uint32_t> pred_head(n, kInvalid);
+        luisa::vector<uint32_t> pred_src;
+        luisa::vector<uint32_t> pred_next;
+        pred_src.reserve(raw_edges.size());
+        pred_next.reserve(raw_edges.size());
+        for (const auto &[src, dst] : raw_edges) {
+            auto u = _scope_rpo_id.at(src);
+            auto v = _scope_rpo_id.at(dst);
+            auto edge_idx = static_cast<uint32_t>(pred_src.size());
+            pred_src.emplace_back(u);
+            pred_next.emplace_back(pred_head[v]);
+            pred_head[v] = edge_idx;
+        }
+
+        luisa::vector<uint32_t> idom(n, kInvalid);
+        idom[0u] = 0u;
+        auto intersect = [&](uint32_t b1, uint32_t b2) noexcept {
+            auto f1 = b1;
+            auto f2 = b2;
+            while (f1 != f2) {
+                while (f1 > f2) { f1 = idom[f1]; }
+                while (f2 > f1) { f2 = idom[f2]; }
+            }
+            return f1;
+        };
+
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (uint32_t i = 1u; i < n; ++i) {
+                uint32_t new_idom = kInvalid;
+                for (auto e = pred_head[i]; e != kInvalid; e = pred_next[e]) {
+                    auto p = pred_src[e];
+                    if (idom[p] != kInvalid) {
+                        new_idom = (new_idom == kInvalid) ? p : intersect(p, new_idom);
+                    }
+                }
+                if (new_idom != kInvalid && idom[i] != new_idom) {
+                    idom[i] = new_idom;
+                    changed = true;
+                }
+            }
+        }
+
+        luisa::vector<uint32_t> first_child(n, kInvalid);
+        luisa::vector<uint32_t> next_sibling(n, kInvalid);
+        for (uint32_t i = 1u; i < n; ++i) {
+            auto p = idom[i];
+            if (p != kInvalid) {
+                next_sibling[i] = first_child[p];
+                first_child[p] = i;
+            }
+        }
+
+        _scope_preorder.assign(n, 0u);
+        _scope_subtree_end.assign(n, 0u);
+        struct EulerFrame {
+            uint32_t node;
+            uint32_t next_child;
+        };
+        luisa::vector<EulerFrame> euler_stack;
+        euler_stack.reserve(n < 1024u ? n : 1024u);
+        uint32_t timer = 0u;
+        _scope_preorder[0u] = timer++;
+        euler_stack.push_back(EulerFrame{0u, first_child[0u]});
+        while (!euler_stack.empty()) {
+            auto &top = euler_stack.back();
+            if (top.next_child != kInvalid) {
+                auto child = top.next_child;
+                top.next_child = next_sibling[child];
+                _scope_preorder[child] = timer++;
+                euler_stack.push_back(EulerFrame{child, first_child[child]});
+            } else {
+                _scope_subtree_end[top.node] = timer - 1u;
+                euler_stack.pop_back();
+            }
+        }
     }
 
     void set_current_original_block(const BasicBlock *bb) noexcept {
