@@ -488,6 +488,23 @@ void ResourceBarrier::_update_state(BufferStates &state) {
     barrier.dstStageMask = range.after_stage;
     barrier.srcAccessMask = range.before_access;
     barrier.dstAccessMask = range.after_access;
+    if ((range.after_access & VK_ACCESS_2_TRANSFER_READ_BIT) != 0u) {
+        // Workaround for observed NVIDIA Vulkan 1.4.329 behavior: a readback
+        // copy whose destination scope is only VK_PIPELINE_STAGE_2_COPY_BIT /
+        // VK_ACCESS_2_TRANSFER_READ_BIT can observe the pre-dispatch contents
+        // of a buffer written earlier in the same command buffer. This made a
+        // batched upload -> dispatch -> download stream lose every kernel
+        // result (test_device_math vk read all 244 operations back as 0).
+        // Although the narrow dependency is intended to be sufficient, widen
+        // the destination scope to the memory domain for copy sources. This
+        // only adds stages/accesses, so no hazard is dropped; the source scope
+        // retains the exact producer side and all other transitions are
+        // unchanged.
+        barrier.dstStageMask = range.after_stage | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        barrier.dstAccessMask = range.after_access |
+                                VK_ACCESS_2_MEMORY_READ_BIT |
+                                VK_ACCESS_2_MEMORY_WRITE_BIT;
+    }
     barrier.buffer = state.buffer;
     barrier.offset = 0;
     barrier.size = std::numeric_limits<uint64_t>::max();

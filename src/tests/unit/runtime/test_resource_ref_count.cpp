@@ -557,6 +557,9 @@ void test_assignment_corner_cases(Device &device) {
         auto info = buffer.release();
         expect(info.valid()) << "a sole owner must still be releasable";
         expect(!buffer);
+        // `release()` hands the raw handle over, so the caller owns the teardown: dropping
+        // it here would leak the buffer (and fail device-destroy validation).
+        device.impl()->destroy_buffer(info.handle);
     }
 
     // Assigning one copy onto another copy of the same object must keep the count exact:
@@ -667,6 +670,24 @@ void test_event_shared_fence(Device &device) {
         // give the ownership of the released handle to somebody that frees it
         device.impl()->destroy_event(info.handle);
     }
+
+    // Destroying an event while batches are still *waiting* on it must retire those
+    // submissions first: the timeline may only be released once every submitted batch
+    // that refers to it has completed execution (Vulkan:
+    // VUID-vkDestroySemaphore-semaphore-05149). The waits are queued on two different
+    // streams, so no single queue or fence may stand in for "all of them", and neither
+    // stream is synchronized before the event dies.
+    {
+        Stream graphics = device.create_stream(StreamTag::GRAPHICS);
+        auto pending = device.create_event();
+        stream << pending.signal();
+        graphics << pending.wait();
+        stream << pending.wait();
+        expect(pending.reference_count() == 1);
+        // `pending` dies here with both waits still referring to its timeline
+    }
+    // Both queues have to stay usable afterwards.
+    stream << synchronize();
 }
 
 }// namespace

@@ -135,12 +135,20 @@ OpacityMicromap::OpacityMicromap(
     : _device{device}, _plan{plan} {}
 
 OpacityMicromap::MappedBuffer OpacityMicromap::create_mapped_buffer(
-    VkBufferUsageFlags usage, size_t size) noexcept {
+    VkBufferUsageFlags usage, size_t size, uint64_t alignment) noexcept {
     MappedBuffer result;
     result.size = size;
+    // The micromap commands require the build input and scratch addresses to be
+    // aligned (VUID-vkCmdBuildMicromapsEXT-pInfos-07515: data/triangleArray are
+    // multiples of 256; -07514: scratchData is a multiple of
+    // minAccelerationStructureScratchOffsetAlignment), and nothing guarantees that
+    // for the address of an arbitrary suballocation. The allocation therefore
+    // carries `alignment - 1` bytes of headroom and every consumer starts at the
+    // first legal byte inside it.
+    auto headroom_limit = alignment > 1u ? static_cast<size_t>(alignment - 1u) : 0u;
     VkBufferCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    create_info.size = size;
+    create_info.size = size + headroom_limit;
     // The device build reads/writes through device addresses; the host build
     // reads through the mapped pointer. Only ask for the address-capable usage
     // when the device enabled buffer device addresses, otherwise the flag is an
@@ -159,13 +167,29 @@ OpacityMicromap::MappedBuffer OpacityMicromap::create_mapped_buffer(
     VK_CHECK_RESULT(vmaCreateBuffer(
         _device->allocator().allocator(), &create_info, &allocation_info,
         &result.buffer, &result.allocation, &mapped_info));
-    result.mapped = mapped_info.pMappedData;
+    auto base_address = VkDeviceAddress{0u};
     if (_device->enable_device_address()) {
         VkBufferDeviceAddressInfo address_info{};
         address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         address_info.buffer = result.buffer;
-        result.address = vkGetBufferDeviceAddress(_device->logic_device(), &address_info);
+        base_address = vkGetBufferDeviceAddress(_device->logic_device(), &address_info);
     }
+    // Both the mapped pointer and the device address describe the same bytes, so
+    // the headroom is derived from the device address and applied to both. A
+    // device without buffer device addresses never reaches a build, so it keeps
+    // headroom 0.
+    auto headroom = (base_address == 0u || alignment <= 1u) ?
+                        size_t{0u} :
+                        static_cast<size_t>(
+                            detail::round_up_to_multiple(base_address, alignment) -
+                            base_address);
+    LUISA_ASSERT(headroom <= headroom_limit,
+                 "the micromap buffer headroom {} must not exceed the {} bytes "
+                 "of headroom that were allocated",
+                 headroom, headroom_limit);
+    result.headroom = headroom;
+    result.mapped = static_cast<std::byte *>(mapped_info.pMappedData) + headroom;
+    result.address = base_address + headroom;
     return result;
 }
 
@@ -289,28 +313,29 @@ OpacityMicromap *OpacityMicromap::create_sized(
     micromap->_data = micromap->create_mapped_buffer(
         VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT |
             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        plan.data_bytes == 0u ? 1u : static_cast<size_t>(plan.data_bytes));
+        plan.data_bytes == 0u ? 1u : static_cast<size_t>(plan.data_bytes),
+        detail::opacity_micromap_build_input_alignment);
     micromap->_triangles = micromap->create_mapped_buffer(
         VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT,
-        plan.triangle_array_bytes == 0u ? 1u : static_cast<size_t>(plan.triangle_array_bytes));
+        plan.triangle_array_bytes == 0u ? 1u : static_cast<size_t>(plan.triangle_array_bytes),
+        detail::opacity_micromap_build_input_alignment);
     micromap->_scratch = micromap->create_mapped_buffer(
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        sizes.buildScratchSize == 0u ? 1u : static_cast<size_t>(sizes.buildScratchSize));
+        sizes.buildScratchSize == 0u ? 1u : static_cast<size_t>(sizes.buildScratchSize),
+        plan.scratch_offset_alignment);
     // 3. Shape data: the per-triangle records are derivable from the plan, so they
     //    are always generated here instead of being handed in.
     micromap->fill_triangle_records();
     // 4. The object itself.
     LUISA_ASSERT(opacity_micromap_detail::storage_offset_legal(0u),
                  "the micromap storage offset must stay 256-byte aligned");
-    VkMicromapCreateInfoEXT create_info{};
-    // VkMicromapCreateInfoEXT has no sType/pNext: it is a plain input structure,
-    // not a chainable one.
-    create_info.createFlags = 0u;
-    create_info.buffer = micromap->_storage.buffer;
-    create_info.offset = 0u;
-    create_info.size = sizes.micromapSize;
-    create_info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
-    create_info.deviceAddress = 0u;
+    // VkMicromapCreateInfoEXT *does* carry an sType/pNext pair, and both are
+    // validated before the driver looks at any other member
+    // (VUID-VkMicromapCreateInfoEXT-sType-sType / -pNext-pNext). Building it
+    // through the (host-testable) factory is what keeps the sType from regressing
+    // to the zero a value-initialized struct would submit.
+    auto create_info = make_create_info(micromap->_storage.buffer,
+                                        sizes.micromapSize);
     VK_CHECK_RESULT(vkCreateMicromapEXT(
         device->logic_device(), &create_info, Device::alloc_callbacks(),
         &micromap->_micromap));
@@ -425,10 +450,11 @@ void OpacityMicromap::build_device(CommandBuffer &cmdbuffer, VkBuffer source, si
         LUISA_ERROR("The packed bit buffer of an opacity micromap is null.");
     }
     // 1. The frontend's packed bits cannot carry MICROMAP_BUILD_INPUT_READ_ONLY, so
-    //    they are copied into this object's own build-input buffer first.
+    //    they are copied into this object's own build-input buffer first, at the
+    //    headroom offset the build input address starts at.
     VkBufferCopy region{};
     region.srcOffset = static_cast<VkDeviceSize>(source_offset);
-    region.dstOffset = 0u;
+    region.dstOffset = static_cast<VkDeviceSize>(_data.headroom);
     region.size = static_cast<VkDeviceSize>(_plan.data_bytes);
     vkCmdCopyBuffer(cmdbuffer.cmdbuffer(), source, _data.buffer, 1u, &region);
     // 2. Order the copy (and the host-written triangle records) before the build.

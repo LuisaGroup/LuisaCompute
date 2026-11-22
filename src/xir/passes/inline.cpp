@@ -5,6 +5,7 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/argument.h>
@@ -285,6 +286,65 @@ static void accumulate_inline_barrier(
         }
     }
     return false;
+}
+
+// Operations whose semantics require every invocation of their scope to be
+// active at the same dynamic instance. The subgroup collective block and the
+// block barrier are the only such operations the XIR dialect carries: a
+// subgroup reduction/shuffle over a partially active scope reads undefined
+// source values, and a divergent block barrier is undefined behaviour.
+[[nodiscard]] static bool
+requires_invocation_convergence(ThreadGroupOp op) noexcept {
+    if (op == ThreadGroupOp::SYNCHRONIZE_BLOCK) { return true; }
+    auto value = luisa::to_underlying(op);
+    return value >= luisa::to_underlying(ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE) &&
+           value <= luisa::to_underlying(ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE);
+}
+
+// True when the function executes an operation that is only defined in
+// convergent control flow.
+[[nodiscard]] static bool contains_invocation_convergent_operation(
+    FunctionDefinition *def) noexcept {
+    if (def == nullptr) { return false; }
+    for (auto *block : def->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (inst->derived_instruction_tag() !=
+                DerivedInstructionTag::THREAD_GROUP) {
+                continue;
+            }
+            if (requires_invocation_convergence(
+                    static_cast<const ThreadGroupInst *>(inst)->op())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// A callee "can exit early" when its control flow reaches the exit from more
+// than one path. In structured form that is more than one ReturnInst; after
+// destructuring, spill_early_returns leaves a single ReturnInst whose block
+// additionally has the early-exit predecessors.
+[[nodiscard]] static bool callee_can_exit_early(
+    FunctionDefinition *def) noexcept {
+    if (def == nullptr) { return false; }
+    size_t return_count = 0u;
+    BasicBlock *exit_block = nullptr;
+    for (auto *block : def->basic_blocks()) {
+        if (block == nullptr || !block->is_terminated()) { continue; }
+        if (block->terminator()->isa<ReturnInst>()) {
+            ++return_count;
+            exit_block = block;
+        }
+    }
+    if (return_count > 1u) { return true; }
+    if (exit_block == nullptr || exit_block == def->body_block()) {
+        return false;
+    }
+    size_t predecessor_count = 0u;
+    exit_block->traverse_predecessors(
+        false, [&](BasicBlock *) noexcept { ++predecessor_count; });
+    return predecessor_count > 1u;
 }
 
 [[nodiscard]] static bool typed_value_operand_valid(const Value *value) noexcept {
@@ -1065,6 +1125,20 @@ public:
         ++info.skipped_structured_call_count;
         return false;
     }
+    // Cloning a callee that can exit early makes every statement of the
+    // caller after the call conditionally executed per invocation, because
+    // the continuation gains predecessors inside the callee's former control
+    // flow. A backend that rebuilds structured control flow from that CFG can
+    // only express such a continuation as a guarded region, which is not
+    // convergent. Subgroup collectives and block barriers in the caller are
+    // undefined there, so the call is preserved instead: a call site is a
+    // reconvergence point for every invocation that reaches it.
+    if (options.preserve_invocation_convergence &&
+        callee_can_exit_early(callee_def) &&
+        contains_invocation_convergent_operation(caller_def)) {
+        ++info.skipped_convergence_call_count;
+        return false;
+    }
     info.consumed_call_site_diagnostic_metadata_count +=
         consume_call_site_diagnostic_metadata(call, options);
     auto *clone_layout = callee_version == nullptr ?
@@ -1236,7 +1310,8 @@ analyze_inline_call_graph(luisa::span<Function *const> callables,
     return result;
 }
 
-static void inline_run(Module *module, InlineInfo &info) noexcept {
+static void inline_run(Module *module, InlineInfo &info,
+                       InlineOptions options = {}) noexcept {
     if (module == nullptr) { return; }
     // Early exit if no callables
     bool has_callables = false;
@@ -1288,7 +1363,7 @@ static void inline_run(Module *module, InlineInfo &info) noexcept {
         }
 
         for (auto call : edges)
-            if (inline_call(call, callee, info, {}, nullptr,
+            if (inline_call(call, callee, info, options, nullptr,
                             &callee_version, &caller_barriers))
                 info.inlined_call_count++;
 
@@ -1312,6 +1387,8 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
                 info.skipped_recursive_callable_count);
     report->set("skipped_structured_call",
                 info.skipped_structured_call_count);
+    report->set("skipped_convergence_call",
+                info.skipped_convergence_call_count);
     report->set("skipped_constrained_call",
                 info.skipped_constrained_call_count);
     report->set("skipped_noinline_call",
@@ -1375,9 +1452,14 @@ void set_inline_report(const InlineInfo &info, PassReport *report) noexcept {
 }// namespace
 
 InlineInfo inline_pass_run_on_module(Module *module, PassReport *report) noexcept {
+    return inline_pass_run_on_module(module, {}, report);
+}
+
+InlineInfo inline_pass_run_on_module(Module *module, InlineOptions options,
+                                     PassReport *report) noexcept {
     InlineInfo info;
     if (module != nullptr) {
-        detail::inline_run(module, info);
+        detail::inline_run(module, info, options);
     }
     set_inline_report(info, report);
     return info;

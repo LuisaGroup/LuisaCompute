@@ -383,12 +383,16 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     lhs,
                     rhs));
         };
+    // `float32_type` is the binary32 scalar/vector type of the same shape as
+    // the declared result. It equals `type` for a binary32 remainder and is the
+    // exact widened representation for a binary16 remainder, which is computed
+    // here and narrowed afterwards.
     auto exact_float32_fmod =
-        [&](spv::Id x, spv::Id y) noexcept {
+        [&](spv::Id x, spv::Id y, spv::Id float32_type) noexcept {
             LUISA_ASSERT(
-                elem->is_float32() &&
+                (elem->is_float32() || elem->is_float16()) &&
                     (t->is_scalar() || t->is_vector()),
-                "Exact SPIR-V fmod requires float32 scalar/vector operands.");
+                "Exact SPIR-V fmod requires float16/float32 scalar/vector operands.");
 
             // For a finite binary32 value, write the magnitude as
             //
@@ -650,8 +654,216 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 select_u32(
                     compute_remainder, signed_result, x_bits));
             return _builder.createUnaryOp(
-                spv::Op::OpBitcast, type, result_bits);
+                spv::Op::OpBitcast, float32_type, result_bits);
         };
+    // Binary64 remainder. `OpFRem` is not required to be exact, and the common
+    // implementation forms the rounded quotient `x / y`, which overflows or
+    // annihilates every remainder bit as soon as that quotient leaves the
+    // significand range. Reduce exactly instead, in chunks of at most 2^52
+    // quotient bits:
+    //
+    //   s = clamp(exponent(|x|) - exponent(|y|) - 52, 0, 2045)
+    //   t = |y| * 2^s, so q = floor(r / t) is an integer below 2^53
+    //
+    // `r - q * t` is a multiple of t's ulp strictly below t, so it is exactly
+    // representable and the single-rounding FMA residual reproduces it
+    // exactly. Every residual is therefore exact, and 41 chunks cover the
+    // whole binary64 exponent range (2045 / 52 < 40.3).
+    //
+    // The correctly rounded quotient can round one below or one above the true
+    // integer quotient, so both candidates are materialized. A negative first
+    // residual means the quotient was one too large and `+ t` recovers it; a
+    // first residual that is not below `t` means the quotient was one too small
+    // and the `q + 1` residual, exact for that case, is used instead. Neither
+    // correction rounds.
+    auto exact_float64_fmod = [&](spv::Id x, spv::Id y) noexcept {
+        LUISA_ASSERT(
+            elem->is_float64() && (t->is_scalar() || t->is_vector()),
+            "Exact SPIR-V fmod requires float64 scalar/vector operands.");
+        constexpr auto chunk_bits = int64_t{52};
+        // The widest binary64 exponent difference is 1023 - (-1074) = 2097, so
+        // a chunk shift above 2097 - 52 can never be requested; clamping there
+        // also keeps both power-of-two factors (at most 2^1023) representable.
+        constexpr auto chunk_limit = int64_t{2045};
+        // Each chunk removes exactly 52 from the exponent delta, so 40 chunks
+        // always exhaust the largest delta; the 41st is a spare that keeps the
+        // bound independent of the in-chunk bookkeeping.
+        constexpr auto chunk_count = uint32_t{41};
+        auto u64_scalar_type = _builder.makeUintType(64);
+        auto i64_scalar_type = _builder.makeIntType(64);
+        auto u64_type = is_scalar ?
+                            u64_scalar_type :
+                            _builder.makeVectorType(u64_scalar_type, t->dimension());
+        auto i64_type = is_scalar ?
+                            i64_scalar_type :
+                            _builder.makeVectorType(i64_scalar_type, t->dimension());
+        auto bool_type = is_scalar ?
+                             _builder.makeBoolType() :
+                             _builder.makeVectorType(
+                                 _builder.makeBoolType(), t->dimension());
+        auto make_u64 = [&](uint64_t value) noexcept {
+            auto scalar = _builder.makeInt64Constant(u64_scalar_type, value, false);
+            return is_scalar ?
+                       scalar :
+                       _builder.smearScalar(spv::NoPrecision, scalar, u64_type);
+        };
+        auto make_i64 = [&](int64_t value) noexcept {
+            auto scalar = _builder.makeInt64Constant(
+                i64_scalar_type, static_cast<uint64_t>(value), false);
+            return is_scalar ?
+                       scalar :
+                       _builder.smearScalar(spv::NoPrecision, scalar, i64_type);
+        };
+        auto float64_constant = [&](double value) noexcept {
+            auto scalar = make_float_scalar_constant(elem, value);
+            return is_scalar ?
+                       scalar :
+                       _builder.smearScalar(spv::NoPrecision, scalar, type);
+        };
+        auto bitcast_u64 = [&](spv::Id value) noexcept {
+            return _builder.createUnaryOp(spv::Op::OpBitcast, u64_type, value);
+        };
+        auto bitcast_f64 = [&](spv::Id value) noexcept {
+            return _builder.createUnaryOp(spv::Op::OpBitcast, type, value);
+        };
+        auto raw_exponent = [&](spv::Id value) noexcept {
+            return _builder.createBinOp(
+                spv::Op::OpBitwiseAnd, u64_type,
+                _builder.createBinOp(
+                    spv::Op::OpShiftRightLogical, u64_type,
+                    bitcast_u64(value), make_u64(52u)),
+                make_u64(0x7ffu));
+        };
+        auto magnitude = [&](spv::Id value) noexcept {
+            return bitcast_f64(_builder.createBinOp(
+                spv::Op::OpBitwiseAnd, u64_type,
+                bitcast_u64(value), make_u64(0x7fffffffffffffffull)));
+        };
+        auto logical_or = [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return _builder.createBinOp(
+                spv::Op::OpLogicalOr, bool_type, lhs, rhs);
+        };
+        auto select_f64 = [&](spv::Id condition, spv::Id when_true,
+                              spv::Id when_false) noexcept {
+            return _builder.createTriOp(
+                spv::Op::OpSelect, type, condition, when_true, when_false);
+        };
+        auto f64_mul = [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return mark_no_contraction(_builder.createBinOp(
+                spv::Op::OpFMul, type, lhs, rhs));
+        };
+        auto f64_add = [&](spv::Id lhs, spv::Id rhs) noexcept {
+            return mark_no_contraction(_builder.createBinOp(
+                spv::Op::OpFAdd, type, lhs, rhs));
+        };
+        auto f64_negate = [&](spv::Id value) noexcept {
+            return _builder.createUnaryOp(spv::Op::OpFNegate, type, value);
+        };
+        auto f64_fma = [&](spv::Id a, spv::Id b, spv::Id c) noexcept {
+            return glsl(GLSLstd450Fma, a, b, c);
+        };
+        auto r = magnitude(x);
+        auto m = magnitude(y);
+        // The divisor exponent is loop invariant. A subnormal divisor has a
+        // zero exponent field, so recover its exponent from |y| * 2^52, which
+        // is normal and exact.
+        auto m_raw = raw_exponent(m);
+        auto m_scaled_raw = raw_exponent(f64_mul(
+            m, bitcast_f64(make_u64(0x4330000000000000ull))));
+        // Keep the divisor exponent in the same biased encoding as the raw
+        // exponent field of the dividend, so the difference below is the plain
+        // exponent delta with no bias term. For a subnormal divisor the
+        // exponent of |y| * 2^52 is `exponent + 52`.
+        auto m_exponent = _builder.createTriOp(
+            spv::Op::OpSelect, i64_type,
+            _builder.createBinOp(
+                spv::Op::OpINotEqual, bool_type, m_raw, make_u64(0u)),
+            _builder.createUnaryOp(spv::Op::OpBitcast, i64_type, m_raw),
+            _builder.createBinOp(
+                spv::Op::OpISub, i64_type,
+                _builder.createUnaryOp(spv::Op::OpBitcast, i64_type, m_scaled_raw),
+                make_i64(52)));
+        auto one = float64_constant(1.0);
+        auto zero = float64_constant(0.0);
+        auto bias = make_i64(1023);
+        for (auto chunk = 0u; chunk < chunk_count; ++chunk) {
+            auto r_exponent = _builder.createUnaryOp(
+                spv::Op::OpBitcast, i64_type, raw_exponent(r));
+            auto delta = _builder.createBinOp(
+                spv::Op::OpISub, i64_type, r_exponent, m_exponent);
+            auto shift = _builder.createTriOp(
+                spv::Op::OpSelect, i64_type,
+                _builder.createBinOp(
+                    spv::Op::OpSGreaterThan, bool_type,
+                    make_i64(0),
+                    _builder.createBinOp(
+                        spv::Op::OpISub, i64_type, delta,
+                        make_i64(chunk_bits))),
+                make_i64(0),
+                _builder.createTriOp(
+                    spv::Op::OpSelect, i64_type,
+                    _builder.createBinOp(
+                        spv::Op::OpSGreaterThan, bool_type,
+                        _builder.createBinOp(
+                            spv::Op::OpISub, i64_type, delta,
+                            make_i64(chunk_bits)),
+                        make_i64(chunk_limit)),
+                    make_i64(chunk_limit),
+                    _builder.createBinOp(
+                        spv::Op::OpISub, i64_type, delta,
+                        make_i64(chunk_bits))));
+            // |y| * 2^shift with both factors of the power of two in range.
+            auto shift_hi = _builder.createBinOp(
+                spv::Op::OpShiftRightLogical, i64_type, shift, make_i64(1));
+            auto shift_lo = _builder.createBinOp(
+                spv::Op::OpISub, i64_type, shift, shift_hi);
+            auto power_of_two = [&](spv::Id amount) noexcept {
+                return bitcast_f64(_builder.createBinOp(
+                    spv::Op::OpShiftLeftLogical, i64_type,
+                    _builder.createBinOp(
+                        spv::Op::OpIAdd, i64_type, amount, bias),
+                    make_i64(chunk_bits)));
+            };
+            auto chunk_divisor = f64_mul(
+                f64_mul(m, power_of_two(shift_hi)),
+                power_of_two(shift_lo));
+            auto quotient = glsl(
+                GLSLstd450Floor,
+                _builder.createBinOp(
+                    spv::Op::OpFDiv, type, r, chunk_divisor));
+            auto quotient_next = f64_add(quotient, one);
+            auto residual = f64_fma(
+                f64_negate(quotient), chunk_divisor, r);
+            auto residual_next = f64_fma(
+                f64_negate(quotient_next), chunk_divisor, r);
+            r = select_f64(
+                _builder.createBinOp(
+                    spv::Op::OpFOrdLessThan, bool_type, residual, zero),
+                f64_add(residual, chunk_divisor),
+                select_f64(
+                    _builder.createBinOp(
+                        spv::Op::OpFOrdGreaterThanEqual, bool_type,
+                        residual, chunk_divisor),
+                    residual_next,
+                    residual));
+        }
+        auto invalid = logical_or(
+            logical_or(
+                _builder.createUnaryOp(spv::Op::OpIsNan, bool_type, x),
+                _builder.createUnaryOp(spv::Op::OpIsInf, bool_type, x)),
+            logical_or(
+                _builder.createUnaryOp(spv::Op::OpIsNan, bool_type, y),
+                _builder.createBinOp(
+                    spv::Op::OpFOrdEqual, bool_type, m, zero)));
+        auto quiet_nan = bitcast_f64(make_u64(0x7ff8000000000000ull));
+        // |x| < |y| needs no reduction, and an infinite divisor always
+        // returns the dividend; both avoid the 0 * inf FMA residual.
+        return select_f64(
+            invalid, quiet_nan,
+            select_f64(
+                _builder.createUnaryOp(spv::Op::OpIsInf, bool_type, y),
+                x, copy_float_sign(r, x)));
+    };
     auto strict_float32_asin = [&](spv::Id x) noexcept {
         LUISA_ASSERT(
             elem->is_float32(),
@@ -806,14 +1018,39 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             }
             break;
         case xir::ArithmeticOp::BINARY_MOD:
-            if (!_enable_fast_math && elem->is_float32())
-                id = exact_float32_fmod(operand(0), operand(1));
-            else if (is_float)
+            // The floating-point remainder is exact in every supported
+            // precision and in both numeric modes: `OpFRem` is only
+            // "x - y * trunc(x / y)" up to the implementation, so drivers that
+            // form the rounded quotient lose the residue for large exponents
+            // (and for narrow formats even for ordinary ones). Fast math may
+            // relax transcendental accuracy, not the exact remainder contract.
+            if (elem->is_float32()) {
+                id = exact_float32_fmod(operand(0), operand(1), type);
+            } else if (elem->is_float16()) {
+                // A binary16 value is exactly representable in binary32, and
+                // so is the exact remainder of two of them, so the exact
+                // binary32 reduction below is exact for binary16 as well and
+                // the narrowing conversion cannot round.
+                auto float32_scalar_type = _builder.makeFloatType(32);
+                auto float32_type = is_scalar ?
+                                        float32_scalar_type :
+                                        _builder.makeVectorType(
+                                            float32_scalar_type, t->dimension());
+                id = _ensure_type(
+                    exact_float32_fmod(
+                        _ensure_type(operand(0), float32_type),
+                        _ensure_type(operand(1), float32_type),
+                        float32_type),
+                    type);
+            } else if (elem->is_float64()) {
+                id = exact_float64_fmod(operand(0), operand(1));
+            } else if (is_float) {
                 id = binary(spv::Op::OpFRem);
-            else if (is_signed_int)
+            } else if (is_signed_int) {
                 id = binary(spv::Op::OpSRem);
-            else
+            } else {
                 id = binary(spv::Op::OpUMod);
+            }
             break;
         case xir::ArithmeticOp::BINARY_BIT_AND:
             if (is_bool)

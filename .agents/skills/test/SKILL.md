@@ -612,12 +612,17 @@ constrains strict AOT loads to XIR-produced SPIR-V while still allowing
 Vulkan's internal HLSL-generated builtins. `LUISA_DUMP_SOURCE=1` additionally
 forces fresh JIT codegen; pair both with Vulkan validation for runtime coverage.
 Do not apply the strict guard blindly to a mixed-route executable. In
-`test_vk_spirv_codegen_path`, the typed `BUFFER_ONLY` case and two native-HLSL
-interoperability cases deliberately use the compatibility route. Cover the
-whole suite once under validation, and cover all remaining native cases
-separately under the strict guard; never hide a fallback by locally clearing
-the environment inside a nominally strict test. Keep explicit exclusions in
-the strict runner synchronized instead of documenting a brittle case count.
+`test_vk_spirv_codegen_path`, only two cases take the compatibility route on
+purpose, and both do it for an HLSL `native_include` block:
+`vk_hlsl_writer_to_native_consumer_preserves_indirect_abi` and
+`vk_indirect_host_empty_plan_is_a_true_noop`. The typed bindless cases
+(`BUFFER_ONLY`, `TEXTURE2D_ONLY`, volume) are strict-native: they set
+`LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1` themselves and pass with it, so they
+are strict coverage, not exclusions. Cover the whole suite once under
+validation, and cover all remaining cases separately under the strict guard;
+never hide a fallback by clearing the environment inside a nominally strict
+test, and keep explicit exclusions in the strict runner synchronized by case
+name instead of documenting a brittle count.
 Lower default offline sample counts may produce PSNR failures from sampling noise rather than code regressions. Do not report an offline rendering test as passing image validation unless the log contains `Reference comparison: PASSED` and exit code `0`.
 
 For path-tracing gallery validation, run the mirrored executable with its matching reference, for example:

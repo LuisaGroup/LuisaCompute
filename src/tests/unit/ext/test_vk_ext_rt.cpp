@@ -29,13 +29,18 @@
 // - the DGF1 blob validation (128-byte block alignment/size, 64 triangles and
 //   64 vertices per block) of the provisional VK_AMDX_dense_geometry_format;
 // - the PTLAS instance-input limits (partitionCount + global partition count <=
-//   maxPartitionCount) of VK_NV_partitioned_acceleration_structure;
+// maxPartitionCount) of VK_NV_partitioned_acceleration_structure;
+// - the VkMicromapCreateInfoEXT the micromap object model submits: the structure
+//   has to identify itself (sType/pNext), because a value-initialized one is
+//   rejected by VUID-VkMicromapCreateInfoEXT-sType-sType before the driver ever
+//   reads `buffer`;
 // - every status-name mapping, so a log line can never print "unknown".
 //
 // No Vulkan object is created and no device is required: the helpers are pure,
 // the backend only ever walks the branch they select, and these cases are the
 // only evidence available for the four extensions the test GPU does not expose.
 #include "ut/ut.hpp"
+#include "opacity_micromap.h"
 #include "rt_extension_plan.h"
 #include <cstdint>
 #include <string_view>
@@ -55,6 +60,18 @@ template<typename E>
 
 [[nodiscard]] bool known_name(const char *name) noexcept {
     return name != nullptr && std::string_view{name} != "unknown";
+}
+
+// A handle value no device ever minted. The create info is never submitted here,
+// so only the pass-through of the storage handle matters. Non-dispatchable
+// handles are either pointers or 64-bit integers depending on the target, hence
+// the two spellings.
+[[nodiscard]] VkBuffer unminted_storage_buffer() noexcept {
+#if VK_USE_64_BIT_PTR_DEFINES
+    return reinterpret_cast<VkBuffer>(static_cast<uintptr_t>(0x1000u));
+#else
+    return static_cast<VkBuffer>(static_cast<uint64_t>(0x1000u));
+#endif
 }
 
 // A request that *would* build a legal micromap on a fully capable device:
@@ -396,6 +413,35 @@ int main(int argc, char *argv[]) {
         plan = plan_opacity_micromap_attach(request);
         expect(same(plan.status, OpacityMicromapAttachStatus::ATTACH));
         expect(!plan.needs_ray_query_execution_mode);
+    };
+
+    "vk_rt_micromap_create_info_identifies_itself"_test = [] {
+        // VkMicromapCreateInfoEXT is *not* a plain input structure: it starts with
+        // sType/pNext (VUID-VkMicromapCreateInfoEXT-sType-sType / -pNext-pNext), so
+        // a value-initialized one submits sType 0 and vkCreateMicromapEXT rejects
+        // it before the driver reads `buffer`. `OpacityMicromap::make_create_info`
+        // is the only producer of the structure the backend submits, and the
+        // micromap object cannot be created without it.
+        constexpr auto storage_size = 0x1'0000u;
+        auto info = lc::vk::OpacityMicromap::make_create_info(
+            test_vk_ext_rt_detail::unminted_storage_buffer(), storage_size);
+        expect(info.sType == VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT)
+            << "a zero sType is what the validator rejects (-sType-sType)";
+        expect(info.pNext == nullptr)
+            << "VkMicromapCreateInfoEXT accepts no pNext member (-pNext-pNext)";
+        // sType is the member the validator reads first, i.e. it has to sit at
+        // offset 0 like every other Vulkan structure.
+        expect(offsetof(VkMicromapCreateInfoEXT, sType) == 0_u);
+        expect(info.createFlags == 0u)
+            << "a capture-replay flag would require the micromapCaptureReplay "
+               "feature, which the registry never enables";
+        expect(info.buffer == test_vk_ext_rt_detail::unminted_storage_buffer());
+        expect(info.offset == 0u);
+        expect(info.size == storage_size);
+        expect(info.type == VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT);
+        expect(info.deviceAddress == 0u)
+            << "VUID-VkMicromapCreateInfoEXT-deviceAddress-07433: a device "
+               "address is only legal with the capture-replay create flag";
     };
 
     "vk_rt_micromap_attach_rejects_illegal_geometry_and_index"_test = [] {

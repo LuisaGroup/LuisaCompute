@@ -166,6 +166,17 @@ exception belongs in `pointer_legalization.cpp`, which uses the generic atomic
 `inline_call_sites_pass_run_on_module` primitive only after preflighting the
 whole selected batch.
 
+The legalization `inline` step opts in to
+`InlineOptions::preserve_invocation_convergence`
+(`utils.cpp:973-979`). Because this route destructures first and restructures
+afterwards, cloning a callee that can exit early would make the caller's
+continuation conditional per invocation, and `restructure_cfg` could only
+rebuild it as a guarded region; subgroup collectives and block barriers in that
+region would then execute with a partially active scope. Such a call is kept
+as a call and reported as `skipped_convergence_call`. The option is a
+backend policy passed explicitly by this pipeline, not a change to the generic
+inliner default, and `test_xir_passes` plus `test_fp4_quantization vk` pin it.
+
 ## Dialect boundary
 
 `validate_spirv_xir_codegen_dialect` is the single fail-closed handoff. When
@@ -607,9 +618,21 @@ it is committed; optimizer failure or invalid output retains the already
 validated input binary. Final feature reconciliation always uses the binary
 that will actually be persisted.
 
-`LUISA_SPIRV_OPT_LEVEL` selects the optimizer preset. Use level 0 to isolate
-emission, but never treat that as a fix. Optional loop unrolling applies only
-when the emitted loop control requests it.
+`LUISA_SPIRV_OPT_LEVEL` selects the optimizer preset. Level 0 disables
+optimization, level 1 is the intentionally minimal `lightweight` chain, and
+level 2 (the default, `compute`) or higher (`full`) runs one and the same
+complete DXC-parity pipeline: three structural prefix passes, the complete
+stock `RegisterPerformancePasses(false)` pipeline, then DXC's tail of 29
+unconditional passes plus the fast-math-only `FloatDivOptPass`, iterated to a
+fixed point of at most eight runs (`LUISA_SPIRV_OPT_MAX_ITERATIONS`). Use
+level 0 to isolate emission, but never treat that as a fix.
+
+Loop unrolling is therefore no longer conditional on the emitted loop control:
+that pipeline always registers both the stock explicit-`Unroll` pass and DXC's
+bounded automatic `CreateLoopUnrollPass(false, 0)`, plus `loop-unswitch`, so a
+small counted loop is unrolled and folded even when its `OpLoopMerge` carries
+`LoopControl None`. Only `none` and `lightweight` leave them out, which is why
+a loop-shape regression must be bisected at level 0/1 before blaming `spirv-opt`.
 
 Useful diagnostics:
 
@@ -669,6 +692,22 @@ can therefore suppress a value that the chosen FMA still needs as its addend,
 causing a use-before-definition failure. Only the selected single-use multiply
 may be deferred; all other products must be emitted normally.
 
+Emission policy and optimizer policy are separate and stay aligned.
+`NoContraction` is the emitter's per-instruction veto, while the optimizer's
+decision to run its non-IEEE-exact stages comes from
+`ShaderOption::enable_fast_math` (`SpirvOptimizerOptions::enable_fast_math`) and
+the contraction output form from the negotiated `shaderFmaFloat32` feature
+(`use_khr_fma`), never from the module's decorations. With fast math the
+`compute`/`full` presets run one extra post-convergence stage after the fixed
+point — `FmaContractionPass` -> `EliminateDeadConstant` -> `CompactIds` — and
+`FmaContractionPass` itself still honors `NoContraction` and still propagates
+`RelaxedPrecision`; the output is `OpFmaKHR` when `shaderFmaFloat32` is enabled,
+otherwise GLSL.std.450 `Fma`. A fast-math run that contracts nothing is still a
+successful no-op: `SpirvOptimizerReport::fma_contraction_attempted` is true
+while `fma_contraction_applied` stays false unless the post stage's bytes
+differ from the pre-stage binary, so tests must assert both fields separately
+instead of treating a successful stage as proof of contraction.
+
 XIR generalizes `OUTER_PRODUCT` to two matrix operands for autodiff. That form
 means `A * transpose(B)` and should lower to one `OpTranspose` followed by one
 `OpMatrixTimesMatrix`; the ordinary vector form remains `OpOuterProduct`.
@@ -686,18 +725,57 @@ Vulkan build trees. The native configuration verifies an explicit fallback
 reason is rejected; the non-native configuration verifies the build-unavailable
 diagnostic. The test isolates fatal diagnostics in a child process.
 
-`test_vk_spirv_codegen_path` contains strict-native cases and three explicit
-compatibility cases: typed `BUFFER_ONLY`, an HLSL-writer/native-consumer ABI
-test, and an empty-plan test with a deliberately native-HLSL shader. Run the
-whole suite under Vulkan validation without the strict guard, then run every
-native case with `LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1`. Do not clear the
-guard inside the compatibility tests or describe their HLSL shaders as native
-XIR output. Keep the strict runner's explicit compatibility exclusions in sync
-instead of documenting a case count that changes whenever coverage grows.
+`test_vk_spirv_codegen_path` is a mixed suite, and the typed bindless cases are
+native coverage. The typed `BUFFER_ONLY`, `TEXTURE2D_ONLY` and volume cases
+install the strict guard themselves through a scoped
+`LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1` and assert on the native
+XIR-to-SPIR-V route, so they belong in strict runs, not in an exclusion list.
+Only two cases deliberately take the compatibility route, both because an HLSL
+`native_include` block is part of the contract they pin:
+`vk_hlsl_writer_to_native_consumer_preserves_indirect_abi` and
+`vk_indirect_host_empty_plan_is_a_true_noop`. A third declared case,
+`vk_dxc_fallback_retains_typed_bindless_slot_abis`, is compiled only when
+`LUISA_TEST_VK_HAS_DXC_COMPATIBILITY` is defined; the xmake test build leaves it
+undefined, so that case is absent rather than excluded.
+Run the whole suite once under Vulkan validation without the strict guard, then
+run every remaining case individually with
+`LUISA_VULKAN_REQUIRE_NATIVE_XIR_SPIRV=1`. Do not clear the guard inside a
+nominally strict case or describe an HLSL-shader case as native XIR output.
+Keep the strict runner's explicit exclusion list synchronized with these case
+names instead of documenting a case count that changes whenever coverage grows.
 
 The Vulkan backend's shared `backend_print_code_enabled()` contract reads
 `LUISA_DUMP_SOURCE`; it does not read the obsolete
 `LUISA_COMPUTE_PRINT_CODE` variable.
+
+## Floating-point remainder
+
+`x % y` on floats is an exact numeric contract, not an optimization: it does
+not depend on `enable_fast_math`. Never lower a floating `BINARY_MOD` to
+`OpFRem`. `OpFRem` is only "x - y * trunc(x / y)" up to the implementation, so a
+driver that forms the rounded quotient loses the residue as soon as that
+quotient exceeds the significand range, and some drivers are already inexact
+for narrow and 64-bit operands with ordinary quotients. `test_hip_fmod`
+executes all three widths in both numeric modes against the host `std::fmod`
+oracle; `test_spirv_float_remainder` pins the same contract at emission time
+without a device.
+
+- binary16 widens to binary32, reuses the exact binary32 reduction, and narrows
+  once. Both the widening and the final narrowing are exact because the exact
+  remainder of two binary16 values is a binary16 value.
+- binary32 uses the exact integer-significand reduction: form
+  `sig_x * 2^(scale_x - scale_y) mod sig_y` with 64-bit modular arithmetic with
+  exponentiation by squaring, then re-encode the result bits. Significands are
+  at most 24 bits, so every intermediate product stays inside 64 bits.
+- binary64 uses a branch-free chunked reduction: for
+  `s = clamp(exponent(|x|) - exponent(|y|) - 52, 0, 2045)`, `t = |y| * 2^s`, the
+  floored quotient `floor(r / t)` is an integer below 2^53, and `r - q * t` is a
+  multiple of t's ulp strictly below t, so a single-rounding FMA reproduces it
+  exactly. The correctly rounded quotient can be one off in either direction,
+  so both `q` and `q + 1` residuals are materialized and the exact one is
+  selected; 41 chunks span the whole binary64 exponent range.
+- Do not recover a floating remainder from a rounded floating-point quotient,
+  and do not reintroduce `OpFRem` as a "fast math" variant.
 
 ## Testing expectations
 
@@ -716,6 +794,7 @@ Important targets under `src/tests/unit/ext/`:
 - `test_spirv_target_feature_codegen`
 - `test_spirv_runtime_target_plan`
 - `test_spirv_raw_float_constants`
+- `test_spirv_float_remainder`
 - `test_spirv_optimizer`
 - `test_vk_android_plan`
 - `test_vk_saved_argument_contract`

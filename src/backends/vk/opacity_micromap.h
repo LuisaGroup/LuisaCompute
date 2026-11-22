@@ -105,6 +105,34 @@ public:
         detail::OpacityMicromapBuildRequest const &request,
         VkBuffer data_buffer, size_t data_offset, size_t data_size) noexcept;
 
+    // The VkMicromapCreateInfoEXT `create_sized()` submits. Kept here, free of
+    // device state, so the structure's identity is provable without a Vulkan
+    // device.
+    //
+    // VkMicromapCreateInfoEXT is *not* a plain input structure: like every other
+    // Vulkan structure it begins with `sType`/`pNext`, and both are validated
+    // (VUID-VkMicromapCreateInfoEXT-sType-sType / -pNext-pNext). A
+    // zero-initialized create info therefore submits sType 0, and
+    // vkCreateMicromapEXT is rejected before a VkMicromapEXT exists.
+    //
+    // The storage offset is always 0 (see `storage_offset_legal()`); `size` is the
+    // `micromapSize` vkGetMicromapBuildSizesEXT reported, i.e. exactly the storage
+    // this class allocated. `deviceAddress` is 0 because createFlags never sets
+    // VK_MICROMAP_CREATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT_EXT.
+    [[nodiscard]] static VkMicromapCreateInfoEXT make_create_info(
+        VkBuffer storage_buffer, VkDeviceSize storage_size) noexcept {
+        VkMicromapCreateInfoEXT info{};
+        info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
+        info.pNext = nullptr;
+        info.createFlags = 0u;
+        info.buffer = storage_buffer;
+        info.offset = 0u;
+        info.size = storage_size;
+        info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+        info.deviceAddress = 0u;
+        return info;
+    }
+
     ~OpacityMicromap();
     OpacityMicromap(OpacityMicromap const &) = delete;
     OpacityMicromap &operator=(OpacityMicromap const &) = delete;
@@ -155,12 +183,22 @@ private:
     // address. Host-visible on purpose: the host build takes host addresses, and
     // the device build takes the same memory through its device address, so one
     // allocation serves both build modes.
+    //
+    // `mapped`/`address` point at the first byte the micromap commands may use,
+    // not at the buffer base: the build input and scratch addresses have an
+    // alignment floor (VUID-vkCmdBuildMicromapsEXT-pInfos-07515 for
+    // data/triangleArray, -07514 for scratchData) that a driver does not
+    // guarantee for an arbitrary suballocation, so `create_mapped_buffer()`
+    // allocates `alignment - 1` bytes of headroom and reports the aligned start.
+    // `headroom` is the number of bytes skipped and is the destination offset of
+    // the vkCmdCopyBuffer that installs the packed bits.
     struct MappedBuffer {
         VkBuffer buffer{VK_NULL_HANDLE};
         VmaAllocation allocation{};
         void *mapped{nullptr};
         VkDeviceAddress address{0u};
         size_t size{0u};
+        size_t headroom{0u};
     };
 
     Device *_device{nullptr};
@@ -189,8 +227,13 @@ private:
     // a micromap triangle is derivable from the plan, never from the baked bits.
     void fill_triangle_records() noexcept;
 
+    // Allocates one mapped, device-addressable buffer of `size` usable bytes whose
+    // `address`/`mapped` start is a multiple of `alignment` (0 and 1 both mean "no
+    // alignment floor"). `size` is the usable size: the allocation itself carries
+    // up to `alignment - 1` bytes of headroom in front of it.
     [[nodiscard]] MappedBuffer create_mapped_buffer(
-        VkBufferUsageFlags usage, size_t size) noexcept;
+        VkBufferUsageFlags usage, size_t size,
+        uint64_t alignment = 1u) noexcept;
     void destroy_mapped_buffer(MappedBuffer &buffer) noexcept;
     // Fills data/scratch/triangleArray of a VkMicromapBuildInfoEXT for the
     // selected build mode.

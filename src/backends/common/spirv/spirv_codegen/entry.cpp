@@ -490,8 +490,17 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
     }
     luisa_spirv_validate(words, "pre-optimization");
     report_phase("pre-optimization validation");
+    // The optimizer's numeric policy is explicit: only the DECISION to run the
+    // fast-math-only stages comes from the shader option, and the contraction
+    // output form comes from the negotiated shaderFmaFloat32 feature. The
+    // passes still honor the emitted module: FmaContractionPass keeps
+    // NoContraction as a per-instruction veto and propagates RelaxedPrecision,
+    // so these flags never override a decoration the emitter wrote.
+    auto optimizer_options = spirv_optimizer_options_from_environment();
+    optimizer_options.enable_fast_math = opt.enable_fast_math;
+    optimizer_options.use_khr_fma = target_features.shader_fma_float32;
     auto optimizer_report = optimize_spirv(
-        words, spirv_optimizer_options_from_environment());
+        words, std::move(optimizer_options));
     report_phase("SPIR-V optimization");
     if (!optimizer_report.attempted) {
         LUISA_INFO("SPIR-V optimization skipped (preset={})",
@@ -508,11 +517,19 @@ SpirvResult SpirvCodegenEntry::compile_spirv_xir(
                           optimizer_report.diagnostics);
         }
         LUISA_INFO(
-            "SPIR-V optimization preset '{}' completed: {} -> {} words{}",
+            "SPIR-V optimization preset '{}' completed: {} -> {} words{}{}",
             optimizer_report.effective_preset,
             optimizer_report.input_word_count,
             optimizer_report.output_word_count,
-            optimizer_report.changed ? " (changed)" : " (unchanged)");
+            optimizer_report.changed ? " (changed)" : " (unchanged)",
+            // applied means the post-FMA stage really rewrote the binary;
+            // attempted without applied is a successful no-op, e.g. when a
+            // NoContraction decoration vetoes every candidate.
+            optimizer_report.fma_contraction_applied ?
+                " + fma-contraction" :
+                (optimizer_report.fma_contraction_attempted ?
+                     " (fma-contraction no-op)" :
+                     ""));
     }
     luisa_spirv_validate(words, "post-optimization");
     report_phase("post-optimization validation");

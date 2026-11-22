@@ -20,6 +20,112 @@ namespace luisa::compute {
  * item and outputs the rest of the data according to the fmt string.
  */
 
+namespace detail {
+
+/*
+ * The printer payload uses the Luisa type layout: every aggregate is placed at
+ * its own alignment and advances by its own size; a matrix stores its columns
+ * back to back, each column being a vector of the matrix dimension. The host
+ * decoder below and every device-side emitter must agree on this walk, so it
+ * lives in exactly one place and is shared by all of them.
+ */
+
+/// One aggregate step of the access path from a print argument to a nested value.
+struct ShaderPrintPathStep {
+    const Type *container;///< structure or array that owns the nested value
+    uint32_t index;       ///< member index (structure) or element index (array)
+};
+
+/// A matrix-typed sub-value of the printer payload.
+struct ShaderPrintMatrixField {
+    size_t offset;                          ///< byte offset of the first column within the payload
+    size_t column_stride;                   ///< bytes between two consecutive columns
+    const Type *type;                       ///< matrix type; element()/dimension() describe a column
+    uint32_t argument_index;                ///< index of the owning print argument
+    luisa::vector<ShaderPrintPathStep> path;///< aggregate nesting inside that argument
+};
+
+/// Walks the printer payload layout of \p type starting at byte \p offset.
+/// \p text receives the structural literals, \p leaf every scalar leaf, and
+/// \p matrix every matrix-typed sub-value. \p path is the current aggregate nesting.
+template<typename TextFn, typename LeafFn, typename MatrixFn>
+void traverse_shader_print_layout(Type const *type, size_t offset,
+                                  luisa::vector<ShaderPrintPathStep> &path,
+                                  TextFn &&text, LeafFn &&leaf, MatrixFn &&matrix) noexcept {
+    offset = luisa::align(offset, type->alignment());
+    if (type->is_scalar()) {
+        leaf(offset, type->tag());
+    } else if (type->is_vector() || type->is_array()) {
+        auto is_vector = type->is_vector();
+        text(is_vector ? "(" : "[");
+        auto elem = type->element();
+        for (auto i = 0u; i < type->dimension(); i++) {
+            if (is_vector) {
+                traverse_shader_print_layout(elem, offset, path, text, leaf, matrix);
+            } else {
+                path.push_back(ShaderPrintPathStep{type, i});
+                traverse_shader_print_layout(elem, offset, path, text, leaf, matrix);
+                path.pop_back();
+            }
+            if (i + 1u < type->dimension()) { text(", "); }
+            offset += elem->size();
+        }
+        text(is_vector ? ")" : "]");
+    } else if (type->is_matrix()) {
+        text("<");
+        auto column = Type::vector(type->element(), type->dimension());
+        matrix(offset, type, column->size());
+        for (auto i = 0u; i < type->dimension(); i++) {
+            traverse_shader_print_layout(column, offset, path, text, leaf, matrix);
+            if (i + 1u < type->dimension()) { text(", "); }
+            offset += column->size();
+        }
+        text(">");
+    } else if (type->is_structure()) {
+        text("{");
+        for (auto i = 0u; i < type->members().size(); i++) {
+            auto member = type->members()[i];
+            path.push_back(ShaderPrintPathStep{type, i});
+            traverse_shader_print_layout(member, offset, path, text, leaf, matrix);
+            path.pop_back();
+            if (i + 1u < type->members().size()) { text(", "); }
+            offset += member->size();
+        }
+        text("}");
+    } else {
+        LUISA_ERROR_WITH_LOCATION(
+            "Invalid argument type '{}' for printing.",
+            type->description());
+    }
+}
+
+/// Enumerates every matrix-typed sub-value of a print argument pack.
+[[nodiscard]] inline luisa::vector<ShaderPrintMatrixField>
+shader_print_matrix_fields(luisa::span<Type const *const> arguments) noexcept {
+    luisa::vector<ShaderPrintMatrixField> fields;
+    luisa::vector<ShaderPrintPathStep> path;
+    auto offset = size_t{0u};
+    auto noop_text = [](luisa::string_view) noexcept {};
+    auto noop_leaf = [](size_t, Type::Tag) noexcept {};
+    for (auto i = 0u; i < arguments.size(); i++) {
+        auto arg = arguments[i];
+        offset = luisa::align(offset, arg->alignment());
+        auto on_matrix = [&](size_t matrix_offset, Type const *type, size_t stride) noexcept {
+            fields.emplace_back(ShaderPrintMatrixField{
+                .offset = matrix_offset,
+                .column_stride = stride,
+                .type = type,
+                .argument_index = i,
+                .path = path});
+        };
+        traverse_shader_print_layout(arg, offset, path, noop_text, noop_leaf, on_matrix);
+        offset += arg->size();
+    }
+    return fields;
+}
+
+}// namespace detail
+
 class ShaderPrintFormatter {
 
 public:
@@ -72,74 +178,19 @@ public:
                     LUISA_ASSERT(!args.empty(), "Not enough arguments for shader printer.");
                     auto arg = args.front();
                     args = args.subspan(1u);
-                    auto encode = [this, &s, &commit_s](auto &&self, size_t offset, const Type *arg) noexcept -> void {
-                        offset = luisa::align(offset, arg->alignment());
-                        if (arg->is_scalar()) {
-                            _offsets.push_back(offset);
-                            _primitives.emplace_back(arg->tag());
-                        } else if (arg->is_vector()) {
-                            s.push_back('(');
+                    luisa::vector<detail::ShaderPrintPathStep> path;
+                    detail::traverse_shader_print_layout(
+                        arg, offset, path,
+                        [&s, &commit_s](luisa::string_view text) noexcept {
+                            s.append(text);
                             commit_s();
-                            for (auto i = 0u; i < arg->dimension(); i++) {
-                                self(self, offset, arg->element());
-                                if (i + 1u < arg->dimension()) {
-                                    s.append(", ");
-                                    commit_s();
-                                }
-                                offset += arg->element()->size();
-                            }
-                            s.push_back(')');
-                            commit_s();
-                        } else if (arg->is_array()) {
-                            s.push_back('[');
-                            commit_s();
-                            for (auto i = 0u; i < arg->dimension(); i++) {
-                                self(self, offset, arg->element());
-                                if (i + 1u < arg->dimension()) {
-                                    s.append(", ");
-                                    commit_s();
-                                }
-                                offset += arg->element()->size();
-                            }
-                            s.push_back(']');
-                            commit_s();
-                        } else if (arg->is_matrix()) {
-                            s.push_back('<');
-                            commit_s();
-                            auto column = Type::vector(arg->element(), arg->dimension());
-                            for (auto i = 0u; i < arg->dimension(); i++) {
-                                self(self, offset, column);
-                                if (i + 1u < arg->dimension()) {
-                                    s.append(", ");
-                                    commit_s();
-                                }
-                                offset += column->size();
-                            }
-                            s.push_back('>');
-                            commit_s();
-                        } else if (arg->is_structure()) {
-                            s.push_back('{');
-                            commit_s();
-                            for (auto i = 0u; i < arg->members().size(); i++) {
-                                auto member = arg->members()[i];
-                                self(self, offset, member);
-                                if (i + 1u < arg->members().size()) {
-                                    s.append(", ");
-                                    commit_s();
-                                }
-                                offset += member->size();
-                            }
-                            s.push_back('}');
-                            commit_s();
-                        } else {
-                            LUISA_ERROR_WITH_LOCATION(
-                                "Invalid argument type '{}' for printing.",
-                                arg->description());
-                        }
-                    };
-                    offset = luisa::align(offset, arg->alignment());
-                    encode(encode, offset, arg);
-                    offset += arg->size();
+                        },
+                        [this](size_t leaf_offset, Type::Tag tag) noexcept {
+                            _offsets.push_back(leaf_offset);
+                            _primitives.emplace_back(tag);
+                        },
+                        [](size_t, const Type *, size_t) noexcept {});
+                    offset = luisa::align(offset, arg->alignment()) + arg->size();
                     f.clear();
                 } else {// not in a format group, only escape is allowed
                     if (fmt.front() == '}') {

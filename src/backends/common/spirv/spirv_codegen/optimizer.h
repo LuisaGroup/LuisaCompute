@@ -15,6 +15,20 @@ namespace lc::spirv {
 struct SpirvOptimizerOptions {
     int level{2};
     luisa::string preset;
+    // Explicit numeric policy, forwarded from ShaderOption::enable_fast_math.
+    // It gates the DECISION to run the two DXC-parity stages that are not
+    // bit-exact IEEE transforms: the tail FloatDivOptPass and the
+    // post-convergence FMA contraction stage. It does not fold either decision
+    // into the emitted module's decorations, and it does not override them:
+    // FmaContractionPass still reads NoContraction as a per-instruction veto and
+    // still propagates RelaxedPrecision, and strict math is never inferred back
+    // from those decorations.
+    bool enable_fast_math{false};
+    // Output form of the post-convergence contraction stage, forwarded from
+    // SpirvTargetFeatures::shader_fma_float32. True selects OpFmaKHR
+    // (SPV_KHR_fma), false selects GLSL.std.450 Fma; this mirrors DXC's
+    // useKhrFma argument.
+    bool use_khr_fma{false};
 };
 
 struct SpirvOptimizerReport {
@@ -27,14 +41,37 @@ struct SpirvOptimizerReport {
     bool attempted{false};
     bool succeeded{true};
     bool changed{false};
+    // The DXC-parity presets always register both the stock
+    // explicit-Unroll-only unroll pass and DXC's tail automatic unroll pass, so
+    // this field reports that the loop-unroll analysis is part of the pipeline
+    // rather than whether the input happened to request unrolling.
     bool loop_unroll_registered{false};
     bool capability_trim_registered{false};
     bool output_validated{false};
-    // Fixed-point iteration state (DXC mirrors this loop, <= 5 iterations).
+    // DXC's post-convergence contraction stage: a second optimizer runs exactly
+    // CreateFmaContractionPass -> CreateEliminateDeadConstantPass ->
+    // CreateCompactIdsPass, once and outside the fixed-point loop, for the
+    // DXC-parity presets and only when explicit fast-math policy is enabled.
+    // These passes are not part of `registered_passes`, which lists the
+    // iterated pipeline only.
+    //
+    // `fma_contraction_attempted` records that the stage ran; it is therefore
+    // true in fast-math mode even when nothing is contractable. Since the
+    // contraction pass honors NoContraction and RelaxedPrecision, a successful
+    // stage is not proof of a change, so `fma_contraction_applied` is true only
+    // when the stage's output bytes differ from the pre-stage optimized bytes.
+    // `applied` is cleared whenever the stage itself, or the final validation,
+    // rolls the whole optimization back to the caller's input; `attempted`
+    // keeps recording that the stage ran.
+    bool fma_contraction_attempted{false};
+    bool fma_contraction_applied{false};
+    // Fixed-point iteration state (DXC's kSpirvOptMaxIterations is 8).
     size_t iterations{0u};
     bool converged{false};
-    size_t max_iterations{5u};
-    // Every registered pass name in registration order (observability).
+    size_t max_iterations{8u};
+    // Every registered pass name of the iterated pipeline in registration
+    // order (observability). Stock RegisterPerformancePasses entries are
+    // flattened in place so the complete sequence is inspectable.
     luisa::vector<luisa::string> registered_passes;
 };
 

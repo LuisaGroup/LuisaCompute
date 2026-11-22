@@ -62,6 +62,41 @@ public:
     [[nodiscard]] auto element_offset() const noexcept { return _element_offset; }
 };
 
+// A group of sub-word SoA elements shares one 32-bit word. Boolean lanes
+// occupy one byte each, holding 0x00 or 0x01, in ascending byte order, which is
+// the byte layout the existing HLSL bit-cast helpers (`Bool4AsInt` and
+// `IntAsBool4`) already define for boolean groups. XIR deliberately has no
+// bit-preserving cast that involves boolean values, because no backend can
+// reinterpret a register-level boolean pattern, so the group is assembled and
+// disassembled with ordinary integer widening, shifts, and a nonzero test
+// instead of a bitwise cast.
+[[nodiscard]] inline Expr<uint> soa_pack_bool_bytes(Expr<bool> b0) noexcept {
+    return cast<uint>(std::move(b0));
+}
+
+[[nodiscard]] inline Expr<uint> soa_pack_bool_bytes(
+    Expr<bool> b0, Expr<bool> b1) noexcept {
+    return soa_pack_bool_bytes(std::move(b0)) |
+           (cast<uint>(std::move(b1)) << 8u);
+}
+
+[[nodiscard]] inline Expr<uint> soa_pack_bool_bytes(
+    Expr<bool> b0, Expr<bool> b1, Expr<bool> b2) noexcept {
+    return soa_pack_bool_bytes(std::move(b0), std::move(b1)) |
+           (cast<uint>(std::move(b2)) << 16u);
+}
+
+[[nodiscard]] inline Expr<uint> soa_pack_bool_bytes(
+    Expr<bool> b0, Expr<bool> b1, Expr<bool> b2, Expr<bool> b3) noexcept {
+    return soa_pack_bool_bytes(std::move(b0), std::move(b1), std::move(b2)) |
+           (cast<uint>(std::move(b3)) << 24u);
+}
+
+[[nodiscard]] inline Expr<bool> soa_unpack_bool_byte(
+    Expr<uint> word, size_t byte_index) noexcept {
+    return ((std::move(word) >> static_cast<uint>(byte_index * 8u)) & 0xffu) != 0u;
+}
+
 }// namespace detail
 
 template<typename T>
@@ -89,19 +124,31 @@ public:
             auto i = soa_offset() + std::forward<I>(index) + element_offset();
             auto x = buffer().read(i);
             if constexpr (sizeof(T) == sizeof(uint)) {
-                return x.template as<T>();
+                if constexpr (std::is_same_v<T, bool4>) {
+                    return make_bool4(detail::soa_unpack_bool_byte(x, 0u),
+                                      detail::soa_unpack_bool_byte(x, 1u),
+                                      detail::soa_unpack_bool_byte(x, 2u),
+                                      detail::soa_unpack_bool_byte(x, 3u));
+                } else {
+                    return x.template as<T>();
+                }
             } else if constexpr (sizeof(T) * 2u == sizeof(uint)) {// 16bit
                 if constexpr (is_scalar_v<T>) {
                     auto u = x.template as<Vector<T, 2u>>();
                     return u.x;
                 } else {
                     static_assert(std::is_same_v<T, bool2>);
-                    return x.template as<bool4>().xy();
+                    return make_bool2(detail::soa_unpack_bool_byte(x, 0u),
+                                      detail::soa_unpack_bool_byte(x, 1u));
                 }
             } else if constexpr (sizeof(T) * 4u == sizeof(uint)) {// 8bit
                 static_assert(is_scalar_v<T>);
-                auto u = x.template as<Vector<T, 4u>>();
-                return u.x;
+                if constexpr (std::is_same_v<T, bool>) {
+                    return detail::soa_unpack_bool_byte(x, 0u);
+                } else {
+                    auto u = x.template as<Vector<T, 4u>>();
+                    return u.x;
+                }
             } else {// unreachable
                 static_assert(sizeof(T) == sizeof(uint));
             }
@@ -126,7 +173,12 @@ public:
         if constexpr (element_stride == 1u) {
             auto i = soa_offset() + std::forward<I>(index) + element_offset();
             if constexpr (sizeof(T) == sizeof(uint)) {
-                buffer().write(i, value.template as<uint>());
+                if constexpr (std::is_same_v<T, bool4>) {
+                    buffer().write(i, detail::soa_pack_bool_bytes(
+                                          value.x, value.y, value.z, value.w));
+                } else {
+                    buffer().write(i, value.template as<uint>());
+                }
             } else if constexpr (sizeof(T) * 2u == sizeof(uint)) {// 16bit
                 if constexpr (is_scalar_v<T>) {
                     auto u = def<Vector<T, 2u>>();
@@ -134,14 +186,18 @@ public:
                     buffer().write(i, u.template as<uint>());
                 } else {
                     static_assert(std::is_same_v<T, bool2>);
-                    auto u = make_bool4(value, make_bool2());
-                    buffer().write(i, u.template as<uint>());
+                    buffer().write(i, detail::soa_pack_bool_bytes(
+                                          value.x, value.y));
                 }
             } else if constexpr (sizeof(T) * 4u == sizeof(uint)) {
                 static_assert(is_scalar_v<T>);
-                auto u = def<Vector<T, 4u>>();
-                u.x = value;
-                buffer().write(i, u.template as<uint>());
+                if constexpr (std::is_same_v<T, bool>) {
+                    buffer().write(i, detail::soa_pack_bool_bytes(value));
+                } else {
+                    auto u = def<Vector<T, 4u>>();
+                    u.x = value;
+                    buffer().write(i, u.template as<uint>());
+                }
             } else {// unreachable
                 static_assert(sizeof(T) == sizeof(uint));
             }

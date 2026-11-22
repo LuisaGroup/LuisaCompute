@@ -35,6 +35,11 @@ struct InlineInfo {
     size_t skipped_declaration_call_count{0u};
     size_t rejected_malformed_call_count{0u};
     size_t skipped_costly_callable_count{0u};
+    // Multi-block callees whose control flow reaches the exit from more than one
+    // path (i.e. early returns) are only cloned into callers that do not execute
+    // convergence-sensitive operations when `preserve_invocation_convergence` is
+    // set. See InlineOptions.
+    size_t skipped_convergence_call_count{0u};
     // Diagnostic work counts for call-site preflight and application.
     // These do not participate in changed().
     size_t call_site_summary_function_count{0u};
@@ -78,6 +83,22 @@ struct InlineOptions {
     // semantic. Mandatory backend ABI legalization may explicitly override it;
     // ordinary and inline-all optimization preserve it by default.
     bool override_noinline{false};
+    // Cloning a callee that reaches its exit from more than one path (an early
+    // `return`) turns every statement of the caller after the call site into
+    // conditionally executed code: the continuation becomes a block with
+    // predecessors inside the callee's former control flow. Backends that must
+    // rebuild structured control flow afterwards (the SPIR-V XIR-to-SPIR-V
+    // route, whose restructurer materializes such a continuation as a
+    // data-dependent one-shot loop) then execute those statements under a
+    // *per-invocation* condition. Subgroup collectives (`WARP_*`) and block
+    // barriers require all invocations of the scope to be active at the same
+    // dynamic instance, so they must never be moved into such a region. When
+    // this option is set, a multi-block callee that can exit early is not
+    // inlined into a caller that executes one of those operations; the call is
+    // preserved, which is itself a reconvergence point. Single-block callees
+    // have exactly one exit path and are unaffected, as are callers without
+    // convergence-sensitive operations.
+    bool preserve_invocation_convergence{false};
 };
 
 // Single-block callees can be inlined into structured callers without changing
@@ -93,6 +114,7 @@ struct InlineOptions {
 // function/argument names are debug declarations and are not materialized into
 // the inline region.
 [[nodiscard]] LUISA_XIR_API InlineInfo inline_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
+[[nodiscard]] LUISA_XIR_API InlineInfo inline_pass_run_on_module(Module *module, InlineOptions options, PassReport *report = nullptr) noexcept;
 [[nodiscard]] LUISA_XIR_API InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 [[nodiscard]] LUISA_XIR_API InlineInfo inline_all_pass_run_on_module(Module *module, InlineOptions options, PassReport *report = nullptr) noexcept;
 

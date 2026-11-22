@@ -105,6 +105,26 @@ Follow the inliner's actual contract:
 - Destructure caller and callee, then run `inline_all` immediately. Do not
   insert cleanup, SSA, or another CFG pass between those two steps. This
   enables eligible multi-block call sites.
+- Opt in to `InlineOptions::preserve_invocation_convergence` when the consumer
+  rebuilds structured control flow from the destructured CFG. The SPIR-V
+  XIR-to-SPIR-V legalization `inline` step
+  (`src/backends/common/spirv/spirv_codegen/utils.cpp:973-979`) is the only
+  pipeline that sets it; every other call keeps the `false` default. With the
+  option set, a multi-block callee that can exit early (more than one
+  `ReturnInst`, or a single return block that has more than one predecessor
+  after `spill_early_returns`) is not inlined into a caller that executes a
+  subgroup collective (`WARP_*`) or `SYNCHRONIZE_BLOCK`. Cloning it would make
+  every statement after the call site per-invocation conditional, and
+  `restructure_cfg` can express such a continuation only as a guarded region,
+  where a collective runs with a partially active scope and SPIR-V leaves the
+  result undefined. The call is preserved, which is itself a reconvergence
+  point, and counted in `InlineInfo::skipped_convergence_call_count`
+  (pass-report key `skipped_convergence_call`). Single-block callees and
+  callers without convergence-sensitive operations are still inlined.
+  `test_xir_passes` pins the contract with focused cases (subgroup collective,
+  block barrier, still-inlines-without-collective, opt-in default,
+  single-block unaffected) and `test_fp4_quantization vk` covers it
+  end-to-end.
 - Treat a nonzero `rejected_malformed_call_count` as a hard error in backend
   normalization; a zero inlined-call count by itself is not a failure.
 - In ordinary lowering, run `mem2reg` right after `inline_all` to remove

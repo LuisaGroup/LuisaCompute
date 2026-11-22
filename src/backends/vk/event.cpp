@@ -186,8 +186,51 @@ void Event::_wait(Stream &stream, uint64_t value) {
     auto config_ext = device()->config_ext();
     if (!(config_ext && config_ext->wait_semaphore(
                             stream.queue(), _semaphore, value))) {
+        // This submission only waits on the timeline, so the host cannot observe
+        // its completion through a timeline value or a later signal: it needs a
+        // fence of its own. Retiring that fence before the semaphore is destroyed
+        // is what keeps the batch from still referring to it at destroy time
+        // (VUID-vkDestroySemaphore-semaphore-05149).
+        _reap_wait_fences(false);
+        VkFenceCreateInfo fence_info{};
+        fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence fence{};
+        VK_CHECK_RESULT(vkCreateFence(
+            device()->logic_device(), &fence_info, Device::alloc_callbacks(), &fence));
         VK_CHECK_RESULT(vkQueueSubmit(
-            stream.queue(), 1, &info1, VK_NULL_HANDLE));
+            stream.queue(), 1, &info1, fence));
+        _wait_fences.emplace_back(fence);
+    }
+}
+void Event::_reap_wait_fences(bool wait_for_pending) noexcept {
+    if (_wait_fences.empty()) { return; }
+    auto device_handle = device()->logic_device();
+    if (wait_for_pending) {
+        VK_CHECK_RESULT(vkWaitForFences(
+            device_handle, static_cast<uint32_t>(_wait_fences.size()),
+            _wait_fences.data(), VK_TRUE,
+            std::numeric_limits<uint64_t>::max()));
+        for (auto fence : _wait_fences) {
+            vkDestroyFence(device_handle, fence, Device::alloc_callbacks());
+        }
+        _wait_fences.clear();
+        return;
+    }
+    // Poll before recording another pending wait, so a long-lived timeline that is
+    // waited on many times keeps this list bounded by the waits still in flight.
+    for (size_t i = 0u; i < _wait_fences.size();) {
+        auto status = vkGetFenceStatus(device_handle, _wait_fences[i]);
+        LUISA_ASSERT(
+            status == VK_SUCCESS || status == VK_NOT_READY,
+            "vkGetFenceStatus failed on a Vulkan event wait fence: {}.",
+            static_cast<int>(status));
+        if (status != VK_SUCCESS) {
+            i++;
+            continue;
+        }
+        vkDestroyFence(device_handle, _wait_fences[i], Device::alloc_callbacks());
+        _wait_fences[i] = _wait_fences.back();
+        _wait_fences.pop_back();
     }
 }
 void Event::_host_wait(uint64_t value) {
@@ -218,6 +261,11 @@ void Event::sync(uint64_t value) {
 Event::~Event() {
     sync(_last_fence);
     _host_wait(_signaled_event.load(std::memory_order_relaxed));
+    // A batch that only waited on this timeline still refers to the semaphore until
+    // it retires, so every queued wait submission has to be drained first: a
+    // semaphore may only be destroyed once all submitted batches that refer to it
+    // have completed execution (VUID-vkDestroySemaphore-semaphore-05149).
+    _reap_wait_fences(true);
     vkDestroySemaphore(device()->logic_device(), _semaphore, Device::alloc_callbacks());
 }
 }// namespace lc::vk

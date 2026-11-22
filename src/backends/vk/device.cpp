@@ -9,6 +9,7 @@
 #include <luisa/ast/op.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/memory.h>
 #include "log.h"
 #include <luisa/vstl/config.h>
 #include <luisa/core/binary_file_stream.h>
@@ -719,7 +720,13 @@ ResourceCreationInfo Device::create_opacity_micromap(
 void Device::destroy_opacity_micromap(uint64_t handle) noexcept {
     // Unlike a texture the micromap holds no per-stream state, so there is no
     // `remove_resource_state` to mirror here: it is just the object.
-    delete reinterpret_cast<OpacityMicromap *>(handle);
+    //
+    // The object is created with `new_with_allocator` (see
+    // `OpacityMicromap::create_sized`), so it has to be released with the
+    // matching allocator. A plain `delete` would hand a block that luisa's
+    // allocator owns to the CRT heap, which corrupts the heap and aborts the
+    // process in the middle of a test.
+    luisa::delete_with_allocator(reinterpret_cast<OpacityMicromap *>(handle));
 }
 
 uint32_t Device::opacity_micromap_max_subdivision_level(bool four_state) noexcept {

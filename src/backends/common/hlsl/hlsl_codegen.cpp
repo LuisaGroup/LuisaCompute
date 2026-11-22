@@ -2,6 +2,7 @@
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 #include "../env_flag.h"
+#include "../shader_print_formatter.h"
 #include <luisa/core/stl/format.h>
 #include <algorithm>
 #include <cmath>
@@ -1663,7 +1664,13 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         auto element = expr->type()->is_vector() ?
                            expr->type()->element() :
                            expr->type();
-        str << ((!util->opt->enable_fast_math && element->is_float32()) ?
+        // The floating-point remainder is an exact numeric contract in every
+        // numeric mode, not an optimization: `fmod` is only
+        // "x - y * trunc(x / y)" up to the target implementation, and the
+        // software binary32 routine below is already fast-math agnostic
+        // (integer bit manipulation plus a final bitcast), so fast math must
+        // not fall back to the inexact intrinsic.
+        str << (element->is_float32() ?
                     "_lc_fmod("sv :
                     "fmod("sv);
         expr->lhs()->accept(*this);
@@ -2413,6 +2420,38 @@ void StringStateVisitor::visit(const PrintStmt *stmt) {
         str << ");\n"sv
             << "_printBuffer.Store("sv
             << counterName << '+' + vstd::to_string(align) + ',' << dataName << ");\n"sv;
+        // The whole-struct store above uses the compiler's natural aggregate
+        // layout, which is target-dependent for matrix members: DXC->DXIL
+        // stores matrices row-major with 16B-major-vector padding (the Luisa
+        // layout), while DXC->SPIR-V stores them column-major with tightly
+        // packed columns. The printer ABI is the Luisa layout (columns back to
+        // back, each padded to its vector size), so every matrix field is
+        // rewritten column by column at its exact offsets. A matrix row in the
+        // HLSL representation is exactly one Luisa column, and its byte width
+        // (float2/float4/half2/half4/double2/...) is exactly the Luisa column
+        // size, so each store is width-exact and layout-independent.
+        for (auto &&field : compute::detail::shader_print_matrix_fields(types)) {
+            vstd::string access = dataName;
+            access += ".v";
+            vstd::to_string(field.argument_index, access);
+            for (auto &&step : field.path) {
+                if (step.container->is_structure()) {
+                    access += ".v";
+                    vstd::to_string(step.index, access);
+                } else {
+                    access += ".v[";
+                    vstd::to_string(step.index, access);
+                    access += ']';
+                }
+            }
+            for (auto i = 0u; i < field.type->dimension(); i++) {
+                str << "_printBuffer.Store("sv << counterName << '+';
+                vstd::to_string(align + field.offset + i * field.column_stride, str);
+                str << ',' << access << '[';
+                vstd::to_string(i, str);
+                str << "]);\n"sv;
+            }
+        }
         printCount++;
     }
     str << "}\n"sv;

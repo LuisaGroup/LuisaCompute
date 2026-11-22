@@ -962,8 +962,18 @@ void add_fix_self_referential(xir::PassPipeline &pipeline) noexcept {
     if (optimize) {
         // This ordering is intentional: inlining structured multi-block
         // callables before destructure_cfg changes their control ownership.
+        // The module is already destructured here, so cloning a callee that can
+        // exit early turns every statement after the call site into per-invocation
+        // control flow: the continuation gains predecessors inside the callee's
+        // former CFG and restructure_cfg can only rebuild it as a guarded region.
+        // Subgroup collectives and block barriers inside that region would then run
+        // with a partially active scope, which SPIR-V leaves undefined, so such
+        // calls are kept as calls (a call reconverges every invocation that
+        // reaches it).
         pipeline.add("inline", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::inline_pass_run_on_module(m, &r);
+            auto options = xir::InlineOptions{};
+            options.preserve_invocation_convergence = true;
+            auto i = xir::inline_pass_run_on_module(m, options, &r);
             return i.changed();
         });
         pipeline.add_sequence(

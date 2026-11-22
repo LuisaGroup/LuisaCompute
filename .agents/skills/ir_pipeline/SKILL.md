@@ -163,7 +163,16 @@ Apply these constraints when they match the selected passes:
    callee in a structured caller, but rejects multi-block calls when either
    caller or callee still contains structured control flow. When normalizing
    autodiff, pass `InlineOptions{.allow_autodiff_scope_in_caller = true}`.
-   Treat `rejected_malformed_call_count` as a hard pipeline error.
+   When the consumer restructures the CFG again after inlining, also pass
+   `InlineOptions{.preserve_invocation_convergence = true}`: a multi-block
+   callee that can exit early is then kept as a call instead of being cloned
+   into a caller that executes a subgroup collective or `SYNCHRONIZE_BLOCK`.
+   Cloning would turn the caller's continuation into per-invocation control
+   flow, which `restructure_cfg` can only rebuild as a guarded region, so the
+   collective would run with a partially active scope. The SPIR-V
+   XIR-to-SPIR-V legalization step is the current opt-in; the default is
+   `false`, so CUDA/HIP/fallback, Metal4 and the autodiff pipelines are
+   unchanged. Treat `rejected_malformed_call_count` as a hard pipeline error.
 3. In the ordinary lowering phase, run `mem2reg` after `inline_all`: the
    inliner can create argument and return-value temporaries that promotion
    should remove before SSA optimization. Metal4 inserts

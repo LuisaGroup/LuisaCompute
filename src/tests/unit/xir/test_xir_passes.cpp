@@ -244,17 +244,17 @@ void reg_pass_entry_totality() {
         check_zero_report(2u, [](PassReport *report) noexcept {
             (void)indvar_simplify_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(33u, [](PassReport *report) noexcept {
+        check_zero_report(34u, [](PassReport *report) noexcept {
             (void)inline_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(33u, [](PassReport *report) noexcept {
+        check_zero_report(34u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(nullptr, report);
         });
-        check_zero_report(33u, [](PassReport *report) noexcept {
+        check_zero_report(34u, [](PassReport *report) noexcept {
             (void)inline_all_pass_run_on_module(
                 nullptr, InlineOptions{}, report);
         });
-        check_zero_report(33u, [](PassReport *report) noexcept {
+        check_zero_report(34u, [](PassReport *report) noexcept {
             (void)inline_call_sites_pass_run_on_module(
                 nullptr, luisa::span<CallInst *const>{},
                 InlineOptions{}, report);
@@ -8125,15 +8125,15 @@ void reg_inline() {
     "inline_null_entry_points_are_total_and_report_zero"_test = [] {
         PassReport report;
         expect(!inline_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 33u);
+        expect(report.entries().size() == 34u);
         report.clear();
         expect(!inline_all_pass_run_on_module(nullptr, &report).changed());
-        expect(report.entries().size() == 33u);
+        expect(report.entries().size() == 34u);
         report.clear();
         expect(!inline_call_sites_pass_run_on_module(
                     nullptr, luisa::span<CallInst *const>{}, {}, &report)
                     .changed());
-        expect(report.entries().size() == 33u);
+        expect(report.entries().size() == 34u);
     };
 
     "inline_bodyless_callable_declaration_is_never_inlined"_test = [] {
@@ -9014,6 +9014,152 @@ void reg_inline() {
         expect(info.skipped_structured_call_count == 1u);
         expect(call->is_linked());
         expect(resume->is_linked());
+    };
+
+    // ---- invocation convergence ----
+    // A destructured callee: flat conditional branch, two ReturnInsts in
+    // different blocks and therefore two exit paths. This is the shape a callee
+    // has after `destructure_cfg` spilled its early returns, which is exactly
+    // when the SPIR-V route inlines it.
+    auto make_early_return_callee = [](Module &m) noexcept {
+        auto *callee = m.create_callable(Type::of<uint>());
+        auto *condition = callee->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(callee->create_body_block());
+        auto *zero = m.create_constant_zero(Type::of<uint>());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        auto *true_block = callee->create_basic_block();
+        auto *false_block = callee->create_basic_block();
+        b.cond_br(condition, true_block, false_block);
+        b.set_insertion_point(true_block);
+        b.return_(zero);
+        b.set_insertion_point(false_block);
+        b.return_(one);
+        return callee;
+    };
+    // The caller stores the collected value so that the kernel itself stays
+    // void-returning, exactly like a real warp-reduced kernel.
+    auto make_caller = [](Module &m, xir::Function *callee, bool with_collective,
+                          bool with_barrier) noexcept {
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        auto *condition = caller->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(caller_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), callee, {condition});
+        Value *result = call;
+        if (with_collective) {
+            result = b.call(Type::of<uint>(),
+                            ThreadGroupOp::WARP_ACTIVE_SUM, {result});
+        }
+        if (with_barrier) {
+            b.call(nullptr, ThreadGroupOp::SYNCHRONIZE_BLOCK, {});
+        }
+        b.store(storage, result);
+        b.return_void();
+        return std::pair{caller, call};
+    };
+
+    // A callee that reaches its exit from more than one path (an early return)
+    // cannot be cloned into a caller that executes a subgroup collective: every
+    // statement after the call would become per-invocation conditional, and the
+    // collective would then run with a partially active scope, which SPIR-V
+    // leaves undefined for a shuffle/reduction source invocation. The SPIR-V
+    // route therefore enables `preserve_invocation_convergence`, because its
+    // restructurer can only express such a continuation as a guarded region.
+    "inline_convergence_keeps_early_return_callee_before_subgroup_collective"_test = [&] {
+        Module m;
+        auto *callee = make_early_return_callee(m);
+        auto [caller, call] = make_caller(m, callee, true, false);
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(
+            &m, InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_convergence_call_count == 1u);
+        expect(info.removed_callable_count == 0u);
+        expect(call->is_linked());
+        expect(callee->parent_module() == &m);
+        expect(count_reachable_insts(
+                   caller, DerivedInstructionTag::CALL) == 1u);
+        expect(count_reachable_insts(
+                   caller, DerivedInstructionTag::THREAD_GROUP) == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_convergence_keeps_early_return_callee_before_block_barrier"_test = [&] {
+        // The block barrier is the second operation that is only defined in
+        // convergent control flow, so the same rejection applies.
+        Module m;
+        auto *callee = make_early_return_callee(m);
+        auto [caller, call] = make_caller(m, callee, false, true);
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(
+            &m, InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_convergence_call_count == 1u);
+        expect(call->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_convergence_policy_still_inlines_without_convergent_operation"_test = [&] {
+        Module m;
+        auto *callee = make_early_return_callee(m);
+        auto [caller, call] = make_caller(m, callee, false, false);
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(
+            &m, InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.inlined_call_count == 1u);
+        expect(info.skipped_convergence_call_count == 0u);
+        expect(info.removed_callable_count == 1u);
+        expect(count_reachable_insts(
+                   caller, DerivedInstructionTag::CALL) == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_convergence_policy_is_opt_in_for_ordinary_inlining"_test = [&] {
+        // Ordinary inlining keeps its previous behaviour: the option is a
+        // fail-closed contract of the backends that rebuild structured control
+        // flow, not a global restriction.
+        Module m;
+        auto *callee = make_early_return_callee(m);
+        auto [caller, call] = make_caller(m, callee, true, false);
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(&m);
+        expect(info.inlined_call_count == 1u);
+        expect(info.skipped_convergence_call_count == 0u);
+        expect(info.removed_callable_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_convergence_policy_keeps_single_block_callee_inlined"_test = [&] {
+        // A single-block callee has exactly one exit path, so cloning it never
+        // makes the caller's continuation conditional per invocation.
+        Module m;
+        XIRBuilder b;
+        auto *callee = m.create_callable(Type::of<uint>());
+        auto *argument = callee->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(callee->create_body_block());
+        auto *one = m.create_constant_one(Type::of<uint>());
+        b.return_(b.call(Type::of<uint>(), ArithmeticOp::BINARY_ADD,
+                         {argument, one}));
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        auto *kernel_argument = caller->create_value_argument(Type::of<uint>());
+        b.set_insertion_point(caller_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), callee, {kernel_argument});
+        auto *collected = b.call(Type::of<uint>(),
+                                 ThreadGroupOp::WARP_ACTIVE_SUM, {call});
+        b.store(storage, collected);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(
+            &m, InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.inlined_call_count == 1u);
+        expect(info.skipped_convergence_call_count == 0u);
+        expect(info.removed_callable_count == 1u);
+        expect(xir_verify_module(&m).succeeded());
     };
 }
 

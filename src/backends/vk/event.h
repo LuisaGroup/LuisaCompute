@@ -21,6 +21,15 @@ class Event : public Resource {
     mutable std::mutex _submission_mtx;
     mutable luisa::spin_mutex _event_mtx;
     mutable std::atomic_uint64_t _last_fence = 0;
+    /// \brief Fences of the wait-only submissions that still refer to the timeline.
+    /// \details A submission that only *waits* on this timeline refers to the semaphore
+    /// without signaling it, so neither a timeline value nor a later signal proves on the
+    /// host that it has finished. Each such submission therefore carries a fence, which is
+    /// retired before the semaphore is destroyed: Vulkan forbids destroying a semaphore
+    /// while a submitted batch still refers to it
+    /// (VUID-vkDestroySemaphore-semaphore-05149).
+    vstd::vector<VkFence> _wait_fences;
+    void _reap_wait_fences(bool wait_for_pending) noexcept;
     void _update_fence(uint64_t value);
     void _signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer = nullptr);
     void _signal_sparse(
