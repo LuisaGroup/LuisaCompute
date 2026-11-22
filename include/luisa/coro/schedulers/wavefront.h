@@ -244,6 +244,7 @@ private:
     // A physical queue can execute an annotation suffix and then a logical
     // continuation. Ordinary independent Extension queues have no such owner.
     luisa::vector<uint> _queue_continuation;
+    luisa::vector<uint8_t> _queue_deferred;
     luisa::vector<uint64_t> _shader_structure_hashes;
     luisa::vector<WavefrontCoroShaderInfo> _shader_infos;
     luisa::vector<uint> _continuation_block_sizes;
@@ -1515,6 +1516,7 @@ private:
 
     void _finalize_extension_handlers() noexcept {
         if (_extension_handlers_finalized) { return; }
+        _queue_deferred.assign(_queue_count, 0u);
         if (_extension_stages.empty()) {
             _extension_route_table.clear();
             _extension_handlers_finalized = true;
@@ -1596,6 +1598,10 @@ private:
                                  "Independent Extension '{}' follows a before-resume annotation "
                                  "at boundary {}; before-resume handlers must form a suffix.",
                                  registered.handler->name(), boundary.index);
+                    if (registered.handler->defer_while_other_queues_nonempty() &&
+                        registered.stage.queue_index < _queue_deferred.size()) {
+                        _queue_deferred[registered.stage.queue_index] = 1u;
+                    }
                 }
             }
             if (suffix != active.size()) {
@@ -1912,6 +1918,12 @@ private:
                 }
             }
             max_active_count = std::max(max_active_count, active_count);
+            auto deferred_count = 0u;
+            for (size_t i = nc; i < nq; ++i) {
+                if (i < _queue_deferred.size() && _queue_deferred[i] != 0u) {
+                    deferred_count += _host_count[i];
+                }
+            }
             auto auxiliary_active_count = uint64_t{0u};
             auto selected_auxiliary = _auxiliary_work.size();
             auto selected_auxiliary_stage = 0u;
@@ -1992,19 +2004,33 @@ private:
             auto selected = nq;
             auto selected_count = 0u;
             auto selected_priority = nq;
-            for (size_t i = 1u; i < nq; ++i) {
-                // Compare the complete continuation, not its separately
-                // annotated entry queues. Ascending owners retain tie order.
-                if (logical_count[i] > selected_count) {
-                    selected_count = logical_count[i];
-                    selected_priority = i;
+            auto select_queue = [&](bool allow_deferred) noexcept {
+                selected = nq;
+                selected_count = 0u;
+                selected_priority = nq;
+                for (size_t i = 1u; i < nq; ++i) {
+                    auto is_deferred =
+                        i < _queue_deferred.size() && _queue_deferred[i] != 0u;
+                    if (is_deferred != allow_deferred) { continue; }
+                    // Compare the complete continuation, not its separately
+                    // annotated entry queues. Ascending owners retain tie order.
+                    if (logical_count[i] > selected_count) {
+                        selected_count = logical_count[i];
+                        selected_priority = i;
+                    }
                 }
-            }
-            for (size_t i = 1u; i < nq; ++i) {
-                if (_host_count[i] != 0u && queue_owner(i) == selected_priority) {
-                    selected = i;
-                    break;
+                for (size_t i = 1u; i < nq; ++i) {
+                    if (_host_count[i] != 0u && queue_owner(i) == selected_priority) {
+                        selected = i;
+                        break;
+                    }
                 }
+            };
+            select_queue(false);
+            auto selected_is_deferred = false;
+            if (selected_count == 0u && selected_auxiliary_count == 0u) {
+                select_queue(true);
+                selected_is_deferred = selected_count != 0u;
             }
             auto selected_continuation = selected_priority < nc ? selected_priority : nc;
 
@@ -2091,7 +2117,10 @@ private:
                                         _active_frame_capacity / 2u :
                                         std::min(_config.refill_threshold,
                                                  _active_frame_capacity);
+            auto deferred_backpressure =
+                deferred_count >= std::max(refill_threshold / 2u, 1u);
             auto refill_aligned = active_count == 0u ||
+                                  selected_is_deferred ||
                                   _config.refill_continuations.empty() ||
                                   (selected < _refill_at.size() &&
                                    _refill_at[selected]);
@@ -2099,8 +2128,9 @@ private:
             // floor(capacity / 2) is zero for a one-frame pool, so using only
             // the threshold inequality would leave the empty state as a
             // fixed point and make forward progress impossible.
-            auto should_refill = active_count == 0u ||
-                                 active_count < refill_threshold;
+            auto should_refill =
+                active_count == 0u ||
+                (active_count < refill_threshold && !deferred_backpressure);
             if (dispatch_auxiliary == _auxiliary_work.size() &&
                 should_refill && refill_aligned &&
                 dispatch_counter < N) {
@@ -2339,6 +2369,12 @@ private:
                 for (size_t i = nc; i < nq; ++i) {
                     if (_config.largest_continuation_first &&
                         queue_owner(i) != selected_priority) {
+                        continue;
+                    }
+                    if (!_config.largest_continuation_first &&
+                        i < _queue_deferred.size() &&
+                        _queue_deferred[i] != 0u &&
+                        active_count != deferred_count) {
                         continue;
                     }
                     auto count = _host_count[i];

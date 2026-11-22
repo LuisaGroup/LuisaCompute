@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <memory>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -313,6 +314,195 @@ void verify_tagged_union_scheduler_compaction(
            "refilling a capacity-limited frame pool";
 }
 
+struct SharedVtCacheState {
+    static constexpr uint kNumPages = 16u;
+    static constexpr uint kCacheCapacity = 4u;
+
+    Buffer<uint> page_table;
+    Buffer<uint> cache_data;
+    Buffer<uint> miss_flags;
+    luisa::vector<uint> host_zeros;
+    luisa::vector<uint> host_flags;
+    luisa::vector<uint> host_page_table;
+    luisa::vector<uint> host_slot_page;
+    luisa::vector<uint> host_cache_data;
+    uint fifo_cursor{0u};
+    uint fault_batches{0u};
+    uint evictions{0u};
+    uint peak_resident{0u};
+
+    SharedVtCacheState(Buffer<uint> pt, Buffer<uint> cd, Buffer<uint> mf) noexcept
+        : page_table{std::move(pt)},
+          cache_data{std::move(cd)},
+          miss_flags{std::move(mf)},
+          host_zeros(kNumPages, 0u),
+          host_flags(kNumPages, 0u),
+          host_page_table(kNumPages, 0u),
+          host_slot_page(kCacheCapacity, ~0u),
+          host_cache_data(kCacheCapacity, 0u) {}
+};
+
+class DeferredVtCacheHandler final : public WavefrontCoroSchedulerExtensionHandler {
+public:
+    static constexpr uint kNumPages = SharedVtCacheState::kNumPages;
+    static constexpr uint kCacheCapacity = SharedVtCacheState::kCacheCapacity;
+
+private:
+    Shader1D<ByteBuffer, Buffer<uint>, Buffer<uint>, uint, uint> _collect_shader;
+    std::shared_ptr<SharedVtCacheState> _state;
+
+public:
+    DeferredVtCacheHandler(
+        Shader1D<ByteBuffer, Buffer<uint>, Buffer<uint>, uint, uint> collect_shader,
+        std::shared_ptr<SharedVtCacheState> state) noexcept
+        : _collect_shader{std::move(collect_shader)},
+          _state{std::move(state)} {}
+
+    luisa::string_view name() const noexcept override { return "deferred-vt-cache"; }
+    bool defer_while_other_queues_nonempty() const noexcept override { return true; }
+
+    void dispatch(const WavefrontCoroExtensionDispatchContext &ctx) noexcept override {
+        auto &s = *_state;
+        ctx.stream << s.miss_flags.copy_from(luisa::span{s.host_zeros})
+                   << _collect_shader(ctx.frame_buffer, ctx.frame_indices, s.miss_flags,
+                                      ctx.frame_capacity, ctx.frame_count)
+                          .dispatch(ctx.frame_count)
+                   << s.miss_flags.copy_to(luisa::span{s.host_flags})
+                   << synchronize();
+
+        luisa::vector<uint> misses;
+        for (uint p = 0u; p < kNumPages; ++p) {
+            if (s.host_flags[p] != 0u && (s.host_page_table[p] & 0x80000000u) == 0u) {
+                misses.push_back(p);
+            }
+        }
+        if (misses.empty()) { return; }
+        ++s.fault_batches;
+
+        const uint batch_count = std::min<uint>(static_cast<uint>(misses.size()), kCacheCapacity);
+        for (uint i = 0u; i < batch_count; ++i) {
+            const uint page = misses[i];
+            const uint slot = s.fifo_cursor;
+            s.fifo_cursor = (s.fifo_cursor + 1u) % kCacheCapacity;
+            if (s.host_slot_page[slot] != ~0u) {
+                s.host_page_table[s.host_slot_page[slot]] = 0u;
+                ++s.evictions;
+            }
+            s.host_slot_page[slot] = page;
+            s.host_page_table[page] = 0x80000000u | slot;
+            s.host_cache_data[slot] = page * 97u + 13u;
+        }
+        uint resident_now = 0u;
+        for (uint p = 0u; p < kNumPages; ++p) {
+            if ((s.host_page_table[p] & 0x80000000u) != 0u) { ++resident_now; }
+        }
+        s.peak_resident = std::max(s.peak_resident, resident_now);
+        ctx.stream << s.cache_data.copy_from(luisa::span{s.host_cache_data})
+                   << s.page_table.copy_from(luisa::span{s.host_page_table});
+    }
+};
+
+void verify_deferred_vt_cache(Device &device, bool soa, bool lcf) {
+    Stream stream = device.create_stream();
+    constexpr uint kThreads = 512u;
+    constexpr uint kPoolCap = 128u;
+    constexpr uint kNumPages = SharedVtCacheState::kNumPages;
+    constexpr uint kCacheCap = SharedVtCacheState::kCacheCapacity;
+
+    auto page_table = device.create_buffer<uint>(kNumPages);
+    auto cache_data = device.create_buffer<uint>(kCacheCap);
+    auto miss_flags = device.create_buffer<uint>(kNumPages);
+    auto output = device.create_buffer<uint>(kThreads);
+
+    luisa::vector<uint> zeros(kNumPages, 0u);
+    luisa::vector<uint> zeros_cache(kCacheCap, 0u);
+    stream << page_table.copy_from(luisa::span{zeros})
+           << cache_data.copy_from(luisa::span{zeros_cache})
+           << synchronize();
+
+    auto coro = Coroutine<void()>([&]() {
+        auto tid = dispatch_x();
+        auto p0 = (tid * 7u + (tid / 32u)) % kNumPages;
+        auto p1 = (p0 + 5u) % kNumPages;
+        Callable<uint(uint)> read_page = [&](UInt page_id) noexcept {
+            $while ((page_table->read(page_id) & 0x80000000u) == 0u) {
+                $suspend("texture_cache",
+                         coro_stage("luisa.test.vt_cache").read("page_id", page_id));
+            };
+            auto entry = page_table->read(page_id);
+            return cache_data->read(entry & 0x7fffffffu);
+        };
+        auto v0 = read_page(p0);
+        $suspend("mid_stage");
+        auto v1 = read_page(p1);
+        output->write(tid, v0 * 3u + v1 + tid);
+    });
+
+    WavefrontCoroSchedulerConfig config;
+    config.thread_count = kPoolCap;
+    config.global_memory_soa = soa;
+    config.frame_buffer_compaction = true;
+    config.largest_continuation_first = lcf;
+    config.incremental_continuation_counts = lcf;
+    config.fused_continuation_counts = lcf;
+
+    auto shared_state = std::make_shared<SharedVtCacheState>(
+        page_table, cache_data, miss_flags);
+
+    WavefrontCoroScheduler<> scheduler{device, coro, config};
+    scheduler.register_extension_handler(
+        stream, [shared_state](WavefrontCoroExtensionPrepareContext &ctx,
+                               const WavefrontCoroExtensionStage &stage) -> luisa::unique_ptr<WavefrontCoroSchedulerExtensionHandler> {
+            if (stage.extension->schema() != "luisa.test.vt_cache") { return nullptr; }
+            auto *page_binding = &stage.binding("page_id");
+            auto *desc = &ctx.frame_desc;
+            auto fields = page_binding->reconstruct_slots();
+            Kernel1D collect = [page_binding, desc, fields,
+                                layout = ctx.frame_layout,
+                                frame_soa = ctx.global_memory_soa](
+                                   ByteBufferVar storage, BufferUInt indices, BufferUInt flags,
+                                   UInt capacity, UInt n) noexcept {
+                auto x = dispatch_x();
+                $if (x >= n) { $return(); };
+                auto idx = indices.read(x);
+                auto frame = CoroFrame::create(desc);
+                coro_frame_load_into(frame, storage, idx, capacity, layout, frame_soa,
+                                     fields, false, false);
+                auto page_id = page_binding->read<uint>(frame);
+                $if (page_id < SharedVtCacheState::kNumPages) { flags.write(page_id, 1u); };
+            };
+            return luisa::make_unique<DeferredVtCacheHandler>(
+                ctx.device.compile(collect, ctx.shader_option),
+                shared_state);
+        });
+
+    stream << scheduler().dispatch(kThreads);
+    luisa::vector<uint> host_out(kThreads);
+    stream << output.copy_to(luisa::span{host_out}) << synchronize();
+
+    LUISA_INFO("vt_cache(soa={}, lcf={}): fault_batches={} evictions={} peak_resident={}",
+               soa, lcf, shared_state->fault_batches, shared_state->evictions, shared_state->peak_resident);
+    expect(shared_state->fault_batches >= 2u) << "bounded VT cache must take multiple fault rounds";
+    expect(shared_state->evictions > 0u) << "bounded VT cache must evict under capacity pressure";
+    expect(shared_state->peak_resident <= kCacheCap) << "resident pages must not exceed cache capacity";
+    bool ok = true;
+    uint bad_count = 0u;
+    for (uint tid = 0u; tid < kThreads; ++tid) {
+        const uint p0 = (tid * 7u + (tid / 32u)) % kNumPages;
+        const uint p1 = (p0 + 5u) % kNumPages;
+        const uint expected = (p0 * 97u + 13u) * 3u + (p1 * 97u + 13u) + tid;
+        if (host_out[tid] != expected) {
+            if (bad_count < 8u) {
+                LUISA_WARNING("vt_cache(soa={}, lcf={}) mismatch at {}: got {}, expected {} (p0={}, p1={})",
+                              soa, lcf, tid, host_out[tid], expected, p0, p1);
+            }
+            ++bad_count;
+            ok = false;
+        }
+    }
+    expect(ok) << "bounded VT cache must preserve exact values across eviction and re-suspend";
+}
+
 }// namespace
 
 void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
@@ -446,6 +636,15 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
         auto dc = luisa::test::coro_test::create_device(options);
         verify_tagged_union_scheduler_compaction(
             dc.device, true, "wf_soa_tagged_union_compaction");
+    };
+
+    "wf_deferred_vt_cache"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        for (bool soa : {false, true}) {
+            for (bool lcf : {false, true}) {
+                verify_deferred_vt_cache(dc.device, soa, lcf);
+            }
+        }
     };
 }
 

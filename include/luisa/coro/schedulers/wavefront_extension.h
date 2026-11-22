@@ -148,6 +148,12 @@ public:
     [[nodiscard]] virtual bool gathers_selected_frames() const noexcept {
         return false;
     }
+    /// Hint that this independent `stage` handler prefers to run only after
+    /// non-deferred continuation/auxiliary queues drain, coalescing misses and
+    /// letting active consumers finish using resident resources before eviction.
+    [[nodiscard]] virtual bool defer_while_other_queues_nonempty() const noexcept {
+        return false;
+    }
     virtual void dispatch(
         const WavefrontCoroExtensionDispatchContext &) noexcept {
         LUISA_ERROR_WITH_LOCATION("Extension handler must implement dispatch or dispatch_queue.");
