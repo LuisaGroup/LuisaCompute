@@ -3195,6 +3195,112 @@ void reg_coro_cfg_distill() {
         expect(m2r.inserted_phi_count == 0u);
         expect(xir_verify_module(&m).succeeded());
     };
+
+    "coro_call_structure_continuation_exits_dispatcher_loop_without_early_return"_test = [] {
+        auto verify_single_dispatcher_exit = [](Module &m, xir::Function *fn, bool expect_value) {
+            coro_call_structure_continuation(fn);
+            expect(xir_verify_module(
+                       &m,
+                       {.require_no_phi = true,
+                        .require_no_unstructured_control_flow = true,
+                        .require_unique_merge_blocks = true,
+                        .require_canonical_break_continue_targets = true})
+                       .succeeded());
+            SimpleLoopInst *top_loop = nullptr;
+            SwitchInst *top_switch = nullptr;
+            size_t return_count = 0u;
+            ReturnInst *only_return = nullptr;
+            for (auto *blk : fn->definition()->basic_blocks()) {
+                for (auto *inst : blk->instructions()) {
+                    if (inst->isa<ReturnInst>()) {
+                        ++return_count;
+                        only_return = static_cast<ReturnInst *>(inst);
+                    }
+                }
+                if (auto *t = blk->terminator(); t != nullptr && t->isa<SimpleLoopInst>()) {
+                    top_loop = static_cast<SimpleLoopInst *>(t);
+                    auto *disp = top_loop->body_block();
+                    if (disp != nullptr && disp->is_terminated() &&
+                        disp->terminator()->isa<SwitchInst>()) {
+                        top_switch = static_cast<SwitchInst *>(disp->terminator());
+                    }
+                }
+            }
+            expect(top_loop != nullptr);
+            expect(top_switch != nullptr);
+            expect(return_count == 1u);
+            if (top_loop != nullptr) {
+                expect(top_loop->merge_block()->terminator() == only_return);
+            }
+            if (top_switch != nullptr) {
+                expect(top_switch->default_block()->terminator()->isa<BreakInst>());
+            }
+            if (only_return != nullptr) {
+                if (expect_value) {
+                    expect(only_return->return_value() != nullptr);
+                    if (only_return->return_value() != nullptr) {
+                        expect(only_return->return_value()->type() == Type::of<uint32_t>());
+                    }
+                } else {
+                    expect(only_return->return_value() == nullptr);
+                }
+            }
+            expect(xir_to_ast_translate(*fn->definition(), {.strict = true}) != nullptr);
+        };
+
+        // Case 1: void KernelFunction with loop + early return.
+        {
+            Module m;
+            BasicBlock *entry;
+            auto *kernel = make_kernel_with_body(m, entry);
+            auto *cond = kernel->create_value_argument(Type::of<bool>());
+            auto *out = kernel->create_reference_argument(Type::of<uint32_t>());
+            auto *loop_header = kernel->create_basic_block();
+            auto *early_ret = kernel->create_basic_block();
+            auto *loop_body = kernel->create_basic_block();
+            uint32_t c1 = 1u, c2 = 2u;
+            XIRBuilder b;
+            b.set_insertion_point(entry);
+            b.br(loop_header);
+            b.set_insertion_point(loop_header);
+            b.cond_br(cond, early_ret, loop_body);
+            b.set_insertion_point(early_ret);
+            b.store(out, m.create_constant(Type::of<uint32_t>(), &c1));
+            b.return_void();
+            b.set_insertion_point(loop_body);
+            b.store(out, m.create_constant(Type::of<uint32_t>(), &c2));
+            b.br(loop_header);
+            verify_single_dispatcher_exit(m, kernel, false);
+        }
+
+        // Case 2: value-returning CallableFunction with loop + two distinct returns.
+        {
+            Module m;
+            auto *callable = m.create_callable(Type::of<uint32_t>());
+            auto *entry = callable->create_body_block();
+            auto *cond0 = callable->create_value_argument(Type::of<bool>());
+            auto *cond1 = callable->create_value_argument(Type::of<bool>());
+            auto *loop_header = callable->create_basic_block();
+            auto *early_ret = callable->create_basic_block();
+            auto *loop_body = callable->create_basic_block();
+            auto *second_ret = callable->create_basic_block();
+            uint32_t c1 = 11u, c2 = 22u;
+            XIRBuilder b;
+            b.set_insertion_point(entry);
+            b.br(loop_header);
+            b.set_insertion_point(loop_header);
+            b.cond_br(cond0, early_ret, loop_body);
+            b.set_insertion_point(early_ret);
+            b.return_(m.create_constant(Type::of<uint32_t>(), &c1));
+            b.set_insertion_point(loop_body);
+            b.cond_br(cond1, second_ret, loop_header);
+            b.set_insertion_point(second_ret);
+            b.return_(m.create_constant(Type::of<uint32_t>(), &c2));
+            verify_single_dispatcher_exit(m, callable, true);
+            (void)mem2reg_pass_run_on_function(callable);
+            expect(xir_verify_module(&m).succeeded());
+        }
+    };
 }
 
 int main(int argc, char *argv[]) {

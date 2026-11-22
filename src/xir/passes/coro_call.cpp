@@ -8,6 +8,7 @@
 #include <luisa/xir/argument.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/indexed_branch.h>
@@ -687,6 +688,14 @@ void coro_call_structure_continuation(Function *function) {
         }
     }
 
+    bool has_return = false;
+    for (auto *block : blocks) {
+        if (auto *term = block->terminator(); term != nullptr && term->isa<ReturnInst>()) {
+            has_return = true;
+            break;
+        }
+    }
+
     luisa::vector<AllocaInst *> allocas;
     for (auto *block : blocks) {
         for (auto *inst : block->instructions()) {
@@ -696,9 +705,14 @@ void coro_call_structure_continuation(Function *function) {
 
     XIRBuilder b;
     AllocaInst *pc = nullptr;
+    AllocaInst *return_slot = nullptr;
+    uint32_t exit_id = invalid_id;
     BasicBlock *next = nullptr;
     luisa::vector<BasicBlock *> dispatch_blocks;
     luisa::unordered_map<BasicBlock *, uint32_t> dispatch_ids;
+    auto constant_id = [&](uint32_t id) noexcept -> Value * {
+        return module->create_constant(Type::of<uint32_t>(), &id);
+    };
 
     if (!needs_dispatcher) {
         b.set_insertion_point(old_entry->instructions().head_sentinel());
@@ -710,16 +724,21 @@ void coro_call_structure_continuation(Function *function) {
                 dispatch_blocks.emplace_back(blocks[u]);
             }
         }
+        exit_id = static_cast<uint32_t>(dispatch_blocks.size());
         auto *entry = definition->create_basic_block();
         definition->set_body_block(entry);
         b.set_insertion_point(entry);
         for (auto *alloca : allocas) { b.append(alloca->remove_self()); }
         pc = b.alloca_local(Type::of<uint32_t>());
         pc->add_comment("continuation-local block selector; not a suspend token");
-        auto constant_id = [&](uint32_t id) noexcept {
-            return module->create_constant(Type::of<uint32_t>(), &id);
-        };
+        if (has_return && function->type() != nullptr) {
+            return_slot = b.alloca_local(function->type());
+            return_slot->add_comment("continuation-local return value");
+        }
         b.store(pc, constant_id(dispatch_ids.at(old_entry)));
+        if (return_slot != nullptr && !function->type()->is_resource() && !function->type()->is_custom()) {
+            b.store(return_slot, module->create_constant_zero(function->type()));
+        }
         auto *loop = b.simple_loop();
         auto *dispatch = definition->create_basic_block();
         auto *loop_exit = definition->create_basic_block();
@@ -732,12 +751,41 @@ void coro_call_structure_continuation(Function *function) {
         choice->set_merge_block(next);
         choice->set_default_block(invalid);
         for (auto *block : dispatch_blocks) { choice->add_case(dispatch_ids.at(block), block); }
-        b.set_insertion_point(invalid);
-        b.unreachable_("Invalid continuation block selector.");
-        b.set_insertion_point(loop_exit);
-        b.unreachable_();
-        b.set_insertion_point(next);
-        b.continue_(dispatch);
+        if (has_return) {
+            b.set_insertion_point(invalid);
+            b.store(pc, constant_id(exit_id));
+            b.break_(next);
+            b.set_insertion_point(loop_exit);
+            if (return_slot != nullptr) {
+                b.return_(b.load(function->type(), return_slot));
+            } else {
+                b.return_void();
+            }
+            auto *exit_arm = definition->create_basic_block();
+            auto *cont_arm = definition->create_basic_block();
+            auto *after_if = definition->create_basic_block();
+            b.set_insertion_point(next);
+            auto *is_exit = b.call(
+                Type::of<bool>(), ArithmeticOp::BINARY_EQUAL,
+                {b.load(Type::of<uint32_t>(), pc), constant_id(exit_id)});
+            auto *done_if = b.if_(is_exit);
+            done_if->set_true_target(exit_arm);
+            done_if->set_false_target(cont_arm);
+            done_if->set_merge_block(after_if);
+            b.set_insertion_point(exit_arm);
+            b.break_(loop_exit);
+            b.set_insertion_point(cont_arm);
+            b.br(after_if);
+            b.set_insertion_point(after_if);
+            b.continue_(dispatch);
+        } else {
+            b.set_insertion_point(invalid);
+            b.unreachable_("Invalid continuation block selector.");
+            b.set_insertion_point(loop_exit);
+            b.unreachable_();
+            b.set_insertion_point(next);
+            b.continue_(dispatch);
+        }
     }
 
     auto constant_bb = [&](BasicBlock *target) noexcept -> Value * {
@@ -807,7 +855,24 @@ void coro_call_structure_continuation(Function *function) {
             BasicBlock *cur = task.cur;
             while (cur != nullptr) {
                 auto *term = cur->terminator();
-                if (term->isa<ReturnInst>() || term->isa<UnreachableInst>()) {
+                if (term->isa<ReturnInst>()) {
+                    if (needs_dispatcher) {
+                        LUISA_ASSERT(task.stop == nullptr,
+                                     "Return cannot occur inside an SESE region.");
+                        auto *ret = static_cast<ReturnInst *>(term);
+                        auto *ret_val = ret->return_value();
+                        auto removed = term->remove_self();
+                        b.set_insertion_point(cur);
+                        if (return_slot != nullptr && ret_val != nullptr) {
+                            b.store(return_slot, ret_val);
+                        }
+                        b.store(pc, constant_id(exit_id));
+                        emit_exit_at(cur, task.exit_kind, task.exit_target);
+                        if (task.reached_id != invalid_id) { reached_flags[task.reached_id] = 1u; }
+                    }
+                    break;
+                }
+                if (term->isa<UnreachableInst>()) {
                     break;
                 }
                 if (term->isa<BranchInst>() ||
