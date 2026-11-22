@@ -71,6 +71,7 @@
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/verifier.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -9825,6 +9826,184 @@ void reg_mem2reg() {
         expect(sum->is_linked());
         expect(sum->operand(0u) == dead_load);
         expect(!dead_load->use_list().empty());
+    };
+
+    "mem2reg_skips_high_fanin_sparse_alloca_phi_explosion"_test = [] {
+        constexpr uint32_t kNumCases = 300u;
+        Module m;
+        auto *f = m.create_callable(Type::of<void>());
+        auto *cond = f->create_value_argument(Type::of<bool>());
+        auto *out = f->create_reference_argument(Type::of<uint32_t>());
+        auto *entry = f->create_body_block();
+        auto *dispatch = f->create_basic_block();
+        auto *next = f->create_basic_block();
+        auto *loop_exit = f->create_basic_block();
+        auto *invalid = f->create_basic_block();
+
+        luisa::vector<BasicBlock *> cases;
+        cases.reserve(kNumCases);
+        for (uint32_t i = 0u; i < kNumCases; ++i) {
+            cases.emplace_back(f->create_basic_block());
+        }
+        auto *case2_arm_t = f->create_basic_block();
+        auto *case2_arm_f = f->create_basic_block();
+        auto *case2_merge = f->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *pc = b.alloca_local(Type::of<uint32_t>());
+        pc->add_comment("dispatcher state");
+        auto *sparse_local = b.alloca_local(Type::of<uint32_t>());
+        sparse_local->set_name("sparse_local");
+        auto *intra_local = b.alloca_local(Type::of<uint32_t>());
+        auto *spill_phi = b.alloca_local(Type::of<uint32_t>());
+        spill_phi->create_metadata<Reg2MemSpillMD>()->set_kind(Reg2MemSpillKind::PHI);
+        uint32_t zero_v = 0u;
+        b.store(pc, m.create_constant(Type::of<uint32_t>(), &zero_v));
+        auto *loop = b.simple_loop();
+        loop->set_body_block(dispatch);
+        loop->set_merge_block(loop_exit);
+
+        b.set_insertion_point(dispatch);
+        auto *sw = b.switch_(b.load(Type::of<uint32_t>(), pc));
+        sw->set_merge_block(next);
+        sw->set_default_block(invalid);
+        for (uint32_t i = 0u; i < kNumCases; ++i) {
+            sw->add_case(i, cases[i]);
+        }
+
+        b.set_insertion_point(invalid);
+        b.unreachable_();
+        b.set_insertion_point(next);
+        b.continue_(dispatch);
+        b.set_insertion_point(loop_exit);
+        b.return_void();
+
+        uint32_t c10 = 10u, c20 = 20u, c30 = 30u;
+        auto *v10 = m.create_constant(Type::of<uint32_t>(), &c10);
+        auto *v20 = m.create_constant(Type::of<uint32_t>(), &c20);
+        auto *v30 = m.create_constant(Type::of<uint32_t>(), &c30);
+
+        b.set_insertion_point(cases[0u]);
+        b.store(sparse_local, v10);
+        b.store(spill_phi, v20);
+        uint32_t one_v = 1u;
+        b.store(pc, m.create_constant(Type::of<uint32_t>(), &one_v));
+        b.break_(next);
+
+        b.set_insertion_point(cases[1u]);
+        auto *ld_sparse = b.load(Type::of<uint32_t>(), sparse_local);
+        auto *ld_spill = b.load(Type::of<uint32_t>(), spill_phi);
+        b.store(out, b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_ADD, {ld_sparse, ld_spill}));
+        b.break_(loop_exit);
+
+        b.set_insertion_point(cases[2u]);
+        b.store(intra_local, v30);
+        auto *if2 = b.if_(cond);
+        if2->set_true_target(case2_arm_t);
+        if2->set_false_target(case2_arm_f);
+        if2->set_merge_block(case2_merge);
+        b.set_insertion_point(case2_arm_t);
+        b.store(out, b.load(Type::of<uint32_t>(), intra_local));
+        b.br(case2_merge);
+        b.set_insertion_point(case2_arm_f);
+        b.br(case2_merge);
+        b.set_insertion_point(case2_merge);
+        b.break_(next);
+
+        for (uint32_t i = 3u; i < kNumCases; ++i) {
+            b.set_insertion_point(cases[i]);
+            b.break_(next);
+        }
+
+        [[maybe_unused]] auto sparse_lock = sparse_local->lock();
+        [[maybe_unused]] auto intra_lock = intra_local->lock();
+        [[maybe_unused]] auto spill_lock = spill_phi->lock();
+        expect(xir_verify_module(&m).succeeded());
+
+        auto info = mem2reg_pass_run_on_function(f);
+        expect(info.promoted_alloca_count == 2u)
+            << "intra-arm local and Reg2MemSpillMD slot must promote";
+        expect(!intra_local->is_linked());
+        expect(!spill_phi->is_linked());
+        expect(sparse_local->is_linked())
+            << "high-fanin sparse ordinary local must be retained instead of creating a 300-operand Phi";
+        expect(count_reachable_insts(f, DerivedInstructionTag::PHI) == 2u)
+            << "only the Reg2MemSpillMD slot should materialize dispatcher Phis";
+        expect(audit_reg2mem_spills_on_function(f).succeeded());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "mem2reg_pruned_ssa_kill_and_load_before_store_in_loop"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<uint32_t>());
+        auto *cond0 = f->create_value_argument(Type::of<bool>());
+        auto *cond1 = f->create_value_argument(Type::of<bool>());
+        auto *cond2 = f->create_value_argument(Type::of<bool>());
+        auto *entry = f->create_body_block();
+        auto *kill_left = f->create_basic_block();
+        auto *kill_right = f->create_basic_block();
+        auto *dead_merge = f->create_basic_block();
+        auto *loop_header = f->create_basic_block();
+        auto *loop_body = f->create_basic_block();
+        auto *load_then_store = f->create_basic_block();
+        auto *kill_alt = f->create_basic_block();
+        auto *loop_latch = f->create_basic_block();
+        auto *exit_blk = f->create_basic_block();
+
+        XIRBuilder b;
+        uint32_t c1 = 1u, c2 = 2u, c3 = 3u;
+        auto *v0 = m.create_constant_zero(Type::of<uint32_t>());
+        auto *v1 = m.create_constant(Type::of<uint32_t>(), &c1);
+        auto *v2 = m.create_constant(Type::of<uint32_t>(), &c2);
+        auto *v3 = m.create_constant(Type::of<uint32_t>(), &c3);
+
+        b.set_insertion_point(entry);
+        auto *dead_after_diamond = b.alloca_local(Type::of<uint32_t>());
+        auto *loop_var = b.alloca_local(Type::of<uint32_t>());
+        b.store(loop_var, v0);
+        b.cond_br(cond0, kill_left, kill_right);
+
+        b.set_insertion_point(kill_left);
+        b.store(dead_after_diamond, v1);
+        b.br(dead_merge);
+
+        b.set_insertion_point(kill_right);
+        b.store(dead_after_diamond, v2);
+        b.br(dead_merge);
+
+        b.set_insertion_point(dead_merge);
+        // No load after `dead_merge`: pruned SSA must omit a Phi at `dead_merge`.
+        b.br(loop_header);
+
+        b.set_insertion_point(loop_header);
+        b.cond_br(cond1, loop_body, exit_blk);
+
+        b.set_insertion_point(loop_body);
+        b.cond_br(cond2, load_then_store, kill_alt);
+
+        b.set_insertion_point(load_then_store);
+        auto *ld_loop = b.load(Type::of<uint32_t>(), loop_var);
+        b.store(loop_var, v2);
+        b.br(loop_latch);
+
+        b.set_insertion_point(kill_alt);
+        b.store(loop_var, v3);
+        b.br(loop_latch);
+
+        b.set_insertion_point(loop_latch);
+        b.br(loop_header);
+
+        b.set_insertion_point(exit_blk);
+        b.return_(b.load(Type::of<uint32_t>(), loop_var));
+
+        [[maybe_unused]] auto ld_lock = ld_loop->lock();
+        expect(xir_verify_module(&m).succeeded());
+        auto info = mem2reg_pass_run_on_function(f);
+        expect(info.promoted_alloca_count == 2u);
+        expect(count_reachable_insts(f, DerivedInstructionTag::PHI) == 2u)
+            << "loop_var needs header+latch Phis; dead_after_diamond needs zero Phis";
+        expect(xir_verify_module(&m).succeeded());
     };
 }
 

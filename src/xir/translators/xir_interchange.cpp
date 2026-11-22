@@ -47,9 +47,9 @@ const bool diagnostic_large_interchange = []() noexcept {
     return value != nullptr && luisa::string_view{value} == "1";
 }();
 const size_t max_payload_size = diagnostic_large_interchange ?
-    size_t{4u} * 1024u * 1024u * 1024u : 256u * 1024u * 1024u;
+    size_t{16u} * 1024u * 1024u * 1024u : 256u * 1024u * 1024u;
 const size_t max_record_count = diagnostic_large_interchange ?
-    size_t{1u} << 26u : size_t{1u} << 20u;
+    size_t{1u} << 30u : size_t{1u} << 20u;
 const size_t max_type_description_size = diagnostic_large_interchange ?
     4u * 1024u * 1024u : 16u * 1024u;
 constexpr size_t max_string_payload_size = 1u * 1024u * 1024u;
