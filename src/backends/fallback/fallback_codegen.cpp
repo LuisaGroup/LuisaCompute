@@ -4394,10 +4394,9 @@ private:
         // declare print function
         auto llvm_i64_type = b.getInt64Ty();
         auto llvm_ptr_type = llvm::PointerType::get(_llvm_context, 0);
-        // void print(const void *ctx, size_t fmt_id, const void *args);
-        auto llvm_print_func_type = llvm::FunctionType::get(b.getVoidTy(), {llvm_ptr_type, llvm_i64_type, llvm_ptr_type}, false);
+        // void print(size_t fmt_id, const void *args);
+        auto llvm_print_func_type = llvm::FunctionType::get(b.getVoidTy(), {llvm_i64_type, llvm_ptr_type}, false);
         auto llvm_print_func = llvm::Function::Create(llvm_print_func_type, llvm::Function::ExternalLinkage, "luisa.print", _llvm_module);
-        auto llvm_print_context = _llvm_module->getOrInsertGlobal("luisa.print.context", llvm::StructType::get(_llvm_context));
         auto fmt_id = static_cast<uint64_t>(_print_inst_map.size());
         _print_inst_map.emplace_back(inst, llvm_print_func->getName());
         llvm_print_func->setCallingConv(llvm::CallingConv::C);
@@ -4421,7 +4420,7 @@ private:
         }
         // call print function
         auto llvm_fmt_id = b.getInt64(fmt_id);
-        auto llvm_call = b.CreateCall(llvm_print_func, {llvm_print_context, llvm_fmt_id, llvm_struct_alloca});
+        auto llvm_call = b.CreateCall(llvm_print_func, {llvm_fmt_id, llvm_struct_alloca});
 #if LLVM_VERSION_MAJOR >= 22
         b.CreateLifetimeEnd(llvm_struct_alloca);
 #else

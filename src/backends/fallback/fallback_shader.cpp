@@ -324,23 +324,28 @@ static void luisa_fallback_assert(bool condition, const char *message) noexcept 
     if (!condition) { LUISA_ERROR_WITH_LOCATION("Assertion failed: {}.", message); }
 }
 
+static thread_local const FallbackShader *current_shader{nullptr};
 static thread_local const DeviceInterface::StreamLogCallback *current_device_log_callback{nullptr};
 static thread_local const cpu::CPUFloatingPointState *current_host_fp_state{nullptr};
 
 class FallbackShaderEnvironment {
 private:
     cpu::ScopedCPUFloatingPointEnvironment _floating_point;
+    const FallbackShader *_previous_shader;
     const DeviceInterface::StreamLogCallback *_previous_log_callback;
     const cpu::CPUFloatingPointState *_previous_host_state;
 
 public:
-    FallbackShaderEnvironment(bool enable_fast_math,
+    FallbackShaderEnvironment(const FallbackShader *shader,
+                              bool enable_fast_math,
                               const DeviceInterface::StreamLogCallback *log_callback) noexcept
         : _floating_point{enable_fast_math},
+          _previous_shader{std::exchange(current_shader, shader)},
           _previous_log_callback{std::exchange(current_device_log_callback, log_callback)},
           _previous_host_state{std::exchange(current_host_fp_state, _floating_point.saved_state())} {}
 
     ~FallbackShaderEnvironment() noexcept {
+        current_shader = _previous_shader;
         current_device_log_callback = _previous_log_callback;
         current_host_fp_state = _previous_host_state;
     }
@@ -356,12 +361,13 @@ static void luisa_fallback_debug_break(
     callback(data, evaluate);
 }
 
-static void luisa_fallback_print(const FallbackShader *shader, size_t fmt_id, const std::byte *args) noexcept {
+static void luisa_fallback_print(size_t fmt_id, const std::byte *args) noexcept {
     // Formatting and user callbacks are host work, not shader arithmetic.
     cpu::ScopedCPUFloatingPointEnvironment host_environment{current_host_fp_state};
+    LUISA_ASSERT(current_shader != nullptr, "Missing active fallback shader in print callback.");
     static thread_local luisa::string scratch;
     scratch.clear();
-    auto formatter = shader->print_formatter(fmt_id);
+    auto formatter = current_shader->print_formatter(fmt_id);
     (*formatter)(scratch, {args, formatter->size()});
     if (current_device_log_callback) {
         (*current_device_log_callback)(scratch);
@@ -491,7 +497,6 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
             };
 
             if (!feedback.print_inst_map.empty()) {
-                map_symbol("luisa.print.context", this);
                 _print_formatters.reserve(
                     feedback.print_inst_map.size());
                 for (auto format_id = 0u;
@@ -1204,7 +1209,7 @@ void FallbackShader::dispatch(FallbackCommandQueue *queue, luisa::unique_ptr<Sha
     };
 
     if (orig_per_block_env) {
-        queue->enqueue_parallel(grid_count, [queue, decode_block_coords, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](auto block) noexcept {
+        queue->enqueue_parallel(grid_count, [this, queue, decode_block_coords, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](auto block) noexcept {
             auto config = dispatch_buffer.config();
             auto dispatch_size = config->dispatch_size;
             auto block_size = config->block_size;
@@ -1218,12 +1223,13 @@ void FallbackShader::dispatch(FallbackCommandQueue *queue, luisa::unique_ptr<Sha
             auto launch_params = dispatch_buffer.argument_buffer();
             luisa_coro_reset_counter();
             FallbackShaderEnvironment environment{
+                this,
                 enable_fast_math,
                 queue->log_callback() ? &queue->log_callback() : nullptr};
             config->kernel(launch_params, &launch_config);
         });
     } else {
-        queue->enqueue_parallel_workers(grid_count, [queue, decode_block_coords, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](FallbackCommandQueue::ParallelClaimFn next_range) noexcept {
+        queue->enqueue_parallel_workers(grid_count, [this, queue, decode_block_coords, enable_fast_math = _enable_fast_math, dispatch_buffer = std::move(dispatch_buffer)](FallbackCommandQueue::ParallelClaimFn next_range) noexcept {
             auto config = dispatch_buffer.config();
             auto dispatch_size = config->dispatch_size;
             auto block_size = config->block_size;
@@ -1231,6 +1237,7 @@ void FallbackShader::dispatch(FallbackCommandQueue *queue, luisa::unique_ptr<Sha
             auto grid_size_y = roundup_div(dispatch_size[1], block_size[1]);
             auto launch_params = dispatch_buffer.argument_buffer();
             FallbackShaderEnvironment environment{
+                this,
                 enable_fast_math,
                 queue->log_callback() ? &queue->log_callback() : nullptr};
             FallbackShaderLaunchConfig launch_config{
