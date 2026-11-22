@@ -2,6 +2,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/CFG.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Intrinsics.h>
@@ -4495,6 +4496,8 @@ private:
                 auto llvm_default_block = _find_or_create_basic_block(current, switch_inst->default_block());
                 auto llvm_inst = b.CreateSwitch(llvm_condition, llvm_default_block, switch_inst->case_count());
                 for (auto i = 0u; i < switch_inst->case_count(); i++) {
+                    auto llvm_case_block = _find_or_create_basic_block(current, switch_inst->case_block(i));
+                    if (llvm_case_block == llvm_default_block) { continue; }
                     auto case_value = switch_inst->case_value(i);
 #if LLVM_VERSION_MAJOR >= 22
                     auto llvm_case_value =
@@ -4503,7 +4506,6 @@ private:
                     auto llvm_case_value =
                         llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(llvm_condition->getType()), static_cast<uint64_t>(case_value), false);
 #endif
-                    auto llvm_case_block = _find_or_create_basic_block(current, switch_inst->case_block(i));
                     llvm_inst->addCase(llvm_case_value, llvm_case_block);
                 }
                 _enqueue_basic_block(current, llvm_merge_block, switch_inst->merge_block());
@@ -5535,6 +5537,7 @@ private:
             IRBuilder b{_llvm_context};
             for (auto phi : current.phi_nodes) {
                 auto llvm_phi = llvm::cast<llvm::PHINode>(current.value_map.at(phi));
+                auto *parent_block = llvm_phi->getParent();
                 b.SetInsertPoint(llvm_phi);
                 for (auto i = 0u; i < phi->incoming_count(); i++) {
                     auto incoming = phi->incoming(i);
@@ -5546,7 +5549,14 @@ private:
                         if (iter == current.phi_incoming_overrides.end()) { break; }
                         llvm_incoming_block = iter->second;
                     }
-                    llvm_phi->addIncoming(llvm_incoming_value, llvm_incoming_block);
+                    if (llvm_phi->getBasicBlockIndex(llvm_incoming_block) >= 0) { continue; }
+                    auto edge_count = 0u;
+                    for (auto *pred : llvm::predecessors(parent_block)) {
+                        if (pred == llvm_incoming_block) { ++edge_count; }
+                    }
+                    for (auto e = 0u; e < std::max(edge_count, 1u); e++) {
+                        llvm_phi->addIncoming(llvm_incoming_value, llvm_incoming_block);
+                    }
                 }
             }
         }

@@ -349,10 +349,10 @@ struct ErrorBound {
     switch (operation) {
         case Operation::sin:
         case Operation::cos: return {2.0e-5f, 2.0e-5f, 0u};
-        case Operation::tan: return {2.0e-4f, 4.0e-4f, 0u};
+        case Operation::tan: return {2.0e-5f, 2.0e-5f, 0u};
         case Operation::asin:
-        case Operation::acos: return {2.0e-4f, 0.0f, 0u};
-        case Operation::atan: return {1.0e-5f, 1.0e-5f, 0u};
+        case Operation::acos: return {5.0e-6f, 0.0f, 0u};
+        case Operation::atan: return {2.0e-6f, 2.0e-6f, 0u};
         case Operation::atan2: return {3.0e-6f, 1.0e-6f, 0u};
         case Operation::exp:
         case Operation::exp2:

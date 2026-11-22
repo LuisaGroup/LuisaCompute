@@ -727,12 +727,118 @@ template<typename Options>
     return true;
 }
 
+[[nodiscard]] bool check_switch_duplicate_edge_phi() {
+    xir::Module xir_module;
+    auto *i32_ty = Type::of<int32_t>();
+
+    // (a) SwitchInst where a non-default case targets default_block while
+    //     default_block holds a PhiInst.
+    {
+        auto *fn = xir_module.create_callable(i32_ty);
+        fn->set_name("fallback_switch_case_to_default_phi");
+        auto *sel = fn->create_value_argument(i32_ty);
+        auto *entry = fn->create_body_block();
+        xir::XIRBuilder xb;
+        xb.set_insertion_point(entry);
+        auto *sw = xb.switch_(sel);
+        auto *case_a = sw->create_case_block(1);
+        auto *default_bb = sw->create_default_block();
+        sw->add_case(2, default_bb);
+        auto *merge_bb = sw->create_merge_block();
+        xb.set_insertion_point(merge_bb);
+        xb.unreachable_();
+
+        xb.set_insertion_point(default_bb);
+        int32_t zero_val = 0;
+        int32_t eleven_val = 11;
+        auto *zero_c = xir_module.create_constant(i32_ty, &zero_val);
+        auto *eleven_c = xir_module.create_constant(i32_ty, &eleven_val);
+        auto *phi = xb.phi(i32_ty);
+        phi->add_incoming(zero_c, entry);
+        phi->add_incoming(eleven_c, case_a);
+        xb.return_(phi);
+
+        xb.set_insertion_point(case_a);
+        xb.br(default_bb);
+    }
+
+    // (b) SwitchInst where two non-default cases share the same target block
+    //     feeding a PhiInst.
+    {
+        auto *fn = xir_module.create_callable(i32_ty);
+        fn->set_name("fallback_switch_shared_case_phi");
+        auto *sel = fn->create_value_argument(i32_ty);
+        auto *entry = fn->create_body_block();
+        xir::XIRBuilder xb;
+        xb.set_insertion_point(entry);
+        auto *sw = xb.switch_(sel);
+        auto *shared_bb = sw->create_case_block(29);
+        sw->add_case(30, shared_bb);
+        auto *default_bb = sw->create_default_block();
+        auto *merge_bb = sw->create_merge_block();
+        xb.set_insertion_point(merge_bb);
+        xb.unreachable_();
+
+        xb.set_insertion_point(shared_bb);
+        int32_t seven_val = 7;
+        int32_t nine_val = 9;
+        auto *seven_c = xir_module.create_constant(i32_ty, &seven_val);
+        auto *nine_c = xir_module.create_constant(i32_ty, &nine_val);
+        auto *phi = xb.phi(i32_ty);
+        phi->add_incoming(seven_c, entry);
+        xb.return_(phi);
+
+        xb.set_insertion_point(default_bb);
+        xb.return_(nine_c);
+    }
+
+    auto context = luisa::make_unique<::llvm::LLVMContext>();
+    auto module = luisa::make_unique<::llvm::Module>("fallback-switch-phi", *context);
+    static_cast<void>(fallback::luisa_fallback_backend_codegen(
+        *context, module.get(), &xir_module, false));
+    auto *int32_llvm = ::llvm::Type::getInt32Ty(*context);
+    for (const char *name : {"fallback_switch_case_to_default_phi", "fallback_switch_shared_case_phi"}) {
+        auto *native = module->getFunction(name);
+        CHECK(native != nullptr);
+        auto wrap_name = std::string{"wrap_"} + name;
+        auto *wrap_ty = ::llvm::FunctionType::get(int32_llvm, {int32_llvm}, false);
+        auto *wrapper = ::llvm::Function::Create(
+            wrap_ty, ::llvm::GlobalValue::ExternalLinkage, wrap_name, *module);
+        auto *bb = ::llvm::BasicBlock::Create(*context, "entry", wrapper);
+        ::llvm::IRBuilder<> b{bb};
+        ::llvm::SmallVector<::llvm::Value *, 4u> args{wrapper->getArg(0u)};
+        for (auto i = args.size(); i < native->arg_size(); i++) {
+            args.emplace_back(::llvm::Constant::getNullValue(
+                native->getFunctionType()->getParamType(i)));
+        }
+        auto *call = b.CreateCall(native, args);
+        call->setCallingConv(native->getCallingConv());
+        b.CreateRet(call);
+    }
+    CHECK(!::llvm::verifyModule(*module, &::llvm::errs()));
+    simd::LLVMJIT jit;
+    CHECK(jit.succeeded());
+    CHECK(jit.add_module(std::move(module), std::move(context)));
+    using Entry = int32_t(int32_t);
+    auto fp_a = reinterpret_cast<Entry *>(jit.lookup("wrap_fallback_switch_case_to_default_phi"));
+    auto fp_b = reinterpret_cast<Entry *>(jit.lookup("wrap_fallback_switch_shared_case_phi"));
+    CHECK(fp_a != nullptr && fp_b != nullptr);
+    CHECK(fp_a(1) == 11);
+    CHECK(fp_a(2) == 0);
+    CHECK(fp_a(99) == 0);
+    CHECK(fp_b(29) == 7);
+    CHECK(fp_b(30) == 7);
+    CHECK(fp_b(0) == 9);
+    return true;
+}
+
 [[nodiscard]] bool run() {
     CHECK(check_legacy_math_target_options<::llvm::TargetOptions>());
     CHECK(check_math_function_options());
     CHECK(check_common_fusion_options());
     CHECK(check_precise_arithmetic_contract());
     CHECK(check_fast_math_exp_overflow_contract());
+    CHECK(check_switch_duplicate_edge_phi());
 
     for (auto fast_math : {false, true}) {
         auto shape = make_math_module(fast_math);

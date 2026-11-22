@@ -43,10 +43,11 @@ private:
             float_bits(reduced), flip_bits));
         auto *square = b.CreateFMul(x, x);
 
-        // SLEEF-derived low-order coefficients retained from the audited
-        // precise polynomial. The least-significant high-order term is
-        // omitted; the complete fast-domain error is checked independently.
-        ::llvm::Value *polynomial = f32(0.0033198499586433172);
+        // SLEEF-derived minimax polynomial matching the audited precise tier
+        // so tan(x) retains sub-1e-5 accuracy across the fast domain.
+        ::llvm::Value *polynomial = f32(0.0092724580317735672);
+        polynomial = mla(
+            polynomial, square, f32(0.0033198499586433172));
         polynomial = mla(
             polynomial, square, f32(0.024299807846546173));
         polynomial = mla(

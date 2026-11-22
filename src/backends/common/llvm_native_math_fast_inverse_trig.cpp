@@ -9,12 +9,17 @@ class FastInverseTrigF32IRBuilder final : public FastF32IRBuilder {
 private:
     [[nodiscard]] ::llvm::Value *_asin_series(
         ::llvm::Value *x, ::llvm::Value *x2) {
-        // Maclaurin asin(x) = x + x^3/6 + 3x^5/40 + 5x^7/112 + ...
-        // Range transformation below guarantees |x| <= 1/2.
-        auto *polynomial = mla(
-            f32(5.0 / 112.0), x2, f32(3.0 / 40.0));
+        // SLEEF-derived minimax polynomial on |x| <= 1/2 (Boost Software
+        // License 1.0; see LICENSE.SLEEF.txt and LLVM_NATIVE_MATH_PROVENANCE.md).
+        ::llvm::Value *polynomial = f32(0.04197454825);
         polynomial = mla(
-            polynomial, x2, f32(1.0 / 6.0));
+            polynomial, x2, f32(0.02424046025));
+        polynomial = mla(
+            polynomial, x2, f32(0.04547423869));
+        polynomial = mla(
+            polynomial, x2, f32(0.07495029271));
+        polynomial = mla(
+            polynomial, x2, f32(0.1666677296));
         return builder().CreateFAdd(
             x, builder().CreateFMul(
                    builder().CreateFMul(x, x2), polynomial));
@@ -95,9 +100,10 @@ private:
                 middle, f32(0.78539816339744830962), f32(0.0)));
 
         auto *z2 = b.CreateFMul(z, z);
-        // Alternating atan series through z^9. On the reduced interval the
-        // first omitted term bounds the exact-series truncation error.
-        ::llvm::Value *polynomial = f32(1.0 / 9.0);
+        // Alternating atan series through z^11. On |z| <= tan(pi/8) the
+        // omitted z^13/13 term stays below 1e-6.
+        ::llvm::Value *polynomial = f32(-1.0 / 11.0);
+        polynomial = mla(polynomial, z2, f32(1.0 / 9.0));
         polynomial = mla(polynomial, z2, f32(-1.0 / 7.0));
         polynomial = mla(polynomial, z2, f32(1.0 / 5.0));
         polynomial = mla(polynomial, z2, f32(-1.0 / 3.0));

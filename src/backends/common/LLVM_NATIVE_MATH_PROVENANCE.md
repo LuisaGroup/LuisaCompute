@@ -73,15 +73,13 @@ The fast formulas are:
   precise SLEEF-derived reduction body (which uses Payne-Hanek for its large
   range), then selects the precise result only for those lanes. `sin` and
   `cos` reuse the already licensed and audited degree-9 precise polynomial.
-  `tan` reuses the lower five precise coefficients and omits its highest-order
-  term; the resulting degree-11 polynomial has its own fast-tier error audit.
+  `tan` reuses the full audited degree-13 precise SLEEF polynomial (`tan` retains sub-`1e-5` fast-domain accuracy).
 - `asin`/`acos`: use `asin(x) = pi/2 - 2 asin(sqrt((1-x)/2))` outside the
-  half interval and the exact Maclaurin coefficients `1/6`, `3/40`, and
-  `5/112` inside it.
+  half interval and the audited 5-term SLEEF minimax polynomial inside it.
 - `atan`: use the `tan(pi/8)` and `tan(3pi/8)` partitions with reciprocal and
   pi/4 transforms. The reduced interval uses the alternating series through
-  `z^9`, whose coefficients are the exact rationals `-1/3`, `1/5`, `-1/7`,
-  and `1/9`.
+  `z^11`, whose coefficients are the exact rationals `-1/3`, `1/5`, `-1/7`,
+  `1/9`, and `-1/11`.
 - `atan2`: divide the smaller operand magnitude by the larger, evaluate a
   locally Remez-derived degree-11 odd minimax polynomial on `[-1, 1]`, and
   reconstruct the quadrant from operand signs. None of its six coefficients
