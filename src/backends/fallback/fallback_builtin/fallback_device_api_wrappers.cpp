@@ -448,6 +448,79 @@ static_assert(sizeof(TextureHeader) == 32u);
     }
 }
 
+LUISA_FALLBACK_INTERNAL void luisa_fallback_tex_coord_linear_1d(
+    uint address, float u, uint size, uint &c0, uint &c1, float &t) noexcept {
+    const float fs = static_cast<float>(size);
+    const int isize = static_cast<int>(size);
+    switch (address) {
+        case 0u: {
+            const float px = u * fs - 0.5f;
+            if (px <= 0.0f) {
+                c0 = 0u;
+                c1 = 0u;
+                t = 0.0f;
+            } else if (px >= static_cast<float>(size - 1u)) {
+                c0 = size - 1u;
+                c1 = size - 1u;
+                t = 0.0f;
+            } else {
+                const float fl = __builtin_floorf(px);
+                const uint i0 = static_cast<uint>(fl);
+                c0 = i0 < size ? i0 : (size - 1u);
+                c1 = (i0 + 1u) < size ? (i0 + 1u) : (size - 1u);
+                t = px - fl;
+            }
+            return;
+        }
+        case 1u: {
+            float f = u - __builtin_floorf(u);
+            if (!((f >= 0.0f) & (f < 1.0f))) { f = 0.0f; }
+            const float px = f * fs - 0.5f;
+            const float fl = __builtin_floorf(px);
+            t = px - fl;
+            const int i0 = static_cast<int>(fl);
+            const int i1 = i0 + 1;
+            const int w0 = i0 < 0 ? (isize - 1) : (i0 >= isize ? (isize - 1) : i0);
+            const int w1 = i1 < 0 ? 0 : (i1 >= isize ? 0 : i1);
+            c0 = static_cast<uint>(w0);
+            c1 = static_cast<uint>(w1);
+            return;
+        }
+        case 2u: {
+            const float raw_a = __builtin_fabsf(u);
+            float a = raw_a - 2.0f * __builtin_floorf(raw_a * 0.5f);
+            if (!((a >= 0.0f) & (a < 2.0f))) { a = 0.0f; }
+            const float folded = a < 1.0f ? a : (2.0f - a);
+            const float px = folded * fs - 0.5f;
+            const float fl = __builtin_floorf(px);
+            t = px - fl;
+            const int i0 = static_cast<int>(fl);
+            const int i1 = i0 + 1;
+            const int w0 = i0 < 0 ? 0 : (i0 >= isize ? (isize - 1) : i0);
+            const int w1 = i1 < 0 ? 0 : (i1 >= isize ? (isize - 1) : i1);
+            c0 = static_cast<uint>(w0);
+            c1 = static_cast<uint>(w1);
+            return;
+        }
+        default: {
+            const float px = u * fs - 0.5f;
+            if ((px <= -1.0f) | (px >= fs)) {
+                c0 = size;
+                c1 = size;
+                t = 0.0f;
+            } else {
+                const float fl = __builtin_floorf(px);
+                t = px - fl;
+                const int i0 = static_cast<int>(fl);
+                const int i1 = i0 + 1;
+                c0 = ((i0 < 0) | (i0 >= isize)) ? size : static_cast<uint>(i0);
+                c1 = ((i1 < 0) | (i1 >= isize)) ? size : static_cast<uint>(i1);
+            }
+            return;
+        }
+    }
+}
+
 [[nodiscard]] LUISA_FALLBACK_INTERNAL llvm_float4 luisa_fallback_tex2d_fetch_rgba(
     const TextureHeader *t, uint storage, uint w, uint h, uint x, uint y) noexcept {
     if ((x >= w) | (y >= h)) {
@@ -481,22 +554,10 @@ static __attribute__((noinline)) bool luisa_fallback_tex2d_sample_level0_general
         *reinterpret_cast<llvm_float4 *>(out) = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, cx, cy);
         return true;
     }
-    const float half_inv_w = 0.5f / fw;
-    const float half_inv_h = 0.5f / fh;
-    const float x_a = luisa_fallback_tex_coord_point_1d(address, ux - half_inv_w, fw);
-    const float x_b = luisa_fallback_tex_coord_point_1d(address, ux + half_inv_w, fw);
-    const float y_a = luisa_fallback_tex_coord_point_1d(address, uy - half_inv_h, fh);
-    const float y_b = luisa_fallback_tex_coord_point_1d(address, uy + half_inv_h, fh);
-    const float st_min_x = x_a < x_b ? x_a : x_b;
-    const float st_max_x = x_a > x_b ? x_a : x_b;
-    const float st_min_y = y_a < y_b ? y_a : y_b;
-    const float st_max_y = y_a > y_b ? y_a : y_b;
-    const float tx = st_max_x - __builtin_floorf(st_max_x);
-    const float ty = st_max_y - __builtin_floorf(st_max_y);
-    const uint c0x = static_cast<uint>(st_min_x);
-    const uint c1x = static_cast<uint>(st_max_x);
-    const uint c0y = static_cast<uint>(st_min_y);
-    const uint c1y = static_cast<uint>(st_max_y);
+    uint c0x = 0u, c1x = 0u, c0y = 0u, c1y = 0u;
+    float tx = 0.0f, ty = 0.0f;
+    luisa_fallback_tex_coord_linear_1d(address, ux, w, c0x, c1x, tx);
+    luisa_fallback_tex_coord_linear_1d(address, uy, h, c0y, c1y, ty);
     const llvm_float4 v00 = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, c0x, c0y);
     const llvm_float4 v01 = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, c1x, c0y);
     const llvm_float4 v10 = luisa_fallback_tex2d_fetch_rgba(t, storage, w, h, c0x, c1y);

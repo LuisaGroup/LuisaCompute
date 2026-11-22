@@ -305,11 +305,86 @@ template<typename T>
     return bit_cast<luisa::float4>(luisa_fallback_texture2d_read_float(handle->data, handle->extra, c.x, c.y));
 }
 
-[[nodiscard]] inline auto texture_coord_linear(Sampler::Address address, luisa::float2 uv, luisa::float2 s) noexcept {
-    auto inv_s = 1.f / s;
-    auto c_min = texture_coord_point(address, uv - .5f * inv_s, s);
-    auto c_max = texture_coord_point(address, uv + .5f * inv_s, s);
-    return std::make_pair<luisa::float2, luisa::float2>(luisa::min(c_min, c_max), luisa::max(c_min, c_max));
+inline void texture_coord_linear_1d(
+    Sampler::Address address, float u, uint size,
+    uint &c0, uint &c1, float &t) noexcept {
+    if (size == 0u || !std::isfinite(u)) {
+        c0 = size;
+        c1 = size;
+        t = 0.f;
+        return;
+    }
+    const float fs = static_cast<float>(size);
+    const int isize = static_cast<int>(size);
+    switch (address) {
+        case Sampler::Address::EDGE: {
+            const float px = u * fs - 0.5f;
+            if (px <= 0.f) {
+                c0 = 0u;
+                c1 = 0u;
+                t = 0.f;
+            } else if (px >= static_cast<float>(size - 1u)) {
+                c0 = size - 1u;
+                c1 = size - 1u;
+                t = 0.f;
+            } else {
+                const float fl = std::floor(px);
+                const uint i0 = static_cast<uint>(fl);
+                c0 = i0 < size ? i0 : (size - 1u);
+                c1 = (i0 + 1u) < size ? (i0 + 1u) : (size - 1u);
+                t = px - fl;
+            }
+            return;
+        }
+        case Sampler::Address::REPEAT: {
+            float f = u - std::floor(u);
+            if (!(f >= 0.f && f < 1.f)) { f = 0.f; }
+            const float px = f * fs - 0.5f;
+            const float fl = std::floor(px);
+            t = px - fl;
+            const int i0 = static_cast<int>(fl);
+            const int i1 = i0 + 1;
+            const int w0 = i0 < 0 ? (isize - 1) : (i0 >= isize ? (isize - 1) : i0);
+            const int w1 = i1 < 0 ? 0 : (i1 >= isize ? 0 : i1);
+            c0 = static_cast<uint>(w0);
+            c1 = static_cast<uint>(w1);
+            return;
+        }
+        case Sampler::Address::MIRROR: {
+            const float raw_a = std::abs(u);
+            float a = raw_a - 2.f * std::floor(raw_a * 0.5f);
+            if (!(a >= 0.f && a < 2.f)) { a = 0.f; }
+            const float folded = a < 1.f ? a : (2.f - a);
+            const float px = folded * fs - 0.5f;
+            const float fl = std::floor(px);
+            t = px - fl;
+            const int i0 = static_cast<int>(fl);
+            const int i1 = i0 + 1;
+            const int w0 = i0 < 0 ? 0 : (i0 >= isize ? (isize - 1) : i0);
+            const int w1 = i1 < 0 ? 0 : (i1 >= isize ? (isize - 1) : i1);
+            c0 = static_cast<uint>(w0);
+            c1 = static_cast<uint>(w1);
+            return;
+        }
+        case Sampler::Address::ZERO: {
+            const float px = u * fs - 0.5f;
+            if (px <= -1.f || px >= fs) {
+                c0 = size;
+                c1 = size;
+                t = 0.f;
+            } else {
+                const float fl = std::floor(px);
+                t = px - fl;
+                const int i0 = static_cast<int>(fl);
+                c0 = (i0 < 0 || i0 >= isize) ? size : static_cast<uint>(i0);
+                c1 = (i0 + 1 < 0 || i0 + 1 >= isize) ? size : static_cast<uint>(i0 + 1);
+            }
+            return;
+        }
+    }
+    c0 = size;
+    c1 = size;
+    t = 0.f;
 }
 
 [[nodiscard]] inline luisa::float4 bilinear_rgba8_pair(
@@ -478,10 +553,10 @@ template<typename T>
         }
     }
 
-    auto [st_min, st_max] = texture_coord_linear(address, uv, size);
-    auto t = luisa::fract(st_max);
-    auto c0 = make_uint2(st_min);
-    auto c1 = make_uint2(st_max);
+    luisa::uint2 c0{}, c1{};
+    luisa::float2 t{};
+    texture_coord_linear_1d(address, uv.x, w, c0.x, c1.x, t.x);
+    texture_coord_linear_1d(address, uv.y, h, c0.y, c1.y, t.y);
     if ((c0.x < w) & (c1.x < w) & (c0.y < h) & (c1.y < h)) [[likely]] {
         const auto *raw = reinterpret_cast<const uint8_t *>(view.data());
         switch (storage) {
@@ -524,10 +599,15 @@ template<typename T>
         }
     }
     auto handle = reinterpret_cast<const PackedTextureView *>(&view);
-    auto v00 = bit_cast<luisa::float4>(luisa_fallback_texture2d_read_float(handle->data, handle->extra, c0.x, c0.y));
-    auto v01 = bit_cast<luisa::float4>(luisa_fallback_texture2d_read_float(handle->data, handle->extra, c1.x, c0.y));
-    auto v10 = bit_cast<luisa::float4>(luisa_fallback_texture2d_read_float(handle->data, handle->extra, c0.x, c1.y));
-    auto v11 = bit_cast<luisa::float4>(luisa_fallback_texture2d_read_float(handle->data, handle->extra, c1.x, c1.y));
+    const auto fetch2d = [&](uint x, uint y) noexcept {
+        return (x < w && y < h)
+                   ? bit_cast<luisa::float4>(luisa_fallback_texture2d_read_float(handle->data, handle->extra, x, y))
+                   : luisa::make_float4(0.f);
+    };
+    auto v00 = fetch2d(c0.x, c0.y);
+    auto v01 = fetch2d(c1.x, c0.y);
+    auto v10 = fetch2d(c0.x, c1.y);
+    auto v11 = fetch2d(c1.x, c1.y);
     return luisa::lerp(luisa::lerp(v00, v01, t.x), luisa::lerp(v10, v11, t.x), t.y);
 }
 
@@ -585,29 +665,27 @@ template<typename T>
     return bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c.x, c.y, c.z));
 }
 
-[[nodiscard]] inline auto texture_coord_linear(Sampler::Address address, luisa::float3 uv, luisa::float3 size) noexcept {
-    auto s = make_float3(size);
-    auto inv_s = 1.f / s;
-    auto c_min = texture_coord_point(address, uv - .5f * inv_s, s);
-    auto c_max = texture_coord_point(address, uv + .5f * inv_s, s);
-    return std::make_pair(luisa::min(c_min, c_max), luisa::max(c_min, c_max));
-}
-
 [[nodiscard]] inline auto texture_sample_linear(FallbackTextureView view, Sampler::Address address, luisa::float3 uvw) noexcept {
-    auto size = make_float3(view.size3d());
-    auto [st_min, st_max] = texture_coord_linear(address, uvw, size);
-    auto t = luisa::fract(st_max);
-    auto c0 = make_uint3(st_min);
-    auto c1 = make_uint3(st_max);
+    const auto sz = view.size3d();
+    luisa::uint3 c0{}, c1{};
+    luisa::float3 t{};
+    texture_coord_linear_1d(address, uvw.x, sz.x, c0.x, c1.x, t.x);
+    texture_coord_linear_1d(address, uvw.y, sz.y, c0.y, c1.y, t.y);
+    texture_coord_linear_1d(address, uvw.z, sz.z, c0.z, c1.z, t.z);
     auto handle = reinterpret_cast<const PackedTextureView *>(&view);
-    auto v000 = bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c0.x, c0.y, c0.z));
-    auto v001 = bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c1.x, c0.y, c0.z));
-    auto v010 = bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c0.x, c1.y, c0.z));
-    auto v011 = bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c1.x, c1.y, c0.z));
-    auto v100 = bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c0.x, c0.y, c1.z));
-    auto v101 = bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c1.x, c0.y, c1.z));
-    auto v110 = bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c0.x, c1.y, c1.z));
-    auto v111 = bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, c1.x, c1.y, c1.z));
+    const auto fetch3d = [&](uint x, uint y, uint z) noexcept {
+        return (x < sz.x && y < sz.y && z < sz.z)
+                   ? bit_cast<luisa::float4>(luisa_fallback_texture3d_read_float(handle->data, handle->extra, x, y, z))
+                   : luisa::make_float4(0.f);
+    };
+    auto v000 = fetch3d(c0.x, c0.y, c0.z);
+    auto v001 = fetch3d(c1.x, c0.y, c0.z);
+    auto v010 = fetch3d(c0.x, c1.y, c0.z);
+    auto v011 = fetch3d(c1.x, c1.y, c0.z);
+    auto v100 = fetch3d(c0.x, c0.y, c1.z);
+    auto v101 = fetch3d(c1.x, c0.y, c1.z);
+    auto v110 = fetch3d(c0.x, c1.y, c1.z);
+    auto v111 = fetch3d(c1.x, c1.y, c1.z);
     return luisa::lerp(luisa::lerp(luisa::lerp(v000, v001, t.x),
                                    luisa::lerp(v010, v011, t.x), t.y),
                        luisa::lerp(luisa::lerp(v100, v101, t.x),
