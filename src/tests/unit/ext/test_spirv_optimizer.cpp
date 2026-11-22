@@ -229,6 +229,7 @@ $extra_decorations
 %one = OpConstant %uint 1
 %two = OpConstant %uint 2
 %three = OpConstant %uint 3
+$extra_declarations
 %main = OpFunction %void None %function
 %entry = OpLabel
 %a_ptr = OpAccessChain %float_ptr %out %zero
@@ -284,6 +285,52 @@ constexpr auto fma_contraction_body = R"(
 %product = OpFMul %float %a %b
 %sum = OpFAdd %float %product %c
 OpStore %dst_ptr %sum
+)";
+
+// Null constants must become negative zero when FSub is rewritten as FMA.
+// Reusing positive zero changes cases such as -0 - (+0 * b) from -0 to +0.
+constexpr auto fma_null_multiplicand_subtraction_body = R"(
+%product = OpFMul %float %positive_zero %b
+%difference = OpFSub %float %a %product
+OpStore %dst_ptr %difference
+)";
+
+constexpr auto fma_null_vector_subtrahend_module = R"(
+OpCapability Shader
+OpMemoryModel Logical GLSL450
+OpEntryPoint GLCompute %main "main" %out
+OpExecutionMode %main LocalSize 1 1 1
+OpDecorate %block Block
+OpMemberDecorate %block 0 Offset 0
+OpMemberDecorate %block 1 Offset 8
+OpMemberDecorate %block 2 Offset 16
+OpDecorate %out DescriptorSet 0
+OpDecorate %out Binding 0
+%void = OpTypeVoid
+%float = OpTypeFloat 32
+%v2float = OpTypeVector %float 2
+%uint = OpTypeInt 32 0
+%function = OpTypeFunction %void
+%block = OpTypeStruct %v2float %v2float %v2float
+%block_ptr = OpTypePointer StorageBuffer %block
+%v2float_ptr = OpTypePointer StorageBuffer %v2float
+%out = OpVariable %block_ptr StorageBuffer
+%zero = OpConstant %uint 0
+%one = OpConstant %uint 1
+%two = OpConstant %uint 2
+%positive_zero = OpConstantNull %v2float
+%main = OpFunction %void None %function
+%entry = OpLabel
+%a_ptr = OpAccessChain %v2float_ptr %out %zero
+%a = OpLoad %v2float %a_ptr
+%b_ptr = OpAccessChain %v2float_ptr %out %one
+%b = OpLoad %v2float %b_ptr
+%dst_ptr = OpAccessChain %v2float_ptr %out %two
+%product = OpFMul %v2float %a %b
+%difference = OpFSub %v2float %product %positive_zero
+OpStore %dst_ptr %difference
+OpReturn
+OpFunctionEnd
 )";
 
 // Nested division (a / b) / c, stored live.
@@ -342,10 +389,13 @@ OpStore %dst_ptr %accumulator
 )";
 
 [[nodiscard]] std::string float_storage_module(
-    luisa::string_view body, luisa::string_view extra_decorations = {}) {
+    luisa::string_view body, luisa::string_view extra_decorations = {},
+    luisa::string_view extra_declarations = {}) {
     auto module = replace_placeholder(
         std::string{float_storage_module_prefix},
         "$extra_decorations", extra_decorations);
+    module = replace_placeholder(
+        std::move(module), "$extra_declarations", extra_declarations);
     module += std::string{body};
     module += std::string{storage_module_suffix};
     return module;
@@ -671,6 +721,8 @@ struct SpirvInstructionRef {
     const std::vector<uint32_t> &words, uint32_t result_id) {
     constexpr spv::Op result_defining_opcodes[] = {
         spv::Op::OpConstant,
+        spv::Op::OpConstantComposite,
+        spv::Op::OpConstantNull,
         spv::Op::OpLoad,
         spv::Op::OpAccessChain,
         spv::Op::OpPhi,
@@ -807,6 +859,19 @@ public:
 [[nodiscard]] bool validates(const std::vector<uint32_t> &words) {
     spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
     return tools.Validate(words.data(), words.size());
+}
+
+[[nodiscard]] std::vector<uint32_t> run_fma_contraction_pass(
+    luisa::string_view assembly) {
+    auto input = assemble_test_module(assembly);
+    spvtools::Optimizer optimizer{SPV_ENV_VULKAN_1_2};
+    optimizer.RegisterPass(spvtools::CreateFmaContractionPass());
+    std::vector<uint32_t> output;
+    expect(optimizer.Run(input.data(), input.size(), &output))
+        << "the isolated FMA contraction pass must succeed";
+    expect(validates(output))
+        << "the isolated FMA contraction result must validate";
+    return output;
 }
 
 }// namespace
@@ -1250,6 +1315,65 @@ int main(int argc, char *argv[]) {
             expect(count_instructions(words, spv::Op::OpFMul) == 1u);
             expect(count_instructions(words, spv::Op::OpFAdd) == 1u);
             expect(validates(words));
+        }
+    };
+
+    "spirv_fma_contraction_negates_null_constants"_test = [] {
+        // a - (+0 * b) must contract to fma(-0, b, a), not fma(+0, b, a).
+        // With a = -0 and an ordinary positive b, the latter returns +0 while
+        // the original subtraction returns -0.
+        {
+            auto words = run_fma_contraction_pass(float_storage_module(
+                fma_null_multiplicand_subtraction_body, {},
+                "%positive_zero = OpConstantNull %float"));
+            expect(count_glsl_fma(words) == 1u);
+            expect(count_instructions(words, spv::Op::OpFMul) == 0u);
+            expect(count_instructions(words, spv::Op::OpFSub) == 0u);
+            auto stored = single_store_object_id(words);
+            expect(stored.has_value());
+            auto fma = stored ? find_definition(words, *stored) : std::nullopt;
+            expect(fma.has_value() && fma->opcode == spv::Op::OpExtInst);
+            if (fma && fma->opcode == spv::Op::OpExtInst) {
+                // OpExtInst operands start at word 5: multiplicand, multiplier,
+                // then addend. The null multiplicand must become negative zero.
+                auto factor = find_definition(words, words[fma->offset + 5u]);
+                auto is_negative_zero =
+                    factor && factor->opcode == spv::Op::OpConstant &&
+                    words[factor->offset + 3u] == 0x80000000u;
+                expect(is_negative_zero)
+                    << "FMA must negate OpConstantNull instead of reusing +0: "
+                    << disassemble(words);
+            }
+        }
+        // The vector form needs an OpConstantComposite whose every lane is
+        // negative zero; reusing OpConstantNull has the same signed-zero bug.
+        {
+            auto words = run_fma_contraction_pass(
+                fma_null_vector_subtrahend_module);
+            expect(count_glsl_fma(words) == 1u);
+            auto stored = single_store_object_id(words);
+            expect(stored.has_value());
+            auto fma = stored ? find_definition(words, *stored) : std::nullopt;
+            expect(fma.has_value() && fma->opcode == spv::Op::OpExtInst);
+            if (fma && fma->opcode == spv::Op::OpExtInst) {
+                auto addend = find_definition(words, words[fma->offset + 7u]);
+                expect(addend.has_value() &&
+                       addend->opcode == spv::Op::OpConstantComposite)
+                    << "vector null must become a negative-zero composite: "
+                    << disassemble(words);
+                if (addend && addend->opcode == spv::Op::OpConstantComposite) {
+                    for (auto lane = 0u; lane < 2u; ++lane) {
+                        auto component = find_definition(
+                            words, words[addend->offset + 3u + lane]);
+                        auto is_negative_zero =
+                            component &&
+                            component->opcode == spv::Op::OpConstant &&
+                            words[component->offset + 3u] == 0x80000000u;
+                        expect(is_negative_zero)
+                            << "every vector null lane must become -0";
+                    }
+                }
+            }
         }
     };
 
