@@ -93,7 +93,15 @@ public:
     return false;
 }
 
+struct NarrowUndefinedStruct {
+    uint32_t a;
+    uint16_t b;
+    uint16_t c;
+};
+
 }// namespace
+
+LUISA_STRUCT(NarrowUndefinedStruct, a, b, c) {};
 
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
@@ -126,5 +134,37 @@ int main(int argc, char *argv[]) {
                                  compiled.spv_bin.size(), &text));
         expect(contains_array_undefined(compiled.spv_bin))
             << "native XIR codegen must not refine aggregate undefined to zero";
+    };
+
+    "native_spirv_preserves_undefined_narrow_struct"_test = [] {
+        Kernel1D kernel = [](BufferVar<NarrowUndefinedStruct> output) {
+            output.write(dispatch_id().x, undefined<NarrowUndefinedStruct>());
+        };
+        auto module = xir::ast_to_xir_translate(
+            kernel.function()->function(), {});
+        expect(module != nullptr);
+        expect(xir::xir_verify_module(module.get()).succeeded());
+
+        ScopedEnvironmentVariable disable_optimization{
+            "LUISA_SPIRV_OPT_LEVEL", "0"};
+        ScopedEnvironmentVariable clear_pass_override{
+            "LUISA_SPIRV_OPT_PASSES", nullptr};
+        constexpr auto features =
+            lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+                lc::spirv::target_feature::shader_int16 |
+                lc::spirv::target_feature::storage_buffer_16bit_access);
+        auto compiled = lc::spirv::SpirvCodegenEntry::compile_spirv_xir(
+            kernel.function()->function(), module.get(),
+            ShaderOption{.enable_cache = false}, features);
+
+        spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
+        expect(tools.Validate(compiled.spv_bin.data(),
+                              compiled.spv_bin.size()))
+            << "SPIR-V containing narrow-int struct OpUndef must validate";
+        std::string text;
+        expect(tools.Disassemble(compiled.spv_bin.data(),
+                                 compiled.spv_bin.size(), &text));
+        expect(text.find("OpCapability Int16") != std::string::npos);
+        expect(text.find("OpUndef") != std::string::npos);
     };
 }

@@ -461,6 +461,8 @@ spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
 spv::Id SpirvCodegenEntry::_emit_alloca(const xir::AllocaInst *alloca) noexcept {
     if (auto iter = _value_map.find(alloca); iter != _value_map.end()) { return iter->second; }
     auto type = _convert_type(alloca->type(), Usage::READ);
+    spirv_codegen_add_narrow_constant_capabilities(
+        _builder, alloca->type());
     auto storage = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
     auto var = _builder.createVariable(spv::NoPrecision, storage, type, "alloca");
     if (storage == spv::StorageClass::Workgroup) {
@@ -612,6 +614,10 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
             break;
         case xir::DerivedValueTag::UNDEFINED: {
             auto spv_type = _convert_type(value->type(), Usage::READ);
+            if (!_builder.isPointerType(spv_type)) {
+                spirv_codegen_add_narrow_constant_capabilities(
+                    _builder, value->type());
+            }
             id = _builder.createUndefined(spv_type);
             break;
         }
