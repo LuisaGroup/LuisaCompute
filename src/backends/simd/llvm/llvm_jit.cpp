@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <mutex>
 #include <optional>
 #include <utility>
 
@@ -185,8 +186,14 @@ void LLVMJIT::_fail(std::string message) noexcept {
 }
 
 LLVMJIT::LLVMJIT(bool capture_object) noexcept {
-    if (::llvm::InitializeNativeTarget() ||
-        ::llvm::InitializeNativeTargetAsmPrinter()) {
+    static std::once_flag llvm_target_init_once;
+    static bool llvm_target_init_failed = false;
+    std::call_once(llvm_target_init_once, [] {
+        llvm_target_init_failed =
+            ::llvm::InitializeNativeTarget() ||
+            ::llvm::InitializeNativeTargetAsmPrinter();
+    });
+    if (llvm_target_init_failed) {
         _fail("failed to initialize the LLVM native target");
         return;
     }
