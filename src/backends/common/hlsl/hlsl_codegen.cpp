@@ -1664,13 +1664,9 @@ void StringStateVisitor::visit(const BinaryExpr *expr) {
         auto element = expr->type()->is_vector() ?
                            expr->type()->element() :
                            expr->type();
-        // The floating-point remainder is an exact numeric contract in every
-        // numeric mode, not an optimization: `fmod` is only
-        // "x - y * trunc(x / y)" up to the target implementation, and the
-        // software binary32 routine below is already fast-math agnostic
-        // (integer bit manipulation plus a final bitcast), so fast math must
-        // not fall back to the inexact intrinsic.
-        str << (element->is_float32() ?
+        // In fast-math mode, keep native HLSL `fmod(...)`; under strict math
+        // (!enable_fast_math), use `_lc_fmod(...)` for binary32 exact remainder.
+        str << ((!util->opt->enable_fast_math && element->is_float32()) ?
                     "_lc_fmod("sv :
                     "fmod("sv);
         expr->lhs()->accept(*this);

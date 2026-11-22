@@ -85,6 +85,7 @@ void traverse_shader_print_layout(Type const *type, size_t offset,
         text("{");
         for (auto i = 0u; i < type->members().size(); i++) {
             auto member = type->members()[i];
+            offset = luisa::align(offset, member->alignment());
             path.push_back(ShaderPrintPathStep{type, i});
             traverse_shader_print_layout(member, offset, path, text, leaf, matrix);
             path.pop_back();

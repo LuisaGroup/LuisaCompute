@@ -192,28 +192,39 @@ void Event::_wait(Stream &stream, uint64_t value) {
         // is what keeps the batch from still referring to it at destroy time
         // (VUID-vkDestroySemaphore-semaphore-05149).
         _reap_wait_fences(false);
-        VkFenceCreateInfo fence_info{};
-        fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         VkFence fence{};
-        VK_CHECK_RESULT(vkCreateFence(
-            device()->logic_device(), &fence_info, Device::alloc_callbacks(), &fence));
+        if (!_free_wait_fences.empty()) {
+            fence = _free_wait_fences.back();
+            _free_wait_fences.pop_back();
+            VK_CHECK_RESULT(vkResetFences(device()->logic_device(), 1u, &fence));
+        } else {
+            VkFenceCreateInfo fence_info{};
+            fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            VK_CHECK_RESULT(vkCreateFence(
+                device()->logic_device(), &fence_info, Device::alloc_callbacks(), &fence));
+        }
         VK_CHECK_RESULT(vkQueueSubmit(
             stream.queue(), 1, &info1, fence));
         _wait_fences.emplace_back(fence);
     }
 }
 void Event::_reap_wait_fences(bool wait_for_pending) noexcept {
-    if (_wait_fences.empty()) { return; }
     auto device_handle = device()->logic_device();
     if (wait_for_pending) {
-        VK_CHECK_RESULT(vkWaitForFences(
-            device_handle, static_cast<uint32_t>(_wait_fences.size()),
-            _wait_fences.data(), VK_TRUE,
-            std::numeric_limits<uint64_t>::max()));
-        for (auto fence : _wait_fences) {
+        if (!_wait_fences.empty()) {
+            VK_CHECK_RESULT(vkWaitForFences(
+                device_handle, static_cast<uint32_t>(_wait_fences.size()),
+                _wait_fences.data(), VK_TRUE,
+                std::numeric_limits<uint64_t>::max()));
+            for (auto fence : _wait_fences) {
+                vkDestroyFence(device_handle, fence, Device::alloc_callbacks());
+            }
+            _wait_fences.clear();
+        }
+        for (auto fence : _free_wait_fences) {
             vkDestroyFence(device_handle, fence, Device::alloc_callbacks());
         }
-        _wait_fences.clear();
+        _free_wait_fences.clear();
         return;
     }
     // Poll before recording another pending wait, so a long-lived timeline that is
@@ -228,7 +239,12 @@ void Event::_reap_wait_fences(bool wait_for_pending) noexcept {
             i++;
             continue;
         }
-        vkDestroyFence(device_handle, _wait_fences[i], Device::alloc_callbacks());
+        auto fence = _wait_fences[i];
+        if (_free_wait_fences.size() < kMaxPooledWaitFences) {
+            _free_wait_fences.emplace_back(fence);
+        } else {
+            vkDestroyFence(device_handle, fence, Device::alloc_callbacks());
+        }
         _wait_fences[i] = _wait_fences.back();
         _wait_fences.pop_back();
     }

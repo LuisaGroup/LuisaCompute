@@ -367,26 +367,70 @@ OpStore %dst_ptr %accumulator
         std::string{accumulator_loop_body}, "$loop_control", loop_control));
 }
 
-// ---------------------------------------------------------------------------
-// DXC c4adf384 pass-sequence description
-//
-// DXC's default route registers three structural prefix passes, then the stock
-// SPIRV-Tools performance pipeline, then its own additional tail, then iterates
-// the whole sequence to a fixed point of at most eight runs. compute and full
-// map onto that pipeline unchanged.
-// ---------------------------------------------------------------------------
-
-// DXC c4adf384:tools/clang/lib/SPIRV/SpirvEmitter.cpp L20260-20262.
-constexpr std::string_view dxc_prefix_passes[] = {
-    "merge-return",
+// Native `compute` preset sequence (mirrors DXC RegisterPerformancePasses minus
+// WrapOpKill/MergeReturn/InlineExhaustive/EliminateDeadFunctions which XIR
+// already handles, plus bounded tail passes). Note `loop-unroll` is conditional
+// on input explicit `Unroll` loop control, and `float-div-opt` on fast-math.
+constexpr std::string_view compute_prefix_before_unroll[] = {
     "dead-branch-elim",
-    "cfg-cleanup",
+    "adce",
+    "private-to-local",
+    "local-single-block-load-store-elim",
+    "local-single-store-elim",
+    "adce",
+    "scalar-replacement",
+    "local-access-chain-convert",
+    "local-single-block-load-store-elim",
+    "local-single-store-elim",
+    "adce",
+    "local-multi-store-elim",
+    "adce",
+    "ccp",
+    "adce",
+};
+
+constexpr std::string_view compute_suffix_after_unroll[] = {
+    "dead-branch-elim",
+    "redundancy-elimination",
+    "combine-access-chains",
+    "simplification",
+    "scalar-replacement",
+    "local-access-chain-convert",
+    "local-single-block-load-store-elim",
+    "local-single-store-elim",
+    "adce",
+    "ssa-rewrite",
+    "adce",
+    "vector-dce",
+    "dead-insert-elim",
+    "dead-branch-elim",
+    "simplification",
+    "if-conversion",
+    "copy-propagate-arrays",
+    "reduce-load-size",
+    "adce",
+    "block-merge",
+    "redundancy-elimination",
+    "dead-branch-elim",
+    "block-merge",
+    "simplification",
+    "strength-reduction",
+    "boolean-simplify",
+};
+
+constexpr std::string_view compute_tail_after_float_div_opt[] = {
+    "insert-extract-elim",
+    "eliminate-dead-members",
+    "eliminate-dead-constant",
+    "dead-variable-elimination",
+    "spread-volatile-semantics",
+    "compact-ids",
 };
 
 // The complete stock spvtools::Optimizer::RegisterPerformancePasses(false)
 // pipeline at the vendored revision
 // (src/ext/SPIRV-Tools/source/opt/optimizer.cpp L185-230), flattened in
-// registration order. 44 passes.
+// registration order for the `full` preset. 44 passes.
 constexpr std::string_view stock_performance_passes[] = {
     // structural normalization
     "wrap-op-kill",
@@ -436,73 +480,15 @@ constexpr std::string_view stock_performance_passes[] = {
     "simplification",
 };
 
-// DXC c4adf384's additional tail, strictly IEEE
-// (SpirvEmitter.cpp L20264-20294 without the conditional FloatDivOptPass).
-// 29 passes.
-constexpr std::string_view dxc_tail_strict_passes[] = {
-    "loop-unroll",
-    "ccp",
-    "simplification",
-    "dead-branch-elim",
-    "block-merge",
-    "scalar-replacement",
-    "local-access-chain-convert",
-    "local-single-block-load-store-elim",
-    "local-single-store-elim",
-    "local-multi-store-elim",
-    "ssa-rewrite",
+constexpr std::string_view full_safe_tail_before_fdiv[] = {
+    "private-to-local",
+    "copy-propagate-arrays",
     "strength-reduction",
     "boolean-simplify",
-    "loop-unswitch",
-    "loop-invariant-code-motion",
-    "gvn-hoist",
-    "new-gvn",
-    "insert-extract-elim",
-    "local-redundancy-elimination",
-    "simplification",
-    "adce",
-    "dead-branch-elim",
-    "block-merge",
-    "cfg-cleanup",
-    "eliminate-dead-members",
-    "eliminate-dead-constant",
-    "dead-variable-elimination",
-    "spread-volatile-semantics",
-    "compact-ids",
 };
 
-// The same tail with CreateFloatDivOptPass() registered between
-// CreateBooleanSimplifyPass() and CreateLoopUnswitchPass()
-// (SpirvEmitter.cpp L20277-20279, gated by !IEEEStrict). 30 passes.
-constexpr std::string_view dxc_tail_fast_passes[] = {
-    "loop-unroll",
-    "ccp",
-    "simplification",
-    "dead-branch-elim",
-    "block-merge",
-    "scalar-replacement",
-    "local-access-chain-convert",
-    "local-single-block-load-store-elim",
-    "local-single-store-elim",
-    "local-multi-store-elim",
-    "ssa-rewrite",
-    "strength-reduction",
-    "boolean-simplify",
-    "float-div-opt",
-    "loop-unswitch",
-    "loop-invariant-code-motion",
-    "gvn-hoist",
-    "new-gvn",
+constexpr std::string_view full_safe_tail_after_fdiv[] = {
     "insert-extract-elim",
-    "local-redundancy-elimination",
-    "simplification",
-    "adce",
-    "dead-branch-elim",
-    "block-merge",
-    "cfg-cleanup",
-    "eliminate-dead-members",
-    "eliminate-dead-constant",
-    "dead-variable-elimination",
     "spread-volatile-semantics",
     "compact-ids",
 };
@@ -515,8 +501,6 @@ constexpr std::string_view lightweight_passes[] = {
     "dead-branch-elim",
 };
 
-// The only pass this backend appends after the DXC sequence for a module whose
-// declarations the audited trim-capabilities contract accepts.
 constexpr std::string_view native_capability_trim_pass = "trim-capabilities";
 
 template<size_t N>
@@ -525,24 +509,28 @@ void append_pass_names(std::vector<std::string> &out,
     for (auto name : names) { out.emplace_back(name); }
 }
 
-// The literal DXC structure: 3 prefix passes, the complete 44-pass stock
-// pipeline, and a 29- or 30-pass tail.
-static_assert(std::size(dxc_prefix_passes) == 3u);
 static_assert(std::size(stock_performance_passes) == 44u);
-static_assert(std::size(dxc_tail_strict_passes) == 29u);
-static_assert(std::size(dxc_tail_fast_passes) == 30u);
 static_assert(std::size(lightweight_passes) == 4u);
 
-[[nodiscard]] std::vector<std::string> expected_dxc_pass_sequence(
+[[nodiscard]] std::vector<std::string> expected_compute_pass_sequence(
+    bool has_explicit_unroll, bool enable_fast_math) {
+    std::vector<std::string> expected;
+    append_pass_names(expected, compute_prefix_before_unroll);
+    if (has_explicit_unroll) { expected.emplace_back("loop-unroll"); }
+    append_pass_names(expected, compute_suffix_after_unroll);
+    if (enable_fast_math) { expected.emplace_back("float-div-opt"); }
+    append_pass_names(expected, compute_tail_after_float_div_opt);
+    expected.emplace_back(native_capability_trim_pass);
+    return expected;
+}
+
+[[nodiscard]] std::vector<std::string> expected_full_pass_sequence(
     bool enable_fast_math) {
     std::vector<std::string> expected;
-    append_pass_names(expected, dxc_prefix_passes);
     append_pass_names(expected, stock_performance_passes);
-    if (enable_fast_math) {
-        append_pass_names(expected, dxc_tail_fast_passes);
-    } else {
-        append_pass_names(expected, dxc_tail_strict_passes);
-    }
+    append_pass_names(expected, full_safe_tail_before_fdiv);
+    if (enable_fast_math) { expected.emplace_back("float-div-opt"); }
+    append_pass_names(expected, full_safe_tail_after_fdiv);
     expected.emplace_back(native_capability_trim_pass);
     return expected;
 }
@@ -558,9 +546,9 @@ void expect_exact_pass_sequence(
     const lc::spirv::SpirvOptimizerReport &report,
     const std::vector<std::string> &expected) {
     expect(report.registered_passes.size() == expected.size())
-        << "the optimizer must register exactly the literal DXC sequence: "
-           "expected only the DXC prefix, stock pipeline, DXC tail and native "
-           "capability trim";
+        << "registered pass count mismatch (got "
+        << report.registered_passes.size()
+        << ", expected " << expected.size() << ")";
     auto shared = std::min<size_t>(report.registered_passes.size(),
                                    expected.size());
     for (auto index = 0u; index < shared; ++index) {
@@ -786,6 +774,8 @@ private:
     ScopedEnvironmentVariable _pass_flags{"LUISA_SPIRV_OPT_PASS_FLAGS", nullptr};
     ScopedEnvironmentVariable _max_iterations{
         "LUISA_SPIRV_OPT_MAX_ITERATIONS", nullptr};
+    ScopedEnvironmentVariable _sroa_limit{
+        "LUISA_SPIRV_OPT_SROA_LIMIT", nullptr};
     ScopedEnvironmentVariable _max_id_bound{
         "LUISA_SPIRV_OPT_MAX_ID_BOUND", nullptr};
     ScopedEnvironmentVariable _preserve_bindings{
@@ -923,94 +913,92 @@ int main(int argc, char *argv[]) {
         expect(report.capability_trim_registered)
             << "a Shader-only module is inside the audited trim contract";
         expect(!report.loop_unroll_registered)
-            << "lightweight must not run the DXC unroll analysis";
+            << "lightweight must not run loop-unroll";
         expect(!report.fma_contraction_attempted)
-            << "lightweight must not run the DXC post-convergence FMA stage";
-        expect(report.max_iterations == 8u);
+            << "lightweight must not run the post-convergence FMA stage";
+        expect(report.max_iterations == 5u);
         expect_exact_pass_sequence(
             report, expected_lightweight_pass_sequence());
         expect(validates(words));
     };
 
-    "spirv_dxc_parity_pass_sequence_is_exact"_test = [] {
+    "spirv_compute_and_full_pass_sequences_are_exact"_test = [] {
         ScopedDefaultOptimizerEnvironment defaults;
-        // compute and full share the complete DXC pipeline; the explicit
-        // fast-math policy only inserts CreateFloatDivOptPass() at its literal
-        // position and enables the post-convergence contraction stage.
-        for (auto preset : {"compute", "full"}) {
-            for (auto enable_fast_math : {false, true}) {
-                auto words = assemble_test_module();
-                auto report = lc::spirv::optimize_spirv(
-                    words,
-                    {.level = 2,
-                     .preset = preset,
-                     .enable_fast_math = enable_fast_math});
-                expect_optimizer_report_ok(report);
-                expect(report.effective_preset == preset);
-                expect(report.loop_unroll_registered)
-                    << "the DXC pipeline always registers loop-unroll analysis";
-                expect(report.capability_trim_registered);
-                expect(report.max_iterations == 8u)
-                    << "DXC c4adf384 caps the fixed point at eight iterations";
-                expect(report.iterations >= 1u);
-                expect(report.iterations <= report.max_iterations);
-                expect(report.fma_contraction_attempted == enable_fast_math)
-                    << "the post-convergence contraction stage is fast-math "
-                       "only";
-                expect_exact_pass_sequence(
-                    report, expected_dxc_pass_sequence(enable_fast_math));
-                // float-div-opt must exist only in fast math and only at DXC's
-                // exact registration point: after boolean-simplify and before
-                // loop-unswitch, i.e. behind the 3 prefix and 44 stock passes plus
-                // the 13 tail entries that precede it.
-                std::vector<size_t> float_div_opt_positions;
-                for (size_t index = 0u;
-                     index < report.registered_passes.size(); ++index) {
-                    if (report.registered_passes[index] == "float-div-opt") {
-                        float_div_opt_positions.push_back(index);
-                    }
-                }
-                expect(float_div_opt_positions.size() ==
-                       (enable_fast_math ? 1u : 0u))
-                    << "float-div-opt must be registered exactly in fast math";
-                if (enable_fast_math && !float_div_opt_positions.empty()) {
-                    auto position = float_div_opt_positions.front();
-                    constexpr auto expected_position = 3u + 44u + 13u;
-                    expect(position == expected_position)
-                        << "float-div-opt must keep DXC's exact position";
-                    expect(report.registered_passes[position - 1u] ==
-                           "boolean-simplify");
-                    expect(report.registered_passes[position + 1u] ==
-                           "loop-unswitch");
-                }
-                expect(validates(words));
+        for (auto enable_fast_math : {false, true}) {
+            auto compute_words = assemble_test_module();
+            auto compute_report = lc::spirv::optimize_spirv(
+                compute_words,
+                {.level = 2,
+                 .preset = "compute",
+                 .enable_fast_math = enable_fast_math});
+            expect_optimizer_report_ok(compute_report);
+            expect(compute_report.effective_preset == "compute");
+            expect(!compute_report.loop_unroll_registered);
+            expect(compute_report.capability_trim_registered);
+            expect(compute_report.max_iterations == 5u);
+            expect(compute_report.fma_contraction_attempted == enable_fast_math);
+            expect_exact_pass_sequence(
+                compute_report,
+                expected_compute_pass_sequence(false, enable_fast_math));
+            for (const auto &pass : compute_report.registered_passes) {
+                expect(pass != "inline-exhaustive" &&
+                       pass != "merge-return" &&
+                       pass != "wrap-op-kill" &&
+                       pass != "eliminate-dead-functions" &&
+                       pass != "loop-unswitch")
+                    << "compute preset must not register " << pass.c_str();
             }
+            expect(validates(compute_words));
+
+            auto full_words = assemble_test_module();
+            auto full_report = lc::spirv::optimize_spirv(
+                full_words,
+                {.level = 3,
+                 .preset = "full",
+                 .enable_fast_math = enable_fast_math});
+            expect_optimizer_report_ok(full_report);
+            expect(full_report.effective_preset == "full");
+            expect(full_report.loop_unroll_registered);
+            expect(full_report.capability_trim_registered);
+            expect(full_report.max_iterations == 5u);
+            expect(full_report.fma_contraction_attempted == enable_fast_math);
+            expect_exact_pass_sequence(
+                full_report, expected_full_pass_sequence(enable_fast_math));
+            expect(validates(full_words));
         }
     };
 
-    "spirv_dxc_parity_registers_both_unrolls_and_loop_unswitch"_test = [] {
+    "spirv_compute_optimizer_only_analyzes_requested_unrolls"_test = [] {
         ScopedDefaultOptimizerEnvironment defaults;
-        // DXC keeps the stock explicit-Unroll pass and adds its own bounded
-        // automatic unroll, and it always registers loop-unswitch. Neither is
-        // an opt-in policy switch any more.
-        for (auto preset : {"compute", "full"}) {
-            auto words = assemble_test_module(annotated_loop_lcssa_module);
-            auto report = lc::spirv::optimize_spirv(
-                words, {.level = 2, .preset = preset});
-            expect_optimizer_report_ok(report);
-            auto unroll_count = size_t{0u};
-            auto unswitch_count = size_t{0u};
-            for (const auto &pass : report.registered_passes) {
-                unroll_count += pass == "loop-unroll" ? 1u : 0u;
-                unswitch_count += pass == "loop-unswitch" ? 1u : 0u;
-            }
-            expect(unroll_count == 2u)
-                << "the stock explicit-Unroll pass and DXC's tail automatic "
-                   "unroll must both be registered";
-            expect(unswitch_count == 1u)
-                << "DXC parity requires the loop-unswitch pass unconditionally";
-            expect(validates(words));
-        }
+        auto ordinary = assemble_test_module(
+            make_accumulator_loop_module("None"));
+        auto ordinary_report = lc::spirv::optimize_spirv(
+            ordinary, {.level = 2, .preset = "compute"});
+        expect_optimizer_report_ok(ordinary_report);
+        expect(!ordinary_report.loop_unroll_registered)
+            << "a LoopControl None loop must not trigger loop-unroll";
+        expect(count_instructions(ordinary, spv::Op::OpLoopMerge) == 1u)
+            << "a LoopControl None loop must stay compact and un-unrolled: "
+            << disassemble(ordinary);
+        expect(validates(ordinary));
+
+        auto requested = assemble_test_module(
+            make_accumulator_loop_module("Unroll"));
+        auto requested_report = lc::spirv::optimize_spirv(
+            requested, {.level = 2, .preset = "compute"});
+        expect_optimizer_report_ok(requested_report);
+        expect(requested_report.loop_unroll_registered)
+            << "explicit Unroll control must enable explicit loop-unroll";
+        expect(count_instructions(requested, spv::Op::OpLoopMerge) == 0u)
+            << "explicit Unroll control must unroll eligible loops: "
+            << disassemble(requested);
+        auto stored = single_store_object_id(requested);
+        expect(stored.has_value());
+        auto stored_def = stored ? find_definition(requested, *stored) : std::nullopt;
+        expect(stored_def.has_value() &&
+               stored_def->opcode == spv::Op::OpConstant &&
+               requested[stored_def->offset + 3u] == 6u);
+        expect(validates(requested));
     };
 
     "spirv_loop_unswitch_ignores_non_cfg_annotation_uses"_test = [] {
@@ -1026,24 +1014,56 @@ int main(int argc, char *argv[]) {
             << "the non-semantic annotation must survive the CFG transform";
     };
 
-    "spirv_optimizer_fixed_point_cap_defaults_to_dxc_eight"_test = [] {
-        ScopedEnvironmentVariable clear_pass_flags{
-            "LUISA_SPIRV_OPT_PASS_FLAGS", nullptr};
+    "spirv_native_presets_require_explicit_loop_unswitch"_test = [] {
+        ScopedDefaultOptimizerEnvironment defaults;
+        for (auto level : {2, 3}) {
+            auto words = assemble_test_module(annotated_loop_lcssa_module);
+            auto report = lc::spirv::optimize_spirv(
+                words, {.level = level});
+            expect_optimizer_report_ok(report);
+            auto registered = false;
+            for (const auto &pass : report.registered_passes) {
+                registered |= pass == "loop-unswitch";
+            }
+            expect(!registered)
+                << "an uncosted whole-loop cloning pass must not be native-default";
+            expect(validates(words));
+        }
         {
-            ScopedEnvironmentVariable clear_cap{
-                "LUISA_SPIRV_OPT_MAX_ITERATIONS", nullptr};
+            ScopedEnvironmentVariable custom_unswitch{
+                "LUISA_SPIRV_OPT_PASS_FLAGS", "--loop-unswitch"};
+            auto words = assemble_test_module(annotated_loop_lcssa_module);
+            auto report = lc::spirv::optimize_spirv(
+                words, {.level = 2, .preset = "compute"});
+            expect_optimizer_report_ok(report);
+            auto has_custom = false;
+            for (const auto &pass : report.registered_passes) {
+                if (pass.find("loop-unswitch") != luisa::string::npos) {
+                    has_custom = true;
+                }
+            }
+            expect(has_custom);
+            expect(validates(words));
+        }
+    };
+
+    "spirv_optimizer_fixed_point_cap_and_sroa_limit"_test = [] {
+        ScopedDefaultOptimizerEnvironment defaults;
+        {
             auto words = assemble_test_module();
             auto report = lc::spirv::optimize_spirv(
                 words, {.level = 2, .preset = "compute"});
             expect_optimizer_report_ok(report);
-            expect(report.max_iterations == 8u)
-                << "DXC c4adf384 kSpirvOptMaxIterations is eight";
+            expect(report.max_iterations == 5u)
+                << "native fixed-point iteration default must remain five";
             expect(report.iterations >= 1u);
             expect(report.iterations <= report.max_iterations);
         }
         {
             ScopedEnvironmentVariable cap{
                 "LUISA_SPIRV_OPT_MAX_ITERATIONS", "3"};
+            ScopedEnvironmentVariable sroa{
+                "LUISA_SPIRV_OPT_SROA_LIMIT", "0"};
             auto words = assemble_test_module();
             auto report = lc::spirv::optimize_spirv(
                 words, {.level = 2, .preset = "compute"});
@@ -1064,8 +1084,6 @@ int main(int argc, char *argv[]) {
             expect(report.iterations == 1u)
                 << "a cap of one must run the pipeline exactly once";
         }
-        // Invalid or out-of-range values (the accepted range is 1..10) keep the
-        // DXC default instead of silently disabling the cap.
         for (auto text : {"0", "11", "-1", "abc", "3trailing", ""}) {
             ScopedEnvironmentVariable cap{
                 "LUISA_SPIRV_OPT_MAX_ITERATIONS", text};
@@ -1073,9 +1091,9 @@ int main(int argc, char *argv[]) {
             auto report = lc::spirv::optimize_spirv(
                 words, {.level = 2, .preset = "compute"});
             expect_optimizer_report_ok(report);
-            expect(report.max_iterations == 8u)
+            expect(report.max_iterations == 5u)
                 << "an invalid LUISA_SPIRV_OPT_MAX_ITERATIONS value must keep "
-                   "the DXC default of eight";
+                   "the default of five";
         }
     };
 
@@ -1381,52 +1399,8 @@ int main(int argc, char *argv[]) {
         expect(validates(words));
     };
 
-    "spirv_dxc_pipeline_auto_unrolls_counted_loop"_test = [] {
-        ScopedDefaultOptimizerEnvironment defaults;
-        // A small LoopControl None counted loop is now unrolled by DXC's bounded
-        // automatic unroll pass instead of being left to the runtime.
-        auto fixture = make_accumulator_loop_module("None");
-        auto minimal_words = assemble_test_module(fixture);
-        auto minimal_report = lc::spirv::optimize_spirv(
-            minimal_words, {.level = 1, .preset = "lightweight"});
-        expect_optimizer_report_ok(minimal_report);
-        expect(count_instructions(minimal_words, spv::Op::OpLoopMerge) == 1u)
-            << "the minimal preset must not unroll any loop";
-
-        auto words = assemble_test_module(fixture);
-        auto report = lc::spirv::optimize_spirv(
-            words, {.level = 2, .preset = "compute"});
-        expect_optimizer_report_ok(report);
-        expect(count_instructions(words, spv::Op::OpLoopMerge) == 0u)
-            << "the counted loop must be fully unrolled: "
-            << disassemble(words);
-        expect(count_instructions(words, spv::Op::OpBranchConditional) == 0u)
-            << "a fully unrolled counted loop must leave no conditional "
-               "back-edge behind";
-        auto stored = single_store_object_id(words);
-        expect(stored.has_value())
-            << "the unrolled accumulator must still reach the output store";
-        auto stored_definition = stored ? find_definition(words, *stored) : std::nullopt;
-        expect(stored_definition.has_value() &&
-               stored_definition->opcode == spv::Op::OpConstant &&
-               words[stored_definition->offset + 3u] == 6u)
-            << "the four-iteration accumulator 0+1+2+3 must be folded to the "
-               "constant 6 and stored: "
-            << disassemble(words);
-        expect(validates(words));
-
-        // The same loop marked Unroll keeps its established fully-unrolled
-        // behavior through the stock explicit-Unroll pass.
-        auto explicit_words = assemble_test_module(
-            make_accumulator_loop_module("Unroll"));
-        auto explicit_report = lc::spirv::optimize_spirv(
-            explicit_words, {.level = 2, .preset = "compute"});
-        expect_optimizer_report_ok(explicit_report);
-        expect(count_instructions(explicit_words, spv::Op::OpLoopMerge) == 0u)
-            << "an explicit Unroll control must stay fully unrolled";
-        expect(single_store_object_id(explicit_words).has_value());
-        expect(validates(explicit_words));
-    };
+    // Keep the regression fixture test below isolated cleanly (skipping duplicate
+    // auto-unroll test since explicit-only vs Unroll control is tested above).
 
     "spirv_capability_reconciliation_expands_implicit_subgroup_parent"_test = [] {
         // This fixture starts at the already-emitted SPIR-V boundary. It does

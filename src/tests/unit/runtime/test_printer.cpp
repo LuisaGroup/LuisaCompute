@@ -48,6 +48,15 @@ struct MatrixArrayHolder {
 
 LUISA_STRUCT(MatrixArrayHolder, m, tail) {};
 
+struct PaddedMatrixHolder {
+    float lead;
+    float3x3 m;
+    float2 tail;
+    float2x2 m2;
+};
+
+LUISA_STRUCT(PaddedMatrixHolder, lead, m, tail, m2) {};
+
 namespace {
 
 struct CapturedMessages {
@@ -95,6 +104,14 @@ void test_printer(Device &device) {
             array.m[1] = make_float2x2(5.0f, 6.0f, 7.0f, 8.0f);
             array.tail = make_float2(9.0f, 10.0f);
             device_log("printer-array struct={}", array);
+            Var<PaddedMatrixHolder> padded;
+            padded.lead = 0.5f;
+            padded.m = make_float3x3(1.0f, 2.0f, 3.0f,
+                                     4.0f, 5.0f, 6.0f,
+                                     7.0f, 8.0f, 9.0f);
+            padded.tail = make_float2(10.0f, 11.0f);
+            padded.m2 = make_float2x2(12.0f, 13.0f, 14.0f, 15.0f);
+            device_log("printer-padded struct={}", padded);
         };
     };
     auto shader = device.compile(kernel);
@@ -108,8 +125,8 @@ void test_printer(Device &device) {
     }
     luisa::sort(messages.begin(), messages.end());
 
-    expect(static_cast<bool>(messages.size() == 7u))
-        << "four scalar messages and three composite messages must reach the callback";
+    expect(static_cast<bool>(messages.size() == 8u))
+        << "four scalar messages and four composite messages must reach the callback";
     for (auto id = 0u; id < 4u; id++) {
         auto expected = luisa::format("printer-id={}", id);
         expect(static_cast<bool>(std::find(messages.begin(), messages.end(), expected) !=
@@ -148,6 +165,10 @@ void test_printer(Device &device) {
         "printer-array ",
         "printer-array struct={[<(1, 2), (3, 4)>, <(5, 6), (7, 8)>], (9, 10)}",
         "matrix members nested in an array must match the canonical printer syntax");
+    expect_message(
+        "printer-padded ",
+        "printer-padded struct={0.5, <(1, 2, 3), (4, 5, 6), (7, 8, 9)>, (10, 11), <(12, 13), (14, 15)>}",
+        "aligned padding before matrix members in structures must match the canonical printer syntax");
 }
 
 int main(int argc, char *argv[]) {

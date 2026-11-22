@@ -1,18 +1,16 @@
 // Floating-point remainder lowering contract for the native SPIR-V route.
 //
-// `test_hip_fmod` and `test_hip_codegen_arithmetic` execute the remainder on a
-// device; this test pins the same contract at emission time so a regression is
-// caught without a GPU. The contract is:
+// `test_device_math` and `test_hip_fmod` verify runtime semantics; this test
+// pins the SPIR-V emission contract without a GPU:
 //
-//   * a floating-point MOD never lowers to OpFRem for binary16, binary32, or
-//     binary64, in precise and in fast-math mode alike (OpFRem is only
-//     "x - y * trunc(x / y)" up to the implementation, and drivers that form
-//     the rounded quotient lose the residue);
-//   * binary16 and binary32 use the exact integer-significand algorithm, so
-//     the module contains 64-bit OpUMod instructions and no floating division;
-//   * binary16 widens to binary32 first and converts the exact remainder back;
-//   * binary64 uses the chunked exact reduction: one Fma and one Floor per
-//     chunk, 41 chunks for the whole binary64 exponent range.
+//   * under strict math (`enable_fast_math = false`), binary16/binary32 use the
+//     pure 32-bit structured-loop exact significand reduction (zero
+//     `OpCapability Int64`, zero `OpFRem`, zero `OpFDiv`), and binary64 uses the
+//     structured-loop chunked exact reduction with `NoContraction` on `Fma`,
+//     `OpFMul`, and `OpFAdd`;
+//   * under fast math (`enable_fast_math = true`), binary16/binary32/binary64
+//     emit native `OpFRem` with zero `OpCapability Int64` and zero loop overhead;
+//   * both paths survive `-O2` optimization cleanly.
 #include "ut/ut.hpp"
 #include <luisa/dsl/sugar.h>
 #include <spirv-tools/libspirv.hpp>
@@ -32,6 +30,10 @@ namespace {
 constexpr auto all_target_features =
     lc::spirv::SpirvTargetFeatures::from_enabled_mask(
         lc::spirv::target_feature::known_mask);
+
+constexpr auto features_without_int64 =
+    lc::spirv::SpirvTargetFeatures::from_enabled_mask(
+        lc::spirv::target_feature::known_mask & ~lc::spirv::target_feature::shader_int64);
 
 void set_environment_variable(const char *name, const char *value) noexcept {
 #ifdef _WIN32
@@ -74,12 +76,13 @@ struct RemainderSpirv {
 
 [[nodiscard]] RemainderSpirv compile_remainder_kernel(
     Function kernel, bool fast_math,
+    lc::spirv::SpirvTargetFeatures target_features = all_target_features,
     const char *optimization_level = "0") noexcept {
     ScopedEnvironmentVariable optimization{
         "LUISA_SPIRV_OPT_LEVEL", optimization_level};
     auto result = lc::spirv::SpirvCodegenEntry::compile_spirv(
         kernel, ShaderOption{.enable_cache = false, .enable_fast_math = fast_math},
-        all_target_features);
+        target_features);
     spvtools::SpirvTools tools{SPV_ENV_VULKAN_1_2};
     RemainderSpirv compiled;
     compiled.validated = tools.Validate(result.spv_bin.data(), result.spv_bin.size());
@@ -100,38 +103,90 @@ struct RemainderSpirv {
     return count;
 }
 
-// The exact binary16/binary32 path performs its modulus with 64-bit integer
-// arithmetic and never divides in floating point.
+[[nodiscard]] bool has_no_contraction_on_opcode(
+    std::string_view text, std::string_view opcode_fragment) noexcept {
+    bool found_any = false;
+    size_t pos = 0u;
+    while (pos < text.size()) {
+        auto end = text.find('\n', pos);
+        if (end == std::string_view::npos) { end = text.size(); }
+        auto line = text.substr(pos, end - pos);
+        if (line.find(opcode_fragment) != std::string_view::npos) {
+            auto eq = line.find('=');
+            if (eq != std::string_view::npos) {
+                auto id_tok = line.substr(0u, eq);
+                while (!id_tok.empty() && (id_tok.back() == ' ' || id_tok.back() == '\t')) {
+                    id_tok.remove_suffix(1u);
+                }
+                while (!id_tok.empty() && (id_tok.front() == ' ' || id_tok.front() == '\t')) {
+                    id_tok.remove_prefix(1u);
+                }
+                if (!id_tok.empty()) {
+                    found_any = true;
+                    auto needle = std::string{"OpDecorate "} + std::string{id_tok} + " NoContraction";
+                    if (text.find(needle) == std::string_view::npos) {
+                        return false;
+                    }
+                }
+            }
+        }
+        pos = end + 1u;
+    }
+    return found_any;
+}
+
+// The strict binary16/binary32 path performs its modulus in pure 32-bit
+// arithmetic using a structured loop, without OpCapability Int64 or OpFDiv.
 void check_integer_significand_reduction(const RemainderSpirv &compiled,
                                          luisa::string_view label) noexcept {
     expect(compiled.validated) << label << " fixture must validate";
+    expect(count_occurrences(compiled.text, "OpCapability Int64") == 0u)
+        << label << " must not require OpCapability Int64";
     expect(count_occurrences(compiled.text, "OpFRem") == 0u)
         << label << " must not lower a remainder to the inexact OpFRem";
     expect(count_occurrences(compiled.text, "OpUMod") != 0u)
         << label << " must use the exact integer-significand modulus";
+    expect(count_occurrences(compiled.text, "OpLoopMerge") == 1u)
+        << label << " must lower exact significand modulus as one structured loop";
     expect(count_occurrences(compiled.text, "OpFDiv") == 0u)
         << label << " must not form a floating-point quotient";
 }
 
 void check_chunked_binary64_reduction(const RemainderSpirv &compiled,
                                       luisa::string_view label) noexcept {
-    // One Fma and one Floor per exact reduction chunk. Cross-checking both
-    // counts keeps a truncated or duplicated sequence from passing.
-    constexpr auto chunk_count = 41u;
-    auto fma_count = count_occurrences(compiled.text, "Fma");
-    auto floor_count = count_occurrences(compiled.text, "Floor");
-    auto division_count = count_occurrences(compiled.text, "OpFDiv");
+    // One loop iteration body: two Fmas (q and q + 1), one Floor, one OpFDiv,
+    // and NoContraction protecting Fma, OpFMul, and OpFAdd.
     expect(compiled.validated) << label << " fixture must validate";
     expect(count_occurrences(compiled.text, "OpFRem") == 0u)
         << label << " must not lower a remainder to the inexact OpFRem";
-    // Two fused residuals per chunk (quotient and quotient + 1), one floored
-    // quotient, and one division.
-    expect(fma_count == 2u * chunk_count)
+    expect(count_occurrences(compiled.text, "OpLoopMerge") == 1u)
+        << label << " must emit a single structured reduction loop instead of unrolling 41 chunks";
+    auto fma_count = count_occurrences(compiled.text, "Fma");
+    auto floor_count = count_occurrences(compiled.text, "Floor");
+    auto division_count = count_occurrences(compiled.text, "OpFDiv");
+    expect(fma_count == 2u)
         << label << " fused residual count " << fma_count;
-    expect(floor_count == chunk_count)
+    expect(floor_count == 1u)
         << label << " floored quotient count " << floor_count;
-    expect(division_count == chunk_count)
+    expect(division_count == 1u)
         << label << " quotient division count " << division_count;
+    expect(has_no_contraction_on_opcode(compiled.text, " Fma "))
+        << label << " GLSL.std.450 Fma must carry NoContraction";
+    expect(has_no_contraction_on_opcode(compiled.text, " OpFMul "))
+        << label << " exact double reduction OpFMul must carry NoContraction";
+    expect(has_no_contraction_on_opcode(compiled.text, " OpFAdd "))
+        << label << " exact double reduction OpFAdd must carry NoContraction";
+}
+
+void check_fast_math_native_frem(const RemainderSpirv &compiled,
+                                 luisa::string_view label) noexcept {
+    expect(compiled.validated) << label << " fixture must validate";
+    expect(count_occurrences(compiled.text, "OpFRem") != 0u)
+        << label << " fast-math remainder must lower to native OpFRem";
+    expect(count_occurrences(compiled.text, "OpCapability Int64") == 0u)
+        << label << " fast-math remainder must not emit Int64";
+    expect(count_occurrences(compiled.text, "OpLoopMerge") == 0u)
+        << label << " fast-math remainder must not emit exact-reduction loop";
 }
 
 }// namespace
@@ -140,7 +195,7 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(
         argc, const_cast<const char **>(argv));
 
-    "spirv_float32_remainder_is_exact_in_every_mode"_test = [] {
+    "spirv_float32_remainder_strict_and_fast_math_contracts"_test = [] {
         Kernel1D kernel = [](BufferFloat lhs, BufferFloat rhs,
                              BufferFloat output) noexcept {
             output.write(0u, fmod(lhs.read(0u), rhs.read(0u)));
@@ -149,68 +204,109 @@ int main(int argc, char *argv[]) {
                                     BufferFloat4 output) noexcept {
             output.write(0u, fmod(lhs.read(0u), rhs.read(0u)));
         };
-        for (auto fast_math : {false, true}) {
-            check_integer_significand_reduction(
-                compile_remainder_kernel(kernel.function()->function(), fast_math),
-                "precise float remainder");
-            check_integer_significand_reduction(
-                compile_remainder_kernel(vector_kernel.function()->function(), fast_math),
-                "precise float4 remainder");
-        }
+        // Must compile cleanly even on targets without shader_int64!
+        check_integer_significand_reduction(
+            compile_remainder_kernel(
+                kernel.function()->function(), false, features_without_int64),
+            "strict float remainder without Int64");
+        check_integer_significand_reduction(
+            compile_remainder_kernel(
+                vector_kernel.function()->function(), false, features_without_int64),
+            "strict float4 remainder without Int64");
+
+        check_fast_math_native_frem(
+            compile_remainder_kernel(
+                kernel.function()->function(), true, features_without_int64),
+            "fast-math float remainder");
+        check_fast_math_native_frem(
+            compile_remainder_kernel(
+                vector_kernel.function()->function(), true, features_without_int64),
+            "fast-math float4 remainder");
     };
 
-    "spirv_float16_remainder_is_exact_in_every_mode"_test = [] {
+    "spirv_float16_remainder_strict_and_fast_math_contracts"_test = [] {
         Kernel1D kernel = [](BufferHalf lhs, BufferHalf rhs,
                              BufferHalf output) noexcept {
             output.write(0u, fmod(lhs.read(0u), rhs.read(0u)));
         };
-        for (auto fast_math : {false, true}) {
-            auto compiled =
-                compile_remainder_kernel(kernel.function()->function(), fast_math);
-            check_integer_significand_reduction(compiled, "half remainder");
-            // The binary32 reduction is exact for binary16 because both the
-            // operands and the exact remainder convert without rounding.
-            auto convert_count = count_occurrences(compiled.text, "OpFConvert");
-            expect(convert_count == 3u)
-                << "half remainder must widen both operands and narrow once, "
-                << "observed " << convert_count;
-        }
+        auto strict_compiled = compile_remainder_kernel(
+            kernel.function()->function(), false, features_without_int64);
+        check_integer_significand_reduction(
+            strict_compiled, "strict half remainder without Int64");
+        auto convert_count = count_occurrences(strict_compiled.text, "OpFConvert");
+        expect(convert_count == 3u)
+            << "strict half remainder must widen both operands and narrow once, "
+            << "observed " << convert_count;
+
+        check_fast_math_native_frem(
+            compile_remainder_kernel(
+                kernel.function()->function(), true, features_without_int64),
+            "fast-math half remainder");
     };
 
-    "spirv_float64_remainder_is_exact_in_every_mode"_test = [] {
+    "spirv_float64_remainder_strict_and_fast_math_contracts"_test = [] {
         Kernel1D kernel = [](BufferVar<double> lhs, BufferVar<double> rhs,
                              BufferVar<double> output) noexcept {
             output.write(0u, fmod(lhs.read(0u), rhs.read(0u)));
         };
-        for (auto fast_math : {false, true}) {
-            check_chunked_binary64_reduction(
-                compile_remainder_kernel(kernel.function()->function(), fast_math),
-                "double remainder");
-        }
+        Kernel1D vec_kernel = [](BufferVar<double4> lhs, BufferVar<double4> rhs,
+                                 BufferVar<double4> output) noexcept {
+            output.write(0u, fmod(lhs.read(0u), rhs.read(0u)));
+        };
+        check_chunked_binary64_reduction(
+            compile_remainder_kernel(kernel.function()->function(), false),
+            "strict double remainder");
+        check_chunked_binary64_reduction(
+            compile_remainder_kernel(vec_kernel.function()->function(), false),
+            "strict double4 remainder");
+
+        check_fast_math_native_frem(
+            compile_remainder_kernel(kernel.function()->function(), true),
+            "fast-math double remainder");
+        check_fast_math_native_frem(
+            compile_remainder_kernel(vec_kernel.function()->function(), true),
+            "fast-math double4 remainder");
     };
 
     "spirv_float_remainder_survives_optimization"_test = [] {
-        // The DXC-parity optimizer must not reintroduce OpFRem or collapse the
-        // exact reduction, in either numeric mode.
         Kernel1D half_kernel = [](BufferHalf lhs, BufferHalf rhs,
                                   BufferHalf output) noexcept {
+            output.write(0u, fmod(lhs.read(0u), rhs.read(0u)));
+        };
+        Kernel1D float_kernel = [](BufferFloat lhs, BufferFloat rhs,
+                                   BufferFloat output) noexcept {
             output.write(0u, fmod(lhs.read(0u), rhs.read(0u)));
         };
         Kernel1D double_kernel = [](BufferVar<double> lhs, BufferVar<double> rhs,
                                     BufferVar<double> output) noexcept {
             output.write(0u, fmod(lhs.read(0u), rhs.read(0u)));
         };
-        for (auto fast_math : {false, true}) {
-            auto half_compiled = compile_remainder_kernel(
-                half_kernel.function()->function(), fast_math, "2");
-            expect(half_compiled.validated);
-            expect(count_occurrences(half_compiled.text, "OpFRem") == 0u)
-                << "optimized half remainder must stay exact";
-            auto double_compiled = compile_remainder_kernel(
-                double_kernel.function()->function(), fast_math, "2");
-            expect(double_compiled.validated);
-            expect(count_occurrences(double_compiled.text, "OpFRem") == 0u)
-                << "optimized double remainder must stay exact";
-        }
+        auto half_strict = compile_remainder_kernel(
+            half_kernel.function()->function(), false, features_without_int64, "2");
+        expect(half_strict.validated);
+        expect(count_occurrences(half_strict.text, "OpCapability Int64") == 0u);
+        expect(count_occurrences(half_strict.text, "OpFRem") == 0u)
+            << "optimized strict half remainder must stay exact";
+
+        auto float_strict = compile_remainder_kernel(
+            float_kernel.function()->function(), false, features_without_int64, "2");
+        expect(float_strict.validated);
+        expect(count_occurrences(float_strict.text, "OpCapability Int64") == 0u);
+        expect(count_occurrences(float_strict.text, "OpFRem") == 0u)
+            << "optimized strict float remainder must stay exact";
+
+        auto double_strict = compile_remainder_kernel(
+            double_kernel.function()->function(), false, all_target_features, "2");
+        expect(double_strict.validated);
+        expect(count_occurrences(double_strict.text, "OpFRem") == 0u)
+            << "optimized strict double remainder must stay exact";
+
+        auto float_fast = compile_remainder_kernel(
+            float_kernel.function()->function(), true, features_without_int64, "2");
+        check_fast_math_native_frem(float_fast, "optimized fast-math float remainder");
+
+        auto double_fast = compile_remainder_kernel(
+            double_kernel.function()->function(), true, all_target_features, "2");
+        check_fast_math_native_frem(double_fast, "optimized fast-math double remainder");
     };
 }

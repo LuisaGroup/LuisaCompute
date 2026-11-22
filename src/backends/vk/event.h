@@ -28,7 +28,9 @@ class Event : public Resource {
     /// retired before the semaphore is destroyed: Vulkan forbids destroying a semaphore
     /// while a submitted batch still refers to it
     /// (VUID-vkDestroySemaphore-semaphore-05149).
+    static constexpr size_t kMaxPooledWaitFences = 16u;
     vstd::vector<VkFence> _wait_fences;
+    vstd::vector<VkFence> _free_wait_fences;
     void _reap_wait_fences(bool wait_for_pending) noexcept;
     void _update_fence(uint64_t value);
     void _signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer = nullptr);

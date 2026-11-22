@@ -41,17 +41,16 @@ struct SpirvOptimizerReport {
     bool attempted{false};
     bool succeeded{true};
     bool changed{false};
-    // The DXC-parity presets always register both the stock
-    // explicit-Unroll-only unroll pass and DXC's tail automatic unroll pass, so
-    // this field reports that the loop-unroll analysis is part of the pipeline
-    // rather than whether the input happened to request unrolling.
+    // For `compute`, reports whether input loops carried explicit `Unroll` control
+    // (avoiding unconditional whole-module loop unroll analysis). For `full`,
+    // `RegisterPerformancePasses(false)` includes the explicit-`Unroll` pass.
     bool loop_unroll_registered{false};
     bool capability_trim_registered{false};
     bool output_validated{false};
-    // DXC's post-convergence contraction stage: a second optimizer runs exactly
+    // Post-convergence FMA contraction stage: a second optimizer runs
     // CreateFmaContractionPass -> CreateEliminateDeadConstantPass ->
-    // CreateCompactIdsPass, once and outside the fixed-point loop, for the
-    // DXC-parity presets and only when explicit fast-math policy is enabled.
+    // CreateCompactIdsPass, once and outside the fixed-point loop, for
+    // `compute` and `full` when explicit fast-math policy is enabled.
     // These passes are not part of `registered_passes`, which lists the
     // iterated pipeline only.
     //
@@ -65,13 +64,12 @@ struct SpirvOptimizerReport {
     // keeps recording that the stage ran.
     bool fma_contraction_attempted{false};
     bool fma_contraction_applied{false};
-    // Fixed-point iteration state (DXC's kSpirvOptMaxIterations is 8).
+    // Fixed-point iteration state (capped at <= 5 iterations by default).
     size_t iterations{0u};
     bool converged{false};
-    size_t max_iterations{8u};
+    size_t max_iterations{5u};
     // Every registered pass name of the iterated pipeline in registration
-    // order (observability). Stock RegisterPerformancePasses entries are
-    // flattened in place so the complete sequence is inspectable.
+    // order (observability).
     luisa::vector<luisa::string> registered_passes;
 };
 

@@ -167,13 +167,14 @@ exception belongs in `pointer_legalization.cpp`, which uses the generic atomic
 whole selected batch.
 
 The legalization `inline` step opts in to
-`InlineOptions::preserve_invocation_convergence`
-(`utils.cpp:973-979`). Because this route destructures first and restructures
-afterwards, cloning a callee that can exit early would make the caller's
-continuation conditional per invocation, and `restructure_cfg` could only
-rebuild it as a guarded region; subgroup collectives and block barriers in that
-region would then execute with a partially active scope. Such a call is kept
-as a call and reported as `skipped_convergence_call`. The option is a
+`InlineOptions::preserve_invocation_convergence` (`utils.cpp`). Because this
+route destructures first and restructures afterwards, cloning a callee that can
+exit early would make the caller's continuation conditional per invocation, and
+`restructure_cfg` could only rebuild it as a guarded region; subgroup
+collectives, block/split barriers, quad derivatives, and `SHADER_EXECUTION_REORDER`
+reached directly or transitively in the caller would then execute with a
+partially active scope. Both `inline_all` and `inline_call_sites_pass_run_on_module`
+keep such calls intact and report `skipped_convergence_call`. The option is a
 backend policy passed explicitly by this pipeline, not a change to the generic
 inliner default, and `test_xir_passes` plus `test_fp4_quantization vk` pin it.
 
@@ -618,21 +619,12 @@ it is committed; optimizer failure or invalid output retains the already
 validated input binary. Final feature reconciliation always uses the binary
 that will actually be persisted.
 
-`LUISA_SPIRV_OPT_LEVEL` selects the optimizer preset. Level 0 disables
-optimization, level 1 is the intentionally minimal `lightweight` chain, and
-level 2 (the default, `compute`) or higher (`full`) runs one and the same
-complete DXC-parity pipeline: three structural prefix passes, the complete
-stock `RegisterPerformancePasses(false)` pipeline, then DXC's tail of 29
-unconditional passes plus the fast-math-only `FloatDivOptPass`, iterated to a
-fixed point of at most eight runs (`LUISA_SPIRV_OPT_MAX_ITERATIONS`). Use
-level 0 to isolate emission, but never treat that as a fix.
-
-Loop unrolling is therefore no longer conditional on the emitted loop control:
-that pipeline always registers both the stock explicit-`Unroll` pass and DXC's
-bounded automatic `CreateLoopUnrollPass(false, 0)`, plus `loop-unswitch`, so a
-small counted loop is unrolled and folded even when its `OpLoopMerge` carries
-`LoopControl None`. Only `none` and `lightweight` leave them out, which is why
-a loop-shape regression must be bisected at level 0/1 before blaming `spirv-opt`.
+`LUISA_SPIRV_OPT_LEVEL` selects the optimizer preset:
+- Level 0 (`none`): disables optimization.
+- Level 1 (`lightweight`): minimal cleanup (`adce`, `block-merge`, `simplification`, `dead-branch-elim`).
+- Level 2 (default, `compute`): runs `register_compute_passes()`, which mirrors value/memory optimization without XIR-redundant or high-blowup whole-module transforms (`inline-exhaustive`, `merge-return`, `wrap-op-kill`, `eliminate-dead-functions`, `loop-unswitch`, or automatic `CreateLoopUnrollPass(false, 0)` on `LoopControl None`). `CreateLoopUnrollPass(true)` is registered only when the input module carries an explicit `Unroll` `OpLoopMerge` bit; `ScalarReplacement` is bounded by `LUISA_SPIRV_OPT_SROA_LIMIT` (default 100); value passes (`strength-reduction`, `boolean-simplify`, fast-math `float-div-opt`, cleanup) iterate up to `LUISA_SPIRV_OPT_MAX_ITERATIONS` (default 5), followed once post-convergence by FMA contraction under fast math.
+- Level 3+ (`full`): runs stock `RegisterPerformancePasses(false)` plus a safe value-level tail (omitting default `loop-unswitch` and automatic unroll), plus post-convergence FMA contraction under fast math. `--loop-unswitch` remains opt-in via `LUISA_SPIRV_OPT_PASS_FLAGS`.
+Use level 0 to isolate emission, never as a fix.
 
 Useful diagnostics:
 
@@ -750,32 +742,27 @@ The Vulkan backend's shared `backend_print_code_enabled()` contract reads
 
 ## Floating-point remainder
 
-`x % y` on floats is an exact numeric contract, not an optimization: it does
-not depend on `enable_fast_math`. Never lower a floating `BINARY_MOD` to
-`OpFRem`. `OpFRem` is only "x - y * trunc(x / y)" up to the implementation, so a
-driver that forms the rounded quotient loses the residue as soon as that
-quotient exceeds the significand range, and some drivers are already inexact
-for narrow and 64-bit operands with ordinary quotients. `test_hip_fmod`
-executes all three widths in both numeric modes against the host `std::fmod`
-oracle; `test_spirv_float_remainder` pins the same contract at emission time
-without a device.
+Exact software remainder lowering on `x % y` (`BINARY_MOD`) is gated on strict
+math (`!enable_fast_math`), matching HLSL codegen (`_lc_fmod` vs `fmod`). Under
+`enable_fast_math = true`, `BINARY_MOD` lowers to native `OpFRem` with zero
+`Int64` or loop overhead. `test_spirv_float_remainder` pins both strict and
+fast-math emission contracts without a device, while `test_device_math` and
+`test_hip_fmod` verify runtime execution.
 
-- binary16 widens to binary32, reuses the exact binary32 reduction, and narrows
-  once. Both the widening and the final narrowing are exact because the exact
-  remainder of two binary16 values is a binary16 value.
-- binary32 uses the exact integer-significand reduction: form
-  `sig_x * 2^(scale_x - scale_y) mod sig_y` with 64-bit modular arithmetic with
-  exponentiation by squaring, then re-encode the result bits. Significands are
-  at most 24 bits, so every intermediate product stays inside 64 bits.
-- binary64 uses a branch-free chunked reduction: for
+- Under strict math (`enable_fast_math = false`), binary16 widens to binary32,
+  reuses the exact binary32 reduction, and narrows once (exact since the exact
+  remainder of two binary16 values fits in binary16).
+- Under strict math, binary32 uses a pure 32-bit structured `OpLoopMerge`
+  shift-and-reduce loop processing up to 8 exponent bits per iteration: since
+  `rem < safe_y_significand <= 2^24`, `rem << step < 2^32`, eliminating
+  `OpCapability Int64` and `OpFDiv` completely.
+- Under strict math, binary64 uses a bounded 41-iteration structured
+  `OpLoopMerge` chunked reduction: for
   `s = clamp(exponent(|x|) - exponent(|y|) - 52, 0, 2045)`, `t = |y| * 2^s`, the
-  floored quotient `floor(r / t)` is an integer below 2^53, and `r - q * t` is a
-  multiple of t's ulp strictly below t, so a single-rounding FMA reproduces it
-  exactly. The correctly rounded quotient can be one off in either direction,
-  so both `q` and `q + 1` residuals are materialized and the exact one is
-  selected; 41 chunks span the whole binary64 exponent range.
-- Do not recover a floating remainder from a rounded floating-point quotient,
-  and do not reintroduce `OpFRem` as a "fast math" variant.
+  floored quotient `floor(r / t)` fits below `2^53`, and `r - q * t` is formed
+  with unconditional `NoContraction` on `Fma`, `OpFMul`, and `OpFAdd`, selecting
+  between `q` and `q + 1` residuals; the structured loop stops early once all
+  invocations are finished or bounded at 41 chunks.
 
 ## Testing expectations
 

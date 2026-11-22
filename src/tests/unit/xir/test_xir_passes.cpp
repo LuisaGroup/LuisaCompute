@@ -9162,6 +9162,117 @@ void reg_inline() {
         expect(info.removed_callable_count == 1u);
         expect(xir_verify_module(&m).succeeded());
     };
+
+    "inline_convergence_keeps_early_return_callee_before_shader_execution_reorder"_test = [&] {
+        Module m;
+        auto *callee = make_early_return_callee(m);
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        auto *condition = caller->create_value_argument(Type::of<bool>());
+        auto *hint = m.create_constant_zero(Type::of<uint>());
+        XIRBuilder b;
+        b.set_insertion_point(caller_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), callee, {condition});
+        b.call(nullptr, ThreadGroupOp::SHADER_EXECUTION_REORDER, {hint, hint});
+        b.store(storage, call);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(
+            &m, InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_convergence_call_count == 1u);
+        expect(call->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_convergence_keeps_early_return_callee_before_quad_derivative"_test = [&] {
+        Module m;
+        auto *callee = make_early_return_callee(m);
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        auto *condition = caller->create_value_argument(Type::of<bool>());
+        auto *zero_f = m.create_constant_zero(Type::of<float>());
+        XIRBuilder b;
+        b.set_insertion_point(caller_body);
+        auto *storage = b.alloca_local(Type::of<float>());
+        auto *call = b.call(Type::of<uint>(), callee, {condition});
+        (void)call;
+        auto *ddx = b.call(Type::of<float>(), ThreadGroupOp::RASTER_QUAD_DDX, {zero_f});
+        b.store(storage, ddx);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(
+            &m, InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_convergence_call_count == 1u);
+        expect(call->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_convergence_keeps_early_return_callee_before_split_barrier"_test = [&] {
+        Module m;
+        auto *callee = make_early_return_callee(m);
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        auto *condition = caller->create_value_argument(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(caller_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *call = b.call(Type::of<uint>(), callee, {condition});
+        b.call(nullptr, ThreadGroupOp::SPLIT_BARRIER_ARRIVE, {});
+        b.store(storage, call);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(
+            &m, InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_convergence_call_count == 1u);
+        expect(call->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_convergence_detects_transitive_convergent_callee"_test = [&] {
+        Module m;
+        auto *early = make_early_return_callee(m);
+        auto *helper = m.create_callable(Type::of<uint>());
+        auto *helper_arg = helper->create_value_argument(Type::of<uint>());
+        XIRBuilder b;
+        b.set_insertion_point(helper->create_body_block());
+        b.return_(b.call(Type::of<uint>(), ThreadGroupOp::WARP_ACTIVE_SUM,
+                         {helper_arg}));
+        BasicBlock *caller_body;
+        auto *caller = make_kernel_with_body(m, caller_body);
+        auto *condition = caller->create_value_argument(Type::of<bool>());
+        b.set_insertion_point(caller_body);
+        auto *storage = b.alloca_local(Type::of<uint>());
+        auto *early_call = b.call(Type::of<uint>(), early, {condition});
+        auto *helper_call = b.call(Type::of<uint>(), helper, {early_call});
+        b.store(storage, helper_call);
+        b.return_void();
+        expect(xir_verify_module(&m).succeeded());
+        auto info = inline_pass_run_on_module(
+            &m, InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.skipped_convergence_call_count == 1u);
+        expect(early_call->is_linked());
+        expect(early->parent_module() == &m);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "inline_call_sites_honors_preserve_invocation_convergence"_test = [&] {
+        Module m;
+        auto *callee = make_early_return_callee(m);
+        auto [caller, call] = make_caller(m, callee, true, false);
+        expect(xir_verify_module(&m).succeeded());
+        CallInst *const sites[] = {call};
+        auto info = inline_call_sites_pass_run_on_module(
+            &m, luisa::span<CallInst *const>{sites},
+            InlineOptions{.preserve_invocation_convergence = true});
+        expect(info.inlined_call_count == 0u);
+        expect(info.skipped_convergence_call_count == 1u);
+        expect(call->is_linked());
+        expect(xir_verify_module(&m).succeeded());
+    };
 }
 
 // ---- unused_callable_removal ----

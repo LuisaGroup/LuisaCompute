@@ -488,7 +488,9 @@ void ResourceBarrier::_update_state(BufferStates &state) {
     barrier.dstStageMask = range.after_stage;
     barrier.srcAccessMask = range.before_access;
     barrier.dstAccessMask = range.after_access;
-    if ((range.after_access & VK_ACCESS_2_TRANSFER_READ_BIT) != 0u) {
+    if (device != nullptr &&
+        device->properties().vendorID == 0x10deu &&
+        (range.after_access & VK_ACCESS_2_TRANSFER_READ_BIT) != 0u) {
         // Workaround for observed NVIDIA Vulkan 1.4.329 behavior: a readback
         // copy whose destination scope is only VK_PIPELINE_STAGE_2_COPY_BIT /
         // VK_ACCESS_2_TRANSFER_READ_BIT can observe the pre-dispatch contents

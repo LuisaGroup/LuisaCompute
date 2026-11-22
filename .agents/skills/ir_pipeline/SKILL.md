@@ -166,13 +166,17 @@ Apply these constraints when they match the selected passes:
    When the consumer restructures the CFG again after inlining, also pass
    `InlineOptions{.preserve_invocation_convergence = true}`: a multi-block
    callee that can exit early is then kept as a call instead of being cloned
-   into a caller that executes a subgroup collective or `SYNCHRONIZE_BLOCK`.
+   into a caller that (directly or transitively through another callee) executes
+   a subgroup collective (`WARP_*`), workgroup/split barrier (`SYNCHRONIZE_BLOCK`,
+   `SPLIT_BARRIER_ARRIVE`, `SPLIT_BARRIER_WAIT`), quad derivative
+   (`RASTER_QUAD_DDX`/`DDY`), or `SHADER_EXECUTION_REORDER`.
    Cloning would turn the caller's continuation into per-invocation control
    flow, which `restructure_cfg` can only rebuild as a guarded region, so the
-   collective would run with a partially active scope. The SPIR-V
-   XIR-to-SPIR-V legalization step is the current opt-in; the default is
-   `false`, so CUDA/HIP/fallback, Metal4 and the autodiff pipelines are
-   unchanged. Treat `rejected_malformed_call_count` as a hard pipeline error.
+   convergent operation would run with a partially active scope. Both
+   `inline_all` and `inline_call_sites_pass_run_on_module` enforce this when set;
+   the SPIR-V XIR-to-SPIR-V legalization step is the current opt-in; the
+   default is `false`, so CUDA/HIP/fallback, Metal4 and the autodiff pipelines
+   are unchanged. Treat `rejected_malformed_call_count` as a hard pipeline error.
 3. In the ordinary lowering phase, run `mem2reg` after `inline_all`: the
    inliner can create argument and return-value temporaries that promotion
    should remove before SSA optimization. Metal4 inserts

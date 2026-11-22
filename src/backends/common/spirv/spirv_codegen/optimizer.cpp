@@ -30,6 +30,33 @@ namespace {
     return "full";
 }
 
+[[nodiscard]] bool has_unroll_loop_control(
+    const uint32_t *words, size_t word_count) noexcept {
+    constexpr auto header_word_count = 5u;
+    constexpr auto loop_merge_min_word_count = 4u;
+    constexpr auto loop_control_word_index = 3u;
+    constexpr auto unroll_mask =
+        static_cast<uint32_t>(spv::LoopControlMask::Unroll);
+    if (words == nullptr || word_count < header_word_count) { return false; }
+    for (auto offset = header_word_count; offset < word_count;) {
+        auto instruction = words[offset];
+        auto instruction_word_count =
+            static_cast<size_t>(instruction >> 16u);
+        auto opcode = static_cast<spv::Op>(instruction & 0xffffu);
+        if (instruction_word_count == 0u ||
+            instruction_word_count > word_count - offset) {
+            return false;
+        }
+        if (opcode == spv::Op::OpLoopMerge &&
+            instruction_word_count >= loop_merge_min_word_count &&
+            (words[offset + loop_control_word_index] & unroll_mask) != 0u) {
+            return true;
+        }
+        offset += instruction_word_count;
+    }
+    return false;
+}
+
 // Records the pass name for report observability and consumes the token.
 void register_pass(spvtools::Optimizer &optimizer,
                    SpirvOptimizerReport &report,
@@ -39,9 +66,9 @@ void register_pass(spvtools::Optimizer &optimizer,
     optimizer.RegisterPass(std::move(pass));
 }
 
-// LUISA_SPIRV_OPT_MAX_ITERATIONS: fixed-point cap, bounded 1..10, default 8
-// (DXC c4adf384's kSpirvOptMaxIterations). Invalid or out-of-range values keep
-// the default, mirroring the strict LUISA_SPIRV_OPT_LEVEL parsing.
+// LUISA_SPIRV_OPT_MAX_ITERATIONS: fixed-point cap, bounded 1..10, default 5.
+// Invalid or out-of-range values keep the default, mirroring the strict
+// LUISA_SPIRV_OPT_LEVEL parsing.
 [[nodiscard]] size_t
 spirv_opt_max_iterations_from_environment() noexcept {
     if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_MAX_ITERATIONS")) {
@@ -53,7 +80,24 @@ spirv_opt_max_iterations_from_environment() noexcept {
             return static_cast<size_t>(value);
         }
     }
-    return 8u;
+    return 5u;
+}
+
+// LUISA_SPIRV_OPT_SROA_LIMIT: ScalarReplacement composite-size limit. Default
+// 100 preserves the bounded compute behavior; 0 means unlimited. Values must
+// fit the uint32_t factory argument.
+[[nodiscard]] uint32_t
+spirv_opt_sroa_limit_from_environment() noexcept {
+    if (auto env = luisa::get_environment_variable("LUISA_SPIRV_OPT_SROA_LIMIT")) {
+        char *end = nullptr;
+        errno = 0;
+        auto value = std::strtol(env->c_str(), &end, 10);
+        if (errno == 0 && end != env->c_str() && *end == '\0' &&
+            value >= 0 && value <= std::numeric_limits<int>::max()) {
+            return static_cast<uint32_t>(value);
+        }
+    }
+    return 100u;
 }
 
 // LUISA_SPIRV_OPT_PASS_FLAGS: optional comma/space separated --pass flags
@@ -89,11 +133,8 @@ spirv_opt_max_iterations_from_environment() noexcept {
 // Names of every pass registered by
 // spvtools::Optimizer::RegisterPerformancePasses(bool) at the vendored
 // SPIRV-Tools revision (src/ext/SPIRV-Tools/source/opt/optimizer.cpp L185-230).
-// The stock pipeline is registered as one unit below, so these names exist only
-// to flatten it into SpirvOptimizerReport::registered_passes and let sequence
-// tests inspect every pass DXC runs. They describe the vendored stock pipeline,
-// not passes implemented here: keep them in the exact stock order and update
-// them together with the vendored revision.
+// The stock pipeline is registered as one unit for `full` below, so these
+// names keep `SpirvOptimizerReport::registered_passes` inspectable.
 constexpr luisa::string_view stock_performance_pass_names[] = {
     // structural normalization
     "wrap-op-kill",
@@ -143,10 +184,6 @@ constexpr luisa::string_view stock_performance_pass_names[] = {
     "simplification",
 };
 
-// Registers the complete stock performance pipeline exactly as the vendored
-// SPIRV-Tools builds it, and flattens its pass names into the report at this
-// position so the recorded sequence stays a faithful description of the
-// registered optimizer.
 void register_stock_performance_passes(spvtools::Optimizer &optimizer,
                                        SpirvOptimizerReport &report) {
     for (auto name : stock_performance_pass_names) {
@@ -155,60 +192,103 @@ void register_stock_performance_passes(spvtools::Optimizer &optimizer,
     optimizer.RegisterPerformancePasses(false);
 }
 
-// Registers DXC c4adf384's complete default optimization pipeline
-// (tools/clang/lib/SPIRV/SpirvEmitter.cpp L20258-20294) as one unit:
-//
-// 1. the three-pass structural prefix;
-// 2. the complete vendored stock RegisterPerformancePasses pipeline;
-// 3. DXC's additional tail: 29 unconditional passes plus the fast-math-only
-//    FloatDivOptPass (DXC registers 30 tail passes under !IEEEStrict and 29
-//    under IEEEStrict).
-//
-// The compute and full presets both use this helper so the DXC order is
-// defined once. No stock pass is omitted: the parity pipeline deliberately
-// accepts the stock WrapOpKill/MergeReturn/InlineExhaustive/
-// EliminateDeadFunctions work, DXC's bounded automatic loop unroll
-// (CreateLoopUnrollPass(false, 0)) and its loop-unswitch pass instead of the
-// former local opt-in gates. Only the tail FloatDivOptPass is conditional,
-// because it reassociates floating-point division; DXC likewise places it
-// behind !IEEEStrict, which maps here to the explicit fast-math policy.
-void register_dxc_parity_passes(spvtools::Optimizer &optimizer,
-                                SpirvOptimizerReport &report,
-                                bool enable_fast_math) {
-    // Prefix: structural normalization before the stock pipeline
-    // (SpirvEmitter.cpp L20260-20262).
-    register_pass(optimizer, report, "merge-return",
-                  spvtools::CreateMergeReturnPass());
+// Mirrors DXC's RegisterPerformancePasses ordering minus the four structural
+// passes covered at XIR level (WrapOpKill, MergeReturn, InlineExhaustive,
+// EliminateDeadFunctions), keeping the conditional explicit-Unroll gate and
+// bounded sroa_limit, plus safe value-level tail passes (and fast-math-only
+// FloatDivOptPass). Target-independent `loop-unswitch` and automatic
+// `CreateLoopUnrollPass(false, 0)` are deliberately omitted by default to avoid
+// 2^k loop cloning and code blowup; `--loop-unswitch` remains opt-in via
+// `LUISA_SPIRV_OPT_PASS_FLAGS`.
+void register_compute_passes(spvtools::Optimizer &optimizer,
+                             SpirvOptimizerReport &report,
+                             bool register_loop_unroll,
+                             uint32_t sroa_limit,
+                             bool enable_fast_math) {
     register_pass(optimizer, report, "dead-branch-elim",
                   spvtools::CreateDeadBranchElimPass());
-    register_pass(optimizer, report, "cfg-cleanup",
-                  spvtools::CreateCFGCleanupPass());
-    // Complete stock performance pipeline (SpirvEmitter.cpp L20263).
-    register_stock_performance_passes(optimizer, report);
-    // Additional tail: exact registration order (SpirvEmitter.cpp L20264-20294).
-    register_pass(optimizer, report, "loop-unroll",
-                  spvtools::CreateLoopUnrollPass(false, 0));
-    register_pass(optimizer, report, "ccp",
-                  spvtools::CreateCCPPass());
-    register_pass(optimizer, report, "simplification",
-                  spvtools::CreateSimplificationPass());
-    register_pass(optimizer, report, "dead-branch-elim",
-                  spvtools::CreateDeadBranchElimPass());
-    register_pass(optimizer, report, "block-merge",
-                  spvtools::CreateBlockMergePass());
-    // 0 is DXC's unlimited composite-size threshold, not a tuned local limit.
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "private-to-local",
+                  spvtools::CreatePrivateToLocalPass());
+    register_pass(optimizer, report, "local-single-block-load-store-elim",
+                  spvtools::CreateLocalSingleBlockLoadStoreElimPass());
+    register_pass(optimizer, report, "local-single-store-elim",
+                  spvtools::CreateLocalSingleStoreElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
     register_pass(optimizer, report, "scalar-replacement",
-                  spvtools::CreateScalarReplacementPass(0u));
+                  spvtools::CreateScalarReplacementPass(sroa_limit));
     register_pass(optimizer, report, "local-access-chain-convert",
                   spvtools::CreateLocalAccessChainConvertPass());
     register_pass(optimizer, report, "local-single-block-load-store-elim",
                   spvtools::CreateLocalSingleBlockLoadStoreElimPass());
     register_pass(optimizer, report, "local-single-store-elim",
                   spvtools::CreateLocalSingleStoreElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
     register_pass(optimizer, report, "local-multi-store-elim",
                   spvtools::CreateLocalMultiStoreElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "ccp",
+                  spvtools::CreateCCPPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    // Only analyze loops when the input carries explicit Unroll control bits.
+    if (register_loop_unroll) {
+        register_pass(optimizer, report, "loop-unroll",
+                      spvtools::CreateLoopUnrollPass(true));
+    }
+    register_pass(optimizer, report, "dead-branch-elim",
+                  spvtools::CreateDeadBranchElimPass());
+    register_pass(optimizer, report, "redundancy-elimination",
+                  spvtools::CreateRedundancyEliminationPass());
+    register_pass(optimizer, report, "combine-access-chains",
+                  spvtools::CreateCombineAccessChainsPass());
+    register_pass(optimizer, report, "simplification",
+                  spvtools::CreateSimplificationPass());
+    register_pass(optimizer, report, "scalar-replacement",
+                  spvtools::CreateScalarReplacementPass(sroa_limit));
+    register_pass(optimizer, report, "local-access-chain-convert",
+                  spvtools::CreateLocalAccessChainConvertPass());
+    register_pass(optimizer, report, "local-single-block-load-store-elim",
+                  spvtools::CreateLocalSingleBlockLoadStoreElimPass());
+    register_pass(optimizer, report, "local-single-store-elim",
+                  spvtools::CreateLocalSingleStoreElimPass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
     register_pass(optimizer, report, "ssa-rewrite",
                   spvtools::CreateSSARewritePass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "vector-dce",
+                  spvtools::CreateVectorDCEPass());
+    register_pass(optimizer, report, "dead-insert-elim",
+                  spvtools::CreateDeadInsertElimPass());
+    register_pass(optimizer, report, "dead-branch-elim",
+                  spvtools::CreateDeadBranchElimPass());
+    register_pass(optimizer, report, "simplification",
+                  spvtools::CreateSimplificationPass());
+    register_pass(optimizer, report, "if-conversion",
+                  spvtools::CreateIfConversionPass());
+    register_pass(optimizer, report, "copy-propagate-arrays",
+                  spvtools::CreateCopyPropagateArraysPass());
+    register_pass(optimizer, report, "reduce-load-size",
+                  spvtools::CreateReduceLoadSizePass());
+    register_pass(optimizer, report, "adce",
+                  spvtools::CreateAggressiveDCEPass());
+    register_pass(optimizer, report, "block-merge",
+                  spvtools::CreateBlockMergePass());
+    register_pass(optimizer, report, "redundancy-elimination",
+                  spvtools::CreateRedundancyEliminationPass());
+    register_pass(optimizer, report, "dead-branch-elim",
+                  spvtools::CreateDeadBranchElimPass());
+    register_pass(optimizer, report, "block-merge",
+                  spvtools::CreateBlockMergePass());
+    register_pass(optimizer, report, "simplification",
+                  spvtools::CreateSimplificationPass());
+    // Bounded value-level and cleanup tail.
     register_pass(optimizer, report, "strength-reduction",
                   spvtools::CreateStrengthReductionPass());
     register_pass(optimizer, report, "boolean-simplify",
@@ -217,34 +297,37 @@ void register_dxc_parity_passes(spvtools::Optimizer &optimizer,
         register_pass(optimizer, report, "float-div-opt",
                       spvtools::CreateFloatDivOptPass());
     }
-    register_pass(optimizer, report, "loop-unswitch",
-                  spvtools::CreateLoopUnswitchPass());
-    register_pass(optimizer, report, "loop-invariant-code-motion",
-                  spvtools::CreateLoopInvariantCodeMotionPass());
-    register_pass(optimizer, report, "gvn-hoist",
-                  spvtools::CreateGVNHoistPass());
-    register_pass(optimizer, report, "new-gvn",
-                  spvtools::CreateNewGVNPass());
     register_pass(optimizer, report, "insert-extract-elim",
                   spvtools::CreateInsertExtractElimPass());
-    register_pass(optimizer, report, "local-redundancy-elimination",
-                  spvtools::CreateLocalRedundancyEliminationPass());
-    register_pass(optimizer, report, "simplification",
-                  spvtools::CreateSimplificationPass());
-    register_pass(optimizer, report, "adce",
-                  spvtools::CreateAggressiveDCEPass(false));
-    register_pass(optimizer, report, "dead-branch-elim",
-                  spvtools::CreateDeadBranchElimPass());
-    register_pass(optimizer, report, "block-merge",
-                  spvtools::CreateBlockMergePass());
-    register_pass(optimizer, report, "cfg-cleanup",
-                  spvtools::CreateCFGCleanupPass());
     register_pass(optimizer, report, "eliminate-dead-members",
                   spvtools::CreateEliminateDeadMembersPass());
     register_pass(optimizer, report, "eliminate-dead-constant",
                   spvtools::CreateEliminateDeadConstantPass());
     register_pass(optimizer, report, "dead-variable-elimination",
                   spvtools::CreateDeadVariableEliminationPass());
+    register_pass(optimizer, report, "spread-volatile-semantics",
+                  spvtools::CreateSpreadVolatileSemanticsPass());
+    register_pass(optimizer, report, "compact-ids",
+                  spvtools::CreateCompactIdsPass());
+}
+
+void register_full_safe_tail(spvtools::Optimizer &optimizer,
+                             SpirvOptimizerReport &report,
+                             bool enable_fast_math) {
+    register_pass(optimizer, report, "private-to-local",
+                  spvtools::CreatePrivateToLocalPass());
+    register_pass(optimizer, report, "copy-propagate-arrays",
+                  spvtools::CreateCopyPropagateArraysPass());
+    register_pass(optimizer, report, "strength-reduction",
+                  spvtools::CreateStrengthReductionPass());
+    register_pass(optimizer, report, "boolean-simplify",
+                  spvtools::CreateBooleanSimplifyPass());
+    if (enable_fast_math) {
+        register_pass(optimizer, report, "float-div-opt",
+                      spvtools::CreateFloatDivOptPass());
+    }
+    register_pass(optimizer, report, "insert-extract-elim",
+                  spvtools::CreateInsertExtractElimPass());
     register_pass(optimizer, report, "spread-volatile-semantics",
                   spvtools::CreateSpreadVolatileSemanticsPass());
     register_pass(optimizer, report, "compact-ids",
@@ -525,10 +608,13 @@ SpirvOptimizerReport optimize_spirv(
     spvtools::Optimizer optimizer{SPV_ENV_VULKAN_1_2};
     optimizer.SetMessageConsumer(append_diagnostic);
 
-    // Preset selection. The lightweight preset stays the intentionally minimal
-    // chain; compute and full both run the complete DXC default pipeline; an
-    // unknown name falls back to compute and reports that fallback.
-    auto dxc_parity = false;
+    // Preset selection: `lightweight` stays minimal; `compute` runs the
+    // compute pipeline with conditional explicit-Unroll and bounded SROA
+    // (`LUISA_SPIRV_OPT_SROA_LIMIT`, default 100); `full` runs the stock
+    // performance pipeline + safe value-level tail (without default
+    // `loop-unswitch` or auto-unroll of `LoopControl None`). Unknown names fall
+    // back to `compute`.
+    auto post_fma_eligible = false;
     if (report.effective_preset == "lightweight") {
         register_pass(optimizer, report, "adce",
                       spvtools::CreateAggressiveDCEPass());
@@ -538,20 +624,25 @@ SpirvOptimizerReport optimize_spirv(
                       spvtools::CreateSimplificationPass());
         register_pass(optimizer, report, "dead-branch-elim",
                       spvtools::CreateDeadBranchElimPass());
+    } else if (report.effective_preset == "full") {
+        post_fma_eligible = true;
+        register_stock_performance_passes(optimizer, report);
+        report.loop_unroll_registered = true;
+        register_full_safe_tail(optimizer, report, options.enable_fast_math);
     } else {
-        if (report.effective_preset != "compute" &&
-            report.effective_preset != "full") {
+        if (report.effective_preset != "compute") {
             report.diagnostics.append(luisa::format(
                 "Unknown SPIR-V optimization preset '{}'; using compute.\n",
                 report.effective_preset));
             report.effective_preset = "compute";
         }
-        dxc_parity = true;
-        register_dxc_parity_passes(
-            optimizer, report, options.enable_fast_math);
-        // The stock explicit-Unroll pipeline and DXC's tail automatic unroll
-        // are both part of this pipeline unconditionally.
-        report.loop_unroll_registered = true;
+        post_fma_eligible = true;
+        report.loop_unroll_registered =
+            has_unroll_loop_control(words.data(), words.size());
+        register_compute_passes(
+            optimizer, report, report.loop_unroll_registered,
+            spirv_opt_sroa_limit_from_environment(),
+            options.enable_fast_math);
     }
 
     // DCE can remove the last use of an optional capability, but ordinary
@@ -675,7 +766,7 @@ SpirvOptimizerReport optimize_spirv(
     // convergence even for a fast-math DXC-parity preset with custom flags.
     // There is deliberately no knob that turns this stage off; strict math
     // (enable_fast_math == false) is the only way to skip it.
-    if (dxc_parity && options.enable_fast_math) {
+    if (post_fma_eligible && options.enable_fast_math) {
         report.fma_contraction_attempted = true;
         // Pre-stage bytes, kept to decide whether the stage really changed
         // anything: a successful run that contracts nothing is a no-op and must

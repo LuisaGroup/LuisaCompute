@@ -289,36 +289,123 @@ static void accumulate_inline_barrier(
 }
 
 // Operations whose semantics require every invocation of their scope to be
-// active at the same dynamic instance. The subgroup collective block and the
-// block barrier are the only such operations the XIR dialect carries: a
-// subgroup reduction/shuffle over a partially active scope reads undefined
-// source values, and a divergent block barrier is undefined behaviour.
+// active at the same dynamic instance. Subgroup collectives/shuffles, workgroup
+// barriers (including split barriers), shader execution reordering, and quad
+// derivatives are undefined under non-uniform / divergent execution.
 [[nodiscard]] static bool
 requires_invocation_convergence(ThreadGroupOp op) noexcept {
-    if (op == ThreadGroupOp::SYNCHRONIZE_BLOCK) { return true; }
-    auto value = luisa::to_underlying(op);
-    return value >= luisa::to_underlying(ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE) &&
-           value <= luisa::to_underlying(ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE);
-}
-
-// True when the function executes an operation that is only defined in
-// convergent control flow.
-[[nodiscard]] static bool contains_invocation_convergent_operation(
-    FunctionDefinition *def) noexcept {
-    if (def == nullptr) { return false; }
-    for (auto *block : def->basic_blocks()) {
-        for (auto *inst : block->instructions()) {
-            if (inst->derived_instruction_tag() !=
-                DerivedInstructionTag::THREAD_GROUP) {
-                continue;
-            }
-            if (requires_invocation_convergence(
-                    static_cast<const ThreadGroupInst *>(inst)->op())) {
-                return true;
-            }
-        }
+    switch (op) {
+        case ThreadGroupOp::SHADER_EXECUTION_REORDER:
+        case ThreadGroupOp::RASTER_QUAD_DDX:
+        case ThreadGroupOp::RASTER_QUAD_DDY:
+        case ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE:
+        case ThreadGroupOp::WARP_FIRST_ACTIVE_LANE:
+        case ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL:
+        case ThreadGroupOp::WARP_ACTIVE_BIT_AND:
+        case ThreadGroupOp::WARP_ACTIVE_BIT_OR:
+        case ThreadGroupOp::WARP_ACTIVE_BIT_XOR:
+        case ThreadGroupOp::WARP_ACTIVE_COUNT_BITS:
+        case ThreadGroupOp::WARP_ACTIVE_MAX:
+        case ThreadGroupOp::WARP_ACTIVE_MIN:
+        case ThreadGroupOp::WARP_ACTIVE_PRODUCT:
+        case ThreadGroupOp::WARP_ACTIVE_SUM:
+        case ThreadGroupOp::WARP_ACTIVE_ALL:
+        case ThreadGroupOp::WARP_ACTIVE_ANY:
+        case ThreadGroupOp::WARP_ACTIVE_BIT_MASK:
+        case ThreadGroupOp::WARP_PREFIX_COUNT_BITS:
+        case ThreadGroupOp::WARP_PREFIX_SUM:
+        case ThreadGroupOp::WARP_PREFIX_PRODUCT:
+        case ThreadGroupOp::WARP_READ_LANE:
+        case ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE:
+        case ThreadGroupOp::SYNCHRONIZE_BLOCK:
+        case ThreadGroupOp::SPLIT_BARRIER_ARRIVE:
+        case ThreadGroupOp::SPLIT_BARRIER_WAIT:
+            return true;
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_GREATER_EQUAL:
+        case ThreadGroupOp::RASTER_SET_Z_DEPTH_LESS_EQUAL:
+        case ThreadGroupOp::GRAPH_SET_CONDITIONAL:
+        case ThreadGroupOp::GRAPH_LAUNCH:
+        case ThreadGroupOp::GET_CURRENT_GRAPH_EXEC:
+        case ThreadGroupOp::GRAPH_NODE_SET_PARAM:
+        case ThreadGroupOp::GRAPH_NODE_SET_GRID_DIM:
+        case ThreadGroupOp::GRAPH_NODE_SET_ENABLED:
+        case ThreadGroupOp::GRID_DEPENDENCY_SYNCHRONIZE:
+        case ThreadGroupOp::TRIGGER_PROGRAMMATIC_LAUNCH_COMPLETION:
+            return false;
     }
     return false;
+}
+
+[[nodiscard]] static bool contains_invocation_convergent_operation_impl(
+    Function *function,
+    luisa::unordered_map<Function *, bool> &cache,
+    luisa::unordered_set<Function *> &visiting,
+    bool &hit_active_cycle) noexcept {
+    if (function == nullptr) { return false; }
+    if (auto iter = cache.find(function); iter != cache.end()) {
+        return iter->second;
+    }
+    auto *def = function->definition();
+    if (def == nullptr) { return false; }
+    if (!visiting.emplace(function).second) {
+        hit_active_cycle = true;
+        return false;
+    }
+    // Check direct instructions before following callees so local convergent ops
+    // short-circuit immediately even on cyclic call graphs.
+    auto found = false;
+    for (auto *block : def->basic_blocks()) {
+        for (auto *inst : block->instructions()) {
+            if (inst->derived_instruction_tag() ==
+                    DerivedInstructionTag::THREAD_GROUP &&
+                requires_invocation_convergence(
+                    static_cast<const ThreadGroupInst *>(inst)->op())) {
+                found = true;
+                break;
+            }
+        }
+        if (found) { break; }
+    }
+    auto local_hit_cycle = false;
+    if (!found) {
+        for (auto *block : def->basic_blocks()) {
+            for (auto *inst : block->instructions()) {
+                if (inst->derived_instruction_tag() !=
+                    DerivedInstructionTag::CALL) {
+                    continue;
+                }
+                auto *callee = static_cast<const CallInst *>(inst)->callee();
+                if (callee == nullptr) { continue; }
+                if (contains_invocation_convergent_operation_impl(
+                        const_cast<Function *>(callee),
+                        cache, visiting, local_hit_cycle)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) { break; }
+        }
+    }
+    visiting.erase(function);
+    hit_active_cycle |= local_hit_cycle;
+    // Always cache true; cache false only when no active cycle edge truncated
+    // exploration, otherwise a cycle peer might not yet have reached its own ops.
+    if (found || !local_hit_cycle) {
+        cache.emplace(function, found);
+    }
+    return found;
+}
+
+// True when the function (or any callable it transitively invokes) executes
+// an operation that is only defined in convergent control flow.
+[[nodiscard]] static bool contains_invocation_convergent_operation(
+    Function *function) noexcept {
+    luisa::unordered_map<Function *, bool> cache;
+    luisa::unordered_set<Function *> visiting;
+    auto hit_cycle = false;
+    return contains_invocation_convergent_operation_impl(
+        function, cache, visiting, hit_cycle);
 }
 
 // A callee "can exit early" when its control flow reaches the exit from more
@@ -381,6 +468,8 @@ struct InlineFunctionSummary {
     bool has_single_body_metadata{false};
     bool contains_barrier_disallow_autodiff{false};
     bool contains_barrier_allow_autodiff{false};
+    bool can_exit_early{false};
+    bool has_convergent_operation{false};
     size_t block_count{0u};
     size_t instruction_count{0u};
     size_t local_value_count{0u};
@@ -399,6 +488,7 @@ struct InlineFunctionSummary {
     ++summary_function_count;
     auto block_count = size_t{0u};
     auto return_count = size_t{0u};
+    BasicBlock *last_return_block = nullptr;
     auto single_block_forbidden = false;
     auto return_shape_is_valid = true;
     InlineBarrierFlags barrier_flags;
@@ -412,6 +502,12 @@ struct InlineFunctionSummary {
                  !inst->isa<ReturnInst>()) ||
                 inst->isa<PhiInst>();
             accumulate_inline_barrier(inst, barrier_flags);
+            if (inst->derived_instruction_tag() ==
+                    DerivedInstructionTag::THREAD_GROUP &&
+                requires_invocation_convergence(
+                    static_cast<const ThreadGroupInst *>(inst)->op())) {
+                summary.has_convergent_operation = true;
+            }
             if (!inst->isa<ReturnInst>()) { continue; }
             auto *return_inst = static_cast<ReturnInst *>(inst);
             auto *return_value = return_inst->return_value();
@@ -422,8 +518,18 @@ struct InlineFunctionSummary {
                  return_value->type() == function->type());
             summary.has_return_metadata |=
                 !inst->metadata_list().empty();
+            last_return_block = block;
             ++return_count;
         }
+    }
+    if (return_count > 1u) {
+        summary.can_exit_early = true;
+    } else if (last_return_block != nullptr &&
+               last_return_block != definition->body_block()) {
+        size_t predecessor_count = 0u;
+        last_return_block->traverse_predecessors(
+            false, [&](BasicBlock *) noexcept { ++predecessor_count; });
+        summary.can_exit_early = predecessor_count > 1u;
     }
     summary.block_count = block_count;
     summary.local_value_count =
@@ -552,6 +658,9 @@ public:
 // pass invocation, not merely for one structural version of the caller.
 class InlineCallerBarrierCache {
     luisa::unordered_map<Function *, InlineBarrierFlags> _flags;
+    // Keep convergent op cache separate from barrier _flags so telemetry
+    // counters on barrier scans stay unchanged.
+    luisa::unordered_map<Function *, bool> _convergent_cache;
     InlineInfo *_info;
 
 public:
@@ -559,6 +668,21 @@ public:
         InlineInfo &info, size_t expected_function_count = 0u) noexcept
         : _info{&info} {
         _flags.reserve(expected_function_count);
+        _convergent_cache.reserve(expected_function_count);
+    }
+
+    [[nodiscard]] bool contains_convergent(Function *function) noexcept {
+        luisa::unordered_set<Function *> visiting;
+        auto hit_cycle = false;
+        return contains_invocation_convergent_operation_impl(
+            function, _convergent_cache, visiting, hit_cycle);
+    }
+
+    void note_inlined_convergent(Function *caller,
+                                 bool callee_convergent) noexcept {
+        if (caller != nullptr && callee_convergent) {
+            _convergent_cache.insert_or_assign(caller, true);
+        }
     }
 
     [[nodiscard]] bool contains(
@@ -1095,6 +1219,15 @@ public:
         ++info.skipped_structured_call_count;
         return false;
     }
+    auto note_convergent_on_success = [&](bool succeeded) noexcept {
+        if (!succeeded || caller_barriers == nullptr) { return succeeded; }
+        auto callee_convergent =
+            callee_summary != nullptr ?
+                callee_summary->has_convergent_operation :
+                caller_barriers->contains_convergent(callee);
+        caller_barriers->note_inlined_convergent(caller, callee_convergent);
+        return succeeded;
+    };
     auto single_block = callee_summary == nullptr ?
                             has_single_block(callee_def) :
                             callee_summary->has_single_block;
@@ -1108,11 +1241,11 @@ public:
         auto *clone_layout = callee_version == nullptr ?
                                  nullptr :
                                  &callee_version->acquire_clone_layout();
-        return inline_single_block_call(
+        return note_convergent_on_success(inline_single_block_call(
             call, callee, callee_summary != nullptr, clone_layout,
             callee_version == nullptr ?
                 nullptr :
-                callee_version->dense_fallback_count());
+                callee_version->dense_fallback_count()));
     }
     auto caller_contains_barrier = caller_barriers == nullptr ?
                                        contains_inline_barrier(
@@ -1130,25 +1263,33 @@ public:
     // the continuation gains predecessors inside the callee's former control
     // flow. A backend that rebuilds structured control flow from that CFG can
     // only express such a continuation as a guarded region, which is not
-    // convergent. Subgroup collectives and block barriers in the caller are
-    // undefined there, so the call is preserved instead: a call site is a
-    // reconvergence point for every invocation that reaches it.
-    if (options.preserve_invocation_convergence &&
-        callee_can_exit_early(callee_def) &&
-        contains_invocation_convergent_operation(caller_def)) {
-        ++info.skipped_convergence_call_count;
-        return false;
+    // convergent. Subgroup collectives, block barriers, quad derivatives, and
+    // shader execution reordering in the caller are undefined there, so the call
+    // is preserved instead: a call site is a reconvergence point for every
+    // invocation that reaches it.
+    auto callee_early_exit = callee_summary != nullptr ?
+                                 callee_summary->can_exit_early :
+                                 callee_can_exit_early(callee_def);
+    if (options.preserve_invocation_convergence && callee_early_exit) {
+        auto caller_convergent =
+            caller_barriers != nullptr ?
+                caller_barriers->contains_convergent(caller) :
+                contains_invocation_convergent_operation(caller);
+        if (caller_convergent) {
+            ++info.skipped_convergence_call_count;
+            return false;
+        }
     }
     info.consumed_call_site_diagnostic_metadata_count +=
         consume_call_site_diagnostic_metadata(call, options);
     auto *clone_layout = callee_version == nullptr ?
                              nullptr :
                              &callee_version->acquire_clone_layout();
-    return inline_multi_block_call(
+    return note_convergent_on_success(inline_multi_block_call(
         call, callee, clone_layout,
         callee_version == nullptr ?
             nullptr :
-            callee_version->dense_fallback_count());
+            callee_version->dense_fallback_count()));
 }
 
 struct InlineCallGraphAnalysis {
@@ -1583,6 +1724,7 @@ InlineInfo inline_call_sites_pass_run_on_module(
     }
     auto call_graph =
         detail::analyze_inline_call_graph(all_callables, info);
+    detail::InlineCallerBarrierCache caller_barriers{info, all_callables.size()};
     luisa::unordered_map<Function *, detail::InlineFunctionSummary>
         function_summaries;
     auto summary_of = [&](Function *function) noexcept {
@@ -1673,12 +1815,20 @@ InlineInfo inline_call_sites_pass_run_on_module(
             ++info.skipped_structured_call_count;
             continue;
         }
+        if (!callee_summary.has_single_block &&
+            options.preserve_invocation_convergence &&
+            callee_summary.can_exit_early &&
+            caller_barriers.contains_convergent(caller)) {
+            ++info.skipped_convergence_call_count;
+            continue;
+        }
         plan.emplace_back(call, callee,
                           callee_summary.has_single_block);
     }
     if (info.rejected_malformed_call_count != 0u ||
         info.skipped_recursive_callable_count != 0u ||
         info.skipped_structured_call_count != 0u ||
+        info.skipped_convergence_call_count != 0u ||
         info.skipped_constrained_call_count != 0u ||
         info.skipped_noinline_call_count != 0u ||
         info.skipped_metadata_call_count != 0u ||
@@ -1725,7 +1875,7 @@ InlineInfo inline_call_sites_pass_run_on_module(
             ++info.call_site_revalidated_apply_count;
             succeeded = detail::inline_call(
                 call, callee, info, options,
-                &reported_malformed_calls);
+                &reported_malformed_calls, nullptr, &caller_barriers);
         } else {
             ++info.call_site_cached_apply_count;
             ++info.call_site_dense_resolver_apply_count;
@@ -1740,6 +1890,10 @@ InlineInfo inline_call_sites_pass_run_on_module(
                             detail::inline_multi_block_call(
                                 call, callee, &clone_layout,
                                 &info.call_site_dense_resolver_fallback_count);
+            if (succeeded) {
+                caller_barriers.note_inlined_convergent(
+                    caller, summary_of(callee).has_convergent_operation);
+            }
         }
         if (!succeeded) {
             LUISA_ERROR_WITH_LOCATION(
