@@ -1715,6 +1715,33 @@ int main(int argc, char *argv[]) {
         expect(validates(words));
     };
 
+    "spirv_optimizer_invalid_custom_pass_flag_is_a_reported_failure"_test = [] {
+        ScopedDefaultOptimizerEnvironment defaults;
+        ScopedEnvironmentVariable invalid_flag{
+            "LUISA_SPIRV_OPT_PASS_FLAGS", "--definitely-not-a-real-pass"};
+        auto words = assemble_test_module();
+        auto original = words;
+        auto report = lc::spirv::optimize_spirv(
+            words, {.level = 2, .preset = "compute"});
+        // entry.cpp uses these flags to decide between a normal skip and the
+        // warning path. A registration failure must not look like a successful
+        // skip, or its diagnostic is silently discarded.
+        expect(report.attempted)
+            << "invalid custom pass registration must enter the failure path";
+        expect(!report.succeeded)
+            << "invalid custom pass registration must not report success";
+        expect(!report.output_validated);
+        expect(!report.changed);
+        expect(report.iterations == 0u)
+            << "an invalid flag must stop before any optimizer iteration";
+        expect(report.diagnostics.find("invalid pass flag") !=
+               luisa::string::npos)
+            << "the failure must retain its actionable diagnostic";
+        expect(words == original)
+            << "invalid custom pass registration must retain the input exactly";
+        expect(validates(words));
+    };
+
     "spirv_optimizer_environment_is_not_cached"_test = [] {
         ScopedEnvironmentVariable clear_preset{"LUISA_SPIRV_OPT_PASSES", nullptr};
         {

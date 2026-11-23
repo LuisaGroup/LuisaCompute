@@ -666,6 +666,11 @@ SpirvOptimizerReport optimize_spirv(
             report.diagnostics.append(
                 "LUISA_SPIRV_OPT_PASS_FLAGS contains an invalid pass flag; "
                 "aborting optimization and retaining the input binary.\n");
+            // Registration is part of the optimization attempt. Reporting this
+            // as a successful skip makes entry.cpp suppress the diagnostic and
+            // silently hide a misspelled pass flag.
+            report.attempted = true;
+            report.succeeded = false;
             return report;
         }
     }
