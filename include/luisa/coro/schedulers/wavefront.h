@@ -245,6 +245,9 @@ private:
     // continuation. Ordinary independent Extension queues have no such owner.
     luisa::vector<uint> _queue_continuation;
     luisa::vector<uint8_t> _queue_deferred;
+    luisa::vector<uint8_t> _queue_deferred_self_loop;
+    luisa::vector<uint> _queue_deferred_target;
+    luisa::vector<uint8_t> _queue_blocks_deferred;
     luisa::vector<uint64_t> _shader_structure_hashes;
     luisa::vector<WavefrontCoroShaderInfo> _shader_infos;
     luisa::vector<uint> _continuation_block_sizes;
@@ -1517,6 +1520,9 @@ private:
     void _finalize_extension_handlers() noexcept {
         if (_extension_handlers_finalized) { return; }
         _queue_deferred.assign(_queue_count, 0u);
+        _queue_deferred_self_loop.assign(_queue_count, 0u);
+        _queue_deferred_target.assign(_queue_count, 0u);
+        _queue_blocks_deferred.assign(_queue_count, 0u);
         if (_extension_stages.empty()) {
             _extension_route_table.clear();
             _extension_handlers_finalized = true;
@@ -1600,7 +1606,18 @@ private:
                                  registered.handler->name(), boundary.index);
                     if (registered.handler->defer_while_other_queues_nonempty() &&
                         registered.stage.queue_index < _queue_deferred.size()) {
-                        _queue_deferred[registered.stage.queue_index] = 1u;
+                        const auto q = registered.stage.queue_index;
+                        _queue_deferred[q] = 1u;
+                        _queue_deferred_target[q] = static_cast<uint>(boundary.to_index);
+                        if (boundary.from_index == boundary.to_index) {
+                            _queue_deferred_self_loop[q] = 1u;
+                        }
+                        if (boundary.from_index < _queue_blocks_deferred.size()) {
+                            _queue_blocks_deferred[boundary.from_index] = 1u;
+                        }
+                        if (boundary.to_index < _queue_blocks_deferred.size()) {
+                            _queue_blocks_deferred[boundary.to_index] = 1u;
+                        }
                     }
                 }
             }
@@ -1613,6 +1630,31 @@ private:
             }
         }
         _coalesce_resume_annotation_queues();
+        auto owner_of = [&](size_t idx) noexcept -> size_t {
+            return idx < _queue_continuation.size() &&
+                           _queue_continuation[idx] < _continuation_count ?
+                       static_cast<size_t>(_queue_continuation[idx]) :
+                       idx;
+        };
+        for (auto &registered : _extension_stages) {
+            const auto q = registered.stage.queue_index;
+            if (q < _queue_deferred.size() && _queue_deferred[q] != 0u &&
+                registered.next_queue != q &&
+                registered.next_queue < _queue_blocks_deferred.size()) {
+                _queue_blocks_deferred[registered.next_queue] = 1u;
+                auto next_owner = owner_of(registered.next_queue);
+                if (next_owner < _queue_blocks_deferred.size()) {
+                    _queue_blocks_deferred[next_owner] = 1u;
+                }
+            }
+        }
+        for (size_t i = 0u; i < _queue_count; ++i) {
+            auto owner = owner_of(i);
+            if (owner < _queue_blocks_deferred.size() &&
+                _queue_blocks_deferred[owner] != 0u) {
+                _queue_blocks_deferred[i] = 1u;
+            }
+        }
         _extension_handlers_finalized = true;
     }
 
@@ -1769,6 +1811,8 @@ private:
         auto max_active_count = 0u;
         luisa::vector<uint> logical_count(nq, 0u);
         luisa::vector<uint> logical_members(nq, 0u);
+        luisa::vector<uint> deferred_target_count(nc, 0u);
+        auto last_deferred_target = nc;
         auto queue_owner = [&](size_t queue) noexcept {
             // Independent Extensions have distinct scheduling identities;
             // only before-resume suffixes belong to their continuation.
@@ -1919,9 +1963,14 @@ private:
             }
             max_active_count = std::max(max_active_count, active_count);
             auto deferred_count = 0u;
-            for (size_t i = nc; i < nq; ++i) {
+            auto deferred_blocker_nonempty = false;
+            for (size_t i = 1u; i < nq; ++i) {
                 if (i < _queue_deferred.size() && _queue_deferred[i] != 0u) {
                     deferred_count += _host_count[i];
+                } else if (_host_count[i] != 0u &&
+                           i < _queue_blocks_deferred.size() &&
+                           _queue_blocks_deferred[i] != 0u) {
+                    deferred_blocker_nonempty = true;
                 }
             }
             auto auxiliary_active_count = uint64_t{0u};
@@ -2026,10 +2075,102 @@ private:
                     }
                 }
             };
+            auto select_blocker_queue = [&]() noexcept {
+                selected = nq;
+                selected_count = 0u;
+                selected_priority = nq;
+                for (size_t i = 1u; i < nq; ++i) {
+                    if (i < _queue_deferred.size() && _queue_deferred[i] != 0u) { continue; }
+                    if (i >= _queue_blocks_deferred.size() || _queue_blocks_deferred[i] == 0u) { continue; }
+                    if (logical_count[i] > selected_count) {
+                        selected_count = logical_count[i];
+                        selected_priority = i;
+                    }
+                }
+                for (size_t i = 1u; i < nq; ++i) {
+                    if (_host_count[i] != 0u && queue_owner(i) == selected_priority) {
+                        selected = i;
+                        break;
+                    }
+                }
+            };
+            auto select_deferred_queue = [&]() noexcept {
+                selected = nq;
+                selected_count = 0u;
+                selected_priority = nq;
+                std::fill(deferred_target_count.begin(), deferred_target_count.end(), 0u);
+                for (size_t i = nc; i < nq; ++i) {
+                    if (i < _queue_deferred.size() && _queue_deferred[i] != 0u) {
+                        const auto target = _queue_deferred_target[i];
+                        if (target < nc) {
+                            deferred_target_count[target] += _host_count[i];
+                        }
+                    }
+                }
+                auto best_target = nc;
+                auto best_target_count = 0u;
+                for (size_t t = 0u; t < nc; ++t) {
+                    if (deferred_target_count[t] > best_target_count) {
+                        best_target_count = deferred_target_count[t];
+                        best_target = t;
+                    }
+                }
+                if (best_target_count == 0u) { return; }
+                const auto last_target_count =
+                    last_deferred_target < nc ?
+                        deferred_target_count[last_deferred_target] :
+                        0u;
+                const auto chosen_target =
+                    (last_deferred_target < nc && last_target_count != 0u &&
+                     static_cast<uint64_t>(last_target_count) * 8ull >=
+                         static_cast<uint64_t>(best_target_count)) ?
+                        last_deferred_target :
+                        best_target;
+                auto best_entry = nq;
+                auto best_entry_count = 0u;
+                auto best_self = nq;
+                auto best_self_count = 0u;
+                for (size_t i = nc; i < nq; ++i) {
+                    if (i >= _queue_deferred.size() || _queue_deferred[i] == 0u ||
+                        _queue_deferred_target[i] != chosen_target ||
+                        _host_count[i] == 0u) {
+                        continue;
+                    }
+                    const auto c = _host_count[i];
+                    if (i < _queue_deferred_self_loop.size() &&
+                        _queue_deferred_self_loop[i] != 0u) {
+                        if (c > best_self_count) {
+                            best_self_count = c;
+                            best_self = i;
+                        }
+                    } else if (c > best_entry_count) {
+                        best_entry_count = c;
+                        best_entry = i;
+                    }
+                }
+                selected = best_entry != nq ? best_entry : best_self;
+                if (selected < nq) {
+                    selected_count = _host_count[selected];
+                    selected_priority = selected;
+                }
+            };
             select_queue(false);
             auto selected_is_deferred = false;
-            if (selected_count == 0u && selected_auxiliary_count == 0u) {
-                select_queue(true);
+            auto selected_blocker_override = false;
+            const auto deferred_threshold =
+                std::min(deferred_count / 4u, std::max(_active_frame_capacity / 8u, 1u));
+            if (_config.largest_continuation_first &&
+                deferred_count != 0u &&
+                std::max(selected_count, selected_auxiliary_count) < deferred_threshold) {
+                if (deferred_blocker_nonempty) {
+                    select_blocker_queue();
+                    selected_blocker_override = selected_count != 0u;
+                } else {
+                    select_deferred_queue();
+                    selected_is_deferred = selected_count != 0u;
+                }
+            } else if (selected_count == 0u && selected_auxiliary_count == 0u) {
+                select_deferred_queue();
                 selected_is_deferred = selected_count != 0u;
             }
             auto selected_continuation = selected_priority < nc ? selected_priority : nc;
@@ -2042,7 +2183,7 @@ private:
             auto forced_auxiliary_stage = 0u;
             auto forced_auxiliary_count = 0u;
             if (selected_continuation < nc && selected_count != 0u &&
-                selected_auxiliary_count <= selected_count) {
+                (selected_blocker_override || selected_auxiliary_count <= selected_count)) {
                 for (size_t i = 0u; i < _auxiliary_work.size(); ++i) {
                     auto &&registered = _auxiliary_work[i];
                     auto bound =
@@ -2090,7 +2231,8 @@ private:
             auto dispatch_auxiliary =
                 forced_auxiliary != _auxiliary_work.size() ?
                     forced_auxiliary :
-                    (selected_auxiliary_count > selected_count ?
+                    (!selected_is_deferred && !selected_blocker_override &&
+                             selected_auxiliary_count > selected_count ?
                          selected_auxiliary :
                          _auxiliary_work.size());
             auto dispatch_auxiliary_stage =
@@ -2461,6 +2603,10 @@ private:
                         continue;
                     }
                     dispatch_handler(stage_index);
+                    if (selected_is_deferred && i == selected &&
+                        i < _queue_deferred_target.size()) {
+                        last_deferred_target = _queue_deferred_target[i];
+                    }
                     pending_commands << _advance_extension_stage_shader(
                                             _config.thread_count, indices,
                                             0u, count, static_cast<uint>(i),
