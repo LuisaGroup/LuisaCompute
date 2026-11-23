@@ -60,6 +60,7 @@ set(LUISA_SIMD_LLVM_CODEGEN_SOURCES
         llvm/llvm_schedule_codegen_cooperative.cpp
         llvm/llvm_schedule_emitter_bindless.cpp
         llvm/llvm_schedule_emitter_bindless_texture.cpp
+        llvm/llvm_schedule_emitter_bindless_texture_helpers.cpp
         llvm/llvm_schedule_emitter.cpp
         llvm/llvm_schedule_emitter_arithmetic.cpp
         llvm/llvm_schedule_emitter_arithmetic_ops.cpp
