@@ -186,12 +186,19 @@ void vma_defragment(Device *device) {
     }
 }
 UploadBuffer::UploadBuffer(Device *device, size_t size_bytes)
-    : Buffer{device, size_bytes},
+    : Buffer{device, size_bytes, word_addressable_size(size_bytes),
+             device->enable_device_address()},
       _res{
           device->allocator()
               .allocate_buffer(
-                  size_bytes,
-                  (VkBufferUsageFlagBits)((uint)VK_BUFFER_USAGE_TRANSFER_SRC_BIT | (uint)VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+                  word_addressable_size(size_bytes),
+                  static_cast<VkBufferUsageFlagBits>(
+                      static_cast<uint>(VK_BUFFER_USAGE_TRANSFER_SRC_BIT) |
+                      static_cast<uint>(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) |
+                      static_cast<uint>(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) |
+                      (device->enable_device_address() ?
+                           static_cast<uint>(VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) :
+                           0u)),
                   AccessType::kUpload)} {
     VK_CHECK_RESULT(vmaMapMemory(
         device->allocator().allocator(),
@@ -249,6 +256,9 @@ bool ReadbackBuffer::flush_host() const {
     return true;
 }
 void ReadbackBuffer::flush_range(size_t begin, size_t end) {
+    if (end <= begin) {
+        return;
+    }
     VK_CHECK_RESULT(vmaInvalidateAllocation(
         device()->allocator().allocator(),
         _res.allocation,
@@ -256,6 +266,9 @@ void ReadbackBuffer::flush_range(size_t begin, size_t end) {
         end - begin));
 }
 void UploadBuffer::flush_range(size_t begin, size_t end) {
+    if (end <= begin) {
+        return;
+    }
     VK_CHECK_RESULT(vmaFlushAllocation(
         device()->allocator().allocator(),
         _res.allocation,
