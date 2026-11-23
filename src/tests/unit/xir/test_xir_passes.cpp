@@ -10116,6 +10116,292 @@ void reg_mem2reg() {
             << "loop_var needs header+latch Phis; dead_after_diamond needs zero Phis";
         expect(xir_verify_module(&m).succeeded());
     };
+
+    "collect_llvm_alloca_spill_hazards_giant_aggregate_and_exclusions"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<void>());
+        auto *entry = f->create_body_block();
+        luisa::vector<const Type *> giant_fields(300u, Type::of<uint32_t>());
+        luisa::vector<const Type *> small_fields(16u, Type::of<uint32_t>());
+        auto *giant_struct_type = Type::structure(giant_fields);
+        auto *giant_array_type = Type::array(Type::of<float4>(), 70u);
+        auto *small_struct_type = Type::structure(small_fields);
+        auto *shared_giant_type = Type::array(Type::of<float4>(), 80u);
+        auto *ray_query_type = Type::custom("LC_RayQueryAll");
+
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        auto *giant_struct = b.alloca_local(giant_struct_type);
+        auto *giant_array = b.alloca_local(giant_array_type);
+        auto *small_struct = b.alloca_local(small_struct_type);
+        auto *vec_local = b.alloca_local(Type::of<float4>());
+        auto *shared_giant = b.alloca_shared(shared_giant_type);
+        auto *ray_query = b.alloca_local(ray_query_type);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        auto hazards = collect_llvm_alloca_spill_hazards(f);
+        auto contains = [&](const AllocaInst *target) noexcept {
+            return std::find(hazards.begin(), hazards.end(), target) != hazards.end();
+        };
+        expect(hazards.size() == 2u);
+        expect(contains(giant_struct));
+        expect(contains(giant_array));
+        expect(!contains(small_struct));
+        expect(!contains(vec_local));
+        expect(!contains(shared_giant));
+        expect(!contains(ray_query));
+    };
+
+    "collect_llvm_alloca_spill_hazards_high_fanin_gep_and_cumulative_cap"_test = [] {
+        {
+            constexpr uint32_t kNumCases = 300u;
+            Module m;
+            auto *f = m.create_callable(Type::of<void>());
+            auto *out_u32 = f->create_reference_argument(Type::of<uint32_t>());
+            auto *out_f4 = f->create_reference_argument(Type::of<float4>());
+            auto *entry = f->create_body_block();
+            auto *dispatch = f->create_basic_block();
+            auto *next = f->create_basic_block();
+            auto *loop_exit = f->create_basic_block();
+            auto *invalid = f->create_basic_block();
+            luisa::vector<BasicBlock *> cases;
+            cases.reserve(kNumCases);
+            for (uint32_t i = 0u; i < kNumCases; ++i) {
+                cases.emplace_back(f->create_basic_block());
+            }
+
+            XIRBuilder b;
+            b.set_insertion_point(entry);
+            auto *pc = b.alloca_local(Type::of<uint32_t>());
+            auto *scalar_sparse = b.alloca_local(Type::of<uint32_t>());
+            auto *vec_gep = b.alloca_local(Type::of<float4>());
+            auto *single_blk = b.alloca_local(Type::of<uint32_t>());
+            auto *dead_store = b.alloca_local(Type::of<uint32_t>());
+            uint32_t zero_v = 0u;
+            b.store(pc, m.create_constant(Type::of<uint32_t>(), &zero_v));
+            b.store(vec_gep, m.create_constant_zero(Type::of<float4>()));
+            auto *loop = b.simple_loop();
+            loop->set_body_block(dispatch);
+            loop->set_merge_block(loop_exit);
+
+            b.set_insertion_point(dispatch);
+            auto *sw = b.switch_(b.load(Type::of<uint32_t>(), pc));
+            sw->set_merge_block(next);
+            sw->set_default_block(invalid);
+            for (uint32_t i = 0u; i < kNumCases; ++i) {
+                sw->add_case(i, cases[i]);
+            }
+            b.set_insertion_point(invalid);
+            b.unreachable_();
+            b.set_insertion_point(next);
+            b.continue_(dispatch);
+            b.set_insertion_point(loop_exit);
+            b.return_void();
+
+            uint32_t one_v = 1u;
+            float five_f = 5.0f;
+            auto *c1 = m.create_constant(Type::of<uint32_t>(), &one_v);
+            auto *idx0 = m.create_constant_zero(Type::of<uint32_t>());
+            auto *cf5 = m.create_constant(Type::of<float>(), &five_f);
+
+            b.set_insertion_point(cases[0u]);
+            b.store(scalar_sparse, c1);
+            auto *elem0 = b.gep(Type::of<float>(), vec_gep, {idx0});
+            b.store(elem0, cf5);
+            b.store(pc, c1);
+            b.break_(next);
+
+            b.set_insertion_point(cases[1u]);
+            b.store(out_u32, b.load(Type::of<uint32_t>(), scalar_sparse));
+            b.store(out_f4, b.load(Type::of<float4>(), vec_gep));
+            b.break_(loop_exit);
+
+            b.set_insertion_point(cases[2u]);
+            b.store(single_blk, c1);
+            b.store(out_u32, b.load(Type::of<uint32_t>(), single_blk));
+            b.break_(next);
+
+            b.set_insertion_point(cases[3u]);
+            b.store(dead_store, c1);
+            b.break_(next);
+
+            for (uint32_t i = 4u; i < kNumCases; ++i) {
+                b.set_insertion_point(cases[i]);
+                b.break_(next);
+            }
+
+            expect(xir_verify_module(&m).succeeded());
+            auto hazards = collect_llvm_alloca_spill_hazards(f);
+            auto contains = [&](const AllocaInst *target) noexcept {
+                return std::find(hazards.begin(), hazards.end(), target) != hazards.end();
+            };
+            expect(contains(pc));
+            expect(contains(scalar_sparse));
+            expect(contains(vec_gep));
+            expect(!contains(single_blk));
+            expect(!contains(dead_store));
+        }
+
+        {
+            constexpr uint32_t kNumArms = 8u;
+            constexpr uint32_t kNumVars = 6u;
+            Module m;
+            auto *f = m.create_callable(Type::of<void>());
+            auto *sel = f->create_value_argument(Type::of<uint32_t>());
+            auto *out = f->create_reference_argument(Type::of<uint32_t>());
+            auto *entry = f->create_body_block();
+            auto *merge = f->create_basic_block();
+            luisa::vector<BasicBlock *> arms;
+            arms.reserve(kNumArms);
+            for (uint32_t i = 0u; i < kNumArms; ++i) {
+                arms.emplace_back(f->create_basic_block());
+            }
+
+            XIRBuilder b;
+            b.set_insertion_point(entry);
+            luisa::vector<AllocaInst *> vars;
+            vars.reserve(kNumVars);
+            for (uint32_t i = 0u; i < kNumVars; ++i) {
+                vars.emplace_back(b.alloca_local(Type::of<uint32_t>()));
+            }
+            auto *entry_tmp = b.alloca_local(Type::of<uint32_t>());
+            uint32_t c10 = 10u, c20 = 20u;
+            auto *v10 = m.create_constant(Type::of<uint32_t>(), &c10);
+            auto *v20 = m.create_constant(Type::of<uint32_t>(), &c20);
+            b.store(entry_tmp, v10);
+            b.store(out, b.load(Type::of<uint32_t>(), entry_tmp));
+            auto *sw = b.switch_(sel);
+            sw->set_merge_block(merge);
+            sw->set_default_block(arms[0u]);
+            for (uint32_t i = 1u; i < kNumArms; ++i) {
+                sw->add_case(i, arms[i]);
+            }
+
+            b.set_insertion_point(arms[0u]);
+            for (auto *v : vars) { b.store(v, v10); }
+            b.break_(merge);
+
+            b.set_insertion_point(arms[1u]);
+            for (auto *v : vars) { b.store(v, v20); }
+            b.break_(merge);
+
+            for (uint32_t i = 2u; i < kNumArms; ++i) {
+                b.set_insertion_point(arms[i]);
+                b.break_(merge);
+            }
+
+            b.set_insertion_point(merge);
+            for (auto *v : vars) {
+                b.store(out, b.load(Type::of<uint32_t>(), v));
+            }
+            b.return_void();
+
+            expect(xir_verify_module(&m).succeeded());
+            auto hazards = collect_llvm_alloca_spill_hazards(
+                f,
+                {.min_phi_operands_per_alloca = 100u,
+                 .max_total_phi_operands_per_function = 20u});
+            // Each variable needs 8 Phi operands at `merge`: first 2 fit (16 <= 20),
+            // remaining 4 exceed cumulative limit, entry_tmp (0 Phis) stays unflagged.
+            expect(hazards.size() == 4u);
+            expect(std::find(hazards.begin(), hazards.end(), entry_tmp) == hazards.end());
+        }
+    };
+
+    "mem2reg_enforces_cumulative_ordinary_phi_operand_cap_with_reg2mem_exempt"_test = [] {
+        constexpr uint32_t kNumCases = 198u;
+        constexpr uint32_t kNumOrdinary = 340u;
+        Module m;
+        auto *f = m.create_callable(Type::of<void>());
+        auto *out = f->create_reference_argument(Type::of<uint32_t>());
+        auto *entry = f->create_body_block();
+        auto *dispatch = f->create_basic_block();
+        auto *next = f->create_basic_block();
+        auto *loop_exit = f->create_basic_block();
+        auto *invalid = f->create_basic_block();
+        luisa::vector<BasicBlock *> cases;
+        cases.reserve(kNumCases);
+        for (uint32_t i = 0u; i < kNumCases; ++i) {
+            cases.emplace_back(f->create_basic_block());
+        }
+
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        luisa::vector<AllocaInst *> ordinaries;
+        ordinaries.reserve(kNumOrdinary);
+        for (uint32_t i = 0u; i < kNumOrdinary; ++i) {
+            ordinaries.emplace_back(b.alloca_local(Type::of<uint32_t>()));
+        }
+        auto *spill_phi = b.alloca_local(Type::of<uint32_t>());
+        spill_phi->create_metadata<Reg2MemSpillMD>()->set_kind(Reg2MemSpillKind::PHI);
+        auto *local_tmp = b.alloca_local(Type::of<uint32_t>());
+        auto *dom_zero_phi = b.alloca_local(Type::of<uint32_t>());
+        uint32_t zero_v = 0u, one_v = 1u;
+        auto *c0 = m.create_constant(Type::of<uint32_t>(), &zero_v);
+        auto *c1 = m.create_constant(Type::of<uint32_t>(), &one_v);
+        b.store(spill_phi, c0);
+        b.store(dom_zero_phi, c1);
+        auto *loop = b.simple_loop();
+        loop->set_body_block(dispatch);
+        loop->set_merge_block(loop_exit);
+
+        b.set_insertion_point(dispatch);
+        auto *sw = b.switch_(b.load(Type::of<uint32_t>(), spill_phi));
+        sw->set_merge_block(next);
+        sw->set_default_block(invalid);
+        for (uint32_t i = 0u; i < kNumCases; ++i) {
+            sw->add_case(i, cases[i]);
+        }
+        b.set_insertion_point(invalid);
+        b.unreachable_();
+        b.set_insertion_point(next);
+        b.continue_(dispatch);
+        b.set_insertion_point(loop_exit);
+        b.return_void();
+
+        b.set_insertion_point(cases[0u]);
+        for (auto *ord : ordinaries) { b.store(ord, c1); }
+        b.store(spill_phi, c1);
+        b.break_(next);
+
+        b.set_insertion_point(cases[1u]);
+        for (auto *ord : ordinaries) { b.store(out, b.load(Type::of<uint32_t>(), ord)); }
+        b.store(out, b.load(Type::of<uint32_t>(), spill_phi));
+        b.break_(loop_exit);
+
+        b.set_insertion_point(cases[2u]);
+        b.store(local_tmp, c1);
+        b.store(out, b.load(Type::of<uint32_t>(), local_tmp));
+        b.store(out, b.load(Type::of<uint32_t>(), dom_zero_phi));
+        b.break_(next);
+
+        for (uint32_t i = 3u; i < kNumCases; ++i) {
+            b.set_insertion_point(cases[i]);
+            b.break_(next);
+        }
+
+        [[maybe_unused]] auto spill_lock = spill_phi->lock();
+        [[maybe_unused]] auto tmp_lock = local_tmp->lock();
+        [[maybe_unused]] auto dom_lock = dom_zero_phi->lock();
+        luisa::vector<ManagedPtr<Value>> ord_locks;
+        ord_locks.reserve(kNumOrdinary);
+        for (auto *ord : ordinaries) { ord_locks.emplace_back(ord->lock()); }
+
+        expect(xir_verify_module(&m).succeeded());
+        (void)mem2reg_pass_run_on_function(f);
+        size_t kept_ordinary = 0u;
+        for (auto *ord : ordinaries) {
+            if (ord->is_linked()) { ++kept_ordinary; }
+        }
+        expect(!spill_phi->is_linked());
+        expect(!local_tmp->is_linked());
+        expect(!dom_zero_phi->is_linked());
+        expect(kept_ordinary > 0u && kept_ordinary < kNumOrdinary)
+            << "cumulative ordinary-alloca Phi cap must stop promoting once budget is exhausted";
+        expect(audit_reg2mem_spills_on_function(f).succeeded());
+        expect(xir_verify_module(&m).succeeded());
+    };
 }
 
 // ---- promote_ref_arg ----

@@ -3301,6 +3301,103 @@ void reg_coro_cfg_distill() {
             expect(xir_verify_module(&m).succeeded());
         }
     };
+
+    "coro_call_structure_continuation_hoists_predecessor_free_entry_before_dispatcher"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<void>());
+        auto *cond = f->create_value_argument(Type::of<bool>());
+        auto *val = f->create_value_argument(Type::of<uint32_t>());
+        auto *out = f->create_reference_argument(Type::of<uint32_t>());
+        auto *old_entry = f->create_body_block();
+        auto *loop_header = f->create_basic_block();
+        auto *loop_body = f->create_basic_block();
+        auto *exit_blk = f->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(old_entry);
+        auto *x = b.alloca_local(Type::of<uint32_t>());
+        b.store(x, val);
+        b.br(loop_header);
+
+        b.set_insertion_point(loop_header);
+        b.cond_br(cond, loop_body, exit_blk);
+
+        b.set_insertion_point(loop_body);
+        b.store(out, val);
+        b.br(loop_header);
+
+        b.set_insertion_point(exit_blk);
+        b.store(out, b.load(Type::of<uint32_t>(), x));
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        coro_call_structure_continuation(f);
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_phi = true,
+                    .require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+        expect(f->body_block() == old_entry);
+
+        SwitchInst *top_switch = nullptr;
+        for (auto *blk : f->basic_blocks()) {
+            auto *t = blk->terminator();
+            if (t != nullptr && t->isa<SimpleLoopInst>()) {
+                auto *disp = static_cast<SimpleLoopInst *>(t)->body_block();
+                if (disp != nullptr && disp->is_terminated() &&
+                    disp->terminator()->isa<SwitchInst>()) {
+                    top_switch = static_cast<SwitchInst *>(disp->terminator());
+                }
+                break;
+            }
+        }
+        expect(top_switch != nullptr);
+        if (top_switch != nullptr) {
+            expect(top_switch->case_count() == 1u)
+                << "predecessor-free entry must be hoisted out of the dispatcher switch";
+        }
+        expect(xir_to_ast_translate(*f->definition(), {.strict = true}) != nullptr);
+        auto m2r = mem2reg_pass_run_on_function(f);
+        expect(m2r.promoted_alloca_count >= 1u);
+        expect(m2r.inserted_phi_count == 0u);
+        expect(xir_verify_module(&m).succeeded());
+    };
+
+    "coro_call_structure_continuation_keeps_cyclic_entry_in_dispatcher"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<void>());
+        auto *cond = f->create_value_argument(Type::of<bool>());
+        auto *val = f->create_value_argument(Type::of<uint32_t>());
+        auto *out = f->create_reference_argument(Type::of<uint32_t>());
+        auto *old_entry = f->create_body_block();
+        auto *back = f->create_basic_block();
+        auto *exit_blk = f->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(old_entry);
+        b.store(out, val);
+        b.cond_br(cond, back, exit_blk);
+
+        b.set_insertion_point(back);
+        b.br(old_entry);
+
+        b.set_insertion_point(exit_blk);
+        b.return_void();
+
+        expect(xir_verify_module(&m).succeeded());
+        coro_call_structure_continuation(f);
+        expect(xir_verify_module(
+                   &m,
+                   {.require_no_phi = true,
+                    .require_no_unstructured_control_flow = true,
+                    .require_unique_merge_blocks = true,
+                    .require_canonical_break_continue_targets = true})
+                   .succeeded());
+        expect(f->body_block() != old_entry);
+        expect(xir_to_ast_translate(*f->definition(), {.strict = true}) != nullptr);
+    };
 }
 
 int main(int argc, char *argv[]) {

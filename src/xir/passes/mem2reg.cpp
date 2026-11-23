@@ -113,6 +113,7 @@ struct AllocaAnalysis {
     luisa::vector<uint32_t> live_epoch;
     luisa::vector<uint32_t> phi_block_ids;
     luisa::vector<uint32_t> work_list;
+    size_t total_promoted_phi_operands{0u};
     uint32_t current_epoch{0u};
 
     void ensure_initialized() noexcept {
@@ -215,6 +216,7 @@ struct AllocaAnalysis {
         constexpr size_t kMinPhiOperandAllowance = 256u;
         constexpr size_t kPhiOperandsPerAccess = 16u;
         constexpr size_t kMaxPhiOperandsPerOrdinaryAlloca = 4096u;
+        constexpr size_t kMaxTotalPhiOperandsPerFunction = 65536u;
         const auto access_count = def_block_ids.size() + total_load_count;
         const auto phi_operand_budget = std::min(
             kMaxPhiOperandsPerOrdinaryAlloca,
@@ -229,7 +231,10 @@ struct AllocaAnalysis {
             if (cand_idf_epoch[bid] == current_epoch) {
                 phi_block_ids.emplace_back(bid);
                 live_phi_operands += all_in_degree(bid);
-                if (!is_reg2mem_spill && live_phi_operands > phi_operand_budget) {
+                if (!is_reg2mem_spill &&
+                    (live_phi_operands > phi_operand_budget ||
+                     live_phi_operands > kMaxTotalPhiOperandsPerFunction ||
+                     total_promoted_phi_operands > kMaxTotalPhiOperandsPerFunction - live_phi_operands)) {
                     return false;
                 }
             }
@@ -251,6 +256,9 @@ struct AllocaAnalysis {
                     work_list.emplace_back(pred);
                 }
             }
+        }
+        if (!is_reg2mem_spill) {
+            total_promoted_phi_operands += live_phi_operands;
         }
         return true;
     }
@@ -717,7 +725,380 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
     }
 }
 
+[[nodiscard]] static bool type_contains_non_packable(const Type *type) noexcept {
+    if (type == nullptr ||
+        type->is_custom() || type->is_resource() ||
+        type->is_cooperative_vector_ref() ||
+        type->is_cooperative_matrix_ref() ||
+        type->size() == 0u) {
+        return true;
+    }
+    if (type->is_array()) {
+        return type_contains_non_packable(type->element());
+    }
+    if (type->is_structure()) {
+        for (auto *member : type->members()) {
+            if (type_contains_non_packable(member)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] static size_t count_sroa_scalar_leaves(const Type *type, size_t limit) noexcept {
+    if (type == nullptr) { return 0u; }
+    if (type->is_scalar()) { return 1u; }
+    if (type->is_vector()) { return static_cast<size_t>(type->dimension()); }
+    if (type->is_matrix()) {
+        const auto d = static_cast<size_t>(type->dimension());
+        return d * d;
+    }
+    if (type->is_array()) {
+        const auto n = static_cast<size_t>(type->dimension());
+        const auto elem = count_sroa_scalar_leaves(type->element(), limit);
+        if (elem == 0u || n == 0u) { return 0u; }
+        if (n > limit / elem) { return limit + 1u; }
+        return std::min(elem * n, limit + 1u);
+    }
+    if (type->is_structure()) {
+        size_t total = 0u;
+        for (auto *member : type->members()) {
+            const auto m = count_sroa_scalar_leaves(member, limit);
+            if (m > limit || total > limit - m) {
+                return limit + 1u;
+            }
+            total += m;
+        }
+        return total;
+    }
+    return 1u;
+}
+
+[[nodiscard]] static size_t saturating_add(size_t a, size_t b) noexcept {
+    constexpr auto max_v = std::numeric_limits<size_t>::max();
+    return a > max_v - b ? max_v : a + b;
+}
+
+[[nodiscard]] static size_t saturating_mul(size_t a, size_t b) noexcept {
+    if (a == 0u || b == 0u) { return 0u; }
+    constexpr auto max_v = std::numeric_limits<size_t>::max();
+    return a > max_v / b ? max_v : a * b;
+}
+
 }// namespace detail
+
+luisa::vector<const AllocaInst *> collect_llvm_alloca_spill_hazards(
+    const FunctionDefinition *definition,
+    AllocaSpillHazardOptions options) noexcept {
+    luisa::vector<const AllocaInst *> hazards;
+    if (definition == nullptr || definition->body_block() == nullptr) {
+        return hazards;
+    }
+
+    auto *mutable_def = const_cast<FunctionDefinition *>(definition);
+    luisa::vector<const BasicBlock *> rpo_blocks;
+    luisa::unordered_map<const BasicBlock *, uint32_t> block_indices;
+    luisa::vector<const AllocaInst *> candidates;
+
+    mutable_def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
+        block_indices.emplace(block, static_cast<uint32_t>(rpo_blocks.size()));
+        rpo_blocks.emplace_back(block);
+        block->traverse_instructions([&](Instruction *inst) noexcept {
+            if (!inst->isa<AllocaInst>()) { return; }
+            auto *alloca_inst = static_cast<AllocaInst *>(inst);
+            if (!alloca_inst->is_local()) { return; }
+            auto *type = alloca_inst->type();
+            if (detail::type_contains_non_packable(type)) {
+                return;
+            }
+            if ((type->is_structure() || type->is_array()) &&
+                detail::count_sroa_scalar_leaves(type, options.max_sroa_scalar_leaves) > options.max_sroa_scalar_leaves) {
+                hazards.emplace_back(alloca_inst);
+            } else {
+                candidates.emplace_back(alloca_inst);
+            }
+        });
+    });
+
+    if (candidates.empty()) {
+        return hazards;
+    }
+
+    const size_t block_count = rpo_blocks.size();
+    luisa::vector<uint32_t> reach_pred_offsets(block_count + 1u, 0u);
+    luisa::vector<uint32_t> reach_pred_ids;
+    luisa::vector<size_t> all_in_degree(block_count, 0u);
+    size_t sum_merge_in_deg = 0u;
+
+    for (size_t bid = 0u; bid < block_count; ++bid) {
+        auto *bb = const_cast<BasicBlock *>(rpo_blocks[bid]);
+        bb->traverse_predecessors(true, [&](BasicBlock *pred) noexcept {
+            if (auto it = block_indices.find(pred); it != block_indices.end()) {
+                reach_pred_ids.emplace_back(it->second);
+            }
+        });
+        reach_pred_offsets[bid + 1u] = static_cast<uint32_t>(reach_pred_ids.size());
+        size_t in_deg = 0u;
+        bb->traverse_predecessors(false, [&](BasicBlock *) noexcept { ++in_deg; });
+        all_in_degree[bid] = in_deg;
+        const size_t reach_in_deg = static_cast<size_t>(reach_pred_offsets[bid + 1u] - reach_pred_offsets[bid]);
+        if (reach_in_deg >= 2u || (bid == 0u && reach_in_deg >= 1u)) {
+            sum_merge_in_deg = detail::saturating_add(sum_merge_in_deg, in_deg);
+        }
+    }
+
+    size_t max_cand_slice_mult = 1u;
+    for (auto *cand : candidates) {
+        bool has_gep_user = false;
+        for (auto &&use : cand->use_list()) {
+            if (auto *user = use->user(); user != nullptr && user->isa<GEPInst>()) {
+                has_gep_user = true;
+                break;
+            }
+        }
+        if (has_gep_user) {
+            const auto leaves = detail::count_sroa_scalar_leaves(cand->type(), options.max_gep_slice_multiplier);
+            max_cand_slice_mult = std::max(max_cand_slice_mult,
+                                           std::clamp<size_t>(leaves, 1u, options.max_gep_slice_multiplier));
+            if (max_cand_slice_mult >= options.max_gep_slice_multiplier) { break; }
+        }
+    }
+
+    const size_t upper_bound_per_alloca = detail::saturating_mul(max_cand_slice_mult, sum_merge_in_deg);
+    if (sum_merge_in_deg == 0u ||
+        (upper_bound_per_alloca <= options.min_phi_operands_per_alloca &&
+         detail::saturating_mul(candidates.size(), upper_bound_per_alloca) <= options.max_total_phi_operands_per_function)) {
+        return hazards;
+    }
+
+    // Build dominator tree, dominance frontiers, and memory-operation ordinals for Criterion 2.
+    luisa::unordered_map<const Instruction *, uint32_t> inst_indices;
+    uint32_t next_ordinal = 1u;
+    for (auto *bb : rpo_blocks) {
+        for (auto *inst : bb->instructions()) {
+            switch (inst->derived_instruction_tag()) {
+                case DerivedInstructionTag::ALLOCA: [[fallthrough]];
+                case DerivedInstructionTag::GEP: [[fallthrough]];
+                case DerivedInstructionTag::ARITHMETIC: [[fallthrough]];
+                case DerivedInstructionTag::CAST: [[fallthrough]];
+                case DerivedInstructionTag::PHI: break;
+                default:
+                    inst_indices.emplace(inst, next_ordinal++);
+                    break;
+            }
+        }
+    }
+
+    auto dom = compute_dom_tree(mutable_def);
+    luisa::vector<uint32_t> df_offsets(block_count + 1u, 0u);
+    luisa::vector<uint32_t> df_ids;
+    for (size_t bid = 0u; bid < block_count; ++bid) {
+        if (auto *node = dom.node_or_null(const_cast<BasicBlock *>(rpo_blocks[bid]))) {
+            for (auto *frontier : node->frontiers()) {
+                if (auto it = block_indices.find(frontier->block()); it != block_indices.end()) {
+                    df_ids.emplace_back(it->second);
+                }
+            }
+        }
+        df_offsets[bid + 1u] = static_cast<uint32_t>(df_ids.size());
+    }
+
+    luisa::vector<uint32_t> def_epoch(block_count, 0u);
+    luisa::vector<uint32_t> whole_def_epoch(block_count, 0u);
+    luisa::vector<uint32_t> min_whole_def_idx(block_count, 0u);
+    luisa::vector<uint32_t> use_epoch(block_count, 0u);
+    luisa::vector<uint32_t> min_use_idx(block_count, 0u);
+    luisa::vector<uint32_t> cand_idf_epoch(block_count, 0u);
+    luisa::vector<uint32_t> live_epoch(block_count, 0u);
+    uint32_t current_epoch = 0u;
+
+    luisa::vector<const Value *> ptr_worklist;
+    luisa::unordered_set<const GEPInst *> visited_geps;
+    luisa::vector<uint32_t> def_block_ids;
+    luisa::vector<uint32_t> use_block_ids;
+    luisa::vector<uint32_t> work_list;
+    size_t total_promoted_phi_operands = 0u;
+
+    for (auto *alloca_inst : candidates) {
+        if (++current_epoch == 0u) {
+            std::fill(def_epoch.begin(), def_epoch.end(), 0u);
+            std::fill(whole_def_epoch.begin(), whole_def_epoch.end(), 0u);
+            std::fill(use_epoch.begin(), use_epoch.end(), 0u);
+            std::fill(cand_idf_epoch.begin(), cand_idf_epoch.end(), 0u);
+            std::fill(live_epoch.begin(), live_epoch.end(), 0u);
+            current_epoch = 1u;
+        }
+
+        ptr_worklist.clear();
+        ptr_worklist.emplace_back(alloca_inst);
+        if (!visited_geps.empty()) { visited_geps.clear(); }
+        def_block_ids.clear();
+        use_block_ids.clear();
+        bool has_gep = false;
+        size_t access_count = 0u;
+
+        auto record_def_block = [&](uint32_t bid) noexcept {
+            if (def_epoch[bid] != current_epoch) {
+                def_epoch[bid] = current_epoch;
+                def_block_ids.emplace_back(bid);
+            }
+        };
+        auto record_whole_def = [&](uint32_t bid, uint32_t idx) noexcept {
+            if (whole_def_epoch[bid] != current_epoch) {
+                whole_def_epoch[bid] = current_epoch;
+                min_whole_def_idx[bid] = idx;
+            } else {
+                min_whole_def_idx[bid] = std::min(min_whole_def_idx[bid], idx);
+            }
+        };
+        auto record_use = [&](uint32_t bid, uint32_t idx) noexcept {
+            if (use_epoch[bid] != current_epoch) {
+                use_epoch[bid] = current_epoch;
+                min_use_idx[bid] = idx;
+                use_block_ids.emplace_back(bid);
+            } else {
+                min_use_idx[bid] = std::min(min_use_idx[bid], idx);
+            }
+        };
+
+        for (size_t wi = 0u; wi < ptr_worklist.size(); ++wi) {
+            const Value *cur_ptr = ptr_worklist[wi];
+            for (auto &&use : cur_ptr->use_list()) {
+                auto *user = use->user();
+                if (user == nullptr || !user->isa<Instruction>()) { continue; }
+                auto *user_inst = static_cast<const Instruction *>(user);
+                if (user_inst->isa<GEPInst>()) {
+                    auto *gep = static_cast<const GEPInst *>(user_inst);
+                    if (gep->base() == cur_ptr) {
+                        has_gep = true;
+                        if (visited_geps.emplace(gep).second) {
+                            ptr_worklist.emplace_back(gep);
+                        }
+                    }
+                    continue;
+                }
+                auto *parent = user_inst->parent_block();
+                auto b_it = block_indices.find(parent);
+                if (b_it == block_indices.end()) { continue; }
+                const uint32_t bid = b_it->second;
+                auto idx_it = inst_indices.find(user_inst);
+                const uint32_t idx = idx_it != inst_indices.end() ? idx_it->second : 0u;
+
+                if (user_inst->isa<LoadInst>()) {
+                    ++access_count;
+                    record_use(bid, idx);
+                } else if (user_inst->isa<StoreInst>()) {
+                    auto *store = static_cast<const StoreInst *>(user_inst);
+                    ++access_count;
+                    if (store->variable() == cur_ptr) {
+                        record_def_block(bid);
+                        if (store->variable() == alloca_inst) {
+                            record_whole_def(bid, idx);
+                        }
+                    }
+                    if (store->value() == cur_ptr) {
+                        record_use(bid, idx);
+                    }
+                } else {
+                    ++access_count;
+                    record_def_block(bid);
+                    record_use(bid, idx);
+                }
+            }
+        }
+
+        if (def_block_ids.empty() || use_block_ids.empty()) {
+            continue;
+        }
+        if (def_block_ids.size() == 1u && use_block_ids.size() == 1u &&
+            def_block_ids[0] == use_block_ids[0]) {
+            continue;
+        }
+
+        work_list.assign(def_block_ids.begin(), def_block_ids.end());
+        bool any_cand_idf = false;
+        while (!work_list.empty()) {
+            auto bid = work_list.back();
+            work_list.pop_back();
+            for (uint32_t e = df_offsets[bid], end = df_offsets[bid + 1u]; e < end; ++e) {
+                auto f = df_ids[e];
+                if (cand_idf_epoch[f] != current_epoch) {
+                    cand_idf_epoch[f] = current_epoch;
+                    work_list.emplace_back(f);
+                    any_cand_idf = true;
+                }
+            }
+        }
+        if (!any_cand_idf) {
+            continue;
+        }
+
+        size_t slice_mult = 1u;
+        if (has_gep) {
+            const auto leaves = detail::count_sroa_scalar_leaves(
+                alloca_inst->type(), options.max_gep_slice_multiplier);
+            slice_mult = std::clamp<size_t>(leaves, 1u, options.max_gep_slice_multiplier);
+        }
+        const size_t access_budget = detail::saturating_mul(
+            options.phi_operand_access_multiplier, access_count);
+        const size_t phi_operand_budget = std::min(
+            options.max_phi_operands_per_alloca,
+            std::max(options.min_phi_operands_per_alloca, access_budget));
+
+        work_list.clear();
+        size_t live_phi_operands = 0u;
+        bool exceeded = false;
+        auto visit_live_in = [&](uint32_t bid) noexcept -> bool {
+            live_epoch[bid] = current_epoch;
+            if (cand_idf_epoch[bid] == current_epoch) {
+                const size_t add = detail::saturating_mul(slice_mult, all_in_degree[bid]);
+                live_phi_operands = detail::saturating_add(live_phi_operands, add);
+                if (live_phi_operands > phi_operand_budget ||
+                    live_phi_operands > options.max_total_phi_operands_per_function ||
+                    total_promoted_phi_operands > options.max_total_phi_operands_per_function - live_phi_operands) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        for (uint32_t ub : use_block_ids) {
+            const bool live_at_entry =
+                whole_def_epoch[ub] != current_epoch ||
+                min_use_idx[ub] < min_whole_def_idx[ub];
+            if (live_at_entry && live_epoch[ub] != current_epoch) {
+                if (!visit_live_in(ub)) {
+                    exceeded = true;
+                    break;
+                }
+                work_list.emplace_back(ub);
+            }
+        }
+        while (!exceeded && !work_list.empty()) {
+            auto bid = work_list.back();
+            work_list.pop_back();
+            for (uint32_t e = reach_pred_offsets[bid], end = reach_pred_offsets[bid + 1u]; e < end; ++e) {
+                auto pred = reach_pred_ids[e];
+                if (whole_def_epoch[pred] != current_epoch && live_epoch[pred] != current_epoch) {
+                    if (!visit_live_in(pred)) {
+                        exceeded = true;
+                        break;
+                    }
+                    work_list.emplace_back(pred);
+                }
+            }
+        }
+
+        if (exceeded) {
+            hazards.emplace_back(alloca_inst);
+        } else {
+            total_promoted_phi_operands += live_phi_operands;
+        }
+    }
+
+    return hazards;
+}
 
 Mem2RegInfo mem2reg_pass_run_on_function(Function *function) noexcept {
     Mem2RegInfo info;

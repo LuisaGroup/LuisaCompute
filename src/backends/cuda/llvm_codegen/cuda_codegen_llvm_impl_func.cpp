@@ -2,7 +2,10 @@
 // Created by mike on 9/25/25.
 //
 
+#include <llvm/Support/MathExtras.h>
+
 #include <luisa/xir/passes/dom_tree.h>
+#include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/metadata/no_inline.h>
 #include <luisa/ast/function.h>
 #include <luisa/runtime/rhi/pixel.h>
@@ -229,6 +232,51 @@ void luisa_compute_cuda_codegen_llvm_traverse_dom_tree(const xir::DomTree &tree,
 }// namespace
 
 llvm::BasicBlock *CUDACodegenLLVMImpl::_translate_function_definition(FunctionContext &func_ctx, const xir::FunctionDefinition *f) noexcept {
+    // Isolate local allocas whose LLVM SROA/mem2reg promotion would explode PHI operands
+    // or stack slots into a single byte-buffer frame behind a transparent barrier.
+    if (auto spill_hazards = xir::collect_llvm_alloca_spill_hazards(f); !spill_hazards.empty()) {
+        luisa::vector<std::pair<const xir::AllocaInst *, size_t>> slot_offsets;
+        slot_offsets.reserve(spill_hazards.size());
+        size_t total_bytes = 0u;
+        size_t max_align = 1u;
+        for (auto *alloca_inst : spill_hazards) {
+            auto *type = alloca_inst->type();
+            auto *llvm_mem_type = _get_llvm_type(type)->mem_type;
+            const auto size = static_cast<size_t>(_data_layout->getTypeAllocSize(llvm_mem_type).getFixedValue());
+            if (size == 0u) { continue; }
+            auto align = std::max<size_t>(_get_type_alignment(type),
+                                          _data_layout->getABITypeAlign(llvm_mem_type).value());
+            align = std::max<size_t>(align, 1u);
+            total_bytes = llvm::alignTo(total_bytes, align);
+            slot_offsets.emplace_back(alloca_inst, total_bytes);
+            total_bytes += size;
+            max_align = std::max(max_align, align);
+        }
+        if (total_bytes > 0u) {
+            IB alloca_b{func_ctx.llvm_alloca_block->getTerminator()};
+            auto *i8_ty = llvm::Type::getInt8Ty(_llvm_context);
+            auto *buf_ty = llvm::ArrayType::get(i8_ty, total_bytes);
+            auto *spill_alloca = alloca_b.CreateAlloca(buf_ty, nullptr, "luisa.spill.frame");
+            spill_alloca->setAlignment(llvm::Align{max_align});
+            auto *barrier_fn = _get_spill_barrier_function(
+                llvm::cast<llvm::PointerType>(spill_alloca->getType()));
+            auto *spill_base = alloca_b.CreateCall(barrier_fn, {spill_alloca}, "luisa.spill.base");
+            for (auto &&[alloca_inst, byte_offset] : slot_offsets) {
+                auto *slot_ptr = byte_offset == 0u ?
+                                     static_cast<llvm::Value *>(spill_base) :
+                                     alloca_b.CreateInBoundsGEP(
+                                         i8_ty, spill_base, alloca_b.getInt64(byte_offset),
+                                         alloca_inst->name().value_or("spill.slot"));
+                func_ctx.packed_spill_slots.try_emplace(alloca_inst, slot_ptr);
+            }
+        }
+    }
+    if (!_rt_analysis.uses_ray_tracing &&
+        func_ctx.llvm_func->getCallingConv() == llvm::CallingConv::PTX_Device &&
+        (func_ctx.packed_spill_slots.size() > 64u || f->basic_blocks().count_size() > 512u)) {
+        func_ctx.llvm_func->addFnAttr(llvm::Attribute::NoInline);
+    }
+
     for (auto bb : f->basic_blocks()) {
         auto llvm_bb = llvm::BasicBlock::Create(_llvm_context, bb->name().value_or(""), func_ctx.llvm_func);
         func_ctx.local_values.try_emplace(bb, llvm_bb);
@@ -274,6 +322,28 @@ void CUDACodegenLLVMImpl::_mark_llvm_function_as_pure(llvm::Function *func) noex
     func->setSpeculatable();
     func->setWillReturn();
     func->setDoesNotAccessMemory();
+}
+
+llvm::Function *CUDACodegenLLVMImpl::_get_spill_barrier_function(llvm::PointerType *ptr_type) noexcept {
+    if (auto llvm_f = _llvm_module->getFunction(llvm_spill_barrier_name)) {
+        LUISA_ASSERT(llvm_f->getReturnType() == ptr_type &&
+                         llvm_f->arg_size() == 1u &&
+                         llvm_f->getArg(0)->getType() == ptr_type,
+                     "Mismatched CUDA LLVM spill barrier signature.");
+        return llvm_f;
+    }
+    auto llvm_func_type = llvm::FunctionType::get(ptr_type, {ptr_type}, false);
+    auto llvm_f = llvm::Function::Create(llvm_func_type, llvm::Function::ExternalLinkage,
+                                         llvm_spill_barrier_name, *_llvm_module);
+    // Keep NoAlias and NoCapture absent so LLVM never treats cloned handles as distinct
+    // or considers the backing spill alloca dead while slots derived from the return exist.
+    llvm_f->addFnAttr(llvm::Attribute::NoCallback);
+    llvm_f->setDoesNotFreeMemory();
+    llvm_f->setNoSync();
+    llvm_f->setDoesNotThrow();
+    llvm_f->setWillReturn();
+    llvm_f->setDoesNotAccessMemory();
+    return llvm_f;
 }
 
 llvm::Function *CUDACodegenLLVMImpl::_get_assert_function() noexcept {

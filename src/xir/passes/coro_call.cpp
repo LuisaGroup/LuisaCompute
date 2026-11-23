@@ -497,7 +497,10 @@ void coro_call_structure_continuation(Function *function) {
 
     luisa::vector<uint8_t> must_dispatch(nblocks, 0u);
     auto *old_entry = definition->body_block();
-    must_dispatch[raw_ids.at(old_entry)] = 1u;
+    const uint32_t old_entry_id = raw_ids.at(old_entry);
+    if (!preds[old_entry_id].empty()) {
+        must_dispatch[old_entry_id] = 1u;
+    }
 
     for (size_t u = 0u; u < nblocks; ++u) {
         for (uint32_t p : preds[u]) {
@@ -708,11 +711,13 @@ void coro_call_structure_continuation(Function *function) {
     AllocaInst *return_slot = nullptr;
     uint32_t exit_id = invalid_id;
     BasicBlock *next = nullptr;
+    BasicBlock *loop_preheader = nullptr;
     luisa::vector<BasicBlock *> dispatch_blocks;
     luisa::unordered_map<BasicBlock *, uint32_t> dispatch_ids;
     auto constant_id = [&](uint32_t id) noexcept -> Value * {
         return module->create_constant(Type::of<uint32_t>(), &id);
     };
+    const bool hoist_entry = needs_dispatcher && is_dispatch[old_entry_id] == 0u;
 
     if (!needs_dispatcher) {
         b.set_insertion_point(old_entry->instructions().head_sentinel());
@@ -725,9 +730,13 @@ void coro_call_structure_continuation(Function *function) {
             }
         }
         exit_id = static_cast<uint32_t>(dispatch_blocks.size());
-        auto *entry = definition->create_basic_block();
-        definition->set_body_block(entry);
-        b.set_insertion_point(entry);
+        if (hoist_entry) {
+            b.set_insertion_point(old_entry->instructions().head_sentinel());
+        } else {
+            auto *entry = definition->create_basic_block();
+            definition->set_body_block(entry);
+            b.set_insertion_point(entry);
+        }
         for (auto *alloca : allocas) { b.append(alloca->remove_self()); }
         pc = b.alloca_local(Type::of<uint32_t>());
         pc->add_comment("continuation-local block selector; not a suspend token");
@@ -735,9 +744,14 @@ void coro_call_structure_continuation(Function *function) {
             return_slot = b.alloca_local(function->type());
             return_slot->add_comment("continuation-local return value");
         }
-        b.store(pc, constant_id(dispatch_ids.at(old_entry)));
         if (return_slot != nullptr && !function->type()->is_resource() && !function->type()->is_custom()) {
             b.store(return_slot, module->create_constant_zero(function->type()));
+        }
+        if (hoist_entry) {
+            loop_preheader = definition->create_basic_block();
+            b.set_insertion_point(loop_preheader);
+        } else {
+            b.store(pc, constant_id(dispatch_ids.at(old_entry)));
         }
         auto *loop = b.simple_loop();
         auto *dispatch = definition->create_basic_block();
@@ -1155,6 +1169,9 @@ void coro_call_structure_continuation(Function *function) {
     if (!needs_dispatcher) {
         run_emitter(old_entry, ExitKind::BranchToMerge, nullptr);
     } else {
+        if (hoist_entry) {
+            run_emitter(old_entry, ExitKind::BranchToMerge, loop_preheader);
+        }
         for (auto *arm : dispatch_blocks) {
             run_emitter(arm, ExitKind::BreakToMerge, next);
         }

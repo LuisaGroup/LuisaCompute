@@ -67,6 +67,7 @@ public:
         llvm::Value *llvm_dispatch_size{nullptr};
         llvm::Value *llvm_kernel_id{nullptr};
         llvm::AllocaInst *llvm_ray_query_context_scratch{nullptr};
+        llvm::DenseMap<const xir::AllocaInst *, llvm::Value *> packed_spill_slots;
         llvm::DenseMap<const xir::Value *, llvm::Value *> local_values;
         llvm::DenseMap<const xir::BasicBlock *, llvm::BasicBlock *> block_exits;
         std::vector<const xir::PhiInst *> pending_phi_nodes;
@@ -154,6 +155,8 @@ public:
     static constexpr auto llvm_ray_query_state_procedural_candidate = 2;
     static constexpr auto llvm_ray_query_state_initialized = 3;
 
+    static constexpr auto llvm_spill_barrier_name = "luisa.cuda.spill.barrier";
+
 private:
     CUDACodegenLLVMConfig _config;
     llvm::TargetMachine *_target_machine{nullptr};
@@ -238,6 +241,7 @@ private:
     void _initialize() noexcept;
     using LLVMModulePassManagerCallback = llvm::function_ref<void(llvm::ModulePassManager &)>;
     void _run_optimization_passes(LLVMModulePassManagerCallback callback = {}) noexcept;
+    void _unwrap_spill_barriers() noexcept;
     void _dump_module(const luisa::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_ptx() const noexcept;
     [[nodiscard]] luisa::string _generate_optix_ir() noexcept;
@@ -277,6 +281,7 @@ private:
     [[nodiscard]] llvm::Function *_translate_callable_function(const xir::CallableFunction *func) noexcept;
     [[nodiscard]] llvm::BasicBlock *_translate_function_definition(FunctionContext &func_ctx, const xir::FunctionDefinition *f) noexcept;
     static void _mark_llvm_function_as_pure(llvm::Function *func) noexcept;
+    [[nodiscard]] llvm::Function *_get_spill_barrier_function(llvm::PointerType *ptr_type) noexcept;
     [[nodiscard]] llvm::Function *_get_assert_function() noexcept;
     [[nodiscard]] llvm::Function *_get_vprintf_function() noexcept;
     [[nodiscard]] llvm::Function *_get_texture2d_read_function(llvm::VectorType *llvm_value_type) noexcept;

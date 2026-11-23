@@ -2,6 +2,7 @@
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 
 namespace luisa::compute::xir {
 
@@ -9,6 +10,7 @@ class PassReport;
 
 class Module;
 class Function;
+class FunctionDefinition;
 
 class AllocaInst;
 class LoadInst;
@@ -49,5 +51,20 @@ struct Mem2RegInfo {
 
 [[nodiscard]] LUISA_XIR_API Mem2RegInfo mem2reg_pass_run_on_function(Function *function) noexcept;
 [[nodiscard]] LUISA_XIR_API Mem2RegInfo mem2reg_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
+
+// Controls which local allocas CUDA/LLVM codegen isolates from LLVM SROA/mem2reg
+// because promoting or scalar-replacing them would blow up PHI operands or stack slots.
+struct AllocaSpillHazardOptions {
+    size_t max_sroa_scalar_leaves{256u};
+    size_t min_phi_operands_per_alloca{256u};
+    size_t max_phi_operands_per_alloca{4096u};
+    size_t phi_operand_access_multiplier{16u};
+    size_t max_total_phi_operands_per_function{65536u};
+    size_t max_gep_slice_multiplier{16u};
+};
+
+[[nodiscard]] LUISA_XIR_API luisa::vector<const AllocaInst *>
+collect_llvm_alloca_spill_hazards(const FunctionDefinition *definition,
+                                  AllocaSpillHazardOptions options = {}) noexcept;
 
 }// namespace luisa::compute::xir

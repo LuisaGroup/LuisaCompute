@@ -268,6 +268,22 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
         }
     }
 
+    auto measure_huge_ir = [this]() noexcept {
+        size_t largest_function_insts = 0u;
+        size_t largest_block_insts = 0u;
+        for (auto &f : *_llvm_module) {
+            if (f.isDeclaration()) { continue; }
+            size_t func_insts = 0u;
+            for (auto &bb : f) {
+                const size_t bb_insts = bb.size();
+                func_insts += bb_insts;
+                largest_block_insts = std::max(largest_block_insts, bb_insts);
+            }
+            largest_function_insts = std::max(largest_function_insts, func_insts);
+        }
+        return largest_function_insts > 100'000u || largest_block_insts > 16'384u;
+    };
+
     auto do_optimize = [&](luisa::string_view phase) {
         Clock clock;
         // run optimization passes
@@ -324,15 +340,16 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
                 [&, finish_pass](llvm::StringRef, const llvm::PreservedAnalyses &) { finish_pass(); });
         }
 
+        const bool is_huge_ir = measure_huge_ir();
         llvm::PipelineTuningOptions PTO;
-        PTO.LoopInterleaving = true;
+        PTO.LoopInterleaving = !is_huge_ir;
 #if LLVM_VERSION_MAJOR >= 21
-        PTO.LoopInterchange = true;
+        PTO.LoopInterchange = !is_huge_ir;
 #endif
-        PTO.LoopVectorization = true;
-        PTO.SLPVectorization = true;
-        PTO.LoopUnrolling = true;
-        PTO.MergeFunctions = true;
+        PTO.LoopVectorization = !is_huge_ir;
+        PTO.SLPVectorization = !is_huge_ir;
+        PTO.LoopUnrolling = !is_huge_ir;
+        PTO.MergeFunctions = !is_huge_ir;
         auto PB = luisa::compute::detail::make_llvm_pass_builder(
             _llvm_module->getContext(), _target_machine, PTO, std::nullopt,
             &instrumentation);
@@ -375,12 +392,36 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
     // primary optimization pass
     do_optimize("primary optimization");
 
-    // run a second pass if any device function is not inlined
+    // run a second pass if any eligible device function is not inlined
     {
         auto any_not_inlined = false;
+        const auto is_huge_ir = !_rt_analysis.uses_ray_tracing && measure_huge_ir();
         for (auto &f : *_llvm_module) {
             if (!f.isDeclaration() && f.getCallingConv() == llvm::CallingConv::PTX_Device &&
                 !f.hasFnAttribute(llvm::Attribute::NoInline)) {
+                if (!_rt_analysis.uses_ray_tracing) {
+                    if (f.size() > 32u) { continue; }
+                    size_t inst_count = 0u;
+                    for (auto &bb : f) {
+                        inst_count += bb.size();
+                        if (inst_count > 512u) { break; }
+                    }
+                    if (inst_count > 512u) { continue; }
+                    if (is_huge_ir) {
+                        size_t call_sites = 0u;
+                        bool exceeds_budget = false;
+                        for (auto *user : f.users()) {
+                            if (llvm::isa<llvm::CallBase>(user)) {
+                                ++call_sites;
+                                if (inst_count * call_sites > 2048u) {
+                                    exceeds_budget = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (exceeds_budget) { continue; }
+                    }
+                }
                 f.addFnAttr(llvm::Attribute::AlwaysInline);
                 any_not_inlined = true;
             }
@@ -400,6 +441,25 @@ void CUDACodegenLLVMImpl::_run_optimization_passes(LLVMModulePassManagerCallback
             }
         }
     }
+}
+
+void CUDACodegenLLVMImpl::_unwrap_spill_barriers() noexcept {
+    auto barrier = _llvm_module->getFunction(llvm_spill_barrier_name);
+    if (barrier == nullptr) { return; }
+    llvm::SmallVector<llvm::CallBase *, 16> calls;
+    for (auto *user : barrier->users()) {
+        auto *call = llvm::dyn_cast<llvm::CallBase>(user);
+        LUISA_ASSERT(call != nullptr && call->arg_size() == 1u,
+                     "Invalid use of CUDA LLVM spill barrier.");
+        calls.emplace_back(call);
+    }
+    for (auto *call : calls) {
+        call->replaceAllUsesWith(call->getArgOperand(0));
+        call->eraseFromParent();
+    }
+    LUISA_ASSERT(barrier->use_empty(),
+                 "Unexpected remaining uses of CUDA LLVM spill barrier.");
+    barrier->eraseFromParent();
 }
 
 namespace detail {
@@ -534,6 +594,7 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
     verify();
     checkpoint("translation and verification");
     _run_optimization_passes();
+    _unwrap_spill_barriers();
     verify();
     checkpoint("optimization and verification");
     static auto dump_llvm_ir = [] {

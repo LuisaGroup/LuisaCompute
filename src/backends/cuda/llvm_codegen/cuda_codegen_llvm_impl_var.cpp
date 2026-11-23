@@ -6,13 +6,17 @@
 
 namespace luisa::compute::cuda {
 
-llvm::Value *CUDACodegenLLVMImpl::_translate_alloca_inst(IB &b, FunctionContext &, const xir::AllocaInst *inst) noexcept {
-    auto llvm_type = _get_llvm_type(inst->type())->mem_type;
+llvm::Value *CUDACodegenLLVMImpl::_translate_alloca_inst(IB &b, FunctionContext &func_ctx, const xir::AllocaInst *inst) noexcept {
     if (inst->is_local()) {
+        if (auto iter = func_ctx.packed_spill_slots.find(inst); iter != func_ctx.packed_spill_slots.end()) {
+            return iter->second;
+        }
+        auto llvm_type = _get_llvm_type(inst->type())->mem_type;
         auto llvm_alloca = b.CreateAlloca(llvm_type, nullptr, inst->name().value_or(""));
         llvm_alloca->setAlignment(llvm::Align{_get_type_alignment(inst->type())});
         return llvm_alloca;
     }
+    auto llvm_type = _get_llvm_type(inst->type())->mem_type;
     // shared alloca's are mapped to global variables in address space nvvm_address_space_shared
     auto llvm_global = new llvm::GlobalVariable{
         *_llvm_module, llvm_type, false, llvm::GlobalValue::PrivateLinkage,
