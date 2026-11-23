@@ -812,9 +812,9 @@ inline constexpr const char *bindless_descriptor_heap_blockers[] = {
     "src/backends/vk/bindless_array.cpp:1019-1038 and _defer_descriptor_recycling "
     "return descriptor indices to Device::{buffer,tex2d,tex3d}_heap_pool; a heap "
     "first-fit allocator over region slots replaces those pools",
-    "src/backends/vk/stream.cpp:3627/3716 records vkCmdBindDescriptorSets for the "
-    "bindless and sampler sets; heaps require vkCmdBindResourceHeapEXT / "
-    "vkCmdBindSamplerHeapEXT instead",
+"src/backends/vk/bind_state.h:310 is the only place that records "
+      "vkCmdBindDescriptorSets (the bindless and sampler sets included); heaps "
+      "require vkCmdBindResourceHeapEXT / vkCmdBindSamplerHeapEXT instead",
     "src/backends/vk/compute_shader.cpp:87-100 builds the "
     "VkPipelineShaderStageCreateInfo without a "
     "VkShaderDescriptorSetAndBindingMappingInfoEXT and uses 32-bit "

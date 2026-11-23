@@ -94,6 +94,68 @@ public:
     [[nodiscard]] virtual uint32_t min_api_version() const noexcept {
         return 0u;
     }
+    // Maximum number of command batches (frames) a stream may keep in flight on
+    // the GPU before the host throttles the next submission. The backend reads
+    // it once, when the Device is created, and every stream of that Device is
+    // bound to the latched value for the Device's lifetime, so a later change on
+    // this object has no effect.
+    //
+    // Semantics: a stream counts the batches it has submitted on its internal
+    // timeline. Before submitting batch `F + 1` (whose timeline value is `F + 1`)
+    // it waits until value `F - depth` has completed whenever `F > depth`. So
+    // `depth` is the number of batches that may still be executing while the
+    // host records and submits the next one - the same convention as a
+    // swapchain's frame-in-flight count:
+    //   depth = 1: strictly serialize the host with the GPU (one batch in
+    //              flight, no pipelining);
+    //   depth = 2: the historical hard-coded behaviour of this backend, bit for
+    //              bit (the target is `F - 2` under the same condition);
+    //   depth = 3 (default): one additional batch may overlap before the host
+    //              blocks, which hides the timeline round trip of a small batch
+    //              without letting the queue grow.
+    // Larger values trade memory/queueing for fewer host stalls. The backend
+    // rejects a value that does not fit the physical device's
+    // maxTimelineSemaphoreValueDifference window, because each outstanding batch
+    // spends one timeline value.
+    //
+    // Returning 0 is invalid and fails device creation: zero is not "unlimited".
+    // Host throttling is switched off through `DeviceConfig::inqueue_buffer_limit
+    // = false`, which is the pre-existing enable/disable switch and takes
+    // precedence over this value. Streams created by an extension
+    // (`CustomStream`) and the sparse-binding path keep their own
+    // synchronization and are not affected by this getter.
+    [[nodiscard]] virtual uint32_t max_frames_in_flight() const noexcept {
+        return 3u;
+    }
+    // Externally calibrated SM-count estimate, in shader multiprocessors
+    // (compute units). **Calibration input, never a device attribute.**
+    //
+    // Vulkan exposes no physical SM-count query - no VkPhysicalDevice*Properties
+    // member reports it - so the backend has no honest way to answer
+    // `Device::query("sm_count")` by itself and does not try: it never guesses
+    // from the device name, the vendor, the device type or an implicit
+    // micro-benchmark. Return a value here only if *you* calibrated it for this
+    // GPU (a vendor datasheet figure, a CUDA `multiProcessorCount` read on the
+    // same silicon, a measured occupancy fit); the device then reports
+    // `sm_count = <your value>` together with
+    // `sm_count_source = calibration_estimate`, and
+    // `VulkanExtensionStatusExt::capability_status()` reports the same number with
+    // `VulkanSmCountSource::CALIBRATION_ESTIMATE`. Consumers that need a real
+    // query must therefore keep checking the source instead of trusting the
+    // number.
+    //
+    // The backend reads it once, when the Device is created, and every stream of
+    // that Device is bound to the latched value:
+    //   0 (the default) -> unknown: `sm_count` is empty and
+    //                      `sm_count_source` is "unknown";
+    //   1 .. 4096       -> reported as calibration_estimate;
+    //   > 4096          -> rejected as implausible for one device attribute,
+    //                      logged once, and reported as unknown. A rejected value
+    //                      is never published, so a caller bug cannot turn into a
+    //                      device capability.
+    [[nodiscard]] virtual uint64_t calibrated_sm_count_estimate() const noexcept {
+        return 0u;
+    }
     // Command reordering merges consecutive commands whose resource accesses
     // do not alias into one barrier-free layer, so several small dispatches
     // can overlap on the GPU instead of being serialized by a pipeline
@@ -154,6 +216,67 @@ public:
     // descriptor storage that can replace update-after-bind descriptor sets.
     [[nodiscard]] virtual bool enable_descriptor_heap() const noexcept {
         return true;
+    }
+    // Descriptor update templates (VK_KHR_descriptor_update_template, promoted to
+    // core Vulkan 1.1): per-dispatch descriptor-set-0 updates can be issued through a
+    // cached VkDescriptorUpdateTemplate instead of vkUpdateDescriptorSets.
+    //
+    // **Opt-in, and off by default on purpose.** The path is implemented, supported
+    // and fully tested, but it is *not* the fast path on the driver this backend was
+    // measured on: on the plan's own host benchmark
+    // (benchmark_command_reorder_host vk 0/1/2 256 200 32 5, counters off, NVIDIA
+    // RTX 5070 Ti / Vulkan 1.4.329) it costs 2.5-7 % *more* host submission time than
+    // vkUpdateDescriptorSets for the backend's 1-3 descriptor set-0 updates, i.e.
+    // roughly +20-45 ns per update, in every session measured. The plan's estimate
+    // that a template "halves the CPU cost of one update call" was therefore not
+    // observed - see plan P2.2 and .kimix_cache/vk_plan/phase2/p2_2/report.md.
+    //
+    // Return true here to evaluate the template path (bit-identical results, a
+    // `vk_descriptor_update_template_path` query value of "template", and both
+    // `vk_profile_descriptor_set_update_templates`/`_creates` counters move while
+    // `vk_profile_descriptor_set_updates` stops counting the eligible dispatches).
+    // Returning false - the default - selects the pre-P2.2 vkUpdateDescriptorSets
+    // call exactly. Either way the decision is latched at device creation and never
+    // re-evaluated per dispatch.
+    [[nodiscard]] virtual bool enable_descriptor_update_template() const noexcept {
+        return false;
+    }
+    // Set-0 push descriptors (VK_KHR_push_descriptor, plan P2.3).
+    //
+    // When the driver exposes VK_KHR_push_descriptor, the loader resolves
+    // vkCmdPushDescriptorSetKHR and the physical device reports a usable
+    // maxPushDescriptors, a DSL shader's local descriptor set (set 0) can be
+    // pushed by vkCmdPushDescriptorSetKHR instead of being allocated, updated and
+    // bound: one command replaces three. The global sets (the immutable-sampler
+    // heap and the bindless heaps) are then bound at their real first set, so they
+    // also stop being re-bound with every fresh local set.
+    //
+    // The decision is per *shader* and latched at shader creation, because a push
+    // descriptor set is a property of the descriptor-set layout: a shader that
+    // cannot be pushed (set 0 larger than maxPushDescriptors, an unsupported
+    // binding shape, a device without the extension or entry point) keeps the
+    // classic layout and the classic allocate/update/bind path from creation, and
+    // no dispatch ever switches paths. Internal kernels (bindless upload, TLAS
+    // update, indirect-dispatch preparation) and the native-shader paths stay
+    // classic unconditionally.
+    //
+    // `Device::query("vk_push_descriptor_path")` reports "push" or "classic", and
+    // `Device::query("vk_push_descriptor_max_count")` the resolved limit. This
+    // switch only states whether the *negotiation* is allowed; it never overrides
+    // the per-shader shape checks.
+    //
+    // Default: **false (opt-in)**, for a measured reason. With the path enabled the
+    // host cost of one dispatch *rises* on this driver (NVIDIA RTX 5070 Ti Laptop,
+    // Vulkan 1.4.329): an interleaved A/B in one binary, counters off,
+    // `benchmark_command_reorder_host vk <mode> 256 200 32 5`, 6 runs per path per
+    // mode, measures the push path 97-187 % *slower* than the classic
+    // allocate/update/bind sequence (mode 0 86.3 vs 30.1 ms, mode 1 115.8 vs
+    // 58.8 ms, mode 2 92.8 vs 37.0 ms), i.e. ~+1.1 us per
+    // vkCmdPushDescriptorSetKHR. The path is fully implemented, tested and
+    // bit-identical, so it can be evaluated per device by returning true here;
+    // nothing in the backend re-evaluates the decision per dispatch.
+    [[nodiscard]] virtual bool enable_push_descriptor() const noexcept {
+        return false;
     }
     // Device-address command variants (VK_KHR_device_address_commands):
     // indirect draw/dispatch and copies addressed by VkDeviceAddress instead of

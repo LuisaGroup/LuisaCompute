@@ -70,8 +70,11 @@ CommandList::CommandContainer CommandList::steal_commands() noexcept {
 }
 
 CommandList::PresentContainer CommandList::steal_presents() noexcept {
-    return std::move(_presents);
-}
+        return std::move(_presents);
+    }
+    CommandList::DtorCallbacks CommandList::steal_dtor_callbacks() noexcept {
+        return std::move(_dtor_callbacks);
+    }
 CommandList &CommandList::add_dtor_callback(luisa::move_only_function<void()> &&callback) noexcept {
     _dtor_callbacks.emplace_back(std::move(callback));
     return *this;

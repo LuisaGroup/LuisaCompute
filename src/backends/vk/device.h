@@ -13,6 +13,17 @@
 #include <luisa/backends/ext/vk_config_ext.h>
 #include <luisa/backends/ext/vk_extension_ext.h>
 #include "vk_extension_registry.h"
+#include "layout_intern.h"
+#include "pipeline_cache.h"
+#include "in_flight_depth.h"
+#include "descriptor_update_template.h"
+#include "push_descriptor.h"
+#include "device_capability.h"
+#include "replay_graph.h"
+#include "vulkan_replay_ext.h"
+#include "shader_prepare.h"
+#include "shader_compile_pool.h"
+#include "vulkan_shader_compile_ext.h"
 #include "../common/rtx/fallback_rtx.h"
 #include <atomic>
 #include <limits>
@@ -103,6 +114,41 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
             luisa::make_shared<std::atomic_size_t>(0u)};
     size_t _native_image_state_acquisitions_since_sweep{};
     detail::SparseResidencyRegistry _sparse_residency_registry;
+    // Replayable recording (plan P4). Declared next to the sparse registry, i.e.
+    // late among the device-scoped registries, so it is destroyed after the
+    // logical device member `_vk_device` - and `~Device` drains it explicitly while
+    // the logical device, the descriptor pools, the interned layouts and the
+    // pipeline cache are all still alive.
+    detail::ReplayRegistry _replay_registry;
+    // The engine behind `Device::extension<VulkanReplayExt>()`. It holds no state
+    // of its own: everything lives in `_replay_registry`, so a caller that never
+    // asks for the extension still gets correct invalidation and teardown. Held by
+    // value (like `_command_reorder_ext`) because it has no per-device allocation:
+    // `extension()` can hand out its address without a factory.
+    VkReplayExtImpl _replay_ext{this};
+    // Plan P5.1: the device-owned worker pool behind
+    // `VulkanShaderCompileExt::compile_shaders()`. Created on first use (a device
+    // that never batches never creates a thread), stopped for good by
+    // `shutdown_shader_compile_pool()` and by `~Device`, which does it while the
+    // pipeline cache, the interned layouts, the BinaryIO and the logical device are
+    // all still alive.
+    //
+    // Declared *after* `_vk_device`, `_layout_interner` and `_pipeline_cache`: the
+    // pool only holds threads and host scratch, and every Vulkan call it can cause
+    // is made by the publishing thread through `_publish_compute_shader`, which the
+    // batch finishes before it returns. Stopping it early in `~Device` is therefore
+    // enough, and is done explicitly there.
+    luisa::unique_ptr<detail::ShaderCompilePool> _shader_compile_pool;
+    // Serializes publication (pipeline creation + artifact write). A batch holds it
+    // once per request, in request order; concurrent ordinary `create_shader` calls
+    // hold it for their own publication only, so their preparation still overlaps.
+    std::mutex _shader_construct_mtx;
+    // Serializes every shader-cache read/write of this device. A `BinaryIO` is one
+    // resource that a user implementation need not make thread-safe, and one writer
+    // keeps the artifact sequence deterministic. It is never held over code
+    // generation, SPIR-V optimization or pipeline creation.
+    std::mutex _shader_cache_mtx;
+    VkShaderCompileExtImpl _shader_compile_ext{this};
     // Runtime command-reorder control. It lives as long as the device does, so
     // `extension()` hands out its address without registering a factory.
     class CommandReorderExtImpl final : public CommandReorderExt {
@@ -129,6 +175,16 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     luisa::unique_ptr<VulkanDeviceConfigExt> _config_ext;
     VkInstance _instance{};
     vstd::optional<vks::VulkanDevice> _vk_device;
+    // Structural interning of the per-shader descriptor-set and pipeline layouts
+    // (plan P1.1). Declared *after* `_vk_device` so its own destruction happens
+    // first; the handles it owns are destroyed by `~Device` explicitly, while the
+    // logical device is still alive.
+    detail::LayoutInterner _layout_interner;
+    // The one VkPipelineCache of this Device (plan P1.3). Declared next to the
+    // interner, i.e. after `_vk_device`, and torn down explicitly by `~Device`
+    // while the logical device and the BinaryIO are still alive. Shaders only
+    // borrow the handle; nothing else destroys it.
+    detail::DevicePipelineCache _pipeline_cache;
     // Declared *after* `_vk_device` and therefore destroyed *before* it:
     // extensions may own GPU objects (shader instances, pipelines, descriptor
     // pools, ...) whose destructors need a live logical device. Destroying the
@@ -177,6 +233,19 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CLUSTER_ACCELERATION_STRUCTURE_PROPERTIES_NV};
     VkPipelineCacheHeaderVersionOne _pso_header{};
     VkPhysicalDeviceSubgroupSizeControlProperties _subgroup_size_control_properties{};
+    // Plan P6.1/P6.2/P6.3: the one numeric capability record of this device. It
+    // is filled once in `_init_device` from this physical device's own
+    // VkPhysicalDeviceLimits, VkPhysicalDeviceSubgroupProperties and
+    // VkPhysicalDeviceSubgroupSizeControlProperties (plus the calibrated SM-count
+    // input latched in the constructor), and it never changes afterwards. Both
+    // `Device::query` and `VulkanExtensionStatusExt::capability_status()` answer
+    // from this copy, so a query answer and a status report cannot drift.
+    //
+    // It is deliberately separate from `_subgroup_size_control_properties` above,
+    // which is the *policy* input (only filled when subgroup-size control is
+    // actually enabled) that decides the shader warp size. Reporting a physical
+    // bound must not touch the warp-size policy.
+    VulkanCapabilityStatus _capability_status{};
     vstd::vector<VkSampler> _samplers;
     float _max_sampler_anisotropy{1.0f};
     vstd::optional<VkAllocator> _allocator;
@@ -188,6 +257,15 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     BinaryIO const *_binary_io{};
     vstd::unique_ptr<DefaultBinaryIO> _default_file_io;
     bool _inqueue_limit = true;// TODO
+    // Number of command batches a stream may keep in flight before it throttles
+    // the host (plan P1.5). Latched once at creation from
+    // `VulkanDeviceConfigExt::max_frames_in_flight()` (default
+    // `detail::kDefaultFramesInFlight`), validated there, and read back by every
+    // stream per submission through `max_frames_in_flight()`. Nothing mutates it
+    // afterwards, so two batches of one stream can never disagree about the
+    // bound. `DeviceConfig::inqueue_buffer_limit` remains the enable/disable
+    // switch and takes precedence over this value.
+    uint32_t _max_frames_in_flight{detail::kDefaultFramesInFlight};
     struct NumericFeatures {
         bool shader_float8{false};
         bool shader_bfloat16{false};
@@ -226,6 +304,23 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
         const ShaderOption &option, Function kernel,
         bool requires_sampler_anisotropy,
         bool fallback_rtx) noexcept;
+    // Plan P5.1: the two phases of compute-shader compilation. `_prepare` creates
+    // no Vulkan object and may run on any thread (including a pool worker);
+    // `_publish` is the serial, ordered phase that creates the pipeline. A serial
+    // `create_shader` is exactly `_publish(_prepare(...))`.
+    [[nodiscard]] detail::PreparedComputeShader _prepare_compute_shader(
+        const ShaderOption &option, Function kernel,
+        detail::WorkerContext *worker) noexcept;
+    [[nodiscard]] ShaderCreationInfo _publish_compute_shader(
+        detail::PreparedComputeShader &&prepared,
+        const ShaderOption &option, Function kernel) noexcept;
+    // The unchanged serial routes (compatibility HLSL-to-SPIR-V, LLVM-to-SPIR-V,
+    // and any build without the native XIR-to-SPIR-V path).
+    [[nodiscard]] ShaderCreationInfo _create_shader_serial(
+        const ShaderOption &option, Function kernel,
+        bool requires_sampler_anisotropy,
+        bool requires_fallback_rtx_traversal) noexcept;
+    friend class detail::ShaderCompilePool;
     // Read-only view over `_optional_extensions`, handed out by `extension()`.
     class VulkanExtensionStatusExtImpl final : public VulkanExtensionStatusExt {
     private:
@@ -239,15 +334,23 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
 
     public:
         explicit VulkanExtensionStatusExtImpl(Device *device) noexcept : _device{device} {}
-          [[nodiscard]] luisa::span<const VulkanExtensionStatus> extensions() const noexcept override;
-          [[nodiscard]] bool is_supported(luisa::string_view extension) const noexcept override;
-          [[nodiscard]] bool is_enabled(luisa::string_view extension) const noexcept override;
-          [[nodiscard]] bool is_active(luisa::string_view extension) const noexcept override;
-          // Cooperative matrix/vector state: negotiated outside the registry, so
-          // it reads the Device members recorded during negotiation instead of the
-          // optional-extension table.
-          [[nodiscard]] VulkanCooperativeStatus cooperative_status() const noexcept override;
-      };
+        [[nodiscard]] luisa::span<const VulkanExtensionStatus> extensions() const noexcept override;
+        [[nodiscard]] bool is_supported(luisa::string_view extension) const noexcept override;
+        [[nodiscard]] bool is_enabled(luisa::string_view extension) const noexcept override;
+        [[nodiscard]] bool is_active(luisa::string_view extension) const noexcept override;
+        // Cooperative matrix/vector state: negotiated outside the registry, so
+        // it reads the Device members recorded during negotiation instead of the
+        // optional-extension table.
+        [[nodiscard]] VulkanCooperativeStatus cooperative_status() const noexcept override;
+        // Plan P6.3: one value struct carrying the P6.1 core limits, the
+        // descriptor-heap negotiation state of the registry entry and the P6.2
+        // SM-count answer. The limits and the SM-count fields are a copy of the
+        // device's single capability record (the same one `Device::query`
+        // answers from, so the two cannot drift); the descriptor-heap state is
+        // read from `_optional_extensions` / `_active_optional_extensions` here,
+        // exactly like `extensions()` does.
+        [[nodiscard]] VulkanCapabilityStatus capability_status() const noexcept override;
+    };
     VulkanExtensionStatusExtImpl _optional_extension_status{this};
 
 public:
@@ -315,10 +418,11 @@ public:
         LoadFunc _load_func;
 
     public:
-        explicit LazyLoadShader(LoadFunc load_func);
-        ComputeShader *get(Device *self);
-        bool check(Device *self);
-        ~LazyLoadShader();
+    explicit LazyLoadShader(LoadFunc load_func);
+    ComputeShader *get(Device *self);
+    bool check(Device *self);
+    void reset() noexcept;
+    ~LazyLoadShader();
     };
     vstd::vector<VkImageView> tex2d_bindless_imgview;
     vstd::vector<VkImageView> tex3d_bindless_imgview;
@@ -337,6 +441,32 @@ public:
     // 1.2 for testing).
     bool sync2_capable_bit : 1 {false};
     bool copy2_capable_bit : 1 {false};
+    // Plan P2.2: per-dispatch descriptor-set-0 updates through a cached
+    // VkDescriptorUpdateTemplate (VK_KHR_descriptor_update_template, core
+    // Vulkan 1.2). Decided once in `_init_device`: the extension must have been
+    // negotiated *and* enabled (or be usable through the device's API version),
+    // the config switch must allow it, and all three entry points must have been
+    // resolved. When any of that is missing, every update keeps the pre-P2.2
+    // vkUpdateDescriptorSets call and the three template counters stay zero.
+    bool descriptor_update_template_capable_bit : 1 {false};
+    // The entry points a template update needs, resolved at device creation
+    // (core spelling preferred, KHR alias otherwise - the same rule
+    // `cmd_pipeline_barrier` and `detail::queue_submit` follow).
+    PFN_vkCreateDescriptorUpdateTemplate _create_descriptor_update_template{nullptr};
+    PFN_vkDestroyDescriptorUpdateTemplate _destroy_descriptor_update_template{nullptr};
+    PFN_vkUpdateDescriptorSetWithTemplate _update_descriptor_set_with_template{nullptr};
+    // Plan P2.3: set-0 binding through vkCmdPushDescriptorSetKHR. Decided once in
+    // `_init_device`: the registry must have negotiated *and enabled*
+    // VK_KHR_push_descriptor (by name - see OptionalExtension::PUSH_DESCRIPTOR),
+    // the config switch must allow it, the loader must have resolved the entry
+    // point, and VkPhysicalDevicePushDescriptorPropertiesKHR::maxPushDescriptors
+    // must be usable. When any of that is missing, every shader keeps the classic
+    // set-0 layout and the classic allocate/update/bind sequence.
+    bool push_descriptor_capable_bit : 1 {false};
+    PFN_vkCmdPushDescriptorSetKHR _cmd_push_descriptor_set{nullptr};
+    // Resolved limit of one push (VUID-VkDescriptorSetLayoutCreateInfo-flags-00281);
+    // 0 whenever the push path is unavailable.
+    uint32_t _max_push_descriptors{0u};
     // Minimum API version to honor during capability negotiation. 0 means
     // "auto" (use whatever the physical device exposes). A non-zero value
     // (e.g. VK_API_VERSION_1_2) forces the legacy barrier/copy paths even on
@@ -426,6 +556,13 @@ public:
     [[nodiscard]] const auto &descriptor_indexing_properties() const noexcept {
         return _descriptor_indexing_properties;
     }
+    // In-flight depth latched at creation (see `_max_frames_in_flight` and
+    // VulkanDeviceConfigExt::max_frames_in_flight()). Always >= 1; the configure
+    // path fails closed on zero and on a value that does not fit the physical
+    // device's timeline value window.
+    [[nodiscard]] uint32_t max_frames_in_flight() const noexcept {
+        return _max_frames_in_flight;
+    }
     [[nodiscard]] uint64_t max_timeline_semaphore_value_difference() const noexcept {
         // Per the Vulkan spec, maxTimelineSemaphoreValueDifference == 0 means
         // "no limit". Normalize once at the Device boundary so every caller
@@ -503,8 +640,9 @@ public:
     [[nodiscard]] bool enable_shader_untyped_pointers() const noexcept {
         return shader_untyped_pointers_enabled;
     }
-    // True when the backend may use vkCmdPipelineBarrier2 (core 1.3 or
-    // VK_KHR_synchronization2), false when it must use vkCmdPipelineBarrier.
+    // True when the backend may use vkCmdPipelineBarrier2 and vkQueueSubmit2 (core
+    // 1.3 or VK_KHR_synchronization2), false when it must use
+    // vkCmdPipelineBarrier and the legacy vkQueueSubmit.
     [[nodiscard]] bool sync2_capable() const noexcept {
         return sync2_capable_bit;
     }
@@ -513,6 +651,43 @@ public:
     [[nodiscard]] bool copy2_capable() const noexcept {
         return copy2_capable_bit;
     }
+    // True when per-dispatch descriptor-set updates may go through a cached
+    // VkDescriptorUpdateTemplate (plan P2.2). Latched at device creation; a
+    // recording path that gets `false` here must issue vkUpdateDescriptorSets.
+    [[nodiscard]] bool descriptor_update_template_capable() const noexcept {
+        return descriptor_update_template_capable_bit;
+    }
+    // The resolved entry points of the template path. `available()` is false
+    // whenever `descriptor_update_template_capable()` is false, so a caller may
+    // pass them on unconditionally. The allocation callbacks are the device's own,
+    // so every VkDescriptorUpdateTemplate is created and destroyed exactly like
+    // the rest of the backend's Vulkan objects.
+    [[nodiscard]] detail::DescriptorUpdateTemplateApi
+    descriptor_update_template_api() const noexcept {
+        return detail::DescriptorUpdateTemplateApi{
+            .create = _create_descriptor_update_template,
+            .destroy = _destroy_descriptor_update_template,
+.update = _update_descriptor_set_with_template,
+              .callbacks = alloc_callbacks()};
+      }
+      // True when a shader may be created with a push descriptor set 0 (plan
+      // P2.3). Latched at device creation; a shader that gets `true` here still
+      // has to pass its own shape/limit check, and a shader that got the classic
+      // layout never switches (see push_descriptor.h, shader.cpp).
+      [[nodiscard]] bool push_descriptor_capable() const noexcept {
+          return push_descriptor_capable_bit;
+      }
+      // The resolved entry point of the push path; `available()` is false whenever
+      // `push_descriptor_capable()` is false, so a caller may pass it on
+      // unconditionally.
+      [[nodiscard]] detail::PushDescriptorApi push_descriptor_api() const noexcept {
+          return detail::PushDescriptorApi{.cmd = _cmd_push_descriptor_set};
+      }
+      // VkPhysicalDevicePushDescriptorPropertiesKHR::maxPushDescriptors, or 0 when
+      // the push path is unavailable.
+      [[nodiscard]] uint32_t max_push_descriptors() const noexcept {
+          return _max_push_descriptors;
+      }
     // Exact optional Vulkan features enabled on this logical device that may
     // be consumed by persisted SPIR-V artifacts. Imported logical devices are
     // deliberately fail-closed for enable-chain features that Vulkan cannot
@@ -535,8 +710,61 @@ public:
     }
     auto physical_device() const { return _vk_device->physical_device; }
     auto logic_device() const { return _vk_device->logical_device; }
+    // The device-owned interning facility for shader descriptor-set and pipeline
+    // layouts (plan P1.1). `Shader` acquires references from it and gives them
+    // back in its destructor; only this facility calls vkCreate*/vkDestroy* for
+    // those objects.
+    [[nodiscard]] detail::LayoutInterner &layout_interner() noexcept {
+        return _layout_interner;
+    }
+    // Replayable recording (plan P4). `replay_registry()` is the device-owned
+    // graph registry: the extension bookkeeps through it, and every lifetime path
+    // (`destroy_buffer`, `destroy_stream`, `~Device`) invalidates or drains through
+    // it, so a caller that never asks for `VulkanReplayExt` cannot leave a graph
+    // pointing at a destroyed resource.
+    [[nodiscard]] detail::ReplayRegistry &replay_registry() noexcept {
+        return _replay_registry;
+    }
+    // Ordered batch shader compilation (plan P5.1). The pool is created on first
+    // use, so a device that never compiles a batch never creates a thread.
+    [[nodiscard]] detail::ShaderCompilePool &shader_compile_pool() noexcept;
+    // Stops and joins the pool for good; every later batch reports
+    // `POOL_SHUTDOWN`. Idempotent, and called by `~Device` before the pipeline
+    // cache, the interned layouts and the BinaryIO are torn down.
+    void shutdown_shader_compile_pool() noexcept;
+    // Serializes every shader-cache read and write of this device (plan P5.1). A
+    // `BinaryIO` is one resource that a user implementation need not make
+    // thread-safe, and a single writer keeps the artifact sequence deterministic.
+    // The lock is never held over code generation, SPIR-V optimization or pipeline
+    // creation; the raster path (a different translation unit) takes it for its own
+    // artifact read/write.
+    [[nodiscard]] std::mutex &shader_cache_mutex() noexcept {
+        return _shader_cache_mtx;
+    }
+    // In-flight throttle switch of this device (`_inqueue_limit`): a replay
+    // submission uses the same bound as an ordinary batch.
+    [[nodiscard]] bool inqueue_limit() const noexcept { return _inqueue_limit; }
+    // Validated stream lookup by handle (plan P4 keeps the extension away from
+    // `reinterpret_cast<Stream *>`); `nullptr` for an unknown handle or for an
+    // extension-owned `CustomStream`.
+    [[nodiscard]] Stream *find_stream(uint64_t handle) noexcept;
+    // Device-scoped Vulkan pipeline cache (plan P1.3). Every DSL shader
+    // (compute, raster, ray tracing) creates its pipeline into this cache; the
+    // native shader paths keep their own per-object caches because their
+    // lifetime and binding ABI are separate contracts.
+    [[nodiscard]] detail::DevicePipelineCache &pipeline_cache() noexcept {
+        return _pipeline_cache;
+    }
+    [[nodiscard]] detail::DevicePipelineCache const &pipeline_cache() const noexcept {
+        return _pipeline_cache;
+    }
     auto const &pso_header() const { return _pso_header; }
     auto const &subgroup_size_control_properties() const noexcept { return _subgroup_size_control_properties; }
+    // The numeric capability record captured at creation (plan P6.1/P6.2/P6.3).
+    // `Device::query` answers the 14 core-limit keys and the SM-count keys from
+    // it, and VulkanExtensionStatusExt::capability_status() copies it, so both
+    // reports are the same values.
+    auto const &capability_status() const noexcept { return _capability_status; }
     // On variable-subgroup GPUs that support native Wave32 via compute
     // subgroup-size control (e.g., AMD RDNA reporting min=32, max=64), prefer
     // Wave32 as the default compute subgroup size so warp-specialized kernels

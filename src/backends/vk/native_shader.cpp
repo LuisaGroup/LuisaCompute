@@ -1,4 +1,5 @@
 #include "native_shader.h"
+#include "submit_profile.h"
 
 #include "device.h"
 #include "stream.h"
@@ -92,6 +93,7 @@ NativeShader::NativeShader(
         VK_CHECK_RESULT(vkCreateDescriptorSetLayout(
             logic_device, &layout_info, Device::alloc_callbacks(),
             &_set_layouts[set]));
+        submit_profile::record_descriptor_set_layout_create();
     }
     auto ok = false;
     auto dispose_partial = vstd::scope_exit([&] {
@@ -129,6 +131,7 @@ NativeShader::NativeShader(
     VK_CHECK_RESULT(vkCreatePipelineLayout(
         logic_device, &pipeline_layout_info, Device::alloc_callbacks(),
         &_pipeline_layout));
+    submit_profile::record_pipeline_layout_create();
     // ---- pipeline --------------------------------------------------------
     VkShaderModuleCreateInfo module_info{
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -145,6 +148,7 @@ NativeShader::NativeShader(
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
     VK_CHECK_RESULT(vkCreatePipelineCache(
         logic_device, &cache_info, Device::alloc_callbacks(), &pipeline_cache));
+    submit_profile::record_pipeline_cache_create();
     auto dispose_cache = vstd::scope_exit([&] {
         vkDestroyPipelineCache(logic_device, pipeline_cache,
                                Device::alloc_callbacks());
@@ -164,6 +168,7 @@ NativeShader::NativeShader(
     VK_CHECK_RESULT(vkCreateComputePipelines(
         logic_device, pipeline_cache, 1u, &pipeline_info,
         Device::alloc_callbacks(), &_pipeline));
+    submit_profile::record_pipeline_create();
     // ---- descriptor pool -------------------------------------------------
     vstd::vector<VkDescriptorPoolSize> pool_sizes;
     auto count_of = [&](VkDescriptorType type) noexcept {
@@ -245,6 +250,7 @@ void NativeShader::encode(
         }
         state->dispose_after_flush(NativeShaderDescriptorDeferredRelease{
             _descriptor_pool, vstd::vector<VkDescriptorSet>{sets}});
+        submit_profile::record_descriptor_set_allocation();
     }
     // ---- descriptor writes -----------------------------------------------
     vstd::vector<VkDescriptorBufferInfo> buffer_infos;
@@ -316,12 +322,20 @@ void NativeShader::encode(
         vkUpdateDescriptorSets(logic_device,
                                static_cast<uint32_t>(writes.size()),
                                writes.data(), 0u, nullptr);
+        submit_profile::record_descriptor_set_update();
     }
-    vkCmdBindPipeline(cmdbuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline);
+    // P1.2: routed through the per-command-buffer tracker. A native shader owns
+    // its own pipeline layout, so it never shares a tracked state with a DSL
+    // dispatch; the tracker still keeps the counter honest and lets a repeated
+    // dispatch of the same native shader skip the repeated bind.
+    detail::cmd_bind_pipeline(
+        state->bind_state, cmdbuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+        _pipeline, _pipeline_layout);
     if (!sets.empty()) {
-        vkCmdBindDescriptorSets(
-            cmdbuffer, VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline_layout,
-            0u, static_cast<uint32_t>(sets.size()), sets.data(), 0u, nullptr);
+        detail::cmd_bind_descriptor_sets(
+            state->bind_state, cmdbuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            _pipeline_layout, 0u, static_cast<uint32_t>(sets.size()),
+            sets.data(), 0u, nullptr);
     }
     // ---- push constants (the launcher's uniform block) -------------------
     if (_push_constant_size > 0u) {

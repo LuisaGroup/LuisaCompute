@@ -1,0 +1,686 @@
+// Test for ordered parallel Vulkan shader compilation (plan P5.1).
+// This test covers:
+// - the serial path is unchanged: a device that never batches creates no worker
+//   thread, answers `vk_shader_compile_pool_state=not_created`, and `Device::compile`
+//   keeps working before and after a pool shutdown
+// - a batch publishes in request order: `results[i]` is the shader for
+//   `requests[i]`, every returned handle is a working shader of this device, and
+//   every numeric dispatch result is correct
+// - worker counts 1 and >= 2 produce the same shaders and the same artifacts
+// - the artifacts a batch writes are byte-identical to the ones a serial compile
+//   writes (same names, same sizes, same bytes), which is the cache contract the
+//   phase must preserve
+// - the compatibility HLSL-to-SPIR-V route (a printing kernel) is reported with
+//   `serial_fallback` and still produces a valid shader
+// - `compile_only` requests persist their artifact and create no shader object
+// - ordinary `Device::create_shader` calls from several threads are safe and
+//   ordered: every handle works, and no batch is involved
+// - `shutdown_pool()` while a batch is in flight drains that batch (all handles
+//   valid) and rejects every later batch with `POOL_SHUTDOWN` without creating
+//   anything
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <unordered_map>
+#include <vector>
+
+#include "ut/ut.hpp"
+#include "batch_shader_dispatch.h"
+#include "test_device.h"
+
+#include <luisa/backends/ext/vk_shader_compile_ext.h>
+#include <luisa/core/binary_io.h>
+#include <luisa/core/logging.h>
+#include <luisa/dsl/sugar.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/rhi/command_encoder.h>
+#include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/runtime/shader.h>
+#include <luisa/runtime/stream.h>
+
+using namespace luisa;
+using namespace luisa::compute;
+using namespace boost::ut;
+using namespace boost::ut::literals;
+
+namespace {
+
+int g_argc = 0;
+char **g_argv = nullptr;
+
+// ------------------------------------------------------------ BinaryIO ---
+class MemoryBinaryStream final : public BinaryStream {
+private:
+    luisa::vector<std::byte> _data;
+    size_t _position{};
+public:
+    explicit MemoryBinaryStream(luisa::span<const std::byte> data) noexcept
+        : _data{data.begin(), data.end()} {}
+    [[nodiscard]] size_t length() const noexcept override { return _data.size(); }
+    [[nodiscard]] size_t pos() const noexcept override { return _position; }
+    void read(luisa::span<std::byte> destination) noexcept override {
+        if (_position > _data.size() ||
+            destination.size() > _data.size() - _position) {
+            std::memset(destination.data(), 0, destination.size());
+            _position = _data.size();
+            return;
+        }
+        std::memcpy(destination.data(), _data.data() + _position,
+                    destination.size());
+        _position += destination.size();
+    }
+    ~MemoryBinaryStream() noexcept override = default;
+};
+
+class MemoryBinaryIO final : public BinaryIO {
+private:
+    mutable std::unordered_map<std::string, std::vector<std::byte>> _entries;
+public:
+    void clear_shader_cache() const noexcept override { _entries.clear(); }
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    read_shader_bytecode(luisa::string_view name) const noexcept override {
+        auto iterator = _entries.find(std::string{name});
+        if (iterator == _entries.end()) { return nullptr; }
+        return luisa::make_unique<MemoryBinaryStream>(
+            luisa::span<const std::byte>{iterator->second.data(),
+                                         iterator->second.size()});
+    }
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    read_shader_cache(luisa::string_view name) const noexcept override {
+        return read_shader_bytecode(name);
+    }
+    [[nodiscard]] luisa::unique_ptr<BinaryStream>
+    read_internal_shader(luisa::string_view) const noexcept override {
+        return nullptr;
+    }
+    luisa::filesystem::path write_shader_bytecode(
+        luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
+        _entries[std::string{name}] = {data.begin(), data.end()};
+        return {};
+    }
+    luisa::filesystem::path write_shader_cache(
+        luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
+        return write_shader_bytecode(name, data);
+    }
+    luisa::filesystem::path write_internal_shader(
+        luisa::string_view, luisa::span<const std::byte>) const noexcept override {
+        return {};
+    }
+    [[nodiscard]] size_t size() const noexcept { return _entries.size(); }
+    [[nodiscard]] std::vector<std::string> spv_names() const {
+        std::vector<std::string> names;
+        for (auto &&entry : _entries) {
+            if (entry.first.ends_with(".spv")) { names.emplace_back(entry.first); }
+        }
+        std::sort(names.begin(), names.end());
+        return names;
+    }
+    [[nodiscard]] std::vector<std::byte> const *find(std::string_view name) const {
+        auto iterator = _entries.find(std::string{name});
+        return iterator == _entries.end() ? nullptr : &iterator->second;
+    }
+};
+
+// -------------------------------------------------------------- kernels ---
+// `count` distinct element-wise kernels; the constant is baked into the AST, so
+// every one of them has its own cache key and its own artifact.
+luisa::vector<Kernel1D<Buffer<float>>> make_kernels(uint32_t count) {
+    luisa::vector<Kernel1D<Buffer<float>>> kernels;
+    kernels.reserve(count);
+    for (auto i = 0u; i < count; i++) {
+        auto k = i + 1u;
+        kernels.emplace_back([k](BufferFloat buffer) noexcept {
+            auto x = cast<float>(dispatch_id().x);
+            buffer.write(dispatch_id().x, x * cast<float>(k) + 0.5f);
+        });
+    }
+    return kernels;
+}
+
+[[nodiscard]] VulkanShaderCompileExt *compile_ext(Device &device) {
+    auto *ext = device.extension<VulkanShaderCompileExt>();
+    expect(ext != nullptr) << "the Vulkan backend must provide VulkanShaderCompileExt";
+    return ext;
+}
+
+// One dispatch of one shader handle, then the numeric check of its result. The
+// argument count and uniform size are the values a `Shader1D` object would store
+// for the same kernel (`Device::compile` computes exactly these).
+struct Dispatcher {
+    Stream &stream;
+    Buffer<float> &buffer;
+    luisa::vector<float> &host;
+    uint32_t dispatch_size;
+    void verify(uint64_t handle, Function kernel, uint32_t k,
+                uint32_t index) noexcept {
+        luisa::test::dispatch_one_buffer_shader(
+            stream, handle,
+            luisa::test::batch_shader_arg_count(kernel),
+            luisa::test::batch_shader_uniform_size(kernel),
+            buffer, dispatch_size, host);
+        for (auto element = 0u; element < dispatch_size; element++) {
+            auto expected =
+                static_cast<float>(element) * static_cast<float>(k) + 0.5f;
+            expect(std::abs(host[element] - expected) < 1e-4f)
+                << "shader " << index << " element " << element;
+        }
+    }
+};
+
+}// namespace
+
+static void test_serial_path_is_unchanged() {
+    "vk_shader_compile_serial_path_unchanged"_test = [] {
+        MemoryBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        // A device that only ever compiles serially answers the pool diagnostics
+        // without creating a worker.
+        expect(device.query("vk_shader_compile_parallel") == "1");
+        expect(device.query("vk_shader_compile_pool_state") == "not_created");
+        expect(device.query("vk_shader_compile_worker_count") == "0");
+        auto kernels = make_kernels(2u);
+        auto shader = device.compile(kernels[0]);
+        expect(shader.handle() != 0u) << "a serial compile must still create a shader";
+        expect(device.query("vk_shader_compile_pool_state") == "not_created")
+            << "a serial compile must not create the pool";
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        dispatcher.verify(shader.handle(), kernels[0].function()->function(), 1u, 0u);
+        // Shutting the (never created) pool down must be harmless, and the serial
+        // path must keep working afterwards.
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        ext->shutdown_pool();
+        ext->shutdown_pool();// idempotent
+        auto stats = ext->stats();
+        expect(stats.pool_shutdown);
+        expect(!stats.pool_created);
+        auto shader2 = device.compile(kernels[1]);
+        expect(shader2.handle() != 0u)
+            << "a pool shutdown must not affect the serial path";
+        dispatcher.verify(shader2.handle(), kernels[1].function()->function(), 2u, 1u);
+    };
+}
+
+static void test_batch_order_and_results() {
+    "vk_shader_compile_batch_matches_serial"_test = [] {
+        constexpr auto kShaderCount = 24u;
+        auto kernels = make_kernels(kShaderCount);
+        // Serial reference: one artifact per kernel, written by `Device::compile`.
+        MemoryBinaryIO serial_io;
+        {
+            DeviceConfig config;
+            config.binary_io = &serial_io;
+            auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+            if (!context) { return; }
+            auto &device = context->device;
+            luisa::vector<Shader1D<Buffer<float>>> shaders;
+            shaders.reserve(kShaderCount);
+            for (auto &kernel : kernels) { shaders.emplace_back(device.compile(kernel)); }
+            expect(shaders.size() == kShaderCount);
+        }
+        auto serial_names = serial_io.spv_names();
+        expect(serial_names.size() == kShaderCount)
+            << "the serial reference must persist one artifact per kernel";
+        // Batch: the same kernels, prepared on workers and published in order.
+        MemoryBinaryIO batch_io;
+        {
+            DeviceConfig config;
+            config.binary_io = &batch_io;
+            auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+            if (!context) { return; }
+            auto &device = context->device;
+            auto *ext = compile_ext(device);
+            if (ext == nullptr) { return; }
+            luisa::vector<VulkanShaderCompileRequest> requests;
+            requests.reserve(kShaderCount);
+            for (auto &kernel : kernels) {
+                requests.emplace_back(VulkanShaderCompileRequest{
+                    .option = ShaderOption{}, .kernel = kernel.function()->function()});
+            }
+            luisa::vector<VulkanShaderCompileResult> results;
+            auto status = ext->compile_shaders(
+                luisa::span<const VulkanShaderCompileRequest>{requests},
+                results, 4u);
+            expect(status == VulkanShaderCompileStatus::SUCCESS);
+            expect(results.size() == kShaderCount);
+            auto stats = ext->stats();
+            expect(stats.worker_count == 4u);
+            expect(stats.batches == 1u);
+            expect(stats.requests == kShaderCount);
+            expect(stats.parallel_prepares == kShaderCount);
+            expect(stats.serial_fallbacks == 0u);
+            expect(device.query("vk_shader_compile_pool_state") == "running");
+            expect(device.query("vk_shader_compile_worker_count") == "4");
+            auto stream = device.create_stream();
+            auto buffer = device.create_buffer<float>(4u);
+            luisa::vector<float> host(4u);
+            Dispatcher dispatcher{stream, buffer, host, 4u};
+            for (auto i = 0u; i < kShaderCount; i++) {
+                expect(results[i].status == VulkanShaderCompileStatus::SUCCESS)
+                    << "request " << i;
+                expect(!results[i].serial_fallback) << "request " << i;
+                expect(results[i].shader.handle != 0u) << "request " << i;
+                // Request order: the handle at index i must be kernel i's shader,
+                // which its numeric result proves.
+                dispatcher.verify(results[i].shader.handle,
+                                  kernels[i].function()->function(), i + 1u, i);
+            }
+        }
+        // Artifact identity: same names, same sizes, same bytes as the serial loop.
+        auto batch_names = batch_io.spv_names();
+        expect(batch_names == serial_names)
+            << "a batch must persist exactly the serial artifacts";
+        auto identical = true;
+        for (auto &name : serial_names) {
+            auto *serial = serial_io.find(name);
+            auto *batch = batch_io.find(name);
+            if (serial == nullptr || batch == nullptr ||
+                serial->size() != batch->size() ||
+                std::memcmp(serial->data(), batch->data(), serial->size()) != 0) {
+                identical = false;
+                LUISA_WARNING("artifact '{}' differs from the serial one", name);
+            }
+        }
+        expect(identical) << "batch artifacts must be byte-identical to serial ones";
+    };
+}
+
+static void test_worker_counts_agree() {
+    "vk_shader_compile_worker_counts"_test = [] {
+        constexpr auto kShaderCount = 8u;
+        auto kernels = make_kernels(kShaderCount);
+        luisa::vector<std::vector<std::byte>> reference;
+        std::vector<std::string> reference_names;
+        for (auto workers : {1u, 2u, 5u}) {
+            MemoryBinaryIO binary_io;
+            DeviceConfig config;
+            config.binary_io = &binary_io;
+            auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+            if (!context) { return; }
+            auto &device = context->device;
+            auto *ext = compile_ext(device);
+            if (ext == nullptr) { return; }
+            luisa::vector<VulkanShaderCompileRequest> requests;
+            for (auto &kernel : kernels) {
+                requests.emplace_back(VulkanShaderCompileRequest{
+                    .option = ShaderOption{}, .kernel = kernel.function()->function()});
+            }
+            luisa::vector<VulkanShaderCompileResult> results;
+            expect(ext->compile_shaders(
+                       luisa::span<const VulkanShaderCompileRequest>{requests},
+                       results, workers) == VulkanShaderCompileStatus::SUCCESS);
+            expect(ext->stats().worker_count == workers);
+            auto stream = device.create_stream();
+            auto buffer = device.create_buffer<float>(4u);
+            luisa::vector<float> host(4u);
+            Dispatcher dispatcher{stream, buffer, host, 4u};
+            for (auto i = 0u; i < kShaderCount; i++) {
+                expect(results[i].status == VulkanShaderCompileStatus::SUCCESS);
+                dispatcher.verify(results[i].shader.handle,
+                                  kernels[i].function()->function(), i + 1u, i);
+            }
+            auto names = binary_io.spv_names();
+            if (reference.empty()) {
+                reference_names = names;
+                for (auto &name : names) {
+                    auto *data = binary_io.find(name);
+                    reference.emplace_back(data->begin(), data->end());
+                }
+            } else {
+                expect(names == reference_names)
+                    << "worker count " << workers << " changed the artifact set";
+                auto identical = names.size() == reference.size();
+                for (auto i = 0u; identical && i < names.size(); i++) {
+                    auto *data = binary_io.find(names[i]);
+                    identical = data->size() == reference[i].size() &&
+                                std::memcmp(data->data(), reference[i].data(),
+                                            data->size()) == 0;
+                }
+                expect(identical)
+                    << "worker count " << workers << " changed the artifact bytes";
+            }
+        }
+    };
+}
+
+static void test_hlsl_route_falls_back_to_serial() {
+    "vk_shader_compile_hlsl_route_serial_fallback"_test = [] {
+        MemoryBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        expect(!ext->capabilities().parallel_hlsl_compatibility_route)
+            << "the compatibility HLSL route is documented as serial";
+        // Printing forces the compatibility HLSL-to-SPIR-V route, which this
+        // backend does not prepare on a worker.
+        auto printer_kernel = [](BufferFloat buffer) noexcept {
+            auto x = cast<float>(dispatch_id().x);
+            device_log("value {}", x);
+            buffer.write(dispatch_id().x, x);
+        };
+        auto normal_kernel = [](BufferFloat buffer) noexcept {
+            buffer.write(dispatch_id().x, 1.0f);
+        };
+        // The DSL kernels own the ASTs the requests point at.
+        Kernel1D<Buffer<float>> normal{normal_kernel};
+        Kernel1D<Buffer<float>> printer{printer_kernel};
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        requests.emplace_back(VulkanShaderCompileRequest{
+            .option = ShaderOption{},
+            .kernel = normal.function()->function()});
+        requests.emplace_back(VulkanShaderCompileRequest{
+            .option = ShaderOption{},
+            .kernel = printer.function()->function()});
+        luisa::vector<VulkanShaderCompileResult> results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   results, 4u) == VulkanShaderCompileStatus::SUCCESS);
+        expect(results.size() == 2u);
+        expect(!results[0].serial_fallback)
+            << "a plain kernel must be prepared on a worker";
+        expect(results[1].serial_fallback)
+            << "the HLSL compatibility route must be reported as a serial fallback";
+        expect(results[0].status == VulkanShaderCompileStatus::SUCCESS);
+        expect(results[1].status == VulkanShaderCompileStatus::SUCCESS);
+        expect(results[1].shader.handle != 0u)
+            << "a serial fallback must still produce a shader";
+        expect(ext->stats().serial_fallbacks == 1u);
+        // The device is still usable for ordinary work.
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        luisa::test::dispatch_one_buffer_shader(
+            stream, results[0].shader.handle,
+            luisa::test::batch_shader_arg_count(normal.function()->function()),
+            luisa::test::batch_shader_uniform_size(normal.function()->function()),
+            buffer, 4u, host);
+        for (auto i = 0u; i < 4u; i++) { expect(std::abs(host[i] - 1.0f) < 1e-6f); }
+    };
+}
+
+static void test_compile_only_batch() {
+    "vk_shader_compile_compile_only"_test = [] {
+        MemoryBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        auto kernels = make_kernels(2u);
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        for (auto i = 0u; i < 2u; i++) {
+            ShaderOption option;
+            option.compile_only = true;
+            option.enable_cache = false;
+            option.name = luisa::format("p5_1_aot_{}.spv", i);
+            requests.emplace_back(VulkanShaderCompileRequest{
+                .option = option,
+                .kernel = kernels[i].function()->function()});
+        }
+        luisa::vector<VulkanShaderCompileResult> results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   results, 2u) == VulkanShaderCompileStatus::SUCCESS);
+        for (auto i = 0u; i < 2u; i++) {
+            expect(results[i].status == VulkanShaderCompileStatus::SUCCESS);
+            expect(!results[i].shader.valid())
+                << "a compile-only request must not create a shader object";
+            expect(results[i].shader.compile_ok);
+            auto name = luisa::format("p5_1_aot_{}.spv", i);
+            expect(binary_io.find(name) != nullptr)
+                << "a compile-only request in a batch must persist its artifact";
+        }
+    };
+}
+
+static void test_concurrent_ordinary_create() {
+    "vk_shader_compile_concurrent_create_shader"_test = [] {
+        constexpr auto kThreads = 4u;
+        constexpr auto kPerThread = 4u;
+        MemoryBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        // `kThreads * kPerThread` distinct kernels, compiled by ordinary
+        // `Device::compile` calls from several threads at once: preparation overlaps,
+        // publication is serialized device-wide.
+        auto kernels = make_kernels(kThreads * kPerThread);
+        luisa::vector<uint64_t> handles(kernels.size(), 0u);
+        std::atomic<uint32_t> failures{0u};
+        luisa::vector<std::thread> threads;
+        threads.reserve(kThreads);
+        for (auto t = 0u; t < kThreads; t++) {
+            threads.emplace_back([&, t] {
+                for (auto j = 0u; j < kPerThread; j++) {
+                    auto index = t * kPerThread + j;
+                    auto shader = device.compile(kernels[index]);
+                    if (shader.handle() == 0u) { failures.fetch_add(1u); }
+                    handles[index] = shader.handle();
+                    // Keep the shader alive until the thread is done with it.
+                    static_cast<void>(shader);
+                }
+            });
+        }
+        for (auto &thread : threads) { thread.join(); }
+        expect(failures.load() == 0u) << "concurrent create_shader returned no handle";
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        // The handles above are owned by shader objects that already died at the end
+        // of each thread, so this only proves creation succeeded; the dispatch checks
+        // happen in the single-threaded tests above. Here we re-compile one kernel per
+        // thread sequentially to prove the device is still healthy.
+        for (auto index = 0u; index < kernels.size(); index++) {
+            auto shader = device.compile(kernels[index]);
+            dispatcher.verify(shader.handle(), kernels[index].function()->function(),
+                              index + 1u, index);
+        }
+    };
+}
+
+static void test_shutdown_with_live_work() {
+    "vk_shader_compile_shutdown_with_live_work"_test = [] {
+        MemoryBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        auto kernels = make_kernels(48u);
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        requests.reserve(kernels.size());
+        for (auto &kernel : kernels) {
+            requests.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{}, .kernel = kernel.function()->function()});
+        }
+        VulkanShaderCompileStatus status{VulkanShaderCompileStatus::INVALID_ARGUMENT};
+        luisa::vector<VulkanShaderCompileResult> results;
+        std::thread batch{[&] {
+            status = ext->compile_shaders(
+                luisa::span<const VulkanShaderCompileRequest>{requests},
+                results, 4u);
+        }};
+        // Let the batch start, then stop the pool underneath it. `stop()` waits for
+        // the batch mutex, so the batch finishes; the workers drain their tickets
+        // first. No ticket may be lost, and no result may be missing.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        ext->shutdown_pool();
+        batch.join();
+        expect(status == VulkanShaderCompileStatus::SUCCESS)
+            << "an in-flight batch must complete when the pool is shut down";
+        expect(results.size() == kernels.size());
+        for (auto i = 0u; i < results.size(); i++) {
+            expect(results[i].status == VulkanShaderCompileStatus::SUCCESS)
+                << "request " << i << " after shutdown";
+            expect(results[i].shader.handle != 0u) << "request " << i;
+        }
+        expect(device.query("vk_shader_compile_pool_state") == "shutdown");
+        // Every later batch is refused, and it creates nothing.
+        auto before = binary_io.size();
+        luisa::vector<VulkanShaderCompileRequest> late_requests{
+            VulkanShaderCompileRequest{
+                .option = ShaderOption{},
+                .kernel = kernels.front().function()->function()}};
+        luisa::vector<VulkanShaderCompileResult> late_results;
+        auto late_status = ext->compile_shaders(
+            luisa::span<const VulkanShaderCompileRequest>{late_requests},
+            late_results, 4u);
+        expect(late_status == VulkanShaderCompileStatus::POOL_SHUTDOWN);
+        expect(late_results.size() == 1u);
+        expect(late_results[0].status == VulkanShaderCompileStatus::POOL_SHUTDOWN);
+        expect(!late_results[0].shader.valid());
+        expect(binary_io.size() == before)
+            << "a refused batch must not write an artifact";
+        // The drained batch's handles are usable shaders.
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        dispatcher.verify(results[0].shader.handle, kernels[0].function()->function(), 1u, 0u);
+        dispatcher.verify(results.back().shader.handle,
+                          kernels.back().function()->function(), 48u, 47u);
+    };
+}
+
+static void test_repeated_batch_uses_the_cache() {
+    "vk_shader_compile_repeated_batch"_test = [] {
+        constexpr auto kShaderCount = 8u;
+        auto kernels = make_kernels(kShaderCount);
+        MemoryBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto &device = context->device;
+        auto *ext = compile_ext(device);
+        if (ext == nullptr) { return; }
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        for (auto &kernel : kernels) {
+            requests.emplace_back(VulkanShaderCompileRequest{
+                .option = ShaderOption{}, .kernel = kernel.function()->function()});
+        }
+        luisa::vector<VulkanShaderCompileResult> cold_results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   cold_results, 3u) == VulkanShaderCompileStatus::SUCCESS);
+        auto stats_after_cold = ext->stats();
+        expect(stats_after_cold.cache_hits == 0u) << "the first batch must be cold";
+        expect(stats_after_cold.batches == 1u);
+        auto artifacts_after_cold = binary_io.size();
+        // Second batch on the same device: every request is a cache hit, served by
+        // the same worker set, and it writes nothing new.
+        luisa::vector<VulkanShaderCompileResult> warm_results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   warm_results, 3u) == VulkanShaderCompileStatus::SUCCESS);
+        auto stats_after_warm = ext->stats();
+        expect(stats_after_warm.batches == 2u);
+        expect(stats_after_warm.requests == 2u * kShaderCount);
+        expect(stats_after_warm.cache_hits >= kShaderCount)
+            << "the second batch must load every artifact from the cache";
+        expect(stats_after_warm.worker_count == 3u)
+            << "a second batch must reuse the pool instead of recreating it";
+        expect(binary_io.size() == artifacts_after_cold)
+            << "a warm batch must not rewrite the artifacts";
+        // Both batches' handles must be usable shaders of this device.
+        auto stream = device.create_stream();
+        auto buffer = device.create_buffer<float>(4u);
+        luisa::vector<float> host(4u);
+        Dispatcher dispatcher{stream, buffer, host, 4u};
+        for (auto i = 0u; i < kShaderCount; i++) {
+            dispatcher.verify(warm_results[i].shader.handle,
+                              kernels[i].function()->function(), i + 1u, i);
+        }
+        // A request that disables the cache entirely (`enable_cache == false`) must
+        // still compile and publish, without reading or writing the BinaryIO.
+        {
+            ShaderOption nc;
+            nc.enable_cache = false;
+            luisa::vector<VulkanShaderCompileRequest> no_cache_requests{
+                VulkanShaderCompileRequest{
+                    .option = nc,
+                    .kernel = kernels[0].function()->function()}};
+            luisa::vector<VulkanShaderCompileResult> no_cache_results;
+            auto artifacts_before = binary_io.size();
+            expect(ext->compile_shaders(
+                       luisa::span<const VulkanShaderCompileRequest>{no_cache_requests},
+                       no_cache_results, 2u) == VulkanShaderCompileStatus::SUCCESS);
+            expect(no_cache_results.size() == 1u);
+            expect(no_cache_results[0].status == VulkanShaderCompileStatus::SUCCESS);
+            expect(no_cache_results[0].shader.valid());
+            expect(binary_io.size() == artifacts_before)
+                << "a cache-disabled request must not write an artifact";
+            dispatcher.verify(no_cache_results[0].shader.handle,
+                              kernels[0].function()->function(), 1u, 0u);
+        }
+        // And a later serial compile of the same kernel is still a cache hit with
+        // the same artifact set (the warm path shares one cache with the pool).
+        auto serial_shader = device.compile(kernels[0]);
+        dispatcher.verify(serial_shader.handle(),
+                          kernels[0].function()->function(), 1u, 0u);
+        expect(binary_io.size() == artifacts_after_cold);
+    };
+}
+
+static void test_empty_batch() {
+    "vk_shader_compile_empty_batch"_test = [] {
+        MemoryBinaryIO binary_io;
+        DeviceConfig config;
+        config.binary_io = &binary_io;
+        auto context = luisa::test::create_device_from_ut(g_argc, g_argv, &config);
+        if (!context) { return; }
+        auto *ext = compile_ext(context->device);
+        if (ext == nullptr) { return; }
+        luisa::vector<VulkanShaderCompileRequest> requests;
+        luisa::vector<VulkanShaderCompileResult> results;
+        expect(ext->compile_shaders(
+                   luisa::span<const VulkanShaderCompileRequest>{requests},
+                   results, 2u) == VulkanShaderCompileStatus::INVALID_ARGUMENT);
+        expect(results.empty());
+        expect(ext->stats().batches == 0u);
+        expect(!ext->stats().pool_created)
+            << "an empty batch must not create a worker";
+    };
+}
+
+int main(int argc, char *argv[]) {
+    g_argc = argc;
+    g_argv = argv;
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc, const_cast<const char **>(argv));
+    test_serial_path_is_unchanged();
+    test_batch_order_and_results();
+    test_worker_counts_agree();
+    test_hlsl_route_falls_back_to_serial();
+    test_compile_only_batch();
+    test_concurrent_ordinary_create();
+    test_shutdown_with_live_work();
+    test_repeated_batch_uses_the_cache();
+    test_empty_batch();
+    return 0;
+}

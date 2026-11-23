@@ -18,6 +18,8 @@
 #include "shader.h"
 #include "resource_barrier.h"
 #include "command_buffer_ownership.h"
+#include "bind_state.h"
+#include "argument_plan_scratch.h"
 
 namespace lc::vk {
 class Event;
@@ -26,6 +28,11 @@ class Swapchain;
 using namespace luisa::compute;
 class CommandBuffer;
 struct PipelineRef;
+namespace detail {
+// plan P4: the native command buffer plus the state it was recorded into, moved
+// out of a `CommandBuffer` and owned by a replay graph (replay_graph.h).
+struct RecordedBatch;
+}// namespace detail
 namespace temp_buffer {
 struct DeferredStagingFrees {
     vstd::vector<vstd::unique_ptr<UploadBuffer>> upload_buffers;
@@ -113,9 +120,20 @@ struct CommandBufferState {
     vstd::vector<VkImageView> img_views;
     vstd::vector<std::pair<void *, vstd::func_ptr_t<void(Stream *, CommandBufferState *, void *)>>> dispose_pool;
     vstd::vector<vstd::function<void()>> callbacks;
+    // What is already bound at each Vulkan bind point of the command buffer this
+    // state belongs to (plan P1.2). Reset when a recording starts, so a recycled
+    // state never carries a binding across command buffers or submissions; see
+    // bind_state.h for what may be skipped and what invalidates it.
+    detail::BindState bind_state;
     CommandBufferState();
     ~CommandBufferState();
-    void init(Device &device, StreamTag tag);
+    // `pool_flags` lets a replay recording (plan P4) create its command pool
+    // without VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: such a buffer is
+    // begun once and only ever resubmitted, so nothing may reset it individually.
+    // Every existing caller keeps the reset-capable pool.
+    void init(Device &device, StreamTag tag,
+              VkCommandPoolCreateFlags pool_flags =
+                  VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
     [[nodiscard]] VkDescriptorSet allocate_descriptor_set(VkDescriptorSetLayout layout);
     void retain_pipeline(PipelineRef *ref);
     void reset(
@@ -147,7 +165,10 @@ public:
     luisa::function<void(luisa::string_view)> *logger{};
     vstd::vector<VkDescriptorSet> *desc_sets{};
     vstd::vector<std::byte> *uniform_data{};
-    vstd::vector<std::pair<size_t, size_t>> *dispatch_offsets{};
+    // The argument blocks of the layer being recorded: which command owns which
+    // block of `uniform_data` (plan P1.4). The command identity is carried so the
+    // encoding pass can assert that it binds the block of the command it encodes.
+    vstd::vector<detail::DispatchArgumentBlock> *dispatch_offsets{};
     vstd::vector<VkWriteDescriptorSet> *write_desc_sets{};
     vstd::StackAllocator *scratch_buffer_alloc{};
     vstd::vector<uint4> *bindless_cache{};
@@ -155,13 +176,24 @@ public:
 
     ResourceBarrier *resource_barrier{};
     using Resource::operator bool;
-    explicit CommandBuffer(Stream &stream) noexcept;
+    // `ownership == PERSISTENT` (plan P4) allocates from its own state's pool,
+    // never borrows a config-ext command buffer, and is never reset or recycled.
+    explicit CommandBuffer(Stream &stream,
+                           detail::CommandBufferOwnership ownership =
+                               detail::CommandBufferOwnership::BACKEND) noexcept;
     CommandBuffer(CommandBuffer &&) noexcept;
     ~CommandBuffer();
     [[nodiscard]] auto cmdbuffer() const { return _cmdbuffer; }
     [[nodiscard]] bool retire_and_recycle(temp_buffer::DeferredStagingFrees *deferred_frees = nullptr);
-    void begin();
+    // `flags` is forwarded to VkCommandBufferBeginInfo; only the replay recorder
+    // passes VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT (plan P4), so an
+    // ordinary batch keeps the flags-less begin info it always used.
+    void begin(VkCommandBufferUsageFlags flags = 0u);
     void end();
+    // Moves the native buffer and its state out of this object, leaving it empty
+    // and owning nothing. The caller (a replay graph) becomes responsible for
+    // freeing both; the destructor of this object no longer touches them.
+    [[nodiscard]] detail::RecordedBatch release_native_batch() noexcept;
     auto states() const { return _state.get(); }
     void execute(vstd::span<const luisa::unique_ptr<Command>> cmds);
 };
@@ -243,7 +275,7 @@ class Stream : public Resource {
     vstd::SingleThreadArrayQueue<AsyncCmd> _exec;
     ResourceBarrier _resource_barrier;
     vstd::vector<std::byte> _uniform_data;
-    vstd::vector<std::pair<size_t, size_t>> _dispatch_offsets;
+    vstd::vector<detail::DispatchArgumentBlock> _dispatch_offsets;
     vstd::VEngineMallocVisitor _temp_desc_visitor;
     vstd::StackAllocator _temp_desc;
     temp_buffer::DefaultBufferDeferredVisitor _scratch_buffer_alloc_visitor;
@@ -255,6 +287,12 @@ class Stream : public Resource {
 public:
     luisa::function<void(luisa::string_view)> logger;
     CommandReorderVisitor<ReorderFuncTable, true> reorder;
+    // Stream-scoped scratch of the single argument-planning pass (plan P1.4):
+    // the plan of every command of the current batch plus the two trailer
+    // vectors it is emitted with. `CommandBuffer::execute` is its only user and
+    // runs under `_dispatch_mtx`, which is what serializes it; see
+    // argument_plan_scratch.h for the lifetime and reentrancy contract.
+    detail::ArgumentScratch argument_scratch;
     [[nodiscard]] auto queue() const { return _queue; }
     [[nodiscard]] auto stream_tag() const { return _stream_tag; }
     Stream(Device *device, StreamTag tag);
@@ -276,7 +314,50 @@ public:
     void remove_resource_state(Resource const *resource) noexcept;
     void signal(Event *event, uint64_t value);
     void wait(Event *event, uint64_t value);
+
+    // ---- replayable recording (plan P4) -----------------------------------
+    // Records `cmds` once into a dedicated primary command buffer (SIMULTANEOUS_
+    // USE, its own state, pool without the reset bit) and hands the native batch
+    // to the caller without submitting it. It runs exactly the same prefix and
+    // suffix as `Stream::dispatch` - `_begin_batch_record` / `_finish_batch_record`
+    // below are the statements lifted out of it - so the barriers, the config-ext
+    // before/after states, the descriptor and argument encoding and the trailing
+    // restore are identical to an ordinary batch; only the submit is missing.
+    // Takes `_dispatch_mtx` for the whole call, like `dispatch`.
+    [[nodiscard]] detail::RecordedBatch record_replay_batch(
+        vstd::span<const luisa::unique_ptr<Command>> cmds);
+
+    // Submits one already-recorded command buffer on this stream through the
+    // ordinary timeline path: throttle, one reserved timeline value, exactly one
+    // `Event::_signal` (one native submission) and the SyncExt/NotifyEvt pair.
+    // Nothing is re-recorded and no command buffer enters the retirement FIFO, so
+    // no `CommandBufferState::reset` can touch a replay graph. Returns the
+    // timeline value the submission signalled. Takes `_dispatch_mtx`.
+    [[nodiscard]] uint64_t submit_recorded(VkCommandBuffer command_buffer,
+                                          bool inqueue_limit);
+
+    // Non-blocking: has the submission that signalled `timeline_value` retired on
+    // the host (the stream's retirement thread notified it)? Used by a replay
+    // graph's BUSY check; it never waits.
+    [[nodiscard]] bool submission_complete(uint64_t timeline_value) const noexcept;
+
 private:
+    // The record prefix of one batch, extracted behaviour-neutrally out of
+    // `Stream::dispatch` (plan P4): acquire or construct the command buffer, wire
+    // the stream-scoped scratch and the barrier tracker into it, inject the config
+    // ext's before-states and begin recording. `flags` is only non-zero for the
+    // replay recorder.
+    [[nodiscard]] CommandBuffer _begin_batch_record(VkCommandBufferUsageFlags flags = 0u);
+    // The record suffix of one batch, extracted the same way: apply the config
+    // ext's after-states, record the trailing restore and end the recording.
+    void _finish_batch_record(CommandBuffer &cmdbuffer);
+    // In-flight throttle of one submission (plan P1.5): both the dispatch path and
+    // the present path call it before reserving the next timeline value, so their
+    // arithmetic cannot drift apart. The bound comes from
+    // `Device::max_frames_in_flight()` and the engine lives in in_flight_depth.h;
+    // this function only decides whether the host has to block, and records the
+    // decision under the submit profiler's three timeline counters.
+    void _throttle_in_flight();
     [[nodiscard]] bool _execute_external_command_buffer(
         VkCommandBuffer command_buffer) noexcept;
     std::thread _thd;

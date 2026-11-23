@@ -320,6 +320,33 @@ template<typename T>
     return binary_md5(luisa::span<const Record>{records});
 }
 
+// `hlsl::Property` stores a `uint8_t`-sized enumeration followed by three
+// `uint32_t` fields, so three of its sixteen bytes are padding. Appending the
+// struct byte-wise would write those *uninitialised* bytes into the artifact and
+// make two compilations of the same kernel differ byte for byte (measured before
+// this helper: 8-10 differing bytes per artifact, always at property-record
+// offsets +2..+4, which is why a serial and a parallel compile could not be
+// compared at byte level). The table keeps its 16-byte record shape with the
+// padding zeroed, so the artifact depends on the fields only. An artifact written
+// before this change still decodes: the reader recomputes `property_md5` from the
+// file's own bytes, and `shader_property_md5` has always hashed the four fields,
+// never the struct.
+[[nodiscard]] luisa::vector<hlsl::Property> canonical_properties(
+    luisa::span<const hlsl::Property> properties) {
+    luisa::vector<hlsl::Property> canonical;
+    canonical.reserve(properties.size());
+    for (auto property : properties) {
+        hlsl::Property zeroed;
+        std::memset(&zeroed, 0, sizeof(zeroed));
+        zeroed.type = property.type;
+        zeroed.space_index = property.space_index;
+        zeroed.register_index = property.register_index;
+        zeroed.array_size = property.array_size;
+        canonical.emplace_back(zeroed);
+    }
+    return canonical;
+}
+
 [[nodiscard]] vstd::MD5 saved_argument_md5(
     luisa::span<const SavedArgument> arguments) noexcept {
     struct Record {
@@ -673,8 +700,9 @@ luisa::vector<std::byte> encode_compute_shader_artifact(
          header.printer_size_bytes, header.constant_ubo_size});
     luisa::vector<std::byte> artifact(final_size);
     auto *dst = artifact.data();
+    auto canonical = canonical_properties(info.properties);
     append_value(dst, header);
-    append_bytes(dst, info.properties);
+    append_bytes(dst, luisa::span<const hlsl::Property>{canonical});
     append_bytes(dst, info.arguments);
     append_bytes(dst, info.spirv);
     append_bytes(dst, luisa::span<const std::byte>{printer_payload});
@@ -770,8 +798,9 @@ luisa::vector<std::byte> encode_raster_shader_artifact(
          header.pixel_spv_byte_size, header.printer_size_bytes});
     luisa::vector<std::byte> artifact(final_size);
     auto *dst = artifact.data();
+    auto canonical = canonical_properties(info.properties);
     append_value(dst, header);
-    append_bytes(dst, info.properties);
+    append_bytes(dst, luisa::span<const hlsl::Property>{canonical});
     append_bytes(dst, info.arguments);
     append_bytes(dst, info.vertex_spirv);
     append_bytes(dst, info.pixel_spirv);

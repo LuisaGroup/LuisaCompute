@@ -73,11 +73,36 @@ enum class OptionalExtension : uint32_t {
     RAY_TRACING_LINEAR_SWEPT_SPHERES,
     DENSE_GEOMETRY_FORMAT,
     SHADER_MIXED_FLOAT_DOT_PRODUCT,
+    // ---- appended (plan P2.2) -------------------------------------------
+    // New identifiers are appended so the numeric identity of every
+    // existing enumerator stays exactly what it was.
+    //
+    // VK_KHR_descriptor_update_template was promoted to *core Vulkan 1.1*,
+    // so on any device this backend accepts (floor 1.2) the name is usually
+    // absent from the extension list while the entry points are available
+    // anyway. `select()` therefore also accepts a `core_promoted_version`
+    // match; see OptionalExtensionDescriptor.
+    DESCRIPTOR_UPDATE_TEMPLATE,
+    // ---- appended (plan P2.3) -------------------------------------------
+    // VK_KHR_push_descriptor: set 0 is pushed by vkCmdPushDescriptorSetKHR
+    // instead of being allocated, updated and bound. Negotiated by *name* only:
+    // the promoted spelling reached core in Vulkan 1.4, but the specification
+    // makes an application that uses it without declaring the extension enable
+    // the *core* `pushDescriptor` feature instead, and this registry has no
+    // feature structure for it. A driver that does not list the name therefore
+    // stays on classic descriptor sets, which is the intended fail-closed
+    // behaviour (no item of this backend may require an API version above 1.2).
+    PUSH_DESCRIPTOR,
     COUNT
 };
 
 inline constexpr size_t optional_extension_count =
     static_cast<size_t>(OptionalExtension::COUNT);
+
+// The negotiated bitsets below are `uint64_t`, so the registry can never
+// silently overflow an identifier into another extension's bit.
+static_assert(optional_extension_count <= 64u,
+              "OptionalExtension no longer fits the registry's 64-bit sets");
 
 // Storage reserved for one VkPhysicalDevice*Features* structure. The largest
 // structure currently negotiated (VkPhysicalDeviceTileShadingFeaturesQCOM) is
@@ -134,6 +159,15 @@ struct OptionalExtensionDescriptor {
     // list. Only a handful of optional extensions are instance-level
     // (VK_KHR_surface_maintenance1); the rest are device extensions.
     bool instance_level{false};
+    // Vulkan core version that made this extension's functionality part of
+    // the API, or VK_API_VERSION_1_0 when it never was promoted. A promoted
+    // extension is *usable* on a device whose apiVersion is at least this
+    // value even when the driver does not list the name any more - but its
+    // name must then stay out of VkDeviceCreateInfo::ppEnabledExtensionNames,
+    // because enabling an extension the device does not expose is an error.
+    // VK_API_VERSION_1_0 is also the "no promotion" sentinel because every
+    // Vulkan device reports at least 1.0.
+    uint32_t core_promoted_version{VK_API_VERSION_1_0};
 };
 
 // Negotiates the optional device extensions of the Vulkan backend.
@@ -169,13 +203,16 @@ public:
     void select(luisa::span<const luisa::string> supported_device_extensions,
                 luisa::span<const luisa::string> enabled_instance_extensions,
                 const luisa::compute::VulkanDeviceConfigExt *config,
-                bool imported_device) noexcept;
+                bool imported_device,
+                uint32_t device_api_version = 0u) noexcept;
     // Convenience overload for a device-only naming set (host tests, imported
     // devices): instance-level entries then stay unsupported.
     void select(luisa::span<const luisa::string> supported_device_extensions,
                 const luisa::compute::VulkanDeviceConfigExt *config,
-                bool imported_device) noexcept {
-        select(supported_device_extensions, {}, config, imported_device);
+                bool imported_device,
+                uint32_t device_api_version = 0u) noexcept {
+        select(supported_device_extensions, {}, config, imported_device,
+               device_api_version);
     }
 
     // Head of the pNext chain handed to vkGetPhysicalDeviceFeatures2. Only
@@ -230,6 +267,11 @@ private:
         bool supported{false};
         bool requested{false};
         bool enabled{false};
+        // Whether `name` must be handed to VkDeviceCreateInfo. False for an
+        // extension that is usable through Vulkan core (its core_promoted_version
+        // covers the device) without being exposed as a device extension: adding
+        // such a name to the create info is an error.
+        bool declare_name{true};
         alignas(16) std::byte storage[optional_extension_feature_storage_size]{};
         void *feature{nullptr};
     };

@@ -36,9 +36,7 @@ class RayTracingShader : public Shader {
 
 public:
     auto pipeline() const { return _pipeline_ref ? _pipeline_ref->pipeline : VK_NULL_HANDLE; }
-    auto pipeline_cache() const { return _pipeline_ref ? _pipeline_ref->pipeline_cache : VK_NULL_HANDLE; }
     PipelineRef *pipeline_ref() const noexcept override { return _pipeline_ref; }
-    bool serialize_pso(vstd::vector<std::byte> &result) const override;
     auto block_size() const { return _block_size; }
     auto const &raygen_region() const { return _raygen_region; }
     auto const &miss_region() const { return _miss_region; }
@@ -52,7 +50,6 @@ public:
         vstd::vector<SavedArgument> &&saved_args,
         vstd::span<uint const> spv_code,
         vstd::vector<Argument> &&captured,
-        vstd::span<std::byte const> cache_code,
         bool use_tex2d_bindless,
         bool use_tex3d_bindless,
         bool use_buffer_bindless,

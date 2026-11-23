@@ -4,6 +4,7 @@
 #include "device.h"
 #include "texture.h"
 #include "cuda_interop_texture_plan.h"
+#include "queue_submit_plan.h"
 #include "stream.h"
 #include "default_buffer.h"
 // Cross-DLL access to cuda-backend shaders is restricted to pure-virtual and
@@ -867,12 +868,21 @@ void VkCudaInteropImpl::vk_signal(uint64_t cuda_event_handle, uint64_t vk_stream
     // ... Enqueue initial device work here.
     info1.commandBufferCount = 0;
     info1.pCommandBuffers = nullptr;
+    // Same funnel as every other backend submission (plan P2.1): a signal-only
+    // submission becomes a vkQueueSubmit2 with this timeline value and a
+    // conservative ALL_COMMANDS signal stage on a sync2 device, and stays the
+    // identical legacy vkQueueSubmit otherwise.
+    lc::vk::detail::QueueSubmitRequest request{};
+    request.signal_semaphores = &semaphore;
+    request.signal_count = 1u;
+    request.fence = VK_NULL_HANDLE;
+    request.pnext = &timelineInfo1;
     std::lock_guard queue_lock{stream->queue_mtx()};
     auto config_ext = _device->config_ext();
     if (!(config_ext && config_ext->signal_semaphore(
                             stream->queue(), semaphore, fence_index))) {
-        LUISA_CHECK_VULKAN(vkQueueSubmit(
-            stream->queue(), 1, &info1, VK_NULL_HANDLE));
+        (void)lc::vk::detail::queue_submit(
+            stream->queue(), _device, request);
     }
 }
 void VkCudaInteropImpl::vk_wait(uint64_t cuda_event_handle, uint64_t vk_stream, uint64_t fence_index) noexcept {
@@ -887,23 +897,19 @@ void VkCudaInteropImpl::vk_wait(uint64_t cuda_event_handle, uint64_t vk_stream, 
     timelineInfo1.pWaitSemaphoreValues = &fence_index;
     timelineInfo1.signalSemaphoreValueCount = 0;
     timelineInfo1.pSignalSemaphoreValues = nullptr;
-    VkSubmitInfo info1{};
-    info1.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    info1.pNext = &timelineInfo1;
-    info1.waitSemaphoreCount = 1;
-    info1.pWaitSemaphores = &semaphore;
-    info1.signalSemaphoreCount = 0;
-    info1.pSignalSemaphores = nullptr;
-    info1.pWaitDstStageMask = &stage;
-    // ... Enqueue initial device work here.
-    info1.commandBufferCount = 0;
-    info1.pCommandBuffers = nullptr;
+    lc::vk::detail::QueueSubmitRequest request{};
+    request.wait_semaphores = &semaphore;
+    request.wait_stage_masks = &stage;
+    request.wait_count = 1u;
+    request.pnext = &timelineInfo1;
     std::lock_guard queue_lock{stream->queue_mtx()};
     auto config_ext = _device->config_ext();
     if (!(config_ext && config_ext->wait_semaphore(
                             stream->queue(), semaphore, fence_index))) {
-        LUISA_CHECK_VULKAN(vkQueueSubmit(
-            stream->queue(), 1, &info1, VK_NULL_HANDLE));
+        // The exact legacy ALL_COMMANDS dst stage rides into the 64-bit
+        // stageMask of the vkQueueSubmit2 path (plan P2.1).
+        (void)lc::vk::detail::queue_submit(
+            stream->queue(), _device, request);
     }
 }
 

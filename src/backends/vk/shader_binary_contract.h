@@ -12,6 +12,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/vstl/md5.h>
 
 #include "../common/hlsl/shader_property.h"
@@ -263,6 +264,35 @@ struct PipelineCacheArtifactHeader {
     luisa::span<const std::byte> payload) {
     return payload.size_bytes() == header.payload_size &&
            pipeline_cache_payload_md5(payload) == header.payload_md5;
+}
+
+// Frames one raw `VkPipelineCache` payload as a PSO artifact. Both the
+// pre-P1.3 per-shader blobs and the device-global cache artifact (plan P1.3)
+// use this single framing, so one reader validates both and a future contract
+// change cannot drift between them.
+//
+// `pipeline_cache_header_version_one_byte_size` is
+// sizeof(VkPipelineCacheHeaderVersionOne) (headerSize, headerVersion, vendorID,
+// deviceID, pipelineCacheUUID) spelled without <volk.h> so this header stays
+// usable from host-only tests; every TU that can include Vulkan static_asserts
+// it against the real type.
+inline constexpr size_t pipeline_cache_header_version_one_byte_size =
+    4u * sizeof(uint32_t) + 16u;
+
+[[nodiscard]] inline luisa::vector<std::byte> encode_pipeline_cache_artifact(
+    luisa::span<const std::byte> payload) {
+    LUISA_ASSERT(
+        payload.size_bytes() >= pipeline_cache_header_version_one_byte_size &&
+            payload.size_bytes() <= max_pipeline_cache_byte_size,
+        "Vulkan pipeline cache payload has invalid size {}.",
+        payload.size_bytes());
+    PipelineCacheArtifactHeader header{
+        .payload_size = payload.size_bytes(),
+        .payload_md5 = pipeline_cache_payload_md5(payload)};
+    luisa::vector<std::byte> artifact(sizeof(header) + payload.size_bytes());
+    std::memcpy(artifact.data(), &header, sizeof(header));
+    std::memcpy(artifact.data() + sizeof(header), payload.data(), payload.size_bytes());
+    return artifact;
 }
 
 // Persisted flags use fixed-width integers. Reading arbitrary bytes directly

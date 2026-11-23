@@ -1,4 +1,5 @@
 #include "raster_shader.h"
+#include "submit_profile.h"
 #include "device.h"
 #include "log.h"
 #include "raster_pipeline.h"
@@ -8,7 +9,6 @@ RasterShader::RasterShader(
     vstd::vector<Argument> &&captured,
     vstd::vector<SavedArgument> &&saved_arguments,
     vstd::span<hlsl::Property const> binds,
-    vstd::span<std::byte const> cache_code,
     vstd::vector<uint> &&vertex_spv_code,
     vstd::vector<uint> &&pixel_spv_code,
     bool use_tex2d_bindless,
@@ -17,20 +17,14 @@ RasterShader::RasterShader(
     uint validation_count,
     detail::ShaderCodegenDialect codegen_dialect)
     : Shader(device, ShaderTag::kRasterShader, std::move(captured), std::move(saved_arguments), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, {}, {}, validation_count, 32u, codegen_dialect), _vertex_spv_code(std::move(vertex_spv_code)), _pixel_spv_code(std::move(pixel_spv_code)) {
-    VkPipelineCacheCreateInfo pso_ci{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
-    if (!cache_code.empty()) {
-        pso_ci.initialDataSize = cache_code.size();
-        pso_ci.pInitialData = cache_code.data();
-    }
-    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &_pipe_cache));
 }
 RasterShader::~RasterShader() {
     for (auto &i : _pipelines) {
         vkDestroyPipeline(device()->logic_device(), i.second.pipeline, Device::alloc_callbacks());
         vkDestroyRenderPass(device()->logic_device(), i.second.render_pass, Device::alloc_callbacks());
     }
-    vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
+    // The pipeline cache is device-owned (plan P1.3): ~RasterShader never
+    // destroys it.
 }
 auto RasterShader::_make_pipeline_key(
     luisa::compute::MeshFormat const &mesh_format,
@@ -325,7 +319,15 @@ auto RasterShader::create_pipeline(
         .basePipelineHandle = nullptr,
         .basePipelineIndex = ~0};
 
-    VK_CHECK_RESULT(vkCreateGraphicsPipelines(device()->logic_device(), _pipe_cache, 1, &graphics_pipeline_create_info, Device::alloc_callbacks(), &v.pipeline));
+    {
+        // One device-scoped cache for every DSL shader (plan P1.3).
+        auto cache = device()->pipeline_cache().acquire();
+        VK_CHECK_RESULT(vkCreateGraphicsPipelines(
+            device()->logic_device(), cache.handle(), 1,
+            &graphics_pipeline_create_info, Device::alloc_callbacks(),
+            &v.pipeline));
+    }
+    submit_profile::record_pipeline_create();
     if (extension_plan.uses_depth_clamp_zero_one) {
         // VK_KHR_depth_clamp_zero_one is device-wide: every raster pipeline
         // created on a device that enabled its feature clamps the fragment depth

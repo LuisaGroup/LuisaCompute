@@ -1454,6 +1454,11 @@ void Swapchain::present(
         _pipeline_layout,
         _current_frame,
         image_index);
+    // P1.2: `_record_command_buffer` binds a graphics pipeline and a descriptor
+    // set directly on the recorded command buffer and runs its own render pass.
+    // The per-recording tracker never saw those calls, so its graphics bind point
+    // is flushed here rather than left describing a state Vulkan no longer has.
+    cmdbuffer.states()->bind_state.invalidate(detail::BindPoint::graphics);
     // submit command buffer
     wait = _image_available_semaphores[_current_frame];
     fence = _in_flight_fences[_current_frame];

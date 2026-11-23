@@ -1,4 +1,5 @@
 #include "tlas.h"
+#include "submit_profile.h"
 #include "stream.h"
 #include "buffer.h"
 #include "compute_shader.h"
@@ -573,8 +574,13 @@ void Tlas::pre_build(
             write_desc_sets.data(),
             0,
             nullptr);
+        submit_profile::record_descriptor_set_update();
         write_desc_sets.clear();
-        vkCmdBindDescriptorSets(
+        // P1.2: this kernel's own set/pipeline, routed through the
+        // per-command-buffer tracker (see bindless_array.cpp for the same
+        // conversion of the acceleration-update / bindless-update kernels).
+        detail::cmd_bind_descriptor_sets(
+            cmdbuffer.states()->bind_state,
             cmdbuffer.cmdbuffer(),
             VK_PIPELINE_BIND_POINT_COMPUTE,
             shader->pipeline_layout(),
@@ -583,7 +589,11 @@ void Tlas::pre_build(
             &desc_set,
             0,
             nullptr);
-        vkCmdBindPipeline(cmdbuffer.cmdbuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, shader->pipeline());
+        detail::cmd_bind_pipeline(
+            cmdbuffer.states()->bind_state,
+            cmdbuffer.cmdbuffer(),
+            VK_PIPELINE_BIND_POINT_COMPUTE,
+            shader->pipeline(), shader->pipeline_layout());
         vkCmdDispatch(cmdbuffer.cmdbuffer(), (modification_size + 255) / 256, 1, 1);
         } // end non-motion path
     }

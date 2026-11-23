@@ -56,7 +56,6 @@ builtin_buffer_properties() noexcept {
         {},
         spirv,
         {},
-        luisa::span<std::byte const>{},
         false,
         false,
         false,
@@ -65,7 +64,14 @@ builtin_buffer_properties() noexcept {
         0u,
         luisa::nullopt,
         push_constant_size,
-        detail::ShaderCodegenDialect::VULKAN_BUILTIN);
+        detail::ShaderCodegenDialect::VULKAN_BUILTIN,
+          true,
+          // Plan P2.3: the built-in kernels (indirect preparation, bindless
+          // upload, acceleration-structure update) allocate and bind their own
+          // set 0 from the command encoder's pool, outside the dispatch path.
+          // They therefore keep the classic set-0 layout even on a device that
+          // pushes set 0 for DSL shaders.
+          false);
 }
 
 }// namespace

@@ -1,4 +1,5 @@
 #include "bindless_array.h"
+#include "submit_profile.h"
 #include "compute_shader.h"
 #include "upload_buffer.h"
 #include "device.h"
@@ -683,6 +684,7 @@ void BindlessArray::update(
             write_desc_sets.data(),
             0,
             nullptr);
+        submit_profile::record_descriptor_set_update();
         write_desc_sets.clear();
     }
     _defer_descriptor_recycling(
@@ -739,6 +741,7 @@ void BindlessArray::update(
             write_desc_sets.data(),
             0,
             nullptr);
+        submit_profile::record_descriptor_set_update();
         write_desc_sets.clear();
     }
     _defer_descriptor_recycling(
@@ -795,6 +798,7 @@ void BindlessArray::update(
             write_desc_sets.data(),
             0,
             nullptr);
+        submit_profile::record_descriptor_set_update();
         write_desc_sets.clear();
     }
     _defer_descriptor_recycling(
@@ -1077,9 +1081,14 @@ void BindlessArray::update(
         write_desc_sets.data(),
         0,
         nullptr);
+    submit_profile::record_descriptor_set_update();
     write_desc_sets.clear();
 
-    vkCmdBindDescriptorSets(
+    // P1.2: this kernel's own set/pipeline, routed through the per-command-buffer
+    // tracker so a repeated bind of the same state is not recorded twice and the
+    // profiler counters describe the calls that really happen.
+    detail::cmd_bind_descriptor_sets(
+        cmdbuffer->states()->bind_state,
         cmdbuffer->cmdbuffer(),
         VK_PIPELINE_BIND_POINT_COMPUTE,
         shader->pipeline_layout(),
@@ -1088,7 +1097,11 @@ void BindlessArray::update(
         &desc_set,
         0,
         nullptr);
-    vkCmdBindPipeline(cmdbuffer->cmdbuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, shader->pipeline());
+    detail::cmd_bind_pipeline(
+        cmdbuffer->states()->bind_state,
+        cmdbuffer->cmdbuffer(),
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        shader->pipeline(), shader->pipeline_layout());
     vkCmdDispatch(cmdbuffer->cmdbuffer(), (mods.size() + 255) / 256, 1, 1);
     _defer_descriptor_recycling(
         cmdbuffer, std::move(retired_slots));

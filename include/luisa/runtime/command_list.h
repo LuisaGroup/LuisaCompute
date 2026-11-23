@@ -60,6 +60,10 @@ public:
     [[nodiscard]] CommandContainer steal_commands() noexcept;
     [[nodiscard]] CallbackContainer steal_callbacks() noexcept;
     [[nodiscard]] PresentContainer steal_presents() noexcept;
+ // Plan P4: takes the destructor callbacks out of the list. A consumer that must
+ // not let a callback run behind its back (the Vulkan replay recorder) inspects
+ // them first; the caller then owns them and decides when they run.
+ [[nodiscard]] DtorCallbacks steal_dtor_callbacks() noexcept;
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] Commit commit() noexcept;
 };

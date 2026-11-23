@@ -493,10 +493,22 @@ target_include_directories(test_command_reorder_ranges PRIVATE ../backends/commo
 luisa_compute_add_test(benchmark_command_reorder benchmark/benchmark_command_reorder.cpp)
 # Host-side counterpart (GPU-idle kernels) measuring pure submission cost.
 luisa_compute_add_test(benchmark_command_reorder_host benchmark/benchmark_command_reorder_host.cpp)
+# Plan P2.2: the benchmark includes VulkanDeviceConfigExt for its
+# `--descriptor-update-template` A/B switch, so it needs the vendored Vulkan
+# headers from Volk (no system SDK).
+target_link_libraries(benchmark_command_reorder_host PRIVATE luisa-compute-ext-volk)
 # Verification benchmark for the lc_optimize SKILL.md Part II claims
 # (roofline, vectorization, cp.async pipelining, launch overhead):
 # benchmark_part2_verify <backend> [--csv f.csv]
 luisa_compute_add_test(benchmark_part2_verify benchmark/benchmark_part2_verify.cpp)
+# Plan P5.1: cold/warm create benchmark for ordered parallel shader compilation.
+# Needs a GPU device, so it is not CTest-registered:
+#   benchmark_vk_shader_compile vk [--shaders N] [--workers 0|1|N] [--rounds R]
+#                                [--warm] [--manifest FILE]
+luisa_compute_add_test(benchmark_vk_shader_compile benchmark/benchmark_vk_shader_compile.cpp)
+# Plan P5.1: ordered batch shader compilation (worker pool, per-request tickets,
+# serial publication). Needs a GPU device, so it is not CTest-registered.
+luisa_compute_add_test(test_vk_shader_compile_pool unit/runtime/test_vk_shader_compile_pool.cpp)
 luisa_compute_add_test(test_vk_cuda_launch_command unit/ext/test_vk_cuda_launch_command.cpp LABELS "unit;unit_ext")
 luisa_compute_add_test(test_vk_cuda_command_owns_blob unit/ext/test_vk_cuda_command_owns_blob.cpp LABELS "unit;unit_ext")
 get_property(LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED GLOBAL PROPERTY LUISA_COMPUTE_VK_CUDA_INTEROP_ENABLED)
@@ -534,6 +546,56 @@ if (TARGET luisa-compute-backend-vk)
     endif ()
     luisa_compute_add_test(test_vk_saved_argument_contract unit/ext/test_vk_saved_argument_contract.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_saved_argument_contract PRIVATE ../backends/vk)
+    # P1.1: the structural Vulkan layout keys and the reference-counted
+    # interning table are device-independent, so the aliasing/reference-count
+    # contract is covered on the host (no Vulkan device, no shader generation).
+    luisa_compute_add_test(test_vk_layout_intern unit/ext/test_vk_layout_intern.cpp LABELS "unit;unit_ext")
+    target_include_directories(test_vk_layout_intern PRIVATE ../backends/vk)
+    target_link_libraries(test_vk_layout_intern PRIVATE luisa-compute-ext-volk)
+    # P4: the replayable-recording admissibility policy is a pure function of
+    # command/argument facts, so the whole rejection matrix is covered on the host and
+    # registered with CTest (no Vulkan device, no shader generation).
+    luisa_compute_add_test(test_vk_replay_plan unit/ext/test_vk_replay_plan.cpp LABELS "unit;unit_ext")
+    target_include_directories(test_vk_replay_plan PRIVATE ../backends/vk)
+    # P1.2: the per-command-buffer bind-state tracker only compares Vulkan handles
+    # and never calls an entry point, so every transition rule (what may be
+    # skipped, what invalidates what) is covered on the host.
+    luisa_compute_add_test(test_vk_bind_state unit/ext/test_vk_bind_state.cpp LABELS "unit;unit_ext")
+    target_include_directories(test_vk_bind_state PRIVATE ../backends/vk)
+    target_link_libraries(test_vk_bind_state PRIVATE luisa-compute-ext-volk)
+    # P2.1: the legacy VkSubmitInfo -> VkSubmitInfo2 conversion (semaphore
+    # values, 64-bit stage masks, command-buffer order, pNext filtering) is a
+    # pure host function, so it is covered without a device and without calling
+    # a Vulkan entry point.
+    luisa_compute_add_test(test_vk_queue_submit_plan unit/ext/test_vk_queue_submit_plan.cpp LABELS "unit;unit_ext")
+    target_include_directories(test_vk_queue_submit_plan PRIVATE ../backends/vk)
+    target_link_libraries(test_vk_queue_submit_plan PRIVATE luisa-compute-ext-volk)
+    # P2.2: the descriptor-update-template planning/packing and its single update
+    # funnel are device-independent, so they are covered on the host. The test
+    # installs recording stubs into volk's entry-point globals instead of calling
+    # a driver.
+luisa_compute_add_test(test_vk_descriptor_update_template unit/ext/test_vk_descriptor_update_template.cpp LABELS "unit;unit_ext")
+      target_include_directories(test_vk_descriptor_update_template PRIVATE ../backends/vk)
+      target_link_libraries(test_vk_descriptor_update_template PRIVATE luisa-compute-ext-volk)
+      # P2.3: the push-descriptor eligibility decision and its single recording
+      # funnel are device-independent (the entry point is a parameter), so both are
+      # covered on the host with a recording stub.
+      luisa_compute_add_test(test_vk_push_descriptor unit/ext/test_vk_push_descriptor.cpp LABELS "unit;unit_ext")
+      target_include_directories(test_vk_push_descriptor PRIVATE ../backends/vk)
+      target_link_libraries(test_vk_push_descriptor PRIVATE luisa-compute-ext-volk)
+    # P1.5: the in-flight-depth/throttle plan is device-independent integer
+    # arithmetic, so it is covered on the host (no Vulkan device, no entry point).
+    luisa_compute_add_test(test_vk_in_flight_depth unit/ext/test_vk_in_flight_depth.cpp LABELS "unit;unit_ext")
+    target_include_directories(test_vk_in_flight_depth PRIVATE ../backends/vk)
+    target_link_libraries(test_vk_in_flight_depth PRIVATE luisa-compute-ext-volk)
+    # P6.1/P6.2: the core-limit mapping and the SM-count reporting contract are
+    # device-independent value logic (the Vulkan structures involved are plain
+    # aggregates and no entry point is called), so they are covered on the host -
+    # which is also the only way to check "unknown" answers and 64-bit formatting,
+    # because this box has a real value for every limit.
+    luisa_compute_add_test(test_vk_device_capability unit/ext/test_vk_device_capability.cpp LABELS "unit;unit_ext")
+    target_include_directories(test_vk_device_capability PRIVATE ../backends/vk)
+    target_link_libraries(test_vk_device_capability PRIVATE luisa-compute-ext-volk)
     luisa_compute_add_test(test_vk_indirect_dispatch unit/ext/test_vk_indirect_dispatch.cpp LABELS "unit;unit_ext;vk")
     target_include_directories(test_vk_indirect_dispatch PRIVATE ../backends/common ../backends/vk)
     luisa_compute_add_test(test_vk_resource_barrier_contract unit/ext/test_vk_resource_barrier_contract.cpp LABELS "unit;unit_ext;vk")
@@ -1356,10 +1418,36 @@ if (TARGET luisa-compute-backend-vk AND LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV)
     # Requires an explicit backend argument and a physical Vulkan device, so
     # build it for the native path but keep it out of unattended CTest runs.
     luisa_compute_add_test(test_vk_shader_cache unit/runtime/test_vk_shader_cache.cpp)
+    # P0.3 tripwire for the counter-only submit profiler (plan §2/§4): needs a
+    # physical Vulkan device and latches LUISA_VULKAN_PROFILE_SUBMIT itself.
+    luisa_compute_add_test(test_vk_submit_profile unit/runtime/test_vk_submit_profile.cpp)
+    # P4: the record/replay/update-refusal lifecycle through the public
+    # `VulkanReplayExt` only. Needs a physical Vulkan device, so it is built but not
+    # auto-run.
+    luisa_compute_add_test(test_vk_replay unit/runtime/test_vk_replay.cpp)
+    # One rejection case is a `VKCustomCmd`, and that public header is
+    # Vulkan-typed, so this target needs the vendored Vulkan headers.
+    target_link_libraries(test_vk_replay PRIVATE luisa-compute-ext-volk)
+    # P2.1: runtime coverage of the capability-adaptive queue submission
+    # (vkQueueSubmit2 on a sync2 device, the unchanged legacy vkQueueSubmit on a
+    # Vulkan 1.2 floor). Needs a physical Vulkan device and latches
+    # LUISA_VULKAN_PROFILE_SUBMIT itself; run it a second time with
+    # `--min-api 1.2` to cover the legacy branch.
+    luisa_compute_add_test(test_vk_queue_submit_runtime unit/runtime/test_vk_queue_submit_runtime.cpp)
+    target_link_libraries(test_vk_queue_submit_runtime PRIVATE luisa-compute-ext-volk)
+    # P1.2: one redundant-bind test issues raw Vulkan (vkCmdFillBuffer) from a
+    # VKCustomCmd, so this target needs the vendored Vulkan headers from Volk.
+    target_link_libraries(test_vk_submit_profile PRIVATE luisa-compute-ext-volk)
     luisa_compute_add_test(test_vk_optional_extensions unit/runtime/test_vk_optional_extensions.cpp LABELS "unit;unit_runtime;vk" ARGS vk)
     # VulkanDeviceConfigExt exposes VkDeviceCreateInfo feature-chain types, so
     # this test needs the vendored Vulkan headers from Volk (no system SDK).
     target_link_libraries(test_vk_optional_extensions PRIVATE luisa-compute-ext-volk)
+    # P6.2/P6.3: the numeric capability record. One process holds one Vulkan
+    # Device, so the configurations are separate runs: default (SM count unknown,
+    # descriptor heap on), --sm-count <n> (calibrated estimate), --sm-count <huge>
+    # (rejected) and --disable-descriptor-heap.
+    luisa_compute_add_test(test_vk_capability_status unit/runtime/test_vk_capability_status.cpp)
+    target_link_libraries(test_vk_capability_status PRIVATE luisa-compute-ext-volk)
     luisa_compute_add_test(test_vk_spirv_codegen_path unit/runtime/test_vk_spirv_codegen_path.cpp)
     target_link_libraries(test_vk_spirv_codegen_path PRIVATE
             luisa-compute-spirv

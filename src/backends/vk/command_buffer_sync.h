@@ -10,9 +10,10 @@
 // support the 2 entry points.
 
 #include <volk.h>
+#include <volk.h>
 #include <luisa/core/stl/vector.h>
-
 #include "device.h"
+#include "submit_profile.h"
 
 namespace lc::vk::detail {
 
@@ -246,12 +247,44 @@ inline void cmd_copy_image(
         info->regionCount, regions.data());
 }
 
+// Counts one barrier call and its structs for the submit profiler (P0.2). This
+// is the single funnel both the synchronization2 and the Vulkan 1.2 paths go
+// through, so the counts describe what is recorded either way. Counter-only: no
+// value computed here is ever read back by the barrier logic.
+inline void profile_pipeline_barrier(VkDependencyInfo const &info) noexcept {
+    if (!submit_profile::enabled()) { return; }
+    submit_profile::record_barrier_call();
+    submit_profile::record_memory_barriers(info.memoryBarrierCount);
+    submit_profile::record_buffer_barriers(info.bufferMemoryBarrierCount);
+    submit_profile::record_image_barriers(info.imageMemoryBarrierCount);
+    auto all_commands = uint64_t{0u};
+    auto is_all_commands = [](VkPipelineStageFlags2 src,
+                              VkPipelineStageFlags2 dst) noexcept {
+        return src == VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT &&
+               dst == VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    };
+    for (auto i = uint32_t{0u}; i < info.memoryBarrierCount; ++i) {
+        auto const &b = info.pMemoryBarriers[i];
+        all_commands += is_all_commands(b.srcStageMask, b.dstStageMask) ? 1u : 0u;
+    }
+    for (auto i = uint32_t{0u}; i < info.bufferMemoryBarrierCount; ++i) {
+        auto const &b = info.pBufferMemoryBarriers[i];
+        all_commands += is_all_commands(b.srcStageMask, b.dstStageMask) ? 1u : 0u;
+    }
+    for (auto i = uint32_t{0u}; i < info.imageMemoryBarrierCount; ++i) {
+        auto const &b = info.pImageMemoryBarriers[i];
+        all_commands += is_all_commands(b.srcStageMask, b.dstStageMask) ? 1u : 0u;
+    }
+    submit_profile::record_all_commands_barriers(all_commands);
+}
+
 // vkCmdPipelineBarrier with a capability-adaptive dispatch. The legacy path
 // uses a single src/dst stage pair (the union across all barriers), which is
 // conservative but functionally correct.
 inline void cmd_pipeline_barrier(
     VkCommandBuffer cmd, Device const *device,
     VkDependencyInfo const *info) noexcept {
+    profile_pipeline_barrier(*info);
     if (device->sync2_capable()) {
 #ifdef VK_KHR_synchronization2
         // Vulkan 1.2 devices expose the extension alias

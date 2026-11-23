@@ -37,6 +37,8 @@ public:
         return false;                                             \
     }
     LC_TEST_DISABLE(enable_descriptor_heap)
+    LC_TEST_DISABLE(enable_descriptor_update_template)
+  LC_TEST_DISABLE(enable_push_descriptor)
     LC_TEST_DISABLE(enable_device_address_commands)
     LC_TEST_DISABLE(enable_unified_image_layouts)
     LC_TEST_DISABLE(enable_copy_memory_indirect)
@@ -86,6 +88,16 @@ public:
 #undef LC_TEST_DISABLE
 };
 
+// Enables only the descriptor-update-template switch on top of the defaults.
+// That switch is off by default (the template path measured slower on this
+// driver, plan P2.2), so the promotion tests below have to ask for it.
+class TemplateEnabledConfig final : public VulkanDeviceConfigExt {
+public:
+    [[nodiscard]] bool enable_descriptor_update_template() const noexcept override {
+        return true;
+    }
+};
+
 // Refuses one extension and keeps the rest enabled, mirroring a user that
 // disables a single optimization.
 class SelectiveConfig final : public VulkanDeviceConfigExt {
@@ -125,7 +137,8 @@ public:
 void select_names(OptionalExtensionRegistry &registry,
                   const luisa::vector<luisa::string> &names,
                   const VulkanDeviceConfigExt &config,
-                  bool imported_device = false) {
+                  bool imported_device = false,
+                  uint32_t device_api_version = 0u) {
     luisa::vector<luisa::string> device_names;
     luisa::vector<luisa::string> instance_names;
     for (auto const &name : names) {
@@ -137,7 +150,7 @@ void select_names(OptionalExtensionRegistry &registry,
     }
     registry.select(luisa::span<const luisa::string>{device_names},
                     luisa::span<const luisa::string>{instance_names},
-                    &config, imported_device);
+                    &config, imported_device, device_api_version);
 }
 
 }// namespace vk_extension_registry_test_detail
@@ -310,6 +323,66 @@ int main(int argc, char *argv[]) {
         fma->shaderFmaFloat16 = VK_TRUE;
         registry.resolve();
         expect(!registry.enabled(OptionalExtension::SHADER_FMA));
+    };
+
+    "vk_optional_extension_core_promotion_is_never_declared"_test = [] {
+        // Plan P2.2: VK_KHR_descriptor_update_template was promoted to core Vulkan
+        // 1.1, which is below this backend's floor. A 1.2-or-newer device therefore
+        // supports it even when the driver no longer lists the name - and the name
+        // must then stay out of VkDeviceCreateInfo, because enabling an extension
+        // the device does not expose is an error.
+        //
+        // The switch itself defaults to false (the template path measured slower
+        // than vkUpdateDescriptorSets on this driver), so "supported" must not
+        // imply "requested": the default configuration has to leave it off.
+        AllEnabledConfig default_config;
+        {
+            OptionalExtensionRegistry defaulted;
+            select_names(defaulted, {}, default_config, false, VK_API_VERSION_1_2);
+            expect(defaulted.supported(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+            defaulted.resolve();
+            expect(!defaulted.requested(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE))
+                << "the template switch is opt-in: the default must not request it";
+            expect(!defaulted.enabled(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+        }
+        TemplateEnabledConfig config;
+        OptionalExtensionRegistry modern;
+        select_names(modern, {}, config, false, VK_API_VERSION_1_2);
+        expect(modern.supported(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE))
+            << "a promoted extension is supported by API version alone";
+        modern.resolve();
+        expect(modern.enabled(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+        expect(modern.enabled_extension_names().empty())
+            << "a promoted name the device does not expose must not be declared";
+        // Below the promotion version nothing is assumed.
+        OptionalExtensionRegistry ancient;
+        select_names(ancient, {}, config, false, VK_API_VERSION_1_0);
+        expect(!ancient.supported(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+        ancient.resolve();
+        expect(!ancient.enabled(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+        // An exposed name is still declared, and its switch still decides.
+        OptionalExtensionRegistry named;
+        select_names(named, names({"VK_KHR_descriptor_update_template"}),
+                     config, false, VK_API_VERSION_1_2);
+        named.resolve();
+        expect(named.enabled(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+        auto declared = false;
+        for (auto name : named.enabled_extension_names()) {
+            if (luisa::string_view{name} == "VK_KHR_descriptor_update_template") {
+                declared = true;
+            }
+        }
+        expect(declared) << "an exposed name must still reach vkCreateDevice";
+        // Switching it off keeps the fallback path: nothing is enabled or probed.
+        AllDisabledConfig disabled;
+        OptionalExtensionRegistry off;
+        select_names(off, names({"VK_KHR_descriptor_update_template"}),
+                     disabled, false, VK_API_VERSION_1_2);
+        off.resolve();
+        expect(off.supported(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+        expect(!off.requested(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+        expect(!off.enabled(OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE));
+        expect(off.enabled_extension_names().empty());
     };
 
     "vk_optional_extension_imported_device_is_never_assumed"_test = [] {

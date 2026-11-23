@@ -57,6 +57,18 @@ public:
         return _completed_gpu_event.load(std::memory_order_acquire);
     }
     [[nodiscard]] uint64_t current_gpu_value() const;
+    // In-flight throttle support (plan P1.5): true when the GPU has provably
+    // already completed `value`, i.e. this timeline value is retired on the
+    // device. The cached GPU completion watermark is free to read; only when it
+    // is behind is the driver asked through `current_gpu_value()` (one
+    // vkGetSemaphoreCounterValue, never a blocking wait).
+    //
+    // "Retired on the GPU" is weaker than `sync(value)`, which also waits for the
+    // stream's retirement thread to recycle the batch's command buffer and run
+    // its callbacks. Only the in-flight throttle may use this predicate (see
+    // Stream::_throttle_in_flight); public Event::sync and every host-wait path
+    // keep waiting for the retirement thread.
+    [[nodiscard]] bool gpu_completed(uint64_t value) const;
     [[nodiscard]] bool is_complete(uint64_t fence) const {
         std::lock_guard lck{_event_mtx};
         return _finished_event >= fence;

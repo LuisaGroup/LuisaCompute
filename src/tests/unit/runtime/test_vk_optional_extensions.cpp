@@ -33,6 +33,8 @@ public:
         return false;                                  \
     }
     LC_TEST_DISABLE(enable_descriptor_heap)
+    LC_TEST_DISABLE(enable_descriptor_update_template)
+  LC_TEST_DISABLE(enable_push_descriptor)
     LC_TEST_DISABLE(enable_device_address_commands)
     LC_TEST_DISABLE(enable_unified_image_layouts)
     LC_TEST_DISABLE(enable_copy_memory_indirect)
@@ -218,6 +220,61 @@ void check_status_consistency(Device &device, bool expect_none_enabled) {
     expect(!ext->is_enabled("VK_definitely_not_an_extension"));
     expect(!ext->is_supported("VK_definitely_not_an_extension"));
     expect(!ext->is_active("VK_definitely_not_an_extension"));
+    // Plan P6.3: the capability record carries the descriptor-heap state, and it
+    // must be this registry entry's state - not a constant and not a second
+    // negotiation. One binary covers both directions, because it creates two
+    // devices: the all-disabled one must report requested/enabled/active false
+    // (while `supported` still states what the physical device exposes), and the
+    // default one requests the extension wherever it is supported.
+    auto capabilities = ext->capability_status();
+    constexpr auto heap_name = "VK_EXT_descriptor_heap";
+    auto heap_status = VulkanExtensionStatus{};
+    auto found = false;
+    for (auto const &status : extensions) {
+        if (status.name == heap_name) {
+            heap_status = status;
+            found = true;
+            break;
+        }
+    }
+    expect(found) << "the registry must carry VK_EXT_descriptor_heap";
+    expect(capabilities.descriptor_heap.supported == heap_status.supported);
+    expect(capabilities.descriptor_heap.requested == heap_status.requested);
+    expect(capabilities.descriptor_heap.enabled == heap_status.enabled);
+    expect(capabilities.descriptor_heap.active == heap_status.active);
+    expect(capabilities.descriptor_heap.supported == ext->is_supported(heap_name));
+    expect(capabilities.descriptor_heap.enabled == ext->is_enabled(heap_name));
+    expect(capabilities.descriptor_heap.active == ext->is_active(heap_name));
+    expect(!capabilities.descriptor_heap.requested || capabilities.descriptor_heap.supported)
+        << "the configuration can request an extension, not support it";
+    expect(!capabilities.descriptor_heap.enabled || capabilities.descriptor_heap.requested);
+    expect(!capabilities.descriptor_heap.active || capabilities.descriptor_heap.enabled);
+    LUISA_INFO("VK_EXT_descriptor_heap: supported={} requested={} enabled={} "
+               "active={} (all switches off: {})",
+               capabilities.descriptor_heap.supported,
+               capabilities.descriptor_heap.requested,
+               capabilities.descriptor_heap.enabled,
+               capabilities.descriptor_heap.active,
+               expect_none_enabled);
+    if (expect_none_enabled) {
+        expect(!capabilities.descriptor_heap.requested &&
+               !capabilities.descriptor_heap.enabled &&
+               !capabilities.descriptor_heap.active)
+            << "a device created with enable_descriptor_heap() == false must not "
+               "report the heap as requested, enabled or active";
+    } else if (capabilities.descriptor_heap.supported) {
+        expect(capabilities.descriptor_heap.requested)
+            << "the default configuration requests VK_EXT_descriptor_heap";
+    }
+    // Plan P6.2: the SM count is never a device attribute. Neither device of
+    // this test supplies a calibration input, so both must report unknown and
+    // must not answer a number.
+    expect(capabilities.sm_count_source == VulkanSmCountSource::UNKNOWN)
+        << "without a calibrated input the SM count source must be unknown";
+    expect(capabilities.sm_count == 0u);
+    expect(device.query("sm_count").empty())
+        << "an unknown SM count must not be answered with a number";
+    expect(device.query("sm_count_source") == "unknown");
 }
 
 }// namespace vk_optional_extensions_test_detail

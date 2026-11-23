@@ -1,4 +1,5 @@
 #include "rt_shader.h"
+#include "submit_profile.h"
 #include "device.h"
 #include "log.h"
 #include "../common/hlsl/hlsl_codegen.h"
@@ -19,21 +20,12 @@ RayTracingShader::RayTracingShader(
     vstd::vector<SavedArgument> &&saved_args,
     vstd::span<uint const> spv_code,
     vstd::vector<Argument> &&captured,
-    vstd::span<std::byte const> cache_code,
     bool use_tex2d_bindless,
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
     vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers)
     : Shader{device, ShaderTag::kRayTracingShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers)}, _block_size(block_size) {
 
-    VkPipelineCacheCreateInfo pso_ci{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
-    if (!cache_code.empty()) {
-        pso_ci.initialDataSize = cache_code.size();
-        pso_ci.pInitialData = cache_code.data();
-    }
-    VkPipelineCache pipe_cache{VK_NULL_HANDLE};
-    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &pipe_cache));
 
     // Create shader module from SPIR-V
     VkShaderModuleCreateInfo module_create_info{
@@ -144,11 +136,18 @@ RayTracingShader::RayTracingShader(
     // (raytraversal.adoc). No BLAS of this backend can carry a micromap today
     // (see opacity_micromap.h), so the flag must not be set.
     VkPipeline pipeline{};
-    VK_CHECK_RESULT(vkCreateRayTracingPipelinesKHR(
-        device->logic_device(), VK_NULL_HANDLE, pipe_cache,
-        1, &rt_pipeline_ci, Device::alloc_callbacks(), &pipeline));
+    {
+        // One device-scoped cache for every DSL shader (plan P1.3); the
+        // lease supplies the external synchronization Vulkan requires for
+        // cache access.
+        auto cache = device->pipeline_cache().acquire();
+        VK_CHECK_RESULT(vkCreateRayTracingPipelinesKHR(
+            device->logic_device(), VK_NULL_HANDLE, cache.handle(),
+            1, &rt_pipeline_ci, Device::alloc_callbacks(), &pipeline));
+    }
+    submit_profile::record_pipeline_create();
 
-    _pipeline_ref = PipelineRef::create(device->logic_device(), pipeline, pipe_cache, Device::alloc_callbacks());
+    _pipeline_ref = PipelineRef::create(device->logic_device(), pipeline, Device::alloc_callbacks());
 
     // Query RT pipeline properties for SBT
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props{};
@@ -211,22 +210,6 @@ RayTracingShader::RayTracingShader(
     _callable_region = {0, 0, 0};
 }
 
-bool RayTracingShader::serialize_pso(vstd::vector<std::byte> &result) const {
-    if (!_pipeline_ref) { return false; }
-    auto cache = _pipeline_ref->pipeline_cache;
-    if (cache == VK_NULL_HANDLE) { return false; }
-    auto last_size = result.size();
-    size_t pso_size = 0;
-    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), cache, &pso_size, nullptr));
-    if (pso_size <= sizeof(VkPipelineCacheHeaderVersionOne)) {
-        luisa::vector_resize(result, last_size);
-        return false;
-    }
-    luisa::vector_resize(result, last_size + pso_size);
-    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), cache, &pso_size, result.data() + last_size));
-    luisa::vector_resize(result, last_size + pso_size);
-    return true;
-}
 
 RayTracingShader::~RayTracingShader() {
     if (_sbt_vk_buffer) {
@@ -296,7 +279,6 @@ RayTracingShader *RayTracingShader::compile(
                 std::move(saved_args),
                 final_spv,
                 std::move(bindings),
-                {},
                 str.useTex2DBindless,
                 str.useTex3DBindless,
                 str.useBufferBindless,

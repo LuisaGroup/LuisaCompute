@@ -36,6 +36,7 @@
 #include "ut/ut.hpp"// boost.ut cfg used by test_device.h
 #include "test_device.h"
 #include <luisa/backends/ext/command_reorder_ext.h>
+#include <luisa/backends/ext/vk_config_ext.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/sugar.h>
@@ -48,6 +49,8 @@
 #include <luisa/core/stl/string.h>
 #include <algorithm>
 #include <charconv>
+#include <cstdlib>
+#include <cstring>
 #include <numeric>
 using namespace luisa;
 using namespace luisa::compute;
@@ -73,6 +76,34 @@ struct Options {
 [[nodiscard]] size_t parse_positive(const char *text, const char *name) {
     return parse_uint(text, name, 1u);
 }
+
+// Plan P2.2 A/B switch: `--descriptor-update-template` (anywhere after the backend
+// argument) answers VulkanDeviceConfigExt::enable_descriptor_update_template()
+// with true, so every per-dispatch set-0 update goes through a cached
+// VkDescriptorUpdateTemplate. Without it the library default applies, which is the
+// pre-P2.2 vkUpdateDescriptorSets call - the path that measured *faster* on this
+// driver. Nothing else changes, so two runs of the same binary differ only in the
+// descriptor-update path, which is what makes the phase-2 measurement an A/B
+// instead of a session-to-session comparison.
+ // Plan P2.2 / P2.3 A/B harness: either switch can be turned on independently,
+ // so one binary in one session can compare the three set-0 paths (classic
+ // vkUpdateDescriptorSets, cached update templates, push descriptors) on the
+ // same workload. Nothing else changes, which is what makes the phase-2
+ // measurement an A/B instead of a session-to-session comparison.
+ class DescriptorPathConfig final : public VulkanDeviceConfigExt {
+     bool _templates;
+     bool _push;
+
+ public:
+     explicit DescriptorPathConfig(bool templates, bool push) noexcept
+         : _templates{templates}, _push{push} {}
+     [[nodiscard]] bool enable_descriptor_update_template() const noexcept override {
+         return _templates;
+     }
+     [[nodiscard]] bool enable_push_descriptor() const noexcept override {
+         return _push;
+     }
+ };
 
 struct Statistics {
     double min{};
@@ -149,6 +180,37 @@ int main(int argc, char *argv[]) {
             argv[0]);
         return 1;
     }
+    // Strip the P2.2 switch (and only it) before the positional arguments are
+    // read, so `... vk 0 256 200 32 5 --descriptor-update-template` and
+    // `... vk 0 256 200 32 5` describe the same workload.
+ auto descriptor_update_template = false;
+ auto push_descriptor = false;
+ auto classic_descriptor = false;
+    {
+        auto kept = 0;
+        for (auto i = 0; i < argc; ++i) {
+ if (std::strcmp(argv[i], "--descriptor-update-template") == 0) {
+ descriptor_update_template = true;
+ continue;
+ }
+ // Plan P2.3: `--push-descriptor` asks for set-0 push descriptors,
+ // `--classic-descriptor` forces the classic allocate/update/bind path on a
+ // device that could push. Without either flag the library default applies.
+ if (std::strcmp(argv[i], "--push-descriptor") == 0) {
+ push_descriptor = true;
+ continue;
+ }
+ if (std::strcmp(argv[i], "--classic-descriptor") == 0) {
+ push_descriptor = false;
+ classic_descriptor = true;
+ continue;
+ }
+            argv[kept++] = argv[i];
+        }
+        argv[kept] = nullptr;
+        argc = kept;
+    }
+
     Options opt;
     if (argc > 2) {
         opt.mode = parse_uint(argv[2], "mode", 0u);
@@ -174,7 +236,31 @@ int main(int argc, char *argv[]) {
     } else {
         log_level_info();
     }
-    auto [context, device] = test::create_device(argc, argv);
+    // P2.2 A/B: with `--descriptor-update-template` every per-dispatch set-0
+    // update goes through a cached VkDescriptorUpdateTemplate; without it the
+    // library default (legacy vkUpdateDescriptorSets, the measured-faster path)
+    // runs. Both use the same creation helper otherwise.
+ auto descriptor_config_requested =
+ descriptor_update_template || push_descriptor || classic_descriptor;
+ DeviceConfig device_config;
+ if (descriptor_config_requested) {
+ auto use_push = push_descriptor && !classic_descriptor;
+ if (push_descriptor && classic_descriptor) {
+ LUISA_WARNING("'--push-descriptor' wins over '--classic-descriptor'; both "
+ "cannot be measured in one run.");
+ }
+ device_config.extension =
+ luisa::make_unique<DescriptorPathConfig>(descriptor_update_template, use_push);
+ }
+ auto device_context = test::create_device_from_ut(
+ argc, argv, descriptor_config_requested ? &device_config : nullptr);
+    if (!device_context) { return 1; }
+    auto [context, device] = std::move(*device_context);
+ LUISA_INFO("descriptor updates: {} | set-0 binding: {} "
+ "(maxPushDescriptors {})",
+ device.query("vk_descriptor_update_template_path"),
+ device.query("vk_push_descriptor_path"),
+ device.query("vk_push_descriptor_max_count"));
     auto stream = device.create_stream();
 
     auto *reorder_ext = device.extension<CommandReorderExt>();
@@ -231,5 +317,50 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("----------------------------------------------------------------------------------");
     LUISA_INFO("Host cost ratio (median, disabled / enabled): {:.2f}x",
                off.median / on.median);
+
+    // Plan phase-3 gate (§5.1): the same run, with LUISA_VULKAN_PROFILE_SUBMIT=1,
+    // attributes the host encode window. The restore barrier of F5 is the one
+    // cost phase 3 could remove, so it is reported as ns per restore, ns per
+    // batch and as a fraction of the measured host encode time. These counters
+    // are cumulative for the process, which is why this block prints them only
+    // when the caller latched the mode: the timing groups above were measured
+    // with the counters *off* in a separate run.
+    if (device.query("vk_profile_enabled") == "1") {
+        auto read_counter = [&device](const char *key) {
+            auto text = device.query(key);
+            return text.empty() ? uint64_t{0u} :
+                                  std::strtoull(text.c_str(), nullptr, 10);
+        };
+        auto restores = read_counter("vk_profile_restore_calls");
+        auto restore_ns = read_counter("vk_profile_restore_host_ns");
+        auto encode_ns = read_counter("vk_profile_host_encode_ns");
+        auto batches = read_counter("vk_profile_command_batches");
+        auto state_buffers = read_counter("vk_profile_restore_state_buffers");
+        auto state_mips = read_counter("vk_profile_restore_state_texture_mips");
+        LUISA_INFO("----------------------------------------------------------------------------------");
+        LUISA_INFO("vk_profile_report = {}", device.query("vk_profile_report"));
+        LUISA_INFO("restore attribution: {} calls in {} batches ({} buffer / {} "
+                   "image / {} memory structs), {:.2f} us/call, {:.3f} us/batch, "
+                   "{:.3f} % of the {:.2f} ms host encode window",
+                   restores, batches,
+                   read_counter("vk_profile_restore_buffer_barriers"),
+                   read_counter("vk_profile_restore_image_barriers"),
+                   read_counter("vk_profile_restore_memory_barriers"),
+                   restores == 0u ? 0.0 :
+                                    static_cast<double>(restore_ns) / 1000.0 /
+                                        static_cast<double>(restores),
+                   batches == 0u ? 0.0 :
+                                   static_cast<double>(restore_ns) / 1000.0 /
+                                       static_cast<double>(batches),
+                   encode_ns == 0u ? 0.0 :
+                                     100.0 * static_cast<double>(restore_ns) /
+                                         static_cast<double>(encode_ns),
+                   static_cast<double>(encode_ns) / 1.0e6);
+        LUISA_INFO("restore tracker state consumed: {} buffers, {} texture mips "
+                   "({:.2f} buffers / {:.2f} mips per batch)",
+                   state_buffers, state_mips,
+                   restores == 0u ? 0.0 : static_cast<double>(state_buffers) / static_cast<double>(restores),
+                   restores == 0u ? 0.0 : static_cast<double>(state_mips) / static_cast<double>(restores));
+    }
     return 0;
 }

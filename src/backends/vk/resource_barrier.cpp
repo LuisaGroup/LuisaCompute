@@ -5,6 +5,7 @@
 #include "bindless_array.h"
 #include "command_buffer_sync.h"
 #include "device.h"
+#include "submit_profile.h"
 
 namespace lc::vk {
 namespace detail {
@@ -1010,6 +1011,20 @@ void ResourceBarrier::update_states(VkCommandBuffer cmd_buffer) {
 }
 
 void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
+    // Counter-only (plan P0.2, phase-3 gate §5.1): one call per submitted batch,
+    // its host duration, the structs it records and the tracker entries it
+    // drops. Nothing below reads a counter, so the barrier semantics of this
+    // function are exactly the pre-instrumentation ones.
+    submit_profile::record_restore_call();
+    auto const profile_begin = submit_profile::timing_begin();
+    auto tracked_buffers = size_t{0u};
+    auto tracked_texture_mips = size_t{0u};
+    if (profile_begin != 0) {
+        tracked_buffers = _buffer_frame_states.size();
+        for (auto const &entry : _texture_frame_states) {
+            tracked_texture_mips += entry.second.ranges.size();
+        }
+    }
     _current_buffer_update_states.clear();
     _current_texture_update_states.clear();
     _current_texture_descriptor_views.clear();
@@ -1115,6 +1130,11 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
     _buffer_frame_states.clear();
     _texture_frame_states.clear();
     clear_restore_states();
+    submit_profile::record_restore_barriers(
+        _memory_barriers.size(), _buffer_barriers.size(),
+        _tex_barriers.size());
+    submit_profile::record_restore_state(tracked_buffers, tracked_texture_mips);
+    submit_profile::timing_end_restore(profile_begin);
 }
 void ResourceBarrier::barrier_filter(VkMemoryBarrier2 &barrier) const {
     auto src = detail::normalize_queue_scope(

@@ -1,6 +1,8 @@
 #include "device.h"
 #include "event.h"
 #include "stream.h"
+#include "submit_profile.h"
+#include "queue_submit_plan.h"
 #include "timeline_semaphore_plan.h"
 #include "log.h"
 namespace lc::vk {
@@ -68,6 +70,14 @@ uint64_t Event::current_gpu_value() const {
     _mark_gpu_completion(value);
     return value;
 }
+bool Event::gpu_completed(uint64_t value) const {
+    if (known_completed_gpu_fence() >= value) { return true; }
+    // The watermark is only advanced by a host wait or an earlier query, so it
+    // can lag a device that has already finished this value. Ask the driver once
+    // instead of blocking the caller on the stream's retirement thread.
+    return current_gpu_value() >= value;
+}
+
 void Event::_signal_sparse(
     uint64_t const *wait_value_ptr,
     uint64_t const *signal_value_ptr,
@@ -116,23 +126,29 @@ void Event::_signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) 
         value, current_value, tracked_signal, max_value_difference,
         detail::timeline_semaphore_value_status_name(value_plan.status));
     auto timelineInfo1 = get_timeline_submit(&value);
-    VkSubmitInfo info1{};
-    info1.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    info1.pNext = &timelineInfo1;
-    info1.waitSemaphoreCount = 0;
-    info1.pWaitSemaphores = nullptr;
-    info1.signalSemaphoreCount = 1;
-    info1.pSignalSemaphores = &_semaphore;
-    // ... Enqueue initial device work here.
-    info1.commandBufferCount = cmdbuffer ? 1 : 0;
-    info1.pCommandBuffers = cmdbuffer;
+    // The submission in the backend's legacy vocabulary: one optional command
+    // buffer, no wait, this event's timeline signal. `detail::queue_submit`
+    // converts it to vkQueueSubmit2 on a sync2-capable device and issues the
+    // identical legacy vkQueueSubmit otherwise (plan P2.1).
+    detail::QueueSubmitRequest request{};
+    request.command_buffers = cmdbuffer;
+    request.command_buffer_count = cmdbuffer ? 1u : 0u;
+    request.signal_semaphores = &_semaphore;
+    request.signal_count = 1u;
+    request.fence = VK_NULL_HANDLE;
+    request.pnext = &timelineInfo1;
     {
         std::lock_guard queue_lock{stream.queue_mtx()};
         auto config_ext = device()->config_ext();
         if (!(config_ext && config_ext->signal_semaphore(
                                 stream.queue(), _semaphore, value))) {
-            VK_CHECK_RESULT(vkQueueSubmit(
-                stream.queue(), 1, &info1, VK_NULL_HANDLE));
+            auto variant = detail::queue_submit(
+                stream.queue(), device(), request);
+            // Counter-only: one native submission of the dispatch path (F6),
+            // split by entry point (plan P2.1). A callback-submitted signal is
+            // not counted here because the backend issued no native call.
+            submit_profile::record_queue_submit(
+                variant == detail::QueueSubmitVariant::kSubmit2);
         }
     }
     _update_fence(value);
@@ -170,18 +186,17 @@ void Event::_wait(Stream &stream, uint64_t value) {
     timelineInfo1.signalSemaphoreValueCount = 0;
     timelineInfo1.pSignalSemaphoreValues = nullptr;
 
-    VkSubmitInfo info1{};
-    info1.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    info1.pNext = &timelineInfo1;
-    info1.waitSemaphoreCount = 1;
+    // A wait-only submission, in the backend's legacy vocabulary: no command
+    // buffer, no signal, this event's timeline wait with the ALL_COMMANDS dst
+    // stage the backend has always used. `detail::queue_submit` carries that exact
+    // mask into the 64-bit `VkSemaphoreSubmitInfo::stageMask` on a sync2 device and
+    // issues the identical legacy vkQueueSubmit otherwise (plan P2.1).
     VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-    info1.pWaitDstStageMask = &stage;
-    info1.pWaitSemaphores = &_semaphore;
-    info1.signalSemaphoreCount = 0;
-    info1.pSignalSemaphores = nullptr;
-    // ... Enqueue initial device work here.
-    info1.commandBufferCount = 0;
-    info1.pCommandBuffers = nullptr;
+    detail::QueueSubmitRequest request{};
+    request.wait_semaphores = &_semaphore;
+    request.wait_stage_masks = &stage;
+    request.wait_count = 1u;
+    request.pnext = &timelineInfo1;
     std::lock_guard queue_lock{stream.queue_mtx()};
     auto config_ext = device()->config_ext();
     if (!(config_ext && config_ext->wait_semaphore(
@@ -203,8 +218,11 @@ void Event::_wait(Stream &stream, uint64_t value) {
             VK_CHECK_RESULT(vkCreateFence(
                 device()->logic_device(), &fence_info, Device::alloc_callbacks(), &fence));
         }
-        VK_CHECK_RESULT(vkQueueSubmit(
-            stream.queue(), 1, &info1, fence));
+        request.fence = fence;
+        // Native submission of the wait-only path. It is deliberately not counted
+        // as a `queue_submits` entry: that counter describes the dispatch path
+        // (F6), not the timeline-only waits.
+        (void)detail::queue_submit(stream.queue(), device(), request);
         _wait_fences.emplace_back(fence);
     }
 }

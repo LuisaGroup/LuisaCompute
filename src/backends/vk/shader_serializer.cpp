@@ -1,4 +1,5 @@
 #include "shader_serializer.h"
+#include "pipeline_cache.h"
 #include "shader.h"
 #include "../common/hlsl/shader_property.h"
 #include "../common/hlsl/hlsl_codegen.h"
@@ -105,27 +106,6 @@ namespace {
     return static_cast<bool>(check);
 }
 
-[[nodiscard]] luisa::vector<std::byte>
-serialize_pipeline_cache_artifact(
-    luisa::span<const std::byte> payload) {
-    using namespace detail;
-    LUISA_ASSERT(
-        payload.size_bytes() >=
-                sizeof(VkPipelineCacheHeaderVersionOne) &&
-            payload.size_bytes() <= max_pipeline_cache_byte_size,
-        "Vulkan pipeline cache payload has invalid size {}.",
-        payload.size_bytes());
-    PipelineCacheArtifactHeader header{
-        .payload_size = payload.size_bytes(),
-        .payload_md5 = pipeline_cache_payload_md5(payload)};
-    auto total_size = sizeof(header) + payload.size_bytes();
-    luisa::vector<std::byte> artifact(total_size);
-    std::memcpy(artifact.data(), &header, sizeof(header));
-    std::memcpy(artifact.data() + sizeof(header),
-                payload.data(), payload.size_bytes());
-    return artifact;
-}
-
 }// namespace
 
 luisa::unique_ptr<luisa::BinaryStream> read_binary_io(SerdeType type, luisa::BinaryIO const *bin_io, luisa::string_view file_name) {
@@ -189,16 +169,27 @@ void ShaderSerializer::serialize_raster(
     }
 }
 
-bool ShaderSerializer::require_recompile(
-    vstd::string_view file_name,
-    ComputeShaderArtifactLoadRequirements requirements,
-    SerdeType serde_type,
-    BinaryIO const *bin_io) {
+luisa::vector<std::byte> ShaderSerializer::read_shader_artifact(
+    SerdeType serde_type, BinaryIO const *bin_io,
+    vstd::string_view file_name) noexcept {
+    auto stream = read_binary_io(serde_type, bin_io, file_name);
+    if (!stream) { return {}; }
+    auto length = stream->length();
+    if (length == 0u) { return {}; }
+    luisa::vector<std::byte> bytes(length);
+    stream->read(luisa::span<std::byte>{bytes.data(), bytes.size()});
+    return bytes;
+}
+
+bool ShaderSerializer::require_recompile_from_bytes(
+    luisa::span<const std::byte> artifact,
+    ComputeShaderArtifactLoadRequirements requirements) noexcept {
     using namespace detail;
-    auto read_stream = read_binary_io(serde_type, bin_io, file_name);
-    if (!read_stream) return true;
+    if (artifact.empty()) { return true; }
+    StringViewBinaryStream stream{luisa::string_view{
+        reinterpret_cast<const char *>(artifact.data()), artifact.size()}};
     auto decoded = decode_compute_shader_artifact(
-        *read_stream, requirements.shader_md5,
+        stream, requirements.shader_md5,
         requirements.type_md5, requirements.codegen_dialect);
     if (!decoded) return true;
     if (requirements.required_subgroup_size &&
@@ -207,6 +198,15 @@ bool ShaderSerializer::require_recompile(
         return true;
     }
     return false;
+}
+
+bool ShaderSerializer::require_recompile(
+    vstd::string_view file_name,
+    ComputeShaderArtifactLoadRequirements requirements,
+    SerdeType serde_type,
+    BinaryIO const *bin_io) {
+    return require_recompile_from_bytes(
+        read_shader_artifact(serde_type, bin_io, file_name), requirements);
 }
 
 bool ShaderSerializer::require_recompile_raster(
@@ -221,6 +221,57 @@ bool ShaderSerializer::require_recompile_raster(
     return !decode_raster_shader_artifact(
         *read_stream, shader_md5, type_md5);
 }
+luisa::vector<std::byte> ShaderSerializer::encode_bytecode_artifact(
+    vstd::span<const hlsl::Property> binds,
+    vstd::span<const SavedArgument> saved_args,
+    vstd::MD5 shader_md5,
+    vstd::MD5 type_md5,
+    uint3 block_size,
+    vstd::span<const uint> spv_code,
+    bool use_tex2d_bindless,
+    bool use_tex3d_bindless,
+    bool use_buffer_bindless,
+    vstd::span<std::pair<vstd::string, Type const *> const> printers,
+    uint validation_count,
+    luisa::span<const std::byte> constant_ubo_data,
+    luisa::optional<uint8_t> required_subgroup_size,
+    SpirvArtifactFeatureRequirements required_spirv_features,
+    detail::ShaderCodegenDialect codegen_dialect) noexcept {
+    return detail::encode_compute_shader_artifact(
+        {.properties = binds,
+         .arguments = saved_args,
+         .shader_md5 = shader_md5,
+         .type_md5 = type_md5,
+         .block_size = {block_size.x, block_size.y, block_size.z},
+         .spirv = spv_code,
+         .printers = printers,
+         .constant_ubo_data = constant_ubo_data,
+         .validation_count = validation_count,
+         .required_subgroup_size = required_subgroup_size.value_or(0u),
+         .use_buffer_bindless = use_buffer_bindless,
+         .use_tex2d_bindless = use_tex2d_bindless,
+         .use_tex3d_bindless = use_tex3d_bindless,
+         .codegen_dialect = codegen_dialect,
+         .required_spirv_features = required_spirv_features.mask});
+}
+
+void ShaderSerializer::write_bytecode_artifact(
+    SerdeType serde_type, BinaryIO const *bin_io,
+    vstd::string_view file_name,
+    luisa::span<const std::byte> artifact) noexcept {
+    switch (serde_type) {
+        case SerdeType::kCache:
+            bin_io->write_shader_cache(file_name, artifact);
+            break;
+        case SerdeType::kBuiltin:
+            bin_io->write_internal_shader(file_name, artifact);
+            break;
+        case SerdeType::kByteCode:
+            bin_io->write_shader_bytecode(file_name, artifact);
+            break;
+    }
+}
+
 void ShaderSerializer::serialize_bytecode(
     vstd::span<const hlsl::Property> binds,
     vstd::span<const SavedArgument> saved_args,
@@ -240,61 +291,15 @@ void ShaderSerializer::serialize_bytecode(
     luisa::optional<uint8_t> required_subgroup_size,
     SpirvArtifactFeatureRequirements required_spirv_features,
     detail::ShaderCodegenDialect codegen_dialect) {
-    auto artifact = detail::encode_compute_shader_artifact(
-        {.properties = binds,
-         .arguments = saved_args,
-         .shader_md5 = shader_md5,
-         .type_md5 = type_md5,
-         .block_size = {block_size.x, block_size.y, block_size.z},
-         .spirv = spv_code,
-         .printers = printers,
-         .constant_ubo_data = constant_ubo_data,
-         .validation_count = validation_count,
-         .required_subgroup_size = required_subgroup_size.value_or(0u),
-         .use_buffer_bindless = use_buffer_bindless,
-         .use_tex2d_bindless = use_tex2d_bindless,
-         .use_tex3d_bindless = use_tex3d_bindless,
-         .codegen_dialect = codegen_dialect,
-         .required_spirv_features = required_spirv_features.mask});
-
-    switch (serde_type) {
-        case SerdeType::kCache:
-            bin_io->write_shader_cache(file_name, artifact);
-            break;
-        case SerdeType::kBuiltin:
-            bin_io->write_internal_shader(file_name, artifact);
-            break;
-        case SerdeType::kByteCode:
-            bin_io->write_shader_bytecode(file_name, artifact);
-            break;
-    }
-}
-void ShaderSerializer::serialize_pso(
-    Device *device,
-    Shader const *shader,
-    vstd::MD5 shader_md5,
-    BinaryIO const *bin_io) {
-    vstd::vector<std::byte> pso_data;
-    if (!shader->serialize_pso(pso_data)) return;
-    if (pso_data.size() > detail::max_pipeline_cache_byte_size) {
-        LUISA_WARNING(
-            "Ignoring an implausibly large Vulkan pipeline cache blob ({} bytes).",
-            pso_data.size());
-        return;
-    }
-    using namespace detail;
-    PSODataPackage package{
-        .header = device->pso_header(),
-        .pipeline_cache_identity =
-            shader->pipeline_cache_identity(),
-        .contract_version = pso_identity_contract_version};
-    memcpy(package.md5, &shader_md5, sizeof(vstd::MD5));
-    vstd::MD5 pso_md5{
-        {reinterpret_cast<uint8_t const *>(&package), sizeof(PSODataPackage)}};
-    auto file_name = pso_md5.to_string(false) + ".vk";
-
-    auto artifact = serialize_pipeline_cache_artifact(pso_data);
-    bin_io->write_shader_cache(file_name, artifact);
+    // Encode and write are separate steps (plan P5.1): a batch encodes on a worker
+    // thread and writes on the publishing thread, and both use these two helpers so
+    // the bytes cannot drift from the serial path.
+    auto artifact = encode_bytecode_artifact(
+        binds, saved_args, shader_md5, type_md5, block_size, spv_code,
+        use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless,
+        printers, validation_count, constant_ubo_data,
+        required_subgroup_size, required_spirv_features, codegen_dialect);
+    write_bytecode_artifact(serde_type, bin_io, file_name, artifact);
 }
 auto ShaderSerializer::try_deser_raster(
     Device *device,
@@ -354,7 +359,6 @@ auto ShaderSerializer::try_deser_raster(
         std::move(captured),
         std::move(artifact.arguments),
         artifact.properties,
-        {},
         std::move(artifact.vertex_spirv),
         std::move(artifact.pixel_spirv),
         header.use_bindless_tex2d != 0u,
@@ -366,22 +370,36 @@ auto ShaderSerializer::try_deser_raster(
     return result;
 }
 
-ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
+bool ShaderSerializer::load_compute_artifact(
     Device *device,
     ComputeShaderArtifactLoadRequirements requirements,
-    vstd::vector<Argument> &&captured,
     vstd::string_view file_name,
     SerdeType serde_type,
     BinaryIO const *bin_io,
     uint32_t push_constant_size,
-    bool enable_driver_optimization) {
+    bool enable_driver_optimization,
+    ComputeShaderArtifactLoad &out) noexcept {
+    return load_compute_artifact_from_bytes(
+        device, requirements,
+        read_shader_artifact(serde_type, bin_io, file_name),
+        file_name, push_constant_size, enable_driver_optimization, out);
+}
+
+bool ShaderSerializer::load_compute_artifact_from_bytes(
+    Device *device,
+    ComputeShaderArtifactLoadRequirements requirements,
+    luisa::span<const std::byte> artifact_bytes,
+    vstd::string_view file_name,
+    uint32_t push_constant_size,
+    bool enable_driver_optimization,
+    ComputeShaderArtifactLoad &out) noexcept {
     using namespace detail;
-    DeserResult result{
-        .shader = nullptr};
-    auto read_stream = read_binary_io(serde_type, bin_io, file_name);
-    if (!read_stream) return result;
+    if (artifact_bytes.empty()) { return false; }
+    StringViewBinaryStream read_stream{luisa::string_view{
+        reinterpret_cast<const char *>(artifact_bytes.data()),
+        artifact_bytes.size()}};
     auto decoded = decode_compute_shader_artifact(
-        *read_stream,
+        read_stream,
         requirements.shader_md5,
         requirements.type_md5,
         requirements.codegen_dialect);
@@ -395,7 +413,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
                 file_name, shader_artifact_codec_error_name(decoded.error),
                 decoded.diagnostics);
         }
-        return result;
+        return false;
     }
     if (decoded.has_spirv_warning && !decoded.diagnostics.empty()) {
         LUISA_WARNING(
@@ -404,7 +422,6 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
     }
     auto artifact = std::move(decoded.artifact);
     auto header = artifact.header;
-    result.type_md5 = header.type_md5;
     auto block_size = uint3(
         header.block_size[0], header.block_size[1], header.block_size[2]);
     luisa::optional<uint8_t> required_subgroup_size;
@@ -432,7 +449,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         !validate_spirv_target_feature_requirements(
             device, header.required_spirv_features,
             file_name, "compute")) {
-        return result;
+        return false;
     }
     if (header.required_subgroup_size != 0u) {
         auto subgroup_size = header.required_subgroup_size;
@@ -442,16 +459,17 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
              VK_SHADER_STAGE_COMPUTE_BIT) == 0u ||
             subgroup_size < subgroup.minSubgroupSize ||
             subgroup_size > subgroup.maxSubgroupSize) {
-            return result;
+            return false;
         }
         required_subgroup_size = static_cast<uint8_t>(subgroup_size);
     }
     if (requirements.required_subgroup_size &&
         header.required_subgroup_size != *requirements.required_subgroup_size) {
-        return result;
+        return false;
     }
-    vstd::vector<std::byte> pso_data;
-    vstd::string pso_name;
+    // Identity of the pre-P1.3 per-shader PSO blob this shader would have written.
+    // The blob itself is read and merged by `merge_legacy_pso_seed`, on the thread
+    // that creates pipelines: reading it here would put a Vulkan call on a worker.
     {
         PSODataPackage package{
             .header = device->pso_header(),
@@ -460,66 +478,92 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
                     enable_driver_optimization, required_subgroup_size),
             .contract_version =
                 pso_identity_contract_version};
-        if (!requirements.shader_md5) {
-            requirements.shader_md5.emplace(file_name);
+        auto shader_md5 = requirements.shader_md5;
+        if (!shader_md5) {
+            shader_md5.emplace(file_name);
         }
-        std::memcpy(package.md5, &*requirements.shader_md5,
-                    sizeof(vstd::MD5));
+        std::memcpy(package.md5, &*shader_md5, sizeof(vstd::MD5));
         vstd::MD5 pso_md5{
             {reinterpret_cast<uint8_t const *>(&package), sizeof(PSODataPackage)}};
-        pso_name = pso_md5.to_string(false) + ".vk";
-        auto read_stream = bin_io->read_shader_cache(pso_name);
-        if (read_stream) {
-            auto stream_len = read_stream->length();
-            if (stream_len >= sizeof(PipelineCacheArtifactHeader)) {
-                PipelineCacheArtifactHeader artifact_header{};
-                read_stream->read({reinterpret_cast<std::byte *>(&artifact_header),
-                                   sizeof(artifact_header)});
-                if (valid_pipeline_cache_artifact_framing(
-                        artifact_header, stream_len) &&
-                    artifact_header.payload_size >=
-                        sizeof(VkPipelineCacheHeaderVersionOne)) {
-                    luisa::enlarge_by(
-                        pso_data, artifact_header.payload_size);
-                    read_stream->read(pso_data);
-                    VkPipelineCacheHeaderVersionOne cache_header{};
-                    std::memcpy(&cache_header, pso_data.data(),
-                                sizeof(cache_header));
-                    if (read_stream->pos() != stream_len ||
-                        !valid_pipeline_cache_artifact_payload(
-                            artifact_header, pso_data) ||
-                        !device->is_pso_same(cache_header)) {
-                        pso_data.clear();
-                    }
-                }
-            }
-        }
+        out.pso_seed_name = pso_md5.to_string(false) + ".vk";
     }
-    auto shader = new ComputeShader{
+    out.block_size = block_size;
+    out.push_constant_size = push_constant_size;
+    out.required_subgroup_size = required_subgroup_size;
+    out.validation_count = header.validation_count;
+    out.type_md5 = header.type_md5;
+    out.codegen_dialect = static_cast<detail::ShaderCodegenDialect>(
+        header.codegen_dialect);
+    out.use_tex2d_bindless = header.use_bindless_tex2d != 0u;
+    out.use_tex3d_bindless = header.use_bindless_tex3d != 0u;
+    out.use_buffer_bindless = header.use_bindless_buffer != 0u;
+    out.properties = std::move(artifact.properties);
+    out.arguments = std::move(artifact.arguments);
+    // The codec stores `luisa::vector` (eastl when the bundled STL is on) and the
+    // shader wants a `std::vector`; copy instead of moving across containers.
+    out.spirv.assign(artifact.spirv.begin(), artifact.spirv.end());
+    out.printers = std::move(artifact.printers);
+    out.constant_ubo_data = std::move(artifact.constant_ubo_data);
+    return true;
+}
+
+void ShaderSerializer::merge_legacy_pso_seed(
+    Device *device, vstd::string_view file_name,
+    vstd::string_view pso_seed_name) noexcept {
+    using namespace detail;
+    if (pso_seed_name.empty()) { return; }
+    // Pre-P1.3 per-shader PSO blobs are add-only inputs now (plan P1.3): the blob
+    // is validated exactly like before (framing, sizes, MD5 and the
+    // VkPipelineCacheHeaderVersionOne identity) and folded into the device-scoped
+    // cache, which is the only cache shaders use.
+    auto seed = read_pso_artifact(device, pso_seed_name);
+    if (seed.status == PsoArtifactStatus::kAccepted) {
+        static_cast<void>(
+            device->pipeline_cache().merge_seed(device, seed.payload));
+    } else if (seed.status == PsoArtifactStatus::kRejected) {
+        device->pipeline_cache().note_rejected_seed();
+        LUISA_WARNING(
+            "Vulkan compute shader '{}': ignoring the legacy per-shader PSO "
+            "blob '{}' ({}); the device pipeline cache stays as it is.",
+            file_name, pso_seed_name, seed.reason);
+    }
+}
+
+ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
+    Device *device,
+    ComputeShaderArtifactLoadRequirements requirements,
+    vstd::vector<Argument> &&captured,
+    vstd::string_view file_name,
+    SerdeType serde_type,
+    BinaryIO const *bin_io,
+    uint32_t push_constant_size,
+    bool enable_driver_optimization) {
+    DeserResult result{.shader = nullptr};
+    ComputeShaderArtifactLoad load;
+    if (!load_compute_artifact(
+            device, requirements, file_name, serde_type, bin_io,
+            push_constant_size, enable_driver_optimization, load)) {
+        return result;
+    }
+    result.type_md5 = load.type_md5;
+    merge_legacy_pso_seed(device, file_name, load.pso_seed_name);
+    result.shader = new ComputeShader{
         device,
-        block_size,
-        artifact.properties,
-        std::move(artifact.arguments),
-        artifact.spirv,
+        load.block_size,
+        load.properties,
+        std::move(load.arguments),
+        load.spirv,
         std::move(captured),
-        pso_data,
-        header.use_bindless_tex2d != 0u,
-        header.use_bindless_tex3d != 0u,
-        header.use_bindless_buffer != 0u,
-        std::move(artifact.printers),
-        artifact.constant_ubo_data,
-        header.validation_count,
-        required_subgroup_size,
-        push_constant_size,
-        static_cast<detail::ShaderCodegenDialect>(
-            header.codegen_dialect),
+        load.use_tex2d_bindless,
+        load.use_tex3d_bindless,
+        load.use_buffer_bindless,
+        std::move(load.printers),
+        load.constant_ubo_data,
+        load.validation_count,
+        load.required_subgroup_size,
+        load.push_constant_size,
+        load.codegen_dialect,
         enable_driver_optimization};
-    if (pso_data.empty() &&
-        shader->serialize_pso(pso_data)) {
-        auto artifact = serialize_pipeline_cache_artifact(pso_data);
-        bin_io->write_shader_cache(pso_name, artifact);
-    }
-    result.shader = shader;
     return result;
 }
 vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(Function kernel) {

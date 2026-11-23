@@ -1,10 +1,13 @@
 #include "stream.h"
 #include "device.h"
+#include "replay_graph.h"
+#include "submit_profile.h"
 #include "compute_shader.h"
 #include "bindless_array.h"
 #include <luisa/core/logging.h>
 #include <vulkan/vk_enum_string_helper.h>
 #include "log.h"
+#include <cstdlib>
 #include "blas.h"
 #include "cluster_blas.h"
 #include "tlas.h"
@@ -15,6 +18,7 @@
 #include "sparse_binding_plan.h"
 #include "sparse_heap.h"
 #include "timeline_semaphore_plan.h"
+#include "queue_submit_plan.h"
 #include "device_feature_plan.h"
 #include "command_buffer_sync.h"
 #include "indirect_buffer.h"
@@ -396,11 +400,9 @@ static void ensure_indirect_header_initialized(
         command_buffer->cmdbuffer());
 }
 
-struct PlannedArgumentBlock {
-    ArgumentBlockLayout layout;
-    size_t buffer_metadata_count{};
-    ArgumentBlockTrailerPlacement trailer{};
-};
+// `detail::PlannedArgumentBlock` (the per-dispatch argument block of one
+// command) lives in argument_plan_scratch.h, because the `Stream` owns the table
+// that keeps one plan per command of the current batch (plan P1.4).
 
 class SavedArgumentCursor {
 private:
@@ -531,10 +533,15 @@ static void validate_saved_argument_count(
         .word_alignment = sizeof(uint32_t)};
 }
 
-[[nodiscard]] static PlannedArgumentBlock plan_argument_block(
+[[nodiscard]] static detail::PlannedArgumentBlock plan_argument_block(
     const Shader *shader, const ShaderDispatchCommandBase *command,
     size_t descriptor_range_limit) noexcept {
-    PlannedArgumentBlock plan{
+    // Counter-only: one call per command that needs an argument block, i.e. one
+    // per recorded dispatch (F4). Before P1.4 the sizing pass and the
+    // preprocessing pass each planned every dispatch, so this counter read
+    // 2 x dispatches.
+    submit_profile::record_argument_plan();
+    detail::PlannedArgumentBlock plan{
         .layout = ArgumentBlockLayout{descriptor_range_limit},
         .buffer_metadata_count =
             argument_block_metadata_count(shader)};
@@ -564,7 +571,7 @@ static void validate_saved_argument_count(
 }
 
 static void validate_argument_block_plan(
-    const PlannedArgumentBlock &plan) noexcept {
+    const detail::PlannedArgumentBlock &plan) noexcept {
     LUISA_ASSERT(
         static_cast<bool>(plan.layout),
         "Vulkan per-dispatch argument block is invalid for the device's "
@@ -1885,7 +1892,8 @@ CommandBufferState::CommandBufferState()
     : upload_alloc(kTempSize),
       readback_alloc(kTempSize) {
 }
-void CommandBufferState::init(Device &device, StreamTag tag) {
+void CommandBufferState::init(Device &device, StreamTag tag,
+                              VkCommandPoolCreateFlags pool_flags) {
     this->device = &device;
     upload_alloc.visitor.device = &device;
     readback_alloc.visitor.device = &device;
@@ -1897,7 +1905,7 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
     if (!pool) {
         VkCommandPoolCreateInfo pool_ci{
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT};
+            .flags = pool_flags};
         switch (tag) {
             case StreamTag::GRAPHICS:
                 pool_ci.queueFamilyIndex = device.graphics_queue_index();
@@ -1972,6 +1980,8 @@ VkDescriptorSet CommandBufferState::allocate_descriptor_set(VkDescriptorSetLayou
             .pSetLayouts = &layout};
         VkResult res = vkAllocateDescriptorSets(device->logic_device(), &alloc_info, &set);
         if (res == VK_SUCCESS) {
+            // Counter-only: one successful vkAllocateDescriptorSets (F2).
+            submit_profile::record_descriptor_set_allocation();
             return set;
         }
         if (res == VK_ERROR_OUT_OF_POOL_MEMORY || res == VK_ERROR_FRAGMENTED_POOL) {
@@ -2035,6 +2045,12 @@ void CommandBufferState::reset(
         VK_CHECK_RESULT(vkResetDescriptorPool(device.logic_device(), overflow_desc_pools[i], 0));
     }
     active_desc_pool_index = 0u;
+    // The descriptor sets the tracked bindings refer to are gone with the pools
+    // and the recorded command buffer is retired, so nothing may stay cached
+    // (plan P1.2). `CommandBuffer::begin` resets this again for the next
+    // recording; resetting here as well keeps a state that is retired but never
+    // re-recorded honest.
+    bind_state.reset();
 }
 bool CommandBuffer::retire_and_recycle(temp_buffer::DeferredStagingFrees *deferred_frees) {
     auto retirement = detail::plan_command_buffer_retirement(_ownership);
@@ -2143,6 +2159,39 @@ bool Stream::_execute_external_command_buffer(
     return config_ext->execute_command_buffer(command_buffer);
 }
 
+void Stream::_throttle_in_flight() {
+    auto plan = detail::plan_in_flight_throttle(
+        _evt.last_fence(), device()->max_frames_in_flight());
+    if (!plan.enter) { return; }
+    // Counter-only (P0.2/P1.5): every throttle decision is an entry, only the
+    // decisions that really block the host are waits, and the ones the GPU
+    // completion watermark proved unnecessary are skips, so
+    // entries == waits + skips always holds.
+    submit_profile::record_timeline_wait_entry();
+    if (_evt.gpu_completed(plan.target)) {
+        // Fast path (plan P1.5): the throttle exists to bound how far the GPU may
+        // run ahead of the host, and the GPU having completed `target` proves the
+        // bound already holds, so blocking the host would buy nothing.
+        //
+        // Why skipping cannot outlive anything: this wait never owned command
+        // buffer or callback lifetime. The batch that produced `target` is
+        // recycled by the stream's retirement thread, which walks one FIFO of
+        // per-batch entries (host wait on the timeline -> command-buffer retire
+        // and recycle -> notification) in submission order; a command buffer only
+        // re-enters `_cmdbuffers` after its own GPU completion, and a submitter
+        // that finds the pool empty allocates a fresh one, so nothing can be
+        // reused early. User callbacks and the deferred staging frees run in that
+        // same thread after the same completion, so skipping a host wait here
+        // cannot delay or reorder them. The paths that must observe retirement -
+        // public Event::sync, Stream::sync, the sparse-binding host wait and
+        // ~Event - still wait for it.
+        submit_profile::record_timeline_wait_skip();
+        return;
+    }
+    submit_profile::record_timeline_wait();
+    _evt.sync(plan.target);
+}
+
 void Stream::present(
     Texture const *tex,
     uint mip,
@@ -2151,9 +2200,9 @@ void Stream::present(
     std::lock_guard lck{_dispatch_mtx};
     _temp_desc.clear();
     if (inqueue_limit) {
-        if (_evt.last_fence() > 2) {
-            _evt.sync(_evt.last_fence() - 2);
-        }
+        // Same in-flight bound as the dispatch path (plan P1.5); the engine, the
+        // counters and the fast path live in `_throttle_in_flight`.
+        _throttle_in_flight();
     }
     auto fence_plan = detail::plan_timeline_value_increment(
         _evt.last_fence(), 1u);
@@ -2242,26 +2291,33 @@ void Stream::present(
             timeline_info.waitSemaphoreValueCount = static_cast<uint32_t>(wait_values.size());
             timeline_info.pWaitSemaphoreValues = wait_values.data();
             timeline_info.signalSemaphoreValueCount = static_cast<uint32_t>(present_cmd.signal_semaphores.size());
-            static const uint64_t zero_signal_values[1] = {0u};
-            timeline_info.pSignalSemaphoreValues = zero_signal_values;
-            VkSubmitInfo submit_info{};
-            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submit_info.pNext = &timeline_info;
-            submit_info.waitSemaphoreCount = static_cast<uint32_t>(wait_semaphores.size());
-            submit_info.pWaitSemaphores = wait_semaphores.data();
-            submit_info.pWaitDstStageMask = wait_stages_all.data();
-            submit_info.signalSemaphoreCount = present_cmd.signal_semaphores.size();
-            submit_info.pSignalSemaphores = present_cmd.signal_semaphores.data();
+            // The swapchain's signal semaphores are binary, so their timeline value
+            // is zero. Sized to the count instead of a single literal: the count and
+            // the array are validated against each other by the submit conversion,
+            // and a one-element array cannot silently describe two semaphores.
+            luisa::fixed_vector<uint64_t, 2> signal_values;
+            signal_values.resize(present_cmd.signal_semaphores.size(), 0u);
+            timeline_info.pSignalSemaphoreValues = signal_values.empty() ? nullptr : signal_values.data();
             auto _cmdbuffer = cmdbuffer.cmdbuffer();
-            if (_execute_external_command_buffer(_cmdbuffer)) {
-                submit_info.commandBufferCount = 0;
-                submit_info.pCommandBuffers = nullptr;
-            } else {
-                submit_info.commandBufferCount = 1;
-                submit_info.pCommandBuffers = &_cmdbuffer;
+            // The submission in the backend's legacy vocabulary. `detail::queue_submit`
+            // issues it as vkQueueSubmit2 with per-semaphore 64-bit stage masks on a
+            // sync2 device, and as the identical legacy vkQueueSubmit otherwise
+            // (plan P2.1). The extra frame fences of the present batch are retired by
+            // fence-only submissions (`command_buffer_count == 0`), exactly as before.
+            detail::QueueSubmitRequest request{};
+            if (!_execute_external_command_buffer(_cmdbuffer)) {
+                request.command_buffers = &_cmdbuffer;
+                request.command_buffer_count = 1u;
             }
+            request.wait_semaphores = wait_semaphores.empty() ? nullptr : wait_semaphores.data();
+            request.wait_stage_masks = wait_stages_all.empty() ? nullptr : wait_stages_all.data();
+            request.wait_count = static_cast<uint32_t>(wait_semaphores.size());
+            request.signal_semaphores = present_cmd.signal_semaphores.empty() ? nullptr : present_cmd.signal_semaphores.data();
+            request.signal_count = static_cast<uint32_t>(present_cmd.signal_semaphores.size());
+            request.fence = vk_fence;
+            request.pnext = &timeline_info;
             _queue_mtx->lock();
-            VK_CHECK_RESULT(vkQueueSubmit(_queue, 1u, &submit_info, vk_fence));
+            (void)detail::queue_submit(_queue, device(), request);
             _queue_mtx->unlock();
         }
         {
@@ -2308,9 +2364,9 @@ void Stream::dispatch(
         return;
     }
     if (inqueue_limit) {
-        if (_evt.last_fence() > 2) {
-            _evt.sync(_evt.last_fence() - 2);
-        }
+        // Same in-flight bound as the dispatch path (plan P1.5); the engine, the
+        // counters and the fast path live in `_throttle_in_flight`.
+        _throttle_in_flight();
     }
     auto fence_plan = detail::plan_timeline_value_increment(
         _evt.last_fence(), 1u);
@@ -2319,33 +2375,21 @@ void Stream::dispatch(
         "Vulkan stream timeline fence overflow during dispatch.");
     auto fence = fence_plan.value;
     if (!cmds.empty() || !presents.empty()) {
-        CommandBuffer cmdbuffer = [&]() {
-            auto p = _cmdbuffers.dequeue();
-            if (p) return std::move(*p);
-            return CommandBuffer{*this};
-        }();
-        _scratch_buffer_alloc_visitor.cmdbuffer = &cmdbuffer;
-        _scratch_buffer_alloc_visitor.device = device();
+        // Counter-only: one command batch = one command-buffer record plus (at
+        // most) one submit (F6).
+        submit_profile::record_command_batch();
+        auto profile_flush = vstd::scope_exit([] {
+            submit_profile::flush();
+        });
+        // Plan P4: the record prefix is shared with the replay recorder
+        // (`_begin_batch_record`), so an ordinary batch and a recording cannot
+        // drift apart in barriers, config-ext states, wired scratch or begin info.
+        CommandBuffer cmdbuffer = _begin_batch_record();
 
         auto cb = cmdbuffer.cmdbuffer();
         auto cb_ptr = &cb;
-        _resource_barrier.clear_restore_states();
-        if (device()->config_ext()) {
-            auto before_states = device()->config_ext()->before_states(reinterpret_cast<uint64_t>(this));
-            for (auto &i : before_states) {
-                set_config_resource_before_state(&_resource_barrier, i);
-            }
-        }
-        cmdbuffer.resource_barrier = &_resource_barrier;
-        cmdbuffer.uniform_data = &_uniform_data;
-        cmdbuffer.desc_sets = &_desc_sets;
-        cmdbuffer.logger = logger ? &logger : nullptr;
-        cmdbuffer.dispatch_offsets = &_dispatch_offsets;
-        cmdbuffer.write_desc_sets = &_write_desc_sets;
-        cmdbuffer.bindless_cache = &_bindless_cache;
-        cmdbuffer.temp_desc = &_temp_desc;
-        cmdbuffer.scratch_buffer_alloc = &_scratch_buffer_alloc;
-        cmdbuffer.begin();
+        // Counter-only: host encode time of this batch, begin -> end (P0.2).
+        auto const profile_encode_begin = submit_profile::timing_begin();
         cmdbuffer.execute(cmds);
         bool present_failed = false;
         for (auto &i : presents) {
@@ -2378,40 +2422,44 @@ void Stream::dispatch(
 
             vk_swapchains.emplace_back(swapchain->swapchain());
         }
-        if (device()->config_ext()) {
-            // Bindless updates have now advanced the encoded descriptor map.
-            // Expand the after-state against this final snapshot, whereas the
-            // before-state above deliberately used the initial snapshot.
-            auto after_states = device()->config_ext()->after_states(
-                reinterpret_cast<uint64_t>(this));
-            for (auto &i : after_states) {
-                set_config_resource_restore_state(&_resource_barrier, i);
-            }
-        }
-        _resource_barrier.restore_states(cmdbuffer.cmdbuffer());
-        cmdbuffer.end();
+        // Plan P4: shared suffix (config-ext after-states + trailing restore +
+        // end), extracted behaviour-neutrally out of this function.
+        _finish_batch_record(cmdbuffer);
+        submit_profile::timing_end_encode(profile_encode_begin);
 
+        // One present batch submission, shared by the plain and the
+        // present-failed paths so the two cannot disagree (plan P2.1). The extra
+        // frame fences of the batch are retired by fence-only submissions, exactly
+        // as before, and `detail::queue_submit` turns each one into vkQueueSubmit2
+        // on a sync2 device and into the identical legacy vkQueueSubmit otherwise.
+        auto submit_present_batch = [&](VkCommandBuffer const *command_buffer,
+                                        uint32_t command_buffer_count) noexcept {
+            detail::QueueSubmitRequest request{};
+            request.command_buffers = command_buffer;
+            request.command_buffer_count = command_buffer_count;
+            request.wait_semaphores = present_cmd.submit_wait_semaphores.empty() ? nullptr : present_cmd.submit_wait_semaphores.data();
+            request.wait_stage_masks = present_cmd.wait_stages.empty() ? nullptr : present_cmd.wait_stages.data();
+            request.wait_count = static_cast<uint32_t>(present_cmd.submit_wait_semaphores.size());
+            request.signal_semaphores = present_cmd.signal_semaphores.empty() ? nullptr : present_cmd.signal_semaphores.data();
+            request.signal_count = static_cast<uint32_t>(present_cmd.signal_semaphores.size());
+            request.fence = present_cmd.submit_fences[0];
+            (void)detail::queue_submit(_queue, device(), request);
+            for (auto i : vstd::range(1u, present_cmd.submit_fences.size())) {
+                detail::QueueSubmitRequest fence_only{};
+                fence_only.fence = present_cmd.submit_fences[i];
+                (void)detail::queue_submit(_queue, device(), fence_only);
+            }
+        };
         if (!presents.empty() && !present_failed) {
-            VkSubmitInfo submit_info{};
-            submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submit_info.waitSemaphoreCount = present_cmd.submit_wait_semaphores.size();
-            submit_info.pWaitSemaphores = present_cmd.submit_wait_semaphores.data();
-            submit_info.pWaitDstStageMask = present_cmd.wait_stages.data();
-            submit_info.signalSemaphoreCount = present_cmd.signal_semaphores.size();
-            submit_info.pSignalSemaphores = present_cmd.signal_semaphores.data();
+            auto command_buffer = cb;
+            auto command_buffer_count = 1u;
             if (_execute_external_command_buffer(cb)) {
                 // External execution - submit with 0 command buffers
-                submit_info.commandBufferCount = 0;
-                submit_info.pCommandBuffers = nullptr;
-            } else {
-                submit_info.commandBufferCount = 1;
-                submit_info.pCommandBuffers = &cb;
+                command_buffer_count = 0u;
             }
             _queue_mtx->lock();
-            VK_CHECK_RESULT(vkQueueSubmit(_queue, 1u, &submit_info, present_cmd.submit_fences[0]));
-            for (auto i : vstd::range(1u, present_cmd.submit_fences.size())) {
-                VK_CHECK_RESULT(vkQueueSubmit(_queue, 0, nullptr, present_cmd.submit_fences[i]));
-            }
+            submit_present_batch(command_buffer_count == 0u ? nullptr : &command_buffer,
+                                 command_buffer_count);
             _queue_mtx->unlock();
 
             VkPresentInfoKHR present_info{};
@@ -2447,25 +2495,14 @@ void Stream::dispatch(
 
             // If there are successful swapchains, submit and present them
             if (!present_cmd.submit_fences.empty()) {
-                VkSubmitInfo submit_info{};
-                submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-                submit_info.waitSemaphoreCount = present_cmd.submit_wait_semaphores.size();
-                submit_info.pWaitSemaphores = present_cmd.submit_wait_semaphores.data();
-                submit_info.pWaitDstStageMask = present_cmd.wait_stages.data();
-                submit_info.signalSemaphoreCount = present_cmd.signal_semaphores.size();
-                submit_info.pSignalSemaphores = present_cmd.signal_semaphores.data();
+                auto command_buffer = cb;
+                auto command_buffer_count = 1u;
                 if (_execute_external_command_buffer(cb)) {
-                    submit_info.commandBufferCount = 0;
-                    submit_info.pCommandBuffers = nullptr;
-                } else {
-                    submit_info.commandBufferCount = 1;
-                    submit_info.pCommandBuffers = &cb;
+                    command_buffer_count = 0u;
                 }
                 _queue_mtx->lock();
-                VK_CHECK_RESULT(vkQueueSubmit(_queue, 1u, &submit_info, present_cmd.submit_fences[0]));
-                for (auto i : vstd::range(1u, present_cmd.submit_fences.size())) {
-                    VK_CHECK_RESULT(vkQueueSubmit(_queue, 0, nullptr, present_cmd.submit_fences[i]));
-                }
+                submit_present_batch(command_buffer_count == 0u ? nullptr : &command_buffer,
+                                     command_buffer_count);
                 _queue_mtx->unlock();
 
                 VkPresentInfoKHR present_info{};
@@ -2546,7 +2583,10 @@ void Stream::dispatch(
         if (cb_ptr && _execute_external_command_buffer(cb)) {
             cb_ptr = nullptr;
         }
+        // Counter-only: host time inside the submit call of this batch (P0.2).
+        auto const profile_submit_begin = submit_profile::timing_begin();
         _evt._signal(*this, fence, cb_ptr);
+        submit_profile::timing_end_submit(profile_submit_begin);
         _mtx.lock();
         _exec.enqueue(SyncExt{
             .evt = &_evt,
@@ -2565,6 +2605,129 @@ void Stream::dispatch(
 
     _mtx.unlock();
 }
+CommandBuffer Stream::_begin_batch_record(VkCommandBufferUsageFlags flags) {
+    // Extracted verbatim from `Stream::dispatch` (plan P4): a recycled command
+    // buffer if the pool has one, a fresh one otherwise.
+    CommandBuffer cmdbuffer = [&]() {
+        auto p = _cmdbuffers.dequeue();
+        if (p) return std::move(*p);
+        return CommandBuffer{*this};
+    }();
+    _scratch_buffer_alloc_visitor.cmdbuffer = &cmdbuffer;
+    _scratch_buffer_alloc_visitor.device = device();
+    // Every batch starts from "nothing known" (plan P3 stays NO-GO): the tracker's
+    // per-frame maps are dropped here and the previous submission's trailing
+    // restore is what makes the first touch of a buffer legal.
+    _resource_barrier.clear_restore_states();
+    if (device()->config_ext()) {
+        auto before_states = device()->config_ext()->before_states(reinterpret_cast<uint64_t>(this));
+        for (auto &i : before_states) {
+            set_config_resource_before_state(&_resource_barrier, i);
+        }
+    }
+    cmdbuffer.resource_barrier = &_resource_barrier;
+    cmdbuffer.uniform_data = &_uniform_data;
+    cmdbuffer.desc_sets = &_desc_sets;
+    cmdbuffer.logger = logger ? &logger : nullptr;
+    cmdbuffer.dispatch_offsets = &_dispatch_offsets;
+    cmdbuffer.write_desc_sets = &_write_desc_sets;
+    cmdbuffer.bindless_cache = &_bindless_cache;
+    cmdbuffer.temp_desc = &_temp_desc;
+    cmdbuffer.scratch_buffer_alloc = &_scratch_buffer_alloc;
+    // `flags` is 0 for every ordinary batch, i.e. the flags-less begin info this
+    // path always used; the replay recorder asks for SIMULTANEOUS_USE.
+    cmdbuffer.begin(flags);
+    return cmdbuffer;
+}
+
+void Stream::_finish_batch_record(CommandBuffer &cmdbuffer) {
+    if (device()->config_ext()) {
+        // Bindless updates have now advanced the encoded descriptor map. Expand
+        // the after-state against this final snapshot, whereas the before-state in
+        // `_begin_batch_record` deliberately used the initial snapshot.
+        auto after_states = device()->config_ext()->after_states(
+            reinterpret_cast<uint64_t>(this));
+        for (auto &i : after_states) {
+            set_config_resource_restore_state(&_resource_barrier, i);
+        }
+    }
+    // The trailing restore is the whole cross-submission contract (plan §7 of the
+    // design): it republishes every touched buffer as ALL_COMMANDS-readable and
+    // every touched mip as GENERAL, so a replayed buffer is exactly as visible as
+    // an ordinarily dispatched one.
+    _resource_barrier.restore_states(cmdbuffer.cmdbuffer());
+    cmdbuffer.end();
+}
+
+detail::RecordedBatch Stream::record_replay_batch(
+    vstd::span<const luisa::unique_ptr<Command>> cmds) {
+    std::lock_guard lck{_dispatch_mtx};
+    _temp_desc.clear();
+    // Counter-only: a recording is a command-buffer record, exactly like a batch -
+    // it just never reaches the submit below. That keeps the ordinary
+    // encode/flush accounting intact while `replay_submits` counts the other half.
+    submit_profile::record_command_batch();
+    auto profile_flush = vstd::scope_exit([] {
+        submit_profile::flush();
+    });
+    auto const profile_record_begin = submit_profile::timing_begin();
+    auto cmdbuffer = _begin_batch_record(
+        VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT);
+    cmdbuffer.execute(cmds);
+    _finish_batch_record(cmdbuffer);
+    auto const record_ns = submit_profile::timing_elapsed_ns(profile_record_begin);
+    // Deliberately *not* folded into `host_encode_ns`: that counter is the
+    // ordinary per-batch encode window and its us/batch ratio must keep its
+    // meaning. A record has its own counter and its own denominator
+    // (`replay_records`).
+    submit_profile::record_replay_record(record_ns);
+    return cmdbuffer.release_native_batch();
+}
+
+uint64_t Stream::submit_recorded(VkCommandBuffer command_buffer,
+                                bool inqueue_limit) {
+    std::lock_guard lck{_dispatch_mtx};
+    _temp_desc.clear();
+    if (inqueue_limit) {
+        // The in-flight bound is part of the stream's contract (plan P1.5), and a
+        // replay is a submission like any other: without it K replays would queue
+        // K pending executions of one command buffer.
+        _throttle_in_flight();
+    }
+    auto fence_plan = detail::plan_timeline_value_increment(
+        _evt.last_fence(), 1u);
+    LUISA_ASSERT(
+        static_cast<bool>(fence_plan),
+        "Vulkan stream timeline fence overflow during replay.");
+    auto fence = fence_plan.value;
+    // Exactly one native submission, through the same `Event::_signal` the
+    // dispatch path uses: one reserved timeline value, one
+    // vkQueueSubmit2/vkQueueSubmit, and therefore the same Event-based
+    // cross-stream ordering and `Stream::sync()` behaviour as an ordinary batch.
+    // Nothing is re-recorded, no argument is planned, no descriptor is touched and
+    // no command buffer enters the retirement FIFO (so no state is reset).
+    auto command_buffer_copy = command_buffer;
+    auto const profile_submit_begin = submit_profile::timing_begin();
+    _evt._signal(*this, fence, &command_buffer_copy);
+    submit_profile::timing_end_submit(profile_submit_begin);
+    submit_profile::record_replay_submit();
+    _mtx.lock();
+    _exec.enqueue(SyncExt{
+        .evt = &_evt,
+        .value = fence});
+    _exec.enqueue(NotifyEvt{
+        .evt = &_evt,
+        .value = fence});
+    _mtx.unlock();
+    // A replay is not a batch, so nothing else would fold this thread's counters.
+    submit_profile::flush();
+    return fence;
+}
+
+bool Stream::submission_complete(uint64_t timeline_value) const noexcept {
+    return _evt.is_complete(timeline_value);
+}
+
 void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_update) noexcept {
     std::lock_guard lck{_dispatch_mtx};
     _temp_desc.clear();
@@ -2985,19 +3148,35 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
 void Stream::sync() {
     _evt.sync(_evt.last_fence());
 }
-CommandBuffer::CommandBuffer(Stream &stream) noexcept
+CommandBuffer::CommandBuffer(Stream &stream,
+                             detail::CommandBufferOwnership ownership) noexcept
     : Resource(stream.device()),
       _stream(stream),
-      _state(vstd::make_unique<CommandBufferState>()) {
-    _state->init(*stream.device(), stream.stream_tag());
+      _state(vstd::make_unique<CommandBufferState>()),
+      _ownership(ownership) {
+    // A replay recording (plan P4) gets its own state whose pool has no
+    // VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT: such a buffer is begun
+    // once, submitted N times and never reset, which is the whole
+    // SIMULTANEOUS_USE contract made auditable. It also never borrows a
+    // config-ext command buffer - the borrow contract is one-shot and the backend
+    // may not reset or free a borrowed buffer, while a recording is resubmitted
+    // and later freed by the graph.
+    auto const persistent =
+        ownership == detail::CommandBufferOwnership::PERSISTENT;
+    _state->init(*stream.device(), stream.stream_tag(),
+                 persistent ?
+                     VkCommandPoolCreateFlags{0u} :
+                     VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
     _cmdbuffer = nullptr;
-    if (device()->config_ext()) {
+    if (!persistent && device()->config_ext()) {
         _cmdbuffer = device()->config_ext()->borrow_command_buffer(stream.stream_tag());
     }
     if (_cmdbuffer) {
         _ownership = detail::CommandBufferOwnership::BORROWED;
     } else {
-        _ownership = detail::CommandBufferOwnership::BACKEND;
+        _ownership = persistent ?
+                         detail::CommandBufferOwnership::PERSISTENT :
+                         detail::CommandBufferOwnership::BACKEND;
         VkCommandBufferAllocateInfo cb_ci{
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
             .commandPool = _state->pool,
@@ -3013,23 +3192,64 @@ CommandBuffer::~CommandBuffer() {
         vkFreeCommandBuffers(device()->logic_device(), _state->pool, 1, &_cmdbuffer);
     }
 }
-void CommandBuffer::begin() {
+void CommandBuffer::begin(VkCommandBufferUsageFlags flags) {
+    // A command buffer starts its recording with no bindings of its own: whatever
+    // the previous recording of this buffer (or its recycled state) bound belongs
+    // to a submission that has already completed or been reset (plan P1.2).
+    _state->bind_state.reset();
     VkCommandBufferBeginInfo bi{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = flags,
     };
     VK_CHECK_RESULT(vkBeginCommandBuffer(_cmdbuffer, &bi));
 }
 void CommandBuffer::end() {
     VK_CHECK_RESULT(vkEndCommandBuffer(_cmdbuffer));
 }
+detail::RecordedBatch CommandBuffer::release_native_batch() noexcept {
+    // Ownership moves out whole: the graph gets the native variable *and* the
+    // state that keeps the recorded commands' references alive (command pool,
+    // descriptor pools and sets, argument staging, retained pipelines, image
+    // views). This object is empty afterwards, so its destructor neither frees the
+    // buffer nor resets the state.
+    auto batch = detail::RecordedBatch{_cmdbuffer, _state.release()};
+    _cmdbuffer = VK_NULL_HANDLE;
+    return batch;
+}
 CommandBuffer::CommandBuffer(CommandBuffer &&rhs) noexcept
     : Resource(std::move(rhs)),
-      _stream(rhs._stream),         // NOLINT(bugprone-use-after-move)
-      _cmdbuffer(rhs._cmdbuffer),   // NOLINT(bugprone-use-after-move)
+      _stream(rhs._stream), // NOLINT(bugprone-use-after-move)
+      _cmdbuffer(rhs._cmdbuffer), // NOLINT(bugprone-use-after-move)
       _state(std::move(rhs._state)),// NOLINT(bugprone-use-after-move)
-      _ownership(rhs._ownership) {  // NOLINT(bugprone-use-after-move)
+      _ownership(rhs._ownership),  // NOLINT(bugprone-use-after-move)
+      // Plan P4: the record prefix is a helper that *returns* a prepared command
+      // buffer, so the stream-scoped wiring has to survive the move. Leaving these
+      // null and relying on copy elision would make the extraction work only by
+      // luck; a move that dropped them would silently produce a command buffer
+      // with no barrier tracker, no argument staging and no logger.
+      logger(rhs.logger),                            // NOLINT(bugprone-use-after-move)
+      desc_sets(rhs.desc_sets),                      // NOLINT(bugprone-use-after-move)
+      uniform_data(rhs.uniform_data),                // NOLINT(bugprone-use-after-move)
+      dispatch_offsets(rhs.dispatch_offsets),        // NOLINT(bugprone-use-after-move)
+      write_desc_sets(rhs.write_desc_sets),          // NOLINT(bugprone-use-after-move)
+      scratch_buffer_alloc(rhs.scratch_buffer_alloc),// NOLINT(bugprone-use-after-move)
+      bindless_cache(rhs.bindless_cache),            // NOLINT(bugprone-use-after-move)
+      temp_desc(rhs.temp_desc),                      // NOLINT(bugprone-use-after-move)
+      resource_barrier(rhs.resource_barrier) {       // NOLINT(bugprone-use-after-move)
+    // A moved-from command buffer owns nothing and points at nothing, so a later
+    // destruction of it cannot free or reset the moved state.
     rhs._cmdbuffer = nullptr;
+    rhs.logger = nullptr;
+    rhs.desc_sets = nullptr;
+    rhs.uniform_data = nullptr;
+    rhs.dispatch_offsets = nullptr;
+    rhs.write_desc_sets = nullptr;
+    rhs.scratch_buffer_alloc = nullptr;
+    rhs.bindless_cache = nullptr;
+    rhs.temp_desc = nullptr;
+    rhs.resource_barrier = nullptr;
 }
+
 void Stream::signal(Event *event, uint64_t value) {
     std::lock_guard lck{_dispatch_mtx};
     event->_signal(*this, value);
@@ -3107,16 +3327,43 @@ void record_native_raster_usages(
 }// namespace stream_raster_detail
 
 void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
+    // Single argument-planning pass (plan P1.4). The batch's argument buffer is
+    // sized before anything can be written into it, so every command that needs
+    // an argument block is planned here, once, and the plan is retained under the
+    // identity of the command object. The preprocessing pass below runs *after*
+    // reordering - which permutes the commands - and looks the plan up by that
+    // same identity instead of planning the command a second time. See
+    // argument_plan_scratch.h for the association and lifetime contract.
+    auto &argument_scratch = _stream.argument_scratch;
+    LUISA_ASSERT(
+        !argument_scratch.in_use,
+        "Vulkan argument-planning scratch is already in use: a stream must not "
+        "record a command buffer from inside the recording of another one.");
+    argument_scratch.in_use = true;
+    auto release_argument_scratch = vstd::scope_exit([&] {
+        // The plans are keyed by pointers into this batch's commands, which die
+        // with it, so nothing may survive `execute` - not even a stale key. The
+        // capacity of all three containers is kept for the next batch.
+        argument_scratch.plans.clear();
+        argument_scratch.buffer_metadata.clear();
+        argument_scratch.validation_values.clear();
+        argument_scratch.in_use = false;
+    });
     // collect argument buffer
     const auto argument_buffer_alignment = std::max<size_t>(
         32u, device()->properties().limits.minStorageBufferOffsetAlignment);
     const auto argument_buffer_range_limit = static_cast<size_t>(
         device()->properties().limits.maxStorageBufferRange);
     ArgumentBlockLayout planned_argument_buffer_layout;
-    auto dispatch_shader = [&](ShaderDispatchCommandBase const *c, Shader const *shader) {
+    auto dispatch_shader = [&](Command const *identity,
+                               ShaderDispatchCommandBase const *c,
+                               Shader const *shader) {
         auto plan = plan_argument_block(
             shader, c, argument_buffer_range_limit);
         validate_argument_block_plan(plan);
+        // Asserts that this command does not already own a plan, and fails before
+        // the cumulative sizing below could absorb a duplicate.
+        argument_scratch.plans.record(identity, plan);
         size_t dispatch_offset = 0u;
         if (!planned_argument_buffer_layout.append_padded(
                 plan.layout.size(), argument_buffer_alignment,
@@ -3192,6 +3439,14 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             expanded_commands.emplace_back(command.get());
         }
     }
+    // One plan per command is the most this batch can need. The table keeps
+    // its capacity for every later batch of the same shape, so this is not a
+    // per-batch allocation in steady state; the cap only keeps a batch that is
+    // mostly uploads from pre-sizing a table for commands that never need a plan
+    // (record() grows on demand instead).
+    constexpr auto argument_plan_capacity_hint = size_t{2048u};
+    argument_scratch.plans.begin_batch(
+        std::min(expanded_commands.size(), argument_plan_capacity_hint));
     for (auto command : expanded_commands) {
         if (command->tag() == Command::Tag::EShaderDispatchCommand) {
             auto c = static_cast<ShaderDispatchCommand const *>(command);
@@ -3199,7 +3454,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 auto indirect = validate_indirect_dispatch_source(c);
                 if (indirect.plan.command_count == 0u) {
                     // A statically empty indirect range has no target/source
-                    // resource use and must not perturb reorder boundaries.
+                    // resource use and must not perturb reorder boundaries. It is
+                    // not dispatched either, so it is planned neither here nor in
+                    // the preprocessing pass.
                     continue;
                 }
                 auto shader = reinterpret_cast<Shader const *>(c->handle());
@@ -3212,7 +3469,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             case Command::Tag::EShaderDispatchCommand: {
                 auto c = static_cast<ShaderDispatchCommand const *>(command);
                 auto shader = reinterpret_cast<Shader const *>(c->handle());
-                dispatch_shader(c, shader);
+                dispatch_shader(command, c, shader);
             } break;
             case Command::Tag::ECustomCommand: {
                 auto cmd = static_cast<CustomCommand const *>(command);
@@ -3227,7 +3484,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     // below, which keeps the argument-block bookkeeping exact.
                     if (!c->is_native_shader()) {
                         auto shader = reinterpret_cast<Shader const *>(c->handle());
-                        dispatch_shader(c, shader);
+                        dispatch_shader(command, c, shader);
                     }
                 }
             } break;
@@ -3262,16 +3519,25 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
     ArgumentBlockLayout preprocessed_argument_buffer_layout;
     auto preprocess_arguments = [this, argument_buffer_alignment,
                                  argument_buffer_range_limit,
+                                 &argument_scratch,
                                  &preprocessed_argument_buffer_layout](
+                                    Command const *identity,
                                     Shader const *shader,
                                     ShaderDispatchCommandBase const *c,
                                     bool is_raster) {
-        auto plan = plan_argument_block(
-            shader, c, argument_buffer_range_limit);
-        validate_argument_block_plan(plan);
+        // P1.4: the plan of this command was computed once, in the sizing pass.
+        // It is looked up by command identity - never by position - because
+        // reordering ran between the two passes and permuted the emission order.
+        // A command without a plan is a defect, not a reason to plan it again.
+        auto plan = argument_scratch.plans.consume(identity);
+        LUISA_ASSERT(
+            plan != nullptr,
+            "Vulkan argument preprocessing reached a dispatch that the sizing "
+            "pass of this batch did not plan; the argument-plan association is "
+            "broken.");
         size_t block_offset = 0u;
         if (!preprocessed_argument_buffer_layout.append_padded(
-                plan.layout.size(), argument_buffer_alignment,
+                plan->layout.size(), argument_buffer_alignment,
                 block_offset)) {
             LUISA_ERROR_WITH_LOCATION(
                 "Vulkan cumulative argument-buffer preprocessing failed: {}.",
@@ -3284,9 +3550,16 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             "dispatch preprocessing (emitted {}, planned {}).",
             uniform_data->size(), block_offset);
 
-        vstd::vector<StorageBufferMetadata> buffer_metadata(
-            plan.buffer_metadata_count);
-        vstd::vector<uint32_t> validation_values;
+        // The trailers are emitted through stream-scoped scratch, so a dispatch
+        // neither allocates a vector nor can inherit a value of the dispatch
+        // before it: both containers are cleared and refilled here, and nothing
+        // keeps a pointer into them past the copy below.
+        auto &buffer_metadata = argument_scratch.buffer_metadata;
+        auto &validation_values = argument_scratch.validation_values;
+        buffer_metadata.clear();
+        vstd::push_back_all(buffer_metadata, plan->buffer_metadata_count,
+                            StorageBufferMetadata{});
+        validation_values.clear();
         validation_values.reserve(shader->validation_count());
         ArgumentBlockLayout emitted_layout{
             argument_buffer_range_limit};
@@ -3347,7 +3620,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         ArgumentBlockTrailerPlacement emitted_trailer{};
         if (!emitted_layout.append_trailers(
                 argument_block_trailer_layout(
-                    shader, plan.buffer_metadata_count),
+                    shader, plan->buffer_metadata_count),
                 emitted_trailer)) {
             LUISA_ERROR_WITH_LOCATION(
                 "Vulkan argument preprocessing could not append its "
@@ -3356,15 +3629,15 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     emitted_layout.status()));
         }
         LUISA_ASSERT(
-            emitted_layout.size() == plan.layout.size() &&
+            emitted_layout.size() == plan->layout.size() &&
                 emitted_trailer.metadata_offset ==
-                    plan.trailer.metadata_offset &&
+                    plan->trailer.metadata_offset &&
                 emitted_trailer.metadata_size ==
-                    plan.trailer.metadata_size &&
+                    plan->trailer.metadata_size &&
                 emitted_trailer.validation_offset ==
-                    plan.trailer.validation_offset &&
+                    plan->trailer.validation_offset &&
                 emitted_trailer.validation_size ==
-                    plan.trailer.validation_size,
+                    plan->trailer.validation_size,
             "Vulkan argument sizing and preprocessing produced different "
             "per-dispatch layouts.");
 
@@ -3413,8 +3686,13 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             emitted_trailer.validation_size,
             validation_values.data(), luisa::size_bytes(validation_values),
             "HLSL-validation");
-        dispatch_offsets->emplace_back(
-            block_offset, emitted_layout.size());
+        // The block the emitter will bind is recorded against the command that
+        // owns it, so the encoding pass can verify it is binding this command's
+        // block and not one that happens to be at the same position.
+        dispatch_offsets->emplace_back(detail::DispatchArgumentBlock{
+            .command = identity,
+            .offset = block_offset,
+            .size = emitted_layout.size()});
     };
     for (auto &&lst : cmd_lists) {
         dispatch_offsets->clear();
@@ -3481,7 +3759,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             reinterpret_cast<Shader const *>(c->handle());
                         validate_indirect_dispatch_target(
                             c, shader, indirect, false);
-                        preprocess_arguments(shader, c, false);
+                        preprocess_arguments(cmd, shader, c, false);
                         resource_barrier->record(
                             BufferView{indirect.source, 0u,
                                        indirect.source->byte_size()},
@@ -3489,7 +3767,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     } else {
                         auto shader =
                             reinterpret_cast<Shader const *>(c->handle());
-                        preprocess_arguments(shader, c, false);
+                        preprocess_arguments(cmd, shader, c, false);
                     }
                 } break;
                 case Command::Tag::ETextureUploadCommand: {
@@ -3593,7 +3871,10 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                     resource_barrier, cmd);
                             } else {
                                 auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
-                                preprocess_arguments(shader, cmd, true);
+                                // `i->cmd` is this draw's command identity, the
+                                // one the sizing pass planned (the local `cmd`
+                                // shadows it with the typed pointer).
+                                preprocess_arguments(i->cmd, shader, cmd, true);
                             }
                             for (auto &i : cmd->rtv_texs()) {
                                 auto tex = reinterpret_cast<Texture const *>(i.handle);
@@ -3682,6 +3963,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         resource_barrier->update_states(_cmdbuffer);
         size_t dispatch_offset_index = 0u;
         auto set_dispatch_args = [&](
+                                     Command const *identity,
                                      BindPropVisitor &visitor,
                                      ShaderDispatchCommandBase const *c,
                                      Shader const *shader,
@@ -3691,8 +3973,18 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 "Vulkan descriptor binding requested argument block {} from "
                 "a {}-entry preprocessing table.",
                 dispatch_offset_index, dispatch_offsets->size());
-            auto [relative_offset, descriptor_range] =
-                (*dispatch_offsets)[dispatch_offset_index++];
+            auto &block = (*dispatch_offsets)[dispatch_offset_index++];
+            // The preprocessing pass filled the table in emission order, so the
+            // block at this position must belong to the command being encoded.
+            // Checking the identity turns "the offsets line up" into "the layout
+            // is this command's layout", which is what P1.4 hands over.
+            LUISA_ASSERT(
+                block.command == identity,
+                "Vulkan descriptor binding is about to bind another command's "
+                "argument block: the preprocessing and encoding passes of this "
+                "layer disagree about the command order.");
+            auto relative_offset = block.offset;
+            auto descriptor_range = block.size;
             LUISA_ASSERT(
                 relative_offset <= arg_buffer.size_bytes &&
                     descriptor_range <=
@@ -3701,10 +3993,17 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 "the {}-byte upload allocation.",
                 relative_offset, descriptor_range,
                 arg_buffer.size_bytes);
-            uint desc_index = 0;
-            visitor.cmdbuffer = this;
-            visitor.desc_set = _state->allocate_descriptor_set(
-                shader->desc_set_layout()[0]);
+ uint desc_index = 0;
+ visitor.cmdbuffer = this;
+ // Plan P2.3: this call owns the write list of the dispatch it encodes, so it
+ // starts empty (a push consumes it, and one dispatch pushes twice at most).
+ write_desc_sets->clear();
+ // A push shader has no VkDescriptorSet: its set 0 lives in the command
+ // buffer's push descriptor bank, so nothing is allocated for it.
+ visitor.desc_set = shader->uses_push_descriptors() ?
+                        VK_NULL_HANDLE :
+                        _state->allocate_descriptor_set(
+                            shader->desc_set_layout()[0]);
             if (descriptor_range > 0u) {
                 LUISA_ASSERT(
                     arg_buffer.buffer != nullptr,
@@ -3848,7 +4147,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 _cmdbuffer, shader->pipeline_layout(), stage_flags,
                 offset, size, &value);
         };
-        auto bind_shader_desc = [&](BindPropVisitor &visitor, Shader const *shader, VkPipelineBindPoint bind_point) {
+        // The shader is passed mutable because the set-0 descriptor-update
+        // templates are cached on it (plan P2.2).
+        auto bind_shader_desc = [&](BindPropVisitor &visitor, Shader *shader, VkPipelineBindPoint bind_point) {
             LUISA_ASSERT(
                 visitor.desc_index ==
                     shader->local_descriptor_binding_count(),
@@ -3856,20 +4157,89 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 "the validated shader interface requires {}.",
                 visitor.desc_index,
                 shader->local_descriptor_binding_count());
-            if (!write_desc_sets->empty()) {
+            // Plan P2.3: the shader decided at creation whether set 0 is a push
+            // descriptor set. The flag describes the *layout object* this shader
+            // was built with, so this branch cannot change for a given shader and
+            // a frame can never mix the two paths for one set 0.
+            if (shader->uses_push_descriptors()) {
+                // No vkAllocateDescriptorSets, no vkUpdateDescriptorSets, no
+                // template and no set-0 vkCmdBindDescriptorSets: one
+                // vkCmdPushDescriptorSetKHR carries exactly the write list the
+                // classic path would have written (Vulkan ignores each write's
+                // dstSet for a push, so the list is passed through unchanged -
+                // including a legal pNext such as an acceleration structure).
                 LUISA_ASSERT(
-                    write_desc_sets->size() <=
-                        std::numeric_limits<uint32_t>::max(),
-                    "Vulkan descriptor-write count is not representable.");
-                vkUpdateDescriptorSets(
-                    device()->logic_device(),
-                    static_cast<uint32_t>(write_desc_sets->size()),
-                    write_desc_sets->data(), 0,
-                    nullptr);
-                write_desc_sets->clear();
+                    !write_desc_sets->empty(),
+                    "Vulkan push-descriptor shader produced no set-0 writes, "
+                    "but a push call requires at least one.");
+                auto push = detail::push_descriptor_set(
+                    detail::PushDescriptorRecordRequest{
+                        .command_buffer = _cmdbuffer,
+                        .bind_point = bind_point,
+                        .layout = shader->pipeline_layout(),
+                        .set = 0u,
+                        .max_push_descriptors =
+                            device()->max_push_descriptors(),
+                        .api = device()->push_descriptor_api(),
+                        .allow_push = true},
+                    luisa::span<const VkWriteDescriptorSet>{
+                        write_desc_sets->data(),
+                        write_desc_sets->size()});
+                LUISA_ASSERT(
+                    push.pushed,
+                    "Vulkan push descriptor set 0 was refused at record time "
+                    "({}); the shader was created with a push layout, so this "
+                    "cannot fall back to a classic set mid-recording.",
+                    detail::push_descriptor_status_name(push.status));
+                  // One push consumes the write list, so nothing leaks into the
+                  // next dispatch. An indirect dispatch re-pushes its own
+                  // retained list (see `indirect_repush_writes` at its call site).
+                  write_desc_sets->clear();
+                  // Exactly the state a set-0 bind would have recorded, and only
+                  // for slot 0: the global sets keep their tracked handles, which
+                  // is what lets their bind below stay skippable across dispatches.
+                  _state->bind_state.push_descriptor_sets(
+                    bind_point,
+                    detail::handle_to_uint64(shader->pipeline_layout()),
+                    0u);
+                  desc_sets->clear();
+                  } else {
+                  if (!write_desc_sets->empty()) {
+                    LUISA_ASSERT(
+                        write_desc_sets->size() <=
+                            std::numeric_limits<uint32_t>::max(),
+                        "Vulkan descriptor-write count is not representable.");
+                    // Plan P2.2: the one funnel for this dispatch's set-0 update.
+                    // It issues either one vkUpdateDescriptorSetWithTemplate (a
+                    // cached template created from exactly this write shape) or,
+                    // byte for byte, the pre-P2.2 vkUpdateDescriptorSets call with
+                    // the same writes - never both and never a partial write. The
+                    // decision depends on the device capability latched at creation
+                    // and on the shape, never on a counter or a measurement.
+                    detail::DescriptorSetUpdateRequest update_request{
+                        .device = device()->logic_device(),
+                        .set = visitor.desc_set,
+                        .layout = shader->desc_set_layout()[0u],
+                        .bind_point = bind_point,
+                        .api = device()->descriptor_update_template_api(),
+                        .allow_templates =
+                            device()->descriptor_update_template_capable()};
+                    auto update = detail::update_descriptor_set(
+                        update_request, shader->descriptor_update_templates(),
+                        luisa::span<const VkWriteDescriptorSet>{
+                            write_desc_sets->data(), write_desc_sets->size()});
+                    // "Active" in VulkanExtensionStatusExt means "the backend really
+                    // uses this path", so it is marked where a template is actually
+                    // created instead of on every dispatch.
+                    if (update.created_template) {
+                        device()->mark_optional_extension_active(
+                            detail::OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE);
+                    }
+      write_desc_sets->clear();
+                }
+                desc_sets->clear();
+                desc_sets->push_back(visitor.desc_set);
             }
-            desc_sets->clear();
-            desc_sets->push_back(visitor.desc_set);
             desc_sets->push_back(device()->sampler_set());
             if (shader->use_buffer_bindless()) {
                 desc_sets->push_back(device()->bdls_buffer_set());
@@ -3880,21 +4250,34 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
             if (shader->use_tex3d_bindless()) {
                 desc_sets->push_back(device()->bdls_tex3d_set());
             }
+            // Plan P2.3: on the push path set 0 is not part of the bind, so the
+            // assembled list is exactly the global sets (sampler + bindless heaps)
+            // and starts at set 1.
+            auto const bound_set_count =
+                desc_sets->size() +
+                (shader->uses_push_descriptors() ? 1u : 0u);
             LUISA_ASSERT(
-                desc_sets->size() == shader->desc_set_layout().size() &&
+                bound_set_count == shader->desc_set_layout().size() &&
                     desc_sets->size() <=
                         std::numeric_limits<uint32_t>::max(),
                 "Vulkan dispatch assembled {} descriptor sets for a "
-                "validated pipeline layout with {} sets.",
-                desc_sets->size(), shader->desc_set_layout().size());
-            vkCmdBindDescriptorSets(
+                "validated pipeline layout with {} sets (set 0 {}).",
+                desc_sets->size(), shader->desc_set_layout().size(),
+                shader->uses_push_descriptors() ? "pushed" : "bound");
+            // P1.2: skipped only when this exact layout object and every set index
+            // of the range already hold the requested handle (plan P2.3: the
+            // tracker is per slot, so the global sets below are no longer re-bound
+            // just because the local set 0 changed). With the push path the first
+            // set is 1 and the local set is not part of the bind at all.
+            detail::cmd_bind_descriptor_sets(
+                _state->bind_state,
                 _cmdbuffer,
                 bind_point,
                 shader->pipeline_layout(),
-                0,
+                shader->uses_push_descriptors() ? 1u : 0u,
                 static_cast<uint32_t>(desc_sets->size()),
                 desc_sets->data(),
-                0,
+                0u,
                 nullptr);
         };
         auto prepare_indirect_dispatch = [&](
@@ -3969,13 +4352,21 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 device()->logic_device(),
                 static_cast<uint32_t>(descriptor_writes.size()),
                 descriptor_writes.data(), 0u, nullptr);
-            vkCmdBindDescriptorSets(
-                _cmdbuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+            // Counter-only: the indirect preparation kernel is a real compute
+            // dispatch with its own update, set bind and pipeline bind (F2/F3);
+            // the two binds go through the P1.2 tracker, so the counters describe
+            // the calls that are actually recorded.
+            submit_profile::record_descriptor_set_update();
+            detail::cmd_bind_descriptor_sets(
+                _state->bind_state, _cmdbuffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE,
                 prepare_shader->pipeline_layout(), 0u, 1u,
                 &prepare_set, 0u, nullptr);
-            vkCmdBindPipeline(
-                _cmdbuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                prepare_shader->pipeline());
+            detail::cmd_bind_pipeline(
+                _state->bind_state, _cmdbuffer,
+                VK_PIPELINE_BIND_POINT_COMPUTE,
+                prepare_shader->pipeline(),
+                prepare_shader->pipeline_layout());
 
             auto &&limits = device()->properties().limits;
             LUISA_ASSERT(
@@ -4450,11 +4841,15 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     if (auto *ref = shader->pipeline_ref()) {
                         _state->retain_pipeline(ref);
                     }
+                    // Counter-only: this ShaderDispatchCommand is about to be
+                    // recorded. A statically empty indirect range returned above
+                    // and is therefore not counted (F2/F3/F6).
+                    submit_profile::record_dispatch();
                     bool is_rt_shader = (shader->shader_tag() == Shader::ShaderTag::kRayTracingShader);
                     BindPropVisitor visitor{};
                     visitor.device = device();
                     set_dispatch_args(
-                        visitor, c, shader, indirect_source);
+                        cmd, visitor, c, shader, indirect_source);
                     constexpr size_t max_printer_count = 1024ull * 1024ull;
                     BufferView count_buffer;
                     BufferView data_buffer;
@@ -4556,8 +4951,23 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                         vk_pipeline = cs->pipeline();
                         blk = cs->block_size();
                     }
+                    // Plan P2.3: an indirect dispatch binds set 0 twice (as the prologue of
+                    // the command, and again after the preparation kernel disturbed the push
+                    // descriptor bank), and one push consumes its write list. The list of this
+                    // command is therefore retained here - only for indirect commands - and
+                    // restored for the second push.
+                    vstd::vector<VkWriteDescriptorSet> indirect_repush_writes;
+                    if (c->is_indirect()) {
+                        indirect_repush_writes.assign(write_desc_sets->begin(),
+                                                        write_desc_sets->end());
+                    }
                     bind_shader_desc(visitor, shader, bind_point);
-                    vkCmdBindPipeline(_cmdbuffer, bind_point, vk_pipeline);
+                    // P1.2: a repeated dispatch of one shader in one command
+                    // buffer binds its pipeline once; the bind is skipped only for
+                    // the exact same VkPipeline handle at this bind point.
+                    detail::cmd_bind_pipeline(
+                        _state->bind_state, _cmdbuffer, bind_point,
+                        vk_pipeline, shader->pipeline_layout());
                     auto calc = [](uint disp, uint thd) {
                         auto group_count = indirect_dispatch_group_count(
                             disp, thd);
@@ -4642,13 +5052,23 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     // Preparation binds its own compute pipeline and
                     // descriptor set. Restore the target contract once,
                     // then select one absolute source record per command.
+                    // The prologue push consumed the write list; restore this command's own
+                    // list so the second bind pushes exactly the same descriptors again.
+                    if (shader->uses_push_descriptors() && !indirect_repush_writes.empty()) {
+                        write_desc_sets->assign(indirect_repush_writes.begin(),
+                                                indirect_repush_writes.end());
+                    }
                     bind_shader_desc(
                         visitor, shader,
                         VK_PIPELINE_BIND_POINT_COMPUTE);
-                    vkCmdBindPipeline(
+                    // P1.2: the preparation kernel bound its own pipeline and set
+                    // on this bind point, so restoring the target contract is a
+                    // real rebind (the tracker sees the difference).
+                    detail::cmd_bind_pipeline(
+                        _state->bind_state,
                         _cmdbuffer,
                         VK_PIPELINE_BIND_POINT_COMPUTE,
-                        vk_pipeline);
+                        vk_pipeline, shader->pipeline_layout());
                     // VK_KHR_device_address_commands: the very same prepared
                     // dispatch header can be consumed through
                     // vkCmdDispatchIndirect2KHR, which addresses it by
@@ -5166,10 +5586,18 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 auto pipe = shader->create_pipeline(cmd->rtv_texs(), cmd->dsv_tex(), cmd->mesh_format(), cmd->raster_state(), strides);
                                 BindPropVisitor visitor{};
                                 visitor.device = device();
-                                // bind arguments
-                                set_dispatch_args(visitor, cmd, shader);
+                                // bind arguments (`i->cmd` is this draw's command
+                                // identity, which the local `cmd` shadows)
+                                set_dispatch_args(i->cmd, visitor, cmd, shader);
                                 bind_shader_desc(visitor, shader, VK_PIPELINE_BIND_POINT_GRAPHICS);
-                                vkCmdBindPipeline(_cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline);
+                                // P1.2: the graphics bind point is tracked
+                                // separately from compute/RT, so a draw only
+                                // skips a pipeline bind that is really the same
+                                // VkPipeline at the graphics bind point.
+                                detail::cmd_bind_pipeline(
+                                    _state->bind_state, _cmdbuffer,
+                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipe.pipeline, shader->pipeline_layout());
                                 render_pass = pipe.render_pass;
                             }
                             // framebuffer
@@ -5361,12 +5789,21 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 _stream.queue(),
                                 _cmdbuffer,
                                 _state->desc_pool);
+                            // P1.2: `execute` receives the raw command buffer and
+                            // may bind anything, so nothing this tracker believed
+                            // about the recorded bind state survives it.
+                            _state->bind_state.invalidate_all();
                         } break;
                         case to_underlying(CustomCommandUUID::VK_CUDA_LAUNCH_KERNEL): {
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
                             cuda_launch_kernel(
                                 device(), _cmdbuffer,
                                 static_cast<vk_cuda_interop::CudaKernelLaunchCommand const *>(c));
+                            // P1.2: the CUDA launch is foreign code on our command
+                            // buffer. VK_NV_cuda_kernel_launch binds no Vulkan
+                            // pipeline, but "no bind we know of" is not something
+                            // the tracker may assume, so the state is flushed.
+                            _state->bind_state.invalidate_all();
 #else
                             LUISA_ERROR(
                                 "VK_CUDA_LAUNCH_KERNEL requires the vk backend "
@@ -5408,6 +5845,16 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         planned_argument_buffer_layout.size(),
         preprocessed_argument_buffer_layout.size(),
         uniform_data->size());
+    // P1.4 completeness: every command the sizing pass planned was preprocessed
+    // exactly once, and nothing was preprocessed twice. Together with the
+    // identity check of the emission pass this closes the association in both
+    // directions.
+    LUISA_ASSERT(
+        argument_scratch.plans.consumed() == argument_scratch.plans.size(),
+        "Vulkan argument planning recorded {} plan(s), but preprocessing "
+        "consumed {}; every planned dispatch must be preprocessed exactly "
+        "once.",
+        argument_scratch.plans.size(), argument_scratch.plans.consumed());
     if (uniform_buffer_size > 0) {
         static_cast<UploadBuffer const *>(arg_buffer.buffer)->copy_from(uniform_data->data(), arg_buffer.offset, uniform_data->size());
     }

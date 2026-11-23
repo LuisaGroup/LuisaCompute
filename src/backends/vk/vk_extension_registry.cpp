@@ -124,6 +124,8 @@ LC_VK_OPTIONAL_EXTENSION_SWITCH(partitioned_acceleration_structure, enable_parti
 LC_VK_OPTIONAL_EXTENSION_SWITCH(ray_tracing_linear_swept_spheres, enable_ray_tracing_linear_swept_spheres)
 LC_VK_OPTIONAL_EXTENSION_SWITCH(dense_geometry_format, enable_dense_geometry_format)
 LC_VK_OPTIONAL_EXTENSION_SWITCH(shader_mixed_float_dot_product, enable_shader_mixed_float_dot_product)
+LC_VK_OPTIONAL_EXTENSION_SWITCH(descriptor_update_template, enable_descriptor_update_template)
+    LC_VK_OPTIONAL_EXTENSION_SWITCH(push_descriptor, enable_push_descriptor)
 
 #undef LC_VK_OPTIONAL_EXTENSION_SWITCH
 
@@ -577,6 +579,32 @@ inline constexpr OptionalExtensionDescriptor optional_extensions[] = {
      // shape HLSL's `dot2add` can express.
      check_single_bit<VkPhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE,
                       &VkPhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE::shaderMixedFloatDotProductFloat16AccFloat32>},
+    // ---- descriptors (plan P2.2) ---------------------------------------------
+    // Per-dispatch set-0 descriptor updates through a cached
+    // VkDescriptorUpdateTemplate. VK_KHR_descriptor_update_template was promoted
+    // to *core Vulkan 1.1* (volk groups vkCreateDescriptorUpdateTemplate /
+    // vkUpdateDescriptorSetWithTemplate under VK_VERSION_1_1), which is below this
+    // backend's 1.2 floor - so a 1.2 device always supports it even though the
+    // name is usually absent from its extension list. The backend additionally
+    // requires every entry point it calls and keeps the vkUpdateDescriptorSets
+    // path otherwise (see descriptor_update_template.h).
+    {OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE,
+     VK_KHR_DESCRIPTOR_UPDATE_TEMPLATE_EXTENSION_NAME, nullptr, nullptr,
+     requested_descriptor_update_template,
+     VK_STRUCTURE_TYPE_MAX_ENUM, nullptr, nullptr, VK_STRUCTURE_TYPE_MAX_ENUM,
+     false, VK_API_VERSION_1_1},
+    // ---- descriptors (plan P2.3) ---------------------------------------------
+    // Set-0 binding through vkCmdPushDescriptorSetKHR instead of an allocated,
+    // updated and bound descriptor set. Negotiated by name only (no feature
+    // structure, no core promotion - see OptionalExtension::PUSH_DESCRIPTOR). The
+    // backend additionally resolves the entry point and queries
+    // maxPushDescriptors; anything missing keeps the classic set-0 path for every
+    // shader, decided once at creation (see push_descriptor.h).
+    {OptionalExtension::PUSH_DESCRIPTOR,
+     VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, nullptr, nullptr,
+     requested_push_descriptor,
+     VK_STRUCTURE_TYPE_MAX_ENUM, nullptr, nullptr, VK_STRUCTURE_TYPE_MAX_ENUM,
+     false, VK_API_VERSION_1_0},
 };
 
 inline constexpr size_t descriptor_count =
@@ -638,7 +666,8 @@ void OptionalExtensionRegistry::select(
     luisa::span<const luisa::string> supported_device_extensions,
     luisa::span<const luisa::string> enabled_instance_extensions,
     const luisa::compute::VulkanDeviceConfigExt *config,
-    bool imported_device) noexcept {
+    bool imported_device,
+    uint32_t device_api_version) noexcept {
     _supported_bits = 0u;
     _requested_bits = 0u;
     _enabled_bits = 0u;
@@ -668,8 +697,15 @@ void OptionalExtensionRegistry::select(
                 }
             }
         }
+        // A promoted extension is usable through Vulkan core even when the
+        // driver no longer lists its name. Its name must not reach
+        // VkDeviceCreateInfo in that case (see Entry::declare_name).
+        auto core_promoted = !imported_device &&
+                             desc.core_promoted_version > VK_API_VERSION_1_0 &&
+                             device_api_version >= desc.core_promoted_version;
         entry.name = matched_name != nullptr ? matched_name : desc.name;
-        entry.supported = matched_name != nullptr;
+        entry.declare_name = matched_name != nullptr;
+        entry.supported = matched_name != nullptr || core_promoted;
         entry.requested = entry.supported &&
                           desc.requested(config != nullptr ?
                                              *config :
@@ -759,8 +795,11 @@ void OptionalExtensionRegistry::resolve() noexcept {
         _enabled_bits |= uint64_t{1u} << static_cast<uint32_t>(entry.desc.id);
         // Instance-level extensions are enabled at vkCreateInstance time, never
         // in VkDeviceCreateInfo: passing one to vkCreateDevice fails with
-        // "enabled device extension is not present at device level".
-        if (entry.name != nullptr && !entry.desc.instance_level) {
+        // "enabled device extension is not present at device level". An
+        // extension that is usable through Vulkan core without being exposed by
+        // the device has no name to declare either.
+        if (entry.name != nullptr && !entry.desc.instance_level &&
+            entry.declare_name) {
             _enabled_names.emplace_back(entry.name);
         }
     }
@@ -838,7 +877,8 @@ bool OptionalExtensionRegistry::force_enable(OptionalExtension ext) noexcept {
         entry.requested = true;
         _requested_bits |= uint64_t{1u} << static_cast<uint32_t>(ext);
         _enabled_bits |= uint64_t{1u} << static_cast<uint32_t>(ext);
-        if (entry.name != nullptr && !entry.desc.instance_level) {
+        if (entry.name != nullptr && !entry.desc.instance_level &&
+            entry.declare_name) {
             _enabled_names.emplace_back(entry.name);
         }
         refresh_states();

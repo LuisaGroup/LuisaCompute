@@ -32,7 +32,6 @@ private:
     // holds the same bytes in the same order and, being movable, keeps the
     // addresses the vertex-input create-info aliases stable across the insert.
     vstd::HashMap<luisa::vector<std::byte>, Pipeline, PtrHash, PtrEqual> _pipelines;
-    VkPipelineCache _pipe_cache{};
     // Forwards to `build_raster_pipeline_key` (raster_pipeline.h), the shared
     // key builder the native raster shader uses as well.
     static luisa::vector<std::byte> _make_pipeline_key(
@@ -48,7 +47,6 @@ public:
         vstd::vector<Argument> &&captured,
         vstd::vector<SavedArgument> &&saved_arguments,
         vstd::span<hlsl::Property const> binds,
-        vstd::span<std::byte const> cache_code,
         vstd::vector<uint> &&vertex_spv_code,
         vstd::vector<uint> &&pixel_spv_code,
         bool use_tex2d_bindless,

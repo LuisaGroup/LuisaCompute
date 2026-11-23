@@ -43,7 +43,8 @@ Shader::Shader(
     luisa::span<const std::byte> constant_ubo_data,
     uint validation_count,
     uint32_t push_constant_size,
-    detail::ShaderCodegenDialect codegen_dialect)
+    detail::ShaderCodegenDialect codegen_dialect,
+ bool allow_push_descriptors)
     : Resource{device}, _captured{std::move(captured)}, _saved_arguments(std::move(saved_arguments)),
       _shader_tag(tag), _use_tex2d_bindless(use_tex2d_bindless), _use_tex3d_bindless(use_tex3d_bindless), _use_buffer_bindless(use_buffer_bindless), _printers(std::move(printers)), _validation_count(validation_count), _push_constant_size(push_constant_size), _codegen_dialect(codegen_dialect) {
     auto argument_contract = plan_saved_argument_contract(
@@ -275,10 +276,64 @@ Shader::Shader(
             bindings[0u].size() ==
                 interface_plan.local_binding_count,
         "Vulkan descriptor layout construction drifted from its validated plan.");
-    vstd::push_back_all(_binds, binds);
-    _desc_set_layout.reserve(bindings.size());
-    auto make_layout_create_info = [&](size_t set_index,
-                                       VkDescriptorSetLayoutBindingFlagsCreateInfo &flags_info) {
+vstd::push_back_all(_binds, binds);
+      // ---- set-0 path: push descriptors or classic (plan P2.3) -------------
+      // One decision, here, for the whole lifetime of this shader: the set-0
+      // layout either is a push descriptor set for good or is a classic set for
+      // good, because the flag is part of the (interned)
+      // VkDescriptorSetLayoutCreateInfo. Nothing re-evaluates it per dispatch, so
+      // no dispatch can switch paths mid-frame.
+      auto allow_push = allow_push_descriptors &&
+                        device->push_descriptor_capable();
+      auto push_eligibility = detail::PushDescriptorEligibility{
+          .device_capable = allow_push,
+          .max_push_descriptors = device->max_push_descriptors(),
+          .set_binding_count = static_cast<uint32_t>(bindings[0u].size()),
+          .set_descriptor_count = 0u,
+          .has_binding_flags = false,
+          .has_dynamic_or_inline_uniform_binding = false};
+      for (auto binding_index = size_t{0u};
+           binding_index < bindings[0u].size(); ++binding_index) {
+          auto &&set_binding = bindings[0u][binding_index];
+          push_eligibility.set_descriptor_count += set_binding.descriptorCount;
+          if (binding_flags[0u][binding_index] != 0u) {
+              push_eligibility.has_binding_flags = true;
+          }
+          switch (set_binding.descriptorType) {
+              case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+              case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+              case VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK:
+                  push_eligibility.has_dynamic_or_inline_uniform_binding = true;
+                  break;
+              default: break;
+          }
+      }
+      auto push_status = detail::push_descriptor_eligibility(push_eligibility);
+      _uses_push_descriptor_set =
+          push_status == detail::PushDescriptorStatus::kOk;
+      if (device->push_descriptor_capable()) {
+          // Counter-only (plan P0.2/P2.3): a creation-time decision, one per
+          // shader - never a measured value, and never read back to choose a
+          // path.
+          submit_profile::record_push_descriptor_shader(_uses_push_descriptor_set);
+          if (!_uses_push_descriptor_set && allow_push_descriptors) {
+              LUISA_WARNING(
+                  "Vulkan shader keeps classic set-0 binding ({}): {} bindings, "
+                  "{} descriptors, maxPushDescriptors {}.",
+                  detail::push_descriptor_status_name(push_status),
+                  push_eligibility.set_binding_count,
+                  push_eligibility.set_descriptor_count,
+                  push_eligibility.max_push_descriptors);
+          }
+      }
+      // ---- structural keys (plan P1.1) -------------------------------------
+    // Every field the create infos below carry is captured in a key, so two
+    // shaders whose create infos would be identical share one VkDescriptorSetLayout
+    // and one VkPipelineLayout instead of each creating an identical copy.
+    vstd::vector<detail::DescriptorSetLayoutKey> set_layout_keys;
+    set_layout_keys.resize(interface_plan.descriptor_set_count);
+    for (auto set_index = 0u;
+         set_index < interface_plan.descriptor_set_count; ++set_index) {
         auto &set_bindings = bindings[set_index];
         auto &set_flags = binding_flags[set_index];
         LUISA_ASSERT(
@@ -287,65 +342,127 @@ Shader::Shader(
                 set_flags.size() == set_bindings.size(),
             "Vulkan descriptor layout set {} exceeded its validated binding count.",
             set_index);
-        flags_info = VkDescriptorSetLayoutBindingFlagsCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
-            .bindingCount = static_cast<uint32_t>(set_flags.size()),
-            .pBindingFlags = set_flags.data()};
         auto bindless = is_bindless[set_index] != 0u;
-        return VkDescriptorSetLayoutCreateInfo{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .pNext = bindless ? &flags_info : nullptr,
-            .flags = bindless ?
-                         static_cast<VkDescriptorSetLayoutCreateFlags>(
-                             VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT) :
-                         VkDescriptorSetLayoutCreateFlags{0u},
-            .bindingCount =
-                static_cast<uint32_t>(set_bindings.size()),
-            .pBindings = set_bindings.data()};
-    };
+        auto &key = set_layout_keys[set_index];
+        key.flags = bindless ?
+                        static_cast<VkDescriptorSetLayoutCreateFlags>(
+                            VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT) :
+                        VkDescriptorSetLayoutCreateFlags{0u};
+        // Plan P2.3: a push descriptor set is a *layout* property, so the bit
+        // belongs in the key. P1.1's interning therefore cannot alias a push
+        // set-0 layout with a classic one, and the pipeline layout key - which
+        // compares the interned set-layout ids of its sets in order - inherits
+        // that separation.
+        if (set_index == 0u && _uses_push_descriptor_set) {
+            LUISA_ASSERT(!bindless,
+                         "Vulkan shader set 0 cannot be bindless and pushed at "
+                         "the same time.");
+            key.flags |= static_cast<VkDescriptorSetLayoutCreateFlags>(
+                VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT);
+        }
+        key.bindings.reserve(set_bindings.size());
+        for (auto binding_index = size_t{0u};
+             binding_index < set_bindings.size(); ++binding_index) {
+            auto &&set_binding = set_bindings[binding_index];
+            detail::DescriptorSetLayoutBindingKey binding_key{
+                .binding = set_binding.binding,
+                .descriptor_type = set_binding.descriptorType,
+                .descriptor_count = set_binding.descriptorCount,
+                .stage_flags = set_binding.stageFlags,
+                .binding_flags = set_flags[binding_index]};
+            if (set_binding.pImmutableSamplers != nullptr) {
+                // Immutable samplers are baked into the layout, so their content
+                // belongs to the structure (Vulkan reads exactly
+                // descriptorCount of them).
+                binding_key.immutable_samplers.assign(
+                    set_binding.pImmutableSamplers,
+                    set_binding.pImmutableSamplers + set_binding.descriptorCount);
+            }
+            key.bindings.emplace_back(std::move(binding_key));
+        }
+    }
     // Query every set before creating the first Vulkan object. This covers
     // implementation-specific layout support (including update-after-bind
-    // and acceleration-structure descriptors) beyond the numeric plan.
+    // and acceleration-structure descriptors) beyond the numeric plan. The query
+    // describes exactly the layout the interning table will create.
     for (auto set_index = 0u;
          set_index < interface_plan.descriptor_set_count; ++set_index) {
-        VkDescriptorSetLayoutBindingFlagsCreateInfo bindless_binding_flags{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
-        auto descriptor_layout = make_layout_create_info(
-            set_index, bindless_binding_flags);
+        detail::DescriptorSetLayoutCreateInfoBuilder builder{
+            set_layout_keys[set_index]};
         VkDescriptorSetLayoutSupport support{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_SUPPORT};
         vkGetDescriptorSetLayoutSupport(
-            device->logic_device(), &descriptor_layout, &support);
+            device->logic_device(), &builder.create_info(), &support);
         LUISA_ASSERT(
             support.supported == VK_TRUE,
             "Vulkan device rejected validated descriptor set layout {}.",
             set_index);
     }
+    // The layouts are interned and owned by the device: this shader only holds
+    // references. Should construction stop half-way (a future early return, not
+    // the fatal checks used above), hand the references back instead of keeping
+    // the shared handles alive for the lifetime of the device.
+    auto &layout_interner = device->layout_interner();
+    auto release_interned_layouts = [this](Device *owner) noexcept {
+        auto vk_device = owner->logic_device();
+        if (_pipeline_layout_interned) {
+            owner->layout_interner().release_pipeline_layout(
+                _pipeline_layout_interned.id, vk_device);
+        }
+        _pipeline_layout_interned = detail::InternedLayout{};
+        _pipeline_layout = VK_NULL_HANDLE;
+        for (auto &&interned : _desc_set_layout_interned) {
+            owner->layout_interner().release_descriptor_set_layout(
+                interned.id, vk_device);
+        }
+        _desc_set_layout_interned.clear();
+        _desc_set_layout.clear();
+    };
+    auto constructed = false;
+    auto release_on_failure = vstd::scope_exit([&] {
+        if (!constructed) { release_interned_layouts(device); }
+    });
+    _desc_set_layout.reserve(interface_plan.descriptor_set_count);
+    _desc_set_layout_interned.reserve(interface_plan.descriptor_set_count);
     for (auto set_index = 0u;
          set_index < interface_plan.descriptor_set_count; ++set_index) {
-        VkDescriptorSetLayoutBindingFlagsCreateInfo bindless_binding_flags{
-            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
-        auto descriptor_layout = make_layout_create_info(
-            set_index, bindless_binding_flags);
-        auto &r = _desc_set_layout.emplace_back();
-        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device->logic_device(), &descriptor_layout, Device::alloc_callbacks(), &r));
+        auto interned = layout_interner.acquire_descriptor_set_layout(
+            set_layout_keys[set_index], device->logic_device());
+        LUISA_ASSERT(
+            interned,
+            "Vulkan device failed to create descriptor set layout {}.",
+            set_index);
+        _desc_set_layout_interned.emplace_back(interned);
+        _desc_set_layout.emplace_back(
+            detail::uint64_to_handle<VkDescriptorSetLayout>(interned.handle));
     }
-    VkPushConstantRange push_const_range{
-        VkShaderStageFlags(stage_bits),
-        0,
-        push_constant_size};
-    VkPipelineLayoutCreateInfo pipeline_layout_create_info{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = interface_plan.descriptor_set_count,
-        .pSetLayouts = _desc_set_layout.data(),
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &push_const_range};
-    VK_CHECK_RESULT(
-        vkCreatePipelineLayout(
-            device->logic_device(),
-            &pipeline_layout_create_info,
-            Device::alloc_callbacks(),
-            &_pipeline_layout));
+    // The pipeline layout key names the interned descriptor sets it is built
+    // over - interned ids for exact equality, their structural hashes for the
+    // portable identity a later PSO/blob cache may persist - plus the
+    // push-constant range and the (zero) pipeline-layout flags.
+    detail::PipelineLayoutKey pipeline_layout_key;
+    pipeline_layout_key.flags = VkPipelineLayoutCreateFlags{0u};
+    pipeline_layout_key.descriptor_set_layouts.reserve(
+        _desc_set_layout_interned.size());
+    pipeline_layout_key.descriptor_set_layout_hashes.reserve(
+        _desc_set_layout_interned.size());
+    for (auto &&interned : _desc_set_layout_interned) {
+        pipeline_layout_key.descriptor_set_layouts.emplace_back(interned.id);
+        pipeline_layout_key.descriptor_set_layout_hashes.emplace_back(
+            interned.structural_hash);
+    }
+    pipeline_layout_key.push_constant_ranges.emplace_back(
+        detail::PushConstantRangeKey{
+            .stage_flags = VkShaderStageFlags(stage_bits),
+            .offset = 0u,
+            .size = push_constant_size});
+    _pipeline_layout_interned = layout_interner.acquire_pipeline_layout(
+        pipeline_layout_key, device->logic_device());
+    LUISA_ASSERT(
+        _pipeline_layout_interned,
+        "Vulkan device failed to create the shader pipeline layout.");
+    _pipeline_layout = detail::uint64_to_handle<VkPipelineLayout>(
+        _pipeline_layout_interned.handle);
 
     if (!constant_ubo_data.empty()) {
         _has_constant_ubo = true;
@@ -353,11 +470,39 @@ Shader::Shader(
         _constant_ubo->copy_from(constant_ubo_data.data(), 0, constant_ubo_data.size_bytes());
         _constant_ubo->flush_host();
     }
+    constructed = true;
 }
 Shader::~Shader() {
-    for (auto &&i : _desc_set_layout) {
-        vkDestroyDescriptorSetLayout(device()->logic_device(), i, Device::alloc_callbacks());
+    // The descriptor-set and pipeline layouts are interned and owned by the
+    // device (plan P1.1): hand the references back instead of destroying objects
+    // that other shaders may share. The device destroys a layout once its last
+    // user released it - and a release after the device drained its table (a
+    // shader that outlives the device object graph, e.g. ~Device's own lazy
+    // kernels) is a no-op, never a double destroy.
+    auto *owner = device();
+    if (owner == nullptr) {
+        // Without a device there is nobody left who could destroy the
+        // templates, and the logical device is already gone; dropping the
+        // cache without a native call is the only safe option.
+        detail::DescriptorUpdateTemplateCache &templates =
+            descriptor_update_templates();
+        templates.destroy(detail::DescriptorUpdateTemplateApi{}, VK_NULL_HANDLE);
+        return;
     }
-    vkDestroyPipelineLayout(device()->logic_device(), _pipeline_layout, Device::alloc_callbacks());
+    auto vk_device = owner->logic_device();
+    // Plan P2.2: the set-0 templates name this shader's (interned)
+    // descriptor-set layout, so they must be destroyed *before* the layout
+    // reference is released - a layout may only be destroyed once every
+    // descriptor set and descriptor update template created from it is gone.
+    descriptor_update_templates().destroy(
+        owner->descriptor_update_template_api(), vk_device);
+    auto &layout_interner = owner->layout_interner();
+    if (_pipeline_layout_interned) {
+        layout_interner.release_pipeline_layout(
+            _pipeline_layout_interned.id, vk_device);
+    }
+    for (auto &&interned : _desc_set_layout_interned) {
+        layout_interner.release_descriptor_set_layout(interned.id, vk_device);
+    }
 }
 }// namespace lc::vk

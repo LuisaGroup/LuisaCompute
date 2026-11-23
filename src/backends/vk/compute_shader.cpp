@@ -1,4 +1,5 @@
 #include "compute_shader.h"
+#include "submit_profile.h"
 #include "device.h"
 #include "log.h"
 #include "../common/hlsl/hlsl_codegen.h"
@@ -20,7 +21,6 @@ ComputeShader::ComputeShader(
     vstd::vector<SavedArgument> &&saved_args,
     vstd::span<uint const> spv_code,
     vstd::vector<Argument> &&captured,
-    vstd::span<std::byte const> cache_code,
     bool use_tex2d_bindless,
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
@@ -30,8 +30,9 @@ ComputeShader::ComputeShader(
     luisa::optional<uint8_t> required_subgroup_size,
     uint32_t push_constant_size,
     detail::ShaderCodegenDialect codegen_dialect,
-    bool enable_driver_optimization)
-    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect},
+bool enable_driver_optimization,
+      bool allow_push_descriptors)
+      : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count, push_constant_size, codegen_dialect, allow_push_descriptors},
       _block_size(block_size),
       _pipeline_create_flags{
           pipeline_create_flags(enable_driver_optimization)},
@@ -39,20 +40,6 @@ ComputeShader::ComputeShader(
     auto profile =
         luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
     Clock phase_clock;
-    VkPipelineCacheCreateInfo pso_ci{
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
-    if (!cache_code.empty()) {
-        pso_ci.initialDataSize = cache_code.size();
-        pso_ci.pInitialData = cache_code.data();
-    }
-    VkPipelineCache pipe_cache{VK_NULL_HANDLE};
-    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &pipe_cache));
-    if (profile) {
-        LUISA_INFO(
-            "Vulkan compute pipeline-cache creation: {:.3f} ms",
-            phase_clock.toc());
-    }
-    phase_clock.tic();
     VkShaderModuleCreateInfo module_create_info{
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = spv_code.size_bytes(),
@@ -99,26 +86,20 @@ ComputeShader::ComputeShader(
         .layout = _pipeline_layout};
 
     VkPipeline pipeline;
-    VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), pipe_cache, 1, &pipe_ci, Device::alloc_callbacks(), &pipeline));
+    {
+        // The one device-scoped cache (plan P1.3). The lease holds the cache's
+        // external-synchronization lock for exactly this driver call; the HLSL
+        // and SPIR-V compilation above ran without it.
+        auto cache = device->pipeline_cache().acquire();
+        VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), cache.handle(), 1, &pipe_ci, Device::alloc_callbacks(), &pipeline));
+    }
+    submit_profile::record_pipeline_create();
     if (profile) {
         LUISA_INFO(
             "Vulkan compute pipeline creation: {:.3f} ms",
             phase_clock.toc());
     }
-    _pipeline_ref = PipelineRef::create(device->logic_device(), pipeline, pipe_cache, Device::alloc_callbacks());
-}
-bool ComputeShader::serialize_pso(vstd::vector<std::byte> &result) const {
-    if (!_pipeline_ref) { return false; }
-    auto cache = _pipeline_ref->pipeline_cache;
-    if (cache == VK_NULL_HANDLE) { return false; }
-    auto last_size = result.size();
-    size_t pso_size = 0;
-    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), cache, &pso_size, nullptr));
-    luisa::vector_resize(result, last_size + pso_size);
-    if (pso_size <= sizeof(VkPipelineCacheHeaderVersionOne)) return false;
-    VK_CHECK_RESULT(vkGetPipelineCacheData(device()->logic_device(), cache, &pso_size, result.data() + last_size));
-    luisa::vector_resize(result, last_size + pso_size);
-    return true;
+    _pipeline_ref = PipelineRef::create(device->logic_device(), pipeline, Device::alloc_callbacks());
 }
 ComputeShader::~ComputeShader() {
     if (_pipeline_ref) {
@@ -256,7 +237,6 @@ ComputeShader *ComputeShader::compile(
                     std::move(saved_args),
                     {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
                     std::move(bindings),
-                    {},
                     str.useTex2DBindless,
                     str.useTex3DBindless,
                     str.useBufferBindless,
@@ -287,11 +267,11 @@ ComputeShader *ComputeShader::compile(
                         required_subgroup_size,
                         artifact_requirements,
                         codegen_dialect);
-                    ShaderSerializer::serialize_pso(
-                        device,
-                        shader,
-                        md5,
-                        bin_io);
+                    // No per-shader PSO artifact (plan P1.3): the pipeline was
+                    // created into the one device cache, which is persisted once
+                    // at device teardown. Writing a per-shader blob here would
+                    // put one file per compiled kernel in the cache directory for
+                    // no reuse benefit.
                 }
                 return shader;
             },

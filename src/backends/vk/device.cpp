@@ -30,6 +30,7 @@
 #include "indirect_buffer.h"
 #include "stream.h"
 #include "event.h"
+#include "submit_profile.h"
 #include "texture.h"
 #include "resource_barrier_contract.h"
 #include "queue_family_contract.h"
@@ -898,6 +899,53 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         _binary_io = configs->binary_io;
         _inqueue_limit = configs->inqueue_buffer_limit;
     }
+    {
+        // In-flight depth (plan P1.5), latched here, once: every stream reads it
+        // back through `max_frames_in_flight()`, so the bound cannot change under
+        // a stream that already has batches in flight. Zero is rejected instead of
+        // being read as "unlimited" - `DeviceConfig::inqueue_buffer_limit=false`
+        // is the switch that disables host throttling.
+        auto requested_frames_in_flight = _config_ext ? _config_ext->max_frames_in_flight() : detail::kDefaultFramesInFlight;
+        auto frames_in_flight_plan =
+            detail::plan_frames_in_flight(requested_frames_in_flight);
+        if (!frames_in_flight_plan) [[unlikely]] {
+            LUISA_ERROR(
+                "VulkanDeviceConfigExt::max_frames_in_flight() returned {} ({}); "
+                "zero is not 'unlimited'. Leave the getter at its default ({}), "
+                "pick a depth of at least 1, or disable host throttling with "
+                "DeviceConfig::inqueue_buffer_limit = false.",
+                requested_frames_in_flight,
+                detail::frames_in_flight_status_name(frames_in_flight_plan.status),
+                detail::kDefaultFramesInFlight);
+        }
+        _max_frames_in_flight = frames_in_flight_plan.depth;
+    }
+    // SM-count reporting contract (plan P6.2), latched once, next to the
+    // in-flight depth and for the same reason: it is a device attribute the
+    // caller supplies, not a per-dispatch decision. Vulkan has no physical
+    // SM-count query, so this backend never invents one - the value is either
+    // the caller's externally calibrated estimate (reported together with
+    // `sm_count_source = calibration_estimate`) or unknown (empty `sm_count`,
+    // `sm_count_source = unknown`). An implausible input is rejected here
+    // instead of being published as a device attribute.
+    {
+        auto requested_sm_count = _config_ext ? _config_ext->calibrated_sm_count_estimate() : 0u;
+        auto sm_count_plan = detail::plan_calibrated_sm_count(requested_sm_count);
+        if (sm_count_plan.status == detail::CalibratedSmCountStatus::REJECTED) [[unlikely]] {
+            LUISA_WARNING(
+                "VulkanDeviceConfigExt::calibrated_sm_count_estimate() returned "
+                "{}, which is not a plausible SM count for one device (bound "
+                "{}); reporting sm_count as unknown instead. This getter is a "
+                "calibration input, not a device attribute.",
+                requested_sm_count,
+                detail::kMaxCalibratedSmCount);
+        }
+        _capability_status.sm_count = sm_count_plan.value;
+        _capability_status.sm_count_source =
+            sm_count_plan ?
+                VulkanSmCountSource::CALIBRATION_ESTIMATE :
+                VulkanSmCountSource::UNKNOWN;
+    }
     // The config extension seeds the runtime command-reorder switch. It can
     // still be flipped later through CommandReorderExt, and
     // LUISA_DISABLE_COMMAND_REORDER=1 wins over both.
@@ -1076,6 +1124,13 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
     interop_enabled = false;
 #endif
     _init_device(ext_phy_device, ext_device, device_idx);
+    // One device-scoped VkPipelineCache for every DSL shader (plan P1.3). It is
+    // created here, after `_init_device` produced the logical device and the
+    // VkPipelineCacheHeaderVersionOne identity, and it is the only cache those
+    // shaders use. Seeding reads at most one versioned artifact and fails closed
+    // to an empty cache, so a bad blob can never cost the SPIR-V cache or abort
+    // device creation.
+    _pipeline_cache.create(this);
 
     {
         constexpr auto dummy_word_count =
@@ -1376,12 +1431,16 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         for (auto const &name : detail::vk_device_detail_3::vk_instance_enabled_extensions) {
             instance_extension_names.emplace_back(name.c_str());
         }
+        // The physical device's API version lets the registry accept an
+        // extension that Vulkan has promoted to core even when the driver no
+        // longer lists its name (plan P2.2, VK_KHR_descriptor_update_template).
         _optional_extensions.select(
             luisa::span<const luisa::string>{supported_extension_names.data(),
                                              supported_extension_names.size()},
             luisa::span<const luisa::string>{instance_extension_names.data(),
                                              instance_extension_names.size()},
-            _config_ext.get(), external_device != VK_NULL_HANDLE);
+            _config_ext.get(), external_device != VK_NULL_HANDLE,
+            _vk_device->properties.apiVersion);
         // One query over every candidate's feature structure. Only extensions
         // the physical device exposes are chained, so an unknown sType is
         // never handed to the driver.
@@ -1480,6 +1539,99 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
                 "Vulkan device reports maxTimelineSemaphoreValueDifference=0; "
                 "treated as no limit per the Vulkan specification.");
         }
+        // Every batch a stream keeps in flight spends one timeline value, so
+        // the configured in-flight depth has to fit the device's timeline value
+        // window (plan P1.5). A depth that cannot fit would make signal planning
+        // reject a legitimate submission later; reject the configuration here
+        // instead, while it is still a create-time error. An imported logical
+        // device leaves the property at its zeroed default, which this class
+        // reports as "no limit", so the check cannot fire there.
+        if (static_cast<uint64_t>(_max_frames_in_flight) + 1u >
+            max_timeline_semaphore_value_difference()) [[unlikely]] {
+            LUISA_ERROR(
+                "VulkanDeviceConfigExt::max_frames_in_flight() = {} needs {} "
+                "pending timeline values, but this device reports "
+                "maxTimelineSemaphoreValueDifference = {}.",
+                _max_frames_in_flight,
+                static_cast<uint64_t>(_max_frames_in_flight) + 1u,
+                max_timeline_semaphore_value_difference());
+        }
+    }
+    // ---- plan P6.1: the 14 core limits -----------------------------------
+    // Captured once here from this physical device's own property structures,
+    // and read back by both `Device::query` and
+    // `VulkanExtensionStatusExt::capability_status()` - one record, so the two
+    // reports cannot drift.
+    //
+    // This block is reporting only. Subgroup-size-control *policy* (whether the
+    // backend asks the driver for a specific subgroup size) keeps reading
+    // `_subgroup_size_control_properties`, which stays empty unless the feature is
+    // really enabled below, so capturing a physical bound here cannot change the
+    // warp size any shader is compiled with.
+    {
+        auto has_subgroup_size_control =
+            api_version >= VK_API_VERSION_1_3 ||
+            supports_device_extension(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME);
+        VkPhysicalDeviceSubgroupProperties subgroup_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+        VkPhysicalDeviceSubgroupSizeControlProperties subgroup_size_control_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
+        // VK_EXT_subgroup_size_control is core Vulkan 1.3; below that, chaining
+        // its properties structure is only legal once the physical device has
+        // attested the extension. The base subgroup structure carries
+        // subgroupSize and supportedOperations only - it has no lower/upper
+        // subgroup-size bound at all, so on a Vulkan 1.2 device without the
+        // extension `min_subgroup_size`/`max_subgroup_size` stay unknown instead
+        // of being derived from subgroupSize.
+        if (has_subgroup_size_control) {
+            subgroup_properties.pNext = &subgroup_size_control_properties;
+        }
+        VkPhysicalDeviceProperties2 core_limit_properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &subgroup_properties};
+        vkGetPhysicalDeviceProperties2(physical_device, &core_limit_properties2);
+        // A driver that ignores the chain leaves the structures zeroed; a zero
+        // bound is reported as "unknown", never as a value.
+        auto subgroup_size_control_query =
+            has_subgroup_size_control &&
+                    subgroup_size_control_properties.minSubgroupSize != 0u &&
+                    subgroup_size_control_properties.maxSubgroupSize != 0u ?
+                &subgroup_size_control_properties :
+                nullptr;
+        auto subgroup_properties_query =
+            subgroup_properties.subgroupSize != 0u ? &subgroup_properties : nullptr;
+        auto capability_limits = detail::make_capability_limits(
+            _vk_device->properties.limits,
+            subgroup_properties_query,
+            subgroup_size_control_query);
+        // Only the limit fields are replaced: the SM-count fields were latched in
+        // the constructor from the calibration input (plan P6.2), and the
+        // descriptor-heap state is read from the optional-extension registry on
+        // demand (plan P6.3).
+        capability_limits.sm_count = _capability_status.sm_count;
+        capability_limits.sm_count_source = _capability_status.sm_count_source;
+        _capability_status = capability_limits;
+        LUISA_INFO(
+            "Vulkan core limits: maxMemoryAllocationCount={}, subgroupOps={:#x}, "
+            "subgroupSizeControl={} ({}-{}), maxComputeWorkgroupCount=[{},{},{}], "
+            "maxComputeWorkgroupSize=[{},{},{}], maxComputeSharedMemoryBytes={}, "
+            "nonCoherentAtomSize={}, minStorageBufferOffsetAlignment={}, "
+            "maxStorageBufferRange={}",
+            _capability_status.max_memory_allocation_count,
+            _capability_status.subgroup_ops,
+            _capability_status.subgroup_size_control_available,
+            _capability_status.min_subgroup_size,
+            _capability_status.max_subgroup_size,
+            _capability_status.max_compute_workgroup_count_x,
+            _capability_status.max_compute_workgroup_count_y,
+            _capability_status.max_compute_workgroup_count_z,
+            _capability_status.max_compute_workgroup_size_x,
+            _capability_status.max_compute_workgroup_size_y,
+            _capability_status.max_compute_workgroup_size_z,
+            _capability_status.max_compute_shared_memory_bytes,
+            _capability_status.non_coherent_atom_size,
+            _capability_status.min_storage_buffer_offset_alignment,
+            _capability_status.max_storage_buffer_range);
     }
     if (required_device_features.enable_timeline_semaphore_extension) {
         enable_device_extension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
@@ -2806,6 +2958,118 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     auto device = _vk_device->logical_device;
     volkLoadDevice(device);
 
+    // ---- plan P2.2: per-dispatch descriptor update templates ----------
+    // One decision, at creation time: the negotiation must have enabled the
+    // extension (which folds in "the device supports it" and the
+    // VulkanDeviceConfigExt switch) *and* the loader must have resolved all
+    // three entry points. Otherwise every set-0 update keeps the pre-P2.2
+    // vkUpdateDescriptorSets call. Nothing re-evaluates this per dispatch.
+    {
+        auto negotiated = _optional_extensions.enabled(
+            detail::OptionalExtension::DESCRIPTOR_UPDATE_TEMPLATE);
+#ifdef VK_KHR_descriptor_update_template
+        // Core spelling first: the entry points are core Vulkan 1.1, so a
+        // driver that implements them exposes the core names. The KHR aliases
+        // are the fallback (same rule as cmd_pipeline_barrier / queue_submit).
+        if (negotiated) {
+            _create_descriptor_update_template =
+                ::vkCreateDescriptorUpdateTemplate != nullptr ?
+                    ::vkCreateDescriptorUpdateTemplate :
+                    ::vkCreateDescriptorUpdateTemplateKHR;
+            _destroy_descriptor_update_template =
+                ::vkDestroyDescriptorUpdateTemplate != nullptr ?
+                    ::vkDestroyDescriptorUpdateTemplate :
+                    ::vkDestroyDescriptorUpdateTemplateKHR;
+            _update_descriptor_set_with_template =
+                ::vkUpdateDescriptorSetWithTemplate != nullptr ?
+                    ::vkUpdateDescriptorSetWithTemplate :
+                    ::vkUpdateDescriptorSetWithTemplateKHR;
+        }
+#else
+        if (negotiated) {
+            _create_descriptor_update_template =
+                ::vkCreateDescriptorUpdateTemplate;
+            _destroy_descriptor_update_template =
+                ::vkDestroyDescriptorUpdateTemplate;
+            _update_descriptor_set_with_template =
+                ::vkUpdateDescriptorSetWithTemplate;
+        }
+#endif
+        descriptor_update_template_capable_bit =
+            _create_descriptor_update_template != nullptr &&
+            _destroy_descriptor_update_template != nullptr &&
+            _update_descriptor_set_with_template != nullptr;
+        if (negotiated && !descriptor_update_template_capable_bit) {
+            LUISA_WARNING(
+                "Vulkan descriptor update templates were negotiated but the "
+                "create/update/destroy entry points are not resolved; keeping "
+                "vkUpdateDescriptorSets for per-dispatch descriptor updates.");
+        }
+        LUISA_INFO("Vulkan per-dispatch descriptor updates: {}",
+                   descriptor_update_template_capable_bit ?
+                       "VkDescriptorUpdateTemplate" :
+                       "vkUpdateDescriptorSets");
+    }
+
+    // ---- plan P2.3: set-0 push descriptors ------------------------------
+    // One decision, at creation time: the registry must have enabled
+    // VK_KHR_push_descriptor (which folds in "the physical device exposes the
+    // name" and the VulkanDeviceConfigExt switch), the loader must have resolved
+    // vkCmdPushDescriptorSetKHR, and the physical device must report a usable
+    // maxPushDescriptors. Otherwise `push_descriptor_capable_bit` stays false and
+    // every shader is created with the classic set-0 layout. Nothing re-evaluates
+    // this per dispatch and no code path can switch mid-frame: the push
+    // descriptor set is a property of the descriptor-set layout, which is created
+    // and interned at shader creation.
+    {
+        auto negotiated = _optional_extensions.enabled(
+            detail::OptionalExtension::PUSH_DESCRIPTOR);
+        if (negotiated) {
+#ifdef VK_KHR_push_descriptor
+            // The KHR entry point is the one the extension enables.
+            _cmd_push_descriptor_set = ::vkCmdPushDescriptorSetKHR;
+#endif
+#if defined(VK_VERSION_1_4)
+            // A Vulkan 1.4 driver may expose only the core spelling; it is the
+            // same command with the same dispatch semantics, and the extension
+            // itself still had to be negotiated above.
+            if (_cmd_push_descriptor_set == nullptr) {
+                _cmd_push_descriptor_set = ::vkCmdPushDescriptorSet;
+            }
+#endif
+        }
+        if (negotiated && _cmd_push_descriptor_set != nullptr) {
+            // maxPushDescriptors is the only limit a push layout must respect
+            // (VUID-VkDescriptorSetLayoutCreateInfo-flags-00281). The property
+            // structure is only chained when the extension is exposed, i.e. when
+            // the driver accepts its structure type.
+            VkPhysicalDevicePushDescriptorPropertiesKHR push_properties{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR,
+                .pNext = nullptr,
+                .maxPushDescriptors = 0u};
+            VkPhysicalDeviceProperties2 push_properties2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &push_properties};
+            vkGetPhysicalDeviceProperties2(physical_device, &push_properties2);
+            _max_push_descriptors = push_properties.maxPushDescriptors;
+        }
+        push_descriptor_capable_bit =
+            _cmd_push_descriptor_set != nullptr && _max_push_descriptors != 0u;
+        if (negotiated && !push_descriptor_capable_bit) {
+            LUISA_WARNING(
+                "Vulkan push descriptors were negotiated but the entry point or "
+                "maxPushDescriptors is unavailable (maxPushDescriptors={}); "
+                "keeping classic set-0 allocation for every shader.",
+                _max_push_descriptors);
+        }
+        LUISA_INFO(
+            "Vulkan set-0 descriptor binding: {} (maxPushDescriptors={})",
+            push_descriptor_capable_bit ?
+                "vkCmdPushDescriptorSetKHR" :
+                "classic allocate/update/bind",
+            _max_push_descriptors);
+    }
+
     if (external_device == VK_NULL_HANDLE) {
         vkGetDeviceQueue(device, _vk_device->queue_family_indices.graphics, 0, &_graphics_queue);
         vkGetDeviceQueue(device, _vk_device->queue_family_indices.compute, 0, &_compute_queue);
@@ -3083,7 +3347,27 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
 bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return std::memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
+detail::ShaderCompilePool &Device::shader_compile_pool() noexcept {
+    if (!_shader_compile_pool) {
+        _shader_compile_pool = luisa::make_unique<detail::ShaderCompilePool>(this);
+    }
+    return *_shader_compile_pool;
+}
+void Device::shutdown_shader_compile_pool() noexcept {
+    // The pool object is created on demand (it owns no thread until a batch needs
+    // one), so a shutdown before the first batch still has to *create* it: otherwise
+    // "shut down" would leave no state to refuse later work with, and a caller that
+    // shuts the pool down early would silently get the parallel path back.
+    static_cast<void>(shader_compile_pool());
+    _shader_compile_pool->stop();
+}
 Device::~Device() {
+    // Ordered batch compilation (plan P5.1) stops first: it holds threads that may
+    // still be preparing a batch, and a prepared record names no Vulkan object, so
+    // joining them here - before the replay drain, the interned layouts, the
+    // pipeline cache, the BinaryIO and the logical device - is both sufficient and
+    // the last point at which it is safe.
+    shutdown_shader_compile_pool();
     // Extension-owned streams must go first: their destructors synchronize and
     // destroy the internal COPY stream they own, which needs both the logical
     // device and `_streams` to still be alive.
@@ -3102,6 +3386,43 @@ Device::~Device() {
         }
     }
     if (_vk_device) {
+        // Replay graphs (plan P4) are drained here: after the extension-owned
+        // streams above, which is where every stream has been synchronized, and
+        // before the interned layouts, the descriptor pools and the native device
+        // are destroyed. Each graph frees its recorded command buffer, its state
+        // (pools, descriptor sets, staging, retained pipelines) and finally the
+        // interned layout references it retained by id, so ordering the drain
+        // before `_layout_interner.destroy_all` is what keeps those releases
+        // meaningful instead of no-ops.
+        {
+            // A graph whose stream is still alive may have a replay in flight;
+            // `RecordedBatch` must not be freed under a pending submission, so
+            // those streams are synchronized once here. Streams that were already
+            // destroyed synchronized in their own destructor.
+            for (auto stream_handle : _replay_registry.stream_handles()) {
+                if (auto *stream = find_stream(stream_handle); stream != nullptr) {
+                    stream->sync();
+                }
+            }
+            auto drained = _replay_registry.destroy_all_instances(
+                "the device was destroyed");
+            if (drained != 0u) {
+                LUISA_INFO(
+                    "Vulkan replay: freed {} graph(s) at device teardown.",
+                    drained);
+            }
+        }
+        // Lazy kernels are members and would otherwise be destroyed after this
+        // body. Destroy them now: their descriptor update templates and pipeline
+        // layouts must not outlive the descriptor-set layouts drained below.
+        set_bindless_kernel.reset();
+        set_accel_kernel.reset();
+        prepare_indirect_kernel.reset();
+        // Interned shader layouts are device-owned (plan P1.1): destroy every
+        // survivor exactly once, here, while the logical device is still alive.
+        // A shader that outlives this point only drops references, which are
+        // no-ops after the drain.
+        _layout_interner.destroy_all(logic_device());
         vkDestroyDescriptorSetLayout(logic_device(), _sampler_set_layout, alloc_callbacks());
         vkDestroyDescriptorSetLayout(logic_device(), _bdls_buffer_set_layout, alloc_callbacks());
         vkDestroyDescriptorSetLayout(logic_device(), _bdls_tex2d_set_layout, alloc_callbacks());
@@ -3119,6 +3440,12 @@ Device::~Device() {
         for (auto &i : _samplers) {
             vkDestroySampler(logic_device(), i, alloc_callbacks());
         }
+        // The device pipeline cache dies with the Device (plan P1.3): persist it
+        // to its single artifact and destroy the handle here, while the VkDevice
+        // and the BinaryIO are still valid. `_default_file_io` is released right
+        // after this block, so this is the last safe point. Shaders only borrow the
+        // handle, so a shader destroyed later cannot touch it.
+        _pipeline_cache.release(this);
     }
     _default_file_io = nullptr;
 #ifndef LC_NO_HLSL_BUILTIN
@@ -3235,6 +3562,16 @@ void Device::destroy_buffer(uint64_t handle) noexcept {
     // barrier cache has dropped the wrapper. destroy_stream takes this same
     // lock before deleting a Stream and cannot invalidate an entry midway.
     std::lock_guard lock{_stream_mtx};
+    // Replay graphs (plan P4) are invalidated *before* the wrapper and its native
+    // buffer go away: a later replay() returns RESOURCE_DESTROYED instead of
+    // submitting a command buffer that names a freed VkBuffer. The graphs store the
+    // native identity by value, so this comparison never dereferences anything.
+    if (auto native = detail::handle_to_uint64(buffer->vk_buffer()); native != 0u) {
+        auto message = luisa::format(
+            "buffer 0x{:x} was destroyed while a replay graph still named it",
+            handle);
+        _replay_registry.invalidate_buffers(&native, 1u, message);
+    }
     for (auto *stream : _streams) {
         stream->remove_resource_state(buffer);
     }
@@ -3343,6 +3680,19 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
         .native_handle = ptr->queue()};
     return info;
 }
+Stream *Device::find_stream(uint64_t handle) noexcept {
+    if (handle == 0u) { return nullptr; }
+    std::lock_guard lck{_stream_mtx};
+    auto *stream = reinterpret_cast<Stream *>(handle);
+    // Only a handle the device really registered is returned: a public extension
+    // must not reinterpret an unchecked integer, and an extension-owned
+    // `CustomStream` is not a recordable stream.
+    for (auto *candidate : _streams) {
+        if (candidate == stream) { return stream; }
+    }
+    return nullptr;
+}
+
 void Device::destroy_stream(uint64_t handle) noexcept {
     if (auto *custom = remove_custom_stream(handle)) {
         // Unregister before deleting: the destructor must not be able to
@@ -3354,6 +3704,16 @@ void Device::destroy_stream(uint64_t handle) noexcept {
     {
         std::lock_guard lck{_stream_mtx};
         _streams.erase(stream);
+        // Phase 1 of the replay teardown (plan P4): mark every graph bound to this
+        // stream before anything is deleted. The graphs free no native state here
+        // (their command buffer may still be pending on this stream); they become
+        // tombstones that answer STREAM_DESTROYED and are freed later by
+        // `destroy()` or by the device drain, which runs after the stream's own
+        // synchronization made that legal.
+        auto message = luisa::format(
+            "stream 0x{:x} was destroyed while a replay graph was bound to it",
+            handle);
+        _replay_registry.invalidate_stream(handle, message);
     }
     delete stream;
 }
@@ -3403,6 +3763,184 @@ bool Device::print_code() {
 }
 
 luisa::string Device::query(luisa::string_view property) noexcept {
+    // Plan P6.1: the 14 core Vulkan limits. Answered from the one capability
+    // record captured at creation, which is also what
+    // VulkanExtensionStatusExt::capability_status() reports, so a query answer and
+    // a status report cannot disagree. An empty answer is "this Vulkan device has
+    // no value for this limit" (only min/max subgroup size and subgroup ops can be
+    // unknown), never zero.
+    if (auto limit = detail::core_limit_from_name(property)) {
+        return detail::query_core_limit(_capability_status, *limit);
+    }
+    // Plan P6.2: no Vulkan physical SM-count query exists, so `sm_count` is
+    // answered only from a caller-supplied calibrated estimate and is empty
+    // otherwise; `sm_count_source` says which of the two it is. A consumer that
+    // needs a device attribute must check the source.
+    if (property == "sm_count") {
+        return detail::query_sm_count(_capability_status);
+    }
+    if (property == "sm_count_source") {
+        return detail::query_sm_count_source(_capability_status);
+    }
+    // Counter-only submit profiler (plan P0.2): every vk_profile_* key is
+    // answered by the profiler itself, which never feeds a backend decision.
+    if (property.starts_with("vk_profile_")) {
+        return submit_profile::query(property);
+    }
+    if (property == "vk_queue_submit_path") {
+        // Diagnostic of the queue-submission entry point this device uses (plan
+        // P2.1): "submit2" for vkQueueSubmit2 (+ VkSemaphoreSubmitInfo stage
+        // masks), "legacy" for the Vulkan 1.2 vkQueueSubmit path. Reported, never
+        // read back by the backend: `sync2_capable()` already decides it.
+        return sync2_capable() ? luisa::string{"submit2"} : luisa::string{"legacy"};
+    }
+if (property == "vk_descriptor_update_template_path") {
+          // Diagnostic of the per-dispatch descriptor-update path (plan P2.2):
+          // "template" when set-0 updates go through a cached
+          // VkDescriptorUpdateTemplate, "legacy" when the device, the config
+          // switch or the entry points force vkUpdateDescriptorSets. Latched at
+          // creation; reported, never read back to change behaviour.
+          return descriptor_update_template_capable() ?
+                     luisa::string{"template"} :
+                     luisa::string{"legacy"};
+      }
+      if (property == "vk_push_descriptor_path") {
+          // Diagnostic of the set-0 binding path (plan P2.3): "push" when DSL
+          // shaders are created with a push descriptor set 0 and the encoder
+          // records vkCmdPushDescriptorSetKHR, "classic" otherwise. Latched at
+          // creation; every shader still decides for itself whether its own set 0
+          // qualifies, and a shader that does not keeps the classic layout -
+          // the counters `vk_profile_push_descriptor_shaders` /
+          // `_classic_shaders` report that split.
+          return push_descriptor_capable() ?
+                     luisa::string{"push"} :
+                     luisa::string{"classic"};
+      }
+      if (property == "vk_push_descriptor_max_count") {
+          // VkPhysicalDevicePushDescriptorPropertiesKHR::maxPushDescriptors, or 0
+          // when the push path is unavailable (no extension, no entry point, no
+          // property query). Reporter only.
+          return luisa::format("{}", max_push_descriptors());
+      }
+    if (property == "vk_max_frames_in_flight") {
+        // Diagnostic of the in-flight depth latched at creation (plan P1.5).
+        // Reported, never read back by the backend: the value is the contract the
+        // streams already follow, so answering it cannot change behaviour.
+        return luisa::format("{}", _max_frames_in_flight);
+    }
+    if (property == "vk_spirv_codegen_route") {
+     // Diagnostic of the *default* user-compute codegen route: "native" when this
+     // backend was built with the native XIR-to-SPIR-V codegen
+     // (lc_vk_backend_use_xir_spirv / LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV, which is
+     // what gives a compute kernel the indirect-dispatch metadata ABI), "hlsl" when
+     // it was not and every kernel therefore takes the compatibility HLSL route.
+     // It is the device default, not a per-kernel promise: a kernel that needs the
+     // HLSL fallback (printing, native_include, async copy, motion blur,
+     // accel.size(), BF16 without the feature, ray-query cluster id) takes it even
+     // on a "native" device. Reported, never read back to change behaviour.
+#ifdef LUISA_XIR_TO_SPIRV
+     return luisa::string{"native"};
+#else
+     return luisa::string{"hlsl"};
+#endif
+ }
+ if (property == "vk_replay_supported") {
+        // Plan P4: replayable recording of a direct compute dispatch and a
+        // device-to-device buffer copy, with UNIFORM/BUFFER arguments only. Always
+        // "1" for this backend, because the contract is a property of the
+        // implementation rather than of the device; a narrowed build would answer
+        // "0" here and nowhere else.
+        return luisa::string{"1"};
+    }
+    if (property.starts_with("vk_shader_compile_")) {
+        // Diagnostics of the ordered batch-compilation pool (plan P5.1). They report
+        // state and counters, never a decision: no code path reads them. Read from
+        // the pool's atomics, so a query on one thread while another publishes a
+        // batch cannot see a torn value; a device that never batched answers zeroes
+        // without creating the pool.
+        auto stats = _shader_compile_pool ?
+                         _shader_compile_pool->stats() :
+                         VulkanShaderCompileStats{};
+        if (property == "vk_shader_compile_parallel") {
+            return luisa::string{"1"};
+        }
+        if (property == "vk_shader_compile_worker_count") {
+            return luisa::format("{}", stats.worker_count);
+        }
+        if (property == "vk_shader_compile_pool_state") {
+            if (stats.pool_shutdown) { return luisa::string{"shutdown"}; }
+            return luisa::string{stats.pool_created ? "running" : "not_created"};
+        }
+        if (property == "vk_shader_compile_batches") {
+            return luisa::format("{}", stats.batches);
+        }
+        if (property == "vk_shader_compile_requests") {
+            return luisa::format("{}", stats.requests);
+        }
+        if (property == "vk_shader_compile_parallel_prepares") {
+            return luisa::format("{}", stats.parallel_prepares);
+        }
+        if (property == "vk_shader_compile_serial_prepares") {
+            return luisa::format("{}", stats.serial_prepares);
+        }
+        if (property == "vk_shader_compile_cache_hits") {
+            return luisa::format("{}", stats.cache_hits);
+        }
+        if (property == "vk_shader_compile_serial_fallbacks") {
+            return luisa::format("{}", stats.serial_fallbacks);
+        }
+        if (property == "vk_shader_compile_publish_order_waits") {
+            return luisa::format("{}", stats.publish_order_waits);
+        }
+        if (property == "vk_shader_compile_publish_order_wait_ns") {
+            return luisa::format("{}", stats.publish_order_wait_ns);
+        }
+        return luisa::string{};
+    }
+    if (property == "vk_replay_graphs") {
+        // Live recordings of this device, read from the registry on every query so
+        // it can never drift from the graphs that actually exist.
+        return luisa::format("{}", _replay_registry.size());
+    }
+    if (property.starts_with("vk_pipeline_cache_")) {
+        // Diagnostics of the device-scoped pipeline cache (plan P1.3). They
+        // report state, never a decision: no code path reads them.
+        if (property == "vk_pipeline_cache_handle") {
+            return luisa::format("{}", reinterpret_cast<uintptr_t>(_pipeline_cache.handle()));
+        }
+        if (property == "vk_pipeline_cache_state") {
+            return luisa::string{_pipeline_cache.available() ? "ready" : "unavailable"};
+        }
+        if (property == "vk_pipeline_cache_seed") {
+            switch (_pipeline_cache.seed_status()) {
+                case detail::DevicePipelineCache::SeedStatus::kLoaded:
+                    return luisa::string{"loaded"};
+                case detail::DevicePipelineCache::SeedStatus::kAbsent:
+                    return luisa::string{"absent"};
+                case detail::DevicePipelineCache::SeedStatus::kRejected:
+                    return luisa::string{"rejected"};
+                case detail::DevicePipelineCache::SeedStatus::kUnavailable:
+                    return luisa::string{"unavailable"};
+            }
+            return {};
+        }
+        if (property == "vk_pipeline_cache_seed_reason") {
+            return luisa::string{_pipeline_cache.seed_reason()};
+        }
+        if (property == "vk_pipeline_cache_seed_bytes") {
+            return luisa::format("{}", _pipeline_cache.seed_bytes());
+        }
+        if (property == "vk_pipeline_cache_artifact_name") {
+            return luisa::string{_pipeline_cache.artifact_name()};
+        }
+        if (property == "vk_pipeline_cache_merged_seeds") {
+            return luisa::format("{}", _pipeline_cache.merged_seeds());
+        }
+        if (property == "vk_pipeline_cache_rejected_seeds") {
+            return luisa::format("{}", _pipeline_cache.rejected_seeds());
+        }
+        return {};
+    }
     if (property == "shader_untyped_pointers") {
         return shader_untyped_pointers_enabled ? "true" : "false";
     }
@@ -3908,9 +4446,21 @@ ShaderCreationInfo Device::_create_shader_hlsl(
 }
 
 // kernel
-ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
-    ShaderCreationInfo info;
-
+//
+// Compilation of one compute shader is split in two phases so that a batch of
+// shaders can be prepared on the device's worker pool and published in request
+// order (plan P5.1, `shader_compile_pool.h`). A serial `create_shader` is exactly
+// `publish(prepare(...))` on the calling thread, with no pool involved, so it
+// behaves precisely as it did before.
+detail::PreparedComputeShader Device::_prepare_compute_shader(
+    const ShaderOption &option, Function kernel,
+    detail::WorkerContext *worker) noexcept {
+    // The native XIR-to-SPIR-V route needs no per-worker compiler state: the XIR
+    // translation, the SPIRV-Tools optimizer and validator, and the artifact codec
+    // are all built per call and share no mutable state. Only the compatibility
+    // HLSL-to-SPIR-V route would need one, and that route stays on the serial path.
+    static_cast<void>(worker);
+    detail::PreparedComputeShader prepared;
 #ifdef LUISA_XIR_TO_SPIRV
     constexpr auto native_xir_spirv_compiled = true;
 #else
@@ -3930,45 +4480,45 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     // shader has to take the compatibility HLSL route - the native
     // XIR-to-SPIR-V route can only emit the hardware query/trace operations.
     // Nothing here changes for a device whose fallback is off.
-      auto uses_raytracing_ops = builtin_calls.uses_raytracing();
-      // Instance updates (set transform/visibility/opacity/user id) do not
-      // count as ray-tracing ops, but on a fallback device they touch the
-      // same fallback instance buffer: the shader has to be compiled
-      // against the fallback acceleration-structure ABI as well, otherwise
-      // its property list declares the native SPIR-V accel views and the
-      // dispatch finds no fallback descriptor for the argument.
-      auto uses_accel_instance_update =
-          builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
-          builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY) ||
-          builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
-          builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID);
-      auto requires_fallback_rtx_traversal =
-          use_fallback_rtx_bit &&
-          (uses_raytracing_ops || uses_accel_instance_update);
-      // BF16 has no software form in the native XIR-to-SPIR-V route (a BFloat16
-      // type needs the device's shaderBFloat16Type), so a kernel that mentions
-      // BF16 on a device without that feature takes the compatibility HLSL route,
-      // where builtin/bfloat16_fallback.bytes emulates it.
-      auto requires_bfloat16_fallback =
-          !supports_native_bfloat16() &&
-          detail::function_uses_bfloat16(kernel);
-      detail::UserComputeCodegenRequirements codegen_requirements{
-          .native_include = !option.native_include.empty(),
-          .printing = kernel.requires_printing(),
-          .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
-                        builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
-                        builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
-          .motion_blur = requires_motion_blur,
-          .accel_size = requires_accel_size,
-          .fallback_rtx = requires_fallback_rtx_traversal,
-          .bfloat16 = requires_bfloat16_fallback,
-          // The cluster ID of a ray-query intersection is
-          // OpRayQueryGetIntersectionClusterIdNV
-          // (SPV_NV_cluster_acceleration_structure), which the native
-          // XIR-to-SPIR-V route does not emit, so a kernel that reads it
-          // takes the compatibility HLSL route.
-          .ray_query_cluster_id =
-              builtin_calls.test(CallOp::RAY_QUERY_CLUSTER_ID)};
+    auto uses_raytracing_ops = builtin_calls.uses_raytracing();
+    // Instance updates (set transform/visibility/opacity/user id) do not
+    // count as ray-tracing ops, but on a fallback device they touch the
+    // same fallback instance buffer: the shader has to be compiled
+    // against the fallback acceleration-structure ABI as well, otherwise
+    // its property list declares the native SPIR-V accel views and the
+    // dispatch finds no fallback descriptor for the argument.
+    auto uses_accel_instance_update =
+        builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
+        builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY) ||
+        builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
+        builtin_calls.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID);
+    auto requires_fallback_rtx_traversal =
+        use_fallback_rtx_bit &&
+        (uses_raytracing_ops || uses_accel_instance_update);
+    // BF16 has no software form in the native XIR-to-SPIR-V route (a BFloat16
+    // type needs the device's shaderBFloat16Type), so a kernel that mentions
+    // BF16 on a device without that feature takes the compatibility HLSL route,
+    // where builtin/bfloat16_fallback.bytes emulates it.
+    auto requires_bfloat16_fallback =
+        !supports_native_bfloat16() &&
+        detail::function_uses_bfloat16(kernel);
+    detail::UserComputeCodegenRequirements codegen_requirements{
+        .native_include = !option.native_include.empty(),
+        .printing = kernel.requires_printing(),
+        .async_copy = builtin_calls.test(CallOp::ASYNC_COPY) ||
+                      builtin_calls.test(CallOp::PIPELINE_COMMIT) ||
+                      builtin_calls.test(CallOp::PIPELINE_WAIT_PRIOR),
+        .motion_blur = requires_motion_blur,
+        .accel_size = requires_accel_size,
+        .fallback_rtx = requires_fallback_rtx_traversal,
+        .bfloat16 = requires_bfloat16_fallback,
+        // The cluster ID of a ray-query intersection is
+        // OpRayQueryGetIntersectionClusterIdNV
+        // (SPV_NV_cluster_acceleration_structure), which the native
+        // XIR-to-SPIR-V route does not emit, so a kernel that reads it
+        // takes the compatibility HLSL route.
+        .ray_query_cluster_id =
+            builtin_calls.test(CallOp::RAY_QUERY_CLUSTER_ID)};
     auto codegen_route =
         detail::plan_user_compute_codegen_route(codegen_requirements);
     auto native_requirement = detail::plan_required_native_xir_spirv(
@@ -4026,13 +4576,13 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 "fallback.",
                 kernel.name());
         }
-          LUISA_ASSERT(
-              builtin_calls.test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
-                  builtin_calls.test(CallOp::RAY_TRACING_TRACE_ANY) ||
-                  uses_accel_instance_update,
-              "Vulkan shader '{}' was routed to the software ray-tracing "
-              "fallback without a trace or instance-update operation.",
-              kernel.name());
+        LUISA_ASSERT(
+            builtin_calls.test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
+                builtin_calls.test(CallOp::RAY_TRACING_TRACE_ANY) ||
+                uses_accel_instance_update,
+            "Vulkan shader '{}' was routed to the software ray-tracing "
+            "fallback without a trace or instance-update operation.",
+            kernel.name());
     }
     if (requires_motion_blur && !motion_blur_enabled) {
         LUISA_ERROR("Vulkan device does not support VK_NV_ray_tracing_motion_blur; "
@@ -4040,13 +4590,17 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     }
 #ifdef LUISA_XIR_TO_SPIRV
     if (codegen_route.requires_hlsl_fallback()) {
+        // Fail closed to the unchanged serial path, on the thread that publishes:
+        // the compatibility route is compiled by the process-global DXC instance,
+        // whose thread contract this backend does not own.
         LUISA_VERBOSE(
             "Vulkan shader '{}' requires the HLSL-to-SPIR-V fallback for: "
             "{}.",
             kernel.name(), fallback_reasons);
-        return _create_shader_hlsl(
-            option, kernel, requires_sampler_anisotropy,
-            requires_fallback_rtx_traversal);
+        prepared.kind = detail::PreparedComputeShader::Kind::SERIAL_FALLBACK;
+        prepared.fallback_requires_sampler_anisotropy = requires_sampler_anisotropy;
+        prepared.fallback_rtx = requires_fallback_rtx_traversal;
+        return prepared;
     }
     auto enabled_spirv_features = enabled_spirv_artifact_features();
     auto target_features =
@@ -4089,40 +4643,55 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         }
         return result;
     };
-
+    auto artifact_requirements = [&]() noexcept {
+        return ComputeShaderArtifactLoadRequirements{
+            .shader_md5 = shader_md5,
+            .type_md5 = type_md5,
+            .codegen_dialect = detail::ShaderCodegenDialect::XIR_SPIRV,
+            .required_subgroup_size = required_subgroup_size};
+    };
+    // Reads and writes of the shader cache are serialized device-wide (plan P5.1):
+    // a `BinaryIO` is one resource that a user implementation need not make
+    // thread-safe, and one writer keeps the artifact sequence deterministic. Only
+    // the copy of the bytes happens under the lock - decoding, validating and code
+    // generation all run outside it, so a slow kernel cannot serialize the cache.
+    auto read_cached_artifact = [&] {
+        std::lock_guard cache_lock{_shader_cache_mtx};
+        return ShaderSerializer::read_shader_artifact(
+            serde_type, _binary_io, shader_name);
+    };
     if (require_print_code || !use_binary_io ||
-        ShaderSerializer::require_recompile(
-            shader_name,
-            {.shader_md5 = shader_md5,
-             .type_md5 = type_md5,
-             .codegen_dialect =
-                 detail::ShaderCodegenDialect::XIR_SPIRV,
-             .required_subgroup_size = required_subgroup_size},
-            serde_type, _binary_io)) {
+        ShaderSerializer::require_recompile_from_bytes(
+            read_cached_artifact(), artifact_requirements())) {
         spv_result = compile_native_spirv();
     }
 
     if (!spv_result && !option.compile_only && use_binary_io) {
-        auto deser = ShaderSerializer::try_deser_compute(
-            this,
-            {.shader_md5 = shader_md5,
-             .type_md5 = type_md5,
-             .codegen_dialect =
-                 detail::ShaderCodegenDialect::XIR_SPIRV,
-             .required_subgroup_size = required_subgroup_size},
-            hlsl::binding_to_arg(kernel.bound_arguments()),
-            shader_name,
-            serde_type,
-            _binary_io,
-            32u,
-            option.enable_driver_optimization);
-        if (deser.shader) {
-            auto shader = static_cast<ComputeShader *>(deser.shader);
-            LUISA_VERBOSE("ComputeShader loaded successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
-            info.handle = reinterpret_cast<uint64_t>(shader);
-            info.native_handle = shader->pipeline();
-            info.block_size = shader->block_size();
-            return info;
+        ShaderSerializer::ComputeShaderArtifactLoad load;
+        if (ShaderSerializer::load_compute_artifact_from_bytes(
+                this, artifact_requirements(), read_cached_artifact(),
+                shader_name, 32u, option.enable_driver_optimization, load)) {
+            prepared.kind = detail::PreparedComputeShader::Kind::READY;
+            prepared.from_cache = true;
+            prepared.block_size = load.block_size;
+            prepared.reported_block_size = load.block_size;
+            prepared.properties = std::move(load.properties);
+            prepared.saved_arguments = std::move(load.arguments);
+            prepared.captured = hlsl::binding_to_arg(kernel.bound_arguments());
+            prepared.spirv = std::move(load.spirv);
+            prepared.use_tex2d_bindless = load.use_tex2d_bindless;
+            prepared.use_tex3d_bindless = load.use_tex3d_bindless;
+            prepared.use_buffer_bindless = load.use_buffer_bindless;
+            prepared.printers = std::move(load.printers);
+            prepared.constant_ubo_data = std::move(load.constant_ubo_data);
+            prepared.validation_count = load.validation_count;
+            prepared.required_subgroup_size = load.required_subgroup_size;
+            prepared.push_constant_size = load.push_constant_size;
+            prepared.codegen_dialect = load.codegen_dialect;
+            prepared.enable_driver_optimization = option.enable_driver_optimization;
+            prepared.artifact_name = shader_name;
+            prepared.pso_seed_name = std::move(load.pso_seed_name);
+            return prepared;
         }
         spv_result = compile_native_spirv();
     }
@@ -4149,20 +4718,18 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             }
             LUISA_VERBOSE("SPIRV printed to {}.", filename);
         }
+        auto saved_args = ShaderSerializer::serialize_saved_args(
+            luisa::span{spv_result->argument_usages}, true,
+            luisa::span{spv_result->argument_roles});
         if (use_binary_io) {
             Clock serialization_clock;
-            ShaderSerializer::serialize_bytecode(
+            prepared.artifact_bytes = ShaderSerializer::encode_bytecode_artifact(
                 spv_result->properties,
-                ShaderSerializer::serialize_saved_args(
-                    luisa::span{spv_result->argument_usages}, true,
-                    luisa::span{spv_result->argument_roles}),
+                saved_args,
                 shader_md5,
                 type_md5,
                 kernel.block_size(),
-                shader_name,
                 spv_result->spv_bin,
-                serde_type,
-                _binary_io,
                 spv_result->useTex2DBindless,
                 spv_result->useTex3DBindless,
                 spv_result->useBufferBindless,
@@ -4172,60 +4739,70 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 required_subgroup_size,
                 artifact_requirements,
                 detail::ShaderCodegenDialect::XIR_SPIRV);
+            prepared.write_artifact = true;
+            prepared.artifact_name = shader_name;
+            prepared.artifact_type = serde_type;
             if (profile) {
                 LUISA_INFO(
                     "Vulkan native shader-artifact serialization: {:.3f} ms",
                     serialization_clock.toc());
             }
         }
-    }
-    if (option.compile_only) {
-        assert(!option.name.empty());
-        info.invalidate();
-    } else {
-        LUISA_ASSERT(spv_result, "Vulkan SPIR-V cache load failed without recompilation.");
-        Clock pipeline_clock;
-        auto shader = new ComputeShader(
-            this,
-            kernel.block_size(),
-            spv_result->properties,
-            ShaderSerializer::serialize_saved_args(
-                luisa::span{spv_result->argument_usages}, true,
-                luisa::span{spv_result->argument_roles}),
-            {reinterpret_cast<const uint *>(spv_result->spv_bin.data()), spv_result->spv_bin.size()},
-            hlsl::binding_to_arg(kernel.bound_arguments()),
-            {},
-            spv_result->useTex2DBindless,
-            spv_result->useTex3DBindless,
-            spv_result->useBufferBindless,
-            std::move(spv_result->printers),
-            {spv_result->constant_ubo_data.data(), spv_result->constant_ubo_data.size()},
-            0,
-            required_subgroup_size,
-            32u,
-            detail::ShaderCodegenDialect::XIR_SPIRV,
-            option.enable_driver_optimization);
+        prepared.properties = std::move(spv_result->properties);
+        prepared.saved_arguments = std::move(saved_args);
+        prepared.captured = hlsl::binding_to_arg(kernel.bound_arguments());
+        prepared.spirv = std::move(spv_result->spv_bin);
+        prepared.use_tex2d_bindless = spv_result->useTex2DBindless;
+        prepared.use_tex3d_bindless = spv_result->useTex3DBindless;
+        prepared.use_buffer_bindless = spv_result->useBufferBindless;
+        prepared.printers = std::move(spv_result->printers);
+        prepared.constant_ubo_data = std::move(spv_result->constant_ubo_data);
+        prepared.validation_count = 0u;
+        prepared.required_subgroup_size = required_subgroup_size;
+        prepared.push_constant_size = 32u;
+        prepared.codegen_dialect = detail::ShaderCodegenDialect::XIR_SPIRV;
+        prepared.enable_driver_optimization = option.enable_driver_optimization;
+        prepared.reported_block_size = kernel.block_size();
+        if (option.compile_only) {
+            assert(!option.name.empty());
+            // Nothing to construct: the artifact above is the whole answer, and the
+            // publishing phase writes it.
+            prepared.kind = detail::PreparedComputeShader::Kind::READY;
+            prepared.construct_shader = false;
+            return prepared;
+        }
+        prepared.kind = detail::PreparedComputeShader::Kind::READY;
+        prepared.construct_shader = true;
+        prepared.block_size = kernel.block_size();
         if (profile) {
-            LUISA_INFO(
-                "Vulkan native ComputeShader construction: {:.3f} ms",
-                pipeline_clock.toc());
+            // The construction cost of a native shader is reported by
+            // `_publish_compute_shader` (it happens there now).
+            LUISA_INFO("Vulkan native shader prepared: {} word(s) SPIR-V, {} bind(s)",
+                       prepared.spirv.size(), prepared.properties.size());
         }
-        if (use_binary_io) {
-            Clock pso_serialization_clock;
-            ShaderSerializer::serialize_pso(
-                this, shader, shader_md5, _binary_io);
-            if (profile) {
-                LUISA_INFO(
-                    "Vulkan native pipeline-cache serialization: {:.3f} ms",
-                    pso_serialization_clock.toc());
-            }
-        }
-        LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
-        info.handle = reinterpret_cast<uint64_t>(shader);
-        info.native_handle = shader->pipeline();
+        return prepared;
     }
+    LUISA_ASSERT(spv_result, "Vulkan SPIR-V cache load failed without recompilation.");
+    return prepared;
+#else
+    // This build has no native XIR-to-SPIR-V route, so every shader takes the
+    // serial path (LLVM-to-SPIR-V or HLSL-to-SPIR-V); see `_create_shader_serial`.
+    prepared.kind = detail::PreparedComputeShader::Kind::SERIAL_FALLBACK;
+    prepared.fallback_requires_sampler_anisotropy = requires_sampler_anisotropy;
+    prepared.fallback_rtx = requires_fallback_rtx_traversal;
+    return prepared;
+#endif
+}
 
-#elif defined(LUISA_AST_LLVM_TO_SPIRV)
+// The unchanged serial compilation routes: the compatibility HLSL-to-SPIR-V
+// compiler, the LLVM-to-SPIR-V route, and every build without the native
+// XIR-to-SPIR-V route. Reached by a `SERIAL_FALLBACK` prepared record, i.e. on the
+// thread that publishes, exactly like the pre-P5.1 code path.
+ShaderCreationInfo Device::_create_shader_serial(
+    const ShaderOption &option, Function kernel,
+    bool requires_sampler_anisotropy, bool requires_fallback_rtx_traversal) noexcept {
+#ifdef LUISA_AST_LLVM_TO_SPIRV
+    ShaderCreationInfo info;
     // === AST LLVM to SPIR-V codegen path ===
     if (requires_fallback_rtx_traversal) {
         LUISA_ERROR(
@@ -4297,7 +4874,6 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             {reinterpret_cast<const uint *>(llvm_result.spv_bin.data()),
              llvm_result.spv_bin.size()},
             hlsl::binding_to_arg(kernel.bound_arguments()),
-            {},
             llvm_result.useTex2DBindless,
             llvm_result.useTex3DBindless,
             llvm_result.useBufferBindless,
@@ -4313,14 +4889,100 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
     }
+    info.block_size = kernel.block_size();
+    return info;
 #else
     return _create_shader_hlsl(
         option, kernel, requires_sampler_anisotropy,
         requires_fallback_rtx_traversal);
 #endif
-    info.block_size = kernel.block_size();
+}
+
+// Publication: the only phase that creates Vulkan objects (plan P5.1).
+ShaderCreationInfo Device::_publish_compute_shader(
+    detail::PreparedComputeShader &&prepared,
+    const ShaderOption &option, Function kernel) noexcept {
+    if (prepared.kind == detail::PreparedComputeShader::Kind::SERIAL_FALLBACK) {
+        // Serial fallback: the unchanged pre-P5.1 path, on this thread. It reads and
+        // writes the shader cache without knowing about the pool, so it runs under
+        // the device-wide cache lock - a batch that mixes this route with native
+        // requests therefore serializes its cache traffic instead of racing it. A
+        // batch of only this route is exactly today's serial loop.
+        std::lock_guard cache_lock{_shader_cache_mtx};
+        return _create_shader_serial(
+            option, kernel, prepared.fallback_requires_sampler_anisotropy,
+            prepared.fallback_rtx);
+    }
+    ShaderCreationInfo info;
+    if (prepared.kind != detail::PreparedComputeShader::Kind::READY) {
+        info.invalidate();
+        info.block_size = prepared.reported_block_size;
+        return info;
+    }
+    // One construction at a time, device-wide. This is the ordering point of a
+    // batch (`compile_shaders` publishes sequence number 0, 1, 2, ... from one
+    // thread) and the safety point for a caller that compiles from several threads:
+    // the interned layout table, the device pipeline cache's write path and the
+    // driver's pipeline compiler see one creation at a time.
+    std::lock_guard construct_lock{_shader_construct_mtx};
+    // Pre-P1.3 per-shader PSO blobs are add-only inputs of the device cache, and
+    // merging one is a Vulkan call: it happens here, not on a worker.
+    if (!prepared.pso_seed_name.empty()) {
+        std::lock_guard cache_lock{_shader_cache_mtx};
+        ShaderSerializer::merge_legacy_pso_seed(
+            this, prepared.artifact_name, prepared.pso_seed_name);
+    }
+    if (prepared.write_artifact) {
+        std::lock_guard cache_lock{_shader_cache_mtx};
+        ShaderSerializer::write_bytecode_artifact(
+            prepared.artifact_type, _binary_io,
+            prepared.artifact_name, prepared.artifact_bytes);
+    }
+    if (!prepared.construct_shader) {
+        info.invalidate();
+        info.block_size = prepared.reported_block_size;
+        return info;
+    }
+    auto profile =
+        luisa::compute::detail::env_flag("LUISA_VULKAN_PROFILE_COMPILATION");
+    Clock pipeline_clock;
+    auto shader = new ComputeShader(
+        this,
+        prepared.block_size,
+        prepared.properties,
+        std::move(prepared.saved_arguments),
+        {reinterpret_cast<const uint *>(prepared.spirv.data()), prepared.spirv.size()},
+        std::move(prepared.captured),
+        prepared.use_tex2d_bindless,
+        prepared.use_tex3d_bindless,
+        prepared.use_buffer_bindless,
+        std::move(prepared.printers),
+        {prepared.constant_ubo_data.data(), prepared.constant_ubo_data.size()},
+        prepared.validation_count,
+        prepared.required_subgroup_size,
+        prepared.push_constant_size,
+        prepared.codegen_dialect,
+        prepared.enable_driver_optimization);
+    if (profile) {
+        LUISA_INFO(
+            "Vulkan native ComputeShader construction: {:.3f} ms",
+            pipeline_clock.toc());
+    }
+    LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}",
+                  reinterpret_cast<void *>(shader->pipeline()));
+    info.handle = reinterpret_cast<uint64_t>(shader);
+    info.native_handle = shader->pipeline();
+    info.block_size = prepared.reported_block_size;
     return info;
 }
+
+ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
+    // A serial compile is the two phases back to back on the calling thread: no
+    // pool, no ticket, no behaviour change.
+    auto prepared = _prepare_compute_shader(option, kernel, nullptr);
+    return _publish_compute_shader(std::move(prepared), option, kernel);
+}
+
 ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<const luisa::compute::Type *const> arg_types) noexcept {
     ShaderCreationInfo info;
     luisa::optional<detail::ShaderCodegenDialect> required_dialect;
@@ -4328,6 +4990,9 @@ ShaderCreationInfo Device::load_shader(luisa::string_view name, luisa::span<cons
         required_dialect = detail::ShaderCodegenDialect::XIR_SPIRV;
     }
     auto type_md5 = hlsl::CodegenUtility::GetTypeMD5(arg_types);
+    // AOT load: same device-wide shader-cache lock as every other reader/writer
+    // (plan P5.1), so it cannot interleave with a compile batch.
+    std::lock_guard cache_lock{_shader_cache_mtx};
     auto deser_result = ShaderSerializer::try_deser_compute(
         this,
         {.type_md5 = type_md5,
@@ -4501,6 +5166,7 @@ Device::HeapAlloc::HeapAlloc() : sub_allocator(std::numeric_limits<uint32_t>::ma
 Device::HeapAlloc::~HeapAlloc() = default;
 Device::LazyLoadShader::LazyLoadShader(LoadFunc load_func) : _load_func(load_func) {}
 Device::LazyLoadShader::~LazyLoadShader() = default;
+void Device::LazyLoadShader::reset() noexcept { _shader = nullptr; }
 ComputeShader *Device::LazyLoadShader::get(Device *self) {
     if (!_shader) {
         _shader = vstd::create_unique(_load_func(self));
@@ -4623,6 +5289,18 @@ Device::enabled_instance_extensions() const noexcept {
 DeviceExtension *Device::extension(vstd::string_view name) noexcept {
     if (name == CommandReorderExt::name) {
         return &_command_reorder_ext;
+    }
+    if (name == VulkanShaderCompileExt::name) {
+        // Plan P5.1: like the replay engine, the extension has no per-device
+        // allocation of its own (the pool lives on the Device), so there is no
+        // factory to run and no lifetime for a caller to manage.
+        return &_shader_compile_ext;
+    }
+    if (name == VulkanReplayExt::name) {
+        // Plan P4: the engine has no per-device allocation (every graph lives in
+        // `_replay_registry`), so there is no factory to run and no lifetime for
+        // the caller to manage.
+        return &_replay_ext;
     }
     if (name == VulkanExtensionStatusExt::name) {
         return &_optional_extension_status;
@@ -4813,6 +5491,25 @@ Device::VulkanExtensionStatusExtImpl::cooperative_status() const noexcept {
     status.vector_enabled = device.cooperative_vector_enabled;
     status.vector_fp32_config = device.cooperative_vector_fp32_enabled;
     status.vector_config_count = device.cooperative_vector_config_count;
+    return status;
+}
+VulkanCapabilityStatus
+Device::VulkanExtensionStatusExtImpl::capability_status() const noexcept {
+    // Plan P6.3. The limit fields and the SM-count answer are a copy of the one
+    // capability record the device captured at creation - the same record
+    // `Device::query` answers from - so a value read here and a value read
+    // through the matching query key are the same value by construction, not by
+    // two mappings that happen to agree.
+    auto status = _device->capability_status();
+    // The descriptor-heap state is the registry entry's negotiation state plus
+    // the backend's own active bit, exactly like `extensions()` reports it. It is
+    // read here instead of cached so it cannot go stale against the registry.
+    auto heap = detail::OptionalExtension::DESCRIPTOR_HEAP;
+    status.descriptor_heap.supported = _device->_optional_extensions.supported(heap);
+    status.descriptor_heap.requested = _device->_optional_extensions.requested(heap);
+    status.descriptor_heap.enabled = _device->_optional_extensions.enabled(heap);
+    status.descriptor_heap.active =
+        status.descriptor_heap.enabled && _device->optional_extension_active(heap);
     return status;
 }
 

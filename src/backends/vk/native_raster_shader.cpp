@@ -1,4 +1,5 @@
 #include "native_raster_shader.h"
+#include "submit_profile.h"
 
 #include "device.h"
 #include "log.h"
@@ -194,6 +195,7 @@ NativeRasterShader::NativeRasterShader(
             .pBindings = set_bindings.data()};
         VK_CHECK_RESULT(vkCreateDescriptorSetLayout(
             logic_device, &layout_info, callbacks, &_set_layouts[set]));
+        submit_profile::record_descriptor_set_layout_create();
     }
     // Anything created below is released here when the constructor fails
     // half-way, so the object stays destructible (mirrors NativeShader).
@@ -256,6 +258,7 @@ NativeRasterShader::NativeRasterShader(
         .pPushConstantRanges = push_constant_range_size > 0u ? &push_constant_range : nullptr};
     VK_CHECK_RESULT(vkCreatePipelineLayout(
         logic_device, &pipeline_layout_info, callbacks, &_pipeline_layout));
+    submit_profile::record_pipeline_layout_create();
 
     // ---- shader modules --------------------------------------------------
     // Created once here: the pipeline cache creates one pipeline per
@@ -277,6 +280,7 @@ NativeRasterShader::NativeRasterShader(
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     VK_CHECK_RESULT(vkCreatePipelineCache(
         logic_device, &cache_info, callbacks, &_pipeline_cache));
+    submit_profile::record_pipeline_cache_create();
 
     // ---- descriptor pool -------------------------------------------------
     // Same shape as NativeShader's: per-set descriptor counts times the number
@@ -509,6 +513,7 @@ RasterPipelineHandle NativeRasterShader::create_pipeline(
             luisa::to_underlying(create_result));
         return {};
     }
+    submit_profile::record_pipeline_create();
     if (extension_plan.uses_depth_clamp_zero_one) {
         // VK_KHR_depth_clamp_zero_one is device-wide: every raster pipeline
         // created on a device that enabled its feature clamps the fragment depth
@@ -571,6 +576,7 @@ VkRenderPass NativeRasterShader::encode_draw_state(
         }
         state->dispose_after_flush(NativeShaderDescriptorDeferredRelease{
             _descriptor_pool, vstd::vector<VkDescriptorSet>{sets}});
+        submit_profile::record_descriptor_set_allocation();
     }
     // ---- descriptor writes -----------------------------------------------
     // `cmd->arguments()` is in canonical (set, binding) order, the same order as
@@ -655,12 +661,19 @@ VkRenderPass NativeRasterShader::encode_draw_state(
         vkUpdateDescriptorSets(logic_device,
                                static_cast<uint32_t>(writes.size()),
                                writes.data(), 0u, nullptr);
+        submit_profile::record_descriptor_set_update();
     }
-    vkCmdBindPipeline(cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.pipeline);
+    // P1.2: routed through the per-recording tracker's graphics bind point (a
+    // native raster shader has its own pipeline layout, so its state never
+    // aliases a DSL draw's).
+    detail::cmd_bind_pipeline(
+        state->bind_state, cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipe.pipeline, _pipeline_layout);
     if (!sets.empty()) {
-        vkCmdBindDescriptorSets(
-            cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline_layout,
-            0u, static_cast<uint32_t>(sets.size()), sets.data(), 0u, nullptr);
+        detail::cmd_bind_descriptor_sets(
+            state->bind_state, cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+            _pipeline_layout, 0u, static_cast<uint32_t>(sets.size()),
+            sets.data(), 0u, nullptr);
     }
     // ---- push constants (the launcher's uniform block) -------------------
     // The application's bytes live at `object_id_bytes`; the reserved slot in

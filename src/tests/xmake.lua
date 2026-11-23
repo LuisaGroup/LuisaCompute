@@ -276,16 +276,80 @@ test_proj("test_vk_ext_rt", "unit/ext/test_vk_ext_rt.cpp", false, function()
         add_includedirs("../backends/vk")
         add_files("../backends/vk/VulkanTools.cpp")
         add_deps("lc-volk")
-  test_proj("test_vk_cuda_interop_texture_plan", "unit/ext/test_vk_cuda_interop_texture_plan.cpp", false, function()
-      add_includedirs("../backends/vk")
-  end)
-  test_proj("test_vk_android_plan", "unit/ext/test_vk_android_plan.cpp", false, function()
-      add_includedirs("../backends/vk")
-      add_deps("lc-volk")
-  end)
+    end)
+    test_proj("test_vk_cuda_interop_texture_plan", "unit/ext/test_vk_cuda_interop_texture_plan.cpp", false, function()
+        add_includedirs("../backends/vk")
+        add_deps("lc-volk")
+    end)
+    test_proj("test_vk_android_plan", "unit/ext/test_vk_android_plan.cpp", false, function()
+        add_includedirs("../backends/vk")
+        add_deps("lc-volk")
+    end)
+    -- P1.1: the structural Vulkan layout keys and the reference-counted
+    -- interning table are device-independent, so the aliasing and
+    -- reference-count contract is covered on the host: no Vulkan device and
+    -- no shader generation are involved.
+    test_proj("test_vk_layout_intern", "unit/ext/test_vk_layout_intern.cpp", false, function()
+        add_includedirs("../backends/vk")
+        add_deps("lc-volk")
+    end)
+    -- P4: the replayable-recording admissibility policy is a pure function of
+    -- command/argument facts, so the whole rejection matrix is covered on the host
+    -- (no Vulkan device, no shader generation, no volk dependency).
+    test_proj("test_vk_replay_plan", "unit/ext/test_vk_replay_plan.cpp", false, function()
+        add_includedirs("../backends/vk")
+    end)
+    -- P1.2: the per-command-buffer bind-state tracker only compares Vulkan
+    -- handles and never calls an entry point, so every transition rule (what may
+    -- be skipped, what invalidates what) is covered on the host.
+    test_proj("test_vk_bind_state", "unit/ext/test_vk_bind_state.cpp", false, function()
+        add_includedirs("../backends/vk")
+        add_deps("lc-volk")
+    end)
+    -- P1.5: the configurable in-flight depth and its throttle fast path are pure
+    -- integer planning (no Vulkan handle, no entry point), so the depth
+    -- arithmetic - including the depth-2 compatibility envelope with the
+    -- historical hard-coded rule - is covered on the host.
+    test_proj("test_vk_in_flight_depth", "unit/ext/test_vk_in_flight_depth.cpp", false, function()
+        add_includedirs("../backends/vk")
         add_deps("lc-volk")
     end)
     test_proj("test_vk_sparse_runtime", "unit/runtime/test_vk_sparse_runtime.cpp", false, function()
+        add_deps("lc-volk")
+    end)
+    -- P2.1: the legacy VkSubmitInfo -> VkSubmitInfo2 conversion (semaphore
+    -- values, 64-bit stage masks, command-buffer order, pNext filtering) is a pure
+    -- host function, so it is covered without a device and without calling a
+    -- Vulkan entry point.
+    test_proj("test_vk_queue_submit_plan", "unit/ext/test_vk_queue_submit_plan.cpp", false, function()
+        add_includedirs("../backends/vk")
+        add_deps("lc-volk")
+    end)
+    -- P2.2: descriptor-update-template planning/packing plus the single update
+    -- funnel, with recording stubs in volk's entry-point globals (no device).
+    test_proj("test_vk_descriptor_update_template", "unit/ext/test_vk_descriptor_update_template.cpp", false, function()
+        add_includedirs("../backends/vk")
+        add_deps("lc-volk")
+    end)
+    -- P2.3: the push-descriptor eligibility decision and its single recording
+    -- funnel are device-independent (the entry point is a parameter), so both are
+    -- covered on the host with a recording stub.
+    test_proj("test_vk_push_descriptor", "unit/ext/test_vk_push_descriptor.cpp", false, function()
+        add_includedirs("../backends/vk")
+        add_deps("lc-volk")
+    end)
+    -- P6.1/P6.2: the core-limit mapping and the SM-count reporting contract are
+    -- device-independent value logic (plain Vulkan aggregates, no entry point), so
+    -- they are covered on the host - including the "unknown" answers and the 64-bit
+    -- formatting this GPU cannot exercise because it has a value for every limit.
+    test_proj("test_vk_device_capability", "unit/ext/test_vk_device_capability.cpp", false, function()
+        add_includedirs("../backends/vk")
+        add_deps("lc-volk")
+    end)
+    -- P2.1: runtime coverage of the capability-adaptive submission. Needs a
+    -- physical Vulkan device; run it again with `--min-api 1.2` for the legacy
+    -- vkQueueSubmit branch.
+    test_proj("test_vk_queue_submit_runtime", "unit/runtime/test_vk_queue_submit_runtime.cpp", false, function()
         add_deps("lc-volk")
     end)
 end
@@ -357,7 +421,19 @@ end)
 test_proj("benchmark_command_reorder", "benchmark/benchmark_command_reorder.cpp")
 -- Host-side counterpart measuring pure submission cost (GPU-idle kernels);
 -- run with `xmake run benchmark_command_reorder_host vk` (or dx).
-test_proj("benchmark_command_reorder_host", "benchmark/benchmark_command_reorder_host.cpp")
+-- Plan P2.2: the host submission benchmark takes `--descriptor-update-template`
+-- to A/B the descriptor-update paths, which makes it include
+-- VulkanDeviceConfigExt - so it needs the vendored Vulkan headers from Volk.
+test_proj("benchmark_command_reorder_host", "benchmark/benchmark_command_reorder_host.cpp", false, function()
+    add_deps("lc-volk")
+end)
+
+-- Plan P5.1: cold/warm create benchmark for ordered parallel shader compilation;
+-- run with `xmake run benchmark_vk_shader_compile vk --workers 4 --warm`.
+test_proj("benchmark_vk_shader_compile", "benchmark/benchmark_vk_shader_compile.cpp")
+-- Plan P5.1: ordered batch compilation of compute shaders through
+-- VulkanShaderCompileExt (run with `xmake run test_vk_shader_compile_pool vk`).
+test_proj("test_vk_shader_compile_pool", "unit/runtime/test_vk_shader_compile_pool.cpp")
 
 -- Reference-count block recycle bins (lock-free CAS pool vs spin_mutex pool);
 -- host only. Run with `xmake run benchmark_refcount_pool [threads...]`.
@@ -801,7 +877,26 @@ test_proj("test_motion_blur_vk", "integration/runtime/test_motion_blur_vk.cpp", 
 if has_config("lc_vk_backend") and
    has_config("lc_vk_backend_use_xir_spirv") then
     test_proj("test_vk_shader_cache", "unit/runtime/test_vk_shader_cache.cpp")
-    test_proj("test_vk_optional_extensions", "unit/runtime/test_vk_optional_extensions.cpp")
+    -- P0.3 tripwire for the counter-only submit profiler (plan §2/§4). Needs a
+    -- physical Vulkan device and latches LUISA_VULKAN_PROFILE_SUBMIT itself.
+    test_proj("test_vk_submit_profile", "unit/runtime/test_vk_submit_profile.cpp", false, function()
+            -- P1.2: one of the redundant-bind tests issues raw Vulkan
+        -- (vkCmdFillBuffer) from a VKCustomCmd, which needs the vendored Vulkan
+        -- headers and volk.
+        add_deps("lc-volk")
+    end)
+    -- Includes VulkanDeviceConfigExt (a Vulkan-typed header), so it needs the
+    -- vendored Vulkan headers from Volk like every other vk-config user.
+    test_proj("test_vk_optional_extensions", "unit/runtime/test_vk_optional_extensions.cpp", false, function()
+        add_deps("lc-volk")
+    end)
+    -- P6.2/P6.3: the numeric capability record. One process holds one Vulkan
+    -- Device, so the configurations are separate runs: default (SM count unknown,
+    -- descriptor heap on), --sm-count <n> (calibrated estimate), --sm-count <huge>
+    -- (rejected) and --disable-descriptor-heap.
+    test_proj("test_vk_capability_status", "unit/runtime/test_vk_capability_status.cpp", false, function()
+        add_deps("lc-volk")
+    end)
     test_proj("test_vk_spirv_codegen_path", "unit/runtime/test_vk_spirv_codegen_path.cpp", false, function()
         add_includedirs("../backends/vk")
         add_includedirs("../backends/common")
@@ -821,6 +916,15 @@ test_proj("test_select_device", "integration/runtime/test_select_device.cpp", tr
 test_proj("test_texture3d", "integration/runtime/test_texture3d.cpp", true)
 test_proj("test_transient_resource", "integration/runtime/test_transient_resource.cpp", true, function()
     add_files("integration/runtime/transient_resource_device/*.cpp")
+end)
+
+-- P4: the record/replay/update-refusal lifecycle on a real device, through the
+-- public `VulkanReplayExt` only. Needs a physical Vulkan device, so it is not
+-- auto-run.
+test_proj("test_vk_replay", "unit/runtime/test_vk_replay.cpp", false, function()
+    -- One rejection case is a `VKCustomCmd`, and that public header is
+    -- Vulkan-typed, so the test needs the vendored Vulkan headers.
+    add_deps("lc-volk")
 end)
 
 -- unit/tile/bridge: host-side TIRx bridge tests (mirror the

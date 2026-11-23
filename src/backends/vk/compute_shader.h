@@ -38,9 +38,7 @@ public:
                (static_cast<uint64_t>(required_subgroup_size.value_or(0u)) << 32u);
     }
     auto pipeline() const { return _pipeline_ref ? _pipeline_ref->pipeline : VK_NULL_HANDLE; }
-    auto pipeline_cache() const { return _pipeline_ref ? _pipeline_ref->pipeline_cache : VK_NULL_HANDLE; }
     PipelineRef *pipeline_ref() const noexcept override { return _pipeline_ref; }
-    bool serialize_pso(vstd::vector<std::byte> &result) const override;
     [[nodiscard]] uint64_t pipeline_cache_identity() const noexcept override {
         return static_cast<uint64_t>(_pipeline_create_flags) |
                (static_cast<uint64_t>(_required_subgroup_size.value_or(0u)) << 32u);
@@ -54,10 +52,9 @@ public:
         uint3 block_size,
         vstd::span<hlsl::Property const> binds,
         vstd::vector<SavedArgument> &&saved_args,
-        vstd::span<uint const> spv_code,
-        vstd::vector<Argument> &&captured,
-        vstd::span<std::byte const> cache_code,
-        bool use_tex2d_bindless,
+vstd::span<uint const> spv_code,
+          vstd::vector<Argument> &&captured,
+          bool use_tex2d_bindless,
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
         vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
@@ -65,9 +62,12 @@ public:
         uint validation_count = 0,
         luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt,
         uint32_t push_constant_size = 32u,
-        detail::ShaderCodegenDialect codegen_dialect =
-            detail::ShaderCodegenDialect::HLSL_SPIRV,
-        bool enable_driver_optimization = true);
+detail::ShaderCodegenDialect codegen_dialect =
+              detail::ShaderCodegenDialect::HLSL_SPIRV,
+          bool enable_driver_optimization = true,
+          // Plan P2.3: internal kernels keep the classic set-0 path (they
+          // allocate and bind their own set outside the command encoder).
+          bool allow_push_descriptors = true);
     ~ComputeShader();
     static ComputeShader *compile(
         BinaryIO const *bin_io,

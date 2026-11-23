@@ -6,29 +6,32 @@ namespace lc::vk {
 
 class Device;
 
-// Reference-counted VkPipeline + VkPipelineCache pair.
+// Reference-counted VkPipeline.
 // Both ComputeShader and RayTracingShader share this pattern:
 // their pipelines must outlive any command buffer that references them.
 //
+// The pipeline *cache* is deliberately not owned here any more (plan P1.3): the
+// `VkPipelineCache` belongs to the Device, is shared by every DSL shader and is
+// destroyed exactly once by `Device::~Device`. A `PipelineRef` only keeps the
+// pipeline alive, so a shader (or a retired command buffer) that releases the
+// last reference can never destroy the device cache underneath a live device.
+//
 // Usage:
-//   PipelineRef *ref = PipelineRef::create(device, pipeline, cache);
+//   PipelineRef *ref = PipelineRef::create(device, pipeline);
 //   ref->retain();  // on dispatch into a command buffer
 //   ref->release(); // when the command buffer completes, or shader destruction
 struct PipelineRef {
 
     VkPipeline pipeline{VK_NULL_HANDLE};
-    VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
     VkDevice device{};
     VkAllocationCallbacks const *alloc_callbacks{};
     std::atomic<uint32_t> ref_count{1u};
 
     static PipelineRef *create(VkDevice device,
                                VkPipeline pipeline,
-                               VkPipelineCache pipeline_cache,
                                VkAllocationCallbacks const *alloc_callbacks) noexcept {
         auto ptr = new PipelineRef{};
         ptr->pipeline = pipeline;
-        ptr->pipeline_cache = pipeline_cache;
         ptr->device = device;
         ptr->alloc_callbacks = alloc_callbacks;
         ptr->ref_count.store(1u, std::memory_order_relaxed);
@@ -55,10 +58,7 @@ private:
             vkDestroyPipeline(device, pipeline, alloc_callbacks);
             pipeline = VK_NULL_HANDLE;
         }
-        if (pipeline_cache != VK_NULL_HANDLE) {
-            vkDestroyPipelineCache(device, pipeline_cache, alloc_callbacks);
-            pipeline_cache = VK_NULL_HANDLE;
-        }
+        // No vkDestroyPipelineCache here: see the note at the top of this file.
     }
 };
 

@@ -196,6 +196,10 @@ ResourceCreationInfo VkRasterExt::create_raster_shader(
         "0x{:016x} or unknown features 0x{:016x}.",
         feature_check.missing_required_bits,
         feature_check.unknown_required_bits);
+    // Plan P5.1: the shader cache is one device-wide resource; its lock is the same
+    // one the compute path uses, so a raster artifact write cannot interleave with a
+    // worker's compute artifact read.
+    std::lock_guard cache_lock{_device->shader_cache_mutex()};
     ShaderSerializer::serialize_raster(
         code.properties,
         kernel_args,
@@ -220,6 +224,7 @@ ResourceCreationInfo VkRasterExt::load_raster_shader(
     luisa::span<Type const *const> types,
     luisa::string_view ser_path) noexcept {
     auto expected_type_md5 = hlsl::CodegenUtility::GetTypeMD5(types);
+    std::lock_guard cache_lock{_device->shader_cache_mutex()};
     auto deser_result = ShaderSerializer::try_deser_raster(
         _device, {}, expected_type_md5, {}, ser_path,
         SerdeType::kByteCode, _device->binary_io());
