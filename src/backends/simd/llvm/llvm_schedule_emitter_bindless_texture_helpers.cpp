@@ -439,7 +439,7 @@ void emit_byte1_linear_mirror_sample(
         };
         auto [v00, v01] = load_row_pair(idx0);
         auto [v10, v11] = load_row_pair(idx1);
-        auto *res_fast = lerp4_fast(
+        ::llvm::Value *res_fast = lerp4_fast(
             lerp4_fast(v00, v01, xt4_fast),
             lerp4_fast(v10, v11, xt4_fast), yt4_fast);
         res_fast = b.CreateFMul(

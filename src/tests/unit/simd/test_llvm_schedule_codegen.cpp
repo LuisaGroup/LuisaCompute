@@ -5091,7 +5091,15 @@ template<size_t Width>
         CHECK(candidate_ir->find("@llvm.masked.scatter") ==
               std::string::npos);
     }
-    if (width == 8u) {
+    if (width == 1u) {
+        // W1 still uses a contiguous uint4 per lane with transposition disabled.
+        CHECK(count_occurrences(*oracle_ir, " = load <4 x i32>") +
+                  count_occurrences(*oracle_ir, "call <4 x i32> @llvm.masked.load") == 2u);
+        CHECK(count_occurrences(*oracle_ir, "store <4 x i32>") +
+                  count_occurrences(*oracle_ir, "call void @llvm.masked.store.v4i32") == 1u);
+        CHECK(oracle_ir->find("@llvm.masked.gather") == std::string::npos);
+        CHECK(oracle_ir->find("@llvm.masked.scatter") == std::string::npos);
+    } else if (width == 8u) {
         CHECK(count_occurrences(
                   *oracle_ir, "call <8 x i32> @llvm.masked.gather") == 0u);
         ScopedEnvironmentVariable disable_aos{
@@ -5106,8 +5114,10 @@ template<size_t Width>
                   *oracle_ir, "call <" + std::to_string(width) +
                                   " x i32> @llvm.masked.gather") == 8u);
     }
-    CHECK(count_occurrences(
-              *oracle_ir, "call void @llvm.masked.scatter") == 4u);
+    if (width > 1u) {
+        CHECK(count_occurrences(
+                  *oracle_ir, "call void @llvm.masked.scatter") == 4u);
+    }
 
     auto compiled = compile_simd_kernel(
         kernel, width, "simd_buffer_vector_add",
@@ -9295,10 +9305,11 @@ void ray_query_packet_probe_wide(
     CHECK(count_occurrences(ir, "call void %") == 1u);
     auto scatter_calls =
         count_occurrences(ir, "call void @llvm.masked.scatter");
-    auto expect_packed = width >= 4u && !disable_packed_init;
+    auto expect_packed = width != 2u && !disable_packed_init;
+    // W1 writes the result uint4 as one contiguous store, not four scatters.
     CHECK(scatter_calls ==
           (width == 2u || disable_lazy_batch_init ? 38u : 32u) -
-              (expect_packed ? 5u : 0u));
+              (expect_packed ? 5u : 0u) - (width == 1u ? 4u : 0u));
     CHECK(count_occurrences(ir, "llvm.masked.gather") >= 9u);
 
     LLVMJIT jit;
@@ -9355,6 +9366,7 @@ void ray_query_packet_probe_wide(
 
 [[nodiscard]] bool run_ray_query_packet_codegen() {
     return run_ray_query_packet_codegen_case(1u, 1u, false) &&
+           run_ray_query_packet_codegen_case(1u, 1u, false, false, true) &&
            run_ray_query_packet_codegen_case(2u, 2u, false) &&
            run_ray_query_packet_codegen_case(4u, 3u, false) &&
            run_ray_query_packet_codegen_case(8u, 5u, true) &&
@@ -10598,14 +10610,23 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
         "simd_ast_explicit_captured_resident_pipeline_w1");
     auto explicit_captured_w4 = compile_simd_kernel(
         explicit_captured.function()->function(), 4u,
-        "simd_ast_explicit_captured_loop_w4");
+        "simd_ast_explicit_captured_pipeline_w4");
     CHECK(explicit_captured_w1.succeeded());
     CHECK(explicit_captured_w4.succeeded());
     CHECK(explicit_captured_w1.direct_ray_query_pipeline_count == 1u);
     CHECK(explicit_captured_w1.post_reconstruction_ray_query_pipeline_count == 0u);
     CHECK(explicit_captured_w1.resident_ray_query_pipeline_count == 1u);
-    CHECK(explicit_captured_w4.direct_ray_query_pipeline_count == 0u);
+    CHECK(explicit_captured_w4.direct_ray_query_pipeline_count == 1u);
     CHECK(explicit_captured_w4.post_reconstruction_ray_query_pipeline_count == 0u);
+    {
+        ScopedEnvironmentVariable disable_live{
+            "LUISA_SIMD_DISABLE_LIVE_RAY_QUERY_PIPELINE", "1"};
+        auto explicit_captured_w4_legacy = compile_simd_kernel(
+            explicit_captured.function()->function(), 4u,
+            "simd_ast_explicit_captured_loop_w4");
+        CHECK(explicit_captured_w4_legacy.succeeded());
+        CHECK(explicit_captured_w4_legacy.direct_ray_query_pipeline_count == 0u);
+    }
 
     Kernel1D explicit_complex_captured = [](
                                              AccelVar accel,
@@ -11792,15 +11813,20 @@ void ray_query_direct_output_surface_filter_packet_pipeline_probe(
     CHECK(w4_disabled.succeeded());
     CHECK(w1_default.direct_ray_query_pipeline_count == 1u);
     CHECK(w1_default.resident_ray_query_pipeline_count == 1u);
-    CHECK(w4_default.direct_ray_query_pipeline_count == 0u);
+    CHECK(w4_default.direct_ray_query_pipeline_count == 1u);
     CHECK(w4_default.resident_ray_query_pipeline_count == 0u);
     CHECK(w8_default.direct_ray_query_pipeline_count == 1u);
     {
         ScopedEnvironmentVariable disable_live{
             "LUISA_SIMD_DISABLE_LIVE_RAY_QUERY_PIPELINE", "1"};
+        auto w4_legacy = compile_simd_kernel(
+            kernel.function()->function(), 4u,
+            "simd_ast_captured_direct_ray_query_pipeline_legacy_w4");
         auto w8_legacy = compile_simd_kernel(
             kernel.function()->function(), 8u,
             "simd_ast_captured_direct_ray_query_pipeline_legacy_w8");
+        CHECK(w4_legacy.succeeded());
+        CHECK(w4_legacy.direct_ray_query_pipeline_count == 0u);
         CHECK(w8_legacy.succeeded());
         CHECK(w8_legacy.direct_ray_query_pipeline_count == 0u);
     }
